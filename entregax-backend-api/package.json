@@ -9,20 +9,41 @@
     "start": "node dist/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["entregax", "paquetexpress", "logistics", "api"],
+  "keywords": [
+    "entregax",
+    "paquetexpress",
+    "logistics",
+    "api"
+  ],
   "author": "EntregaX Team",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@types/multer": "^2.0.0",
+    "axios": "^1.13.4",
+    "bcrypt": "^6.0.0",
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
-    "pg": "^8.18.0"
+    "facturapi": "^4.13.0",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.0.2",
+    "node-cron": "^4.2.1",
+    "openai": "^6.18.0",
+    "pdf-to-png-converter": "^3.11.0",
+    "pg": "^8.18.0",
+    "puppeteer": "^24.37.3",
+    "puppeteer-core": "^24.37.3",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@types/bcrypt": "^6.0.0",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^25.2.1",
+    "@types/node-cron": "^3.0.11",
+    "@types/pg": "^8.16.0",
     "nodemon": "^3.1.11",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"

@@ -1,0 +1,229 @@
+================================================================================
+                    INSTRUCTIVO DE CONFIGURACIÓN
+                 API DE RECEPCIÓN CHINA - ENTREGAX
+                        TDI AÉREO (AIR_CHN_MX)
+================================================================================
+
+Fecha de creación: 11 de febrero de 2026
+Versión: 1.0
+Idioma: Español
+
+================================================================================
+1. INFORMACIÓN GENERAL
+================================================================================
+
+Este documento describe cómo configurar la integración entre el sistema de 
+bodega en China y el backend de EntregaX para recibir automáticamente las
+recepciones de paquetes.
+
+Sistema: EntregaX Backend API
+Módulo: Recepción China (TDI Aéreo)
+Propósito: Recibir datos de recepciones y cajas desde bodega China
+
+================================================================================
+2. ENDPOINT DEL WEBHOOK
+================================================================================
+
+URL de Producción:
+------------------
+POST https://api.entregax.com/api/china/receive
+
+URL de Desarrollo/Pruebas:
+--------------------------
+POST http://localhost:3001/api/china/receive
+
+Método: POST
+Content-Type: application/json
+Autenticación: Ninguna (endpoint público) o API Key (opcional)
+
+================================================================================
+3. ESTRUCTURA DEL JSON (PAYLOAD)
+================================================================================
+
+El sistema chino debe enviar un JSON con la siguiente estructura:
+
+{
+  "fno": "AIR2609001234",
+  "shippingMark": "ETX-1295",
+  "totalQty": 5,
+  "totalWeight": 72.10,
+  "totalVolume": 200,
+  "totalCbm": 0.45,
+  "file": [
+    "https://cdn-china.com/evidencia1.jpg",
+    "https://cdn-china.com/evidencia2.jpg"
+  ],
+  "data": [
+    {
+      "childNo": "AIR2609001234-001",
+      "trajecotryName": "Guangzhou - CDMX",
+      "weight": 15.50,
+      "long": 50,
+      "width": 40,
+      "height": 30,
+      "proName": "Electrónicos varios",
+      "customsBno": "8471300000",
+      "singleVolume": 60,
+      "singleCbm": 0.06,
+      "billNo": "176-12345678",
+      "etd": "2026-02-15",
+      "eta": "2026-02-20"
+    }
+  ]
+}
+
+================================================================================
+4. DESCRIPCIÓN DE CAMPOS
+================================================================================
+
+CAMPOS PRINCIPALES (Recibo/FNO):
+--------------------------------
+
+| Campo        | Tipo     | Requerido | Descripción                        |
+|--------------|----------|-----------|-------------------------------------|
+| fno          | string   | SÍ        | ID único del envío (ej: AIR2609...) |
+| shippingMark | string   | SÍ        | Código del cliente (Box ID)         |
+| totalQty     | number   | SÍ        | Cantidad total de cajas             |
+| totalWeight  | number   | SÍ        | Peso total en kilogramos            |
+| totalVolume  | number   | SÍ        | Volumen total en cm³                |
+| totalCbm     | number   | SÍ        | CBM total (metros cúbicos)          |
+| file         | string[] | NO        | Array de URLs de fotos/evidencias   |
+| data         | array    | SÍ        | Array de cajas individuales         |
+
+
+CAMPOS DE CADA CAJA (data[]):
+-----------------------------
+
+| Campo          | Tipo   | Requerido | Descripción                        |
+|----------------|--------|-----------|-------------------------------------|
+| childNo        | string | SÍ        | ID único de la caja (ej: ...001)    |
+| trajecotryName | string | NO        | Nombre de la ruta/trayectoria       |
+| weight         | number | SÍ        | Peso de la caja en kg               |
+| long           | number | SÍ        | Largo en centímetros                |
+| width          | number | SÍ        | Ancho en centímetros                |
+| height         | number | SÍ        | Alto en centímetros                 |
+| proName        | string | NO        | Descripción del producto            |
+| customsBno     | string | NO        | Código arancelario/aduanal          |
+| singleVolume   | number | NO        | Volumen individual en cm³           |
+| singleCbm      | number | NO        | CBM individual                      |
+| billNo         | string | NO        | Guía aérea internacional (AWB)      |
+| etd            | string | NO        | Fecha estimada de salida (ISO)      |
+| eta            | string | NO        | Fecha estimada de llegada (ISO)     |
+
+================================================================================
+5. RESPUESTAS DEL SISTEMA
+================================================================================
+
+RESPUESTA EXITOSA (200 OK):
+---------------------------
+{
+  "success": true,
+  "message": "Datos de China procesados correctamente",
+  "data": {
+    "fno": "AIR2609001234",
+    "receiptId": 45,
+    "userId": 12,
+    "packagesCreated": 5,
+    "packagesUpdated": 0
+  }
+}
+
+RESPUESTA DE ERROR (500):
+-------------------------
+{
+  "success": false,
+  "error": "Error procesando datos de China",
+  "details": "Mensaje de error específico"
+}
+
+================================================================================
+6. COMPORTAMIENTO DEL SISTEMA
+================================================================================
+
+1. IDENTIFICACIÓN DE CLIENTE:
+   - El sistema busca automáticamente un usuario por el campo "shippingMark"
+   - Busca en la columna "box_id" de la tabla de usuarios
+   - Si encuentra coincidencia, asigna el paquete al cliente
+   - Si NO encuentra, queda como "Sin Asignar" para revisión manual
+
+2. CREACIÓN/ACTUALIZACIÓN:
+   - Si el FNO no existe: Crea nuevo recibo y cajas
+   - Si el FNO ya existe: Actualiza datos (peso, billNo, fechas, etc.)
+   - Las cajas (childNo) se crean una sola vez y luego se actualizan
+
+3. ACTUALIZACIÓN DE GUÍA AÉREA (billNo):
+   - Cuando inicialmente llegan sin billNo, el sistema las guarda con NULL
+   - Cuando se envía de nuevo el JSON con el billNo, se actualiza
+   - Esto permite un flujo de: Recepción → Asignación a vuelo
+
+================================================================================
+7. EJEMPLO DE LLAMADA CON CURL
+================================================================================
+
+curl -X POST http://localhost:3001/api/china/receive \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fno": "AIR2609TEST99",
+    "shippingMark": "ETX-1295",
+    "totalQty": 2,
+    "totalWeight": 25.5,
+    "totalVolume": 80,
+    "totalCbm": 0.08,
+    "file": ["https://ejemplo.com/foto1.jpg"],
+    "data": [
+      {
+        "childNo": "AIR2609TEST99-001",
+        "trajecotryName": "Shenzhen - CDMX",
+        "weight": 12.5,
+        "long": 40,
+        "width": 30,
+        "height": 25,
+        "proName": "Accesorios electrónicos",
+        "customsBno": "8544421000",
+        "singleVolume": 30000,
+        "singleCbm": 0.03,
+        "billNo": null,
+        "etd": null,
+        "eta": null
+      }
+    ]
+  }'
+
+================================================================================
+8. ESTADOS DISPONIBLES
+================================================================================
+
+| Estado           | Descripción                                    |
+|------------------|------------------------------------------------|
+| received_origin  | Recibido en bodega China (En Origen)           |
+| in_transit       | En tránsito aéreo (tiene billNo asignado)      |
+| arrived_mx       | Llegó a México                                 |
+| customs          | En proceso de aduana                           |
+| delivered        | Entregado al cliente                           |
+
+================================================================================
+9. NOTAS IMPORTANTES
+================================================================================
+
+• El campo "fno" es ÚNICO - no se pueden duplicar
+• El campo "childNo" también es ÚNICO por caja
+• Las fechas deben estar en formato ISO 8601 (YYYY-MM-DD)
+• Los pesos siempre en KILOGRAMOS
+• Las dimensiones siempre en CENTÍMETROS
+• El CBM se calcula automáticamente si no se envía
+• Las URLs de evidencias deben ser accesibles públicamente
+
+================================================================================
+10. CONTACTO Y SOPORTE
+================================================================================
+
+Para dudas técnicas sobre la integración:
+- Email: desarrollo@entregax.com
+
+Para reportar errores:
+- Incluir el FNO, timestamp y payload enviado
+- Captura de la respuesta de error recibida
+
+================================================================================
+                         FIN DEL INSTRUCTIVO
+================================================================================

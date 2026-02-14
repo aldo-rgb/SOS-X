@@ -1,0 +1,601 @@
+================================================================================
+                    PROMPT DE CONTINUACIÓN - ENTREGAX
+                    Plataforma de Logística USA/China → México
+                    Última actualización: 7 de febrero de 2026
+================================================================================
+
+INSTRUCCIONES PARA EL ASISTENTE:
+- Eres GitHub Copilot usando Claude Opus 4.5
+- El usuario se llama Aldo y está desarrollando EntregaX
+- Responde de forma directa, técnica y eficiente
+- Usa español mexicano informal pero profesional
+- Ejecuta comandos sin pedir confirmación
+- Cuando edites código, hazlo directamente sin mostrar bloques largos
+- El proyecto está en: /Users/kmpsdeveloper/Desktop/Proyectos/SOS-X
+- Sistema operativo: macOS con Homebrew
+
+================================================================================
+                              ARQUITECTURA GENERAL
+================================================================================
+
+ECOSISTEMA:
+┌─────────────────────────────────────────────────────────────────┐
+│                        EntregaX Ecosystem                        │
+├─────────────────────────────────────────────────────────────────┤
+│  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
+│  │   Web Admin     │  │   Mobile App    │  │   Backend API   │  │
+│  │   React+Vite    │  │   Expo+RN       │  │   Express+TS    │  │
+│  │   Port: 5173    │  │   Expo Go       │  │   Port: 3001    │  │
+│  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
+│                              │                                   │
+│                    ┌─────────▼───────────┐                      │
+│                    │   PostgreSQL 15     │                      │
+│                    │   entregax_db       │                      │
+│                    └─────────────────────┘                      │
+└─────────────────────────────────────────────────────────────────┘
+
+RUTAS DEL PROYECTO:
+- Backend:  /Users/kmpsdeveloper/Desktop/Proyectos/SOS-X/entregax-backend-api
+- Web:      /Users/kmpsdeveloper/Desktop/Proyectos/SOS-X/entregax-web-admin  
+- Mobile:   /Users/kmpsdeveloper/Desktop/Proyectos/SOS-X/entregax-mobile-app
+
+COMANDOS PARA INICIAR:
+# Backend
+cd entregax-backend-api && npx ts-node src/index.ts
+
+# Frontend Web
+cd entregax-web-admin && npm run dev
+
+# Mobile
+cd entregax-mobile-app && npx expo start
+
+# PostgreSQL
+/opt/homebrew/opt/postgresql@15/bin/psql -d entregax_db
+
+================================================================================
+                              STACK TECNOLÓGICO
+================================================================================
+
+BACKEND (entregax-backend-api):
+- Node.js 18+
+- TypeScript 5.x
+- Express 4.x
+- PostgreSQL 15
+- bcrypt (hash passwords)
+- jsonwebtoken (JWT)
+- pg (PostgreSQL client)
+- OpenAI (GPT-4 Vision para KYC)
+- Facturapi (Facturación CFDI)
+- axios (HTTP client)
+
+FRONTEND WEB (entregax-web-admin):
+- React 19.x
+- Vite 7.x
+- TypeScript 5.x
+- Material UI 7.x (MUI)
+- i18next (internacionalización ES/EN)
+- Axios
+
+MOBILE APP (entregax-mobile-app):
+- Expo SDK 54
+- React Native 0.81.5
+- React Navigation 7.x
+- React Native Paper 5.x
+- expo-camera, expo-image-picker, expo-file-system
+
+================================================================================
+                         ESTRUCTURA DE ARCHIVOS BACKEND
+================================================================================
+
+entregax-backend-api/src/
+├── index.ts                    # Entry point + todas las rutas
+├── db.ts                       # Pool de conexión PostgreSQL
+├── types.ts                    # Interfaces TypeScript
+├── authController.ts           # Login, registro, usuarios, dashboard
+├── packageController.ts        # Paquetes, consolidaciones, etiquetas
+├── warehouseController.ts      # Paneles de bodega multi-ubicación
+├── pricingEngine.ts            # Motor de cotización automática
+├── invoicingController.ts      # Facturación CFDI con Facturapi
+├── commissionController.ts     # Comisiones y sistema de referidos
+├── addressController.ts        # CRUD de direcciones del cliente
+├── verificationController.ts   # Verificación KYC con GPT-4 Vision
+├── paymentController.ts        # Integración PayPal
+└── supplierPaymentController.ts # Pagos a proveedores + tipo de cambio
+
+================================================================================
+                         ESTRUCTURA DE ARCHIVOS FRONTEND
+================================================================================
+
+entregax-web-admin/src/
+├── main.tsx                    # Entry point
+├── App.tsx                     # Layout principal + routing
+├── App.css                     # Estilos globales
+├── i18n/
+│   ├── index.ts               # Configuración i18next
+│   └── locales/
+│       ├── es.json            # Traducciones español
+│       └── en.json            # Traducciones inglés
+└── pages/
+    ├── LoginPage.tsx          # Login
+    ├── ClientsPage.tsx        # CRUD clientes
+    ├── ShipmentsPage.tsx      # Recepción PO Box USA (wizard 5 pasos)
+    ├── WarehouseHubPage.tsx   # Hub de bodegas (5 ubicaciones)
+    ├── WarehouseReceptionPage.tsx # Panel individual por ubicación
+    ├── ConsolidationsPage.tsx # Control de salidas
+    ├── QuotesPage.tsx         # Cotizador
+    ├── PricingPage.tsx        # Listas de precios
+    ├── FiscalPage.tsx         # Facturación fiscal
+    ├── CommissionsPage.tsx    # Comisiones y referidos
+    ├── SupplierPaymentsPage.tsx # Pagos a proveedores
+    ├── VerificationsPage.tsx  # Verificación KYC
+    └── SettingsPage.tsx       # Configuración
+
+================================================================================
+                         ESTRUCTURA MOBILE APP
+================================================================================
+
+entregax-mobile-app/src/
+├── services/
+│   └── api.ts                 # Cliente Axios + tipos
+└── screens/
+    ├── LoginScreen.tsx        # Login con gradiente naranja
+    ├── HomeScreen.tsx         # Lista de paquetes + multi-selección
+    └── ConsolidationSummary.tsx # Confirmación de envío
+
+================================================================================
+                              BASE DE DATOS
+================================================================================
+
+TABLAS PRINCIPALES (16 tablas):
+
+1. users
+   - id SERIAL PRIMARY KEY
+   - full_name VARCHAR(100) NOT NULL
+   - email VARCHAR(100) UNIQUE NOT NULL
+   - password VARCHAR(255) NOT NULL
+   - box_id VARCHAR(20) UNIQUE NOT NULL (formato: ETX-XXXX)
+   - role VARCHAR(20) DEFAULT 'client'
+   - phone VARCHAR(50)
+   - is_verified BOOLEAN DEFAULT false
+   - verification_status VARCHAR(20) DEFAULT 'unverified'
+   - ine_front_url, ine_back_url, selfie_url, signature_url TEXT
+   - referral_code VARCHAR(20) UNIQUE
+   - referred_by_id INTEGER REFERENCES users(id)
+   - assigned_price_list_id INTEGER REFERENCES price_lists(id)
+   - warehouse_location VARCHAR(50)
+   - default_transport, default_carrier VARCHAR
+
+2. packages
+   - id SERIAL PRIMARY KEY
+   - user_id INTEGER REFERENCES users(id)
+   - tracking_internal VARCHAR(50) UNIQUE (formato: US-XXXX####)
+   - tracking_provider VARCHAR(100)
+   - description VARCHAR(255)
+   - weight DECIMAL(10,2)
+   - dimensions VARCHAR(50) (formato: "30x20x15")
+   - declared_value DECIMAL(10,2)
+   - status VARCHAR DEFAULT 'received' (received, in_transit, customs, ready_pickup, delivered)
+   - destination_country, destination_city, destination_address, destination_zip, destination_phone, destination_contact
+   - carrier VARCHAR(50)
+   - is_master BOOLEAN DEFAULT false
+   - master_id INTEGER REFERENCES packages(id)
+   - box_number, total_boxes INTEGER
+   - consolidation_id INTEGER REFERENCES consolidations(id)
+   - photo_url TEXT
+   - needs_instructions BOOLEAN DEFAULT true
+
+3. consolidations
+   - id SERIAL PRIMARY KEY
+   - user_id INTEGER REFERENCES users(id) NOT NULL
+   - status VARCHAR(50) DEFAULT 'pending' (pending, processing, shipped, delivered)
+   - total_weight DECIMAL(10,2) DEFAULT 0
+   - payment_status VARCHAR(20)
+   - created_at TIMESTAMP
+
+4. addresses
+   - id SERIAL PRIMARY KEY
+   - user_id INTEGER REFERENCES users(id)
+   - alias VARCHAR(50) DEFAULT 'Principal'
+   - recipient_name, street, exterior_number, interior_number
+   - neighborhood, city, state, zip_code, phone, reference
+   - is_default BOOLEAN DEFAULT false
+
+5. warehouse_receipts
+   - id SERIAL PRIMARY KEY
+   - tracking_number VARCHAR(100) UNIQUE NOT NULL
+   - service_code VARCHAR(50) NOT NULL
+   - user_id INTEGER REFERENCES users(id)
+   - weight_kg, length_cm, width_cm, height_cm DECIMAL
+   - quantity INTEGER DEFAULT 1
+   - quoted_usd, quoted_mxn DECIMAL
+   - fx_rate DECIMAL
+   - status VARCHAR DEFAULT 'received'
+   - payment_status VARCHAR DEFAULT 'pending'
+   - received_by INTEGER REFERENCES users(id)
+   - warehouse_location VARCHAR(50) NOT NULL
+   - notes TEXT
+   - photo_url TEXT
+   - INDEX en (warehouse_location, created_at)
+
+6. logistics_services
+   - id SERIAL PRIMARY KEY
+   - code VARCHAR(50) UNIQUE NOT NULL
+   - name VARCHAR(100) NOT NULL
+   - calculation_type VARCHAR(20) (per_kg, per_cbm, per_package)
+   - requires_dimensions BOOLEAN DEFAULT false
+   - is_active BOOLEAN DEFAULT true
+   
+   DATOS:
+   - AIR_CHN_MX: 'Aéreo China → México', per_kg, requires_dimensions=true
+   - SEA_CHN_MX: 'Marítimo China → México', per_cbm, requires_dimensions=true
+   - POBOX_USA: 'PO Box USA → México', per_package
+   - AA_DHL: 'Liberación AA DHL', per_package
+   - NATIONAL: 'Nacional México', per_kg, requires_dimensions=true
+
+7. price_lists
+   - id SERIAL PRIMARY KEY
+   - name VARCHAR(100) NOT NULL
+   - description TEXT
+   - is_default BOOLEAN DEFAULT false
+   - is_active BOOLEAN DEFAULT true
+
+8. pricing_rules
+   - id SERIAL PRIMARY KEY
+   - price_list_id INTEGER REFERENCES price_lists(id)
+   - service_id INTEGER REFERENCES logistics_services(id)
+   - min_unit, max_unit DECIMAL (rangos de peso/volumen/cantidad)
+   - unit_cost DECIMAL NOT NULL
+   - fixed_fee DECIMAL DEFAULT 0
+
+9. commission_rates
+   - id SERIAL PRIMARY KEY
+   - service_type VARCHAR(50) NOT NULL
+   - label VARCHAR(100) NOT NULL
+   - percentage DECIMAL(5,2) DEFAULT 0.00
+   - leader_override DECIMAL(5,2) DEFAULT 10.00
+   - fiscal_emitter_id INTEGER REFERENCES fiscal_emitters(id)
+
+10. fiscal_emitters (TUS EMPRESAS)
+    - id SERIAL PRIMARY KEY
+    - alias VARCHAR(50)
+    - rfc VARCHAR(13) NOT NULL
+    - business_name VARCHAR(255) NOT NULL
+    - fiscal_regime VARCHAR(10)
+    - zip_code VARCHAR(10)
+    - api_key TEXT (Facturapi key)
+    - is_active BOOLEAN DEFAULT true
+
+11. fiscal_profiles (DATOS FISCALES DEL CLIENTE)
+    - id SERIAL PRIMARY KEY
+    - user_id INTEGER REFERENCES users(id)
+    - rfc VARCHAR(13) NOT NULL
+    - business_name VARCHAR(255) NOT NULL
+    - fiscal_regime VARCHAR(10)
+    - zip_code VARCHAR(10)
+    - tax_use VARCHAR(10) DEFAULT 'G03'
+    - email VARCHAR(255)
+    - is_default BOOLEAN DEFAULT false
+
+12. invoices
+    - id SERIAL PRIMARY KEY
+    - consolidation_id INTEGER REFERENCES consolidations(id)
+    - fiscal_emitter_id INTEGER REFERENCES fiscal_emitters(id)
+    - fiscal_profile_id INTEGER REFERENCES fiscal_profiles(id)
+    - uuid VARCHAR(50)
+    - folio VARCHAR(20)
+    - status VARCHAR(20) DEFAULT 'generated'
+    - pdf_url, xml_url TEXT
+    - amount DECIMAL(10,2)
+
+13. exchange_rates
+    - id SERIAL PRIMARY KEY
+    - rate DECIMAL(10,4) NOT NULL
+    - set_by_admin_id INTEGER REFERENCES users(id)
+    - created_at TIMESTAMP
+
+14. supplier_payments
+    - id SERIAL PRIMARY KEY
+    - user_id INTEGER REFERENCES users(id)
+    - consolidation_id INTEGER
+    - amount_usd, fee_percent, fixed_fee, total_usd DECIMAL
+    - fx_rate, total_mxn DECIMAL
+    - status VARCHAR
+
+15. client_payment_settings
+    - id SERIAL PRIMARY KEY
+    - user_id INTEGER REFERENCES users(id)
+    - fee_percent, fixed_fee, fx_markup DECIMAL
+
+16. payment_providers
+    - id SERIAL PRIMARY KEY
+    - name VARCHAR(50)
+    - is_active BOOLEAN
+    - config JSONB
+
+================================================================================
+                         UBICACIONES DE BODEGA
+================================================================================
+
+SISTEMA MULTI-UBICACIÓN (warehouseController.ts):
+
+| Código       | Nombre            | País | Servicios Permitidos    |
+|--------------|-------------------|------|-------------------------|
+| usa_pobox    | PO Box USA        | 🇺🇸  | POBOX_USA, NATIONAL     |
+| china_air    | Aéreo China       | 🇨🇳  | AIR_CHN_MX              |
+| china_sea    | Marítimo China    | 🇨🇳  | SEA_CHN_MX              |
+| mx_cedis     | CEDIS México      | 🇲🇽  | AA_DHL                  |
+| mx_national  | Nacional México   | 🇲🇽  | NATIONAL                |
+
+LÓGICA DE ACCESO EN App.tsx:
+- super_admin → Ve WarehouseHubPage con 5 cards (una por ubicación)
+- staff con warehouse_location → Va directo a su panel asignado
+- Cada panel filtra automáticamente por ubicación
+
+================================================================================
+                         MOTOR DE PRECIOS (pricingEngine.ts)
+================================================================================
+
+TIPOS DE CÁLCULO:
+- per_kg: (peso × costo_unitario) + cargo_fijo
+- per_cbm: (L×A×H/1000000 × costo_unitario) + cargo_fijo  
+- per_package: (cantidad × costo_unitario) + cargo_fijo
+
+REGLAS ACTUALES (Tarifa Pública, ID=1):
+- AIR_CHN_MX: 0-45kg=$12/kg, 45-100kg=$10.50/kg, 100+kg=$9/kg + $25 fijo
+- SEA_CHN_MX: 0-5cbm=$350/cbm, 5+cbm=$300/cbm + $50 fijo
+- POBOX_USA: $8/paquete
+- NATIONAL: $25/kg + $50 fijo
+- AA_DHL: 0-5=$50/paq, 5+=$45/paq
+
+FUNCIÓN PRINCIPAL:
+async function calculateQuote({ serviceCode, weightKg, lengthCm, widthCm, heightCm, quantity, userId })
+Retorna: { usd, mxn, fxRate, breakdown }
+
+================================================================================
+                         ROLES DE USUARIO
+================================================================================
+
+| Rol            | Descripción              | Acceso                    |
+|----------------|--------------------------|---------------------------|
+| super_admin    | Administrador total      | Todo el sistema           |
+| branch_manager | Gerente de sucursal      | Su sucursal + reportes    |
+| counter_staff  | Personal de mostrador    | Recepción + entregas      |
+| warehouse_ops  | Operaciones de bodega    | Inventario + paquetes     |
+| client         | Cliente final            | Solo sus paquetes         |
+
+================================================================================
+                      ENDPOINTS API PRINCIPALES
+================================================================================
+
+BASE URL: http://localhost:3001/api
+
+AUTENTICACIÓN:
+POST /auth/login         - Login (retorna JWT)
+POST /auth/register      - Registro
+GET  /auth/profile       - Perfil del usuario actual
+
+USUARIOS:
+GET    /users            - Lista usuarios
+GET    /users/:id        - Usuario por ID
+PUT    /users/:id        - Actualizar usuario
+DELETE /users/:id        - Eliminar usuario
+
+PAQUETES:
+GET  /packages           - Lista paquetes (?status=received)
+POST /packages           - Crear paquete (soporta multi-caja)
+GET  /packages/:id       - Obtener paquete
+PATCH /packages/:id/status - Cambiar estado
+GET  /packages/:id/labels  - Etiquetas para imprimir
+
+CONSOLIDACIONES:
+POST /consolidations          - Crear consolidación (desde mobile)
+GET  /admin/consolidations    - Lista consolidaciones (admin)
+
+BODEGA:
+GET  /warehouse/services      - Servicios disponibles por ubicación
+GET  /warehouse/receipts      - Recepciones de la bodega
+POST /warehouse/receipts      - Registrar recepción
+PUT  /warehouse/receipts/:id  - Actualizar recepción
+GET  /warehouse/stats         - Estadísticas del día
+GET  /warehouse/search-client/:boxId - Buscar cliente
+GET  /admin/warehouse-locations - Lista ubicaciones
+PUT  /admin/users/:id/warehouse-location - Asignar ubicación
+
+PRICING:
+POST /pricing/quote           - Calcular cotización
+
+FACTURACIÓN:
+GET  /fiscal/emitters         - Empresas emisoras
+POST /fiscal/emitters         - Crear emisor
+PUT  /fiscal/emitters/:id     - Actualizar emisor
+GET  /fiscal/profiles/:userId - Perfiles fiscales del cliente
+POST /fiscal/profiles         - Crear perfil fiscal
+POST /fiscal/invoices         - Generar factura
+GET  /fiscal/invoices/:id/pdf - Descargar PDF
+
+VERIFICACIÓN KYC:
+POST /verification/start      - Iniciar verificación (selfie + INE)
+GET  /verification/status     - Estado de verificación
+GET  /admin/verifications     - Lista pendientes
+PUT  /admin/verifications/:id - Aprobar/rechazar
+
+PAGOS:
+POST /payments/create-order   - Crear orden PayPal
+POST /payments/capture        - Capturar pago
+GET  /payments/history        - Historial
+
+PAGOS A PROVEEDORES:
+GET  /supplier/exchange-rate  - Tipo de cambio actual
+PUT  /supplier/exchange-rate  - Actualizar FX
+POST /supplier/calculate      - Calcular pago
+POST /supplier/payments       - Registrar pago
+GET  /supplier/payments       - Historial
+
+DIRECCIONES:
+GET  /addresses/:userId       - Direcciones del cliente
+POST /addresses               - Crear dirección
+PUT  /addresses/:id           - Actualizar
+DELETE /addresses/:id         - Eliminar
+
+================================================================================
+                         CREDENCIALES DE PRUEBA
+================================================================================
+
+SUPER ADMIN:
+- Email: aldo@entregax.com
+- Password: Quantum123
+- Role: super_admin
+- Box ID: ETX-5993
+
+CLIENTE:
+- Email: usuario@entregax.com
+- Password: Test123
+- Role: client
+
+VERIFICAR LOGIN:
+curl -X POST http://localhost:3001/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"aldo@entregax.com","password":"Quantum123"}'
+
+================================================================================
+                         MÓDULOS COMPLETADOS ✅
+================================================================================
+
+1.  Autenticación JWT (login, registro, refresh)
+2.  CRUD de Usuarios/Clientes
+3.  Sistema de Paquetes con Wizard de 5 pasos
+4.  Sistema Master + Hijas (multi-caja)
+5.  Tracking interno con prefijo US-
+6.  Dashboard con estadísticas
+7.  Internacionalización ES/EN completa
+8.  Mobile App (login, lista paquetes, consolidaciones)
+9.  Multi-selección de paquetes
+10. Consolidaciones (órdenes de envío)
+11. Etiquetas con QR
+12. Bodegas Multi-Ubicación (5 paneles)
+13. WarehouseHubPage (hub para admin)
+14. WarehouseReceptionPage (panel individual)
+15. Motor de Precios (pricingEngine.ts)
+16. Listas de Precios y Reglas
+17. Facturación Fiscal (CFDI con Facturapi)
+18. Comisiones y Sistema de Referidos
+19. Verificación KYC con GPT-4 Vision
+20. Pagos con PayPal
+21. Pagos a Proveedores con Tipo de Cambio
+22. Gestión de Direcciones
+
+================================================================================
+                         PENDIENTES POR DESARROLLAR 🚧
+================================================================================
+
+ALTA PRIORIDAD:
+1. Notificaciones Push (Firebase/Expo)
+2. Tracking en tiempo real con mapa
+3. Reportes avanzados con gráficas
+4. Exportación a Excel/PDF
+
+MEDIA PRIORIDAD:
+5. Gestión de sucursales
+6. Integración con APIs de paqueterías (FedEx, UPS, DHL)
+7. Sistema de tickets de soporte
+8. Chat en tiempo real
+
+BAJA PRIORIDAD:
+9. App para repartidores
+10. Sistema de rutas de entrega
+11. Integración con WhatsApp Business
+
+================================================================================
+                         DESIGN SYSTEM
+================================================================================
+
+COLORES:
+- Action Orange: #F05A28 (botones, acentos)
+- Deep Tech Black: #111111 (headers, textos)
+- Gradientes: linear-gradient(135deg, #F05A28 0%, #ff7849 100%)
+
+COMPONENTES MUI:
+- Usar Box, Paper, Card de MUI
+- Tablas con TableContainer, Table, TableHead, TableBody, TableRow, TableCell
+- Formularios con TextField, Select, Button
+- Feedback con Alert, Snackbar, CircularProgress
+
+================================================================================
+                         VARIABLES DE ENTORNO
+================================================================================
+
+# entregax-backend-api/.env
+PORT=3001
+DATABASE_URL=postgres://localhost:5432/entregax_db
+JWT_SECRET=EntregaX_Super_Secret_Key_2025
+JWT_EXPIRES_IN=7d
+OPENAI_API_KEY=sk-...
+FACTURAPI_KEY=...
+PAYPAL_CLIENT_ID=...
+PAYPAL_SECRET=...
+PAYPAL_API_URL=https://api-m.sandbox.paypal.com
+
+================================================================================
+                         NOTAS IMPORTANTES
+================================================================================
+
+1. El proyecto usa TypeScript estricto - no ignorar errores de tipos
+2. Todas las páginas tienen soporte i18n - agregar traducciones en es.json y en.json
+3. Los endpoints protegidos requieren header: Authorization: Bearer {token}
+4. El wizard de ShipmentsPage tiene 5 pasos (cajas, tracking, destino, cliente, confirmación)
+5. El sistema de bodegas filtra automáticamente por warehouse_location del usuario
+6. Las cotizaciones se calculan automáticamente al registrar recepciones
+7. Los roles se verifican en el backend antes de cada operación
+8. El manual completo está en DEVELOPER_MANUAL.md (1810 líneas)
+
+================================================================================
+               MENÚ DE NAVEGACIÓN WEB ADMIN (App.tsx)
+================================================================================
+
+| # | Item               | Componente              | Descripción              |
+|---|--------------------|-------------------------|--------------------------|
+| 0 | Dashboard          | DashboardContent        | Resumen general          |
+| 1 | Clientes           | ClientsPage             | CRUD usuarios            |
+| 2 | Envíos             | WarehouseHubPage        | Hub bodegas / Panel      |
+| 3 | Cotizaciones       | QuotesPage              | Calculadora precios      |
+| 4 | Salidas            | ConsolidationsPage      | Consolidaciones          |
+| 5 | Facturación        | FiscalPage              | CFDI                     |
+| 6 | Comisiones         | CommissionsPage         | Referidos                |
+| 7 | Listas de Precios  | PricingPage             | Tarifas                  |
+| 8 | Pagos Proveedores  | SupplierPaymentsPage    | Egresos                  |
+| 9 | Verificaciones     | VerificationsPage       | KYC                      |
+|10 | Configuración      | SettingsPage            | Preferencias             |
+
+================================================================================
+               PARA CONTINUAR DESARROLLO - COPIA ESTE PROMPT
+================================================================================
+
+Soy Aldo y estoy continuando el desarrollo de EntregaX, una plataforma de 
+logística que conecta USA/China con México. 
+
+CONTEXTO TÉCNICO:
+- Backend: Express+TypeScript en puerto 3001
+- Frontend: React+Vite+MUI en puerto 5173  
+- Mobile: Expo SDK 54 + React Native
+- DB: PostgreSQL 15 (entregax_db) con 16 tablas
+- Ruta: /Users/kmpsdeveloper/Desktop/Proyectos/SOS-X
+
+MÓDULOS COMPLETADOS (22):
+Autenticación JWT, CRUD usuarios, paquetes multi-caja, tracking US-XXXX,
+dashboard, i18n ES/EN, mobile app, consolidaciones, etiquetas QR,
+5 paneles de bodega por ubicación (WarehouseHubPage), motor de precios
+con reglas por bloques, facturación CFDI con Facturapi, comisiones y
+referidos, verificación KYC con GPT-4 Vision, pagos PayPal, pagos a
+proveedores con tipo de cambio, direcciones de envío.
+
+PENDIENTES:
+Push notifications, tracking en mapa, reportes, integraciones paqueterías.
+
+El manual completo está en DEVELOPER_MANUAL.md.
+
+Continúa el desarrollo desde donde quedamos. Cuando ejecutes comandos o
+edites código, hazlo directamente sin pedir confirmación.
+
+================================================================================
+                              FIN DEL DOCUMENTO
+================================================================================

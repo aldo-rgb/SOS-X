@@ -1,4 +1,9 @@
-/* Reset básico para Material UI */
+/* 🎨 ENTREGAX - Sistema de Diseño Corporativo
+   Paleta: Naranja Energético (#F05A28) + Negro Corporativo (#111111)
+   Estilo: High Contrast Minimalist - "Logística de Alta Velocidad"
+*/
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
 * {
   margin: 0;
   padding: 0;
@@ -7,11 +12,49 @@
 
 body {
   margin: 0;
-  font-family: 'Roboto', 'Helvetica', 'Arial', sans-serif;
+  font-family: 'Inter', 'Roboto', 'Helvetica', 'Arial', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: #F4F6F8;
+  color: #111827;
 }
 
 #root {
   min-height: 100vh;
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Better focus states - Naranja EntregaX */
+:focus-visible {
+  outline: 2px solid #F05A28;
+  outline-offset: 2px;
+}
+
+/* Selection color */
+::selection {
+  background-color: rgba(240, 90, 40, 0.2);
+  color: #111111;
+}
+
+/* Custom scrollbar - Estilo oscuro elegante */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1F2937;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4B5563;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #F05A28;
 }

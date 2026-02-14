@@ -1,0 +1,229 @@
+================================================================================
+                    CONFIGURATION GUIDE
+                 CHINA RECEPTION API - ENTREGAX
+                        TDI AIR (AIR_CHN_MX)
+================================================================================
+
+Creation Date: February 11, 2026
+Version: 1.0
+Language: English
+
+================================================================================
+1. GENERAL INFORMATION
+================================================================================
+
+This document describes how to configure the integration between the China 
+warehouse system and the EntregaX backend to automatically receive package 
+reception data.
+
+System: EntregaX Backend API
+Module: China Reception (TDI Air)
+Purpose: Receive reception and package data from China warehouse
+
+================================================================================
+2. WEBHOOK ENDPOINT
+================================================================================
+
+Production URL:
+---------------
+POST https://api.entregax.com/api/china/receive
+
+Development/Testing URL:
+------------------------
+POST http://localhost:3001/api/china/receive
+
+Method: POST
+Content-Type: application/json
+Authentication: None (public endpoint) or API Key (optional)
+
+================================================================================
+3. JSON STRUCTURE (PAYLOAD)
+================================================================================
+
+The Chinese system must send a JSON with the following structure:
+
+{
+  "fno": "AIR2609001234",
+  "shippingMark": "ETX-1295",
+  "totalQty": 5,
+  "totalWeight": 72.10,
+  "totalVolume": 200,
+  "totalCbm": 0.45,
+  "file": [
+    "https://cdn-china.com/evidence1.jpg",
+    "https://cdn-china.com/evidence2.jpg"
+  ],
+  "data": [
+    {
+      "childNo": "AIR2609001234-001",
+      "trajecotryName": "Guangzhou - CDMX",
+      "weight": 15.50,
+      "long": 50,
+      "width": 40,
+      "height": 30,
+      "proName": "Various electronics",
+      "customsBno": "8471300000",
+      "singleVolume": 60,
+      "singleCbm": 0.06,
+      "billNo": "176-12345678",
+      "etd": "2026-02-15",
+      "eta": "2026-02-20"
+    }
+  ]
+}
+
+================================================================================
+4. FIELD DESCRIPTIONS
+================================================================================
+
+MAIN FIELDS (Receipt/FNO):
+--------------------------
+
+| Field        | Type     | Required | Description                          |
+|--------------|----------|----------|---------------------------------------|
+| fno          | string   | YES      | Unique shipment ID (e.g.: AIR2609...) |
+| shippingMark | string   | YES      | Customer code (Box ID)                |
+| totalQty     | number   | YES      | Total number of boxes                 |
+| totalWeight  | number   | YES      | Total weight in kilograms             |
+| totalVolume  | number   | YES      | Total volume in cm³                   |
+| totalCbm     | number   | YES      | Total CBM (cubic meters)              |
+| file         | string[] | NO       | Array of photo/evidence URLs          |
+| data         | array    | YES      | Array of individual boxes             |
+
+
+FIELDS FOR EACH BOX (data[]):
+-----------------------------
+
+| Field          | Type   | Required | Description                          |
+|----------------|--------|----------|---------------------------------------|
+| childNo        | string | YES      | Unique box ID (e.g.: ...001)          |
+| trajecotryName | string | NO       | Route/trajectory name                 |
+| weight         | number | YES      | Box weight in kg                      |
+| long           | number | YES      | Length in centimeters                 |
+| width          | number | YES      | Width in centimeters                  |
+| height         | number | YES      | Height in centimeters                 |
+| proName        | string | NO       | Product description                   |
+| customsBno     | string | NO       | Customs/tariff code                   |
+| singleVolume   | number | NO       | Individual volume in cm³              |
+| singleCbm      | number | NO       | Individual CBM                        |
+| billNo         | string | NO       | International air waybill (AWB)       |
+| etd            | string | NO       | Estimated departure date (ISO)        |
+| eta            | string | NO       | Estimated arrival date (ISO)          |
+
+================================================================================
+5. SYSTEM RESPONSES
+================================================================================
+
+SUCCESSFUL RESPONSE (200 OK):
+-----------------------------
+{
+  "success": true,
+  "message": "China data processed successfully",
+  "data": {
+    "fno": "AIR2609001234",
+    "receiptId": 45,
+    "userId": 12,
+    "packagesCreated": 5,
+    "packagesUpdated": 0
+  }
+}
+
+ERROR RESPONSE (500):
+---------------------
+{
+  "success": false,
+  "error": "Error processing China data",
+  "details": "Specific error message"
+}
+
+================================================================================
+6. SYSTEM BEHAVIOR
+================================================================================
+
+1. CLIENT IDENTIFICATION:
+   - The system automatically searches for a user by the "shippingMark" field
+   - Searches in the "box_id" column of the users table
+   - If a match is found, assigns the package to the customer
+   - If NOT found, remains as "Unassigned" for manual review
+
+2. CREATION/UPDATE:
+   - If FNO doesn't exist: Creates new receipt and boxes
+   - If FNO already exists: Updates data (weight, billNo, dates, etc.)
+   - Boxes (childNo) are created once and then updated
+
+3. AIR WAYBILL UPDATE (billNo):
+   - When initially received without billNo, system saves with NULL
+   - When JSON is sent again with billNo, it updates
+   - This allows a flow of: Reception → Flight Assignment
+
+================================================================================
+7. CURL EXAMPLE
+================================================================================
+
+curl -X POST http://localhost:3001/api/china/receive \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fno": "AIR2609TEST99",
+    "shippingMark": "ETX-1295",
+    "totalQty": 2,
+    "totalWeight": 25.5,
+    "totalVolume": 80,
+    "totalCbm": 0.08,
+    "file": ["https://example.com/photo1.jpg"],
+    "data": [
+      {
+        "childNo": "AIR2609TEST99-001",
+        "trajecotryName": "Shenzhen - CDMX",
+        "weight": 12.5,
+        "long": 40,
+        "width": 30,
+        "height": 25,
+        "proName": "Electronic accessories",
+        "customsBno": "8544421000",
+        "singleVolume": 30000,
+        "singleCbm": 0.03,
+        "billNo": null,
+        "etd": null,
+        "eta": null
+      }
+    ]
+  }'
+
+================================================================================
+8. AVAILABLE STATUSES
+================================================================================
+
+| Status           | Description                                    |
+|------------------|------------------------------------------------|
+| received_origin  | Received at China warehouse (At Origin)        |
+| in_transit       | In air transit (has assigned billNo)           |
+| arrived_mx       | Arrived in Mexico                              |
+| customs          | In customs processing                          |
+| delivered        | Delivered to customer                          |
+
+================================================================================
+9. IMPORTANT NOTES
+================================================================================
+
+• The "fno" field is UNIQUE - duplicates are not allowed
+• The "childNo" field is also UNIQUE per box
+• Dates must be in ISO 8601 format (YYYY-MM-DD)
+• Weights always in KILOGRAMS
+• Dimensions always in CENTIMETERS
+• CBM is calculated automatically if not provided
+• Evidence URLs must be publicly accessible
+
+================================================================================
+10. CONTACT AND SUPPORT
+================================================================================
+
+For technical questions about the integration:
+- Email: desarrollo@entregax.com
+
+To report errors:
+- Include the FNO, timestamp and sent payload
+- Screenshot of the error response received
+
+================================================================================
+                         END OF GUIDE
+================================================================================

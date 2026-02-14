@@ -1,0 +1,503 @@
+import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import axios from 'axios';
+import { 
+  Box, 
+  Typography, 
+  Table, 
+  TableBody, 
+  TableCell, 
+  TableContainer, 
+  TableHead, 
+  TableRow, 
+  Paper, 
+  Chip, 
+  Button, 
+  CircularProgress,
+  IconButton,
+  Tooltip,
+  Dialog,
+  DialogContent,
+  DialogActions,
+  TextField,
+  Avatar,
+  Snackbar,
+  Alert,
+} from '@mui/material';
+import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import WarningIcon from '@mui/icons-material/Warning';
+
+// URL de la API
+const API_URL = 'http://localhost:3001/api';
+
+interface Consolidation {
+  id: number;
+  status: string;
+  total_weight: string;
+  created_at: string;
+  client_name: string;
+  box_id: string;
+  package_count: string;
+}
+
+export default function ConsolidationsPage() {
+  const { i18n } = useTranslation();
+  const [orders, setOrders] = useState<Consolidation[]>([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Estados para el Diálogo de Despacho
+  const [dispatchDialogOpen, setDispatchDialogOpen] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<Consolidation | null>(null);
+  const [masterTrack, setMasterTrack] = useState('');
+  const [dispatching, setDispatching] = useState(false);
+  
+  // Estados para Snackbar
+  const [snackbar, setSnackbar] = useState<{
+    open: boolean;
+    message: string;
+    severity: 'success' | 'error' | 'warning' | 'info';
+  }>({ open: false, message: '', severity: 'success' });
+
+  useEffect(() => {
+    loadOrders();
+  }, []);
+
+  const loadOrders = async () => {
+    setLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_URL}/admin/consolidations`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setOrders(res.data);
+    } catch (error) {
+      console.error('Error al cargar consolidaciones:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getStatusLabel = (status: string) => {
+    const labels: Record<string, { text: string; color: 'warning' | 'info' | 'success' | 'primary' }> = {
+      requested: { 
+        text: i18n.language === 'es' ? 'POR PROCESAR' : 'PENDING', 
+        color: 'warning' 
+      },
+      processing: { 
+        text: i18n.language === 'es' ? 'PROCESANDO' : 'PROCESSING', 
+        color: 'info' 
+      },
+      in_transit: { 
+        text: i18n.language === 'es' ? 'EN TRÁNSITO' : 'IN TRANSIT', 
+        color: 'primary' 
+      },
+      shipped: { 
+        text: i18n.language === 'es' ? 'ENTREGADO' : 'DELIVERED', 
+        color: 'success' 
+      },
+    };
+    return labels[status] || { text: status.toUpperCase(), color: 'warning' as const };
+  };
+
+  // 🚀 Abrir Diálogo de Despacho
+  const openDispatchDialog = (order: Consolidation) => {
+    setSelectedOrder(order);
+    setMasterTrack('');
+    setDispatchDialogOpen(true);
+  };
+
+  // 🚀 Confirmar Despacho
+  const handleConfirmDispatch = async () => {
+    if (!selectedOrder) return;
+    
+    setDispatching(true);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`${API_URL}/admin/consolidations/dispatch`, {
+        consolidationId: selectedOrder.id,
+        masterTracking: masterTrack || null
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      setSnackbar({
+        open: true,
+        message: i18n.language === 'es' 
+          ? `¡Orden #${selectedOrder.id} despachada exitosamente! ✈️` 
+          : `Order #${selectedOrder.id} dispatched successfully! ✈️`,
+        severity: 'success'
+      });
+      setDispatchDialogOpen(false);
+      setSelectedOrder(null);
+      loadOrders(); // Recargar la tabla
+    } catch (error: any) {
+      console.error('Error al despachar:', error);
+      const msg = error.response?.data?.error || (i18n.language === 'es' ? 'Error al procesar salida' : 'Error processing dispatch');
+      setSnackbar({ open: true, message: msg, severity: 'error' });
+    } finally {
+      setDispatching(false);
+    }
+  };
+
+  return (
+    <Box>
+      {/* Header */}
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 3 }}>
+        <Box>
+          <Typography variant="h5" fontWeight={700} color="text.primary">
+            <FlightTakeoffIcon sx={{ mr: 1, verticalAlign: 'bottom', color: '#F05A28' }} />
+            {i18n.language === 'es' ? 'Control de Salidas (Consolidaciones)' : 'Outbound Control (Consolidations)'}
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            {i18n.language === 'es' 
+              ? 'Solicitudes de envío generadas por clientes desde la App.' 
+              : 'Shipping requests generated by customers from the App.'}
+          </Typography>
+        </Box>
+        <Tooltip title={i18n.language === 'es' ? 'Actualizar' : 'Refresh'}>
+          <IconButton onClick={loadOrders} color="primary">
+            <RefreshIcon />
+          </IconButton>
+        </Tooltip>
+      </Box>
+
+      {/* Stats Cards */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2, mb: 3 }}>
+        <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'rgba(240, 90, 40, 0.05)', borderRadius: 2 }}>
+          <Typography variant="h4" fontWeight={700} color="warning.main">
+            {orders.filter(o => o.status === 'requested').length}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {i18n.language === 'es' ? 'Por Procesar' : 'Pending'}
+          </Typography>
+        </Paper>
+        <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'rgba(33, 150, 243, 0.05)', borderRadius: 2 }}>
+          <Typography variant="h4" fontWeight={700} color="info.main">
+            {orders.filter(o => o.status === 'processing').length}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {i18n.language === 'es' ? 'Procesando' : 'Processing'}
+          </Typography>
+        </Paper>
+        <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'rgba(25, 118, 210, 0.05)', borderRadius: 2 }}>
+          <Typography variant="h4" fontWeight={700} color="primary.main">
+            {orders.filter(o => o.status === 'in_transit').length}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {i18n.language === 'es' ? 'En Tránsito' : 'In Transit'}
+          </Typography>
+        </Paper>
+        <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'rgba(16, 185, 129, 0.05)', borderRadius: 2 }}>
+          <Typography variant="h4" fontWeight={700} color="success.main">
+            {orders.filter(o => o.status === 'shipped').length}
+          </Typography>
+          <Typography variant="body2" color="text.secondary">
+            {i18n.language === 'es' ? 'Entregados' : 'Delivered'}
+          </Typography>
+        </Paper>
+      </Box>
+
+      {/* Table */}
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+          <CircularProgress sx={{ color: '#F05A28' }} />
+        </Box>
+      ) : (
+        <TableContainer component={Paper} elevation={2} sx={{ borderRadius: 2 }}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>{i18n.language === 'es' ? 'ID Orden' : 'Order ID'}</TableCell>
+                <TableCell>{i18n.language === 'es' ? 'Cliente' : 'Customer'}</TableCell>
+                <TableCell align="center">{i18n.language === 'es' ? 'Paquetes' : 'Packages'}</TableCell>
+                <TableCell>{i18n.language === 'es' ? 'Peso Total' : 'Total Weight'}</TableCell>
+                <TableCell>{i18n.language === 'es' ? 'Fecha Solicitud' : 'Request Date'}</TableCell>
+                <TableCell>{i18n.language === 'es' ? 'Estatus' : 'Status'}</TableCell>
+                <TableCell>{i18n.language === 'es' ? 'Acciones' : 'Actions'}</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {orders.map((order) => {
+                const statusInfo = getStatusLabel(order.status);
+                return (
+                  <TableRow key={order.id} hover>
+                    <TableCell>
+                      <Typography fontWeight={600}>#{order.id}</Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography fontWeight={500}>{order.client_name}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {order.box_id}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Chip 
+                        icon={<LocalShippingIcon sx={{ fontSize: 16 }} />}
+                        label={order.package_count} 
+                        size="small" 
+                        variant="outlined"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Typography fontWeight={500}>
+                        {parseFloat(order.total_weight || '0').toFixed(2)} kg
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      {new Date(order.created_at).toLocaleDateString(i18n.language === 'es' ? 'es-MX' : 'en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
+                    </TableCell>
+                    <TableCell>
+                      <Chip 
+                        label={statusInfo.text}
+                        color={statusInfo.color}
+                        size="small"
+                        sx={{ fontWeight: 700 }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Tooltip title={i18n.language === 'es' ? 'Ver Detalles' : 'View Details'}>
+                          <IconButton size="small" color="primary">
+                            <VisibilityIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        {order.status === 'requested' && (
+                          <Button 
+                            variant="contained" 
+                            size="small" 
+                            startIcon={<FlightTakeoffIcon />}
+                            sx={{ 
+                              bgcolor: '#F05A28', 
+                              '&:hover': { bgcolor: '#D94A20' }
+                            }}
+                            onClick={() => openDispatchDialog(order)}
+                          >
+                            {i18n.language === 'es' ? 'Procesar Salida' : 'Dispatch'}
+                          </Button>
+                        )}
+                        {order.status === 'in_transit' && (
+                          <Chip 
+                            icon={<LocalShippingIcon sx={{ fontSize: 16 }} />}
+                            label={i18n.language === 'es' ? 'EN TRÁNSITO' : 'IN TRANSIT'} 
+                            color="primary" 
+                            size="small"
+                            sx={{ fontWeight: 600 }}
+                          />
+                        )}
+                        {order.status === 'shipped' && (
+                          <Chip 
+                            icon={<CheckCircleIcon sx={{ fontSize: 16 }} />}
+                            label={i18n.language === 'es' ? 'ENTREGADO' : 'DELIVERED'} 
+                            color="success" 
+                            size="small"
+                            sx={{ fontWeight: 600 }}
+                          />
+                        )}
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+
+              {orders.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={7} align="center" sx={{ py: 8 }}>
+                    <FlightTakeoffIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
+                    <Typography color="text.secondary">
+                      {i18n.language === 'es' 
+                        ? 'No hay solicitudes de envío pendientes.' 
+                        : 'No pending shipping requests.'}
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      )}
+
+      {/* Total Count */}
+      {orders.length > 0 && (
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+          Total: {orders.length} {i18n.language === 'es' ? 'orden(es)' : 'order(s)'}
+        </Typography>
+      )}
+
+      {/* ✈️ Diálogo de Confirmación de Despacho */}
+      <Dialog 
+        open={dispatchDialogOpen} 
+        onClose={() => !dispatching && setDispatchDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            overflow: 'hidden'
+          }
+        }}
+      >
+        {/* Header con color naranja */}
+        <Box sx={{ 
+          bgcolor: '#F05A28', 
+          py: 2.5, 
+          px: 3,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 2
+        }}>
+          <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)', width: 48, height: 48 }}>
+            <FlightTakeoffIcon sx={{ color: '#fff', fontSize: 28 }} />
+          </Avatar>
+          <Box>
+            <Typography variant="h6" sx={{ color: '#fff', fontWeight: 700 }}>
+              {i18n.language === 'es' ? 'Confirmar Salida' : 'Confirm Dispatch'}
+            </Typography>
+            <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.85)' }}>
+              {i18n.language === 'es' ? 'Orden de Consolidación' : 'Consolidation Order'} #{selectedOrder?.id}
+            </Typography>
+          </Box>
+        </Box>
+
+        <DialogContent sx={{ pt: 3 }}>
+          {/* Información de la Orden */}
+          <Box sx={{ 
+            bgcolor: 'rgba(240, 90, 40, 0.05)', 
+            borderRadius: 2, 
+            p: 2, 
+            mb: 3,
+            border: '1px solid rgba(240, 90, 40, 0.1)'
+          }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                {i18n.language === 'es' ? 'Cliente:' : 'Customer:'}
+              </Typography>
+              <Typography variant="body2" fontWeight={600}>
+                {selectedOrder?.client_name}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                {i18n.language === 'es' ? 'Casillero:' : 'Box ID:'}
+              </Typography>
+              <Typography variant="body2" fontWeight={600}>
+                {selectedOrder?.box_id}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                {i18n.language === 'es' ? 'Paquetes:' : 'Packages:'}
+              </Typography>
+              <Typography variant="body2" fontWeight={600}>
+                {selectedOrder?.package_count}
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+              <Typography variant="body2" color="text.secondary">
+                {i18n.language === 'es' ? 'Peso Total:' : 'Total Weight:'}
+              </Typography>
+              <Typography variant="body2" fontWeight={600}>
+                {parseFloat(selectedOrder?.total_weight || '0').toFixed(2)} kg
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* Campo para Guía Master */}
+          <TextField
+            fullWidth
+            label={i18n.language === 'es' ? 'Vuelo / Guía Master (Opcional)' : 'Flight / Master Tracking (Optional)'}
+            placeholder={i18n.language === 'es' ? 'Ej: AA1234 o 1Z999AA10123456784' : 'e.g., AA1234 or 1Z999AA10123456784'}
+            value={masterTrack}
+            onChange={(e) => setMasterTrack(e.target.value)}
+            sx={{ mb: 2 }}
+            InputProps={{
+              startAdornment: (
+                <LocalShippingIcon sx={{ mr: 1, color: 'text.secondary' }} />
+              )
+            }}
+          />
+
+          {/* Advertencia */}
+          <Box sx={{ 
+            display: 'flex', 
+            alignItems: 'flex-start', 
+            gap: 1, 
+            bgcolor: 'rgba(255, 193, 7, 0.1)',
+            borderRadius: 1.5,
+            p: 1.5
+          }}>
+            <WarningIcon sx={{ color: 'warning.main', fontSize: 20, mt: 0.2 }} />
+            <Typography variant="body2" color="text.secondary">
+              {i18n.language === 'es' 
+                ? 'Esta acción marcará la orden como despachada y notificará al cliente. ¿Deseas continuar?'
+                : 'This action will mark the order as dispatched and notify the customer. Do you want to continue?'}
+            </Typography>
+          </Box>
+        </DialogContent>
+
+        <DialogActions sx={{ px: 3, pb: 3, gap: 1 }}>
+          <Button 
+            onClick={() => setDispatchDialogOpen(false)}
+            disabled={dispatching}
+            variant="outlined"
+            sx={{ borderRadius: 2, px: 3 }}
+          >
+            {i18n.language === 'es' ? 'Cancelar' : 'Cancel'}
+          </Button>
+          <Button 
+            onClick={handleConfirmDispatch}
+            disabled={dispatching}
+            variant="contained"
+            startIcon={dispatching ? <CircularProgress size={18} color="inherit" /> : <CheckCircleIcon />}
+            sx={{ 
+              borderRadius: 2, 
+              px: 3,
+              bgcolor: '#F05A28',
+              '&:hover': { bgcolor: '#D94A20' }
+            }}
+          >
+            {dispatching 
+              ? (i18n.language === 'es' ? 'Procesando...' : 'Processing...')
+              : (i18n.language === 'es' ? 'Confirmar Despacho' : 'Confirm Dispatch')
+            }
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 🔔 Snackbar de Notificaciones */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={5000}
+        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert 
+          onClose={() => setSnackbar({ ...snackbar, open: false })} 
+          severity={snackbar.severity}
+          variant="filled"
+          sx={{ 
+            width: '100%',
+            fontWeight: 600,
+            fontSize: '1rem',
+            boxShadow: 3,
+            ...(snackbar.severity === 'success' && {
+              bgcolor: '#10B981',
+            })
+          }}
+          icon={snackbar.severity === 'success' ? <FlightTakeoffIcon /> : undefined}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </Box>
+  );
+}
