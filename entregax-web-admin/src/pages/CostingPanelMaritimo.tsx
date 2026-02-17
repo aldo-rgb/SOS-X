@@ -250,7 +250,7 @@ export default function CostingPanelMaritimo() {
     const [trackingLogs, setTrackingLogs] = useState<TrackingLog[]>([]);
     const [loadingTracking, setLoadingTracking] = useState(false);
     const [subscribingVizion, setSubscribingVizion] = useState(false);
-    const [uploadingField, setUploadingField] = useState<string | null>(null);
+    const [_uploadingField, setUploadingField] = useState<string | null>(null);
     
     // Estado para modal de gestión de archivos PDF
     const [fileModal, setFileModal] = useState<{

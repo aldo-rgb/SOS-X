@@ -28,7 +28,7 @@ import {
   Alert,
   Tooltip,
   Divider,
-  LinearProgress,
+  // LinearProgress, // No se usa actualmente
   MenuItem,
   Select,
   FormControl,
@@ -50,8 +50,8 @@ import {
   Add as AddIcon,
   Refresh as RefreshIcon,
   Visibility as ViewIcon,
-  Edit as EditIcon,
-  Delete as DeleteIcon,
+  // Edit as EditIcon, // No se usa actualmente
+  // Delete as DeleteIcon, // No se usa actualmente
   Person as PersonIcon,
   Speed as SpeedIcon,
   CalendarMonth as CalendarIcon,
