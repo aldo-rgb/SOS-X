@@ -14,7 +14,24 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Lazy initialization - only create OpenAI client when API key exists
+let openaiInstance: OpenAI | null = null;
+const getOpenAI = (): OpenAI => {
+    if (!openaiInstance) {
+        if (!process.env.OPENAI_API_KEY) {
+            throw new Error('OPENAI_API_KEY no configurada');
+        }
+        openaiInstance = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    }
+    return openaiInstance;
+};
+
+// Proxy para mantener compatibilidad con código existente (openai.chat.completions.create)
+const openai = new Proxy({} as OpenAI, {
+    get(_, prop) {
+        return getOpenAI()[prop as keyof OpenAI];
+    }
+});
 
 // Secreto de Mailgun para verificar webhooks
 const MAILGUN_SIGNING_KEY = process.env.MAILGUN_SIGNING_KEY || '';
