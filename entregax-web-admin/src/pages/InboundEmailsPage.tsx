@@ -186,7 +186,7 @@ export default function InboundEmailsPage() {
     const [lclRouteId, setLclRouteId] = useState<number | ''>('');
     
     // FCL route
-    const [fclRouteId, setFclRouteId] = useState<number | ''>('');
+    const [_fclRouteId, _setFclRouteId] = useState<number | ''>('');
     
     // Maritime routes
     const [routes, setRoutes] = useState<{id: number; code: string; name: string; is_active: boolean}[]>([]);
@@ -208,13 +208,13 @@ export default function InboundEmailsPage() {
     // Estados para edición de datos extraídos
     const [editableLogs, setEditableLogs] = useState<EditableLog[]>([]);
     const [editableBL, setEditableBL] = useState<EditableBL | null>(null);
-    const [isEditing, setIsEditing] = useState(false);
+    const [_isEditing, setIsEditing] = useState(false);
     
     // Búsqueda de clientes legacy
     const [legacyClients, setLegacyClients] = useState<LegacyClient[]>([]);
     const [searchingClient, setSearchingClient] = useState(false);
     const [editingLogIndex, setEditingLogIndex] = useState<number | null>(null);
-    const [clientSearchInput, setClientSearchInput] = useState('');
+    const [_clientSearchInput, setClientSearchInput] = useState('');
 
     const token = localStorage.getItem('token');
 
@@ -787,7 +787,7 @@ export default function InboundEmailsPage() {
                                                             {draft.matched_box_id}
                                                         </Typography>
                                                     </Box>
-                                                ) : draft.document_type === 'LCL' ? (
+                                                ) : draft.document_type === 'LOG' ? (
                                                     <Chip
                                                         label="Múltiples clientes"
                                                         size="small"

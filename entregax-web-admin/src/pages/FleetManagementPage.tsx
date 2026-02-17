@@ -54,13 +54,13 @@ import {
   // Delete as DeleteIcon, // No se usa actualmente
   Person as PersonIcon,
   Speed as SpeedIcon,
-  CalendarMonth as CalendarIcon,
+  // CalendarMonth as CalendarIcon, // No se usa actualmente
   AttachMoney as MoneyIcon,
   Notifications as AlertIcon,
-  PhotoCamera as CameraIcon,
+  // PhotoCamera as CameraIcon, // No se usa actualmente
   Assignment as InspectionIcon,
   Timeline as TimelineIcon,
-  LocalGasStation as FuelIcon,
+  // LocalGasStation as FuelIcon, // No se usa actualmente
 } from '@mui/icons-material';
 
 interface Vehicle {

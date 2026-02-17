@@ -170,8 +170,7 @@ const getInitials = (name: string): string => {
 };
 
 export default function HRManagementPage() {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const { t } = useTranslation();
+  const { t: _t } = useTranslation();
   const [tab, setTab] = useState(0);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [stats, setStats] = useState<AttendanceStats | null>(null);
