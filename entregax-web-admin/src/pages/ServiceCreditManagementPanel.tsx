@@ -40,14 +40,14 @@ import {
 } from '@mui/material';
 import {
   Edit as EditIcon,
-  Warning as WarningIcon,
+  // Warning as WarningIcon, // No se usa actualmente
   Search as SearchIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
-  LocalShipping,
-  Flight,
-  DirectionsBoat,
-  Inventory,
+  // LocalShipping, // No se usa actualmente
+  // Flight, // No se usa actualmente
+  // DirectionsBoat, // No se usa actualmente
+  // Inventory, // No se usa actualmente
   Save as SaveIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
@@ -101,14 +101,7 @@ interface Client {
   has_overdue: boolean;
 }
 
-interface ServiceStats {
-  service: string;
-  clients_with_credit: number;
-  total_limit: number;
-  total_used: number;
-  total_available: number;
-  blocked_count: number;
-}
+// ServiceStats interface removido - no se usa actualmente
 
 interface SummaryData {
   services: Array<{

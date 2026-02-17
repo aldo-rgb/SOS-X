@@ -10,7 +10,6 @@ import {
   Typography,
   Card,
   CardContent,
-  Grid,
   TextField,
   Button,
   Table,
@@ -46,6 +45,7 @@ import {
   Inventory as InventoryIcon,
   Scale as ScaleIcon,
 } from '@mui/icons-material';
+import Grid from '@mui/material/Grid2';
 import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -267,7 +267,7 @@ export default function MaritimeRatesPage() {
 
       <Grid container spacing={3}>
         {/* Tabla de Tarifas */}
-        <Grid item xs={12} md={7}>
+        <Grid size={{ xs: 12, md: 7 }}>
           <Card>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -356,7 +356,7 @@ export default function MaritimeRatesPage() {
         </Grid>
 
         {/* Calculadora de Costos */}
-        <Grid item xs={12} md={5}>
+        <Grid size={{ xs: 12, md: 5 }}>
           <Card sx={{ bgcolor: '#f8f9fa' }}>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -369,7 +369,7 @@ export default function MaritimeRatesPage() {
               </Alert>
 
               <Grid container spacing={2}>
-                <Grid item xs={6}>
+                <Grid size={6}>
                   <TextField
                     label="Volumen (CBM)"
                     value={calcVolume}
@@ -382,7 +382,7 @@ export default function MaritimeRatesPage() {
                     }}
                   />
                 </Grid>
-                <Grid item xs={6}>
+                <Grid size={6}>
                   <TextField
                     label="Peso (KG)"
                     value={calcWeight}
@@ -395,7 +395,7 @@ export default function MaritimeRatesPage() {
                     }}
                   />
                 </Grid>
-                <Grid item xs={12}>
+                <Grid size={12}>
                   <Button
                     variant="contained"
                     fullWidth
@@ -418,18 +418,18 @@ export default function MaritimeRatesPage() {
                   
                   <Paper sx={{ p: 2, bgcolor: 'white' }}>
                     <Grid container spacing={1}>
-                      <Grid item xs={6}>
+                      <Grid size={6}>
                         <Typography variant="caption" color="text.secondary">Costo por CBM:</Typography>
                         <Typography>{formatCurrency(calcResult.costByCbm)}</Typography>
                       </Grid>
-                      <Grid item xs={6}>
+                      <Grid size={6}>
                         <Typography variant="caption" color="text.secondary">Costo por Peso:</Typography>
                         <Typography>{formatCurrency(calcResult.costByWeight)}</Typography>
                       </Grid>
-                      <Grid item xs={12}>
+                      <Grid size={12}>
                         <Divider sx={{ my: 1 }} />
                       </Grid>
-                      <Grid item xs={12}>
+                      <Grid size={12}>
                         <Box sx={{ 
                           bgcolor: SEA_COLOR + '20', 
                           p: 2, 
@@ -484,7 +484,7 @@ export default function MaritimeRatesPage() {
         </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
+            <Grid size={12}>
               <TextField
                 label="Nombre de la Tarifa"
                 value={form.rate_name}
@@ -494,7 +494,7 @@ export default function MaritimeRatesPage() {
                 placeholder="Ej: Tarifa Estándar China-México"
               />
             </Grid>
-            <Grid item xs={6}>
+            <Grid size={6}>
               <TextField
                 label="Costo por CBM"
                 value={form.cost_per_cbm}
@@ -508,7 +508,7 @@ export default function MaritimeRatesPage() {
                 }}
               />
             </Grid>
-            <Grid item xs={6}>
+            <Grid size={6}>
               <TextField
                 label="Costo por KG (opcional)"
                 value={form.cost_per_kg}
@@ -521,7 +521,7 @@ export default function MaritimeRatesPage() {
                 }}
               />
             </Grid>
-            <Grid item xs={6}>
+            <Grid size={6}>
               <TextField
                 label="CBM Mínimo"
                 value={form.min_cbm}
@@ -534,7 +534,7 @@ export default function MaritimeRatesPage() {
                 }}
               />
             </Grid>
-            <Grid item xs={6}>
+            <Grid size={6}>
               <TextField
                 label="Cargo Mínimo"
                 value={form.min_charge}
@@ -547,7 +547,7 @@ export default function MaritimeRatesPage() {
                 }}
               />
             </Grid>
-            <Grid item xs={12}>
+            <Grid size={12}>
               <TextField
                 label="Notas"
                 value={form.notes}
@@ -558,7 +558,7 @@ export default function MaritimeRatesPage() {
                 placeholder="Notas adicionales sobre esta tarifa..."
               />
             </Grid>
-            <Grid item xs={12}>
+            <Grid size={12}>
               <FormControlLabel
                 control={
                   <Switch

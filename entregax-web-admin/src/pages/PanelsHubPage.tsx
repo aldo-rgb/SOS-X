@@ -108,7 +108,7 @@ export default function PanelsHubPage({ users = [], loading = false, onRefresh }
                         sx={{ cursor: 'pointer' }}
                     />
                 </Box>
-                <CustomerServiceHubPage />
+                <CustomerServiceHubPage users={[]} loading={false} onRefresh={() => {}} />
             </Box>
         );
     }
