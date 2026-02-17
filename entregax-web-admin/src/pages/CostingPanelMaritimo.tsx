@@ -250,7 +250,7 @@ export default function CostingPanelMaritimo() {
     const [trackingLogs, setTrackingLogs] = useState<TrackingLog[]>([]);
     const [loadingTracking, setLoadingTracking] = useState(false);
     const [subscribingVizion, setSubscribingVizion] = useState(false);
-    // const [uploadingField, setUploadingField] = useState<string | null>(null); // Para uso futuro
+    const [uploadingField, setUploadingField] = useState<string | null>(null);
     
     // Estado para modal de gestión de archivos PDF
     const [fileModal, setFileModal] = useState<{
@@ -331,16 +331,6 @@ export default function CostingPanelMaritimo() {
 
     const closeFileModal = () => {
         setFileModal({ open: false, url: '', fieldKey: null, fieldLabel: '' });
-    };
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const _handleEditFileUrl = () => {
-        const newUrl = prompt('Ingrese la nueva URL del archivo:', fileModal.url);
-        if (newUrl && newUrl.trim() && fileModal.fieldKey) {
-            setCosts(prev => ({ ...prev, [fileModal.fieldKey!]: newUrl.trim() }));
-            setFileModal(prev => ({ ...prev, url: newUrl.trim() }));
-            setSnackbar({ open: true, message: 'URL actualizada correctamente', severity: 'success' });
-        }
     };
 
     const handleDeleteFile = () => {

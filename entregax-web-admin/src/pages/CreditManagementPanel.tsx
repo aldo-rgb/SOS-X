@@ -68,13 +68,7 @@ interface EditForm {
   is_credit_blocked: boolean;
 }
 
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-
-// TabPanel removido - no se usa actualmente
+// TabPanelProps y TabPanel removidos - no se usan actualmente
 
 export default function CreditManagementPanel() {
   const [clients, setClients] = useState<Client[]>([]);
