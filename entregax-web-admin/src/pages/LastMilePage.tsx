@@ -61,7 +61,6 @@ import {
   // Speed as SpeedIcon, // No se usa actualmente
   ContentCopy as CopyIcon,
 } from '@mui/icons-material';
-import Grid from '@mui/material/Unstable_Grid2';
 import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -379,75 +378,67 @@ export default function LastMilePage() {
 
       {/* Stats Cards */}
       {stats && (
-        <Grid container spacing={2} sx={{ mb: 3 }}>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Card sx={{ bgcolor: '#FFF3E0' }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <ScheduleIcon sx={{ color: '#FF9800' }} />
-                  <Typography variant="h4" fontWeight="bold">{stats.pending?.total || 0}</Typography>
-                </Box>
-                <Typography variant="body2" color="text.secondary">Pendientes</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Card sx={{ bgcolor: '#E8F5E9' }}>
-              <CardContent>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <CheckIcon sx={{ color: '#4CAF50' }} />
-                  <Typography variant="h4" fontWeight="bold">{stats.today?.total || 0}</Typography>
-                </Box>
-                <Typography variant="body2" color="text.secondary">Despachados Hoy</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Card sx={{ bgcolor: '#E3F2FD' }}>
-              <CardContent>
-                <Typography variant="subtitle2" color="text.secondary">Por Servicio</Typography>
-                <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
-                  <Chip 
-                    size="small" 
-                    icon={<FlightIcon />} 
-                    label={stats.pending?.packages || 0} 
-                    sx={{ bgcolor: '#BBDEFB' }}
-                  />
-                  <Chip 
-                    size="small" 
-                    icon={<ShipIcon />} 
-                    label={stats.pending?.maritime || 0} 
-                    sx={{ bgcolor: '#B2EBF2' }}
-                  />
-                  <Chip 
-                    size="small" 
-                    icon={<AirIcon />} 
-                    label={stats.pending?.china_air || 0} 
-                    sx={{ bgcolor: '#FFCCBC' }}
-                  />
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-            <Card sx={{ bgcolor: '#FCE4EC' }}>
-              <CardContent>
-                <Typography variant="subtitle2" color="text.secondary">Carriers Hoy</Typography>
-                <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
-                  {stats.today?.estafeta > 0 && (
-                    <Chip size="small" label={`Estafeta: ${stats.today.estafeta}`} />
-                  )}
-                  {stats.today?.paquetexpress > 0 && (
-                    <Chip size="small" label={`PaqExpress: ${stats.today.paquetexpress}`} />
-                  )}
-                  {stats.today?.fedex > 0 && (
-                    <Chip size="small" label={`FedEx: ${stats.today.fedex}`} />
-                  )}
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 2, mb: 3 }}>
+          <Card sx={{ bgcolor: '#FFF3E0' }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <ScheduleIcon sx={{ color: '#FF9800' }} />
+                <Typography variant="h4" fontWeight="bold">{stats.pending?.total || 0}</Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary">Pendientes</Typography>
+            </CardContent>
+          </Card>
+          <Card sx={{ bgcolor: '#E8F5E9' }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CheckIcon sx={{ color: '#4CAF50' }} />
+                <Typography variant="h4" fontWeight="bold">{stats.today?.total || 0}</Typography>
+              </Box>
+              <Typography variant="body2" color="text.secondary">Despachados Hoy</Typography>
+            </CardContent>
+          </Card>
+          <Card sx={{ bgcolor: '#E3F2FD' }}>
+            <CardContent>
+              <Typography variant="subtitle2" color="text.secondary">Por Servicio</Typography>
+              <Box sx={{ display: 'flex', gap: 2, mt: 1 }}>
+                <Chip 
+                  size="small" 
+                  icon={<FlightIcon />} 
+                  label={stats.pending?.packages || 0} 
+                  sx={{ bgcolor: '#BBDEFB' }}
+                />
+                <Chip 
+                  size="small" 
+                  icon={<ShipIcon />} 
+                  label={stats.pending?.maritime || 0} 
+                  sx={{ bgcolor: '#B2EBF2' }}
+                />
+                <Chip 
+                  size="small" 
+                  icon={<AirIcon />} 
+                  label={stats.pending?.china_air || 0} 
+                  sx={{ bgcolor: '#FFCCBC' }}
+                />
+              </Box>
+            </CardContent>
+          </Card>
+          <Card sx={{ bgcolor: '#FCE4EC' }}>
+            <CardContent>
+              <Typography variant="subtitle2" color="text.secondary">Carriers Hoy</Typography>
+              <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
+                {stats.today?.estafeta > 0 && (
+                  <Chip size="small" label={`Estafeta: ${stats.today.estafeta}`} />
+                )}
+                {stats.today?.paquetexpress > 0 && (
+                  <Chip size="small" label={`PaqExpress: ${stats.today.paquetexpress}`} />
+                )}
+                {stats.today?.fedex > 0 && (
+                  <Chip size="small" label={`FedEx: ${stats.today.fedex}`} />
+                )}
+              </Box>
+            </CardContent>
+          </Card>
+        </Box>
       )}
 
       {/* Tabs */}

@@ -45,7 +45,6 @@ import {
   Inventory as InventoryIcon,
   // Scale as ScaleIcon, // No se usa actualmente
 } from '@mui/icons-material';
-import Grid from '@mui/material/Unstable_Grid2';
 import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -265,98 +264,96 @@ export default function MaritimeRatesPage() {
         </Button>
       </Box>
 
-      <Grid container spacing={3}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '7fr 5fr' }, gap: 3 }}>
         {/* Tabla de Tarifas */}
-        <Grid size={{ xs: 12, md: 7 }}>
-          <Card>
-            <CardContent>
-              <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-                <InventoryIcon sx={{ color: SEA_COLOR }} />
-                Tarifas Configuradas
-              </Typography>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <InventoryIcon sx={{ color: SEA_COLOR }} />
+              Tarifas Configuradas
+            </Typography>
 
-              <TableContainer component={Paper} variant="outlined">
-                <Table>
-                  <TableHead>
-                    <TableRow sx={{ bgcolor: '#f5f5f5' }}>
-                      <TableCell><strong>Nombre</strong></TableCell>
-                      <TableCell align="right"><strong>$/CBM</strong></TableCell>
-                      <TableCell align="right"><strong>$/KG</strong></TableCell>
-                      <TableCell align="right"><strong>Mínimo</strong></TableCell>
-                      <TableCell align="center"><strong>Estado</strong></TableCell>
-                      <TableCell align="center"><strong>Acciones</strong></TableCell>
+            <TableContainer component={Paper} variant="outlined">
+              <Table>
+                <TableHead>
+                  <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                    <TableCell><strong>Nombre</strong></TableCell>
+                    <TableCell align="right"><strong>$/CBM</strong></TableCell>
+                    <TableCell align="right"><strong>$/KG</strong></TableCell>
+                    <TableCell align="right"><strong>Mínimo</strong></TableCell>
+                    <TableCell align="center"><strong>Estado</strong></TableCell>
+                    <TableCell align="center"><strong>Acciones</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {rates.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                        <Typography color="text.secondary">
+                          No hay tarifas configuradas
+                        </Typography>
+                      </TableCell>
                     </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {rates.length === 0 ? (
-                      <TableRow>
-                        <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
-                          <Typography color="text.secondary">
-                            No hay tarifas configuradas
+                  ) : (
+                    rates.map((rate) => (
+                      <TableRow key={rate.id} hover>
+                        <TableCell>
+                          <Typography fontWeight={500}>{rate.rate_name}</Typography>
+                          {rate.notes && (
+                            <Typography variant="caption" color="text.secondary">
+                              {rate.notes}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography fontWeight="bold" color="primary">
+                            {formatCurrency(rate.cost_per_cbm)}
                           </Typography>
                         </TableCell>
-                      </TableRow>
-                    ) : (
-                      rates.map((rate) => (
-                        <TableRow key={rate.id} hover>
-                          <TableCell>
-                            <Typography fontWeight={500}>{rate.rate_name}</Typography>
-                            {rate.notes && (
-                              <Typography variant="caption" color="text.secondary">
-                                {rate.notes}
-                              </Typography>
-                            )}
-                          </TableCell>
-                          <TableCell align="right">
-                            <Typography fontWeight="bold" color="primary">
-                              {formatCurrency(rate.cost_per_cbm)}
+                        <TableCell align="right">
+                          {rate.cost_per_kg > 0 ? formatCurrency(rate.cost_per_kg) : '-'}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Box>
+                            <Typography variant="body2">
+                              CBM mín: {rate.min_cbm} m³
                             </Typography>
-                          </TableCell>
-                          <TableCell align="right">
-                            {rate.cost_per_kg > 0 ? formatCurrency(rate.cost_per_kg) : '-'}
-                          </TableCell>
-                          <TableCell align="right">
-                            <Box>
-                              <Typography variant="body2">
-                                CBM mín: {rate.min_cbm} m³
-                              </Typography>
-                              <Typography variant="body2" color="text.secondary">
-                                Cargo mín: {formatCurrency(rate.min_charge)}
-                              </Typography>
-                            </Box>
-                          </TableCell>
-                          <TableCell align="center">
-                            <Chip
-                              label={rate.is_active ? 'Activa' : 'Inactiva'}
-                              color={rate.is_active ? 'success' : 'default'}
-                              size="small"
-                              icon={rate.is_active ? <CheckCircleIcon /> : undefined}
-                            />
-                          </TableCell>
-                          <TableCell align="center">
-                            <Tooltip title="Editar">
-                              <IconButton size="small" onClick={() => handleOpenDialog(rate)}>
-                                <EditIcon />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Eliminar">
-                              <IconButton size="small" color="error" onClick={() => handleDelete(rate.id)}>
-                                <DeleteIcon />
-                              </IconButton>
-                            </Tooltip>
-                          </TableCell>
-                        </TableRow>
-                      ))
-                    )}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            </CardContent>
-          </Card>
-        </Grid>
+                            <Typography variant="body2" color="text.secondary">
+                              Cargo mín: {formatCurrency(rate.min_charge)}
+                            </Typography>
+                          </Box>
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip
+                            label={rate.is_active ? 'Activa' : 'Inactiva'}
+                            color={rate.is_active ? 'success' : 'default'}
+                            size="small"
+                            icon={rate.is_active ? <CheckCircleIcon /> : undefined}
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Tooltip title="Editar">
+                            <IconButton size="small" onClick={() => handleOpenDialog(rate)}>
+                              <EditIcon />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Eliminar">
+                            <IconButton size="small" color="error" onClick={() => handleDelete(rate.id)}>
+                              <DeleteIcon />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </CardContent>
+        </Card>
 
         {/* Calculadora de Costos */}
-        <Grid size={{ xs: 12, md: 5 }}>
+        <Box>
           <Card sx={{ bgcolor: '#f8f9fa' }}>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -368,34 +365,30 @@ export default function MaritimeRatesPage() {
                 Calcula el costo estimado de un embarque basado en la tarifa activa
               </Alert>
 
-              <Grid container spacing={2}>
-                <Grid size={6}>
-                  <TextField
-                    label="Volumen (CBM)"
-                    value={calcVolume}
-                    onChange={(e) => setCalcVolume(e.target.value)}
-                    fullWidth
-                    type="number"
-                    InputProps={{
-                      endAdornment: <InputAdornment position="end">m³</InputAdornment>,
-                      startAdornment: <InputAdornment position="start">📦</InputAdornment>
-                    }}
-                  />
-                </Grid>
-                <Grid size={6}>
-                  <TextField
-                    label="Peso (KG)"
-                    value={calcWeight}
-                    onChange={(e) => setCalcWeight(e.target.value)}
-                    fullWidth
-                    type="number"
-                    InputProps={{
-                      endAdornment: <InputAdornment position="end">kg</InputAdornment>,
-                      startAdornment: <InputAdornment position="start">⚖️</InputAdornment>
-                    }}
-                  />
-                </Grid>
-                <Grid size={12}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
+                <TextField
+                  label="Volumen (CBM)"
+                  value={calcVolume}
+                  onChange={(e) => setCalcVolume(e.target.value)}
+                  fullWidth
+                  type="number"
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">m³</InputAdornment>,
+                    startAdornment: <InputAdornment position="start">📦</InputAdornment>
+                  }}
+                />
+                <TextField
+                  label="Peso (KG)"
+                  value={calcWeight}
+                  onChange={(e) => setCalcWeight(e.target.value)}
+                  fullWidth
+                  type="number"
+                  InputProps={{
+                    endAdornment: <InputAdornment position="end">kg</InputAdornment>,
+                    startAdornment: <InputAdornment position="start">⚖️</InputAdornment>
+                  }}
+                />
+                <Box sx={{ gridColumn: '1 / -1' }}>
                   <Button
                     variant="contained"
                     fullWidth
@@ -406,8 +399,8 @@ export default function MaritimeRatesPage() {
                   >
                     {calculating ? 'Calculando...' : 'Calcular Costo'}
                   </Button>
-                </Grid>
-              </Grid>
+                </Box>
+              </Box>
 
               {calcResult && (
                 <Box sx={{ mt: 3 }}>
@@ -417,19 +410,19 @@ export default function MaritimeRatesPage() {
                   </Typography>
                   
                   <Paper sx={{ p: 2, bgcolor: 'white' }}>
-                    <Grid container spacing={1}>
-                      <Grid size={6}>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 1 }}>
+                      <Box>
                         <Typography variant="caption" color="text.secondary">Costo por CBM:</Typography>
                         <Typography>{formatCurrency(calcResult.costByCbm)}</Typography>
-                      </Grid>
-                      <Grid size={6}>
+                      </Box>
+                      <Box>
                         <Typography variant="caption" color="text.secondary">Costo por Peso:</Typography>
                         <Typography>{formatCurrency(calcResult.costByWeight)}</Typography>
-                      </Grid>
-                      <Grid size={12}>
+                      </Box>
+                      <Box sx={{ gridColumn: '1 / -1' }}>
                         <Divider sx={{ my: 1 }} />
-                      </Grid>
-                      <Grid size={12}>
+                      </Box>
+                      <Box sx={{ gridColumn: '1 / -1' }}>
                         <Box sx={{ 
                           bgcolor: SEA_COLOR + '20', 
                           p: 2, 
@@ -446,8 +439,8 @@ export default function MaritimeRatesPage() {
                             {calcResult.volume} m³ × ${calcResult.costPerCbm}/CBM
                           </Typography>
                         </Box>
-                      </Grid>
-                    </Grid>
+                      </Box>
+                    </Box>
                   </Paper>
                 </Box>
               )}
@@ -474,8 +467,8 @@ export default function MaritimeRatesPage() {
               </Typography>
             </CardContent>
           </Card>
-        </Grid>
-      </Grid>
+        </Box>
+      </Box>
 
       {/* Dialog para crear/editar tarifa */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>
@@ -483,8 +476,8 @@ export default function MaritimeRatesPage() {
           {editingRate ? 'Editar Tarifa' : 'Nueva Tarifa'}
         </DialogTitle>
         <DialogContent>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid size={12}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2, mt: 1 }}>
+            <Box sx={{ gridColumn: '1 / -1' }}>
               <TextField
                 label="Nombre de la Tarifa"
                 value={form.rate_name}
@@ -493,61 +486,53 @@ export default function MaritimeRatesPage() {
                 required
                 placeholder="Ej: Tarifa Estándar China-México"
               />
-            </Grid>
-            <Grid size={6}>
-              <TextField
-                label="Costo por CBM"
-                value={form.cost_per_cbm}
-                onChange={(e) => setForm({ ...form, cost_per_cbm: e.target.value })}
-                fullWidth
-                required
-                type="number"
-                InputProps={{
-                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                  endAdornment: <InputAdornment position="end">/m³</InputAdornment>
-                }}
-              />
-            </Grid>
-            <Grid size={6}>
-              <TextField
-                label="Costo por KG (opcional)"
-                value={form.cost_per_kg}
-                onChange={(e) => setForm({ ...form, cost_per_kg: e.target.value })}
-                fullWidth
-                type="number"
-                InputProps={{
-                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                  endAdornment: <InputAdornment position="end">/kg</InputAdornment>
-                }}
-              />
-            </Grid>
-            <Grid size={6}>
-              <TextField
-                label="CBM Mínimo"
-                value={form.min_cbm}
-                onChange={(e) => setForm({ ...form, min_cbm: e.target.value })}
-                fullWidth
-                type="number"
-                helperText="Volumen mínimo facturable"
-                InputProps={{
-                  endAdornment: <InputAdornment position="end">m³</InputAdornment>
-                }}
-              />
-            </Grid>
-            <Grid size={6}>
-              <TextField
-                label="Cargo Mínimo"
-                value={form.min_charge}
-                onChange={(e) => setForm({ ...form, min_charge: e.target.value })}
-                fullWidth
-                type="number"
-                helperText="Monto mínimo a cobrar"
-                InputProps={{
-                  startAdornment: <InputAdornment position="start">$</InputAdornment>
-                }}
-              />
-            </Grid>
-            <Grid size={12}>
+            </Box>
+            <TextField
+              label="Costo por CBM"
+              value={form.cost_per_cbm}
+              onChange={(e) => setForm({ ...form, cost_per_cbm: e.target.value })}
+              fullWidth
+              required
+              type="number"
+              InputProps={{
+                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                endAdornment: <InputAdornment position="end">/m³</InputAdornment>
+              }}
+            />
+            <TextField
+              label="Costo por KG (opcional)"
+              value={form.cost_per_kg}
+              onChange={(e) => setForm({ ...form, cost_per_kg: e.target.value })}
+              fullWidth
+              type="number"
+              InputProps={{
+                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                endAdornment: <InputAdornment position="end">/kg</InputAdornment>
+              }}
+            />
+            <TextField
+              label="CBM Mínimo"
+              value={form.min_cbm}
+              onChange={(e) => setForm({ ...form, min_cbm: e.target.value })}
+              fullWidth
+              type="number"
+              helperText="Volumen mínimo facturable"
+              InputProps={{
+                endAdornment: <InputAdornment position="end">m³</InputAdornment>
+              }}
+            />
+            <TextField
+              label="Cargo Mínimo"
+              value={form.min_charge}
+              onChange={(e) => setForm({ ...form, min_charge: e.target.value })}
+              fullWidth
+              type="number"
+              helperText="Monto mínimo a cobrar"
+              InputProps={{
+                startAdornment: <InputAdornment position="start">$</InputAdornment>
+              }}
+            />
+            <Box sx={{ gridColumn: '1 / -1' }}>
               <TextField
                 label="Notas"
                 value={form.notes}
@@ -557,8 +542,8 @@ export default function MaritimeRatesPage() {
                 rows={2}
                 placeholder="Notas adicionales sobre esta tarifa..."
               />
-            </Grid>
-            <Grid size={12}>
+            </Box>
+            <Box sx={{ gridColumn: '1 / -1' }}>
               <FormControlLabel
                 control={
                   <Switch
@@ -569,8 +554,8 @@ export default function MaritimeRatesPage() {
                 }
                 label="Tarifa Activa"
               />
-            </Grid>
-          </Grid>
+            </Box>
+          </Box>
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDialogOpen(false)}>Cancelar</Button>

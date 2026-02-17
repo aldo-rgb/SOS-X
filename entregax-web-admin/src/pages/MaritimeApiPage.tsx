@@ -32,7 +32,6 @@ import {
   Tooltip,
   LinearProgress,
   Divider,
-  Grid
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SyncIcon from '@mui/icons-material/Sync';
@@ -425,62 +424,50 @@ const MaritimeApiPage: React.FC<Props> = ({ onBack }) => {
 
       {/* Stats Cards */}
       {stats && (
-        <Grid container spacing={2} sx={{ mb: 3 }}>
-          <Grid item xs={6} md={2}>
-            <Card sx={{ bgcolor: 'warning.light' }}>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <WarehouseIcon sx={{ fontSize: 32, color: 'warning.dark' }} />
-                <Typography variant="h4" fontWeight="bold">{stats.in_warehouse}</Typography>
-                <Typography variant="body2">En Bodega</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={6} md={2}>
-            <Card sx={{ bgcolor: 'info.light' }}>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <LocalShippingIcon sx={{ fontSize: 32, color: 'info.dark' }} />
-                <Typography variant="h4" fontWeight="bold">{stats.in_transit}</Typography>
-                <Typography variant="body2">En Tránsito</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={6} md={2}>
-            <Card sx={{ bgcolor: 'secondary.light' }}>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <AssignmentIndIcon sx={{ fontSize: 32, color: 'secondary.dark' }} />
-                <Typography variant="h4" fontWeight="bold">{stats.in_customs}</Typography>
-                <Typography variant="body2">En Aduana</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={6} md={2}>
-            <Card sx={{ bgcolor: 'success.light' }}>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <CheckCircleIcon sx={{ fontSize: 32, color: 'success.dark' }} />
-                <Typography variant="h4" fontWeight="bold">{stats.delivered}</Typography>
-                <Typography variant="body2">Entregados</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={6} md={2}>
-            <Card sx={{ bgcolor: 'error.light' }}>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <ErrorIcon sx={{ fontSize: 32, color: 'error.dark' }} />
-                <Typography variant="h4" fontWeight="bold">{stats.unassigned}</Typography>
-                <Typography variant="body2">Sin Asignar</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid item xs={6} md={2}>
-            <Card>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <DirectionsBoatIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-                <Typography variant="h4" fontWeight="bold">{stats.total_orders}</Typography>
-                <Typography variant="body2">Total</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-        </Grid>
+        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(6, 1fr)' }, gap: 2, mb: 3 }}>
+          <Card sx={{ bgcolor: 'warning.light' }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <WarehouseIcon sx={{ fontSize: 32, color: 'warning.dark' }} />
+              <Typography variant="h4" fontWeight="bold">{stats.in_warehouse}</Typography>
+              <Typography variant="body2">En Bodega</Typography>
+            </CardContent>
+          </Card>
+          <Card sx={{ bgcolor: 'info.light' }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <LocalShippingIcon sx={{ fontSize: 32, color: 'info.dark' }} />
+              <Typography variant="h4" fontWeight="bold">{stats.in_transit}</Typography>
+              <Typography variant="body2">En Tránsito</Typography>
+            </CardContent>
+          </Card>
+          <Card sx={{ bgcolor: 'secondary.light' }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <AssignmentIndIcon sx={{ fontSize: 32, color: 'secondary.dark' }} />
+              <Typography variant="h4" fontWeight="bold">{stats.in_customs}</Typography>
+              <Typography variant="body2">En Aduana</Typography>
+            </CardContent>
+          </Card>
+          <Card sx={{ bgcolor: 'success.light' }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <CheckCircleIcon sx={{ fontSize: 32, color: 'success.dark' }} />
+              <Typography variant="h4" fontWeight="bold">{stats.delivered}</Typography>
+              <Typography variant="body2">Entregados</Typography>
+            </CardContent>
+          </Card>
+          <Card sx={{ bgcolor: 'error.light' }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <ErrorIcon sx={{ fontSize: 32, color: 'error.dark' }} />
+              <Typography variant="h4" fontWeight="bold">{stats.unassigned}</Typography>
+              <Typography variant="body2">Sin Asignar</Typography>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <DirectionsBoatIcon sx={{ fontSize: 32, color: 'primary.main' }} />
+              <Typography variant="h4" fontWeight="bold">{stats.total_orders}</Typography>
+              <Typography variant="body2">Total</Typography>
+            </CardContent>
+          </Card>
+        </Box>
       )}
 
       {/* Tabs */}
@@ -705,48 +692,44 @@ const MaritimeApiPage: React.FC<Props> = ({ onBack }) => {
         <DialogContent>
           {detailDialog.order && (
             <>
-              <Grid container spacing={2} sx={{ mb: 3 }}>
-                <Grid item xs={12} md={6}>
-                  <Paper sx={{ p: 2 }}>
-                    <Typography variant="subtitle2" color="text.secondary">Información General</Typography>
-                    <Divider sx={{ my: 1 }} />
-                    <Typography><b>Orden:</b> {detailDialog.order.ordersn}</Typography>
-                    <Typography><b>Shipping Mark:</b> {detailDialog.order.shipping_mark}</Typography>
-                    <Typography><b>Mercancía:</b> {translateChinese(detailDialog.order.goods_name)} ({translateChinese(detailDialog.order.goods_type)})</Typography>
-                    <Typography><b>Bultos:</b> {detailDialog.order.goods_num}</Typography>
-                    <Typography><b>Peso:</b> {detailDialog.order.weight} kg</Typography>
-                    <Typography><b>Volumen:</b> {detailDialog.order.volume} m³</Typography>
-                    <Typography><b>Barco:</b> {detailDialog.order.ship_number || 'N/A'}</Typography>
-                  </Paper>
-                </Grid>
-                <Grid item xs={12} md={6}>
-                  <Paper sx={{ p: 2 }}>
-                    <Typography variant="subtitle2" color="text.secondary">Cliente</Typography>
-                    <Divider sx={{ my: 1 }} />
-                    {detailDialog.order.client_name ? (
-                      <>
-                        <Typography><b>Nombre:</b> {detailDialog.order.client_name}</Typography>
-                        <Typography><b>Box ID:</b> {detailDialog.order.client_box_id}</Typography>
-                        <Typography><b>Email:</b> {detailDialog.order.client_email}</Typography>
-                      </>
-                    ) : (
-                      <Alert severity="warning" sx={{ mt: 1 }}>
-                        Cliente no asignado
-                      </Alert>
-                    )}
-                    <Divider sx={{ my: 2 }} />
-                    <Typography variant="subtitle2" color="text.secondary">Estado Actual</Typography>
-                    <Box sx={{ mt: 1 }}>
-                      {getStatusChip(detailDialog.order.status)}
-                    </Box>
-                    {detailDialog.order.last_tracking_detail && (
-                      <Typography variant="body2" sx={{ mt: 1 }}>
-                        {detailDialog.order.last_tracking_detail}
-                      </Typography>
-                    )}
-                  </Paper>
-                </Grid>
-              </Grid>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 2, mb: 3 }}>
+                <Paper sx={{ p: 2 }}>
+                  <Typography variant="subtitle2" color="text.secondary">Información General</Typography>
+                  <Divider sx={{ my: 1 }} />
+                  <Typography><b>Orden:</b> {detailDialog.order.ordersn}</Typography>
+                  <Typography><b>Shipping Mark:</b> {detailDialog.order.shipping_mark}</Typography>
+                  <Typography><b>Mercancía:</b> {translateChinese(detailDialog.order.goods_name)} ({translateChinese(detailDialog.order.goods_type)})</Typography>
+                  <Typography><b>Bultos:</b> {detailDialog.order.goods_num}</Typography>
+                  <Typography><b>Peso:</b> {detailDialog.order.weight} kg</Typography>
+                  <Typography><b>Volumen:</b> {detailDialog.order.volume} m³</Typography>
+                  <Typography><b>Barco:</b> {detailDialog.order.ship_number || 'N/A'}</Typography>
+                </Paper>
+                <Paper sx={{ p: 2 }}>
+                  <Typography variant="subtitle2" color="text.secondary">Cliente</Typography>
+                  <Divider sx={{ my: 1 }} />
+                  {detailDialog.order.client_name ? (
+                    <>
+                      <Typography><b>Nombre:</b> {detailDialog.order.client_name}</Typography>
+                      <Typography><b>Box ID:</b> {detailDialog.order.client_box_id}</Typography>
+                      <Typography><b>Email:</b> {detailDialog.order.client_email}</Typography>
+                    </>
+                  ) : (
+                    <Alert severity="warning" sx={{ mt: 1 }}>
+                      Cliente no asignado
+                    </Alert>
+                  )}
+                  <Divider sx={{ my: 2 }} />
+                  <Typography variant="subtitle2" color="text.secondary">Estado Actual</Typography>
+                  <Box sx={{ mt: 1 }}>
+                    {getStatusChip(detailDialog.order.status)}
+                  </Box>
+                  {detailDialog.order.last_tracking_detail && (
+                    <Typography variant="body2" sx={{ mt: 1 }}>
+                      {detailDialog.order.last_tracking_detail}
+                    </Typography>
+                  )}
+                </Paper>
+              </Box>
 
               <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                 <TimelineIcon color="primary" />

@@ -73,7 +73,7 @@ interface ImportResult {
 }
 
 export default function LegacyClientsPage() {
-  const { t } = useTranslation();
+  const { t: _t } = useTranslation();
   const [clients, setClients] = useState<LegacyClient[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
