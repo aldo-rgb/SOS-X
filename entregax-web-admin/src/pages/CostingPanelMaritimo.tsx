@@ -42,7 +42,7 @@ import {
 } from '@mui/material';
 import {
     DirectionsBoat as BoatIcon,
-    Add as AddIcon,
+    // Add as AddIcon, // No se usa actualmente
     Save as SaveIcon,
     Calculate as CalculateIcon,
     AttachFile as AttachFileIcon,
@@ -60,7 +60,7 @@ import {
     LocationOn as LocationIcon,
     PlayArrow as PlayIcon,
     Visibility as VisibilityIcon,
-    Edit as EditIcon,
+    // Edit as EditIcon, // No se usa actualmente
     Download as DownloadIcon,
     Delete as DeleteIcon,
     Close as CloseIcon,
@@ -250,7 +250,7 @@ export default function CostingPanelMaritimo() {
     const [trackingLogs, setTrackingLogs] = useState<TrackingLog[]>([]);
     const [loadingTracking, setLoadingTracking] = useState(false);
     const [subscribingVizion, setSubscribingVizion] = useState(false);
-    const [uploadingField, setUploadingField] = useState<string | null>(null);
+    // const [uploadingField, setUploadingField] = useState<string | null>(null); // Para uso futuro
     
     // Estado para modal de gestión de archivos PDF
     const [fileModal, setFileModal] = useState<{
@@ -333,7 +333,8 @@ export default function CostingPanelMaritimo() {
         setFileModal({ open: false, url: '', fieldKey: null, fieldLabel: '' });
     };
 
-    const handleEditFileUrl = () => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const _handleEditFileUrl = () => {
         const newUrl = prompt('Ingrese la nueva URL del archivo:', fileModal.url);
         if (newUrl && newUrl.trim() && fileModal.fieldKey) {
             setCosts(prev => ({ ...prev, [fileModal.fieldKey!]: newUrl.trim() }));

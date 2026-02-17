@@ -35,8 +35,8 @@ import {
   AccountBalanceWallet,
   CreditCard,
   Add,
-  Block,
-  CheckCircle,
+  // Block, // No se usa actualmente
+  // CheckCircle, // No se usa actualmente
   Warning,
   TrendingUp,
   Refresh,

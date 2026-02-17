@@ -74,16 +74,7 @@ interface TabPanelProps {
   value: number;
 }
 
-// TabPanel se usa en la estructura del componente
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function _TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
-  return (
-    <div hidden={value !== index} {...other}>
-      {value === index && <Box sx={{ pt: 2 }}>{children}</Box>}
-    </div>
-  );
-}
+// TabPanel removido - no se usa actualmente
 
 export default function CreditManagementPanel() {
   const [clients, setClients] = useState<Client[]>([]);
