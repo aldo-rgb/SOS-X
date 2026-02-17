@@ -325,9 +325,9 @@ export const getAdvisors = async (req: Request, res: Response): Promise<any> => 
 // 9. ADMIN: Crear nuevo asesor
 export const createAdvisor = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { full_name, email, password, role, leader_id } = req.body;
+        const { full_name, email, phone, password, role, leader_id } = req.body;
         
-        console.log('Creating advisor:', { full_name, email, role, leader_id });
+        console.log('Creating advisor:', { full_name, email, phone, role, leader_id });
         
         if (!full_name || !email || !password) {
             return res.status(400).json({ error: 'Nombre, email y contraseña son requeridos' });
@@ -363,12 +363,12 @@ export const createAdvisor = async (req: Request, res: Response): Promise<any> =
         const bcrypt = require('bcrypt');
         const hashedPassword = await bcrypt.hash(password, 10);
         
-        // Crear usuario
+        // Crear usuario con teléfono
         const result = await pool.query(`
-            INSERT INTO users (full_name, email, password, role, referral_code, referred_by_id, box_id, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-            RETURNING id, full_name, email, role, referral_code, box_id
-        `, [full_name, email.toLowerCase(), hashedPassword, mappedRole, referralCode, leader_id || null, boxId]);
+            INSERT INTO users (full_name, email, phone, password, role, referral_code, referred_by_id, box_id, created_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+            RETURNING id, full_name, email, phone, role, referral_code, box_id
+        `, [full_name, email.toLowerCase(), phone || null, hashedPassword, mappedRole, referralCode, leader_id || null, boxId]);
         
         console.log('Advisor created:', result.rows[0]);
         

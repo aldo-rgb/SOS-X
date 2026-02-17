@@ -212,7 +212,7 @@ export const getVerificationStatus = async (req: Request, res: Response): Promis
         }
 
         const result = await pool.query(
-            'SELECT is_verified, verification_status, has_address FROM users WHERE id = $1',
+            'SELECT is_verified, verification_status, has_address, rejection_reason FROM users WHERE id = $1',
             [userId]
         );
 
@@ -224,9 +224,11 @@ export const getVerificationStatus = async (req: Request, res: Response): Promis
         const user = result.rows[0];
 
         res.json({
-            isVerified: user.is_verified,
+            isVerified: user.is_verified || false,
+            status: user.verification_status || 'not_started',
             verificationStatus: user.verification_status,
-            hasAddress: user.has_address
+            hasAddress: user.has_address,
+            rejectionReason: user.rejection_reason || null
         });
 
     } catch (error) {

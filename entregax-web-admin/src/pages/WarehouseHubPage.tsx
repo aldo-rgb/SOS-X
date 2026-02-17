@@ -37,6 +37,7 @@ import ChinaReceptionPage from './ChinaReceptionPage';
 import ConsolidationsPage from './ConsolidationsPage';
 import QuotesPage from './QuotesPage';
 import MaritimeWarehousePage from './MaritimeWarehousePage';
+import DhlOperationsPage from './DhlOperationsPage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -200,6 +201,8 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                     <MaritimeWarehousePage />
                 ) : selectedPanel === 'mx_national' ? (
                     <QuotesPage />
+                ) : selectedPanel === 'mx_cedis' ? (
+                    <DhlOperationsPage />
                 ) : (
                     <WarehouseReceptionPage warehouseLocation={selectedPanel} />
                 )}

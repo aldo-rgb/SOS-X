@@ -319,6 +319,7 @@ export const updateWarehouseReceipt = async (req: Request, res: Response): Promi
 export const searchClientByBoxId = async (req: Request, res: Response): Promise<any> => {
     try {
         const { boxId } = req.params;
+        const { serviceType } = req.query; // 'usa', 'air', 'maritime', etc.
 
         const result = await pool.query(`
             SELECT id, full_name, email, box_id, phone,
@@ -331,7 +332,30 @@ export const searchClientByBoxId = async (req: Request, res: Response): Promise<
             return res.status(404).json({ error: 'Cliente no encontrado' });
         }
 
-        res.json(result.rows[0]);
+        const client = result.rows[0];
+
+        // Buscar direcciones del usuario
+        const addressesResult = await pool.query(`
+            SELECT id, label, country, city, address, zip_code, phone, contact_name, 
+                   is_default, default_for_service
+            FROM addresses 
+            WHERE user_id = $1
+            ORDER BY is_default DESC, id ASC
+        `, [client.id]);
+
+        client.addresses = addressesResult.rows;
+
+        // Si se especifica un tipo de servicio, buscar la dirección predeterminada para ese servicio
+        if (serviceType) {
+            const defaultAddress = addressesResult.rows.find((addr: any) => {
+                if (!addr.default_for_service) return false;
+                const services = addr.default_for_service.split(',').map((s: string) => s.trim().toLowerCase());
+                return services.includes(serviceType.toString().toLowerCase()) || services.includes('all');
+            });
+            client.defaultAddressForService = defaultAddress || null;
+        }
+
+        res.json(client);
     } catch (error) {
         console.error('Error searching client:', error);
         res.status(500).json({ error: 'Error al buscar cliente' });

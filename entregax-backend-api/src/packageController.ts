@@ -495,13 +495,43 @@ export const getPackagesByClient = async (req: Request, res: Response): Promise<
     }
 };
 
+// Helper para status label marítimo
+const getMaritimeStatusLabel = (status: string): string => {
+    const labels: Record<string, string> = {
+        'received_china': '📦 Recibido en China',
+        'in_transit': '🚢 En Tránsito Marítimo',
+        'at_port': '⚓ En Puerto',
+        'customs_mx': '🛃 Aduana México',
+        'in_transit_mx': '🚛 En Ruta a CEDIS',
+        'received_cedis': '✅ En CEDIS',
+        'ready_pickup': '📍 Listo para Recoger',
+        'delivered': '✅ Entregado'
+    };
+    return labels[status] || status;
+};
+
+// Helper para status label TDI Aéreo China
+const getChinaAirStatusLabel = (status: string): string => {
+    const labels: Record<string, string> = {
+        'received_origin': '📦 En Bodega China',
+        'in_transit': '✈️ En Tránsito',
+        'at_customs': '🛃 En Aduana',
+        'customs_mx': '🛃 Aduana México',
+        'in_transit_mx': '🚛 En Ruta a CEDIS',
+        'received_cedis': '✅ En CEDIS',
+        'ready_pickup': '📍 Listo para Recoger',
+        'delivered': '✅ Entregado'
+    };
+    return labels[status] || status;
+};
+
 // ============ MIS PAQUETES (APP MÓVIL) ============
 export const getMyPackages = async (req: Request, res: Response): Promise<void> => {
     try {
         const { userId } = req.params;
         
-        // JOIN con consolidations para saber si el paquete ya fue despachado
-        const result = await pool.query(`
+        // 1. Paquetes AÉREOS (USA PO Box)
+        const airResult = await pool.query(`
             SELECT p.*, u.full_name, u.box_id,
                    c.status as consolidation_status,
                    c.id as consolidation_id
@@ -512,7 +542,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             ORDER BY p.created_at DESC
         `, [userId]);
 
-        const packages = result.rows.map(pkg => {
+        const airPackages = airResult.rows.map(pkg => {
             // Determinar el estado visible para el cliente
             let displayStatus = pkg.status;
             let displayLabel = getStatusLabel(pkg.status);
@@ -550,14 +580,109 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 consolidation_id: pkg.consolidation_id,
                 consolidation_status: pkg.consolidation_status,
                 warehouse_location: pkg.warehouse_location,
-                service_type: pkg.service_type,
+                service_type: pkg.service_type || 'air',
+                shipment_type: 'air',
                 // 🛡️ GEX - Garantía Extendida
                 has_gex: pkg.has_gex || false,
                 gex_folio: pkg.gex_folio || null
             };
         });
 
-        res.json(packages);
+        // 2. Paquetes MARÍTIMOS (China)
+        const maritimeResult = await pool.query(`
+            SELECT mo.*, 
+                   ct.container_number,
+                   ct.bl_number as container_bl
+            FROM maritime_orders mo
+            LEFT JOIN containers ct ON mo.container_id = ct.id
+            WHERE mo.user_id = $1
+            ORDER BY mo.created_at DESC
+        `, [userId]);
+
+        const maritimePackages = maritimeResult.rows.map(pkg => ({
+            id: pkg.id + 100000, // Offset para evitar colisión de IDs
+            tracking_internal: pkg.ordersn,
+            tracking_provider: pkg.ship_number || pkg.bl_number || null,
+            description: pkg.goods_name || 'Envío Marítimo',
+            weight: pkg.weight ? parseFloat(pkg.weight) : null,
+            volume: pkg.volume ? parseFloat(pkg.volume) : null,
+            dimensions: null, // Marítimo no usa dimensiones, usa volumen
+            declared_value: null,
+            status: pkg.status,
+            statusLabel: getMaritimeStatusLabel(pkg.status),
+            carrier: 'Marítimo China',
+            destination_city: 'CEDIS MTY',
+            destination_country: 'MX',
+            image_url: null,
+            is_master: false,
+            total_boxes: pkg.goods_num || 1,
+            received_at: pkg.status === 'received_china' ? pkg.created_at : null,
+            delivered_at: pkg.status === 'delivered' ? pkg.updated_at : null,
+            created_at: pkg.created_at,
+            consolidation_id: pkg.consolidation_id,
+            consolidation_status: null,
+            warehouse_location: pkg.current_location || 'China',
+            service_type: 'maritime',
+            shipment_type: 'maritime',
+            // Info específica marítimo
+            container_number: pkg.container_number || pkg.container_id,
+            bl_number: pkg.bl_number || pkg.container_bl,
+            shipping_mark: pkg.shipping_mark,
+            has_gex: pkg.has_gex || false,
+            gex_folio: pkg.gex_folio || null,
+            // Instrucciones de entrega
+            delivery_address_id: pkg.delivery_address_id || null,
+            delivery_instructions: pkg.delivery_instructions || null,
+            instructions_assigned_at: pkg.instructions_assigned_at || null
+        }));
+
+        // 3. Paquetes TDI AÉREO China (china_receipts)
+        const chinaAirResult = await pool.query(`
+            SELECT cr.*, u.full_name, u.box_id
+            FROM china_receipts cr
+            LEFT JOIN users u ON cr.user_id = u.id
+            WHERE cr.user_id = $1
+            ORDER BY cr.created_at DESC
+        `, [userId]);
+
+        const chinaAirPackages = chinaAirResult.rows.map(pkg => ({
+            id: pkg.id + 200000, // Offset para evitar colisión de IDs
+            tracking_internal: pkg.fno,
+            tracking_provider: pkg.international_tracking || null,
+            description: `Aéreo China - ${pkg.total_qty || 1} cajas`,
+            weight: pkg.total_weight ? parseFloat(pkg.total_weight) : null,
+            volume: pkg.total_cbm ? parseFloat(pkg.total_cbm) : null,
+            dimensions: null,
+            declared_value: null,
+            status: pkg.status,
+            statusLabel: getChinaAirStatusLabel(pkg.status),
+            carrier: 'Aéreo China',
+            destination_city: 'CEDIS MTY',
+            destination_country: 'MX',
+            image_url: pkg.evidence_urls && pkg.evidence_urls.length > 0 ? pkg.evidence_urls[0] : null,
+            is_master: false,
+            total_boxes: pkg.total_qty || 1,
+            received_at: pkg.created_at,
+            delivered_at: pkg.status === 'delivered' ? pkg.updated_at : null,
+            created_at: pkg.created_at,
+            consolidation_id: null,
+            consolidation_status: null,
+            warehouse_location: pkg.status === 'received_origin' ? 'China' : 'En Tránsito',
+            service_type: 'china_air',
+            shipment_type: 'china_air',
+            shipping_mark: pkg.shipping_mark,
+            // 🛡️ GEX - Garantía Extendida
+            has_gex: pkg.has_gex || false,
+            gex_folio: pkg.gex_folio || null
+        }));
+
+        // Combinar todos los tipos
+        const allPackages = [...airPackages, ...maritimePackages, ...chinaAirPackages];
+        
+        // Ordenar por fecha de creación
+        allPackages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+        res.json(allPackages);
     } catch (error) {
         console.error('Error al obtener mis paquetes:', error);
         res.status(500).json({ error: 'Error al obtener mis paquetes' });

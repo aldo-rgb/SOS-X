@@ -28,6 +28,7 @@ const GREEN = '#4CAF50';
 type RootStackParamList = {
   Login: undefined;
   Register: undefined;
+  ExistingClient: undefined;
   Verification: { user: any; token: string };
   Home: { user: any; token: string };
 };
@@ -343,6 +344,25 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
               Ingresar
             </Button>
           </View>
+
+          {/* Link para clientes existentes */}
+          <Divider style={{ marginBottom: 15 }} />
+          <Surface style={styles.existingClientCard} elevation={1}>
+            <Text style={styles.existingClientTitle}>
+              📦 ¿Ya tienes número de cliente?
+            </Text>
+            <Text style={styles.existingClientSubtitle}>
+              Si ya eras cliente de EntregaX antes, activa tu cuenta aquí
+            </Text>
+            <Button
+              mode="outlined"
+              onPress={() => navigation.navigate('ExistingClient')}
+              style={styles.existingClientButton}
+              labelStyle={{ color: ORANGE }}
+            >
+              Activar cuenta existente
+            </Button>
+          </Surface>
         </ScrollView>
       </Surface>
     </KeyboardAvoidingView>
@@ -447,5 +467,27 @@ const styles = StyleSheet.create({
   },
   loginLinkText: {
     color: '#666',
+  },
+  existingClientCard: {
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 30,
+    backgroundColor: '#FFF8E1',
+    borderWidth: 1,
+    borderColor: '#FFE082',
+  },
+  existingClientTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: BLACK,
+    marginBottom: 4,
+  },
+  existingClientSubtitle: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 12,
+  },
+  existingClientButton: {
+    borderColor: ORANGE,
   },
 });

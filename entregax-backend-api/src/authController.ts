@@ -181,7 +181,16 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
                 role: user.role,
                 phone: user.phone,
                 isVerified: user.is_verified || false,
-                verificationStatus: user.verification_status || 'not_started'
+                verificationStatus: user.verification_status || 'not_started',
+                // 👷 Campo para onboarding de empleados
+                isEmployeeOnboarded: user.is_employee_onboarded || false,
+                // Campos financieros para mostrar en App
+                walletBalance: parseFloat(user.wallet_balance) || 0,
+                virtualClabe: user.virtual_clabe || null,
+                hasCredit: user.has_credit || false,
+                creditLimit: parseFloat(user.credit_limit) || 0,
+                usedCredit: parseFloat(user.used_credit) || 0,
+                isCreditBlocked: user.is_credit_blocked || false
             },
             access: {
                 token,
@@ -238,6 +247,7 @@ export const ROLES = {
     CUSTOMER_SERVICE: 'customer_service', // Servicio a cliente
     COUNTER_STAFF: 'counter_staff',    // Personal de mostrador
     WAREHOUSE_OPS: 'warehouse_ops',    // Operaciones de bodega
+    REPARTIDOR: 'repartidor',          // Repartidor / Delivery driver
     CLIENT: 'client'                   // Cliente final
 } as const;
 
@@ -250,6 +260,7 @@ const ROLE_HIERARCHY: Record<string, number> = {
     [ROLES.CUSTOMER_SERVICE]: 70,
     [ROLES.COUNTER_STAFF]: 60,
     [ROLES.WAREHOUSE_OPS]: 40,
+    [ROLES.REPARTIDOR]: 35,
     [ROLES.CLIENT]: 10
 };
 
@@ -262,6 +273,7 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     [ROLES.CUSTOMER_SERVICE]: ['clients:*', 'support:*', 'crm:*', 'quotes:read'], // Servicio a cliente
     [ROLES.COUNTER_STAFF]: ['shipments:read', 'shipments:create', 'quotes:*', 'clients:read'],
     [ROLES.WAREHOUSE_OPS]: ['shipments:read', 'shipments:update_status', 'inventory:*'],
+    [ROLES.REPARTIDOR]: ['deliveries:*', 'shipments:read', 'shipments:update_status'], // Entregas
     [ROLES.CLIENT]: ['profile:read', 'profile:update', 'shipments:own', 'quotes:own']
 };
 
@@ -756,3 +768,83 @@ export const assignAdvisor = async (req: Request, res: Response): Promise<void> 
         res.status(500).json({ error: 'Error al asignar asesor' });
     }
 };
+
+// ============ ACTUALIZAR USUARIO (Admin) ============
+export const updateUser = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { id } = req.params;
+        const { full_name, email, role, box_id, phone } = req.body;
+
+        if (!id) {
+            res.status(400).json({ error: 'ID de usuario requerido' });
+            return;
+        }
+
+        // Verificar que el usuario existe
+        const userCheck = await pool.query('SELECT id, role FROM users WHERE id = $1', [id]);
+        if (userCheck.rows.length === 0) {
+            res.status(404).json({ error: 'Usuario no encontrado' });
+            return;
+        }
+
+        // Construir query dinámicamente según campos proporcionados
+        const updates: string[] = [];
+        const values: any[] = [];
+        let paramCount = 1;
+
+        if (full_name !== undefined) {
+            updates.push(`full_name = $${paramCount++}`);
+            values.push(full_name);
+        }
+        if (email !== undefined) {
+            updates.push(`email = $${paramCount++}`);
+            values.push(email);
+        }
+        if (role !== undefined) {
+            // Validar que sea un rol válido
+            const validRoles = ['super_admin', 'admin', 'director', 'branch_manager', 'customer_service', 
+                               'counter_staff', 'warehouse_ops', 'advisor', 'sub_advisor', 'repartidor', 'client'];
+            if (!validRoles.includes(role)) {
+                res.status(400).json({ error: 'Rol no válido' });
+                return;
+            }
+            updates.push(`role = $${paramCount++}`);
+            values.push(role);
+        }
+        if (box_id !== undefined) {
+            updates.push(`box_id = $${paramCount++}`);
+            values.push(box_id);
+        }
+        if (phone !== undefined) {
+            updates.push(`phone = $${paramCount++}`);
+            values.push(phone);
+        }
+
+        if (updates.length === 0) {
+            res.status(400).json({ error: 'No se proporcionaron campos para actualizar' });
+            return;
+        }
+
+        // Agregar ID al final de los valores
+        values.push(id);
+
+        const query = `
+            UPDATE users 
+            SET ${updates.join(', ')}
+            WHERE id = $${paramCount}
+            RETURNING id, full_name, email, role, box_id, phone, created_at
+        `;
+
+        const result = await pool.query(query, values);
+
+        res.json({ 
+            success: true,
+            message: 'Usuario actualizado correctamente',
+            user: result.rows[0]
+        });
+    } catch (error) {
+        console.error('Error al actualizar usuario:', error);
+        res.status(500).json({ error: 'Error al actualizar usuario' });
+    }
+};
+

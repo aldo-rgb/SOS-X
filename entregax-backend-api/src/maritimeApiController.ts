@@ -224,12 +224,29 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
         console.log(`    → Cliente no encontrado para shipping_mark: ${order.shipping_mark}`);
     }
 
+    // Buscar dirección predeterminada para servicio marítimo
+    let defaultAddressId: number | null = null;
+    if (userId) {
+        const addressResult = await pool.query(
+            `SELECT id FROM addresses 
+             WHERE user_id = $1 
+             AND (default_for_service LIKE '%maritime%' OR default_for_service LIKE '%all%')
+             ORDER BY id ASC LIMIT 1`,
+            [userId]
+        );
+        if (addressResult.rows.length > 0) {
+            defaultAddressId = addressResult.rows[0].id;
+            console.log(`    → Dirección predeterminada encontrada: ID ${defaultAddressId}`);
+        }
+    }
+
     // Insertar o actualizar la orden
     await pool.query(`
         INSERT INTO maritime_orders 
         (ordersn, user_id, shipping_mark, goods_type, goods_name, goods_num, 
-         weight, volume, api_raw_data, sync_source, synced_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'api', NOW())
+         weight, volume, api_raw_data, sync_source, synced_at,
+         delivery_address_id, instructions_assigned_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'api', NOW(), $10, $11)
         ON CONFLICT (ordersn) DO UPDATE SET
             goods_type = EXCLUDED.goods_type,
             goods_name = EXCLUDED.goods_name,
@@ -238,7 +255,10 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
             volume = EXCLUDED.volume,
             api_raw_data = EXCLUDED.api_raw_data,
             synced_at = NOW(),
-            updated_at = NOW()
+            updated_at = NOW(),
+            -- Solo actualizar dirección si no tiene una asignada manualmente
+            delivery_address_id = COALESCE(maritime_orders.delivery_address_id, EXCLUDED.delivery_address_id),
+            instructions_assigned_at = COALESCE(maritime_orders.instructions_assigned_at, EXCLUDED.instructions_assigned_at)
     `, [
         order.ordersn,
         userId,
@@ -248,7 +268,9 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
         order.goods_num,
         parseFloat(order.weight) || 0,
         parseFloat(order.volume) || 0,
-        JSON.stringify(order)
+        JSON.stringify(order),
+        defaultAddressId,
+        defaultAddressId ? new Date() : null
     ]);
 
     // Si encontramos el cliente y la orden es nueva, notificarlo
@@ -260,16 +282,19 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
         
         if (existing.rows.length === 0) {
             // Es una orden nueva, notificar al cliente
+            const addressNote = defaultAddressId 
+                ? ' Se asignó tu dirección predeterminada automáticamente.'
+                : ' Asigna una dirección de entrega desde la app.';
             await pool.query(`
                 INSERT INTO notifications (user_id, title, message, type, icon, data)
                 VALUES ($1, $2, $3, $4, $5, $6)
             `, [
                 userId,
                 '📦 Nueva Recepción Marítimo',
-                `Tu carga ${order.ordersn} ha sido recibida en bodega China. Sube tu Packing List para continuar.`,
+                `Tu carga ${order.ordersn} ha sido recibida en bodega China.${addressNote}`,
                 'info',
                 'ship',
-                JSON.stringify({ ordersn: order.ordersn, goods_num: order.goods_num })
+                JSON.stringify({ ordersn: order.ordersn, goods_num: order.goods_num, autoAssignedAddress: !!defaultAddressId })
             ]);
         }
     }
@@ -1355,6 +1380,179 @@ export const deleteMaritimeRoute = async (req: Request, res: Response): Promise<
     }
 };
 
+// ============================================
+// INSTRUCCIONES DE ENTREGA - CLIENTE
+// ============================================
+
+/**
+ * Actualiza las instrucciones de entrega de una orden marítima
+ * Endpoint para uso del cliente desde la app móvil
+ */
+export const updateDeliveryInstructions = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params; // ID de la orden marítima
+        const { deliveryAddressId, deliveryInstructions } = req.body;
+        const userId = (req as any).user.userId; // CORREGIDO: usar userId del token
+
+        console.log(`🚢 [Instrucciones Entrega] Usuario ${userId} actualizando orden ${id}`);
+
+        // Obtener el box_id del usuario actual
+        const userResult = await pool.query(`SELECT box_id FROM users WHERE id = $1`, [userId]);
+        const userBoxId = userResult.rows[0]?.box_id;
+
+        // Verificar que la orden existe y pertenece al usuario (por user_id O por shipping_mark/box_id)
+        const orderCheck = await pool.query(`
+            SELECT mo.id, mo.ordersn, mo.user_id, mo.status, mo.shipping_mark, mo.bl_client_code
+            FROM maritime_orders mo
+            WHERE mo.id = $1
+        `, [id]);
+
+        if (orderCheck.rows.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Orden marítima no encontrada' 
+            });
+        }
+
+        const order = orderCheck.rows[0];
+
+        // Verificar que pertenece al usuario por múltiples criterios:
+        // 1. user_id coincide directamente
+        // 2. shipping_mark contiene el box_id del usuario (ej: "S1" o "S1+NOMBRE")
+        // 3. bl_client_code coincide con el box_id
+        const shippingMarkBoxId = order.shipping_mark?.split('+')[0]?.trim().toUpperCase();
+        const isOwner = 
+            order.user_id === userId || 
+            (userBoxId && shippingMarkBoxId === userBoxId.toUpperCase()) ||
+            (userBoxId && order.bl_client_code?.toUpperCase() === userBoxId.toUpperCase());
+
+        if (!isOwner) {
+            console.log(`⚠️ Permiso denegado: user_id=${userId}, boxId=${userBoxId}, order.user_id=${order.user_id}, shipping_mark=${order.shipping_mark}, bl_client_code=${order.bl_client_code}`);
+            return res.status(403).json({ 
+                success: false, 
+                error: 'No tienes permiso para modificar esta orden' 
+            });
+        }
+
+        // Si la orden no tenía user_id, asignarlo ahora
+        if (!order.user_id) {
+            await pool.query(`UPDATE maritime_orders SET user_id = $1 WHERE id = $2`, [userId, id]);
+            console.log(`✅ Asignado user_id=${userId} a orden ${order.ordersn}`);
+        }
+
+        // Verificar que la dirección existe y pertenece al usuario
+        if (deliveryAddressId) {
+            const addressCheck = await pool.query(`
+                SELECT id FROM addresses 
+                WHERE id = $1 AND user_id = $2
+            `, [deliveryAddressId, userId]);
+
+            if (addressCheck.rows.length === 0) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: 'Dirección no válida' 
+                });
+            }
+        }
+
+        // Calcular costo estimado si hay dirección asignada
+        let estimatedCost = null;
+        if (deliveryAddressId) {
+            const volumeResult = await pool.query(`
+                SELECT COALESCE(volume, 0) as volume, COALESCE(weight, 0) as weight
+                FROM maritime_orders WHERE id = $1
+            `, [id]);
+
+            if (volumeResult.rows.length > 0) {
+                const { volume, weight } = volumeResult.rows[0];
+                
+                // Obtener tarifa activa
+                const rateResult = await pool.query(`
+                    SELECT cost_per_cbm, min_cbm, min_charge
+                    FROM maritime_rates 
+                    WHERE is_active = true
+                    ORDER BY created_at DESC LIMIT 1
+                `);
+
+                if (rateResult.rows.length > 0) {
+                    const rate = rateResult.rows[0];
+                    const effectiveVolume = Math.max(parseFloat(volume), parseFloat(rate.min_cbm));
+                    estimatedCost = effectiveVolume * parseFloat(rate.cost_per_cbm);
+                    estimatedCost = Math.max(estimatedCost, parseFloat(rate.min_charge));
+                }
+            }
+        }
+
+        // Actualizar la orden
+        const updateResult = await pool.query(`
+            UPDATE maritime_orders
+            SET 
+                delivery_address_id = $1,
+                delivery_instructions = $2,
+                estimated_cost = $3,
+                instructions_assigned_at = NOW(),
+                updated_at = NOW()
+            WHERE id = $4
+            RETURNING *
+        `, [deliveryAddressId, deliveryInstructions || null, estimatedCost, id]);
+
+        console.log(`✅ [Instrucciones Entrega] Orden ${order.ordersn} actualizada`);
+
+        res.json({
+            success: true,
+            message: 'Instrucciones de entrega guardadas correctamente',
+            order: updateResult.rows[0],
+            estimatedCost
+        });
+
+    } catch (error: any) {
+        console.error('Error actualizando instrucciones de entrega:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
+ * Obtiene los detalles de una orden marítima para el cliente
+ * Incluye ETA del contenedor y costo estimado
+ */
+export const getMyMaritimeOrderDetail = async (req: Request, res: Response) => {
+    try {
+        const { id } = req.params;
+        const userId = (req as any).user.userId; // CORREGIDO: usar userId del token
+
+        const result = await pool.query(`
+            SELECT 
+                mo.*,
+                a.alias as delivery_address_alias,
+                a.street as delivery_street,
+                a.city as delivery_city,
+                a.state as delivery_state,
+                c.name as container_name,
+                c.eta as container_eta
+            FROM maritime_orders mo
+            LEFT JOIN addresses a ON mo.delivery_address_id = a.id
+            LEFT JOIN containers c ON mo.container_id = c.id
+            WHERE mo.id = $1 AND mo.user_id = $2
+        `, [id, userId]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Orden no encontrada' 
+            });
+        }
+
+        res.json({
+            success: true,
+            order: result.rows[0]
+        });
+
+    } catch (error: any) {
+        console.error('Error obteniendo detalle de orden:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 export default {
     syncOrdersFromChina,
     updateOrderTracking,
@@ -1377,5 +1575,8 @@ export default {
     getMaritimeRoutes,
     createMaritimeRoute,
     updateMaritimeRoute,
-    deleteMaritimeRoute
+    deleteMaritimeRoute,
+    // Instrucciones de entrega (cliente)
+    updateDeliveryInstructions,
+    getMyMaritimeOrderDetail
 };

@@ -323,8 +323,16 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
     setCameraOpen(false);
   };
 
+  // Mapear carrier a tipo de servicio para buscar dirección predeterminada
+  const getServiceTypeFromCarrier = (selectedCarrier: string): string => {
+    // CEDIS MTY = USA, otros carriers típicos de USA
+    const usaCarriers = ['CEDIS MTY', 'FedEx', 'UPS', 'DHL'];
+    if (usaCarriers.includes(selectedCarrier)) return 'usa';
+    return 'air'; // Por defecto aéreo si no es USA
+  };
+
   // ============ BUSCAR CLIENTE E INSTRUCCIONES ============
-  const searchClientByBoxId = async (searchBoxId: string) => {
+  const searchClientByBoxId = async (searchBoxId: string, selectedCarrier?: string) => {
     if (!searchBoxId || searchBoxId.length < 2) {
       setClientInstructions(null);
       return;
@@ -332,33 +340,41 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
 
     setLoadingClient(true);
     try {
-      const response = await axios.get(`${API_URL}/client/instructions/${searchBoxId}`, {
+      // Determinar el tipo de servicio basado en el carrier seleccionado
+      const serviceType = selectedCarrier ? getServiceTypeFromCarrier(selectedCarrier) : 'usa';
+      
+      const response = await axios.get(`${API_URL}/client/instructions/${searchBoxId}?serviceType=${serviceType}`, {
         headers: { Authorization: `Bearer ${getToken()}` }
       });
       
       setClientInstructions(response.data);
       
       if (response.data.found) {
-        if (response.data.hasInstructions) {
-          // Auto-llenar con las preferencias del cliente
+        if (response.data.defaultAddress) {
+          // Auto-llenar con la dirección del cliente
+          const addr = response.data.defaultAddress;
+          setDestination({
+            country: 'México',
+            city: addr.city,
+            address: `${addr.street} ${addr.exteriorNumber || ''}${addr.interiorNumber ? ' Int. ' + addr.interiorNumber : ''}`,
+            zip: addr.zipCode,
+            phone: addr.phone || '',
+            contact: addr.recipientName || ''
+          });
+          setManualAddress(false);
+          
+          // Si tiene carrier predeterminado, usarlo
           if (response.data.preferences?.carrier) {
             setCarrier(response.data.preferences.carrier);
           }
-          if (response.data.defaultAddress) {
-            const addr = response.data.defaultAddress;
-            setDestination({
-              country: 'México',
-              city: addr.city,
-              address: `${addr.street} ${addr.exteriorNumber || ''}${addr.interiorNumber ? ' Int. ' + addr.interiorNumber : ''}`,
-              zip: addr.zipCode,
-              phone: addr.phone || '',
-              contact: addr.recipientName || ''
-            });
-          }
-          setSnackbar({ open: true, message: '✅ Cliente encontrado con instrucciones pre-configuradas', severity: 'success' });
+          
+          const serviceLabel = addr.defaultForService 
+            ? ` (predeterminada para: ${addr.defaultForService})`
+            : ' (predeterminada)';
+          setSnackbar({ open: true, message: `✅ Cliente encontrado con dirección${serviceLabel}`, severity: 'success' });
         } else {
           setManualAddress(true);
-          setSnackbar({ open: true, message: '⚠️ Cliente encontrado pero sin instrucciones. Debe configurar destino.', severity: 'warning' as 'success' | 'error' });
+          setSnackbar({ open: true, message: '⚠️ Cliente encontrado pero sin dirección predeterminada. Configure el destino.', severity: 'warning' as 'success' | 'error' });
         }
       }
     } catch (error: unknown) {
@@ -1183,7 +1199,7 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                       />
                       <Button 
                         variant="contained" 
-                        onClick={() => searchClientByBoxId(boxId)}
+                        onClick={() => searchClientByBoxId(boxId, carrier)}
                         disabled={!boxId || loadingClient}
                         sx={{ px: 4, background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)` }}
                       >

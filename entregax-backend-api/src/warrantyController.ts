@@ -488,6 +488,7 @@ export const createWarrantyByUser = async (req: AuthRequest, res: Response): Pro
         const userId = req.user?.userId;
         const { 
             packageId,
+            serviceType,
             boxCount, 
             weight, 
             invoiceValueUSD, 
@@ -549,12 +550,34 @@ export const createWarrantyByUser = async (req: AuthRequest, res: Response): Pro
              signature, fxRate, insuredValueMxn, variableFee, fixedFee, totalCost, gexRates.fixedFee, initialStatus]
         );
         
-        // Si tiene packageId, actualizar el paquete para indicar que tiene GEX
+        // Si tiene packageId, actualizar el paquete/orden para indicar que tiene GEX
         if (packageId) {
-            await pool.query(
-                'UPDATE packages SET has_gex = true, gex_folio = $1 WHERE id = $2',
-                [gexFolio, packageId]
-            );
+            // Determinar tipo de servicio
+            const isMaritimeOrder = serviceType === 'SEA_CHN_MX' || route?.includes('Marítimo');
+            const isChinaAirOrder = serviceType === 'china_air' || route?.includes('Aéreo');
+            
+            if (isChinaAirOrder) {
+                // Actualizar china_receipts (TDI Aéreo China)
+                await pool.query(
+                    'UPDATE china_receipts SET has_gex = true, gex_folio = $1 WHERE id = $2',
+                    [gexFolio, packageId]
+                );
+                console.log(`✈️🇨🇳 China receipt ${packageId} actualizado con GEX: ${gexFolio}`);
+            } else if (isMaritimeOrder) {
+                // Actualizar maritime_orders
+                await pool.query(
+                    'UPDATE maritime_orders SET has_gex = true, gex_folio = $1 WHERE id = $2',
+                    [gexFolio, packageId]
+                );
+                console.log(`📦 Maritime order ${packageId} actualizada con GEX: ${gexFolio}`);
+            } else {
+                // Actualizar packages (USA)
+                await pool.query(
+                    'UPDATE packages SET has_gex = true, gex_folio = $1 WHERE id = $2',
+                    [gexFolio, packageId]
+                );
+                console.log(`📦 Package ${packageId} actualizado con GEX: ${gexFolio}`);
+            }
         }
         
         res.status(201).json({ 

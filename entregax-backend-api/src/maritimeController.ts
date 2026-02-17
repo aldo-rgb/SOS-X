@@ -672,3 +672,171 @@ export const uploadCostPdf = async (req: AuthRequest, res: Response): Promise<an
     res.status(500).json({ error: 'Error al subir archivo: ' + error.message });
   }
 };
+
+// ========== TARIFAS MARÍTIMAS ==========
+
+// Obtener todas las tarifas
+export const getMaritimeRates = async (_req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const result = await pool.query(`
+      SELECT * FROM maritime_rates 
+      ORDER BY is_active DESC, rate_name ASC
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching maritime rates:', error);
+    res.status(500).json({ error: 'Error al obtener tarifas' });
+  }
+};
+
+// Obtener tarifa activa (para cálculos)
+export const getActiveMaritimeRate = async (_req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const result = await pool.query(`
+      SELECT * FROM maritime_rates 
+      WHERE is_active = true 
+      ORDER BY id ASC 
+      LIMIT 1
+    `);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'No hay tarifa activa configurada' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error fetching active rate:', error);
+    res.status(500).json({ error: 'Error al obtener tarifa activa' });
+  }
+};
+
+// Crear tarifa
+export const createMaritimeRate = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { rateName, costPerCbm, costPerKg, minCbm, minCharge, appliesTo, notes } = req.body;
+    
+    if (!rateName || !costPerCbm) {
+      return res.status(400).json({ error: 'Nombre y costo por CBM son requeridos' });
+    }
+    
+    const result = await pool.query(`
+      INSERT INTO maritime_rates (rate_name, cost_per_cbm, cost_per_kg, min_cbm, min_charge, applies_to, notes)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+    `, [rateName, costPerCbm, costPerKg || 0, minCbm || 0, minCharge || 0, appliesTo || 'all', notes || null]);
+    
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Error creating maritime rate:', error);
+    res.status(500).json({ error: 'Error al crear tarifa' });
+  }
+};
+
+// Actualizar tarifa
+export const updateMaritimeRate = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const { rateName, costPerCbm, costPerKg, minCbm, minCharge, appliesTo, isActive, notes } = req.body;
+    
+    const result = await pool.query(`
+      UPDATE maritime_rates SET
+        rate_name = COALESCE($1, rate_name),
+        cost_per_cbm = COALESCE($2, cost_per_cbm),
+        cost_per_kg = COALESCE($3, cost_per_kg),
+        min_cbm = COALESCE($4, min_cbm),
+        min_charge = COALESCE($5, min_charge),
+        applies_to = COALESCE($6, applies_to),
+        is_active = COALESCE($7, is_active),
+        notes = COALESCE($8, notes),
+        updated_at = NOW()
+      WHERE id = $9
+      RETURNING *
+    `, [rateName, costPerCbm, costPerKg, minCbm, minCharge, appliesTo, isActive, notes, id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Tarifa no encontrada' });
+    }
+    
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating maritime rate:', error);
+    res.status(500).json({ error: 'Error al actualizar tarifa' });
+  }
+};
+
+// Eliminar tarifa
+export const deleteMaritimeRate = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    
+    const result = await pool.query('DELETE FROM maritime_rates WHERE id = $1 RETURNING id', [id]);
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Tarifa no encontrada' });
+    }
+    
+    res.json({ message: 'Tarifa eliminada', id: result.rows[0].id });
+  } catch (error) {
+    console.error('Error deleting maritime rate:', error);
+    res.status(500).json({ error: 'Error al eliminar tarifa' });
+  }
+};
+
+// Calcular costo estimado de un paquete marítimo
+export const calculateShipmentCost = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { volume, weight } = req.body;
+    
+    if (!volume && !weight) {
+      return res.status(400).json({ error: 'Se requiere volumen o peso' });
+    }
+    
+    // Obtener tarifa activa
+    const rateResult = await pool.query(`
+      SELECT * FROM maritime_rates WHERE is_active = true ORDER BY id ASC LIMIT 1
+    `);
+    
+    if (rateResult.rows.length === 0) {
+      return res.status(404).json({ error: 'No hay tarifa activa configurada' });
+    }
+    
+    const rate = rateResult.rows[0];
+    const cbm = parseFloat(volume) || 0;
+    const kg = parseFloat(weight) || 0;
+    
+    // Calcular costo por CBM
+    let costByCbm = cbm * parseFloat(rate.cost_per_cbm);
+    
+    // Aplicar mínimo de CBM si es necesario
+    if (cbm < parseFloat(rate.min_cbm)) {
+      costByCbm = parseFloat(rate.min_cbm) * parseFloat(rate.cost_per_cbm);
+    }
+    
+    // Calcular costo por peso (si aplica)
+    const costByWeight = kg * parseFloat(rate.cost_per_kg);
+    
+    // El costo final es el mayor entre CBM y peso
+    let estimatedCost = Math.max(costByCbm, costByWeight);
+    
+    // Aplicar cargo mínimo si es necesario
+    if (estimatedCost < parseFloat(rate.min_charge)) {
+      estimatedCost = parseFloat(rate.min_charge);
+    }
+    
+    res.json({
+      volume: cbm,
+      weight: kg,
+      costPerCbm: parseFloat(rate.cost_per_cbm),
+      costPerKg: parseFloat(rate.cost_per_kg),
+      costByCbm,
+      costByWeight,
+      minCharge: parseFloat(rate.min_charge),
+      estimatedCost: Math.round(estimatedCost * 100) / 100,
+      currency: 'MXN',
+      rateName: rate.rate_name
+    });
+  } catch (error) {
+    console.error('Error calculating shipment cost:', error);
+    res.status(500).json({ error: 'Error al calcular costo' });
+  }
+};

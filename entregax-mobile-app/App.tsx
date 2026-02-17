@@ -8,6 +8,7 @@ import './src/i18n';
 
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
+import ExistingClientScreen from './src/screens/ExistingClientScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import ConsolidationSummary from './src/screens/ConsolidationSummary';
 import PaymentScreen from './src/screens/PaymentScreen';
@@ -20,12 +21,17 @@ import GEXContractScreen from './src/screens/GEXContractScreen';
 import RequestAdvisorScreen from './src/screens/RequestAdvisorScreen';
 import SupportChatScreen from './src/screens/SupportChatScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
+import DeliveryInstructionsScreen from './src/screens/DeliveryInstructionsScreen';
+import MaritimeDetailScreen from './src/screens/MaritimeDetailScreen';
+import MyPaymentsScreen from './src/screens/MyPaymentsScreen';
+import EmployeeOnboardingScreen from './src/screens/EmployeeOnboardingScreen';
 import { Package } from './src/services/api';
 
 // Tipos para navegación
 export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
+  ExistingClient: undefined;
   ChangePassword: { user: any; token: string; currentPassword: string };
   Verification: { user: any; token: string };
   Home: { user: any; token: string };
@@ -38,6 +44,10 @@ export type RootStackParamList = {
   RequestAdvisor: { user: any; token: string };
   SupportChat: { user: any; token: string };
   Notifications: { user: any; token: string };
+  DeliveryInstructions: { package: Package; packages?: Package[]; user: any; token: string };
+  MaritimeDetail: { package: Package; user: any; token: string };
+  MyPayments: { user: any; token: string };
+  EmployeeOnboarding: { user: any; token: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -65,6 +75,7 @@ export default function App() {
         >
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
+          <Stack.Screen name="ExistingClient" component={ExistingClientScreen} />
           <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
           <Stack.Screen name="Verification" component={VerificationScreen} />
           <Stack.Screen name="Home" component={HomeScreen} />
@@ -103,6 +114,22 @@ export default function App() {
           <Stack.Screen 
             name="Notifications" 
             component={NotificationsScreen}
+          />
+          <Stack.Screen 
+            name="DeliveryInstructions" 
+            component={DeliveryInstructionsScreen}
+          />
+          <Stack.Screen 
+            name="MaritimeDetail" 
+            component={MaritimeDetailScreen}
+          />
+          <Stack.Screen 
+            name="MyPayments" 
+            component={MyPaymentsScreen}
+          />
+          <Stack.Screen 
+            name="EmployeeOnboarding" 
+            component={EmployeeOnboardingScreen}
           />
         </Stack.Navigator>
       </NavigationContainer>

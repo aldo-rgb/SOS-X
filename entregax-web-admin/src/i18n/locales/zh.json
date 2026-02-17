@@ -51,6 +51,11 @@
     "support": "客服支持 🎧",
     "clients": "用户",
     "panels": "工具",
+    "panelsAdmin": "管理",
+    "panelsOperations": "运营",
+    "panelsService": "客户服务",
+    "panelsHR": "人力资源",
+    "panelsFleet": "车队管理",
     "shipments": "运单",
     "consolidations": "出库",
     "quotes": "报价",
@@ -540,7 +545,15 @@
       "verifications": "KYC验证",
       "consolidations": "拼柜",
       "customs": "海关清关",
-      "coverage": "覆盖范围"
+      "coverage": "覆盖范围",
+      "inventory": "库存",
+      "inbound_emails": "海运邮件",
+      "maritime_api": "中国海运API",
+      "air_api": "中国空运API",
+      "routes": "路线",
+      "last_mile": "最后一公里",
+      "dhl_rates": "DHL费率",
+      "dhl_operations": "DHL操作"
     },
     "moduleFeatures": {
       "clients": {

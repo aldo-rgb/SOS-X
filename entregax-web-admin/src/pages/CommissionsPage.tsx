@@ -115,6 +115,7 @@ export default function CommissionsPage() {
   const [newAdvisor, setNewAdvisor] = useState({ 
     full_name: '', 
     email: '', 
+    phone: '',
     password: '',
     role: 'asesor',
     leader_id: '' as string | number
@@ -169,7 +170,7 @@ export default function CommissionsPage() {
   };
 
   const handleCreateAdvisor = async () => {
-    if (!newAdvisor.full_name || !newAdvisor.email || !newAdvisor.password) {
+    if (!newAdvisor.full_name || !newAdvisor.email || !newAdvisor.phone || !newAdvisor.password) {
       setSnackbar({ open: true, message: 'Por favor completa todos los campos', severity: 'error' });
       return;
     }
@@ -180,7 +181,7 @@ export default function CommissionsPage() {
       });
       setSnackbar({ open: true, message: 'Asesor creado exitosamente', severity: 'success' });
       setOpenModal(false);
-      setNewAdvisor({ full_name: '', email: '', password: '', role: 'asesor', leader_id: '' });
+      setNewAdvisor({ full_name: '', email: '', phone: '', password: '', role: 'asesor', leader_id: '' });
       loadData();
     } catch (error) {
       console.error('Error creating advisor:', error);
@@ -543,6 +544,14 @@ export default function CommissionsPage() {
               value={newAdvisor.email}
               onChange={(e) => setNewAdvisor({ ...newAdvisor, email: e.target.value })}
               fullWidth required
+            />
+            <TextField
+              label={i18n.language === 'es' ? 'Teléfono / WhatsApp' : 'Phone / WhatsApp'}
+              value={newAdvisor.phone}
+              onChange={(e) => setNewAdvisor({ ...newAdvisor, phone: e.target.value.replace(/[^0-9]/g, '') })}
+              fullWidth required
+              inputProps={{ maxLength: 10 }}
+              placeholder="10 dígitos"
             />
             <TextField
               label={i18n.language === 'es' ? 'Contraseña' : 'Password'}

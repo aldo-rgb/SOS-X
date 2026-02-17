@@ -20,7 +20,6 @@ import {
   Surface,
   Avatar,
   Icon,
-  Checkbox,
   Divider,
 } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -29,6 +28,7 @@ import { getMyPackagesApi, Package } from '../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { changeLanguage, getCurrentLanguage } from '../i18n';
+import OpportunityCarousel, { Opportunity } from '../components/OpportunityCarousel';
 
 // Colores de marca
 const ORANGE = '#F05A28';
@@ -36,12 +36,23 @@ const BLACK = '#111111';
 
 // Colores de estado
 const STATUS_COLORS: Record<string, string> = {
+  // Aéreos (USA)
   received: '#2196F3',      // Azul - Recibido en casillero
   in_transit: '#F05A28',    // Naranja - En tránsito
   processing: '#9C27B0',    // Morado - Procesando envío
   shipped: '#00BCD4',       // Cyan - Vuelo confirmado
   delivered: '#4CAF50',     // Verde - Entregado
   pending: '#FFC107',       // Amarillo - Pendiente
+  // Marítimos (China)
+  received_china: '#1976D2', // Azul oscuro - Recibido en China
+  at_port: '#0277BD',        // Azul puerto
+  customs_mx: '#7B1FA2',     // Morado aduana
+  in_transit_mx: '#E65100',  // Naranja ruta
+  received_cedis: '#388E3C', // Verde CEDIS
+  ready_pickup: '#00796B',   // Teal listo
+  // ✈️🇨🇳 TDI Aéreo China
+  received_origin: '#1976D2', // Azul oscuro - En Bodega China
+  at_customs: '#7B1FA2',      // Morado aduana
 };
 
 // STATUS_LABELS se define dentro del componente usando t()
@@ -58,6 +69,9 @@ type RootStackParamList = {
   RequestAdvisor: { user: any; token: string };
   SupportChat: { user: any; token: string };
   Notifications: { user: any; token: string };
+  DeliveryInstructions: { package: Package; packages?: Package[]; user: any; token: string };
+  MaritimeDetail: { package: Package; user: any; token: string };
+  EmployeeOnboarding: { user: any; token: string };
 };
 
 type HomeScreenProps = {
@@ -75,14 +89,54 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const [showMenu, setShowMenu] = useState(false); // 📱 Menú de opciones
   const [showLanguageModal, setShowLanguageModal] = useState(false); // 🌐 Modal de idioma
   const [currentLang, setCurrentLang] = useState(getCurrentLanguage());
+  const [serviceFilter, setServiceFilter] = useState<'air' | 'maritime' | 'usa' | null>(null); // 🎯 Filtro de servicio (null = todos)
 
   // 🔐 Verificar si el usuario está verificado
   const isUserVerified = user.isVerified === true;
   const verificationStatus = user.verificationStatus || 'not_started';
   const isPendingReview = verificationStatus === 'pending_review';
 
+  // 👷 Detectar si es empleado (no requiere verificación de cliente)
+  const employeeRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager'];
+  const isEmployee = employeeRoles.includes(user.role);
+  const isEmployeeOnboarded = user.isEmployeeOnboarded === true;
+  
+  // Los empleados no necesitan verificación de cliente, solo onboarding de empleado
+  const needsEmployeeOnboarding = isEmployee && !isEmployeeOnboarded;
+
   // 📦 Función para obtener el label de status traducido
-  const getStatusLabel = (status: string): string => {
+  const getStatusLabel = (status: string, shipmentType?: string): string => {
+    // Si es marítimo, usar labels específicos
+    if (shipmentType === 'maritime') {
+      const maritimeLabels: Record<string, string> = {
+        received_china: '📦 Recibido en China',
+        in_transit: '🚢 Ya Zarpó',
+        at_port: '⚓ En Puerto',
+        customs_mx: '🛃 Aduana México',
+        in_transit_mx: '🚛 En Ruta a CEDIS',
+        received_cedis: '✅ En CEDIS',
+        ready_pickup: '📍 Listo para Recoger',
+        delivered: '✅ Entregado',
+      };
+      return maritimeLabels[status] || status;
+    }
+    
+    // ✈️🇨🇳 Labels para TDI Aéreo China
+    if (shipmentType === 'china_air') {
+      const chinaAirLabels: Record<string, string> = {
+        received_origin: '📦 En Bodega China',
+        in_transit: '✈️ En Tránsito',
+        at_customs: '🛃 En Aduana',
+        customs_mx: '🛃 Aduana México',
+        in_transit_mx: '🚛 En Ruta a CEDIS',
+        received_cedis: '✅ En CEDIS',
+        ready_pickup: '📍 Listo para Recoger',
+        delivered: '✅ Entregado',
+      };
+      return chinaAirLabels[status] || status;
+    }
+    
+    // Labels para aéreo (USA)
     const statusLabels: Record<string, string> = {
       received: t('status.inWarehouse'),
       in_transit: t('status.inTransit'),
@@ -134,24 +188,61 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     setShowLanguageModal(false);
   };
 
-  // 🔥 Lógica de Selección (Toggle) - Solo si está verificado
-  const toggleSelection = (id: number) => {
-    if (!isUserVerified) {
-      Alert.alert(
-        isPendingReview ? `⏳ ${t('home.profileInReview')}` : `⚠️ ${t('home.verificationRequired')}`,
-        isPendingReview 
-          ? t('home.profileInReviewMsg')
-          : t('home.verificationRequiredMsg'),
-        [{ text: t('home.understood'), style: 'default' }]
-      );
+  // 🔥 Lógica de Selección (Toggle) - Solo si está verificado (o empleado onboarded)
+  // No permite mezclar paquetes USA con marítimos
+  const toggleSelection = (id: number, isMaritime: boolean) => {
+    // Los empleados que completaron onboarding pueden operar sin verificación de cliente
+    const canOperate = isEmployee ? isEmployeeOnboarded : isUserVerified;
+    
+    if (!canOperate) {
+      if (needsEmployeeOnboarding) {
+        Alert.alert(
+          '👷 Alta de Empleado Requerida',
+          'Necesitas completar tu alta como empleado para continuar.',
+          [
+            { text: 'Cancelar', style: 'cancel' },
+            { 
+              text: 'Completar Alta', 
+              onPress: () => navigation.navigate('EmployeeOnboarding', { user, token })
+            }
+          ]
+        );
+      } else {
+        Alert.alert(
+          isPendingReview ? `⏳ ${t('home.profileInReview')}` : `⚠️ ${t('home.verificationRequired')}`,
+          isPendingReview 
+            ? t('home.profileInReviewMsg')
+            : t('home.verificationRequiredMsg'),
+          [{ text: t('home.understood'), style: 'default' }]
+        );
+      }
       return;
     }
     
+    // Si ya está seleccionado, deseleccionar
     if (selectedIds.includes(id)) {
       setSelectedIds(selectedIds.filter(itemId => itemId !== id));
-    } else {
-      setSelectedIds([...selectedIds, id]);
+      return;
     }
+    
+    // Si ya hay paquetes seleccionados, verificar que sean del mismo tipo
+    if (selectedIds.length > 0) {
+      const firstSelectedPkg = packages.find(p => selectedIds.includes(p.id));
+      const firstIsMaritime = (firstSelectedPkg as any)?.shipment_type === 'maritime';
+      
+      if (firstIsMaritime !== isMaritime) {
+        Alert.alert(
+          '⚠️ No puedes mezclar envíos',
+          isMaritime 
+            ? 'Ya tienes paquetes USA seleccionados. Deselecciónalos primero para seleccionar paquetes marítimos.'
+            : 'Ya tienes paquetes marítimos seleccionados. Deselecciónalos primero para seleccionar paquetes USA.',
+          [{ text: 'Entendido', style: 'default' }]
+        );
+        return;
+      }
+    }
+    
+    setSelectedIds([...selectedIds, id]);
   };
 
   // 🔥 Navegar a Consolidación - Solo si está verificado
@@ -174,26 +265,79 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     });
   };
 
+  // 🚢 Navegar a Instrucciones Marítimas (múltiples paquetes)
+  const handleMaritimeInstructions = () => {
+    if (!isUserVerified) {
+      Alert.alert(
+        `🔒 ${t('home.actionNotAllowed')}`,
+        t('home.actionNotAllowedMsg'),
+        [{ text: t('home.understood'), style: 'default' }]
+      );
+      return;
+    }
+    
+    const selectedPackages = packages.filter(p => selectedIds.includes(p.id));
+    
+    // Navegar directamente a la pantalla de instrucciones con todos los paquetes
+    navigation.navigate('DeliveryInstructions', {
+      package: selectedPackages[0],
+      packages: selectedPackages,
+      user,
+      token,
+    });
+  };
+
   const renderPackageCard = ({ item }: { item: Package }) => {
     const statusColor = STATUS_COLORS[item.status] || '#999';
-    // Usar statusLabel traducido
-    const statusLabel = getStatusLabel(item.status);
+    // Usar statusLabel traducido - pasar shipment_type para diferenciar marítimo
+    const statusLabel = getStatusLabel(item.status, item.shipment_type);
     
-    // Solo permitimos seleccionar si está "received" (En Bodega) Y usuario verificado
-    const isSelectable = item.status === 'received' && isUserVerified;
+    // Es paquete marítimo?
+    const isMaritime = item.shipment_type === 'maritime';
+    
+    // ✈️🇨🇳 Es paquete TDI Aéreo China?
+    const isChinaAir = item.shipment_type === 'china_air';
+    
+    // ¿Ya tiene instrucciones de entrega asignadas?
+    const hasDeliveryInstructions = !!(item as any).delivery_address_id;
+    
+    // Solo permitimos seleccionar paquetes en bodega (USA) o recibidos en China (marítimo/china_air) Y usuario verificado
+    // Para marítimos/china_air: NO seleccionable si ya tiene instrucciones asignadas
+    const isSelectable = isUserVerified && (
+      (!isMaritime && !isChinaAir && item.status === 'received') || 
+      (isMaritime && ['received_china', 'in_transit', 'at_port'].includes(item.status) && !hasDeliveryInstructions) ||
+      (isChinaAir && ['received_origin', 'in_transit', 'at_customs'].includes(item.status) && !hasDeliveryInstructions)
+    );
     const isSelected = selectedIds.includes(item.id);
     
     // Paquete ya fue despachado (vuelo confirmado)
     const isShipped = item.status === 'shipped' || item.consolidation_status === 'shipped';
     
-    // 🛡️ Mostrar botón GEX solo si está en bodega o procesando (NO en tránsito, shipped, delivered)
-    const canContractGEX = ['received', 'processing'].includes(item.status) && 
-                           item.consolidation_status !== 'in_transit' &&
-                           item.consolidation_status !== 'shipped';
+    // 🛡️ Mostrar botón GEX - siempre visible para paquetes elegibles
+    // Si ya tiene GEX, mostrar botón verde
+    // Marítimo: si está recibido en China (antes de zarpar) o si ya tiene GEX
+    // Aéreo USA: si está en bodega o procesando
+    // ✈️🇨🇳 China Air: si está en bodega China (received_origin)
+    const canContractGEX = item.has_gex || (isMaritime 
+      ? (item.status === 'received_china') // Marítimo: puede contratar antes de zarpar
+      : isChinaAir
+        ? (item.status === 'received_origin') // ✈️🇨🇳 China Air: puede contratar en bodega China
+        : (['received', 'processing'].includes(item.status) && 
+           item.consolidation_status !== 'in_transit' &&
+           item.consolidation_status !== 'shipped'));
 
     const handlePress = () => {
-      if (item.status === 'received') {
-        toggleSelection(item.id);
+      // Si es marítimo o china_air con instrucciones asignadas, navegar a detalle del embarque
+      if ((isMaritime || isChinaAir) && hasDeliveryInstructions) {
+        navigation.navigate('MaritimeDetail', {
+          package: item,
+          user,
+          token,
+        });
+        return;
+      }
+      if (isSelectable) {
+        toggleSelection(item.id, isMaritime || isChinaAir);
       }
     };
     
@@ -205,6 +349,23 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         token,
       });
     };
+
+    // 🚢✈️ Navegar a instrucciones de entrega (marítimo y china_air)
+    const handleDeliveryInstructions = () => {
+      navigation.navigate('DeliveryInstructions', {
+        package: item,
+        user,
+        token,
+      });
+    };
+
+    // 🚢✈️ Mostrar botón de instrucciones para paquetes marítimos y china_air (solo cuando está seleccionado)
+    // Solo mostrar si NO ha asignado dirección todavía
+    const canAssignDelivery = isSelected && (isMaritime || isChinaAir) && 
+      (isMaritime 
+        ? ['received_china', 'in_transit', 'at_port'].includes(item.status)
+        : ['received_origin', 'in_transit', 'at_customs'].includes(item.status)) &&
+      !(item as any).delivery_address_id;
 
     return (
       <Pressable 
@@ -220,33 +381,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             isShipped && styles.cardShipped // Estilo especial para despachados
           ]} 
         >
-          {/* 📷 FOTO DEL PAQUETE (Si existe) */}
-          {item.image_url ? (
-            <Card.Cover 
-              source={{ uri: item.image_url }} 
-              style={styles.cardImage}
-              resizeMode="cover"
-            />
-          ) : (
-            <View style={styles.noImageContainer}>
-              <Icon source="camera-off" size={24} color="#ccc" />
-              <Text style={styles.noImageText}>{t('home.noPhoto')}</Text>
-            </View>
-          )}
-
           <Card.Content style={styles.cardContent}>
             <View style={styles.cardRow}>
-              {/* 🔲 Checkbox (solo si es seleccionable) */}
-              {isSelectable && (
-                <View style={styles.checkboxContainer}>
-                  <Checkbox
-                    status={isSelected ? 'checked' : 'unchecked'}
-                    color={ORANGE}
-                    onPress={() => toggleSelection(item.id)}
-                  />
-                </View>
-              )}
-
               <View style={styles.cardMainContent}>
                 {/* Header del paquete */}
                 <View style={styles.cardHeader}>
@@ -256,17 +392,50 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     </Text>
                     <Text style={styles.trackingNumber}>TRN: {item.tracking_internal}</Text>
                   </View>
+                  
+                  {/* 🔲 Checkbox para paquetes seleccionables (esquina superior derecha) */}
+                  {isSelectable && (
+                    <Pressable 
+                      style={[
+                        styles.packageCheckbox,
+                        isSelected && styles.packageCheckboxSelected
+                      ]}
+                      onPress={() => toggleSelection(item.id, isMaritime)}
+                    >
+                      <Icon 
+                        source={isSelected ? "checkbox-marked" : "checkbox-blank-outline"} 
+                        size={24} 
+                        color={isSelected ? ORANGE : '#999'} 
+                      />
+                    </Pressable>
+                  )}
                 </View>
                 
                 {/* Chip de Estado */}
                 <View style={styles.statusRow}>
                   <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
                     <Icon 
-                      source={item.status === 'in_transit' ? 'airplane' : 
-                              item.status === 'received' ? 'package-variant' :
-                              item.status === 'shipped' ? 'airplane-takeoff' :
-                              item.status === 'delivered' ? 'check-circle' :
-                              item.status === 'processing' ? 'clipboard-text' : 'package-variant'} 
+                      source={
+                        isMaritime ? (
+                          item.status === 'in_transit' ? 'ferry' :
+                          item.status === 'received_china' ? 'package-variant' :
+                          item.status === 'at_port' ? 'anchor' :
+                          item.status === 'delivered' ? 'check-circle' : 'ferry'
+                        ) : isChinaAir ? (
+                          // ✈️🇨🇳 Íconos para TDI Aéreo China
+                          item.status === 'received_origin' ? 'package-variant' :
+                          item.status === 'in_transit' ? 'airplane' :
+                          item.status === 'at_customs' ? 'shield-lock' :
+                          item.status === 'customs_mx' ? 'shield-lock' :
+                          item.status === 'delivered' ? 'check-circle' : 'airplane'
+                        ) : (
+                          item.status === 'in_transit' ? 'airplane' : 
+                          item.status === 'received' ? 'package-variant' :
+                          item.status === 'shipped' ? 'airplane-takeoff' :
+                          item.status === 'delivered' ? 'check-circle' :
+                          item.status === 'processing' ? 'clipboard-text' : 'package-variant'
+                        )
+                      } 
                       size={12} 
                       color={statusColor} 
                     />
@@ -280,13 +449,40 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                       <Text style={styles.gexBadgeText}>{t('home.extendedWarranty')}</Text>
                     </View>
                   )}
+                  
+                  {/* ✅ Badge de Instrucciones Asignadas (Marítimo y China Air) */}
+                  {(isMaritime || isChinaAir) && hasDeliveryInstructions && (
+                    <Pressable 
+                      style={styles.deliveryAssignedBadge}
+                      onPress={handleDeliveryInstructions}
+                    >
+                      <Icon source="check-circle" size={12} color="#10B981" />
+                      <Text style={styles.deliveryAssignedText}>✓ Instrucciones</Text>
+                      <Icon source="pencil" size={10} color="#10B981" />
+                    </Pressable>
+                  )}
                 </View>
 
-                {/* Información adicional */}
+                {/* Información adicional - diseño simétrico */}
                 <View style={styles.infoRow}>
-                  <Text style={styles.infoText}>⚖️ {item.weight ? `${item.weight} kg` : '--'}</Text>
-                  <Text style={styles.infoText}>📏 {item.dimensions || '--'}</Text>
-                  {item.carrier && <Text style={styles.infoText}>🚚 {item.carrier}</Text>}
+                  <View style={styles.infoItem}>
+                    <Text style={styles.infoIcon}>⚖️</Text>
+                    <Text style={styles.infoText}>{item.weight ? `${item.weight} kg` : '--'}</Text>
+                  </View>
+                  <View style={styles.infoItem}>
+                    <Text style={styles.infoIcon}>{isMaritime || isChinaAir ? '📦' : '📏'}</Text>
+                    <Text style={styles.infoText}>
+                      {isMaritime || isChinaAir
+                        ? ((item as any).volume ? `${(item as any).volume} m³` : '--')
+                        : (item.dimensions || '--')}
+                    </Text>
+                  </View>
+                  {item.carrier && (
+                    <View style={styles.infoItem}>
+                      <Text style={styles.infoIcon}>{isMaritime ? '🚢' : isChinaAir ? '✈️' : '🚚'}</Text>
+                      <Text style={styles.infoText}>{item.carrier}</Text>
+                    </View>
+                  )}
                 </View>
 
                 {/* 💳 Botón de Pago (solo si está despachado) */}
@@ -307,7 +503,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   </View>
                 )}
 
-                {/* 🛡️ Botón de Garantía Extendida (solo si está en bodega o procesando) */}
+                {/* 🛡️ Botón de Garantía Extendida (siempre visible para paquetes elegibles) */}
                 {canContractGEX && (
                   <View style={styles.gexButtonContainer}>
                     <Pressable
@@ -482,6 +678,18 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               style={styles.menuItem}
               onPress={() => {
                 setShowMenu(false);
+                navigation.navigate('MyPayments' as any, { user, token });
+              }}
+            >
+              <Ionicons name="receipt-outline" size={24} color={ORANGE} />
+              <Text style={[styles.menuItemText, { color: ORANGE, fontWeight: '600' }]}>💳 Mis Cuentas por Pagar</Text>
+              <Ionicons name="chevron-forward" size={20} color={ORANGE} />
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => {
+                setShowMenu(false);
                 navigation.navigate('MyProfile', { user, token });
               }}
             >
@@ -542,6 +750,24 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             <Text style={styles.greeting}>{t('home.greeting')}, {user.name?.split(' ')[0]}!</Text>
             <Text style={styles.boxId}>📦 {t('home.mailbox')}: {user.boxId}</Text>
           </View>
+          {/* 🚀 Botón de Solicitar Envío */}
+          <TouchableOpacity
+            style={styles.requestShipmentButton}
+            onPress={() => {
+              if (selectedIds.length > 0) {
+                handleConsolidate();
+              } else {
+                Alert.alert(
+                  '📦 Solicitar Envío',
+                  'Selecciona uno o más paquetes de tu bodega para solicitar su envío.',
+                  [{ text: 'Entendido', style: 'default' }]
+                );
+              }
+            }}
+          >
+            <Ionicons name="airplane" size={18} color="white" />
+            <Text style={styles.requestShipmentText}>Enviar</Text>
+          </TouchableOpacity>
         </View>
         <View style={styles.statsContainer}>
           <View style={styles.statItem}>
@@ -556,8 +782,27 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         </View>
       </Surface>
 
-      {/* 🔐 Banner de verificación pendiente */}
-      {!isUserVerified && (
+      {/* � Banner de onboarding de empleado pendiente */}
+      {needsEmployeeOnboarding && (
+        <TouchableOpacity 
+          style={[styles.verificationBanner, styles.employeeBanner]}
+          onPress={() => navigation.navigate('EmployeeOnboarding', { user, token })}
+        >
+          <Icon source="account-hard-hat" size={20} color="#1976D2" />
+          <View style={styles.verificationBannerText}>
+            <Text style={[styles.verificationTitle, { color: "#0D47A1" }]}>
+              👷 Alta de Empleado Requerida
+            </Text>
+            <Text style={styles.verificationSubtitle}>
+              Completa tu registro como empleado para comenzar a trabajar
+            </Text>
+          </View>
+          <Icon source="chevron-right" size={24} color="#1976D2" />
+        </TouchableOpacity>
+      )}
+
+      {/* 🔐 Banner de verificación pendiente (solo para clientes) */}
+      {!isEmployee && !isUserVerified && (
         <View style={[styles.verificationBanner, isPendingReview ? styles.pendingBanner : styles.warningBanner]}>
           <Icon source={isPendingReview ? "clock-outline" : "alert-circle"} size={20} color={isPendingReview ? "#ff9800" : "#f44336"} />
           <View style={styles.verificationBannerText}>
@@ -573,18 +818,97 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         </View>
       )}
 
-      {/* Instrucciones de selección */}
-      {packagesInWarehouse > 0 && isUserVerified && (
-        <View style={styles.selectionHint}>
-          <Text style={styles.selectionHintText}>
-            👆 {t('packages.selectForConsolidation')}
-          </Text>
+      {/* 🚫 Banner de cuenta bloqueada por adeudo */}
+      {user.isCreditBlocked && (
+        <View style={styles.blockedBanner}>
+          <Icon source="alert-octagon" size={24} color="#fff" />
+          <View style={styles.blockedBannerText}>
+            <Text style={styles.blockedTitle}>🚫 Cuenta Suspendida</Text>
+            <Text style={styles.blockedSubtitle}>
+              Tu cuenta está bloqueada por adeudo vencido de ${(user.usedCredit || 0).toLocaleString('es-MX')} MXN.
+            </Text>
+            <Text style={styles.blockedCta}>
+              Deposita a tu CLABE: {user.virtualClabe || 'Solicita tu CLABE'}
+            </Text>
+          </View>
         </View>
       )}
 
+      {/* 🎯 OPPORTUNITY CAROUSEL - "El Punto Caliente" */}
+      <OpportunityCarousel 
+        onOpportunityPress={(opportunity) => {
+          // Manejar navegación basada en ctaAction
+          const action = opportunity.ctaAction;
+          if (action.startsWith('navigate:')) {
+            const screenName = action.replace('navigate:', '');
+            if (screenName === 'GEXPromo') {
+              // Mostrar alerta informativa sobre GEX
+              Alert.alert(
+                '🛡️ Garantía Extendida GEX',
+                'Protege tu carga contra daños, pérdida o robo por solo el 5% del valor declarado.\n\n✅ Cobertura total\n✅ Proceso de reclamo en 24hrs\n✅ Sin deducibles',
+                [
+                  { text: 'Ahora no', style: 'cancel' },
+                  { 
+                    text: 'Activar en mis paquetes', 
+                    onPress: () => {
+                      // Scroll a la lista de paquetes
+                    }
+                  }
+                ]
+              );
+            } else if (screenName === 'RequestAdvisor') {
+              navigation.navigate('RequestAdvisor', { user, token });
+            }
+          } else if (action.startsWith('modal:')) {
+            const modalType = action.replace('modal:', '');
+            if (modalType === 'referral') {
+              Alert.alert(
+                '🎁 Programa de Referidos',
+                `¡Comparte tu código y gana!\n\nTu código: ${user.boxId}\n\nPor cada amigo que haga su primer envío, ambos reciben $500 MXN de crédito.`,
+                [
+                  { text: 'Cerrar', style: 'cancel' },
+                  { text: 'Compartir Código', onPress: () => {} }
+                ]
+              );
+            }
+          }
+        }}
+      />
+
+      {/* 🎯 Filtros de Servicio */}
+      <View style={styles.serviceFilters}>
+        <Pressable
+          style={[styles.filterChip, serviceFilter === 'air' && styles.filterChipActive]}
+          onPress={() => setServiceFilter(serviceFilter === 'air' ? null : 'air')}
+        >
+          <Text style={styles.filterIcon}>✈️</Text>
+          <Text style={[styles.filterText, serviceFilter === 'air' && styles.filterTextActive]}>Aéreo</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.filterChip, serviceFilter === 'maritime' && styles.filterChipActive]}
+          onPress={() => setServiceFilter(serviceFilter === 'maritime' ? null : 'maritime')}
+        >
+          <Text style={styles.filterIcon}>🚢</Text>
+          <Text style={[styles.filterText, serviceFilter === 'maritime' && styles.filterTextActive]}>Marítimo</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.filterChip, serviceFilter === 'usa' && styles.filterChipActive]}
+          onPress={() => setServiceFilter(serviceFilter === 'usa' ? null : 'usa')}
+        >
+          <Text style={styles.filterIcon}>🚚</Text>
+          <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>Terrestre</Text>
+        </Pressable>
+      </View>
+
       {/* Lista de paquetes */}
       <FlatList
-        data={packages}
+        data={packages.filter(pkg => {
+          if (serviceFilter === null) return true;
+          if (serviceFilter === 'air') return pkg.shipment_type === 'china_air';
+          if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime';
+          if (serviceFilter === 'usa') return !pkg.shipment_type || pkg.shipment_type === 'air';
+          return true;
+        })}
         renderItem={renderPackageCard}
         keyExtractor={(item) => item.id.toString()}
         contentContainerStyle={styles.listContent}
@@ -600,27 +924,22 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         showsVerticalScrollIndicator={false}
       />
 
-      {/* 🔥 FAB para ENVIAR (Solo aparece si hay selección) */}
-      {selectedIds.length > 0 ? (
-        <FAB
-          icon="airplane-takeoff"
-          label={`${t('home.requestConsolidation')} (${selectedIds.length})`}
-          style={styles.fabSend}
-          color="white"
-          onPress={handleConsolidate}
-        />
-      ) : (
-        <FAB
-          icon="plus"
-          label={t('home.requestConsolidation')}
-          style={styles.fab}
-          color="white"
-          onPress={() => {
-            // TODO: Implementar embarque
-            console.log('Enviar paquete');
-          }}
-        />
-      )}
+      {/* 🔥 FAB para ENVIAR - Solo aparece si hay selección */}
+      {selectedIds.length > 0 && (() => {
+        const firstSelectedPkg = packages.find(p => selectedIds.includes(p.id));
+        const isMaritimeSelection = (firstSelectedPkg as any)?.shipment_type === 'maritime';
+        return (
+          <FAB
+            icon={isMaritimeSelection ? "ferry" : "airplane-takeoff"}
+            label={isMaritimeSelection 
+              ? `Asignar Instrucciones (${selectedIds.length})`
+              : `${t('home.requestConsolidation')} (${selectedIds.length})`}
+            style={styles.fabSend}
+            color="white"
+            onPress={isMaritimeSelection ? handleMaritimeInstructions : handleConsolidate}
+          />
+        );
+      })()}
     </View>
   );
 }
@@ -629,6 +948,41 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  // 🎯 Filtros de Servicio
+  serviceFilters: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
+    backgroundColor: '#f5f5f5',
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: 'white',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    gap: 4,
+  },
+  filterChipActive: {
+    backgroundColor: ORANGE,
+    borderColor: ORANGE,
+  },
+  filterIcon: {
+    fontSize: 14,
+  },
+  filterText: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '500',
+  },
+  filterTextActive: {
+    color: 'white',
   },
   loadingContainer: {
     flex: 1,
@@ -663,6 +1017,7 @@ const styles = StyleSheet.create({
   },
   userTextContainer: {
     marginLeft: 15,
+    flex: 1,
   },
   greeting: {
     fontSize: 20,
@@ -673,6 +1028,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     marginTop: 3,
+  },
+  requestShipmentButton: {
+    backgroundColor: ORANGE,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 25,
+    gap: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  requestShipmentText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
   statsContainer: {
     flexDirection: 'row',
@@ -753,10 +1127,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
-  checkboxContainer: {
-    marginRight: 8,
-    marginTop: -4,
-  },
   cardMainContent: {
     flex: 1,
   },
@@ -769,6 +1139,12 @@ const styles = StyleSheet.create({
   trackingContainer: {
     flex: 1,
     marginRight: 10,
+  },
+  packageCheckbox: {
+    padding: 4,
+  },
+  packageCheckboxSelected: {
+    // Se puede agregar efecto visual adicional si se desea
   },
   description: {
     fontSize: 15,
@@ -824,14 +1200,42 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#10B981',
   },
+  // ✅ Badge Instrucciones Asignadas
+  deliveryAssignedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#10B98120',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  deliveryAssignedText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#10B981',
+  },
   infoRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 10,
+    gap: 12,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  infoItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  infoIcon: {
+    fontSize: 13,
   },
   infoText: {
     fontSize: 12,
     color: '#555',
+    fontWeight: '500',
   },
   payButtonContainer: {
     marginTop: 12,
@@ -864,6 +1268,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 6,
     gap: 6,
+    alignSelf: 'stretch',
   },
   gexButtonUnprotected: {
     flexDirection: 'row',
@@ -874,8 +1279,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 6,
     gap: 6,
+    alignSelf: 'stretch',
   },
   gexButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  // 🚢 Estilos para botón de Instrucciones de Entrega
+  deliveryButtonContainer: {
+    marginTop: 8,
+  },
+  deliveryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#0097A7', // Cyan marítimo
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    gap: 6,
+  },
+  deliveryButtonText: {
     color: '#fff',
     fontSize: 12,
     fontWeight: '600',
@@ -935,6 +1360,11 @@ const styles = StyleSheet.create({
     borderLeftWidth: 4,
     borderLeftColor: '#f44336',
   },
+  employeeBanner: {
+    backgroundColor: '#E3F2FD',
+    borderLeftWidth: 4,
+    borderLeftColor: '#1976D2',
+  },
   verificationBannerText: {
     flex: 1,
   },
@@ -947,7 +1377,37 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
   },
-  // 📱 Estilos para el menú
+  // � Estilos para banner de cuenta bloqueada
+  blockedBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginVertical: 8,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: '#c62828',
+    gap: 12,
+  },
+  blockedBannerText: {
+    flex: 1,
+  },
+  blockedTitle: {
+    fontSize: 15,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  blockedSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.9)',
+    marginBottom: 4,
+  },
+  blockedCta: {
+    fontSize: 11,
+    color: '#ffcdd2',
+    fontFamily: 'monospace',
+  },
+  // �📱 Estilos para el menú
   menuOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.5)',

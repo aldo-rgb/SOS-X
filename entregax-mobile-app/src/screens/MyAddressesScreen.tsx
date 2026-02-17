@@ -51,6 +51,7 @@ interface Address {
   phone?: string;
   reference?: string;
   is_default: boolean;
+  default_for_service?: string | null; // Ahora es string separado por comas: "maritime,air"
 }
 
 export default function MyAddressesScreen({ navigation, route }: Props) {
@@ -61,6 +62,10 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
   const [showModal, setShowModal] = useState(false);
   const [editingAddress, setEditingAddress] = useState<Address | null>(null);
   const [saving, setSaving] = useState(false);
+  const [showServiceModal, setShowServiceModal] = useState(false);
+  const [selectedAddressForService, setSelectedAddressForService] = useState<Address | null>(null);
+  const [selectedServices, setSelectedServices] = useState<string[]>([]);
+  const [savingService, setSavingService] = useState(false);
 
   // Form state
   const [form, setForm] = useState({
@@ -219,6 +224,73 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
     }
   };
 
+  const openServiceModal = (address: Address) => {
+    setSelectedAddressForService(address);
+    // Parsear los servicios actuales
+    const currentServices = address.default_for_service 
+      ? address.default_for_service.split(',').filter(s => s.trim())
+      : [];
+    setSelectedServices(currentServices);
+    setShowServiceModal(true);
+  };
+
+  const toggleService = (service: string) => {
+    setSelectedServices(prev => {
+      if (prev.includes(service)) {
+        return prev.filter(s => s !== service);
+      } else {
+        return [...prev, service];
+      }
+    });
+  };
+
+  const saveServices = async () => {
+    if (!selectedAddressForService) return;
+    
+    setSavingService(true);
+    try {
+      const response = await fetch(`${API_URL}/api/addresses/${selectedAddressForService.id}/default-for-service`, {
+        method: 'PUT',
+        headers: { 
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` 
+        },
+        body: JSON.stringify({ services: selectedServices.length > 0 ? selectedServices : null }),
+      });
+      if (response.ok) {
+        setShowServiceModal(false);
+        setSelectedAddressForService(null);
+        setSelectedServices([]);
+        fetchAddresses();
+        Alert.alert(
+          '✅ Guardado', 
+          selectedServices.length > 0 
+            ? `Esta dirección se usará para: ${selectedServices.map(s => getServiceLabel(s)).join(', ')}`
+            : 'Se quitó la asignación de servicios'
+        );
+      }
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo guardar la configuración');
+    } finally {
+      setSavingService(false);
+    }
+  };
+
+  const getServiceLabel = (service: string): string => {
+    switch (service) {
+      case 'maritime': return 'Marítimo';
+      case 'air': return 'Aéreo';
+      case 'usa': return 'USA';
+      case 'all': return 'Todos';
+      default: return service;
+    }
+  };
+
+  const getServiceChips = (serviceString: string | null | undefined): string[] => {
+    if (!serviceString) return [];
+    return serviceString.split(',').filter(s => s.trim());
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -248,14 +320,20 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
             <Card key={address.id} style={styles.card}>
               <Card.Content>
                 <View style={styles.cardHeader}>
-                  <View style={styles.cardTitleRow}>
+                  <View style={styles.cardTitleContainer}>
                     <Text style={styles.cardTitle}>
                       {address.alias || t('addresses.address')}
                     </Text>
-                    {address.is_default && (
-                      <Chip mode="flat" style={styles.defaultChip} textStyle={styles.defaultChipText}>
-                        {t('addresses.default')}
-                      </Chip>
+                    {getServiceChips(address.default_for_service).length > 0 && (
+                      <View style={styles.serviceChipsRow}>
+                        {getServiceChips(address.default_for_service).map((svc) => (
+                          <View key={svc} style={styles.serviceChipSmall}>
+                            <Text style={styles.serviceChipSmallText}>
+                              {svc === 'maritime' ? '🚢 Marítimo' : svc === 'air' ? '✈️ Aéreo' : svc === 'usa' ? '🇺🇸 USA' : '🌐 Todos'}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
                     )}
                   </View>
                   <View style={styles.cardActions}>
@@ -285,14 +363,25 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                 {address.phone && (
                   <Text style={styles.phoneText}>📞 {address.phone}</Text>
                 )}
-                {!address.is_default && (
+                <View style={styles.addressButtonsRow}>
+                  {!address.is_default && (
+                    <TouchableOpacity 
+                      style={styles.setDefaultButton}
+                      onPress={() => setDefaultAddress(address.id)}
+                    >
+                      <Text style={styles.setDefaultText}>{t('addresses.setDefault')}</Text>
+                    </TouchableOpacity>
+                  )}
                   <TouchableOpacity 
-                    style={styles.setDefaultButton}
-                    onPress={() => setDefaultAddress(address.id)}
+                    style={styles.setServiceButton}
+                    onPress={() => openServiceModal(address)}
                   >
-                    <Text style={styles.setDefaultText}>{t('addresses.setDefault')}</Text>
+                    <Ionicons name="settings-outline" size={16} color={ORANGE} />
+                    <Text style={styles.setServiceText}>
+                      {address.default_for_service ? 'Cambiar servicio' : 'Asignar a servicio'}
+                    </Text>
                   </TouchableOpacity>
-                )}
+                </View>
               </Card.Content>
             </Card>
           ))
@@ -452,6 +541,109 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Modal para seleccionar servicios predeterminados */}
+      <Modal visible={showServiceModal} animationType="slide" transparent>
+        <View style={styles.serviceModalOverlay}>
+          <View style={styles.serviceModalContent}>
+            <View style={styles.serviceModalHeader}>
+              <View style={styles.serviceModalHeaderIcon}>
+                <Ionicons name="location" size={28} color={ORANGE} />
+              </View>
+              <Text style={styles.serviceModalTitle}>Asignar a servicios</Text>
+              <Text style={styles.serviceModalSubtitle}>
+                Selecciona los servicios para los que esta dirección se usará automáticamente
+              </Text>
+            </View>
+
+            <View style={styles.serviceOptionsContainer}>
+              <TouchableOpacity 
+                style={[styles.serviceOptionCard, selectedServices.includes('maritime') && styles.serviceOptionCardActive]}
+                onPress={() => toggleService('maritime')}
+              >
+                <View style={styles.serviceOptionLeft}>
+                  <Text style={styles.serviceOptionEmoji}>🚢</Text>
+                  <View>
+                    <Text style={styles.serviceOptionName}>Marítimo</Text>
+                    <Text style={styles.serviceOptionDescription}>Envíos por barco desde China</Text>
+                  </View>
+                </View>
+                <View style={[styles.checkbox, selectedServices.includes('maritime') && styles.checkboxChecked]}>
+                  {selectedServices.includes('maritime') && (
+                    <Ionicons name="checkmark" size={16} color="white" />
+                  )}
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.serviceOptionCard, selectedServices.includes('air') && styles.serviceOptionCardActive]}
+                onPress={() => toggleService('air')}
+              >
+                <View style={styles.serviceOptionLeft}>
+                  <Text style={styles.serviceOptionEmoji}>✈️</Text>
+                  <View>
+                    <Text style={styles.serviceOptionName}>Aéreo</Text>
+                    <Text style={styles.serviceOptionDescription}>Envíos express por avión</Text>
+                  </View>
+                </View>
+                <View style={[styles.checkbox, selectedServices.includes('air') && styles.checkboxChecked]}>
+                  {selectedServices.includes('air') && (
+                    <Ionicons name="checkmark" size={16} color="white" />
+                  )}
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.serviceOptionCard, selectedServices.includes('usa') && styles.serviceOptionCardActive]}
+                onPress={() => toggleService('usa')}
+              >
+                <View style={styles.serviceOptionLeft}>
+                  <Text style={styles.serviceOptionEmoji}>🇺🇸</Text>
+                  <View>
+                    <Text style={styles.serviceOptionName}>USA</Text>
+                    <Text style={styles.serviceOptionDescription}>Consolidación de paquetes USA</Text>
+                  </View>
+                </View>
+                <View style={[styles.checkbox, selectedServices.includes('usa') && styles.checkboxChecked]}>
+                  {selectedServices.includes('usa') && (
+                    <Ionicons name="checkmark" size={16} color="white" />
+                  )}
+                </View>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.serviceModalFooter}>
+              <TouchableOpacity 
+                style={styles.cancelServiceButton}
+                onPress={() => {
+                  setShowServiceModal(false);
+                  setSelectedAddressForService(null);
+                  setSelectedServices([]);
+                }}
+              >
+                <Text style={styles.cancelServiceButtonText}>Cancelar</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.saveServiceButton, savingService && styles.saveServiceButtonDisabled]}
+                onPress={saveServices}
+                disabled={savingService}
+              >
+                {savingService ? (
+                  <ActivityIndicator color="white" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={20} color="white" />
+                    <Text style={styles.saveServiceButtonText}>
+                      {selectedServices.length > 0 ? 'Guardar' : 'Quitar asignación'}
+                    </Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -500,6 +692,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
+  cardTitleContainer: {
+    flex: 1,
+  },
   cardTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -513,11 +708,14 @@ const styles = StyleSheet.create({
   },
   defaultChip: {
     backgroundColor: ORANGE + '20',
-    height: 24,
+    height: 22,
+    paddingHorizontal: 0,
   },
   defaultChipText: {
     color: ORANGE,
     fontSize: 10,
+    marginHorizontal: 8,
+    marginVertical: 0,
   },
   cardActions: {
     flexDirection: 'row',
@@ -531,7 +729,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   setDefaultButton: {
-    marginTop: 12,
     paddingVertical: 8,
   },
   setDefaultText: {
@@ -611,5 +808,178 @@ const styles = StyleSheet.create({
     color: 'white',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  serviceChip: {
+    backgroundColor: '#2196F320',
+    height: 22,
+    paddingHorizontal: 0,
+  },
+  serviceChipText: {
+    color: '#2196F3',
+    fontSize: 10,
+    marginHorizontal: 8,
+    marginVertical: 0,
+  },
+  addressButtonsRow: {
+    flexDirection: 'row',
+    gap: 16,
+    marginTop: 12,
+    flexWrap: 'wrap',
+  },
+  setServiceButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
+  },
+  setServiceText: {
+    color: ORANGE,
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  serviceChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6,
+  },
+  serviceChipSmall: {
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginLeft: 4,
+  },
+  serviceChipSmallText: {
+    color: '#1976D2',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  serviceModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  serviceModalContent: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  serviceModalHeader: {
+    alignItems: 'center',
+    paddingTop: 24,
+    paddingBottom: 16,
+    paddingHorizontal: 20,
+    backgroundColor: '#FAFAFA',
+  },
+  serviceModalHeaderIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: ORANGE + '15',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  serviceModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: BLACK,
+    marginBottom: 6,
+  },
+  serviceModalSubtitle: {
+    color: '#666',
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  serviceOptionsContainer: {
+    padding: 16,
+  },
+  serviceOptionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#E0E0E0',
+    marginBottom: 12,
+    backgroundColor: 'white',
+  },
+  serviceOptionCardActive: {
+    borderColor: ORANGE,
+    backgroundColor: ORANGE + '08',
+  },
+  serviceOptionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    flex: 1,
+  },
+  serviceOptionEmoji: {
+    fontSize: 32,
+  },
+  serviceOptionName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: BLACK,
+  },
+  serviceOptionDescription: {
+    fontSize: 13,
+    color: '#888',
+    marginTop: 2,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#CCC',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: ORANGE,
+    borderColor: ORANGE,
+  },
+  serviceModalFooter: {
+    flexDirection: 'row',
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#EEE',
+    backgroundColor: '#FAFAFA',
+    gap: 12,
+  },
+  cancelServiceButton: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: '#F0F0F0',
+    alignItems: 'center',
+  },
+  cancelServiceButtonText: {
+    color: '#666',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  saveServiceButton: {
+    flex: 1.5,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: ORANGE,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  saveServiceButtonDisabled: {
+    opacity: 0.7,
+  },
+  saveServiceButtonText: {
+    color: 'white',
+    fontWeight: '600',
+    fontSize: 15,
   },
 });

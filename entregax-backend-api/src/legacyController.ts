@@ -351,7 +351,7 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
 
         // 1. Buscar en la base de datos legacy
         const legacyCheck = await client.query(
-            'SELECT * FROM legacy_clients WHERE box_id = $1',
+            'SELECT id, box_id, full_name, email, is_claimed FROM legacy_clients WHERE box_id = $1',
             [boxId.toUpperCase().trim()]
         );
 
@@ -414,7 +414,7 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
         const newUser = await client.query(`
             INSERT INTO users (
                 full_name, email, password, role, box_id, phone, 
-                my_referral_code, verification_status, created_at
+                referral_code, verification_status, created_at
             )
             VALUES ($1, $2, $3, 'client', $4, $5, $6, 'verified', NOW())
             RETURNING id, full_name, email, role, box_id
@@ -454,8 +454,8 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
 
     } catch (error: any) {
         await client.query('ROLLBACK');
-        console.error('Error reclamando cuenta:', error);
-        res.status(500).json({ error: 'Error interno del servidor' });
+        console.error('Error reclamando cuenta:', error.message, error.stack);
+        res.status(500).json({ error: 'Error interno del servidor', details: error.message });
     } finally {
         client.release();
     }
@@ -500,6 +500,112 @@ export const verifyLegacyBox = async (req: Request, res: Response): Promise<any>
     } catch (error: any) {
         console.error('Error verificando casillero:', error);
         res.status(500).json({ error: 'Error al verificar' });
+    }
+};
+
+/**
+ * Verificar nombre de cliente existente
+ * POST /api/legacy/verify-name
+ * Body: { boxId: string, fullName: string }
+ * Retorna los datos del cliente si el nombre coincide
+ */
+
+// Función para normalizar texto (quitar acentos, minúsculas)
+const normalizeText = (text: string): string => {
+    return text
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '') // Quitar acentos
+        .replace(/[^a-z0-9\s]/g, '') // Solo letras, números y espacios
+        .trim();
+};
+
+export const verifyLegacyName = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { boxId, fullName } = req.body;
+
+        if (!boxId || !fullName) {
+            return res.status(400).json({ error: 'Número de cliente y nombre son requeridos' });
+        }
+
+        const result = await pool.query(
+            `SELECT id, box_id, full_name, email, is_claimed, registration_date
+             FROM legacy_clients 
+             WHERE box_id = $1`,
+            [boxId.toUpperCase().trim()]
+        );
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ 
+                exists: false, 
+                error: 'No encontramos este número de cliente' 
+            });
+        }
+
+        const client = result.rows[0];
+
+        // Verificar si ya fue reclamado
+        if (client.is_claimed) {
+            return res.status(400).json({ 
+                exists: true,
+                isClaimed: true,
+                error: 'Este número de cliente ya fue registrado. Si eres el dueño, contacta soporte.' 
+            });
+        }
+
+        // Normalizar nombres para comparación flexible
+        const inputNormalized = normalizeText(fullName);
+        const storedNormalized = normalizeText(client.full_name || '');
+        
+        // Separar en palabras
+        const inputWords = inputNormalized.split(/\s+/).filter(w => w.length > 1);
+        const storedWords = storedNormalized.split(/\s+/).filter(w => w.length > 1);
+        
+        // Contar cuántas palabras del input coinciden con las almacenadas
+        let matchCount = 0;
+        for (const inputWord of inputWords) {
+            for (const storedWord of storedWords) {
+                // Coincidencia exacta o una contiene a la otra
+                if (inputWord === storedWord || 
+                    storedWord.includes(inputWord) || 
+                    inputWord.includes(storedWord)) {
+                    matchCount++;
+                    break;
+                }
+            }
+        }
+        
+        // Requiere al menos 2 palabras que coincidan, o el primer nombre
+        const firstNameMatches = inputWords[0] === storedWords[0] || 
+                                 (storedWords[0] && inputWords[0] && 
+                                  (storedWords[0].includes(inputWords[0]) || inputWords[0].includes(storedWords[0])));
+        
+        const nameMatches = matchCount >= 2 || (matchCount >= 1 && firstNameMatches);
+
+        if (!nameMatches) {
+            return res.status(403).json({ 
+                exists: true,
+                nameMatch: false,
+                error: 'El nombre no coincide con nuestros registros'
+            });
+        }
+
+        // Retornar datos del cliente para que actualice/confirme
+        res.json({
+            exists: true,
+            nameMatch: true,
+            isClaimed: false,
+            clientData: {
+                boxId: client.box_id,
+                fullName: client.full_name,
+                email: client.email || '',
+                registrationDate: client.registration_date
+            }
+        });
+
+    } catch (error: any) {
+        console.error('Error verificando nombre:', error.message, error.stack);
+        res.status(500).json({ error: 'Error al verificar', details: error.message });
     }
 };
 

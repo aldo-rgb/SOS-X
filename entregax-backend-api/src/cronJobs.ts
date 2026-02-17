@@ -1,6 +1,8 @@
 import cron from 'node-cron';
 import { pool } from './db';
 import { syncOrdersFromChina, syncAllActiveTrackings } from './maritimeApiController';
+import { blockOverdueAccounts, runCreditCollectionEngine } from './financeController';
+import { checkExpiringDocuments, checkUpcomingMaintenance } from './fleetController';
 
 /**
  * CRON JOB: Detección automática de clientes en riesgo
@@ -220,6 +222,98 @@ export const startMaritimeTrackingSyncCron = () => {
 };
 
 /**
+ * CRON JOB: Motor de Cobranza Automática
+ * Se ejecuta todos los días a las 08:00 hrs
+ * - Aviso preventivo 3 días antes
+ * - Aviso día de vencimiento
+ * - Bloqueo automático día después
+ */
+export const startCreditBlockingCron = () => {
+  // Ejecutar a las 08:00 todos los días
+  cron.schedule('0 8 * * *', async () => {
+    console.log('💳 [CRON] Iniciando motor de cobranza automática...');
+    
+    try {
+      await runCreditCollectionEngine();
+    } catch (error) {
+      console.error('❌ [CRON] Error en motor de cobranza:', error);
+    }
+  });
+
+  // También ejecutar el bloqueo simple a las 06:00
+  cron.schedule('0 6 * * *', async () => {
+    console.log('🔒 [CRON] Revisando cuentas con facturas vencidas...');
+    
+    try {
+      await blockOverdueAccounts();
+    } catch (error) {
+      console.error('❌ [CRON] Error bloqueando cuentas morosas:', error);
+    }
+  });
+
+  console.log('📅 [CRON] Motor de cobranza programado a las 08:00 hrs');
+  console.log('📅 [CRON] Bloqueo de cuentas morosas programado a las 06:00 hrs');
+};
+
+/**
+ * CRON JOB: Alertas de Flotilla Vehicular
+ * Se ejecuta todos los días a las 07:00 hrs
+ * - Detecta documentos por vencer (15 días)
+ * - Detecta vehículos próximos a servicio (1000km)
+ * - Crea alertas automáticas en fleet_alerts
+ */
+export const startFleetAlertsCron = () => {
+  // Ejecutar a las 07:00 todos los días
+  cron.schedule('0 7 * * *', async () => {
+    console.log('🚛 [CRON] Iniciando revisión de alertas de flotilla...');
+    
+    try {
+      // 1. Verificar documentos por vencer
+      const docAlerts = await checkExpiringDocuments();
+      console.log(`   📄 Alertas de documentos: ${docAlerts.created} creadas`);
+      
+      // 2. Verificar mantenimiento próximo
+      const maintAlerts = await checkUpcomingMaintenance();
+      console.log(`   🔧 Alertas de mantenimiento: ${maintAlerts.created} creadas`);
+
+      // 3. Notificar a administradores si hay alertas críticas
+      const criticalAlerts = await pool.query(`
+        SELECT COUNT(*) as count FROM fleet_alerts
+        WHERE alert_level = 'critical' AND is_resolved = FALSE
+      `);
+      
+      if (parseInt(criticalAlerts.rows[0].count) > 0) {
+        // Obtener admins de operaciones
+        const admins = await pool.query(`
+          SELECT id FROM users WHERE role IN ('super_admin', 'admin', 'branch_manager')
+        `);
+        
+        for (const admin of admins.rows) {
+          await pool.query(`
+            INSERT INTO notifications (user_id, title, message, type, icon)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT DO NOTHING
+          `, [
+            admin.id,
+            '🚨 Alertas de Flotilla Críticas',
+            `Hay ${criticalAlerts.rows[0].count} alertas críticas de flotilla que requieren atención inmediata.`,
+            'error',
+            'local-shipping'
+          ]);
+        }
+      }
+
+      console.log('✅ [CRON] Revisión de flotilla completada');
+
+    } catch (error) {
+      console.error('❌ [CRON] Error en revisión de flotilla:', error);
+    }
+  });
+
+  console.log('📅 [CRON] Job de alertas de flotilla programado a las 07:00 hrs');
+};
+
+/**
  * Inicializar todos los CRON jobs
  */
 export const initCronJobs = () => {
@@ -227,6 +321,8 @@ export const initCronJobs = () => {
   startProspectFollowUpCron();
   startMaritimeOrderSyncCron();
   startMaritimeTrackingSyncCron();
+  startCreditBlockingCron();
+  startFleetAlertsCron();
 };
 
 export default initCronJobs;

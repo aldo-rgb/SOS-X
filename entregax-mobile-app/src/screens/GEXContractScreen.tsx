@@ -178,9 +178,10 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
     setLoading(true);
     try {
       console.log('📤 Enviando solicitud de póliza GEX...');
-      console.log('URL:', `${API_URL}/gex/warranties/self`);
+      console.log('URL:', `${API_URL}/api/gex/warranties/self`);
       console.log('Datos:', {
         packageId: pkg.id,
+        serviceType: pkg.service_type,
         invoiceValueUSD: estimatedCost.invoiceUSD,
         boxCount: parseInt(formData.boxCount),
         route: formData.route,
@@ -190,7 +191,7 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
         paymentOption: paymentOption,
       });
 
-      const response = await fetch(`${API_URL}/gex/warranties/self`, {
+      const response = await fetch(`${API_URL}/api/gex/warranties/self`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -198,6 +199,7 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
         },
         body: JSON.stringify({
           packageId: pkg.id,
+          serviceType: pkg.service_type,
           invoiceValueUSD: estimatedCost.invoiceUSD,
           boxCount: parseInt(formData.boxCount),
           route: formData.route,

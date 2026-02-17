@@ -30,6 +30,7 @@ type RootStackParamList = {
   Home: { user: any; token: string };
   MyProfile: { user: any; token: string };
   Verification: { user: any; token: string };
+  EmployeeOnboarding: { user: any; token: string };
 };
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MyProfile'>;
@@ -63,7 +64,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   const refreshVerificationStatus = async () => {
     setRefreshingStatus(true);
     try {
-      const response = await fetch(`${API_URL}/verification/status`, {
+      const response = await fetch(`${API_URL}/api/verify/status`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (response.ok) {
@@ -276,6 +277,35 @@ export default function MyProfileScreen({ navigation, route }: Props) {
     const status = user.verificationStatus || 'not_started';
     const isVerified = user.isVerified === true;
 
+    // 👷 Detectar si es empleado
+    const employeeRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager'];
+    const isEmployee = employeeRoles.includes(user.role);
+    const isEmployeeOnboarded = user.isEmployeeOnboarded === true;
+
+    // Si es empleado, mostrar estado de onboarding de empleado
+    if (isEmployee) {
+      if (isEmployeeOnboarded) {
+        return {
+          icon: 'checkmark-circle',
+          color: '#4CAF50',
+          title: '✅ Alta Completada',
+          subtitle: 'Tu registro como empleado está completo',
+          action: null,
+          isEmployee: true,
+        };
+      } else {
+        return {
+          icon: 'person-add',
+          color: '#1976D2',
+          title: '👷 Alta de Empleado Pendiente',
+          subtitle: 'Completa tu registro para comenzar a trabajar',
+          action: 'employee_onboarding',
+          isEmployee: true,
+        };
+      }
+    }
+
+    // Para clientes, usar la lógica normal de verificación
     if (isVerified) {
       return {
         icon: 'checkmark-circle',
@@ -283,6 +313,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
         title: t('profile.verified'),
         subtitle: t('profile.verifiedDesc'),
         action: null,
+        isEmployee: false,
       };
     }
 
@@ -294,6 +325,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
           title: t('profile.pending'),
           subtitle: t('profile.pendingDesc'),
           action: null,
+          isEmployee: false,
         };
       case 'rejected':
         return {
@@ -302,6 +334,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
           title: t('profile.rejected'),
           subtitle: t('profile.rejectedDesc'),
           action: 'retry',
+          isEmployee: false,
         };
       default:
         return {
@@ -310,6 +343,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
           title: t('profile.notVerified'),
           subtitle: t('profile.notVerifiedDesc'),
           action: 'start',
+          isEmployee: false,
         };
     }
   };
@@ -343,12 +377,17 @@ export default function MyProfileScreen({ navigation, route }: Props) {
         </Card>
 
         {/* Estado de Verificación */}
-        <Text style={styles.sectionTitle}>{t('profile.verificationStatus')}</Text>
+        <Text style={styles.sectionTitle}>{verificationInfo.isEmployee ? '👷 Alta de Empleado' : t('profile.verificationStatus')}</Text>
         <Card style={styles.card}>
           <TouchableOpacity
             onPress={() => {
               if (verificationInfo.action) {
-                navigation.navigate('Verification', { user, token });
+                // Navegar a EmployeeOnboarding o Verification según corresponda
+                if (verificationInfo.action === 'employee_onboarding') {
+                  navigation.navigate('EmployeeOnboarding', { user, token });
+                } else {
+                  navigation.navigate('Verification', { user, token });
+                }
               }
             }}
             disabled={!verificationInfo.action}
@@ -374,16 +413,26 @@ export default function MyProfileScreen({ navigation, route }: Props) {
               </View>
               {verificationInfo.action && (
                 <TouchableOpacity
-                  style={styles.verifyButton}
-                  onPress={() => navigation.navigate('Verification', { user, token })}
+                  style={[styles.verifyButton, verificationInfo.isEmployee && { backgroundColor: '#1976D2' }]}
+                  onPress={() => {
+                    if (verificationInfo.action === 'employee_onboarding') {
+                      navigation.navigate('EmployeeOnboarding', { user, token });
+                    } else {
+                      navigation.navigate('Verification', { user, token });
+                    }
+                  }}
                 >
                   <Text style={styles.verifyButtonText}>
-                    {verificationInfo.action === 'retry' ? t('verification.rejected') : t('profile.startVerification')}
+                    {verificationInfo.action === 'employee_onboarding' 
+                      ? '👷 Completar Alta'
+                      : verificationInfo.action === 'retry' 
+                        ? t('verification.rejected') 
+                        : t('profile.startVerification')}
                   </Text>
                 </TouchableOpacity>
               )}
-              {/* Botón Refrescar solo cuando NO está verificado */}
-              {!user.isVerified && (
+              {/* Botón Refrescar solo cuando NO está verificado y NO es empleado */}
+              {!verificationInfo.isEmployee && !user.isVerified && (
                 <TouchableOpacity
                   style={[styles.verifyButton, { backgroundColor: '#2196F3', marginTop: verificationInfo.action ? 8 : 12 }]}
                   onPress={refreshVerificationStatus}

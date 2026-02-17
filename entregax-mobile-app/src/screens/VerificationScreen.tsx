@@ -221,7 +221,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
             });
 
             // Enviar a verificación con IA (con token de autenticación)
-            const response = await fetch(`${API_URL}/verify/documents`, {
+            const response = await fetch(`${API_URL}/api/verify/documents`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

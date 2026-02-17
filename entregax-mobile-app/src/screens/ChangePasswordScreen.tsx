@@ -26,6 +26,7 @@ type RootStackParamList = {
   Login: undefined;
   ChangePassword: { user: any; token: string; currentPassword: string };
   Verification: { user: any; token: string };
+  EmployeeOnboarding: { user: any; token: string };
   Home: { user: any; token: string };
 };
 
@@ -68,9 +69,70 @@ export default function ChangePasswordScreen({ navigation, route }: ChangePasswo
     try {
       await changePasswordApi(token, currentPassword, newPassword);
       
-      // Verificar si el usuario necesita verificación de identidad
+      // Roles de empleados que necesitan onboarding (INE, fotos, tallas, etc.)
+      const employeeRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager'];
+      const isEmployee = employeeRoles.includes(user.role);
+      
+      // Si es empleado, verificar si ya completó el onboarding
+      if (isEmployee) {
+        try {
+          // Verificar si ya completó el onboarding
+          const onboardingResponse = await api.get('/api/hr/onboarding-status', {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          
+          if (!onboardingResponse.data.isOnboarded) {
+            // Ir al wizard de onboarding de empleados
+            Alert.alert(
+              '✅ Contraseña Actualizada',
+              'Ahora necesitas completar tu alta como empleado.',
+              [
+                {
+                  text: 'Continuar',
+                  onPress: () => {
+                    navigation.replace('EmployeeOnboarding', { user, token });
+                  },
+                },
+              ]
+            );
+            return;
+          }
+        } catch (onboardError) {
+          // Si falla, asumir que necesita onboarding
+          Alert.alert(
+            '✅ Contraseña Actualizada',
+            'Ahora necesitas completar tu alta como empleado.',
+            [
+              {
+                text: 'Continuar',
+                onPress: () => {
+                  navigation.replace('EmployeeOnboarding', { user, token });
+                },
+              },
+            ]
+          );
+          return;
+        }
+        
+        // Si ya completó onboarding, ir a Home
+        Alert.alert(
+          '✅ Contraseña Actualizada',
+          'Tu contraseña ha sido cambiada exitosamente.',
+          [
+            {
+              text: 'Continuar',
+              onPress: () => {
+                navigation.replace('Home', { user, token });
+              },
+            },
+          ]
+        );
+        return;
+      }
+      
+      // Solo para clientes: Verificar si necesita verificación de identidad
       try {
-        const statusResponse = await api.get('/verify/status', {
+        const statusResponse = await api.get('/api/verify/status', {
           headers: { Authorization: `Bearer ${token}` }
         });
         
@@ -90,7 +152,7 @@ export default function ChangePasswordScreen({ navigation, route }: ChangePasswo
           return;
         }
       } catch (verifyError) {
-        // Si falla la verificación, redirigir a Verification por seguridad
+        // Si falla la verificación para un cliente, redirigir a Verification
         Alert.alert(
           '✅ Contraseña Actualizada',
           'Ahora necesitas verificar tu identidad.',

@@ -74,6 +74,9 @@ const getRoleColor = (role: string): "error" | "warning" | "info" | "success" | 
     customer_service: 'primary',
     counter_staff: 'info',
     warehouse_ops: 'success',
+    advisor: 'primary',
+    sub_advisor: 'info',
+    repartidor: 'warning',
     client: 'default',
   };
   return colors[role] || 'default';
@@ -85,10 +88,13 @@ const translateRole = (role: string): string => {
     super_admin: 'Super Admin',
     admin: 'Admin',
     director: 'Director',
-    branch_manager: 'Gerente',
+    branch_manager: 'Operaciones',
     customer_service: 'Servicio Cliente',
     counter_staff: 'Mostrador',
     warehouse_ops: 'Bodega',
+    advisor: 'Asesor',
+    sub_advisor: 'Sub-Asesor',
+    repartidor: 'Repartidor',
     client: 'Cliente',
   };
   return translations[role] || role;
@@ -103,7 +109,7 @@ export default function ClientsPage({ users, loading, onRefresh }: ClientsPagePr
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [editForm, setEditForm] = useState({ full_name: '', email: '', role: '' });
+  const [editForm, setEditForm] = useState({ full_name: '', email: '', role: '', box_id: '' });
   
   // Estado para crear nuevo usuario
   const [createOpen, setCreateOpen] = useState(false);
@@ -161,6 +167,7 @@ export default function ClientsPage({ users, loading, onRefresh }: ClientsPagePr
       full_name: user.full_name,
       email: user.email,
       role: user.role,
+      box_id: user.box_id,
     });
     setEditOpen(true);
   };
@@ -198,13 +205,32 @@ export default function ClientsPage({ users, loading, onRefresh }: ClientsPagePr
     }
   };
 
-  // Guardar cambios (placeholder - necesita endpoint en backend)
+  // Guardar cambios de usuario
   const handleSaveEdit = async () => {
-    // TODO: Implementar endpoint PUT /api/users/:id en backend
-    console.log('Guardar cambios:', selectedUser?.id, editForm);
-    setEditOpen(false);
-    // Por ahora solo cerramos el diálogo
-    // En producción, hacer PUT request y refresh
+    if (!selectedUser) return;
+    
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      
+      await axios.put(
+        `${API_URL}/api/admin/users/${selectedUser.id}`,
+        {
+          full_name: editForm.full_name,
+          email: editForm.email,
+          role: editForm.role,
+          box_id: editForm.box_id,
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      setEditOpen(false);
+      setSnackbar({ open: true, message: 'Usuario actualizado correctamente', severity: 'success' });
+      onRefresh(); // Recargar lista
+    } catch (error) {
+      console.error('Error al actualizar usuario:', error);
+      setSnackbar({ open: true, message: 'Error al actualizar usuario', severity: 'error' });
+    }
   };
 
   const handleRoleFilterChange = (event: SelectChangeEvent) => {
@@ -594,9 +620,6 @@ export default function ClientsPage({ users, loading, onRefresh }: ClientsPagePr
         </DialogTitle>
         <DialogContent>
           <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2.5 }}>
-            <Alert severity="info" sx={{ mb: 1 }}>
-              Función de edición en desarrollo. Los cambios no se guardarán aún.
-            </Alert>
             <TextField
               label="Nombre Completo"
               fullWidth
@@ -618,10 +641,13 @@ export default function ClientsPage({ users, loading, onRefresh }: ClientsPagePr
                 onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
               >
                 <MenuItem value="client">Cliente</MenuItem>
+                <MenuItem value="advisor">Asesor</MenuItem>
+                <MenuItem value="sub_advisor">Sub-Asesor</MenuItem>
+                <MenuItem value="repartidor">Repartidor</MenuItem>
                 <MenuItem value="warehouse_ops">Bodega</MenuItem>
                 <MenuItem value="counter_staff">Mostrador</MenuItem>
                 <MenuItem value="customer_service">Servicio a Cliente</MenuItem>
-                <MenuItem value="branch_manager">Gerente</MenuItem>
+                <MenuItem value="branch_manager">Operaciones</MenuItem>
                 <MenuItem value="director">Director</MenuItem>
                 <MenuItem value="admin">Admin</MenuItem>
                 <MenuItem value="super_admin">Super Admin</MenuItem>

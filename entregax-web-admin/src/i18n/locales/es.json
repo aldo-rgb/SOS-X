@@ -54,6 +54,8 @@
     "panelsAdmin": "Administración",
     "panelsOperations": "Operaciones",
     "panelsService": "Servicio a Cliente",
+    "panelsHR": "Recursos Humanos",
+    "panelsFleet": "Gestión de Flotilla",
     "shipments": "Envíos",
     "consolidations": "Salidas",
     "quotes": "Cotizaciones",
@@ -557,7 +559,10 @@
       "inbound_emails": "Correos Marítimo",
       "maritime_api": "API China Marítimo",
       "air_api": "API China Aéreo",
-      "routes": "Rutas"
+      "routes": "Rutas",
+      "last_mile": "Última Milla",
+      "dhl_rates": "Tarifas DHL",
+      "dhl_operations": "Operaciones DHL"
     },
     "moduleFeatures": {
       "clients": {

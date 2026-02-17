@@ -189,6 +189,7 @@ function normalizeRole(role: string): string {
     'director': 'Director',
     'advisor': 'Servicio a Cliente', // O mapear a otro rol según tu lógica
     'sub_advisor': 'Servicio a Cliente',
+    'repartidor': 'Repartidor',
     'client': 'client', // Los clientes no tienen permisos de admin
   };
 

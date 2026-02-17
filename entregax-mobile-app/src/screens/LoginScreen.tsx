@@ -73,7 +73,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         // Verificar si necesita verificación de identidad (solo para clientes)
         if (userData.role === 'client') {
           try {
-            const verifyResponse = await api.get('/verify/status', {
+            const verifyResponse = await api.get('/api/verify/status', {
               headers: { Authorization: `Bearer ${token}` }
             });
             

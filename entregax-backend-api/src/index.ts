@@ -18,6 +18,7 @@ import {
   getAdvisors as getAdvisorsList,
   getMyAdvisor,
   assignAdvisor,
+  updateUser,
   ROLES,
   AuthRequest
 } from './authController';
@@ -62,6 +63,8 @@ import {
   updateMyAddress,
   deleteMyAddress,
   setMyDefaultAddress,
+  setMyDefaultForService,
+  getDefaultAddressForService,
   getMyPaymentMethods,
   createPaymentMethod,
   deletePaymentMethod,
@@ -148,7 +151,17 @@ import {
   deletePricingRule,
   createLogisticsService,
   updateLogisticsService,
-  assignPriceListToUser
+  assignPriceListToUser,
+  // Motor de Tarifas Marítimo
+  getPricingCategories,
+  getPricingTiers,
+  updatePricingTiers,
+  createPricingTier,
+  deletePricingTier,
+  createPricingCategory,
+  updatePricingCategory,
+  calculateMaritimeCost,
+  toggleUserVipPricing
 } from './pricingEngine';
 import {
   getWarehouseServices,
@@ -262,7 +275,14 @@ import {
   deleteMaritimeShipment,
   getMaritimeStats,
   receiveAtCedis,
-  uploadCostPdf
+  uploadCostPdf,
+  // Tarifas Marítimas
+  getMaritimeRates,
+  getActiveMaritimeRate,
+  createMaritimeRate,
+  updateMaritimeRate,
+  deleteMaritimeRate,
+  calculateShipmentCost
 } from './maritimeController';
 import {
   // IA Extraction
@@ -313,7 +333,10 @@ import {
   getMaritimeRoutes,
   createMaritimeRoute,
   updateMaritimeRoute,
-  deleteMaritimeRoute
+  deleteMaritimeRoute,
+  // Instrucciones de entrega (cliente)
+  updateDeliveryInstructions,
+  getMyMaritimeOrderDetail
 } from './maritimeApiController';
 import {
   importLegacyClients,
@@ -321,9 +344,117 @@ import {
   getLegacyStats,
   claimLegacyAccount,
   verifyLegacyBox,
+  verifyLegacyName,
   deleteLegacyClient,
   uploadMiddleware
 } from './legacyController';
+import {
+  getWalletStatus,
+  getTransactionHistory,
+  handleOpenpayWebhook,
+  payCredit,
+  manualDeposit,
+  updateCreditLine,
+  getCreditUsers,
+  getFinancialSummary,
+  getClientsFinancialStatus,
+  updateClientCredit,
+  runCreditCollectionEngine
+} from './financeController';
+import {
+  getUserPendingPayments,
+  getPaymentClabe,
+  openpayWebhook,
+  getUserPaymentHistory,
+  getUserBalancesByService,
+  listAvailableServices,
+  createServiceInvoice as createMultiServiceInvoice,
+  getAdminServiceSummary
+} from './multiServicePaymentController';
+import {
+  getUserServiceCredits,
+  updateServiceCredit,
+  updateAllServiceCredits,
+  getClientsWithServiceCredits,
+  getServiceCreditsSummary,
+  checkCreditAvailability,
+  useServiceCredit
+} from './serviceCreditController';
+import {
+  getAllNationalRates,
+  updateNationalRate,
+  createNationalRate,
+  deleteNationalRate,
+  quoteNationalFreight
+} from './nationalFreightController';
+import {
+  getReadyToDispatch,
+  quoteShipment as quoteLastMile,
+  dispatchShipment,
+  getDispatched,
+  getCarriers,
+  getStats as getLastMileStats,
+  reprintLabel
+} from './lastMileController';
+import {
+  getDhlRates,
+  updateDhlRate,
+  getClientPricing as getDhlClientPricing,
+  updateClientPricing as updateDhlClientPricing,
+  getDhlShipments,
+  receiveDhlPackage,
+  quoteDhlShipment,
+  dispatchDhlShipment,
+  getDhlStats,
+  getClientDhlPending,
+  getClientDhlHistory,
+  clientQuoteDhl,
+  measureBoxFromImage
+} from './dhlController';
+import {
+  getPrivacyNotice,
+  acceptPrivacyNotice,
+  saveEmployeeOnboarding,
+  checkIn,
+  checkOut,
+  getMyAttendanceToday,
+  trackGPSLocation,
+  getEmployeesWithAttendance,
+  getEmployeeDetail,
+  getAttendanceHistory,
+  getDriversLiveLocation,
+  getAttendanceStats,
+  getWorkLocations,
+  createWorkLocation,
+  checkOnboardingStatus,
+  createEmployee,
+  updateEmployee,
+  deleteEmployee
+} from './hrController';
+import {
+  getVehicles,
+  getVehicleDetail,
+  createVehicle,
+  updateVehicle,
+  assignDriver,
+  getVehicleDocuments,
+  createDocument,
+  updateDocument,
+  deleteDocument,
+  getMaintenanceHistory,
+  createMaintenance,
+  getInspections,
+  reviewInspection,
+  getAvailableVehicles,
+  submitDailyInspection,
+  checkTodayInspection,
+  getFleetAlerts,
+  resolveAlert,
+  getFleetDashboard,
+  getAvailableDrivers,
+  checkExpiringDocuments,
+  checkUpcomingMaintenance
+} from './fleetController';
 
 // Cargar variables de entorno
 dotenv.config();
@@ -473,6 +604,7 @@ app.put('/api/auth/update-profile', authenticateToken, updateProfile);
 // Públicas (para registro)
 app.post('/api/legacy/claim', claimLegacyAccount);
 app.get('/api/legacy/verify/:boxId', verifyLegacyBox);
+app.post('/api/legacy/verify-name', verifyLegacyName);
 // Protegidas (para admin)
 app.post('/api/legacy/import', authenticateToken, requireRole(ROLES.SUPER_ADMIN), uploadMiddleware, importLegacyClients);
 app.get('/api/legacy/clients', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER), getLegacyClients);
@@ -487,6 +619,8 @@ app.post('/api/users/assign-advisor', authenticateToken, assignAdvisor);
 // --- RUTAS DE USUARIOS (protegida por rol) ---
 // Solo admin y gerentes pueden ver todos los usuarios
 app.get('/api/users', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER), getAllUsers);
+// Actualizar usuario (admin y superiores)
+app.put('/api/admin/users/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateUser);
 
 // --- RUTAS DE ADMINISTRACIÓN (solo staff y superiores) ---
 app.get('/api/admin/dashboard', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), (req: AuthRequest, res: Response) => {
@@ -567,6 +701,8 @@ app.post('/api/addresses', authenticateToken, createMyAddress);
 app.put('/api/addresses/:id', authenticateToken, updateMyAddress);
 app.delete('/api/addresses/:id', authenticateToken, deleteMyAddress);
 app.put('/api/addresses/:id/default', authenticateToken, setMyDefaultAddress);
+app.put('/api/addresses/:id/default-for-service', authenticateToken, setMyDefaultForService);
+app.get('/api/addresses/default-for/:service', authenticateToken, getDefaultAddressForService);
 
 // --- RUTAS PARA APP MÓVIL: MIS MÉTODOS DE PAGO ---
 app.get('/api/payment-methods', authenticateToken, getMyPaymentMethods);
@@ -603,6 +739,9 @@ app.put('/api/admin/logistics-services/:id', authenticateToken, requireMinLevel(
 // --- RUTAS DE ASESORES (Gestión de Jerarquía) ---
 app.get('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getAdvisors);
 app.post('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createAdvisor);
+
+// --- RUTAS DE VERIFICACIÓN (Usuario) ---
+app.get('/api/verification/status', authenticateToken, getVerificationStatus);
 
 // --- RUTAS DE VERIFICACIÓN ADMIN (Revisión Manual KYC) ---
 app.get('/api/admin/verifications/pending', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getPendingVerifications);
@@ -713,6 +852,64 @@ app.put('/api/admin/logistics-services/:id', authenticateToken, requireMinLevel(
 
 // Admin: Asignar lista de precios a cliente
 app.put('/api/admin/users/:userId/price-list', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), assignPriceListToUser);
+
+// ========== MOTOR DE TARIFAS MARÍTIMO ==========
+
+// Categorías de carga
+app.get('/api/admin/pricing-categories', authenticateToken, requireMinLevel(ROLES.ADMIN), getPricingCategories);
+app.post('/api/admin/pricing-categories', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createPricingCategory);
+app.put('/api/admin/pricing-categories/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updatePricingCategory);
+
+// Tarifas por rango/CBM
+app.get('/api/admin/pricing-tiers', authenticateToken, requireMinLevel(ROLES.ADMIN), getPricingTiers);
+app.post('/api/admin/pricing-tiers', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createPricingTier);
+app.put('/api/admin/pricing-tiers', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updatePricingTiers);
+app.delete('/api/admin/pricing-tiers/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deletePricingTier);
+
+// Toggle VIP pricing para clientes
+app.put('/api/admin/users/:id/vip-pricing', authenticateToken, requireMinLevel(ROLES.ADMIN), toggleUserVipPricing);
+
+// Calculadora de costos marítimos (puede ser pública o autenticada)
+app.post('/api/maritime/calculate', calculateMaritimeCost);
+
+// ========== TARIFAS DE FLETE NACIONAL (TERRESTRE) ==========
+app.get('/api/admin/national-freight-rates', authenticateToken, requireMinLevel(ROLES.ADMIN), getAllNationalRates);
+app.post('/api/admin/national-freight-rates', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createNationalRate);
+app.put('/api/admin/national-freight-rates/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateNationalRate);
+app.delete('/api/admin/national-freight-rates/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deleteNationalRate);
+// Cotizador público
+app.post('/api/national-freight/quote', quoteNationalFreight);
+
+// ========== ÚLTIMA MILLA (SKYDROPX) ==========
+// Dashboard y listados
+app.get('/api/admin/last-mile/ready', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getReadyToDispatch);
+app.get('/api/admin/last-mile/dispatched', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDispatched);
+app.get('/api/admin/last-mile/carriers', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCarriers);
+app.get('/api/admin/last-mile/stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getLastMileStats);
+// Operaciones
+app.post('/api/admin/last-mile/quote', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), quoteLastMile);
+app.post('/api/admin/last-mile/dispatch', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), dispatchShipment);
+app.get('/api/admin/last-mile/reprint/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), reprintLabel);
+
+// ========== DHL MONTERREY (AA DHL) ==========
+// Tarifas
+app.get('/api/admin/dhl/rates', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlRates);
+app.put('/api/admin/dhl/rates/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateDhlRate);
+// Precios especiales por cliente
+app.get('/api/admin/dhl/client-pricing', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlClientPricing);
+app.put('/api/admin/dhl/client-pricing/:userId', authenticateToken, requireMinLevel(ROLES.ADMIN), updateDhlClientPricing);
+// Operaciones de bodega
+app.get('/api/admin/dhl/shipments', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDhlShipments);
+app.post('/api/admin/dhl/receive', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), receiveDhlPackage);
+app.post('/api/admin/dhl/quote', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), quoteDhlShipment);
+app.post('/api/admin/dhl/dispatch', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), dispatchDhlShipment);
+app.get('/api/admin/dhl/stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDhlStats);
+// IA: Medición de cajas con visión por computadora
+app.post('/api/admin/dhl/measure-box', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), measureBoxFromImage);
+// Endpoints para cliente (App)
+app.get('/api/client/dhl/pending', authenticateToken, getClientDhlPending);
+app.get('/api/client/dhl/history', authenticateToken, getClientDhlHistory);
+app.post('/api/client/dhl/quote', authenticateToken, clientQuoteDhl);
 
 // ========== RECEPCIÓN DE BODEGA (WAREHOUSE) ==========
 
@@ -914,6 +1111,14 @@ app.post('/api/maritime/shipments/:id/assign-client', authenticateToken, require
 app.put('/api/maritime/shipments/:id/receive-cedis', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), receiveAtCedis);
 app.delete('/api/maritime/shipments/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deleteMaritimeShipment);
 
+// Tarifas Marítimas (Costo por CBM)
+app.get('/api/maritime/rates', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getMaritimeRates);
+app.get('/api/maritime/rates/active', authenticateToken, getActiveMaritimeRate);
+app.post('/api/maritime/rates', authenticateToken, requireMinLevel(ROLES.ADMIN), createMaritimeRate);
+app.put('/api/maritime/rates/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateMaritimeRate);
+app.delete('/api/maritime/rates/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deleteMaritimeRate);
+app.post('/api/maritime/calculate-cost', authenticateToken, calculateShipmentCost);
+
 // ========== MÓDULO MARÍTIMO CON IA (Nuevo Panel Bodega) ==========
 
 // Extracción con IA
@@ -966,6 +1171,11 @@ app.get('/api/maritime-api/routes', authenticateToken, requireMinLevel(ROLES.COU
 app.post('/api/maritime-api/routes', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createMaritimeRoute);
 app.put('/api/maritime-api/routes/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateMaritimeRoute);
 app.delete('/api/maritime-api/routes/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteMaritimeRoute);
+
+// ========== INSTRUCCIONES DE ENTREGA - CLIENTE MÓVIL ==========
+// Endpoints para que los clientes puedan asignar dirección de entrega a sus LOGs marítimos
+app.put('/api/maritime-api/orders/:id/delivery-instructions', authenticateToken, updateDeliveryInstructions);
+app.get('/api/maritime-api/my-orders/:id', authenticateToken, getMyMaritimeOrderDetail);
 
 // ========== MÓDULO DE INVENTARIO POR SERVICIO ==========
 
@@ -1048,6 +1258,209 @@ app.post('/api/webhooks/email/inbound', handleInboundEmail);
 // Vizion envía updates de tracking aquí
 app.post('/api/webhooks/vizion', handleVizionWebhook);
 
+// Openpay/STP envía notificaciones de depósitos SPEI
+app.post('/api/webhooks/openpay', handleOpenpayWebhook);
+
+// ========== SISTEMA FINANCIERO - MONEDERO Y CRÉDITO ==========
+
+// Cliente: Estado de su monedero y crédito
+app.get('/api/wallet/status', authenticateToken, getWalletStatus);
+
+// Cliente: Historial de transacciones
+app.get('/api/wallet/transactions', authenticateToken, getTransactionHistory);
+
+// Cliente: Pagar saldo de crédito con monedero
+app.post('/api/wallet/pay-credit', authenticateToken, payCredit);
+
+// Admin: Fondeo manual (cuando reciben depósito por otro medio)
+app.post('/api/admin/wallet/deposit', authenticateToken, requireMinLevel(ROLES.ADMIN), manualDeposit);
+
+// Admin: Gestionar línea de crédito de un usuario
+app.post('/api/admin/credit/update', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateCreditLine);
+
+// Admin: Ver todos los usuarios con crédito
+app.get('/api/admin/credit/users', authenticateToken, requireMinLevel(ROLES.ADMIN), getCreditUsers);
+
+// Admin: Resumen financiero general
+app.get('/api/admin/finance/summary', authenticateToken, requireMinLevel(ROLES.ADMIN), getFinancialSummary);
+
+// Admin: Panel de Riesgo y Crédito B2B - Todos los clientes
+app.get('/api/admin/finance/clients', authenticateToken, requireMinLevel(ROLES.ADMIN), getClientsFinancialStatus);
+
+// Admin: Actualizar línea de crédito de un cliente específico
+app.put('/api/admin/finance/clients/:clientId/credit', authenticateToken, requireMinLevel(ROLES.ADMIN), updateClientCredit);
+
+// ========== PAGOS MULTI-SERVICIO (Múltiples RFCs/Empresas) ==========
+// Cliente: Ver pagos pendientes por servicio
+app.get('/api/payments/pending', authenticateToken, getUserPendingPayments);
+
+// Cliente: Obtener CLABE para pagar un servicio específico
+app.post('/api/payments/clabe', authenticateToken, getPaymentClabe);
+
+// Cliente: Historial de pagos
+app.get('/api/payments/history', authenticateToken, getUserPaymentHistory);
+
+// Cliente: Balances por servicio
+app.get('/api/payments/balances', authenticateToken, getUserBalancesByService);
+
+// Público: Listar servicios disponibles
+app.get('/api/services', listAvailableServices);
+
+// Webhooks de Openpay (uno por cada servicio/RFC)
+app.post('/api/webhook/openpay/:service', openpayWebhook);
+
+// Admin: Crear factura para un servicio (multi-empresa)
+app.post('/api/admin/multi-service/invoices', authenticateToken, requireMinLevel(ROLES.ADMIN), createMultiServiceInvoice);
+
+// Admin: Resumen por servicio
+app.get('/api/admin/services/summary', authenticateToken, requireMinLevel(ROLES.ADMIN), getAdminServiceSummary);
+
+// ========== CRÉDITOS POR SERVICIO (Multi-RFC) ==========
+// Admin: Resumen de créditos por servicio (dashboard)
+app.get('/api/admin/service-credits/summary', authenticateToken, requireMinLevel(ROLES.ADMIN), getServiceCreditsSummary);
+
+// Admin: Listar clientes con sus créditos por servicio
+app.get('/api/admin/service-credits/clients', authenticateToken, requireMinLevel(ROLES.ADMIN), getClientsWithServiceCredits);
+
+// Admin: Obtener créditos de un cliente específico
+app.get('/api/admin/service-credits/:userId', authenticateToken, requireMinLevel(ROLES.ADMIN), getUserServiceCredits);
+
+// Admin: Actualizar crédito de un servicio específico para un cliente
+app.put('/api/admin/service-credits/:userId/:service', authenticateToken, requireMinLevel(ROLES.ADMIN), updateServiceCredit);
+
+// Admin: Actualizar todos los créditos de un cliente
+app.put('/api/admin/service-credits/:userId', authenticateToken, requireMinLevel(ROLES.ADMIN), updateAllServiceCredits);
+
+// Cliente: Ver mis créditos por servicio
+app.get('/api/my/service-credits', authenticateToken, getUserServiceCredits);
+
+// Cliente: Verificar si puedo usar crédito
+app.post('/api/credits/check', authenticateToken, checkCreditAvailability);
+
+// Cliente: Usar crédito (compra a crédito)
+app.post('/api/credits/use', authenticateToken, useServiceCredit);
+
+// Admin: Obtener todas las facturas de pago (para panel admin)
+app.get('/api/admin/payment-invoices', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const invoicesRes = await pool.query(`
+      SELECT 
+        pi.*,
+        u.full_name as user_name,
+        u.email as user_email,
+        sc.company_name
+      FROM payment_invoices pi
+      LEFT JOIN users u ON pi.user_id = u.id
+      LEFT JOIN service_companies sc ON pi.service = sc.service
+      ORDER BY pi.created_at DESC
+      LIMIT 500
+    `);
+
+    // Resumen por servicio
+    const summaryRes = await pool.query(`
+      SELECT 
+        sc.service,
+        sc.company_name,
+        COUNT(*) FILTER (WHERE pi.status IN ('pending', 'partial')) as invoice_count,
+        COALESCE(SUM(pi.amount) FILTER (WHERE pi.status IN ('pending', 'partial')), 0) as total_pending
+      FROM service_companies sc
+      LEFT JOIN payment_invoices pi ON sc.service = pi.service
+      GROUP BY sc.service, sc.company_name
+      ORDER BY sc.id
+    `);
+
+    res.json({
+      success: true,
+      invoices: invoicesRes.rows,
+      summary: summaryRes.rows
+    });
+  } catch (error) {
+    console.error('Error getting payment invoices:', error);
+    res.status(500).json({ error: 'Error obteniendo facturas' });
+  }
+});
+
+// Admin: Crear nueva factura de cobro
+app.post('/api/admin/payment-invoices', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { user_id, service_type, concept, description, amount, due_date, reference_type, reference_id } = req.body;
+
+    // Generar número de factura
+    const countRes = await pool.query('SELECT COUNT(*) FROM payment_invoices');
+    const invoiceNumber = `PAY-${service_type.toUpperCase().slice(0, 3)}-${String(parseInt(countRes.rows[0].count) + 1).padStart(6, '0')}`;
+
+    const result = await pool.query(`
+      INSERT INTO payment_invoices 
+        (user_id, service, invoice_number, concept, description, amount, due_date, reference_type, reference_id)
+      VALUES 
+        ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING *
+    `, [user_id, service_type, invoiceNumber, concept, description || null, amount, due_date || null, reference_type || null, reference_id || null]);
+
+    res.json({
+      success: true,
+      invoice: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error creating payment invoice:', error);
+    res.status(500).json({ error: 'Error creando factura' });
+  }
+});
+
+// Admin: Marcar factura como pagada
+app.post('/api/admin/payment-invoices/:id/mark-paid', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    
+    await pool.query(`
+      UPDATE payment_invoices 
+      SET status = 'paid', paid_at = NOW(), amount_paid = amount
+      WHERE id = $1
+    `, [id]);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error marking invoice as paid:', error);
+    res.status(500).json({ error: 'Error actualizando factura' });
+  }
+});
+
+// Admin: Cancelar factura
+app.post('/api/admin/payment-invoices/:id/cancel', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    
+    await pool.query(`
+      UPDATE payment_invoices 
+      SET status = 'cancelled'
+      WHERE id = $1
+    `, [id]);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error cancelling invoice:', error);
+    res.status(500).json({ error: 'Error cancelando factura' });
+  }
+});
+
+// Admin: Obtener lista de clientes para autocomplete
+app.get('/api/admin/clients', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const result = await pool.query(`
+      SELECT id, full_name as name, email, company_name
+      FROM users
+      WHERE role = 'client'
+      ORDER BY full_name ASC
+      LIMIT 500
+    `);
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error getting clients:', error);
+    res.status(500).json({ error: 'Error obteniendo clientes' });
+  }
+});
+
 // Matriz de permisos (Solo Super Admin)
 app.get('/api/admin/permissions/matrix', authenticateToken, requireSuperAdmin(), getPermissionMatrix);
 app.post('/api/admin/permissions/toggle', authenticateToken, requireSuperAdmin(), togglePermission);
@@ -1103,6 +1516,70 @@ app.post('/api/admin/maritime/upload-manual',
   ]),
   uploadManualShipment
 );
+
+// ========== MÓDULO DE RECURSOS HUMANOS ==========
+// Públicos (empleados)
+app.get('/api/hr/privacy-notice', getPrivacyNotice);
+
+// Empleados autenticados
+app.post('/api/hr/accept-privacy', authenticateToken, acceptPrivacyNotice);
+app.post('/api/hr/onboarding', authenticateToken, saveEmployeeOnboarding);
+app.get('/api/hr/onboarding-status', authenticateToken, checkOnboardingStatus);
+
+// Checador GPS
+app.post('/api/hr/check-in', authenticateToken, checkIn);
+app.post('/api/hr/check-out', authenticateToken, checkOut);
+app.get('/api/hr/my-attendance', authenticateToken, getMyAttendanceToday);
+app.post('/api/hr/track-gps', authenticateToken, trackGPSLocation);
+
+// Admin HR
+app.get('/api/admin/hr/employees', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getEmployeesWithAttendance);
+app.get('/api/admin/hr/employees/:id', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getEmployeeDetail);
+app.post('/api/admin/hr/employees', authenticateToken, requireMinLevel(ROLES.ADMIN), createEmployee);
+app.put('/api/admin/hr/employees/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateEmployee);
+app.delete('/api/admin/hr/employees/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteEmployee);
+app.get('/api/admin/hr/attendance', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getAttendanceHistory);
+app.get('/api/admin/hr/attendance/stats', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getAttendanceStats);
+app.get('/api/admin/hr/drivers/live', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getDriversLiveLocation);
+
+// Ubicaciones de trabajo (geocercas)
+app.get('/api/admin/hr/locations', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getWorkLocations);
+app.post('/api/admin/hr/locations', authenticateToken, requireMinLevel(ROLES.ADMIN), createWorkLocation);
+
+// ========== MÓDULO DE GESTIÓN DE FLOTILLA ==========
+// Vehículos - Admin
+app.get('/api/admin/fleet/vehicles', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getVehicles);
+app.get('/api/admin/fleet/vehicles/:id', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getVehicleDetail);
+app.post('/api/admin/fleet/vehicles', authenticateToken, requireMinLevel(ROLES.ADMIN), createVehicle);
+app.put('/api/admin/fleet/vehicles/:id', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), updateVehicle);
+app.post('/api/admin/fleet/vehicles/:id/assign-driver', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), assignDriver);
+
+// Documentos de vehículos
+app.get('/api/admin/fleet/vehicles/:vehicleId/documents', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getVehicleDocuments);
+app.post('/api/admin/fleet/vehicles/:vehicleId/documents', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), createDocument);
+app.put('/api/admin/fleet/documents/:id', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), updateDocument);
+app.delete('/api/admin/fleet/documents/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteDocument);
+
+// Mantenimiento
+app.get('/api/admin/fleet/vehicles/:vehicleId/maintenance', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getMaintenanceHistory);
+app.post('/api/admin/fleet/vehicles/:vehicleId/maintenance', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), createMaintenance);
+
+// Inspecciones diarias
+app.get('/api/admin/fleet/inspections', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getInspections);
+app.put('/api/admin/fleet/inspections/:id/review', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), reviewInspection);
+
+// Alertas
+app.get('/api/admin/fleet/alerts', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getFleetAlerts);
+app.put('/api/admin/fleet/alerts/:id/resolve', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), resolveAlert);
+
+// Dashboard y reportes
+app.get('/api/admin/fleet/dashboard', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getFleetDashboard);
+app.get('/api/admin/fleet/drivers', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getAvailableDrivers);
+
+// Rutas para choferes (mobile app)
+app.get('/api/fleet/available-vehicles', authenticateToken, getAvailableVehicles);
+app.post('/api/fleet/inspection', authenticateToken, submitDailyInspection);
+app.get('/api/fleet/inspection/today', authenticateToken, checkTodayInspection);
 
 // Iniciar CRON Jobs para automatización
 import { initCronJobs } from './cronJobs';

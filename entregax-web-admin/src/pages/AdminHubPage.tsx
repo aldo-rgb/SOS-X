@@ -61,8 +61,17 @@ import MaritimeApiPage from './MaritimeApiPage';
 import AirApiPage from './AirApiPage';
 import MaritimeRoutesPage from './MaritimeRoutesPage';
 import LegacyClientsPage from './LegacyClientsPage';
+import MaritimeRatesPage from './MaritimeRatesPage';
+import MaritimePricingEnginePage from './MaritimePricingEnginePage';
+import FinancialManagementPage from './FinancialManagementPage';
+import PaymentInvoicesPage from './PaymentInvoicesPage';
+import NationalFreightRatesPage from './NationalFreightRatesPage';
+import LastMilePage from './LastMilePage';
+import DhlRatesPage from './DhlRatesPage';
 import {
     UploadFile as UploadIcon,
+    AccountBalanceWallet as WalletIcon,
+    LocalShipping as LocalShippingIcon,
 } from '@mui/icons-material';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -103,6 +112,8 @@ const MODULE_ICONS: Record<string, React.ReactElement> = {
     maritime_api: <ApiIcon />,
     air_api: <ApiIcon />,
     routes: <RouteIcon />,
+    last_mile: <LocalShippingIcon />,
+    dhl_rates: <SellIcon />,
 };
 
 const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
@@ -118,7 +129,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
     china_sea: [
         { key: 'costing', status: 'active' },
         { key: 'inventory', status: 'active' },
-        { key: 'pricing', status: 'pending' },
+        { key: 'pricing', status: 'active' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
         { key: 'routes', status: 'active' },
@@ -136,6 +147,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'reports', status: 'pending' },
     ],
     mx_cedis: [
+        { key: 'dhl_rates', status: 'active' },
         { key: 'inventory', status: 'active' },
         { key: 'pricing', status: 'pending' },
         { key: 'invoicing', status: 'active' },
@@ -145,7 +157,8 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
     ],
     mx_national: [
         { key: 'inventory', status: 'active' },
-        { key: 'pricing', status: 'pending' },
+        { key: 'pricing', status: 'active' },
+        { key: 'last_mile', status: 'active' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
         { key: 'coverage', status: 'pending' },
@@ -183,6 +196,8 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
     const [showSupplierPayments, setShowSupplierPayments] = useState(false);
     const [showPermissions, setShowPermissions] = useState(false);
     const [showLegacyClients, setShowLegacyClients] = useState(false);
+    const [showFinancial, setShowFinancial] = useState(false);
+    const [showPaymentInvoices, setShowPaymentInvoices] = useState(false);
     const [locations, setLocations] = useState<WarehouseLocation[]>([]);
     const [loadingLocations, setLoadingLocations] = useState(true);
 
@@ -300,6 +315,42 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                     />
                 </Box>
                 <LegacyClientsPage />
+            </Box>
+        );
+    }
+
+    // ============================================
+    // RENDER: Gestión Financiera (Monedero + Crédito)
+    // ============================================
+    if (showFinancial) {
+        return (
+            <Box>
+                <Box sx={{ mb: 2 }}>
+                    <Chip
+                        label={t('panels.backToAdmin')}
+                        onClick={() => setShowFinancial(false)}
+                        sx={{ cursor: 'pointer' }}
+                    />
+                </Box>
+                <FinancialManagementPage />
+            </Box>
+        );
+    }
+
+    // ============================================
+    // RENDER: Cuentas por Cobrar (Multi-RFC)
+    // ============================================
+    if (showPaymentInvoices) {
+        return (
+            <Box>
+                <Box sx={{ mb: 2 }}>
+                    <Chip
+                        label={t('panels.backToAdmin')}
+                        onClick={() => setShowPaymentInvoices(false)}
+                        sx={{ cursor: 'pointer' }}
+                    />
+                </Box>
+                <PaymentInvoicesPage />
             </Box>
         );
     }
@@ -433,6 +484,105 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         />
                     </Box>
                     <MaritimeRoutesPage />
+                </Box>
+            );
+        }
+
+        // Panel Tarifas Marítimas (pricing) - solo china_sea
+        if (selectedModule === 'pricing' && selectedService === 'china_sea') {
+            return (
+                <Box>
+                    {/* Breadcrumb */}
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    {/* Motor de Tarifas Marítimo con categorías y VIP */}
+                    <MaritimePricingEnginePage />
+                </Box>
+            );
+        }
+
+        // Panel Tarifas Flete Nacional (pricing) - solo mx_national
+        if (selectedModule === 'pricing' && selectedService === 'mx_national') {
+            return (
+                <Box>
+                    {/* Breadcrumb */}
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    {/* Panel de Tarifas de Flete Nacional Terrestre */}
+                    <NationalFreightRatesPage />
+                </Box>
+            );
+        }
+
+        // Panel Última Milla (last_mile) - solo mx_national
+        if (selectedModule === 'last_mile' && selectedService === 'mx_national') {
+            return (
+                <Box>
+                    {/* Breadcrumb */}
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    {/* Panel de Última Milla - Skydropx */}
+                    <LastMilePage />
+                </Box>
+            );
+        }
+
+        // Panel de Tarifas DHL (dhl_rates) - solo mx_cedis
+        if (selectedModule === 'dhl_rates' && selectedService === 'mx_cedis') {
+            return (
+                <Box>
+                    {/* Breadcrumb */}
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    <DhlRatesPage />
                 </Box>
             );
         }
@@ -1114,6 +1264,114 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                     </Card>
                 </Grid>
                 )}
+
+                {/* Tarjeta especial: Gestión Financiera - Monedero y Crédito B2B */}
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    <Card
+                        sx={{
+                            height: '100%',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                                transform: 'translateY(-8px)',
+                                boxShadow: 6,
+                            },
+                        }}
+                    >
+                        <CardActionArea
+                            onClick={() => setShowFinancial(true)}
+                            sx={{ height: '100%' }}
+                        >
+                            <Box
+                                sx={{
+                                    background: 'linear-gradient(135deg, #0097A7 0%, #26C6DA 100%)',
+                                    p: 3,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                }}
+                            >
+                                <Box sx={{ color: 'white' }}>
+                                    <WalletIcon sx={{ fontSize: 48 }} />
+                                </Box>
+                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
+                                    💳
+                                </Typography>
+                            </Box>
+                            <CardContent>
+                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                    Gestión Financiera
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                    Monederos de clientes, líneas de crédito B2B y transacciones
+                                </Typography>
+                                <Divider sx={{ my: 1 }} />
+                                <Typography variant="caption" color="text.secondary">
+                                    Admin / Super Admin
+                                </Typography>
+                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+                                    <Chip label="Monedero" size="small" sx={{ bgcolor: '#0097A7', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="Crédito" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                    <Chip label="SPEI" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                </Box>
+                            </CardContent>
+                        </CardActionArea>
+                    </Card>
+                </Grid>
+
+                {/* Tarjeta especial: Cuentas por Cobrar - Multi-RFC */}
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    <Card
+                        sx={{
+                            height: '100%',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                                transform: 'translateY(-8px)',
+                                boxShadow: 6,
+                            },
+                        }}
+                    >
+                        <CardActionArea
+                            onClick={() => setShowPaymentInvoices(true)}
+                            sx={{ height: '100%' }}
+                        >
+                            <Box
+                                sx={{
+                                    background: 'linear-gradient(135deg, #F05A28 0%, #FF8A65 100%)',
+                                    p: 3,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                }}
+                            >
+                                <Box sx={{ color: 'white' }}>
+                                    <ReceiptIcon sx={{ fontSize: 48 }} />
+                                </Box>
+                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
+                                    💳
+                                </Typography>
+                            </Box>
+                            <CardContent>
+                                <Typography variant="h6" fontWeight="bold" gutterBottom color="text.primary">
+                                    Cuentas por Cobrar
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                    Facturas de cobro por servicio (Multi-RFC). Cada empresa con su CLABE de Openpay.
+                                </Typography>
+                                <Divider sx={{ my: 1 }} />
+                                <Typography variant="caption" color="text.secondary">
+                                    Admin / Super Admin
+                                </Typography>
+                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+                                    <Chip label="✈️ Aéreo" size="small" sx={{ bgcolor: '#3498DB', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="🚢 Marítimo" size="small" sx={{ bgcolor: '#1ABC9C', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="🚛 Terrestre" size="small" sx={{ bgcolor: '#E67E22', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="📦 DHL" size="small" sx={{ bgcolor: '#F1C40F', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="📮 PO Box" size="small" sx={{ bgcolor: '#9B59B6', color: 'white', fontSize: '0.7rem' }} />
+                                </Box>
+                            </CardContent>
+                        </CardActionArea>
+                    </Card>
+                </Grid>
             </Grid>
 
             {/* Tip */}

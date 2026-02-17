@@ -1604,6 +1604,22 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
               shipmentUserId = userRes.rows[0]?.id || null;
             }
 
+            // Buscar dirección predeterminada para servicio marítimo
+            let defaultAddressId: number | null = null;
+            if (shipmentUserId) {
+              const addressResult = await pool.query(
+                `SELECT id FROM addresses 
+                 WHERE user_id = $1 
+                 AND (default_for_service LIKE '%maritime%' OR default_for_service LIKE '%all%')
+                 ORDER BY id ASC LIMIT 1`,
+                [shipmentUserId]
+              );
+              if (addressResult.rows.length > 0) {
+                defaultAddressId = addressResult.rows[0].id;
+                console.log(`    → Dirección predeterminada asignada automáticamente: ID ${defaultAddressId}`);
+              }
+            }
+
             // Crear el LOG completo con toda la información del SUMMARY
             // NOTA: shipping_mark se deja NULL porque solo viene de la API de China
             // weight y volume se llenan con datos del Summary ya que no hay datos de API
@@ -1614,8 +1630,9 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
                weight, volume,
                summary_boxes, summary_weight, summary_volume, summary_description,
                bl_client_name, bl_client_code, route_id,
+               delivery_address_id, instructions_assigned_at,
                sync_source, status, created_at, updated_at)
-              VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, 'summary', 'pending_api', NOW(), NOW())
+              VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'summary', 'pending_api', NOW(), NOW())
             `, [
               log.log,
               shipmentUserId,
@@ -1633,7 +1650,9 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
               log.description,
               log.clientName || null,  // nombre completo del cliente
               log.clientCode || null,  // código del cliente (S105, S883)
-              containerRouteId  // ruta del contenedor
+              containerRouteId,  // ruta del contenedor
+              defaultAddressId,  // dirección predeterminada si existe
+              defaultAddressId ? new Date() : null  // timestamp de asignación automática
             ]);
             
             logsCreated++;

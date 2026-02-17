@@ -66,6 +66,10 @@ import InventoryIcon from '@mui/icons-material/Inventory';
 import HeadsetMicIcon from '@mui/icons-material/HeadsetMic';
 import AdminHubPage from './pages/AdminHubPage';
 import WarehouseHubPage from './pages/WarehouseHubPage';
+import HRManagementPage from './pages/HRManagementPage';
+import FleetManagementPage from './pages/FleetManagementPage';
+import BadgeIcon from '@mui/icons-material/Badge';
+import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 
 const drawerWidth = 280;
 
@@ -176,6 +180,8 @@ const menuItemsConfig: Array<{
       { key: 'panelsAdmin', icon: <BuildIcon /> },         // Herramientas Administrativas
       { key: 'panelsOperations', icon: <InventoryIcon /> }, // Herramientas de Operación
       { key: 'panelsService', icon: <HeadsetMicIcon /> },   // Servicio a Cliente
+      { key: 'panelsHR', icon: <BadgeIcon /> },             // Recursos Humanos
+      { key: 'panelsFleet', icon: <DirectionsCarIcon /> },  // Gestión de Flotilla
     ]
   },
   { key: 'commissions', icon: <MonetizationOnIcon /> },
@@ -623,6 +629,8 @@ function App() {
         case 0: return <AdminHubPage users={users} loading={loading} onRefresh={fetchUsers} />; // Administración
         case 1: return <WarehouseHubPage users={users} />; // Operaciones (Bodegas)
         case 2: return <CustomerServiceHubPage />; // Servicio a Cliente
+        case 3: return <HRManagementPage />; // Recursos Humanos
+        case 4: return <FleetManagementPage />; // Gestión de Flotilla
         default: return null;
       }
     }
