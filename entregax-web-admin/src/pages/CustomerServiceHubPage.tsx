@@ -32,7 +32,8 @@ interface CustomerServiceHubPageProps {
 
 type ActiveView = 'hub' | 'leads' | 'clients' | 'support';
 
-export default function CustomerServiceHubPage({ }: CustomerServiceHubPageProps) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export default function CustomerServiceHubPage({ users, loading, onRefresh }: CustomerServiceHubPageProps) {
   const { t } = useTranslation();
   const [activeView, setActiveView] = useState<ActiveView>('hub');
 

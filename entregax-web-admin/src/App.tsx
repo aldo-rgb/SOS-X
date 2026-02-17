@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import {
@@ -47,7 +47,7 @@ import FiscalPage from './pages/FiscalPage';
 // SettingsPage removido - funcionalidad duplicada con CommissionsPage
 // PricingPage removido - tarifas se manejarán por cada tipo de servicio desde Panel de Admin
 // WarrantiesPage removido - ahora se accede desde AdminHubPage > Paneles Administrativos
-import PanelsHubPage from './pages/PanelsHubPage';
+// PanelsHubPage removido - ahora todo se accede desde el sidebar con submenús
 // ServiceTypesPage - ahora oculto del sidebar
 // SupportBoardPage, UnifiedLeadsPage, CRMClientsPage - ahora en CustomerServiceHubPage
 import SalesReportPage from './pages/SalesReportPage';
@@ -56,9 +56,9 @@ import CustomerServiceHubPage from './pages/CustomerServiceHubPage';
 // SecurityIcon removido - warranties ahora está en AdminHubPage
 // WhatshotIcon, HeadsetMicIcon, PersonSearchIcon - ahora en CustomerServiceHubPage
 // CategoryIcon removido - tipo de servicio oculto
+// SupportAgentIcon removido - no se usa
 import DashboardCustomizeIcon from '@mui/icons-material/DashboardCustomize';
 import BarChartIcon from '@mui/icons-material/BarChart';
-import SupportAgentIcon from '@mui/icons-material/SupportAgent';
 import ExpandLess from '@mui/icons-material/ExpandLess';
 import ExpandMore from '@mui/icons-material/ExpandMore';
 import BuildIcon from '@mui/icons-material/Build';
@@ -167,8 +167,8 @@ const theme = createTheme({
 // Menu items with translation keys
 const menuItemsConfig: Array<{
   key: string;
-  icon: JSX.Element;
-  subItems?: Array<{ key: string; icon: JSX.Element }>;
+  icon: React.ReactElement;
+  subItems?: Array<{ key: string; icon: React.ReactElement }>;
 }> = [
   { key: 'dashboard', icon: <DashboardIcon /> },
   { key: 'salesReport', icon: <BarChartIcon /> }, // CRM - Reportes de Ventas
@@ -628,7 +628,7 @@ function App() {
       switch (selectedSubIndex) {
         case 0: return <AdminHubPage users={users} loading={loading} onRefresh={fetchUsers} />; // Administración
         case 1: return <WarehouseHubPage users={users} />; // Operaciones (Bodegas)
-        case 2: return <CustomerServiceHubPage />; // Servicio a Cliente
+        case 2: return <CustomerServiceHubPage users={users} loading={loading} onRefresh={fetchUsers} />; // Servicio a Cliente
         case 3: return <HRManagementPage />; // Recursos Humanos
         case 4: return <FleetManagementPage />; // Gestión de Flotilla
         default: return null;

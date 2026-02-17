@@ -61,7 +61,7 @@ import MaritimeApiPage from './MaritimeApiPage';
 import AirApiPage from './AirApiPage';
 import MaritimeRoutesPage from './MaritimeRoutesPage';
 import LegacyClientsPage from './LegacyClientsPage';
-import MaritimeRatesPage from './MaritimeRatesPage';
+// MaritimeRatesPage removido - se usa MaritimePricingEnginePage
 import MaritimePricingEnginePage from './MaritimePricingEnginePage';
 import FinancialManagementPage from './FinancialManagementPage';
 import PaymentInvoicesPage from './PaymentInvoicesPage';
