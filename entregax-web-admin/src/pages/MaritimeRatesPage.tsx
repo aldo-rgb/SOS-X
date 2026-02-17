@@ -3,7 +3,7 @@
 // Configuración de costos por CBM para envíos marítimos
 // ============================================
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -38,14 +38,14 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   Save as SaveIcon,
-  LocalShipping as ShippingIcon,
+  // LocalShipping as ShippingIcon, // No se usa actualmente
   Calculate as CalculateIcon,
   CheckCircle as CheckCircleIcon,
   AttachMoney as MoneyIcon,
   Inventory as InventoryIcon,
-  Scale as ScaleIcon,
+  // Scale as ScaleIcon, // No se usa actualmente
 } from '@mui/icons-material';
-import Grid from '@mui/material/Grid2';
+import Grid from '@mui/material/Unstable_Grid2';
 import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -82,9 +82,9 @@ interface CostCalculation {
 }
 
 export default function MaritimeRatesPage() {
-  const { t } = useTranslation();
+  const { t: _t } = useTranslation();
   const [rates, setRates] = useState<MaritimeRate[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [_loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRate, setEditingRate] = useState<MaritimeRate | null>(null);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });

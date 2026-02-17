@@ -61,7 +61,7 @@ import {
   // Speed as SpeedIcon, // No se usa actualmente
   ContentCopy as CopyIcon,
 } from '@mui/icons-material';
-import Grid from '@mui/material/Grid2';
+import Grid from '@mui/material/Unstable_Grid2';
 import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
