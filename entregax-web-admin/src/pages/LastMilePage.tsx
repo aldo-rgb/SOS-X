@@ -26,7 +26,6 @@ import {
   CircularProgress,
   Card,
   CardContent,
-  Grid,
   Tabs,
   Tab,
   TextField,
@@ -43,7 +42,7 @@ import {
   FormControlLabel,
   FormControl,
   FormLabel,
-  Stack,
+  // Stack, // No se usa actualmente
 } from '@mui/material';
 import {
   LocalShipping as TruckIcon,
@@ -58,10 +57,11 @@ import {
   Flight as FlightIcon,
   DirectionsBoat as ShipIcon,
   Air as AirIcon,
-  AttachMoney as MoneyIcon,
-  Speed as SpeedIcon,
+  // AttachMoney as MoneyIcon, // No se usa actualmente
+  // Speed as SpeedIcon, // No se usa actualmente
   ContentCopy as CopyIcon,
 } from '@mui/icons-material';
+import Grid from '@mui/material/Grid2';
 import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -380,7 +380,7 @@ export default function LastMilePage() {
       {/* Stats Cards */}
       {stats && (
         <Grid container spacing={2} sx={{ mb: 3 }}>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Card sx={{ bgcolor: '#FFF3E0' }}>
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -391,7 +391,7 @@ export default function LastMilePage() {
               </CardContent>
             </Card>
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Card sx={{ bgcolor: '#E8F5E9' }}>
               <CardContent>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -402,7 +402,7 @@ export default function LastMilePage() {
               </CardContent>
             </Card>
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Card sx={{ bgcolor: '#E3F2FD' }}>
               <CardContent>
                 <Typography variant="subtitle2" color="text.secondary">Por Servicio</Typography>
@@ -429,7 +429,7 @@ export default function LastMilePage() {
               </CardContent>
             </Card>
           </Grid>
-          <Grid item xs={12} sm={6} md={3}>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Card sx={{ bgcolor: '#FCE4EC' }}>
               <CardContent>
                 <Typography variant="subtitle2" color="text.secondary">Carriers Hoy</Typography>

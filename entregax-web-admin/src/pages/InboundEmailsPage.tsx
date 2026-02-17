@@ -933,8 +933,8 @@ export default function InboundEmailsPage() {
                 <DialogContent dividers>
                     {selectedDraft && (
                         <Grid container spacing={2}>
-                            {/* Sección de LOGs para LCL */}
-                            {selectedDraft.document_type === 'LCL' && selectedDraft.extracted_data?.logs?.length > 0 && (
+                            {/* Sección de LOGs para LOG */}
+                            {selectedDraft.document_type === 'LOG' && selectedDraft.extracted_data?.logs?.length > 0 && (
                                 <Grid size={{ xs: 12 }}>
                                     <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>
                                         📦 LOGs Detectados ({selectedDraft.extracted_data.logs.length})
@@ -1285,8 +1285,8 @@ export default function InboundEmailsPage() {
                                     </Typography>
                                 </Paper>
 
-                                {/* Cliente Asignado - Solo para FCL, no para LCL que tiene múltiples clientes */}
-                                {selectedDraft.document_type !== 'LCL' && (
+                                {/* Cliente Asignado - Solo para BL, no para LOG que tiene múltiples clientes */}
+                                {selectedDraft.document_type !== 'LOG' && (
                                     <>
                                         <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 2 }}>Cliente Asignado</Typography>
                                         <Paper variant="outlined" sx={{ p: 2, mt: 1 }}>
