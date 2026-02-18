@@ -27,7 +27,6 @@ import {
   IconButton,
   Tooltip,
   InputAdornment,
-  Grid,
   Tabs,
   Tab,
 } from '@mui/material';
@@ -205,32 +204,24 @@ export default function CreditManagementPanel() {
       />
 
       {/* Stats Row Compacto */}
-      <Grid container spacing={2} sx={{ mb: 2 }}>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: GREEN, color: 'white' }}>
-            <Typography variant="h6" fontWeight="bold">{formatCurrency(stats.totalWallets)}</Typography>
-            <Typography variant="caption">Saldo Real</Typography>
-          </Paper>
-        </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: ORANGE, color: 'white' }}>
-            <Typography variant="h6" fontWeight="bold">{formatCurrency(stats.totalCreditUsed)}</Typography>
-            <Typography variant="caption">Crédito Usado</Typography>
-          </Paper>
-        </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: RED, color: 'white' }}>
-            <Typography variant="h6" fontWeight="bold">{formatCurrency(stats.overdueAmount)}</Typography>
-            <Typography variant="caption">Vencido</Typography>
-          </Paper>
-        </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: '#424242', color: 'white' }}>
-            <Typography variant="h6" fontWeight="bold">{stats.blockedCount}</Typography>
-            <Typography variant="caption">Bloqueados</Typography>
-          </Paper>
-        </Grid>
-      </Grid>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' }, gap: 2, mb: 2 }}>
+        <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: GREEN, color: 'white' }}>
+          <Typography variant="h6" fontWeight="bold">{formatCurrency(stats.totalWallets)}</Typography>
+          <Typography variant="caption">Saldo Real</Typography>
+        </Paper>
+        <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: ORANGE, color: 'white' }}>
+          <Typography variant="h6" fontWeight="bold">{formatCurrency(stats.totalCreditUsed)}</Typography>
+          <Typography variant="caption">Crédito Usado</Typography>
+        </Paper>
+        <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: RED, color: 'white' }}>
+          <Typography variant="h6" fontWeight="bold">{formatCurrency(stats.overdueAmount)}</Typography>
+          <Typography variant="caption">Vencido</Typography>
+        </Paper>
+        <Paper sx={{ p: 1.5, textAlign: 'center', bgcolor: '#424242', color: 'white' }}>
+          <Typography variant="h6" fontWeight="bold">{stats.blockedCount}</Typography>
+          <Typography variant="caption">Bloqueados</Typography>
+        </Paper>
+      </Box>
 
       {/* Tabs */}
       <Paper sx={{ mb: 2 }}>

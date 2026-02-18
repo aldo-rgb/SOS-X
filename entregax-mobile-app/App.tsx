@@ -25,7 +25,31 @@ import DeliveryInstructionsScreen from './src/screens/DeliveryInstructionsScreen
 import MaritimeDetailScreen from './src/screens/MaritimeDetailScreen';
 import MyPaymentsScreen from './src/screens/MyPaymentsScreen';
 import EmployeeOnboardingScreen from './src/screens/EmployeeOnboardingScreen';
+import VehicleInspectionScreen from './src/screens/VehicleInspectionScreen';
+import DriverHomeScreen from './src/screens/DriverHomeScreen';
+import LoadingVanScreen from './src/screens/LoadingVanScreen';
+import ReturnScanScreen from './src/screens/ReturnScanScreen';
+import DeliveryConfirmScreen from './src/screens/DeliveryConfirmScreen';
+import EmployeeHomeScreen from './src/screens/EmployeeHomeScreen';
+import AttendanceCheckerScreen from './src/screens/AttendanceCheckerScreen';
 import { Package } from './src/services/api';
+
+// Roles de empleados que deben ir al EmployeeHomeScreen
+export const EMPLOYEE_ROLES = [
+  'repartidor',
+  'warehouse_ops',
+  'counter_staff',
+  'customer_service',
+  'branch_manager',
+  'director',
+  'admin',
+  'super_admin',
+  // Roles de asesores
+  'advisor',
+  'asesor',
+  'asesor_lider',
+  'sub_advisor'
+];
 
 // Tipos para navegación
 export type RootStackParamList = {
@@ -35,6 +59,7 @@ export type RootStackParamList = {
   ChangePassword: { user: any; token: string; currentPassword: string };
   Verification: { user: any; token: string };
   Home: { user: any; token: string };
+  EmployeeHome: { user: any; token: string };
   ConsolidationSummary: { selectedIds: number[]; packages: Package[]; token: string };
   Payment: { consolidationId: number; weight: number; token: string; user: any };
   MyAddresses: { user: any; token: string };
@@ -48,6 +73,14 @@ export type RootStackParamList = {
   MaritimeDetail: { package: Package; user: any; token: string };
   MyPayments: { user: any; token: string };
   EmployeeOnboarding: { user: any; token: string };
+  // Pantallas del Chofer
+  VehicleInspection: { user: any; token: string };
+  DriverHome: { user: any; token: string };
+  LoadingVan: { user: any; token: string };
+  ReturnScan: { user: any; token: string };
+  DeliveryConfirm: { user: any; token: string; package?: any };
+  // Pantalla de Asistencia
+  AttendanceChecker: { user: any; token: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -79,6 +112,7 @@ export default function App() {
           <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
           <Stack.Screen name="Verification" component={VerificationScreen} />
           <Stack.Screen name="Home" component={HomeScreen} />
+          <Stack.Screen name="EmployeeHome" component={EmployeeHomeScreen} />
           <Stack.Screen 
             name="ConsolidationSummary" 
             component={ConsolidationSummary}
@@ -130,6 +164,32 @@ export default function App() {
           <Stack.Screen 
             name="EmployeeOnboarding" 
             component={EmployeeOnboardingScreen}
+          />
+          {/* Pantallas del Chofer */}
+          <Stack.Screen 
+            name="VehicleInspection" 
+            component={VehicleInspectionScreen}
+          />
+          <Stack.Screen 
+            name="DriverHome" 
+            component={DriverHomeScreen}
+          />
+          <Stack.Screen 
+            name="LoadingVan" 
+            component={LoadingVanScreen}
+          />
+          <Stack.Screen 
+            name="ReturnScan" 
+            component={ReturnScanScreen}
+          />
+          <Stack.Screen 
+            name="DeliveryConfirm" 
+            component={DeliveryConfirmScreen}
+          />
+          {/* Pantalla de Asistencia */}
+          <Stack.Screen 
+            name="AttendanceChecker" 
+            component={AttendanceCheckerScreen}
           />
         </Stack.Navigator>
       </NavigationContainer>

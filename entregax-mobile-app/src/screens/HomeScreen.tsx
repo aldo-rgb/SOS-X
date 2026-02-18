@@ -9,6 +9,7 @@ import {
   Alert,
   Modal,
   TouchableOpacity,
+  Image,
 } from 'react-native';
 import {
   Text,
@@ -72,6 +73,12 @@ type RootStackParamList = {
   DeliveryInstructions: { package: Package; packages?: Package[]; user: any; token: string };
   MaritimeDetail: { package: Package; user: any; token: string };
   EmployeeOnboarding: { user: any; token: string };
+  // Pantallas del Repartidor
+  DriverHome: { user: any; token: string };
+  LoadingVan: { user: any; token: string };
+  ReturnScan: { user: any; token: string };
+  DeliveryConfirm: { user: any; token: string };
+  VehicleInspection: { user: any; token: string };
 };
 
 type HomeScreenProps = {
@@ -81,7 +88,8 @@ type HomeScreenProps = {
 
 export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const { t } = useTranslation();
-  const { user, token } = route.params;
+  const { user: initialUser, token } = route.params;
+  const [user, setUser] = useState(initialUser); // Estado local para actualizar usuario
   const [packages, setPackages] = useState<Package[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]); // 🔥 IDs seleccionados
   const [loading, setLoading] = useState(true);
@@ -97,12 +105,15 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const isPendingReview = verificationStatus === 'pending_review';
 
   // 👷 Detectar si es empleado (no requiere verificación de cliente)
-  const employeeRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager'];
+  const employeeRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'admin', 'super_admin'];
   const isEmployee = employeeRoles.includes(user.role);
   const isEmployeeOnboarded = user.isEmployeeOnboarded === true;
   
   // Los empleados no necesitan verificación de cliente, solo onboarding de empleado
+  // Si ya completó el onboarding pero está en verificación pendiente, no mostrar banner de alta
   const needsEmployeeOnboarding = isEmployee && !isEmployeeOnboarded;
+  const employeePendingVerification = isEmployee && isEmployeeOnboarded && verificationStatus === 'pending_review';
+  const employeeVerified = isEmployee && isEmployeeOnboarded && (verificationStatus === 'verified' || isUserVerified);
 
   // 📦 Función para obtener el label de status traducido
   const getStatusLabel = (status: string, shipmentType?: string): string => {
@@ -160,15 +171,36 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     }
   }, [user.id, token]);
 
+  // 🔄 Función para actualizar datos del usuario desde el servidor
+  const refreshUserData = useCallback(async () => {
+    try {
+      const response = await fetch(`http://192.168.1.114:3001/api/auth/profile`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setUser(prev => ({
+          ...prev,
+          isVerified: data.is_verified,
+          verificationStatus: data.verification_status,
+          isEmployeeOnboarded: data.is_employee_onboarded,
+        }));
+      }
+    } catch (error) {
+      console.error('Error refreshing user data:', error);
+    }
+  }, [token]);
+
   useEffect(() => {
     fetchPackages();
   }, [fetchPackages]);
 
-  // 🔄 Refrescar al volver a la pantalla (después de contratar GEX)
+  // 🔄 Refrescar al volver a la pantalla (después de contratar GEX o completar onboarding)
   useFocusEffect(
     useCallback(() => {
       fetchPackages();
-    }, [fetchPackages])
+      refreshUserData(); // Actualizar datos del usuario
+    }, [fetchPackages, refreshUserData])
   );
 
   const onRefresh = () => {
@@ -564,10 +596,13 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       
       {/* Appbar */}
       <Appbar.Header style={styles.appbar}>
-        <Appbar.Content 
-          title="EntregaX" 
-          titleStyle={styles.appbarTitle}
-        />
+        <View style={{ paddingLeft: 16, justifyContent: 'center' }}>
+          <Image 
+            source={require('../../assets/logo.png')} 
+            style={{ width: 120, height: 36, resizeMode: 'contain' }}
+          />
+        </View>
+        <View style={{ flex: 1 }} />
         <TouchableOpacity 
           onPress={() => setShowLanguageModal(true)}
           style={styles.languageButton}
@@ -650,6 +685,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             </View>
             <Divider />
             
+            {/* Opciones solo para clientes */}
+            {!isEmployee && (
+            <>
             <TouchableOpacity 
               style={styles.menuItem}
               onPress={() => {
@@ -685,6 +723,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               <Text style={[styles.menuItemText, { color: ORANGE, fontWeight: '600' }]}>💳 Mis Cuentas por Pagar</Text>
               <Ionicons name="chevron-forward" size={20} color={ORANGE} />
             </TouchableOpacity>
+            </>
+            )}
 
             <TouchableOpacity 
               style={styles.menuItem}
@@ -698,6 +738,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               <Ionicons name="chevron-forward" size={20} color="#999" />
             </TouchableOpacity>
 
+            {/* Opciones solo para clientes */}
+            {!isEmployee && (
+            <>
             <TouchableOpacity 
               style={styles.menuItem}
               onPress={() => {
@@ -721,6 +764,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               <Text style={[styles.menuItemText, { color: '#2196F3' }]}>{t('profile.helpCenter')}</Text>
               <Ionicons name="chevron-forward" size={20} color="#2196F3" />
             </TouchableOpacity>
+            </>
+            )}
 
             <Divider style={{ marginVertical: 8 }} />
 
@@ -782,7 +827,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         </View>
       </Surface>
 
-      {/* � Banner de onboarding de empleado pendiente */}
+      {/* 👷 Banner de onboarding de empleado pendiente */}
       {needsEmployeeOnboarding && (
         <TouchableOpacity 
           style={[styles.verificationBanner, styles.employeeBanner]}
@@ -801,7 +846,41 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         </TouchableOpacity>
       )}
 
-      {/* 🔐 Banner de verificación pendiente (solo para clientes) */}
+      {/* ⏳ Banner de verificación pendiente para empleados */}
+      {employeePendingVerification && (
+        <View style={[styles.verificationBanner, styles.pendingBanner]}>
+          <Icon source="clock-outline" size={20} color="#ff9800" />
+          <View style={styles.verificationBannerText}>
+            <Text style={[styles.verificationTitle, { color: "#e65100" }]}>
+              ⏳ Verificación en Proceso
+            </Text>
+            <Text style={styles.verificationSubtitle}>
+              Tu expediente está siendo revisado. Te notificaremos cuando sea aprobado.
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* � Banner de Módulo Repartidor - Solo para repartidores verificados */}
+      {user.role === 'repartidor' && employeeVerified && (
+        <TouchableOpacity 
+          style={styles.driverModuleBanner}
+          onPress={() => navigation.navigate('DriverHome', { user, token })}
+        >
+          <View style={styles.driverModuleIcon}>
+            <Ionicons name="car" size={32} color="#fff" />
+          </View>
+          <View style={styles.driverModuleContent}>
+            <Text style={styles.driverModuleTitle}>🚚 Módulo de Reparto</Text>
+            <Text style={styles.driverModuleSubtitle}>
+              Carga tu unidad, confirma entregas y gestiona tu ruta
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={24} color="#fff" />
+        </TouchableOpacity>
+      )}
+
+      {/* �🔐 Banner de verificación pendiente (solo para clientes) */}
       {!isEmployee && !isUserVerified && (
         <View style={[styles.verificationBanner, isPendingReview ? styles.pendingBanner : styles.warningBanner]}>
           <Icon source={isPendingReview ? "clock-outline" : "alert-circle"} size={20} color={isPendingReview ? "#ff9800" : "#f44336"} />
@@ -834,7 +913,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         </View>
       )}
 
-      {/* 🎯 OPPORTUNITY CAROUSEL - "El Punto Caliente" */}
+      {/* 🎯 OPPORTUNITY CAROUSEL - "El Punto Caliente" - Solo para clientes */}
+      {!isEmployee && (
       <OpportunityCarousel 
         onOpportunityPress={(opportunity) => {
           // Manejar navegación basada en ctaAction
@@ -874,6 +954,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           }
         }}
       />
+      )}
 
       {/* 🎯 Filtros de Servicio */}
       <View style={styles.serviceFilters}>
@@ -1364,6 +1445,43 @@ const styles = StyleSheet.create({
     backgroundColor: '#E3F2FD',
     borderLeftWidth: 4,
     borderLeftColor: '#1976D2',
+  },
+  // 🚚 Estilos para banner de módulo repartidor
+  driverModuleBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginVertical: 8,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#4CAF50',
+    gap: 12,
+    elevation: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+  },
+  driverModuleIcon: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  driverModuleContent: {
+    flex: 1,
+  },
+  driverModuleTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#fff',
+    marginBottom: 4,
+  },
+  driverModuleSubtitle: {
+    fontSize: 12,
+    color: 'rgba(255,255,255,0.9)',
   },
   verificationBannerText: {
     flex: 1,

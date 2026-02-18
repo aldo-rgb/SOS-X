@@ -38,6 +38,7 @@ import {
   Divider,
   LinearProgress,
   Badge,
+  CircularProgress,
 } from '@mui/material';
 import {
   QrCodeScanner as ScanIcon,
@@ -52,6 +53,7 @@ import {
   Info as InfoIcon,
   Pending as PendingIcon,
   AccessTime as TimeIcon,
+  Lock as LockIcon,
 } from '@mui/icons-material';
 import DhlReceptionWizard from './DhlReceptionWizard';
 import axios from 'axios';
@@ -122,6 +124,12 @@ export default function DhlOperationsPage() {
   const [dispatchDialog, setDispatchDialog] = useState(false);
   const [detailDialog, setDetailDialog] = useState(false);
   
+  // Modal clave de gerente
+  const [supervisorDialog, setSupervisorDialog] = useState(false);
+  const [supervisorPin, setSupervisorPin] = useState('');
+  const [supervisorError, setSupervisorError] = useState('');
+  const [validatingSupervisor, setValidatingSupervisor] = useState(false);
+  
   const [selectedShipment, setSelectedShipment] = useState<DhlShipment | null>(null);
   
   // Form: Recibir paquete - Ahora usa DhlReceptionWizard
@@ -177,6 +185,46 @@ export default function DhlOperationsPage() {
     fetchStats();
     fetchShipments();
   }, [fetchStats, fetchShipments]);
+
+  // ===== VALIDACIÓN SUPERVISOR =====
+  const handleOpenReception = () => {
+    // Pedir clave de supervisor antes de abrir el wizard
+    setSupervisorDialog(true);
+    setSupervisorPin('');
+    setSupervisorError('');
+  };
+
+  const validateSupervisor = async () => {
+    if (!supervisorPin.trim()) {
+      setSupervisorError('Ingresa la clave del supervisor');
+      return;
+    }
+    
+    setValidatingSupervisor(true);
+    setSupervisorError('');
+    
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(
+        `${API_URL}/api/warehouse/validate-supervisor`,
+        { pin: supervisorPin },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      if (res.data.valid) {
+        // Cerrar modal de supervisor y abrir wizard
+        setSupervisorDialog(false);
+        setReceiveDialog(true);
+      } else {
+        setSupervisorError('Clave de supervisor incorrecta');
+      }
+    } catch (err) {
+      console.error('Error validando supervisor:', err);
+      setSupervisorError('Clave de supervisor incorrecta');
+    } finally {
+      setValidatingSupervisor(false);
+    }
+  };
 
   // ===== HANDLERS =====
   // Nota: handleReceivePackage fue reemplazado por DhlReceptionWizard
@@ -284,7 +332,7 @@ export default function DhlOperationsPage() {
         <Button
           variant="contained"
           startIcon={<ScanIcon />}
-          onClick={() => setReceiveDialog(true)}
+          onClick={handleOpenReception}
           sx={{ bgcolor: DHL_COLOR, '&:hover': { bgcolor: '#a00410' } }}
         >
           Recibir Paquete
@@ -508,6 +556,64 @@ export default function DhlOperationsPage() {
       </Paper>
 
       {/* ===== DIALOGS ===== */}
+
+      {/* 🔐 Modal: Clave de Gerente/Supervisor */}
+      <Dialog 
+        open={supervisorDialog} 
+        onClose={() => setSupervisorDialog(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: DHL_YELLOW, color: DHL_COLOR }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <LockIcon />
+            Autorización Requerida
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="warning" sx={{ mb: 3 }}>
+            La recepción de paquetes DHL requiere autorización de un gerente o supervisor.
+          </Alert>
+          
+          <TextField
+            fullWidth
+            label="Clave de Supervisor"
+            type="tel"
+            inputMode="numeric"
+            autoComplete="off"
+            value={supervisorPin}
+            onChange={(e) => setSupervisorPin(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && validateSupervisor()}
+            error={!!supervisorError}
+            helperText={supervisorError}
+            autoFocus
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <LockIcon color="action" />
+                </InputAdornment>
+              ),
+              sx: { 
+                '-webkit-text-security': 'disc',
+                'input': { '-webkit-text-security': 'disc' }
+              }
+            }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setSupervisorDialog(false)}>
+            Cancelar
+          </Button>
+          <Button 
+            variant="contained" 
+            onClick={validateSupervisor}
+            disabled={validatingSupervisor || !supervisorPin.trim()}
+            sx={{ bgcolor: DHL_COLOR, '&:hover': { bgcolor: '#a00410' } }}
+          >
+            {validatingSupervisor ? <CircularProgress size={20} /> : 'Autorizar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* 🆕 Wizard: Recibir Paquete (IoT + IA) */}
       <DhlReceptionWizard

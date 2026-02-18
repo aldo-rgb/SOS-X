@@ -171,8 +171,39 @@ import {
   searchClientByBoxId,
   getWarehouseStats,
   assignWarehouseLocation,
-  getWarehouseLocations
+  getWarehouseLocations,
+  // Panel Unificado Multi-Sucursal
+  getWorkerBranchInfo,
+  processWarehouseScan,
+  getScanHistory,
+  getDailyStats,
+  getBranches,
+  assignWorkerToBranch,
+  // CRUD de Sucursales
+  getAllBranches,
+  createBranch,
+  updateBranch,
+  deleteBranch,
+  // Geocerca
+  validateGeofence,
+  getBranchGeofence,
+  haversineDistance,
+  // Validación Supervisor y DHL
+  validateSupervisor,
+  processDhlReception,
+  getBranchInventory,
+  updateSupervisorPin,
+  getSupervisorAuthorizations
 } from './warehouseController';
+import {
+  scanPackageToLoad,
+  getDriverRouteToday,
+  scanPackageReturn,
+  getPackagesToReturn,
+  confirmDelivery,
+  getDeliveriesToday,
+  verifyPackageForDelivery
+} from './driverController';
 import {
   getExchangeRate,
   updateExchangeRate as updateGexExchangeRate,
@@ -891,6 +922,98 @@ app.post('/api/admin/last-mile/quote', authenticateToken, requireMinLevel(ROLES.
 app.post('/api/admin/last-mile/dispatch', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), dispatchShipment);
 app.get('/api/admin/last-mile/reprint/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), reprintLabel);
 
+// ========== PANEL DE BODEGA MULTI-SUCURSAL ==========
+// Info del empleado y su sucursal
+app.get('/api/warehouse/branch-info', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getWorkerBranchInfo);
+// Escáner inteligente
+app.post('/api/warehouse/scan', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), processWarehouseScan);
+// Historial y estadísticas
+app.get('/api/warehouse/scan-history', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getScanHistory);
+app.get('/api/warehouse/daily-stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDailyStats);
+// Sucursales (público para empleados)
+app.get('/api/warehouse/branches', authenticateToken, getBranches);
+// Validación de supervisor (para DHL)
+app.post('/api/warehouse/validate-supervisor', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), validateSupervisor);
+// Actualizar PIN de supervisor (gerentes/admins)
+app.post('/api/warehouse/update-supervisor-pin', authenticateToken, updateSupervisorPin);
+// Historial de autorizaciones
+app.get('/api/warehouse/supervisor-authorizations', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getSupervisorAuthorizations);
+// Recepción rápida DHL
+app.post('/api/warehouse/dhl-reception', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), processDhlReception);
+// Inventario de sucursal
+app.get('/api/warehouse/inventory', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getBranchInventory);
+
+// ========== GESTIÓN DE SUCURSALES (ADMIN) ==========
+// GET /api/admin/users - Obtener usuarios con información de sucursal
+app.get('/api/admin/users', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: AuthRequest, res: Response) => {
+  try {
+    const includeBranch = req.query.include_branch === 'true';
+    
+    let query = `
+      SELECT u.id, u.full_name, u.email, u.role, u.branch_id
+      ${includeBranch ? ', b.name as branch_name' : ''}
+      FROM users u
+      ${includeBranch ? 'LEFT JOIN branches b ON u.branch_id = b.id' : ''}
+      WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'branch_manager')
+      ORDER BY u.full_name
+    `;
+    
+    const result = await pool.query(query);
+    res.json({ users: result.rows });
+  } catch (error) {
+    console.error('Error obteniendo usuarios:', error);
+    res.status(500).json({ error: 'Error al obtener usuarios' });
+  }
+});
+
+// GET /api/admin/users/search - Buscar usuarios/clientes por Box ID, nombre o email
+app.get('/api/admin/users/search', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req: AuthRequest, res: Response) => {
+  try {
+    const { q } = req.query;
+    
+    if (!q || typeof q !== 'string' || q.trim().length < 1) {
+      res.status(400).json({ error: 'Término de búsqueda requerido' });
+      return;
+    }
+    
+    const searchTerm = q.trim();
+    
+    // Buscar por box_id exacto, o por nombre/email parcial
+    const result = await pool.query(`
+      SELECT id, full_name, email, box_id, phone, role
+      FROM users 
+      WHERE role = 'client'
+        AND (
+          UPPER(box_id) = UPPER($1)
+          OR UPPER(full_name) LIKE UPPER($2)
+          OR UPPER(email) LIKE UPPER($2)
+          OR phone LIKE $3
+          OR id::text = $1
+        )
+      ORDER BY 
+        CASE WHEN UPPER(box_id) = UPPER($1) THEN 0 ELSE 1 END,
+        full_name
+      LIMIT 10
+    `, [searchTerm, `%${searchTerm}%`, `%${searchTerm}%`]);
+    
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error buscando usuarios:', error);
+    res.status(500).json({ error: 'Error al buscar usuarios' });
+  }
+});
+
+// CRUD completo de sucursales
+app.get('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.ADMIN), getAllBranches);
+app.post('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createBranch);
+app.put('/api/admin/branches/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateBranch);
+app.delete('/api/admin/branches/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deleteBranch);
+// Asignación de empleados
+app.post('/api/admin/assign-branch', authenticateToken, requireMinLevel(ROLES.ADMIN), assignWorkerToBranch);
+// Geocerca de sucursales
+app.post('/api/attendance/validate-geofence', authenticateToken, validateGeofence);
+app.get('/api/branches/:id/geofence', authenticateToken, requireMinLevel(ROLES.ADMIN), getBranchGeofence);
+
 // ========== DHL MONTERREY (AA DHL) ==========
 // Tarifas
 app.get('/api/admin/dhl/rates', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlRates);
@@ -1580,6 +1703,24 @@ app.get('/api/admin/fleet/drivers', authenticateToken, requireMinLevel(ROLES.BRA
 app.get('/api/fleet/available-vehicles', authenticateToken, getAvailableVehicles);
 app.post('/api/fleet/inspection', authenticateToken, submitDailyInspection);
 app.get('/api/fleet/inspection/today', authenticateToken, checkTodayInspection);
+
+// ========== MÓDULO DE REPARTIDOR - CARGA Y ENTREGA ==========
+// Ruta del día
+app.get('/api/driver/route-today', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), getDriverRouteToday);
+
+// Scan-to-Load: Carga de paquetes a la unidad
+app.post('/api/driver/scan-load', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), scanPackageToLoad);
+
+// Retorno a bodega: Paquetes no entregados
+app.get('/api/driver/packages-to-return', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), getPackagesToReturn);
+app.post('/api/driver/scan-return', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), scanPackageReturn);
+
+// Confirmación de entrega
+app.post('/api/driver/confirm-delivery', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), confirmDelivery);
+app.get('/api/driver/deliveries-today', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), getDeliveriesToday);
+
+// Verificar paquete antes de entregar
+app.get('/api/driver/verify-package/:barcode', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), verifyPackageForDelivery);
 
 // Iniciar CRON Jobs para automatización
 import { initCronJobs } from './cronJobs';

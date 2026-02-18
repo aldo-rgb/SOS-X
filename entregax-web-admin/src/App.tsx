@@ -361,34 +361,26 @@ function App() {
       {/* Logo Header - Negro Corporativo */}
       <Box
         sx={{
-          p: 3,
+          p: 2.5,
           bgcolor: '#111111',
           color: 'white',
         }}
       >
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <Box
+            component="img"
+            src="/logo.png"
+            alt="EntregaX"
             sx={{
-              width: 44,
-              height: 44,
-              borderRadius: 2,
-              background: 'linear-gradient(135deg, #C1272D 0%, #F05A28 100%)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              width: 140,
+              height: 'auto',
+              objectFit: 'contain',
             }}
-          >
-            <LocalShippingIcon sx={{ fontSize: 26, color: 'white' }} />
-          </Box>
-          <Box>
-            <Typography variant="h6" fontWeight={700} sx={{ lineHeight: 1.2, color: 'white' }}>
-              Entrega<span style={{ color: '#F05A28' }}>X</span>
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)' }}>
-              Panel Administrativo
-            </Typography>
-          </Box>
+          />
         </Box>
+        <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', display: 'block', mt: 0.5 }}>
+          Panel Administrativo
+        </Typography>
       </Box>
 
       <Divider sx={{ borderColor: 'rgba(255,255,255,0.1)' }} />

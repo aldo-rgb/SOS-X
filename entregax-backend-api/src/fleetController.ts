@@ -31,14 +31,12 @@ export const getVehicles = async (req: Request, res: Response) => {
   try {
     const { status, type } = req.query;
     
+    // Consulta principal simplificada (sin subconsultas lentas)
     let query = `
       SELECT 
         v.*,
         u.full_name as driver_name,
-        u.phone as driver_phone,
-        (SELECT COUNT(*) FROM vehicle_documents vd WHERE vd.vehicle_id = v.id AND vd.expiration_date < CURRENT_DATE) as expired_docs,
-        (SELECT COUNT(*) FROM vehicle_documents vd WHERE vd.vehicle_id = v.id AND vd.expiration_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days') as expiring_soon_docs,
-        (SELECT vm.next_service_mileage FROM vehicle_maintenance vm WHERE vm.vehicle_id = v.id AND vm.next_service_mileage IS NOT NULL ORDER BY vm.service_date DESC LIMIT 1) as next_service_km
+        u.phone as driver_phone
       FROM vehicles v
       LEFT JOIN users u ON v.assigned_driver_id = u.id
       WHERE 1=1
@@ -58,15 +56,40 @@ export const getVehicles = async (req: Request, res: Response) => {
     
     const result = await pool.query(query, params);
     
+    // Si no hay vehículos, retornar rápido
+    if (result.rows.length === 0) {
+      res.json([]);
+      return;
+    }
+
+    // Obtener conteos de documentos en una sola consulta
+    let docCounts: Record<number, { expired: number; expiring: number }> = {};
+    try {
+      const docsResult = await pool.query(`
+        SELECT 
+          vehicle_id,
+          COUNT(*) FILTER (WHERE expiration_date < CURRENT_DATE) as expired_docs,
+          COUNT(*) FILTER (WHERE expiration_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days') as expiring_soon_docs
+        FROM vehicle_documents
+        GROUP BY vehicle_id
+      `);
+      docsResult.rows.forEach((d: any) => {
+        docCounts[d.vehicle_id] = { expired: parseInt(d.expired_docs) || 0, expiring: parseInt(d.expiring_soon_docs) || 0 };
+      });
+    } catch (e) {
+      console.log('Documentos de vehículos no disponibles');
+    }
+    
     // Calcular estado de salud de cada vehículo
     const vehicles = result.rows.map((v: VehicleRow) => {
+      const docs = docCounts[v.id] || { expired: 0, expiring: 0 };
       let health_status = 'green';
       let health_issues: string[] = [];
       
       // Documentos vencidos = rojo
-      if (v.expired_docs > 0) {
+      if (docs.expired > 0) {
         health_status = 'red';
-        health_issues.push(`${v.expired_docs} documento(s) vencido(s)`);
+        health_issues.push(`${docs.expired} documento(s) vencido(s)`);
       }
       
       // En taller = amarillo
@@ -76,19 +99,16 @@ export const getVehicles = async (req: Request, res: Response) => {
       }
       
       // Documentos por vencer = amarillo
-      if (v.expiring_soon_docs > 0 && health_status !== 'red') {
+      if (docs.expiring > 0 && health_status !== 'red') {
         health_status = 'yellow';
-        health_issues.push(`${v.expiring_soon_docs} documento(s) por vencer`);
-      }
-      
-      // Servicio próximo
-      if (v.next_service_km && v.current_mileage >= v.next_service_km - 1000) {
-        health_status = health_status === 'red' ? 'red' : 'yellow';
-        health_issues.push(`Servicio próximo (faltan ${v.next_service_km - v.current_mileage} km)`);
+        health_issues.push(`${docs.expiring} documento(s) por vencer`);
       }
       
       return {
         ...v,
+        expired_docs: docs.expired,
+        expiring_soon_docs: docs.expiring,
+        next_service_km: null, // Se obtiene bajo demanda
         health_status,
         health_issues
       };
@@ -717,88 +737,87 @@ export const resolveAlert = async (req: Request, res: Response) => {
 // Dashboard de flotilla
 export const getFleetDashboard = async (req: Request, res: Response) => {
   try {
-    // Resumen de vehículos
-    const vehiclesCount = await pool.query(`
-      SELECT 
-        COUNT(*) FILTER (WHERE status = 'active') as active,
-        COUNT(*) FILTER (WHERE status = 'in_shop') as in_shop,
-        COUNT(*) FILTER (WHERE status = 'out_of_service') as out_of_service,
-        COUNT(*) as total
-      FROM vehicles
-    `);
-    
-    // Documentos por vencer (próximos 30 días)
-    const expiringDocs = await pool.query(`
-      SELECT vd.*, v.economic_number
-      FROM vehicle_documents vd
-      JOIN vehicles v ON vd.vehicle_id = v.id
-      WHERE vd.expiration_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
-      ORDER BY vd.expiration_date ASC
-    `);
-    
-    // Documentos vencidos
-    const expiredDocs = await pool.query(`
-      SELECT vd.*, v.economic_number
-      FROM vehicle_documents vd
-      JOIN vehicles v ON vd.vehicle_id = v.id
-      WHERE vd.expiration_date < CURRENT_DATE
-      ORDER BY vd.expiration_date ASC
-    `);
-    
-    // Vehículos que necesitan servicio
-    const needService = await pool.query(`
-      SELECT v.*, 
-        (SELECT vm.next_service_mileage FROM vehicle_maintenance vm WHERE vm.vehicle_id = v.id AND vm.next_service_mileage IS NOT NULL ORDER BY vm.service_date DESC LIMIT 1) as next_service_km
-      FROM vehicles v
-      WHERE v.status = 'active'
-      AND EXISTS (
-        SELECT 1 FROM vehicle_maintenance vm 
-        WHERE vm.vehicle_id = v.id 
-        AND vm.next_service_mileage IS NOT NULL 
-        AND v.current_mileage >= vm.next_service_mileage - 1000
+    // Una sola consulta combinada para todo el dashboard
+    const result = await pool.query(`
+      WITH vehicle_stats AS (
+        SELECT 
+          COUNT(*) FILTER (WHERE status = 'active') as active,
+          COUNT(*) FILTER (WHERE status = 'in_shop') as in_shop,
+          COUNT(*) FILTER (WHERE status = 'out_of_service') as out_of_service,
+          COUNT(*) as total
+        FROM vehicles
+      ),
+      alerts_stats AS (
+        SELECT 
+          COUNT(*) FILTER (WHERE alert_level = 'critical') as critical,
+          COUNT(*) FILTER (WHERE alert_level = 'warning') as warning,
+          COUNT(*) as total
+        FROM fleet_alerts WHERE is_resolved = FALSE
+      ),
+      inspections_stats AS (
+        SELECT 
+          COUNT(*) as total,
+          COUNT(*) FILTER (WHERE has_new_damage = TRUE) as with_damage,
+          COUNT(*) FILTER (WHERE is_cabin_clean = FALSE) as dirty_cabin,
+          COUNT(*) FILTER (WHERE manager_review_status = 'pending') as pending_review
+        FROM daily_vehicle_inspections
+        WHERE DATE(inspection_date) = CURRENT_DATE
+      ),
+      monthly_costs AS (
+        SELECT COALESCE(SUM(cost), 0) as maintenance_cost
+        FROM vehicle_maintenance
+        WHERE DATE_TRUNC('month', service_date) = DATE_TRUNC('month', CURRENT_DATE)
       )
-    `);
-    
-    // Alertas activas
-    const alerts = await pool.query(`
-      SELECT COUNT(*) FILTER (WHERE alert_level = 'critical') as critical,
-             COUNT(*) FILTER (WHERE alert_level = 'warning') as warning,
-             COUNT(*) as total
-      FROM fleet_alerts WHERE is_resolved = FALSE
-    `);
-    
-    // Inspecciones de hoy
-    const todayInspections = await pool.query(`
       SELECT 
-        COUNT(*) as total,
-        COUNT(*) FILTER (WHERE has_new_damage = TRUE) as with_damage,
-        COUNT(*) FILTER (WHERE is_cabin_clean = FALSE) as dirty_cabin,
-        COUNT(*) FILTER (WHERE manager_review_status = 'pending') as pending_review
-      FROM daily_vehicle_inspections
-      WHERE DATE(inspection_date) = CURRENT_DATE
+        (SELECT row_to_json(vehicle_stats) FROM vehicle_stats) as vehicles,
+        (SELECT row_to_json(alerts_stats) FROM alerts_stats) as alerts,
+        (SELECT row_to_json(inspections_stats) FROM inspections_stats) as today_inspections,
+        (SELECT row_to_json(monthly_costs) FROM monthly_costs) as monthly_costs
     `);
+
+    const data = result.rows[0];
     
-    // Gastos del mes
-    const monthlyExpenses = await pool.query(`
-      SELECT COALESCE(SUM(cost), 0) as maintenance_cost
-      FROM vehicle_maintenance
-      WHERE DATE_TRUNC('month', service_date) = DATE_TRUNC('month', CURRENT_DATE)
-    `);
+    // Documentos en paralelo (más rápido que secuencial)
+    const [expiringDocs, expiredDocs] = await Promise.all([
+      pool.query(`
+        SELECT vd.document_type, vd.expiration_date, v.economic_number
+        FROM vehicle_documents vd
+        JOIN vehicles v ON vd.vehicle_id = v.id
+        WHERE vd.expiration_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
+        ORDER BY vd.expiration_date ASC LIMIT 10
+      `),
+      pool.query(`
+        SELECT vd.document_type, vd.expiration_date, v.economic_number
+        FROM vehicle_documents vd
+        JOIN vehicles v ON vd.vehicle_id = v.id
+        WHERE vd.expiration_date < CURRENT_DATE
+        ORDER BY vd.expiration_date ASC LIMIT 10
+      `)
+    ]);
     
     res.json({
-      vehicles: vehiclesCount.rows[0],
+      vehicles: data.vehicles || { active: 0, in_shop: 0, out_of_service: 0, total: 0 },
       expiring_documents: expiringDocs.rows,
       expired_documents: expiredDocs.rows,
-      need_service: needService.rows,
-      alerts: alerts.rows[0],
-      today_inspections: todayInspections.rows[0],
+      need_service: [], // Se obtiene bajo demanda
+      alerts: data.alerts || { critical: 0, warning: 0, total: 0 },
+      today_inspections: data.today_inspections || { total: 0, with_damage: 0, dirty_cabin: 0, pending_review: 0 },
       monthly_expenses: {
-        maintenance: parseFloat(monthlyExpenses.rows[0].maintenance_cost) || 0
+        maintenance: parseFloat(data.monthly_costs?.maintenance_cost) || 0
       }
     });
   } catch (error) {
     console.error('Error obteniendo dashboard:', error);
-    res.status(500).json({ error: 'Error al obtener dashboard' });
+    // Retornar datos vacíos en caso de error
+    res.json({
+      vehicles: { active: 0, in_shop: 0, out_of_service: 0, total: 0 },
+      expiring_documents: [],
+      expired_documents: [],
+      need_service: [],
+      alerts: { critical: 0, warning: 0, total: 0 },
+      today_inspections: { total: 0, with_damage: 0, dirty_cabin: 0, pending_review: 0 },
+      monthly_expenses: { maintenance: 0 }
+    });
   }
 };
 
@@ -809,7 +828,6 @@ export const getAvailableDrivers = async (req: Request, res: Response) => {
       SELECT id, full_name, email, phone, role
       FROM users
       WHERE role IN ('repartidor', 'warehouse_ops', 'branch_manager')
-      AND is_active = TRUE
       ORDER BY full_name
     `);
     

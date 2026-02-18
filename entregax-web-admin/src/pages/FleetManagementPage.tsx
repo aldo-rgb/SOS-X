@@ -37,6 +37,7 @@ import {
   ListItem,
   ListItemText,
   ListItemIcon,
+  Skeleton,
 } from '@mui/material';
 import {
   DirectionsCar as CarIcon,
@@ -326,9 +327,13 @@ export default function FleetManagementPage() {
 
   useEffect(() => {
     const loadAll = async () => {
-      setLoading(true);
-      await Promise.all([loadVehicles(), loadDashboard(), loadInspections(), loadAlerts(), loadDrivers()]);
-      setLoading(false);
+      // Cargar vehículos primero y mostrar UI
+      loadVehicles().finally(() => setLoading(false));
+      // Cargar el resto en paralelo sin bloquear
+      loadDashboard();
+      loadInspections();
+      loadAlerts();
+      loadDrivers();
     };
     loadAll();
   }, [loadVehicles, loadDashboard, loadInspections, loadAlerts, loadDrivers]);
@@ -472,13 +477,15 @@ export default function FleetManagementPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 400 }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
+  // Skeleton para KPI cards
+  const KpiSkeleton = () => (
+    <Card>
+      <CardContent sx={{ textAlign: 'center', py: 2 }}>
+        <Skeleton variant="text" width={60} height={50} sx={{ mx: 'auto' }} />
+        <Skeleton variant="text" width={80} sx={{ mx: 'auto' }} />
+      </CardContent>
+    </Card>
+  );
 
   return (
     <Box>
@@ -505,53 +512,52 @@ export default function FleetManagementPage() {
       </Box>
 
       {/* KPIs */}
-      {dashboard && (
-        <Grid container spacing={2} sx={{ mb: 3 }}>
-          <Grid size={{ xs: 6, md: 2 }}>
-            <Card sx={{ bgcolor: '#E8F5E9' }}>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <Typography variant="h3" fontWeight={700} color="success.main">
-                  {dashboard.vehicles.active}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">Activas</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid size={{ xs: 6, md: 2 }}>
-            <Card sx={{ bgcolor: '#FFF3E0' }}>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <Typography variant="h3" fontWeight={700} color="warning.main">
-                  {dashboard.vehicles.in_shop}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">En Taller</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid size={{ xs: 6, md: 2 }}>
-            <Card sx={{ bgcolor: '#FFEBEE' }}>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <Typography variant="h3" fontWeight={700} color="error.main">
-                  {dashboard.alerts.critical}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">Alertas Críticas</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid size={{ xs: 6, md: 2 }}>
-            <Card sx={{ bgcolor: '#E3F2FD' }}>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <Typography variant="h3" fontWeight={700} color="info.main">
-                  {dashboard.today_inspections.total}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">Inspecciones Hoy</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
-          <Grid size={{ xs: 6, md: 2 }}>
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid size={{ xs: 6, md: 2 }}>
+          <Card sx={{ bgcolor: '#E8F5E9' }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <Typography variant="h3" fontWeight={700} color="success.main">
+                {dashboard ? dashboard.vehicles.active : <Skeleton width={40} sx={{ mx: 'auto' }} />}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">Activas</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 6, md: 2 }}>
+          <Card sx={{ bgcolor: '#FFF3E0' }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <Typography variant="h3" fontWeight={700} color="warning.main">
+                {dashboard ? dashboard.vehicles.in_shop : <Skeleton width={40} sx={{ mx: 'auto' }} />}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">En Taller</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 6, md: 2 }}>
+          <Card sx={{ bgcolor: '#FFEBEE' }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <Typography variant="h3" fontWeight={700} color="error.main">
+                {dashboard ? dashboard.alerts.critical : <Skeleton width={40} sx={{ mx: 'auto' }} />}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">Alertas Críticas</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 6, md: 2 }}>
+          <Card sx={{ bgcolor: '#E3F2FD' }}>
+            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+              <Typography variant="h3" fontWeight={700} color="info.main">
+                {dashboard ? dashboard.today_inspections.total : <Skeleton width={40} sx={{ mx: 'auto' }} />}
+              </Typography>
+              <Typography variant="body2" color="text.secondary">Inspecciones Hoy</Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 6, md: 2 }}>
             <Card sx={{ bgcolor: '#F3E5F5' }}>
               <CardContent sx={{ textAlign: 'center', py: 2 }}>
                 <Typography variant="h3" fontWeight={700} color="secondary.main">
-                  {dashboard.expired_documents.length}
+                  {dashboard ? dashboard.expired_documents.length : <Skeleton width={40} sx={{ mx: 'auto' }} />}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">Docs Vencidos</Typography>
               </CardContent>
@@ -561,14 +567,13 @@ export default function FleetManagementPage() {
             <Card>
               <CardContent sx={{ textAlign: 'center', py: 2 }}>
                 <Typography variant="h5" fontWeight={700}>
-                  {formatCurrency(dashboard.monthly_expenses.maintenance)}
+                  {dashboard ? formatCurrency(dashboard.monthly_expenses.maintenance) : <Skeleton width={80} sx={{ mx: 'auto' }} />}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">Gastos Mes</Typography>
               </CardContent>
             </Card>
           </Grid>
         </Grid>
-      )}
 
       {/* Tabs */}
       <Paper sx={{ mb: 2 }}>
@@ -598,7 +603,33 @@ export default function FleetManagementPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {vehicles.map((vehicle) => (
+              {loading ? (
+                [...Array(4)].map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Skeleton variant="circular" width={40} height={40} />
+                        <Skeleton width={60} />
+                      </Box>
+                    </TableCell>
+                    <TableCell><Skeleton width={80} /></TableCell>
+                    <TableCell><Skeleton width={120} /></TableCell>
+                    <TableCell><Skeleton width={80} /></TableCell>
+                    <TableCell><Skeleton width={60} /></TableCell>
+                    <TableCell><Skeleton variant="rounded" width={70} height={24} /></TableCell>
+                    <TableCell><Skeleton width={100} /></TableCell>
+                    <TableCell><Skeleton width={60} /></TableCell>
+                    <TableCell><Skeleton variant="circular" width={30} height={30} /></TableCell>
+                  </TableRow>
+                ))
+              ) : vehicles.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                    <Typography color="text.secondary">No hay vehículos registrados</Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                vehicles.map((vehicle) => (
                 <TableRow key={vehicle.id} hover>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -667,7 +698,8 @@ export default function FleetManagementPage() {
                     </IconButton>
                   </TableCell>
                 </TableRow>
-              ))}
+              ))
+              )}
             </TableBody>
           </Table>
         </TableContainer>

@@ -30,7 +30,6 @@ import {
     InputLabel,
     Tooltip,
     Divider,
-    Grid,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
@@ -381,43 +380,41 @@ export default function PricingPage() {
                             Crea listas diferenciadas para distintos tipos de clientes (Público, VIP, Distribuidores).
                             Asigna una lista a cada cliente desde su perfil.
                         </Alert>
-                        <Grid container spacing={2}>
+                        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 2 }}>
                             {priceLists.map(pl => (
-                                <Grid size={{ xs: 12, md: 4 }} key={pl.id}>
-                                    <Card variant="outlined" sx={{ position: 'relative' }}>
-                                        {pl.is_default && (
-                                            <Chip 
-                                                icon={<StarIcon />} 
-                                                label="Default" 
+                                <Card variant="outlined" sx={{ position: 'relative' }} key={pl.id}>
+                                    {pl.is_default && (
+                                        <Chip 
+                                            icon={<StarIcon />} 
+                                            label="Default" 
+                                            size="small" 
+                                            color="warning" 
+                                            sx={{ position: 'absolute', top: 8, right: 8 }}
+                                        />
+                                    )}
+                                    <CardContent>
+                                        <Typography variant="h6" fontWeight={600}>{pl.name}</Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                            {pl.description || 'Sin descripción'}
+                                        </Typography>
+                                        <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                                            <Chip label={`${pl.rules_count} reglas`} size="small" />
+                                            <Chip label={`${pl.clients_count} clientes`} size="small" color="primary" />
+                                        </Box>
+                                        {!pl.is_default && (
+                                            <Button 
                                                 size="small" 
-                                                color="warning" 
-                                                sx={{ position: 'absolute', top: 8, right: 8 }}
-                                            />
+                                                color="error" 
+                                                startIcon={<DeleteIcon />}
+                                                onClick={() => handleDeletePriceList(pl.id)}
+                                            >
+                                                Eliminar
+                                            </Button>
                                         )}
-                                        <CardContent>
-                                            <Typography variant="h6" fontWeight={600}>{pl.name}</Typography>
-                                            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                                {pl.description || 'Sin descripción'}
-                                            </Typography>
-                                            <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                                                <Chip label={`${pl.rules_count} reglas`} size="small" />
-                                                <Chip label={`${pl.clients_count} clientes`} size="small" color="primary" />
-                                            </Box>
-                                            {!pl.is_default && (
-                                                <Button 
-                                                    size="small" 
-                                                    color="error" 
-                                                    startIcon={<DeleteIcon />}
-                                                    onClick={() => handleDeletePriceList(pl.id)}
-                                                >
-                                                    Eliminar
-                                                </Button>
-                                            )}
-                                        </CardContent>
-                                    </Card>
-                                </Grid>
+                                    </CardContent>
+                                </Card>
                             ))}
-                        </Grid>
+                        </Box>
                     </CardContent>
                 </Card>
             )}

@@ -8,7 +8,6 @@ import {
   Box,
   Typography,
   Paper,
-  Grid,
   Table,
   TableBody,
   TableCell,
@@ -197,107 +196,91 @@ export default function FinancialManagementPage() {
       </Box>
 
       {/* Summary Cards */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Card sx={{ background: `linear-gradient(135deg, ${SEA_COLOR} 0%, #00BCD4 100%)` }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <AccountBalanceWallet sx={{ fontSize: 40, color: 'rgba(255,255,255,0.8)' }} />
-                <Box sx={{ textAlign: 'right' }}>
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                    Saldo a Favor Total
-                  </Typography>
-                  <Typography variant="h5" sx={{ color: '#fff', fontWeight: 'bold' }}>
-                    {formatCurrency(summary?.total_wallet_balance || 0)}
-                  </Typography>
-                </Box>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(4, 1fr)' }, gap: 3, mb: 4 }}>
+        <Card sx={{ background: `linear-gradient(135deg, ${SEA_COLOR} 0%, #00BCD4 100%)` }}>
+          <CardContent>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <AccountBalanceWallet sx={{ fontSize: 40, color: 'rgba(255,255,255,0.8)' }} />
+              <Box sx={{ textAlign: 'right' }}>
+                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                  Saldo a Favor Total
+                </Typography>
+                <Typography variant="h5" sx={{ color: '#fff', fontWeight: 'bold' }}>
+                  {formatCurrency(summary?.total_wallet_balance || 0)}
+                </Typography>
               </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+            </Box>
+          </CardContent>
+        </Card>
 
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Card sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #FF7043 100%)` }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <CreditCard sx={{ fontSize: 40, color: 'rgba(255,255,255,0.8)' }} />
-                <Box sx={{ textAlign: 'right' }}>
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                    Crédito Utilizado
-                  </Typography>
-                  <Typography variant="h5" sx={{ color: '#fff', fontWeight: 'bold' }}>
-                    {formatCurrency(summary?.total_credit_used || 0)}
-                  </Typography>
-                </Box>
+        <Card sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #FF7043 100%)` }}>
+          <CardContent>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <CreditCard sx={{ fontSize: 40, color: 'rgba(255,255,255,0.8)' }} />
+              <Box sx={{ textAlign: 'right' }}>
+                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                  Crédito Utilizado
+                </Typography>
+                <Typography variant="h5" sx={{ color: '#fff', fontWeight: 'bold' }}>
+                  {formatCurrency(summary?.total_credit_used || 0)}
+                </Typography>
               </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+            </Box>
+          </CardContent>
+        </Card>
 
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Card sx={{ background: `linear-gradient(135deg, ${RED} 0%, #E57373 100%)` }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Warning sx={{ fontSize: 40, color: 'rgba(255,255,255,0.8)' }} />
-                <Box sx={{ textAlign: 'right' }}>
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                    Adeudos Vencidos
-                  </Typography>
-                  <Typography variant="h5" sx={{ color: '#fff', fontWeight: 'bold' }}>
-                    {formatCurrency(summary?.total_overdue || 0)}
-                  </Typography>
-                </Box>
+        <Card sx={{ background: `linear-gradient(135deg, ${RED} 0%, #E57373 100%)` }}>
+          <CardContent>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Warning sx={{ fontSize: 40, color: 'rgba(255,255,255,0.8)' }} />
+              <Box sx={{ textAlign: 'right' }}>
+                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                  Adeudos Vencidos
+                </Typography>
+                <Typography variant="h5" sx={{ color: '#fff', fontWeight: 'bold' }}>
+                  {formatCurrency(summary?.total_overdue || 0)}
+                </Typography>
               </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+            </Box>
+          </CardContent>
+        </Card>
 
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Card sx={{ background: `linear-gradient(135deg, ${GREEN} 0%, #81C784 100%)` }}>
-            <CardContent>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <TrendingUp sx={{ fontSize: 40, color: 'rgba(255,255,255,0.8)' }} />
-                <Box sx={{ textAlign: 'right' }}>
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
-                    Depósitos Hoy
-                  </Typography>
-                  <Typography variant="h5" sx={{ color: '#fff', fontWeight: 'bold' }}>
-                    {formatCurrency(summary?.deposits_today || 0)}
-                  </Typography>
-                </Box>
+        <Card sx={{ background: `linear-gradient(135deg, ${GREEN} 0%, #81C784 100%)` }}>
+          <CardContent>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <TrendingUp sx={{ fontSize: 40, color: 'rgba(255,255,255,0.8)' }} />
+              <Box sx={{ textAlign: 'right' }}>
+                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                  Depósitos Hoy
+                </Typography>
+                <Typography variant="h5" sx={{ color: '#fff', fontWeight: 'bold' }}>
+                  {formatCurrency(summary?.deposits_today || 0)}
+                </Typography>
               </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
+            </Box>
+          </CardContent>
+        </Card>
+      </Box>
 
       {/* Stats Row */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" color="primary">{summary?.users_with_credit || 0}</Typography>
-            <Typography variant="caption">Usuarios con Crédito</Typography>
-          </Paper>
-        </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" color="error">{summary?.blocked_accounts || 0}</Typography>
-            <Typography variant="caption">Cuentas Bloqueadas</Typography>
-          </Paper>
-        </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4" color="success.main">{summary?.transactions_today || 0}</Typography>
-            <Typography variant="caption">Transacciones Hoy</Typography>
-          </Paper>
-        </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Paper sx={{ p: 2, textAlign: 'center' }}>
-            <Typography variant="h4">{formatCurrency(summary?.total_credit_extended || 0)}</Typography>
-            <Typography variant="caption">Crédito Total Otorgado</Typography>
-          </Paper>
-        </Grid>
-      </Grid>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' }, gap: 2, mb: 3 }}>
+        <Paper sx={{ p: 2, textAlign: 'center' }}>
+          <Typography variant="h4" color="primary">{summary?.users_with_credit || 0}</Typography>
+          <Typography variant="caption">Usuarios con Crédito</Typography>
+        </Paper>
+        <Paper sx={{ p: 2, textAlign: 'center' }}>
+          <Typography variant="h4" color="error">{summary?.blocked_accounts || 0}</Typography>
+          <Typography variant="caption">Cuentas Bloqueadas</Typography>
+        </Paper>
+        <Paper sx={{ p: 2, textAlign: 'center' }}>
+          <Typography variant="h4" color="success.main">{summary?.transactions_today || 0}</Typography>
+          <Typography variant="caption">Transacciones Hoy</Typography>
+        </Paper>
+        <Paper sx={{ p: 2, textAlign: 'center' }}>
+          <Typography variant="h4">{formatCurrency(summary?.total_credit_extended || 0)}</Typography>
+          <Typography variant="caption">Crédito Total Otorgado</Typography>
+        </Paper>
+      </Box>
 
       {/* Tabs */}
       <Paper sx={{ mb: 3 }}>

@@ -451,6 +451,10 @@
       "mx_national": {
         "title": "National Mexico",
         "subtitle": "National shipments"
+      },
+      "scanner_unificado": {
+        "title": "Multi-Branch Scanner",
+        "subtitle": "Unified CEDIS entry/exit panel"
       }
     },
     "newPackage": "New Package",

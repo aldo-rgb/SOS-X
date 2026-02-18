@@ -27,6 +27,7 @@ import {
     LocationOn as LocationIcon,
     CallReceived as EntryIcon,
     CallMade as ExitIcon,
+    Inventory as InventoryIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 
@@ -38,6 +39,8 @@ import ConsolidationsPage from './ConsolidationsPage';
 import QuotesPage from './QuotesPage';
 import MaritimeWarehousePage from './MaritimeWarehousePage';
 import DhlOperationsPage from './DhlOperationsPage';
+import UnifiedWarehousePanel from './UnifiedWarehousePanel';
+import BranchInventoryPage from './BranchInventoryPage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -84,6 +87,20 @@ const WAREHOUSE_PANELS = {
         flag: '🇲🇽',
         component: 'quotesPage',
     },
+    scanner_unificado: {
+        icon: <WarehouseIcon sx={{ fontSize: 48 }} />,
+        color: '#F05A28',
+        bgGradient: 'linear-gradient(135deg, #C1272D 0%, #F05A28 100%)',
+        flag: '📱',
+        component: 'unifiedScanner',
+    },
+    inventario_sucursal: {
+        icon: <InventoryIcon sx={{ fontSize: 48 }} />,
+        color: '#667eea',
+        bgGradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        flag: '📦',
+        component: 'branchInventory',
+    },
 };
 
 interface Props {
@@ -101,9 +118,18 @@ export default function WarehouseHubPage({ users = [] }: Props) {
 
     const token = localStorage.getItem('token');
 
+    // Log cuando cambia selectedPanel
     useEffect(() => {
+        console.log('🎯 selectedPanel cambió a:', selectedPanel);
+    }, [selectedPanel]);
+
+    useEffect(() => {
+        console.log('🟢 WarehouseHubPage MOUNTED');
         checkUserAccess();
         fetchLocations();
+        return () => {
+            console.log('🔴 WarehouseHubPage UNMOUNTED');
+        };
     }, []);
 
     const checkUserAccess = async () => {
@@ -142,6 +168,7 @@ export default function WarehouseHubPage({ users = [] }: Props) {
 
     // Handler para seleccionar un panel
     const handlePanelClick = (locationCode: string) => {
+        console.log('📦 Panel seleccionado:', locationCode);
         if (locationCode === 'usa_pobox') {
             // Para PO Box USA, mostrar modal de entrada/salida
             setShowPOBoxModal(true);
@@ -160,6 +187,7 @@ export default function WarehouseHubPage({ users = [] }: Props) {
 
     // Handler para volver al hub
     const handleBackToHub = () => {
+        console.log('⬅️ Volviendo al Hub');
         setSelectedPanel(null);
         setPoboxMode(null);
     };
@@ -203,6 +231,10 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                     <QuotesPage />
                 ) : selectedPanel === 'mx_cedis' ? (
                     <DhlOperationsPage />
+                ) : selectedPanel === 'scanner_unificado' ? (
+                    <UnifiedWarehousePanel />
+                ) : selectedPanel === 'inventario_sucursal' ? (
+                    <BranchInventoryPage />
                 ) : (
                     <WarehouseReceptionPage warehouseLocation={selectedPanel} />
                 )}

@@ -43,6 +43,7 @@ import {
     Email as EmailIcon,
     Api as ApiIcon,
     Route as RouteIcon,
+    Business as BranchIcon,
 } from '@mui/icons-material';
 
 // Importar paneles implementados
@@ -68,6 +69,7 @@ import PaymentInvoicesPage from './PaymentInvoicesPage';
 import NationalFreightRatesPage from './NationalFreightRatesPage';
 import LastMilePage from './LastMilePage';
 import DhlRatesPage from './DhlRatesPage';
+import BranchManagementPage from './BranchManagementPage';
 import {
     UploadFile as UploadIcon,
     AccountBalanceWallet as WalletIcon,
@@ -198,6 +200,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
     const [showLegacyClients, setShowLegacyClients] = useState(false);
     const [showFinancial, setShowFinancial] = useState(false);
     const [showPaymentInvoices, setShowPaymentInvoices] = useState(false);
+    const [showBranches, setShowBranches] = useState(false);
     const [locations, setLocations] = useState<WarehouseLocation[]>([]);
     const [loadingLocations, setLoadingLocations] = useState(true);
 
@@ -261,6 +264,24 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                     />
                 </Box>
                 <VerificationsPage />
+            </Box>
+        );
+    }
+
+    // ============================================
+    // RENDER: Gestión de Sucursales (CEDIS)
+    // ============================================
+    if (showBranches) {
+        return (
+            <Box>
+                <Box sx={{ mb: 2 }}>
+                    <Chip
+                        label={t('panels.backToAdmin')}
+                        onClick={() => setShowBranches(false)}
+                        sx={{ cursor: 'pointer' }}
+                    />
+                </Box>
+                <BranchManagementPage />
             </Box>
         );
     }
@@ -1083,7 +1104,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                             </Box>
                             <CardContent>
                                 <Typography variant="h6" fontWeight="bold" gutterBottom>
-                                    {t('Verificaciones de Clientes')}
+                                    {t('Verificaciones de Identidad')}
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                                     {t('panels.verifications.description')}
@@ -1203,6 +1224,63 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                                     <Chip label="Roles" size="small" sx={{ bgcolor: '#7B1FA2', color: 'white', fontSize: '0.7rem' }} />
                                     <Chip label="Permisos" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                     <Chip label="Seguridad" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                </Box>
+                            </CardContent>
+                        </CardActionArea>
+                    </Card>
+                </Grid>
+                )}
+
+                {/* Tarjeta especial: Gestión de Sucursales (Solo Super Admin) */}
+                {isSuperAdmin && (
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    <Card
+                        sx={{
+                            height: '100%',
+                            transition: 'all 0.3s ease',
+                            border: '2px solid',
+                            borderColor: 'primary.main',
+                            '&:hover': {
+                                transform: 'translateY(-8px)',
+                                boxShadow: 6,
+                            },
+                        }}
+                    >
+                        <CardActionArea
+                            onClick={() => setShowBranches(true)}
+                            sx={{ height: '100%' }}
+                        >
+                            <Box
+                                sx={{
+                                    background: 'linear-gradient(135deg, #C1272D 0%, #F05A28 100%)',
+                                    p: 3,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                }}
+                            >
+                                <Box sx={{ color: 'white' }}>
+                                    <BranchIcon sx={{ fontSize: 48 }} />
+                                </Box>
+                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
+                                    🏢
+                                </Typography>
+                            </Box>
+                            <CardContent>
+                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                    Gestión de Sucursales
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                    Crear CEDIS y asignar empleados a cada ubicación
+                                </Typography>
+                                <Divider sx={{ my: 1 }} />
+                                <Typography variant="caption" color="text.secondary">
+                                    Solo Super Admin
+                                </Typography>
+                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+                                    <Chip label="CEDIS" size="small" sx={{ bgcolor: '#F05A28', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="Empleados" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                    <Chip label="Servicios" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                 </Box>
                             </CardContent>
                         </CardActionArea>

@@ -26,6 +26,9 @@ import { useTranslation } from 'react-i18next';
 const ORANGE = '#F05A28';
 const BLACK = '#111111';
 
+// Roles que pueden tener PIN de supervisor
+const SUPERVISOR_ROLES = ['super_admin', 'admin', 'director', 'gerente_sucursal'];
+
 type RootStackParamList = {
   Home: { user: any; token: string };
   MyProfile: { user: any; token: string };
@@ -60,6 +63,17 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   const [editPassword, setEditPassword] = useState('');
   const [edit2FACode, setEdit2FACode] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Estados para PIN de supervisor
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [currentPin, setCurrentPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmPin, setConfirmPin] = useState('');
+  const [savingPin, setSavingPin] = useState(false);
+  const [hasSupervisorPin, setHasSupervisorPin] = useState(user.has_supervisor_pin || false);
+  
+  // Verificar si el usuario puede tener PIN de supervisor
+  const canHaveSupervisorPin = SUPERVISOR_ROLES.includes(user.role);
 
   const refreshVerificationStatus = async () => {
     setRefreshingStatus(true);
@@ -132,6 +146,56 @@ export default function MyProfileScreen({ navigation, route }: Props) {
       Alert.alert(t('common.error'), t('errors.networkError'));
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Cambiar PIN de supervisor
+  const handleChangeSupervisorPin = async () => {
+    if (!newPin || newPin.length < 4) {
+      Alert.alert('Error', 'El PIN debe tener al menos 4 dígitos');
+      return;
+    }
+
+    if (newPin !== confirmPin) {
+      Alert.alert('Error', 'Los PINs no coinciden');
+      return;
+    }
+
+    if (hasSupervisorPin && !currentPin) {
+      Alert.alert('Error', 'Ingresa tu PIN actual');
+      return;
+    }
+
+    setSavingPin(true);
+    try {
+      const response = await fetch(`${API_URL}/api/warehouse/update-supervisor-pin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          current_pin: currentPin || null,
+          new_pin: newPin,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        Alert.alert('✅ Éxito', 'PIN de supervisor actualizado correctamente');
+        setShowPinModal(false);
+        setCurrentPin('');
+        setNewPin('');
+        setConfirmPin('');
+        setHasSupervisorPin(true);
+      } else {
+        Alert.alert('Error', data.error || 'No se pudo actualizar el PIN');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Error de conexión');
+    } finally {
+      setSavingPin(false);
     }
   };
 
@@ -487,6 +551,33 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                 thumbColor={twoFactorEnabled ? ORANGE : '#f4f3f4'}
               />
             </View>
+
+            {/* PIN de Supervisor - Solo para roles autorizados */}
+            {canHaveSupervisorPin && (
+              <>
+                <Divider style={styles.divider} />
+                <TouchableOpacity
+                  style={styles.menuItem}
+                  onPress={() => {
+                    setCurrentPin('');
+                    setNewPin('');
+                    setConfirmPin('');
+                    setShowPinModal(true);
+                  }}
+                >
+                  <Ionicons name="keypad-outline" size={24} color={ORANGE} />
+                  <View style={styles.menuItemContent}>
+                    <Text style={styles.menuItemTitle}>🔐 PIN de Supervisor</Text>
+                    <Text style={styles.menuItemSubtitle}>
+                      {hasSupervisorPin 
+                        ? 'Cambiar tu PIN de autorización' 
+                        : 'Configurar PIN para autorizar operaciones'}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color="#999" />
+                </TouchableOpacity>
+              </>
+            )}
           </Card.Content>
         </Card>
 
@@ -693,6 +784,77 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                   <ActivityIndicator color="white" />
                 ) : (
                   <Text style={styles.saveButtonText}>Cambiar Contraseña</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal PIN de Supervisor */}
+      <Modal visible={showPinModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>🔐 PIN de Supervisor</Text>
+              <TouchableOpacity onPress={() => setShowPinModal(false)}>
+                <Ionicons name="close" size={24} color={BLACK} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalForm}>
+              <Text style={styles.helperText}>
+                Este PIN te permite autorizar operaciones especiales como recepción de guías DHL. Cada autorización queda registrada con tu nombre.
+              </Text>
+
+              {hasSupervisorPin && (
+                <>
+                  <Text style={styles.inputLabel}>PIN Actual</Text>
+                  <TextInput
+                    style={styles.inputFull}
+                    placeholder="Tu PIN actual"
+                    value={currentPin}
+                    onChangeText={setCurrentPin}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    secureTextEntry
+                  />
+                </>
+              )}
+
+              <Text style={styles.inputLabel}>Nuevo PIN (mínimo 4 dígitos)</Text>
+              <TextInput
+                style={styles.inputFull}
+                placeholder="Ej: 1234"
+                value={newPin}
+                onChangeText={setNewPin}
+                keyboardType="number-pad"
+                maxLength={6}
+                secureTextEntry
+              />
+
+              <Text style={styles.inputLabel}>Confirmar Nuevo PIN</Text>
+              <TextInput
+                style={styles.inputFull}
+                placeholder="Repite el nuevo PIN"
+                value={confirmPin}
+                onChangeText={setConfirmPin}
+                keyboardType="number-pad"
+                maxLength={6}
+                secureTextEntry
+              />
+
+              <TouchableOpacity
+                style={[styles.saveButton, savingPin && styles.saveButtonDisabled, { backgroundColor: ORANGE }]}
+                onPress={handleChangeSupervisorPin}
+                disabled={savingPin}
+              >
+                {savingPin ? (
+                  <ActivityIndicator color="white" />
+                ) : (
+                  <Text style={styles.saveButtonText}>
+                    {hasSupervisorPin ? 'Cambiar PIN' : 'Crear PIN'}
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>

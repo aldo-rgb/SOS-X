@@ -1,6 +1,6 @@
 // Configuración de la API
 // En desarrollo usar tu IP local, en producción cambiar a la URL del servidor
-export const API_URL = 'http://192.168.0.112:3001'; // IP local detectada
+export const API_URL = 'http://192.168.1.114:3001'; // IP local detectada
 
 // Para obtener tu IP local ejecuta: ipconfig (Windows) o ifconfig (Mac/Linux)
 

@@ -19,6 +19,7 @@ import CameraAltIcon from '@mui/icons-material/CameraAlt';
 import DrawIcon from '@mui/icons-material/Draw';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import CloseIcon from '@mui/icons-material/Close';
+import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 const ORANGE = '#F05A28';
@@ -30,14 +31,20 @@ interface PendingUser {
   email: string;
   box_id: string;
   phone: string | null;
+  role: string;
   verification_status: string;
   verification_submitted_at: string;
   ine_front_url: string;
   ine_back_url: string;
   selfie_url: string;
   signature_url: string;
+  profile_photo_url: string;
   ai_verification_reason: string | null;
   created_at: string;
+  is_employee_onboarded: boolean;
+  driver_license_front_url: string;
+  driver_license_back_url: string;
+  driver_license_expiry: string | null;
 }
 
 interface Stats {
@@ -83,6 +90,19 @@ export default function VerificationsPage() {
   }, [loadData]);
 
   const handleApprove = async (userId: number) => {
+    // Verificar si es repartidor con licencia vencida
+    if (selectedUser?.role === 'repartidor' && selectedUser.driver_license_expiry) {
+      const expiryDate = new Date(selectedUser.driver_license_expiry);
+      if (expiryDate < new Date()) {
+        setSnackbar({ 
+          open: true, 
+          message: '⚠️ No se puede aprobar: La licencia de conducir está vencida', 
+          severity: 'error' 
+        });
+        return;
+      }
+    }
+    
     setProcessing(true);
     try {
       await axios.post(`${API_URL}/admin/verifications/${userId}/approve`, {}, 
@@ -257,18 +277,29 @@ export default function VerificationsPage() {
                   p: 2, borderRadius: 2, '&:hover': { bgcolor: 'grey.50' }
                 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <Avatar sx={{ bgcolor: ORANGE, width: 50, height: 50 }}>
+                    <Avatar 
+                      sx={{ bgcolor: ORANGE, width: 50, height: 50 }}
+                      src={user.selfie_url || user.profile_photo_url || undefined}
+                    >
                       {user.full_name?.charAt(0) || '?'}
                     </Avatar>
                     <Box>
-                      <Typography fontWeight="bold">{user.full_name}</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography fontWeight="bold">{user.full_name}</Typography>
+                        {user.is_employee_onboarded && (
+                          <Chip label="Empleado" size="small" color="primary" sx={{ height: 20 }} />
+                        )}
+                        {user.role && user.role !== 'client' && (
+                          <Chip label={user.role} size="small" variant="outlined" sx={{ height: 20 }} />
+                        )}
+                      </Box>
                       <Typography variant="body2" color="text.secondary">{user.email}</Typography>
                       <Box sx={{ display: 'flex', gap: 1, mt: 0.5 }}>
                         <Chip label={user.box_id || 'Sin BOX'} size="small" variant="outlined" />
                         <Chip 
-                          label={new Date(user.verification_submitted_at).toLocaleDateString('es-MX', {
+                          label={user.verification_submitted_at ? new Date(user.verification_submitted_at).toLocaleDateString('es-MX', {
                             day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
-                          })}
+                          }) : 'Sin fecha'}
                           size="small" 
                           icon={<PendingIcon />}
                           color="warning"
@@ -394,15 +425,15 @@ export default function VerificationsPage() {
                   </Paper>
                 </Box>
 
-                {/* Selfie */}
+                {/* Selfie / Foto de Perfil */}
                 <Box sx={{ flex: '1 1 300px', minWidth: 250 }}>
                   <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <CameraAltIcon fontSize="small" /> Selfie
+                    <CameraAltIcon fontSize="small" /> {selectedUser.is_employee_onboarded ? 'Foto de Perfil' : 'Selfie'}
                   </Typography>
                   <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center' }}>
-                    {selectedUser.selfie_url?.startsWith('data:') ? (
+                    {(selectedUser.selfie_url || selectedUser.profile_photo_url)?.startsWith('data:') ? (
                       <img 
-                        src={selectedUser.selfie_url} 
+                        src={selectedUser.selfie_url || selectedUser.profile_photo_url} 
                         alt="Selfie" 
                         style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 8 }}
                       />
@@ -415,7 +446,8 @@ export default function VerificationsPage() {
                   </Paper>
                 </Box>
 
-                {/* Firma */}
+                {/* Firma - solo para clientes */}
+                {!selectedUser.is_employee_onboarded && (
                 <Box sx={{ flex: '1 1 300px', minWidth: 250 }}>
                   <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
                     <DrawIcon fontSize="small" /> Firma Digital
@@ -446,7 +478,66 @@ export default function VerificationsPage() {
                     )}
                   </Paper>
                 </Box>
+                )}
               </Box>
+
+              {/* Licencia de Conducir - solo para empleados */}
+              {selectedUser.is_employee_onboarded && (selectedUser.driver_license_front_url || selectedUser.driver_license_back_url) && (
+                <>
+                  <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2 }}>
+                    <DirectionsCarIcon /> Licencia de Conducir
+                    {selectedUser.driver_license_expiry && (
+                      <>
+                        <Typography variant="body2" sx={{ ml: 2, color: 'text.secondary' }}>
+                          Vence: {new Date(selectedUser.driver_license_expiry).toLocaleDateString('es-MX')}
+                        </Typography>
+                        <Chip 
+                          size="small"
+                          label={new Date(selectedUser.driver_license_expiry) > new Date() ? '✅ Vigente' : '❌ Vencida'}
+                          color={new Date(selectedUser.driver_license_expiry) > new Date() ? 'success' : 'error'}
+                          sx={{ ml: 1 }}
+                        />
+                      </>
+                    )}
+                  </Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
+                    <Box sx={{ flex: '1 1 300px', minWidth: 250 }}>
+                      <Typography variant="subtitle2" sx={{ mb: 1 }}>Licencia Frente</Typography>
+                      <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center' }}>
+                        {selectedUser.driver_license_front_url?.startsWith('data:') ? (
+                          <img 
+                            src={selectedUser.driver_license_front_url} 
+                            alt="Licencia Frente" 
+                            style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 8 }}
+                          />
+                        ) : (
+                          <Box sx={{ py: 4, color: 'text.secondary' }}>
+                            <DirectionsCarIcon sx={{ fontSize: 48, opacity: 0.3 }} />
+                            <Typography variant="body2">No disponible</Typography>
+                          </Box>
+                        )}
+                      </Paper>
+                    </Box>
+                    <Box sx={{ flex: '1 1 300px', minWidth: 250 }}>
+                      <Typography variant="subtitle2" sx={{ mb: 1 }}>Licencia Reverso</Typography>
+                      <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center' }}>
+                        {selectedUser.driver_license_back_url?.startsWith('data:') ? (
+                          <img 
+                            src={selectedUser.driver_license_back_url} 
+                            alt="Licencia Reverso" 
+                            style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 8 }}
+                          />
+                        ) : (
+                          <Box sx={{ py: 4, color: 'text.secondary' }}>
+                            <DirectionsCarIcon sx={{ fontSize: 48, opacity: 0.3 }} />
+                            <Typography variant="body2">No disponible</Typography>
+                          </Box>
+                        )}
+                      </Paper>
+                    </Box>
+                  </Box>
+                </>
+              )}
             </Box>
           )}
         </DialogContent>

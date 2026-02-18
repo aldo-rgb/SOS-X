@@ -171,25 +171,19 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
               textAlign: 'center',
             }}
           >
-            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
               <Box
+                component="img"
+                src="/logo.png"
+                alt="EntregaX"
                 sx={{
-                  width: 64,
-                  height: 64,
-                  borderRadius: 2,
-                  background: 'linear-gradient(135deg, #C1272D 0%, #F05A28 100%)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
+                  width: 180,
+                  height: 'auto',
+                  objectFit: 'contain',
                 }}
-              >
-                <LocalShippingIcon sx={{ fontSize: 36 }} />
-              </Box>
+              />
             </Box>
-            <Typography variant="h4" fontWeight={700} letterSpacing={-0.5}>
-              Entrega<span style={{ color: '#F05A28' }}>X</span>
-            </Typography>
-            <Typography variant="body2" sx={{ opacity: 0.6, mt: 0.5 }}>
+            <Typography variant="body2" sx={{ opacity: 0.6, mt: 1 }}>
               Panel Administrativo
             </Typography>
           </Box>

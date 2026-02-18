@@ -184,6 +184,8 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
                 verificationStatus: user.verification_status || 'not_started',
                 // 👷 Campo para onboarding de empleados
                 isEmployeeOnboarded: user.is_employee_onboarded || false,
+                // 📸 Foto de perfil del empleado
+                profilePhotoUrl: user.profile_photo_url || null,
                 // Campos financieros para mostrar en App
                 walletBalance: parseFloat(user.wallet_balance) || 0,
                 virtualClabe: user.virtual_clabe || null,
@@ -360,7 +362,9 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
         const userId = req.user?.userId;
         
         const userQuery = await pool.query(
-            'SELECT id, full_name, email, box_id, role, warehouse_location, created_at FROM users WHERE id = $1',
+            `SELECT id, full_name, email, box_id, role, warehouse_location, created_at,
+                    is_verified, verification_status, is_employee_onboarded, profile_photo_url
+             FROM users WHERE id = $1`,
             [userId]
         );
 
@@ -369,7 +373,7 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
             return;
         }
 
-        res.json({ user: userQuery.rows[0] });
+        res.json(userQuery.rows[0]);
     } catch (error) {
         console.error('Error al obtener perfil:', error);
         res.status(500).json({ error: 'Error al obtener perfil' });

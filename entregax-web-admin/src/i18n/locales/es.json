@@ -451,6 +451,14 @@
       "mx_national": {
         "title": "Nacional México",
         "subtitle": "Envíos nacionales"
+      },
+      "scanner_unificado": {
+        "title": "Escáner Multi-Sucursal",
+        "subtitle": "Panel unificado de entrada/salida CEDIS"
+      },
+      "inventario_sucursal": {
+        "title": "Inventario por Sucursal",
+        "subtitle": "Control de paquetes en bodega"
       }
     },
     "newPackage": "Nuevo Paquete",
@@ -505,7 +513,7 @@
       "description": "Gestión de pólizas de seguro y garantía extendida para envíos"
     },
     "verifications": {
-      "description": "Revisión y aprobación de documentos KYC de clientes"
+      "description": "Revisión y aprobación de documentos KYC de usuarios"
     },
     "supplierPayments": {
       "description": "Gestión de pagos a proveedores internacionales"

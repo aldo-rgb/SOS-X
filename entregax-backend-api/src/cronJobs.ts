@@ -314,6 +314,111 @@ export const startFleetAlertsCron = () => {
 };
 
 /**
+ * CRON JOB: Bloqueo de Repartidores con Licencia Vencida
+ * Se ejecuta cada lunes a las 06:00 hrs (semanal es suficiente para 10 choferes)
+ */
+export const startDriverLicenseCheckCron = () => {
+  // Ejecutar cada lunes a las 06:00
+  cron.schedule('0 6 * * 1', async () => {
+    console.log('🪪 [CRON] Verificando licencias de conducir vencidas...');
+    
+    try {
+      // Bloquear repartidores con licencia vencida
+      const blockResult = await pool.query(`
+        UPDATE users 
+        SET 
+          is_blocked = TRUE,
+          block_reason = 'Licencia de conducir vencida',
+          blocked_at = NOW()
+        WHERE role = 'repartidor'
+          AND driver_license_expiry IS NOT NULL
+          AND driver_license_expiry < CURRENT_DATE
+          AND (is_blocked = FALSE OR is_blocked IS NULL)
+        RETURNING id, full_name, email, driver_license_expiry
+      `);
+
+      if (blockResult.rows.length > 0) {
+        console.log(`🚫 [CRON] ${blockResult.rows.length} repartidores bloqueados por licencia vencida:`);
+        
+        for (const driver of blockResult.rows) {
+          console.log(`   - ${driver.full_name} (venció: ${driver.driver_license_expiry})`);
+          
+          // Notificar al repartidor
+          await pool.query(`
+            INSERT INTO notifications (user_id, title, message, type, icon)
+            VALUES ($1, $2, $3, $4, $5)
+          `, [
+            driver.id,
+            '⚠️ Cuenta Bloqueada - Licencia Vencida',
+            'Tu cuenta ha sido bloqueada porque tu licencia de conducir está vencida. Por favor, renuévala y contacta a RH para actualizar tu expediente.',
+            'error',
+            'id-card'
+          ]);
+          
+          // Notificar a admins
+          const admins = await pool.query(`
+            SELECT id FROM users WHERE role IN ('super_admin', 'admin', 'branch_manager')
+          `);
+          
+          for (const admin of admins.rows) {
+            await pool.query(`
+              INSERT INTO notifications (user_id, title, message, type, icon, data)
+              VALUES ($1, $2, $3, $4, $5, $6)
+            `, [
+              admin.id,
+              '🪪 Repartidor Bloqueado',
+              `El repartidor ${driver.full_name} ha sido bloqueado por licencia de conducir vencida.`,
+              'warning',
+              'local-shipping',
+              JSON.stringify({ driverId: driver.id, driverName: driver.full_name })
+            ]);
+          }
+        }
+      }
+
+      // Alertar repartidores cuya licencia vencerá en 30 días
+      const warningResult = await pool.query(`
+        SELECT id, full_name, driver_license_expiry
+        FROM users
+        WHERE role = 'repartidor'
+          AND driver_license_expiry IS NOT NULL
+          AND driver_license_expiry BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
+          AND (is_blocked = FALSE OR is_blocked IS NULL)
+      `);
+
+      if (warningResult.rows.length > 0) {
+        console.log(`⚠️ [CRON] ${warningResult.rows.length} repartidores con licencia por vencer en 30 días`);
+        
+        for (const driver of warningResult.rows) {
+          const daysLeft = Math.ceil((new Date(driver.driver_license_expiry).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+          
+          await pool.query(`
+            INSERT INTO notifications (user_id, title, message, type, icon)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT DO NOTHING
+          `, [
+            driver.id,
+            '⚠️ Licencia por Vencer',
+            `Tu licencia de conducir vencerá en ${daysLeft} días. Por favor, renuévala para evitar que tu cuenta sea bloqueada.`,
+            'warning',
+            'id-card'
+          ]);
+        }
+      }
+
+      console.log('✅ [CRON] Verificación de licencias completada');
+      console.log(`   - Bloqueados: ${blockResult.rows.length}`);
+      console.log(`   - Por vencer: ${warningResult.rows.length}`);
+
+    } catch (error) {
+      console.error('❌ [CRON] Error en verificación de licencias:', error);
+    }
+  });
+
+  console.log('📅 [CRON] Job de verificación de licencias programado cada lunes a las 06:00 hrs');
+};
+
+/**
  * Inicializar todos los CRON jobs
  */
 export const initCronJobs = () => {
@@ -323,6 +428,7 @@ export const initCronJobs = () => {
   startMaritimeTrackingSyncCron();
   startCreditBlockingCron();
   startFleetAlertsCron();
+  startDriverLicenseCheckCron();
 };
 
 export default initCronJobs;

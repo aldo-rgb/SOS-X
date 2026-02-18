@@ -17,6 +17,7 @@ import {
 } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { loginApi, api } from '../services/api';
+import { EMPLOYEE_ROLES } from '../../App';
 
 // Colores de marca
 const ORANGE = '#F05A28';
@@ -27,6 +28,7 @@ type RootStackParamList = {
   ChangePassword: { user: any; token: string; currentPassword: string };
   Verification: { user: any; token: string };
   Home: { user: any; token: string };
+  EmployeeHome: { user: any; token: string };
 };
 
 type LoginScreenProps = {
@@ -70,6 +72,15 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           currentPassword: password,
         });
       } else {
+        // Verificar si es empleado - van al EmployeeHomeScreen
+        if (EMPLOYEE_ROLES.includes(userData.role)) {
+          navigation.replace('EmployeeHome', {
+            user: userData,
+            token,
+          });
+          return;
+        }
+
         // Verificar si necesita verificación de identidad (solo para clientes)
         if (userData.role === 'client') {
           try {
@@ -87,7 +98,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           }
         }
         
-        // Navegar al Home
+        // Navegar al Home (para clientes)
         navigation.replace('Home', {
           user: userData,
           token,
@@ -109,7 +120,11 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       
       {/* Header con logo */}
       <View style={styles.header}>
-        <Text style={styles.emoji}>🚚</Text>
+        <Image 
+          source={require('../../assets/logo.png')} 
+          style={styles.logoImage}
+          resizeMode="contain"
+        />
         <Text style={styles.logoText}>
           Entrega<Text style={styles.logoX}>X</Text>
         </Text>
@@ -204,9 +219,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: 40,
   },
-  emoji: {
-    fontSize: 60,
+  logoImage: {
+    width: 80,
+    height: 80,
     marginBottom: 10,
+    borderRadius: 16,
   },
   logoText: {
     fontSize: 42,

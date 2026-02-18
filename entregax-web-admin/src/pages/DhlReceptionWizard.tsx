@@ -77,6 +77,15 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
   const [clientInfo, setClientInfo] = useState<ClientInfo | null>(null);
   const [searchingClient, setSearchingClient] = useState(false);
 
+  // Contador de paquetes recibidos en esta sesión
+  const [packagesReceived, setPackagesReceived] = useState(0);
+  
+  // Modal para cerrar wizard (requiere PIN)
+  const [showCloseModal, setShowCloseModal] = useState(false);
+  const [closePin, setClosePin] = useState('');
+  const [closePinError, setClosePinError] = useState('');
+  const [validatingClosePin, setValidatingClosePin] = useState(false);
+
   // Form data
   const [tracking, setTracking] = useState('');
   const [productType, setProductType] = useState<'standard' | 'high_value' | null>(null);
@@ -108,6 +117,13 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
       }, 300);
     }
   }, [open, activeStep]);
+
+  // Reset contador cuando se abre el wizard
+  useEffect(() => {
+    if (open) {
+      setPackagesReceived(0);
+    }
+  }, [open]);
 
   const searchClient = async () => {
     if (!clientSearch.trim()) return;
@@ -368,12 +384,13 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
       );
 
       setSuccess(true);
+      setPackagesReceived(prev => prev + 1);
       
-      // Limpiar y preparar para siguiente paquete
+      // Limpiar datos del paquete pero MANTENER el cliente
+      // Volver al paso 2 (Escanear) para continuar con el mismo cliente
       setTimeout(() => {
-        resetWizard();
-        onSuccess();
-      }, 2000);
+        resetForNextPackage();
+      }, 1500);
 
     } catch (err) {
       const error = err as { response?: { data?: { error?: string } } };
@@ -384,6 +401,46 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
   };
 
   // ===== CLEANUP =====
+  // Reset para siguiente paquete (mantiene cliente)
+  const resetForNextPackage = () => {
+    setActiveStep(1); // Volver a paso Escanear
+    setTracking('');
+    setProductType(null);
+    setWeight(0);
+    setDimensions({ length: 0, width: 0, height: 0 });
+    setPhotoTaken(false);
+    setProcessingAI(false);
+    setSuccess(false);
+    setError(null);
+    
+    // Detener cámara
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setCameraActive(false);
+    
+    // Focus en campo de tracking
+    setTimeout(() => {
+      trackingInputRef.current?.focus();
+    }, 300);
+  };
+
+  // Cambiar cliente (vuelve al paso 1)
+  const handleChangeClient = () => {
+    setActiveStep(0);
+    setClientSearch('');
+    setClientInfo(null);
+    setTracking('');
+    setProductType(null);
+    setWeight(0);
+    setDimensions({ length: 0, width: 0, height: 0 });
+    setPhotoTaken(false);
+    setSuccess(false);
+    setError(null);
+  };
+
+  // Reset completo del wizard
   const resetWizard = () => {
     setActiveStep(0);
     setClientSearch('');
@@ -403,6 +460,45 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
       streamRef.current = null;
     }
     setCameraActive(false);
+  };
+
+  // Intentar cerrar - muestra modal de PIN
+  const handleCloseRequest = () => {
+    setShowCloseModal(true);
+    setClosePin('');
+    setClosePinError('');
+  };
+
+  // Validar PIN y cerrar
+  const handleValidateClosePin = async () => {
+    if (!closePin.trim()) {
+      setClosePinError('Ingresa el PIN del supervisor');
+      return;
+    }
+    
+    setValidatingClosePin(true);
+    setClosePinError('');
+    
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(
+        `${API_URL}/api/warehouse/validate-supervisor`,
+        { pin: closePin },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      if (res.data.valid) {
+        // PIN válido - cerrar wizard
+        setShowCloseModal(false);
+        handleClose();
+      } else {
+        setClosePinError('PIN incorrecto');
+      }
+    } catch (err) {
+      setClosePinError('Error al validar PIN');
+    } finally {
+      setValidatingClosePin(false);
+    }
   };
 
   const handleClose = () => {
@@ -915,9 +1011,10 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
   };
 
   return (
+    <>
     <Dialog
       open={open}
-      onClose={handleClose}
+      onClose={handleCloseRequest}
       maxWidth="md"
       fullWidth
       PaperProps={{
@@ -940,14 +1037,44 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
           <Typography variant="h5" fontWeight="bold">
             Recepción Rápida DHL
           </Typography>
+          {packagesReceived > 0 && (
+            <Box sx={{ 
+              bgcolor: DHL_YELLOW, 
+              color: '#111', 
+              px: 2, 
+              py: 0.5, 
+              borderRadius: 2,
+              fontWeight: 'bold'
+            }}>
+              📦 {packagesReceived} recibidos
+            </Box>
+          )}
         </Box>
-        <IconButton onClick={handleClose} sx={{ color: 'white' }}>
+        <IconButton onClick={handleCloseRequest} sx={{ color: 'white' }}>
           <CloseIcon />
         </IconButton>
       </Box>
 
-      {/* Stepper */}
+      {/* Stepper con botón Cambiar Cliente */}
       <Box sx={{ px: 4, pt: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          {activeStep > 0 && clientInfo && (
+            <Button 
+              size="small" 
+              variant="outlined"
+              onClick={handleChangeClient}
+              sx={{ borderColor: DHL_RED, color: DHL_RED }}
+            >
+              👤 Cambiar Cliente
+            </Button>
+          )}
+          {activeStep === 0 && <Box />}
+          {clientInfo && (
+            <Typography variant="body2" color="text.secondary">
+              Cliente: <strong>{clientInfo.full_name}</strong> ({clientInfo.box_id})
+            </Typography>
+          )}
+        </Box>
         <Stepper activeStep={activeStep} alternativeLabel>
           {STEPS.map((label, index) => (
             <Step key={label} completed={index < activeStep}>
@@ -972,13 +1099,13 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
             <Box sx={{ textAlign: 'center', py: 6 }}>
               <CheckIcon sx={{ fontSize: 100, color: '#4caf50', mb: 2 }} />
               <Typography variant="h4" fontWeight="bold" color="#4caf50">
-                ¡Paquete Guardado!
+                ¡Paquete #{packagesReceived} Guardado!
               </Typography>
               <Typography color="text.secondary" sx={{ mt: 1 }}>
                 Tracking: {tracking}
               </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                Preparando siguiente paquete...
+              <Typography variant="body2" sx={{ mt: 2, bgcolor: '#e3f2fd', p: 1, borderRadius: 2 }}>
+                📦 Continuando con cliente <strong>{clientInfo?.box_id}</strong>...
               </Typography>
             </Box>
           </Slide>
@@ -993,56 +1120,120 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
 
         {/* Step Content */}
         {!success && renderStep()}
+      </DialogContent>
 
-        {/* Resumen flotante */}
-        {activeStep > 0 && !success && (
-          <Paper
-            sx={{
-              position: 'fixed',
-              bottom: 20,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              p: 2,
-              bgcolor: '#111',
-              color: 'white',
-              borderRadius: 3,
-              display: 'flex',
-              gap: 3,
-              alignItems: 'center',
-              zIndex: 1000
-            }}
-          >
-            {clientInfo && (
-              <Box>
-                <Typography variant="caption" color="grey.500">Cliente</Typography>
-                <Typography fontWeight="bold">
-                  📦 {clientInfo.box_id}
-                </Typography>
-              </Box>
-            )}
-            {tracking && (
-              <Box>
-                <Typography variant="caption" color="grey.500">Tracking</Typography>
-                <Typography fontFamily="monospace" fontWeight="bold">{tracking}</Typography>
-              </Box>
-            )}
-            {productType && (
-              <Box>
-                <Typography variant="caption" color="grey.500">Tipo</Typography>
-                <Typography fontWeight="bold">
-                  {productType === 'standard' ? '👕 Standard' : '⚙️ High Value'}
-                </Typography>
-              </Box>
-            )}
-            {weight > 0 && (
-              <Box>
-                <Typography variant="caption" color="grey.500">Peso</Typography>
-                <Typography fontWeight="bold">{weight} kg</Typography>
-              </Box>
-            )}
-          </Paper>
+      {/* Barra de resumen FIJA en la parte inferior del dialog */}
+      {activeStep > 0 && !success && (
+        <Box
+          sx={{
+            bgcolor: '#1a1a1a',
+            color: 'white',
+            p: 1.5,
+            display: 'flex',
+            gap: 3,
+            alignItems: 'center',
+            justifyContent: 'center',
+            borderTop: '2px solid #333',
+            flexWrap: 'wrap'
+          }}
+        >
+          {clientInfo && (
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="caption" color="grey.500" display="block">Cliente</Typography>
+              <Typography fontWeight="bold" fontSize="0.9rem">
+                📦 {clientInfo.box_id}
+              </Typography>
+            </Box>
+          )}
+          {tracking && (
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="caption" color="grey.500" display="block">Tracking</Typography>
+              <Typography fontFamily="monospace" fontWeight="bold" fontSize="0.9rem">{tracking}</Typography>
+            </Box>
+          )}
+          {productType && (
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="caption" color="grey.500" display="block">Tipo</Typography>
+              <Typography fontWeight="bold" fontSize="0.9rem">
+                {productType === 'standard' ? '👕 Standard' : '⚙️ High Value'}
+              </Typography>
+            </Box>
+          )}
+          {weight > 0 && (
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="caption" color="grey.500" display="block">Peso</Typography>
+              <Typography fontWeight="bold" fontSize="0.9rem">{weight} kg</Typography>
+            </Box>
+          )}
+          {(dimensions.length > 0 || dimensions.width > 0 || dimensions.height > 0) && (
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="caption" color="grey.500" display="block">Medidas</Typography>
+              <Typography fontWeight="bold" fontSize="0.9rem">
+                {dimensions.length}x{dimensions.width}x{dimensions.height} cm
+              </Typography>
+            </Box>
+          )}
+        </Box>
+      )}
+    </Dialog>
+
+    {/* Modal de cierre - Requiere PIN */}
+    <Dialog open={showCloseModal} onClose={() => setShowCloseModal(false)} maxWidth="xs" fullWidth>
+      <DialogContent sx={{ textAlign: 'center', py: 4 }}>
+        <Typography variant="h6" fontWeight="bold" gutterBottom>
+          🔐 Cerrar Sesión de Recepción
+        </Typography>
+        
+        {packagesReceived > 0 && (
+          <Alert severity="success" sx={{ mb: 3, textAlign: 'left' }}>
+            Se recibieron <strong>{packagesReceived} paquetes</strong> en esta sesión
+          </Alert>
         )}
+        
+        <Typography color="text.secondary" sx={{ mb: 3 }}>
+          Ingresa el PIN del supervisor para cerrar
+        </Typography>
+        
+        <TextField
+          fullWidth
+          type="tel"
+          inputMode="numeric"
+          autoComplete="off"
+          label="PIN del Supervisor"
+          value={closePin}
+          onChange={(e) => setClosePin(e.target.value)}
+          onKeyPress={(e) => e.key === 'Enter' && handleValidateClosePin()}
+          error={!!closePinError}
+          helperText={closePinError}
+          autoFocus
+          InputProps={{
+            sx: { 
+              fontSize: '1.5rem', 
+              textAlign: 'center',
+              '-webkit-text-security': 'disc',
+              'input': { '-webkit-text-security': 'disc', textAlign: 'center' }
+            }
+          }}
+        />
+        
+        <Box sx={{ mt: 3, display: 'flex', gap: 2, justifyContent: 'center' }}>
+          <Button 
+            variant="outlined" 
+            onClick={() => setShowCloseModal(false)}
+          >
+            Continuar Recibiendo
+          </Button>
+          <Button 
+            variant="contained" 
+            color="error"
+            onClick={handleValidateClosePin}
+            disabled={validatingClosePin}
+          >
+            {validatingClosePin ? 'Validando...' : 'Cerrar Sesión'}
+          </Button>
+        </Box>
       </DialogContent>
     </Dialog>
+    </>
   );
 }

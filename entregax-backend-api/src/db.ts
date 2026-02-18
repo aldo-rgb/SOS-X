@@ -9,7 +9,10 @@ dotenv.config({ path: path.join(__dirname, '..', '.env') });
 const poolConfig = process.env.DATABASE_URL 
     ? {
         connectionString: process.env.DATABASE_URL,
-        ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+        ssl: { rejectUnauthorized: false },
+        connectionTimeoutMillis: 10000,
+        idleTimeoutMillis: 30000,
+        max: 20,
     }
     : {
         user: process.env.DB_USER,
@@ -24,5 +27,8 @@ export const pool = new Pool(poolConfig);
 
 // Probamos la conexión al iniciar
 pool.connect()
-    .then(() => console.log('✅ Conexión exitosa a PostgreSQL'))
+    .then((client) => {
+        console.log('✅ Conexión exitosa a PostgreSQL');
+        client.release();
+    })
     .catch((err: Error) => console.error('❌ Error de conexión a BD:', err.message));

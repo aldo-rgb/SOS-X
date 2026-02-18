@@ -7,6 +7,7 @@ import {
   StatusBar,
   ScrollView,
   Alert,
+  Image,
 } from 'react-native';
 import {
   Text,
@@ -147,7 +148,11 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
 
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.emoji}>🚚</Text>
+        <Image 
+          source={require('../../assets/logo.png')} 
+          style={styles.logoImage}
+          resizeMode="contain"
+        />
         <Text style={styles.logoText}>
           Entrega<Text style={styles.logoX}>X</Text>
         </Text>
@@ -380,9 +385,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  emoji: {
-    fontSize: 50,
+  logoImage: {
+    width: 70,
+    height: 70,
     marginBottom: 5,
+    borderRadius: 14,
   },
   logoText: {
     fontSize: 36,

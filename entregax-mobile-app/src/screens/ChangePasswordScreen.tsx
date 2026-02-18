@@ -7,6 +7,7 @@ import {
   StatusBar,
   Alert,
   ScrollView,
+  Image,
 } from 'react-native';
 import {
   Text,
@@ -114,7 +115,7 @@ export default function ChangePasswordScreen({ navigation, route }: ChangePasswo
           return;
         }
         
-        // Si ya completó onboarding, ir a Home
+        // Si ya completó onboarding, ir a EmployeeHome
         Alert.alert(
           '✅ Contraseña Actualizada',
           'Tu contraseña ha sido cambiada exitosamente.',
@@ -122,7 +123,7 @@ export default function ChangePasswordScreen({ navigation, route }: ChangePasswo
             {
               text: 'Continuar',
               onPress: () => {
-                navigation.replace('Home', { user, token });
+                navigation.replace('EmployeeHome', { user, token });
               },
             },
           ]
@@ -198,7 +199,11 @@ export default function ChangePasswordScreen({ navigation, route }: ChangePasswo
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.emoji}>🔐</Text>
+          <Image 
+            source={require('../../assets/logo.png')} 
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
           <Text style={styles.logoText}>
             Entrega<Text style={styles.logoX}>X</Text>
           </Text>
@@ -297,9 +302,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 30,
   },
-  emoji: {
-    fontSize: 60,
+  logoImage: {
+    width: 80,
+    height: 80,
     marginBottom: 10,
+    borderRadius: 16,
   },
   logoText: {
     fontSize: 36,

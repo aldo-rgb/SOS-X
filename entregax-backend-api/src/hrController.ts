@@ -48,10 +48,10 @@ export const getPrivacyNotice = async (_req: Request, res: Response): Promise<vo
       },
       {
         title: "5. DERECHOS ARCO",
-        content: "Usted tiene derecho a Acceso, Rectificación, Cancelación y Oposición de sus datos personales. Para ejercer estos derechos, envíe un correo a privacidad@entregax.com"
+        content: "Usted tiene derecho a Acceso, Rectificación, Cancelación y Oposición de sus datos personales. Para ejercer estos derechos, envíe un correo a aldocampos@entregax.com"
       }
     ],
-    contactEmail: "privacidad@entregax.com"
+    contactEmail: "aldocampos@entregax.com"
   };
 
   res.json(privacyNotice);
@@ -110,6 +110,7 @@ export const saveEmployeeOnboarding = async (req: Request, res: Response): Promi
       driverLicenseExpiry
     } = req.body;
 
+    // Actualizar datos del empleado y poner en estado PENDIENTE DE VERIFICACIÓN
     await pool.query(`
       UPDATE users SET
         address = COALESCE($1, address),
@@ -124,11 +125,14 @@ export const saveEmployeeOnboarding = async (req: Request, res: Response): Promi
         ine_front_url = COALESCE($10, ine_front_url),
         ine_back_url = COALESCE($11, ine_back_url),
         profile_photo_url = COALESCE($12, profile_photo_url),
+        selfie_url = COALESCE($12, selfie_url),
         driver_license_front_url = COALESCE($13, driver_license_front_url),
         driver_license_back_url = COALESCE($14, driver_license_back_url),
         driver_license_expiry = COALESCE($15, driver_license_expiry),
         is_employee_onboarded = TRUE,
-        hire_date = COALESCE(hire_date, CURRENT_DATE)
+        hire_date = COALESCE(hire_date, CURRENT_DATE),
+        verification_status = 'pending_review',
+        verification_submitted_at = NOW()
       WHERE id = $16
     `, [
       address, phone, emergencyContact, pantsSize, shirtSize, shoeSize,
@@ -138,9 +142,12 @@ export const saveEmployeeOnboarding = async (req: Request, res: Response): Promi
       user.userId
     ]);
 
+    console.log('✅ [HR] Empleado registrado - Pendiente de verificación');
+
     res.json({ 
       success: true, 
-      message: '¡Alta de empleado completada exitosamente!'
+      message: '¡Documentos enviados! Tu alta está pendiente de verificación por un administrador.',
+      status: 'pending_review'
     });
   } catch (error: any) {
     console.error('❌ Error en onboarding de empleado:', error);
@@ -330,26 +337,55 @@ export const trackGPSLocation = async (req: Request, res: Response): Promise<voi
 export const getEmployeesWithAttendance = async (req: Request, res: Response): Promise<void> => {
   try {
     const { date } = req.query;
-    const targetDate = date || 'CURRENT_DATE';
 
+    // Consulta optimizada - solo datos básicos de usuarios primero
     const result = await pool.query(`
       SELECT 
         u.id, u.full_name, u.email, u.phone, u.role, u.box_id,
         u.is_employee_onboarded, u.pants_size, u.shirt_size, u.shoe_size,
-        u.emergency_contact, u.marital_status, u.spouse_name, u.children_count,
-        u.hire_date, u.employee_number,
-        u.ine_front_url, u.ine_back_url, u.profile_photo_url,
-        u.driver_license_front_url, u.driver_license_back_url, u.driver_license_expiry,
-        u.privacy_accepted_at,
-        a.check_in_time, a.check_out_time, a.status as attendance_status,
-        a.check_in_address, a.check_out_address
+        u.emergency_contact, u.hire_date, u.employee_number,
+        u.profile_photo_url, u.privacy_accepted_at
       FROM users u
-      LEFT JOIN attendance_logs a ON u.id = a.user_id AND a.date = ${date ? '$1' : 'CURRENT_DATE'}
       WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'branch_manager')
       ORDER BY u.role, u.full_name
-    `, date ? [date] : []);
+    `);
 
-    res.json(result.rows);
+    // Si no hay empleados, retornar vacío rápido
+    if (result.rows.length === 0) {
+      res.json([]);
+      return;
+    }
+
+    // Obtener asistencias solo si hay empleados (consulta separada más rápida)
+    let attendanceMap: Record<number, any> = {};
+    try {
+      const targetDate = date || new Date().toISOString().split('T')[0];
+      const attendanceResult = await pool.query(`
+        SELECT user_id, check_in_time, check_out_time, status as attendance_status,
+               check_in_address, check_out_address
+        FROM attendance_logs 
+        WHERE date = $1
+      `, [targetDate]);
+      
+      attendanceResult.rows.forEach((a: any) => {
+        attendanceMap[a.user_id] = a;
+      });
+    } catch (e) {
+      // Si falla la consulta de asistencias, continuar sin ellas
+      console.log('Asistencias no disponibles');
+    }
+
+    // Combinar datos
+    const employees = result.rows.map((u: any) => ({
+      ...u,
+      check_in_time: attendanceMap[u.id]?.check_in_time || null,
+      check_out_time: attendanceMap[u.id]?.check_out_time || null,
+      attendance_status: attendanceMap[u.id]?.attendance_status || null,
+      check_in_address: attendanceMap[u.id]?.check_in_address || null,
+      check_out_address: attendanceMap[u.id]?.check_out_address || null,
+    }));
+
+    res.json(employees);
   } catch (error) {
     console.error('Error obteniendo empleados:', error);
     res.status(500).json({ error: 'Error al obtener empleados' });
@@ -363,12 +399,9 @@ export const getEmployeeDetail = async (req: Request, res: Response): Promise<vo
   try {
     const { id } = req.params;
 
+    // Consulta básica del empleado sin subconsultas a tablas que podrían no existir
     const employee = await pool.query(`
-      SELECT 
-        u.*,
-        (SELECT COUNT(*) FROM attendance_logs WHERE user_id = u.id AND status = 'present') as days_present,
-        (SELECT COUNT(*) FROM attendance_logs WHERE user_id = u.id AND status = 'late') as days_late,
-        (SELECT COUNT(*) FROM attendance_logs WHERE user_id = u.id AND status = 'absent') as days_absent
+      SELECT u.*
       FROM users u
       WHERE u.id = $1
     `, [id]);
@@ -378,24 +411,56 @@ export const getEmployeeDetail = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    // Obtener últimas 30 asistencias
-    const attendance = await pool.query(`
-      SELECT * FROM attendance_logs 
-      WHERE user_id = $1 
-      ORDER BY date DESC 
-      LIMIT 30
-    `, [id]);
+    // Estadísticas de asistencia (con try/catch por si la tabla no existe)
+    let days_present = 0, days_late = 0, days_absent = 0;
+    try {
+      const statsResult = await pool.query(`
+        SELECT 
+          COUNT(*) FILTER (WHERE status = 'present') as days_present,
+          COUNT(*) FILTER (WHERE status = 'late') as days_late,
+          COUNT(*) FILTER (WHERE status = 'absent') as days_absent
+        FROM attendance_logs WHERE user_id = $1
+      `, [id]);
+      if (statsResult.rows[0]) {
+        days_present = parseInt(statsResult.rows[0].days_present) || 0;
+        days_late = parseInt(statsResult.rows[0].days_late) || 0;
+        days_absent = parseInt(statsResult.rows[0].days_absent) || 0;
+      }
+    } catch (e) {
+      console.log('Estadísticas de asistencia no disponibles');
+    }
 
-    // Obtener última ubicación GPS (si es chofer)
-    const lastGPS = await pool.query(`
-      SELECT * FROM gps_tracking 
-      WHERE user_id = $1 
-      ORDER BY recorded_at DESC 
-      LIMIT 1
-    `, [id]);
+    // Obtener últimas 30 asistencias
+    let attendance = { rows: [] as any[] };
+    try {
+      attendance = await pool.query(`
+        SELECT * FROM attendance_logs 
+        WHERE user_id = $1 
+        ORDER BY date DESC 
+        LIMIT 30
+      `, [id]);
+    } catch (e) {
+      console.log('Tabla attendance_logs no disponible');
+    }
+
+    // Obtener última ubicación GPS (si es chofer) - solo si la tabla existe
+    let lastGPS = { rows: [] as any[] };
+    try {
+      lastGPS = await pool.query(`
+        SELECT * FROM gps_tracking 
+        WHERE user_id = $1 
+        ORDER BY recorded_at DESC 
+        LIMIT 1
+      `, [id]);
+    } catch (e) {
+      console.log('Tabla gps_tracking no disponible');
+    }
 
     res.json({
       ...employee.rows[0],
+      days_present,
+      days_late,
+      days_absent,
       recentAttendance: attendance.rows,
       lastLocation: lastGPS.rows[0] || null
     });
@@ -464,7 +529,8 @@ export const getDriversLiveLocation = async (_req: Request, res: Response): Prom
     res.json(result.rows);
   } catch (error) {
     console.error('Error obteniendo ubicación de choferes:', error);
-    res.status(500).json({ error: 'Error al obtener ubicaciones' });
+    // Si la tabla gps_tracking no existe, retornar array vacío
+    res.json([]);
   }
 };
 
@@ -477,40 +543,50 @@ export const getAttendanceStats = async (req: Request, res: Response): Promise<v
     const targetMonth = month || new Date().getMonth() + 1;
     const targetYear = year || new Date().getFullYear();
 
-    const stats = await pool.query(`
+    // Una sola consulta combinada para obtener todo
+    const result = await pool.query(`
+      WITH stats AS (
+        SELECT 
+          COUNT(DISTINCT user_id) as total_employees,
+          COUNT(*) FILTER (WHERE status = 'present') as total_present,
+          COUNT(*) FILTER (WHERE status = 'late') as total_late,
+          COUNT(*) FILTER (WHERE status = 'absent') as total_absent,
+          COALESCE(ROUND(AVG(EXTRACT(EPOCH FROM (check_out_time - check_in_time)) / 3600)::numeric, 2), 0) as avg_hours_worked
+        FROM attendance_logs
+        WHERE EXTRACT(MONTH FROM date) = $1
+          AND EXTRACT(YEAR FROM date) = $2
+      ),
+      by_role AS (
+        SELECT 
+          u.role,
+          COUNT(DISTINCT a.user_id) as employees,
+          COUNT(*) FILTER (WHERE a.status = 'present') as present,
+          COUNT(*) FILTER (WHERE a.status = 'late') as late
+        FROM attendance_logs a
+        JOIN users u ON a.user_id = u.id
+        WHERE EXTRACT(MONTH FROM a.date) = $1
+          AND EXTRACT(YEAR FROM a.date) = $2
+        GROUP BY u.role
+      )
       SELECT 
-        COUNT(DISTINCT user_id) as total_employees,
-        COUNT(*) FILTER (WHERE status = 'present') as total_present,
-        COUNT(*) FILTER (WHERE status = 'late') as total_late,
-        COUNT(*) FILTER (WHERE status = 'absent') as total_absent,
-        ROUND(AVG(EXTRACT(EPOCH FROM (check_out_time - check_in_time)) / 3600)::numeric, 2) as avg_hours_worked
-      FROM attendance_logs
-      WHERE EXTRACT(MONTH FROM date) = $1
-        AND EXTRACT(YEAR FROM date) = $2
+        (SELECT row_to_json(stats) FROM stats) as summary,
+        COALESCE((SELECT json_agg(by_role) FROM by_role), '[]'::json) as by_role
     `, [targetMonth, targetYear]);
 
-    // Por rol
-    const byRole = await pool.query(`
-      SELECT 
-        u.role,
-        COUNT(DISTINCT a.user_id) as employees,
-        COUNT(*) FILTER (WHERE a.status = 'present') as present,
-        COUNT(*) FILTER (WHERE a.status = 'late') as late
-      FROM attendance_logs a
-      JOIN users u ON a.user_id = u.id
-      WHERE EXTRACT(MONTH FROM a.date) = $1
-        AND EXTRACT(YEAR FROM a.date) = $2
-      GROUP BY u.role
-    `, [targetMonth, targetYear]);
-
+    const data = result.rows[0];
     res.json({
-      summary: stats.rows[0],
-      byRole: byRole.rows,
+      summary: data.summary || { total_employees: 0, total_present: 0, total_late: 0, total_absent: 0, avg_hours_worked: 0 },
+      byRole: data.by_role || [],
       period: { month: targetMonth, year: targetYear }
     });
   } catch (error) {
     console.error('Error obteniendo estadísticas:', error);
-    res.status(500).json({ error: 'Error al obtener estadísticas' });
+    // Retornar datos vacíos en caso de error (tabla no existe, etc)
+    res.json({
+      summary: { total_employees: 0, total_present: 0, total_late: 0, total_absent: 0, avg_hours_worked: 0 },
+      byRole: [],
+      period: { month: req.query.month || new Date().getMonth() + 1, year: req.query.year || new Date().getFullYear() }
+    });
   }
 };
 

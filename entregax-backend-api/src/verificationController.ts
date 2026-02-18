@@ -304,13 +304,15 @@ export const getPendingVerifications = async (req: Request, res: Response): Prom
     try {
         const result = await pool.query(`
             SELECT 
-                id, full_name, email, box_id, phone,
+                id, full_name, email, box_id, phone, role,
                 verification_status, verification_submitted_at,
                 ine_front_url, ine_back_url, selfie_url, signature_url,
-                ai_verification_reason, created_at
+                profile_photo_url, ai_verification_reason, created_at,
+                is_employee_onboarded, driver_license_front_url, driver_license_back_url,
+                driver_license_expiry
             FROM users 
             WHERE verification_status = 'pending_review'
-            ORDER BY verification_submitted_at DESC
+            ORDER BY verification_submitted_at DESC NULLS LAST
         `);
 
         res.json(result.rows);

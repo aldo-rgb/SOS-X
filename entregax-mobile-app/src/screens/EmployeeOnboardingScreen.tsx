@@ -103,6 +103,31 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
   
   // Tomar foto con cámara o seleccionar de galería
   const pickImage = async (type: 'profilePhoto' | 'ineFront' | 'ineBack' | 'licenseFront' | 'licenseBack') => {
+    // Para documentos (INE, licencia), solo permitir cámara
+    const isDocument = ['ineFront', 'ineBack', 'licenseFront', 'licenseBack'].includes(type);
+    
+    if (isDocument) {
+      // Documentos: solo cámara, no galería
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permiso Requerido', 'Se necesita permiso de cámara para fotografiar tus documentos.');
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.8,
+        base64: true,
+      });
+      
+      if (!result.canceled && result.assets[0]) {
+        const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
+        setPhotos(prev => ({ ...prev, [type]: base64Image }));
+      }
+      return;
+    }
+    
+    // Para foto de perfil, permitir cámara o galería
     const hasPermission = await requestMediaPermissions();
     if (!hasPermission) return;
     
@@ -111,7 +136,7 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
       '¿Cómo deseas agregar la foto?',
       [
         {
-          text: 'Cámara',
+          text: '📸 Cámara',
           onPress: async () => {
             const { status } = await ImagePicker.requestCameraPermissionsAsync();
             if (status !== 'granted') {
@@ -119,9 +144,8 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
               return;
             }
             const result = await ImagePicker.launchCameraAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
-              allowsEditing: true,
-              aspect: type === 'profilePhoto' ? [1, 1] : [4, 3],
+              mediaTypes: ['images'],
+              allowsEditing: false,
               quality: 0.8,
               base64: true,
             });
@@ -133,12 +157,11 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
           }
         },
         {
-          text: 'Galería',
+          text: '🖼️ Galería',
           onPress: async () => {
             const result = await ImagePicker.launchImageLibraryAsync({
-              mediaTypes: ImagePicker.MediaTypeOptions.Images,
-              allowsEditing: true,
-              aspect: type === 'profilePhoto' ? [1, 1] : [4, 3],
+              mediaTypes: ['images'],
+              allowsEditing: false,
               quality: 0.8,
               base64: true,
             });
@@ -268,15 +291,16 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
       });
 
       Alert.alert(
-        '¡Alta Exitosa! 🎉',
-        'Bienvenido al equipo EntregaX. Tu expediente ha sido registrado correctamente.',
+        '📋 Documentos Enviados',
+        'Tu expediente ha sido enviado para verificación. Un administrador revisará tus documentos y recibirás una notificación cuando tu cuenta sea aprobada.',
         [{ 
-          text: 'Continuar', 
+          text: 'Entendido', 
           onPress: () => {
             if (onComplete) {
               onComplete();
             } else if (navigation) {
-              navigation.replace('Home', { user, token: route?.params?.token });
+              // Los empleados regresan a EmployeeHome
+              navigation.replace('EmployeeHome', { user, token: route?.params?.token });
             }
           }
         }]
@@ -1009,7 +1033,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 16,
   },
   photoSquare: {
     width: 200,
@@ -1018,22 +1042,24 @@ const styles = StyleSheet.create({
   },
   photoCard: {
     width: '100%',
-    height: 180,
+    height: 140,
   },
   capturedPhoto: {
     borderRadius: 12,
     backgroundColor: '#eee',
   },
   photoPlaceholderText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#C1272D',
-    marginTop: 12,
+    marginTop: 8,
+    textAlign: 'center',
   },
   photoPlaceholderSubtext: {
-    fontSize: 12,
+    fontSize: 11,
     color: '#999',
     marginTop: 4,
+    textAlign: 'center',
   },
   photoOverlay: {
     position: 'absolute',
@@ -1077,6 +1103,7 @@ const styles = StyleSheet.create({
   },
   photoItem: {
     flex: 1,
+    alignItems: 'center',
   },
   photoLabel: {
     fontSize: 14,

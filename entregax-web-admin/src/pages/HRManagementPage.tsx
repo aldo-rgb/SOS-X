@@ -39,6 +39,7 @@ import {
   Select,
   MenuItem,
   Snackbar,
+  Skeleton,
 } from '@mui/material';
 import {
   People as PeopleIcon,
@@ -357,14 +358,15 @@ export default function HRManagementPage() {
   // Carga inicial
   useEffect(() => {
     const loadAll = async () => {
-      setLoading(true);
-      await Promise.all([loadEmployees(), loadStats(), loadDrivers()]);
-      setLoading(false);
+      // NO bloquear la UI - cargar en paralelo
+      loadEmployees().finally(() => setLoading(false));
+      loadStats();
+      loadDrivers();
     };
     loadAll();
     
-    // Actualizar choferes cada 30 segundos
-    const interval = setInterval(loadDrivers, 30000);
+    // Actualizar choferes cada 60 segundos (era 30, muy frecuente)
+    const interval = setInterval(loadDrivers, 60000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -381,13 +383,34 @@ export default function HRManagementPage() {
   const notCheckedIn = employees.filter(e => !e.check_in_time).length;
   const lateToday = employees.filter(e => e.attendance_status === 'late').length;
 
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
+  // Skeleton para las tarjetas de stats
+  const StatCardSkeleton = () => (
+    <Card sx={{ height: '100%' }}>
+      <CardContent sx={{ textAlign: 'center', py: 3 }}>
+        <Skeleton variant="circular" width={48} height={48} sx={{ mx: 'auto', mb: 1 }} />
+        <Skeleton variant="text" width={40} height={40} sx={{ mx: 'auto' }} />
+        <Skeleton variant="text" width={80} sx={{ mx: 'auto' }} />
+      </CardContent>
+    </Card>
+  );
+
+  // Skeleton para filas de tabla
+  const TableRowSkeleton = () => (
+    <TableRow>
+      <TableCell><Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+        <Skeleton variant="circular" width={40} height={40} />
+        <Box>
+          <Skeleton variant="text" width={120} />
+          <Skeleton variant="text" width={80} height={16} />
+        </Box>
+      </Box></TableCell>
+      <TableCell><Skeleton variant="rounded" width={80} height={24} /></TableCell>
+      <TableCell><Skeleton variant="text" width={60} /></TableCell>
+      <TableCell><Skeleton variant="text" width={100} /></TableCell>
+      <TableCell><Skeleton variant="rounded" width={80} height={24} /></TableCell>
+      <TableCell><Skeleton variant="text" width={60} /></TableCell>
+    </TableRow>
+  );
 
   return (
     <Box sx={{ p: 3 }}>
@@ -428,7 +451,9 @@ export default function HRManagementPage() {
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Box>
-                  <Typography variant="h3" fontWeight="bold">{checkedInToday}</Typography>
+                  <Typography variant="h3" fontWeight="bold">
+                    {loading ? <Skeleton width={50} sx={{ bgcolor: 'rgba(255,255,255,0.3)' }} /> : checkedInToday}
+                  </Typography>
                   <Typography variant="body2" sx={{ opacity: 0.9 }}>Entrada registrada</Typography>
                 </Box>
                 <CheckCircleIcon sx={{ fontSize: 48, opacity: 0.8 }} />
@@ -441,7 +466,9 @@ export default function HRManagementPage() {
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Box>
-                  <Typography variant="h3" fontWeight="bold">{notCheckedIn}</Typography>
+                  <Typography variant="h3" fontWeight="bold">
+                    {loading ? <Skeleton width={50} sx={{ bgcolor: 'rgba(255,255,255,0.3)' }} /> : notCheckedIn}
+                  </Typography>
                   <Typography variant="body2" sx={{ opacity: 0.9 }}>Sin checar</Typography>
                 </Box>
                 <CancelIcon sx={{ fontSize: 48, opacity: 0.8 }} />
@@ -454,7 +481,9 @@ export default function HRManagementPage() {
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Box>
-                  <Typography variant="h3" fontWeight="bold">{lateToday}</Typography>
+                  <Typography variant="h3" fontWeight="bold">
+                    {loading ? <Skeleton width={50} sx={{ bgcolor: 'rgba(255,255,255,0.3)' }} /> : lateToday}
+                  </Typography>
                   <Typography variant="body2" sx={{ opacity: 0.9 }}>Retardos hoy</Typography>
                 </Box>
                 <WarningIcon sx={{ fontSize: 48, opacity: 0.8 }} />
@@ -467,7 +496,9 @@ export default function HRManagementPage() {
             <CardContent>
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <Box>
-                  <Typography variant="h3" fontWeight="bold">{drivers.length}</Typography>
+                  <Typography variant="h3" fontWeight="bold">
+                    {loading ? <Skeleton width={50} sx={{ bgcolor: 'rgba(255,255,255,0.3)' }} /> : drivers.length}
+                  </Typography>
                   <Typography variant="body2" sx={{ opacity: 0.9 }}>Choferes en ruta</Typography>
                 </Box>
                 <TruckIcon sx={{ fontSize: 48, opacity: 0.8 }} />
@@ -500,7 +531,34 @@ export default function HRManagementPage() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {employees.map((emp) => (
+              {loading ? (
+                // Mostrar skeletons mientras carga
+                [...Array(5)].map((_, i) => (
+                  <TableRow key={i}>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Skeleton variant="circular" width={40} height={40} />
+                        <Box>
+                          <Skeleton variant="text" width={120} />
+                          <Skeleton variant="text" width={80} height={16} />
+                        </Box>
+                      </Box>
+                    </TableCell>
+                    <TableCell><Skeleton variant="rounded" width={80} height={24} /></TableCell>
+                    <TableCell><Skeleton variant="text" width={60} /></TableCell>
+                    <TableCell><Skeleton variant="text" width={100} /></TableCell>
+                    <TableCell><Skeleton variant="rounded" width={80} height={24} /></TableCell>
+                    <TableCell><Skeleton variant="text" width={60} /></TableCell>
+                  </TableRow>
+                ))
+              ) : employees.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                    <Typography color="text.secondary">No hay empleados registrados</Typography>
+                  </TableCell>
+                </TableRow>
+              ) : (
+                employees.map((emp) => (
                 <TableRow key={emp.id} hover>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -566,24 +624,7 @@ export default function HRManagementPage() {
                     </Box>
                   </TableCell>
                 </TableRow>
-              ))}
-              {employees.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
-                    <Box sx={{ textAlign: 'center' }}>
-                      <PeopleIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
-                      <Typography color="text.secondary" gutterBottom>No hay empleados registrados</Typography>
-                      <Button
-                        variant="outlined"
-                        startIcon={<PersonAddIcon />}
-                        onClick={handleOpenCreateDialog}
-                        sx={{ mt: 1 }}
-                      >
-                        Agregar Primer Empleado
-                      </Button>
-                    </Box>
-                  </TableCell>
-                </TableRow>
+              ))
               )}
             </TableBody>
           </Table>
