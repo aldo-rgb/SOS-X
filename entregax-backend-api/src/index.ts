@@ -1873,7 +1873,9 @@ app.put('/api/admin/exchange-rate/alerts/:id/resolve', authenticateToken, requir
 // CARRUSEL DE LA APP MÓVIL
 // ============================================
 // Configuración de multer para imágenes del carrusel
-const carouselStorage = multer.diskStorage({
+// Usar memoria para poder subir a S3
+const carouselStorage = multer.memoryStorage();
+const carouselDiskStorage = multer.diskStorage({
   destination: (_req, _file, cb) => {
     const dir = path.join(__dirname, '..', 'uploads', 'carousel');
     // Crear directorio si no existe
@@ -1886,8 +1888,11 @@ const carouselStorage = multer.diskStorage({
     cb(null, `slide-${uniqueSuffix}${ext}`);
   }
 });
+
+// Usar memoria si S3 está configurado, disco si no
+const useS3 = !!(process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY && process.env.AWS_S3_BUCKET);
 const carouselUpload = multer({ 
-  storage: carouselStorage, 
+  storage: useS3 ? carouselStorage : carouselDiskStorage, 
   limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
   fileFilter: (_req, file, cb) => {
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];

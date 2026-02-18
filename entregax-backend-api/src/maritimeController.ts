@@ -4,6 +4,7 @@ import { AuthRequest } from './authController';
 import fs from 'fs';
 import path from 'path';
 import { createNotification } from './notificationController';
+import { uploadToS3, isS3Configured } from './s3Service';
 
 // ========== CONTENEDORES ==========
 
@@ -681,24 +682,35 @@ export const uploadCostPdf = async (req: AuthRequest, res: Response): Promise<an
       return res.status(400).json({ error: 'Campo inválido para archivo PDF' });
     }
 
-    // Crear directorio de uploads si no existe
-    const uploadsDir = path.join(__dirname, '..', 'uploads', 'costs');
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir, { recursive: true });
-    }
-
     // Generar nombre único para el archivo
     const timestamp = Date.now();
     const ext = path.extname(file.originalname) || '.pdf';
     const filename = `container_${containerId}_${fieldName}_${timestamp}${ext}`;
-    const filePath = path.join(uploadsDir, filename);
+    
+    let publicUrl: string;
 
-    // Mover archivo desde memoria/temp a ubicación final
-    fs.writeFileSync(filePath, file.buffer);
+    // Usar S3 si está configurado, sino almacenamiento local
+    if (isS3Configured()) {
+      console.log('☁️ Subiendo archivo a AWS S3...');
+      const s3Key = `costs/${filename}`;
+      const contentType = file.mimetype || 'application/pdf';
+      publicUrl = await uploadToS3(file.buffer, s3Key, contentType);
+      console.log(`✅ Archivo subido a S3: ${publicUrl}`);
+    } else {
+      console.log('💾 Usando almacenamiento local (S3 no configurado)');
+      // Crear directorio de uploads si no existe
+      const uploadsDir = path.join(__dirname, '..', 'uploads', 'costs');
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
 
-    // Generar URL pública (relativa al servidor)
-    const baseUrl = process.env.API_URL || 'http://localhost:3001';
-    const publicUrl = `${baseUrl}/uploads/costs/${filename}`;
+      const filePath = path.join(uploadsDir, filename);
+      fs.writeFileSync(filePath, file.buffer);
+
+      // Generar URL pública (relativa al servidor)
+      const baseUrl = process.env.API_URL || 'http://localhost:3001';
+      publicUrl = `${baseUrl}/uploads/costs/${filename}`;
+    }
 
     // Actualizar la base de datos con la URL del archivo
     await pool.query(`

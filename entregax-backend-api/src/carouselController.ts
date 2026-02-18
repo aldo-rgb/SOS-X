@@ -5,6 +5,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { uploadToS3, isS3Configured } from './s3Service';
 
 // ============================================
 // INTERFACES
@@ -598,16 +599,27 @@ export const uploadSlideImage = async (req: Request, res: Response) => {
       });
     }
 
-    // La imagen se guarda en uploads/carousel/
-    const imageUrl = `/uploads/carousel/${req.file.filename}`;
-    
-    console.log(`✅ Imagen de carrusel subida: ${imageUrl}`);
+    let imageUrl: string;
+
+    // Usar S3 si está configurado
+    if (isS3Configured() && req.file.buffer) {
+      console.log('☁️ Subiendo imagen de carrusel a AWS S3...');
+      const timestamp = Date.now();
+      const ext = req.file.originalname.split('.').pop() || 'jpg';
+      const s3Key = `carousel/slide-${timestamp}.${ext}`;
+      imageUrl = await uploadToS3(req.file.buffer, s3Key, req.file.mimetype);
+      console.log(`✅ Imagen subida a S3: ${imageUrl}`);
+    } else {
+      // Fallback a almacenamiento local
+      imageUrl = `/uploads/carousel/${req.file.filename}`;
+      console.log(`✅ Imagen de carrusel subida localmente: ${imageUrl}`);
+    }
 
     res.json({
       success: true,
       message: 'Imagen subida exitosamente',
       image_url: imageUrl,
-      filename: req.file.filename
+      filename: req.file.filename || imageUrl.split('/').pop()
     });
   } catch (error) {
     console.error('❌ Error subiendo imagen:', error);
