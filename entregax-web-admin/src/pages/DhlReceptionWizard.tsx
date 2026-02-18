@@ -15,6 +15,8 @@ import {
   Button,
   Dialog,
   DialogContent,
+  DialogTitle,
+  DialogActions,
   Paper,
   TextField,
   InputAdornment,
@@ -40,6 +42,8 @@ import {
   Usb as UsbIcon,
   Person as PersonIcon,
   Search as SearchIcon,
+  Lock as LockIcon,
+  Warning as WarningIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -89,6 +93,12 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
   const [cameraActive, setCameraActive] = useState(false);
   const [photoTaken, setPhotoTaken] = useState(false);
   const [processingAI, setProcessingAI] = useState(false);
+
+  // 🔐 Estado para cierre protegido con PIN
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [closePin, setClosePin] = useState('');
+  const [closePinError, setClosePinError] = useState('');
+  const [validatingClosePin, setValidatingClosePin] = useState(false);
 
   // Refs
   const clientInputRef = useRef<HTMLInputElement>(null);
@@ -405,6 +415,57 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
     setCameraActive(false);
   };
 
+  // 🔐 Intentar cerrar - mostrar modal de confirmación con PIN
+  const handleCloseAttempt = () => {
+    // Si ya terminó exitosamente, cerrar sin PIN
+    if (success) {
+      handleClose();
+      return;
+    }
+    // Si no ha ingresado nada aún (step 0 y sin cliente), permitir cerrar
+    if (activeStep === 0 && !clientInfo && !tracking) {
+      handleClose();
+      return;
+    }
+    // Mostrar modal de confirmación con PIN
+    setShowCloseConfirm(true);
+    setClosePin('');
+    setClosePinError('');
+  };
+
+  // 🔐 Validar PIN de supervisor para cerrar
+  const handleValidateClosePin = async () => {
+    if (!closePin.trim()) {
+      setClosePinError('Ingresa el PIN de supervisor');
+      return;
+    }
+
+    setValidatingClosePin(true);
+    setClosePinError('');
+
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.post(
+        `${API_URL}/api/warehouse/validate-supervisor`,
+        { pin: closePin, action_type: 'dhl_wizard_cancel' },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      if (res.data.valid) {
+        console.log(`🔐 Wizard cancelado por supervisor: ${res.data.supervisor?.name}`);
+        setShowCloseConfirm(false);
+        handleClose();
+      } else {
+        setClosePinError('PIN de supervisor incorrecto');
+      }
+    } catch (err) {
+      console.error('Error validando PIN:', err);
+      setClosePinError('Error al validar PIN');
+    } finally {
+      setValidatingClosePin(false);
+    }
+  };
+
   const handleClose = () => {
     // Cerrar puerto serial
     if (serialPortRef.current) {
@@ -413,6 +474,8 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
     }
     
     resetWizard();
+    setShowCloseConfirm(false);
+    setClosePin('');
     onClose();
   };
 
@@ -915,9 +978,16 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
   };
 
   return (
+    <>
     <Dialog
       open={open}
-      onClose={handleClose}
+      onClose={(_, reason) => {
+        // 🔐 No permitir cerrar por backdrop o ESC si hay progreso
+        if (reason === 'backdropClick' || reason === 'escapeKeyDown') {
+          handleCloseAttempt();
+          return;
+        }
+      }}
       maxWidth="md"
       fullWidth
       PaperProps={{
@@ -941,7 +1011,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
             Recepción Rápida DHL
           </Typography>
         </Box>
-        <IconButton onClick={handleClose} sx={{ color: 'white' }}>
+        <IconButton onClick={handleCloseAttempt} sx={{ color: 'white' }}>
           <CloseIcon />
         </IconButton>
       </Box>
@@ -1044,5 +1114,67 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
         )}
       </DialogContent>
     </Dialog>
+
+    {/* 🔐 MODAL DE CONFIRMACIÓN DE CIERRE CON PIN */}
+    <Dialog
+      open={showCloseConfirm}
+      onClose={() => setShowCloseConfirm(false)}
+      maxWidth="xs"
+      fullWidth
+    >
+      <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+        <WarningIcon color="warning" />
+        Cancelar Recepción
+      </DialogTitle>
+      <DialogContent>
+        <Alert severity="warning" sx={{ mb: 2 }}>
+          <Typography variant="body2">
+            Has iniciado una recepción DHL. Para cancelar necesitas autorización de un supervisor.
+          </Typography>
+        </Alert>
+        
+        {closePinError && (
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {closePinError}
+          </Alert>
+        )}
+        
+        <TextField
+          fullWidth
+          label="PIN de Supervisor"
+          type="password"
+          value={closePin}
+          onChange={(e) => { setClosePin(e.target.value); setClosePinError(''); }}
+          onKeyPress={(e) => e.key === 'Enter' && handleValidateClosePin()}
+          disabled={validatingClosePin}
+          autoFocus
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <LockIcon color="action" />
+              </InputAdornment>
+            )
+          }}
+          sx={{
+            '& input': { '-webkit-text-security': 'disc' }
+          }}
+        />
+      </DialogContent>
+      <DialogActions sx={{ p: 2 }}>
+        <Button onClick={() => setShowCloseConfirm(false)}>
+          Continuar Recepción
+        </Button>
+        <Button
+          variant="contained"
+          color="error"
+          onClick={handleValidateClosePin}
+          disabled={validatingClosePin || !closePin.trim()}
+          startIcon={validatingClosePin ? <CircularProgress size={20} /> : <LockIcon />}
+        >
+          {validatingClosePin ? 'Validando...' : 'Cancelar con PIN'}
+        </Button>
+      </DialogActions>
+    </Dialog>
+    </>
   );
 }
