@@ -44,15 +44,12 @@ import {
   Delete as DeleteIcon,
   ContentCopy as DuplicateIcon,
   Visibility as PreviewIcon,
-  VisibilityOff as HideIcon,
   ArrowUpward as ArrowUpIcon,
   ArrowDownward as ArrowDownIcon,
-  Analytics as StatsIcon,
   Smartphone as PhoneIcon,
   Refresh as RefreshIcon,
   TouchApp as ClickIcon,
   RemoveRedEye as ViewsIcon,
-  ColorLens as ColorIcon,
   CloudUpload as CloudUploadIcon
 } from '@mui/icons-material';
 

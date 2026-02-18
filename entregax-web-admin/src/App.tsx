@@ -69,8 +69,6 @@ import AdminHubPage from './pages/AdminHubPage';
 import WarehouseHubPage from './pages/WarehouseHubPage';
 import HRManagementPage from './pages/HRManagementPage';
 import FleetManagementPage from './pages/FleetManagementPage';
-import BadgeIcon from '@mui/icons-material/Badge';
-import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import SecurityIcon from '@mui/icons-material/Security';
 
 const drawerWidth = 280;
@@ -616,8 +614,10 @@ function App() {
   );
 
   const renderContent = () => {
-    // Si hay un submenú seleccionado
-    if (selectedSubIndex !== null && selectedIndex === 3) { // index 3 = panels
+    const currentMenuKey = menuItems[selectedIndex]?.key;
+    
+    // Si hay un submenú seleccionado y estamos en panels
+    if (selectedSubIndex !== null && currentMenuKey === 'panels') {
       switch (selectedSubIndex) {
         case 0: return <AdminHubPage users={users} loading={loading} onRefresh={fetchUsers} />; // Administración
         case 1: return <WarehouseHubPage users={users} />; // Operaciones (Bodegas)
@@ -628,19 +628,20 @@ function App() {
       }
     }
     
-    switch (selectedIndex) {
-      case 0: return <Dashboard />;
-      case 1: return <SalesReportPage />; // CRM - Reportes de Ventas
-      case 2: return <ClientsPage users={users} loading={loading} onRefresh={fetchUsers} currentUser={currentUser} />;
-      case 3: 
+    // Renderizar según el key del menú actual
+    switch (currentMenuKey) {
+      case 'dashboard': return <Dashboard />;
+      case 'salesReport': return <SalesReportPage />; // CRM - Reportes de Ventas
+      case 'clients': return <ClientsPage users={users} loading={loading} onRefresh={fetchUsers} currentUser={currentUser} />;
+      case 'panels': 
         // Si panels está seleccionado pero no hay submenú, expandir automáticamente
         if (!panelsExpanded) {
           setPanelsExpanded(true);
         }
         return null; // No renderiza nada, debe seleccionar un submenú
-      case 4: return <CommissionsPage />; // Comisiones (incluye tipos de servicio)
-      case 5: return <PermissionsPage />; // Matriz de Permisos
-      case 6: return <FiscalPage />; // Facturación
+      case 'commissions': return <CommissionsPage />; // Comisiones (incluye tipos de servicio)
+      case 'permissions': return <PermissionsPage />; // Matriz de Permisos
+      case 'fiscal': return <FiscalPage />; // Facturación
       default: 
         return (
           <Box sx={{ py: 8, textAlign: 'center' }}>

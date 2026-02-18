@@ -35,8 +35,6 @@ import {
   Select,
   MenuItem,
   Avatar,
-  Divider,
-  alpha,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -463,7 +461,7 @@ export default function UserPanelPermissionsPage() {
             variant="fullWidth"
             sx={{ borderBottom: 1, borderColor: 'divider' }}
           >
-            {Object.entries(CATEGORY_LABELS).map(([key, { label, icon }], index) => (
+            {Object.entries(CATEGORY_LABELS).map(([key, { label, icon }]) => (
               <Tab 
                 key={key}
                 icon={icon as React.ReactElement}

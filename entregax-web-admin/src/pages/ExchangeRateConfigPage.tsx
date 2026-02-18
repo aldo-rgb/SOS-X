@@ -335,7 +335,7 @@ export default function ExchangeRateConfigPage() {
                     {editingId === config.id ? (
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Switch
-                          checked={editValues.usar_api}
+                          checked={editValues.usar_api as boolean}
                           onChange={(e) => setEditValues({ ...editValues, usar_api: e.target.checked })}
                           size="small"
                         />
@@ -360,7 +360,7 @@ export default function ExchangeRateConfigPage() {
                         value={editValues.tipo_cambio_manual || ''}
                         onChange={(e) => setEditValues({ ...editValues, tipo_cambio_manual: e.target.value || null })}
                         placeholder="Usar API"
-                        disabled={editValues.usar_api}
+                        disabled={editValues.usar_api as boolean}
                         InputProps={{
                           startAdornment: <InputAdornment position="start">$</InputAdornment>
                         }}
