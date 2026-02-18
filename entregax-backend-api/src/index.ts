@@ -727,8 +727,7 @@ app.put('/api/admin/users/:id/password', authenticateToken, requireMinLevel(ROLE
     const result = await pool.query(
       `UPDATE users 
        SET password = $1, 
-           must_change_password = $2,
-           updated_at = CURRENT_TIMESTAMP 
+           must_change_password = $2
        WHERE id = $3 
        RETURNING id, full_name, email`,
       [hashedPassword, requireChange || false, userId]
