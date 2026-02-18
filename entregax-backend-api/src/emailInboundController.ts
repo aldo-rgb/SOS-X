@@ -1147,7 +1147,50 @@ export const handleInboundEmail = async (req: Request, res: Response): Promise<a
             packingListFilename = packingAttachment.name;
             extractedData.packing_list_url = packingListUrl;
             extractedData.packing_list_filename = packingListFilename;
+            // También guardar como summary_excel para usar en re-extracción
+            extractedData.summary_excel_url = packingListUrl;
+            extractedData.summary_excel_filename = packingListFilename;
             console.log(`📊 Packing List encontrado: ${packingAttachment.name}`);
+            
+            // Procesar el Excel para extraer información detallada
+            try {
+              const matches = packingListUrl.match(/^data:([^;]+);base64,(.+)$/);
+              if (matches && matches[2]) {
+                const base64Data = matches[2];
+                const buffer = Buffer.from(base64Data, 'base64');
+                console.log('📊 Procesando Packing List Excel para FCL, buffer size:', buffer.length);
+                
+                let logEntries = await processSummaryExcel(buffer);
+                logEntries = await findClientByLogCode(logEntries);
+                
+                if (logEntries.length > 0) {
+                  extractedData.logs = logEntries;
+                  extractedData.totalLogs = logEntries.length;
+                  
+                  const linkedClients = logEntries.filter(l => l.legacyClientId !== null).length;
+                  const pendingClients = logEntries.filter(l => l.legacyClientId === null && l.clientCode).length;
+                  
+                  extractedData.summary = {
+                    totalLogs: logEntries.length,
+                    linkedToLegacy: linkedClients,
+                    pendingLink: pendingClients,
+                    byType: {
+                      generico: logEntries.filter(l => l.tipo === 'Genérico').length,
+                      sensible: logEntries.filter(l => l.tipo === 'Sensible').length,
+                      logotipo: logEntries.filter(l => l.tipo === 'Logotipo').length
+                    },
+                    withBattery: logEntries.filter(l => l.hasBattery).length,
+                    withLiquid: logEntries.filter(l => l.hasLiquid).length,
+                    forPickup: logEntries.filter(l => l.isPickup).length
+                  };
+                  
+                  console.log(`✅ FCL: ${logEntries.length} LOGs extraídos del Packing List`);
+                  confidence = 'high';
+                }
+              }
+            } catch (excelError: any) {
+              console.error('⚠️ Error procesando Packing List Excel:', excelError.message);
+            }
           }
         }
 
@@ -1177,8 +1220,9 @@ export const handleInboundEmail = async (req: Request, res: Response): Promise<a
           INSERT INTO maritime_reception_drafts 
           (email_log_id, document_type, extracted_data, confidence, 
            pdf_url, pdf_filename, telex_pdf_url, telex_pdf_filename, 
+           summary_excel_url, summary_excel_filename,
            detected_client_code, matched_user_id, route_id, status)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'draft')
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'draft')
         `, [
           emailLogId,
           'FCL',
@@ -1188,6 +1232,8 @@ export const handleInboundEmail = async (req: Request, res: Response): Promise<a
           blPdfFilename,
           telexPdfUrl,
           telexPdfFilename,
+          packingListUrl,
+          packingListFilename,
           null,
           null,
           routeId
@@ -2216,10 +2262,10 @@ export const reExtractDraftData = async (req: Request, res: Response): Promise<a
       // No fallar, continuar con datos existentes
     }
     
-    // Para LCL: También procesar el SUMMARY Excel si existe
-    const summaryExcelUrl = draft.summary_excel_url || draft.extracted_data?.summary_excel_url;
+    // Para LCL y FCL: También procesar el SUMMARY/Packing List Excel si existe
+    const summaryExcelUrl = draft.summary_excel_url || draft.extracted_data?.summary_excel_url || draft.extracted_data?.packing_list_url;
     
-    if (draft.document_type === 'LCL' && summaryExcelUrl) {
+    if ((draft.document_type === 'LCL' || draft.document_type === 'FCL') && summaryExcelUrl) {
       try {
         console.log('📊 Procesando SUMMARY Excel...');
         

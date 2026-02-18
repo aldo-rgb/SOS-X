@@ -642,7 +642,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
                     High Value
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Refacciones Auto
+                    Sensible
                   </Typography>
                 </Paper>
               </Box>

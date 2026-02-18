@@ -347,8 +347,13 @@ export default function InboundEmailsPage() {
 
     // Inicializar datos editables al abrir modal
     const initEditableData = (draft: Draft) => {
-        // Inicializar LOGs editables
-        if (draft.extracted_data?.logs) {
+        console.log('🔄 initEditableData called with draft:', draft.id);
+        console.log('🔄 extracted_data:', draft.extracted_data);
+        console.log('🔄 has logs:', draft.extracted_data?.logs?.length);
+        
+        // Inicializar LOGs editables (resetear siempre)
+        if (draft.extracted_data?.logs && draft.extracted_data.logs.length > 0) {
+            console.log('🔄 Setting editableLogs with', draft.extracted_data.logs.length, 'logs');
             setEditableLogs(draft.extracted_data.logs.map((log: any) => ({
                 log: log.log || '',
                 clientCode: log.clientCode || '',
@@ -363,6 +368,9 @@ export default function InboundEmailsPage() {
                 volume: log.volume || null,
                 description: log.description || ''
             })));
+        } else {
+            console.log('🔄 No logs found, resetting editableLogs');
+            setEditableLogs([]);
         }
         
         // Inicializar BL editable
@@ -438,6 +446,8 @@ export default function InboundEmailsPage() {
             if (res.ok) {
                 const data = await res.json();
                 setSelectedDraft(data.draft);
+                // Re-inicializar los campos editables con los nuevos datos extraídos
+                initEditableData(data.draft);
                 setSnackbar({ open: true, message: 'Datos extraídos exitosamente', severity: 'success' });
                 loadDrafts();
             } else {
@@ -933,8 +943,8 @@ export default function InboundEmailsPage() {
                 <DialogContent dividers>
                     {selectedDraft && (
                         <Grid container spacing={2}>
-                            {/* Sección de LOGs para LOG */}
-                            {selectedDraft.document_type === 'LOG' && selectedDraft.extracted_data?.logs?.length > 0 && (
+                            {/* Sección de LOGs para LOG, LCL y FCL */}
+                            {(selectedDraft.document_type === 'LOG' || selectedDraft.document_type === 'LCL' || selectedDraft.document_type === 'FCL') && selectedDraft.extracted_data?.logs?.length > 0 && (
                                 <Grid size={{ xs: 12 }}>
                                     <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>
                                         📦 LOGs Detectados ({selectedDraft.extracted_data.logs.length})

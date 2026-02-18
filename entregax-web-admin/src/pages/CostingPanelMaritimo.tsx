@@ -1147,7 +1147,7 @@ export default function CostingPanelMaritimo() {
                         </Grid>
                     )}
 
-                    {/* Tab 1: Gastos Naviera */}
+                    {/* Tab 1: Gastos en Origen */}
                     {tabValue === 1 && (
                         <Grid container spacing={3}>
                             <Grid size={{ xs: 12, md: 6 }}>
