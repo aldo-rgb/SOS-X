@@ -401,10 +401,10 @@ export const listUsersWithPanelPermissions = async (req: Request, res: Response)
   const { search, role } = req.query;
 
   try {
-    // Roles de staff que pueden tener permisos de paneles
+    // Roles que pueden tener permisos de paneles (staff + admin)
     const staffRoles = [
-      'advisor', 'sub_advisor', 'branch_manager', 'counter_staff', 
-      'customer_service', 'warehouse_ops', 'repartidor'
+      'admin', 'director', 'advisor', 'sub_advisor', 'branch_manager', 
+      'counter_staff', 'customer_service', 'warehouse_ops', 'repartidor'
     ];
 
     let query = `

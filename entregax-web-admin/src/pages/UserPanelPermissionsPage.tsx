@@ -281,6 +281,8 @@ export default function UserPanelPermissionsPage() {
   const getRoleLabel = (role: string) => {
     const roleLabels: Record<string, string> = {
       'super_admin': 'Super Admin',
+      'admin': 'Admin',
+      'director': 'Director',
       'advisor': 'Asesor',
       'sub_advisor': 'Sub-Asesor',
       'branch_manager': 'Gerente Sucursal',
@@ -349,6 +351,8 @@ export default function UserPanelPermissionsPage() {
               onChange={(e) => setRoleFilter(e.target.value)}
             >
               <MenuItem value="">Todos los roles</MenuItem>
+              <MenuItem value="admin">Admin</MenuItem>
+              <MenuItem value="director">Director</MenuItem>
               <MenuItem value="advisor">Asesor</MenuItem>
               <MenuItem value="sub_advisor">Sub-Asesor</MenuItem>
               <MenuItem value="branch_manager">Gerente Sucursal</MenuItem>

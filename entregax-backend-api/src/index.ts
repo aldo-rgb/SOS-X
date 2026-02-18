@@ -711,7 +711,7 @@ app.get('/api/users', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BR
 app.put('/api/admin/users/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateUser);
 
 // Cambiar contraseña de usuario (solo super_admin)
-app.put('/api/admin/users/:id/password', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), async (req: AuthRequest, res: Response) => {
+app.put('/api/admin/users/:id/password', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response) => {
   try {
     const userId = parseInt(req.params.id as string);
     const { newPassword, requireChange } = req.body;
@@ -852,49 +852,49 @@ app.get('/api/referral/validate/:code', validateReferralCode);
 app.get('/api/referral/my-code', authenticateToken, getMyReferralCode);
 
 // Admin: Configuración de tarifas de comisiones y tipos de servicio
-app.get('/api/admin/commissions', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getCommissionRates);
-app.put('/api/admin/commissions', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateCommissionRate);
-app.post('/api/admin/service-types', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createServiceType);
-app.delete('/api/admin/service-types/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deleteServiceType);
+app.get('/api/admin/commissions', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getCommissionRates);
+app.put('/api/admin/commissions', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateCommissionRate);
+app.post('/api/admin/service-types', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createServiceType);
+app.delete('/api/admin/service-types/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteServiceType);
 
 // Admin: Estadísticas de referidos
-app.get('/api/admin/commissions/stats', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getCommissionStats);
+app.get('/api/admin/commissions/stats', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getCommissionStats);
 
 // Admin: Referidos de un asesor específico
-app.get('/api/admin/referrals/:advisorId', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getReferralsByAdvisor);
+app.get('/api/admin/referrals/:advisorId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getReferralsByAdvisor);
 
 // --- TIPOS DE SERVICIO (Logistics Services) ---
-app.get('/api/admin/logistics-services', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getLogisticsServices);
-app.put('/api/admin/logistics-services/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateLogisticsService);
+app.get('/api/admin/logistics-services', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getLogisticsServices);
+app.put('/api/admin/logistics-services/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateLogisticsService);
 
 // --- RUTAS DE ASESORES (Gestión de Jerarquía) ---
-app.get('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getAdvisors);
-app.post('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createAdvisor);
+app.get('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAdvisors);
+app.post('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createAdvisor);
 
 // --- RUTAS DE VERIFICACIÓN (Usuario) ---
 app.get('/api/verification/status', authenticateToken, getVerificationStatus);
 
 // --- RUTAS DE VERIFICACIÓN ADMIN (Revisión Manual KYC) ---
-app.get('/api/admin/verifications/pending', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getPendingVerifications);
-app.get('/api/admin/verifications/stats', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getVerificationStats);
-app.post('/api/admin/verifications/:userId/approve', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), approveVerification);
-app.post('/api/admin/verifications/:userId/reject', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), rejectVerification);
+app.get('/api/admin/verifications/pending', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getPendingVerifications);
+app.get('/api/admin/verifications/stats', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getVerificationStats);
+app.post('/api/admin/verifications/:userId/approve', authenticateToken, requireMinLevel(ROLES.DIRECTOR), approveVerification);
+app.post('/api/admin/verifications/:userId/reject', authenticateToken, requireMinLevel(ROLES.DIRECTOR), rejectVerification);
 
 // --- RUTAS DE FACTURACIÓN FISCAL ---
 // Admin: Gestión de empresas emisoras
-app.get('/api/admin/fiscal/emitters', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getFiscalEmitters);
-app.post('/api/admin/fiscal/emitters', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createFiscalEmitter);
-app.put('/api/admin/fiscal/emitters', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateFiscalEmitter);
-app.post('/api/admin/fiscal/assign-service', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), assignEmitterToService);
-app.get('/api/admin/invoices', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getAllInvoices);
-app.post('/api/admin/invoices/cancel', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), cancelInvoice);
+app.get('/api/admin/fiscal/emitters', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getFiscalEmitters);
+app.post('/api/admin/fiscal/emitters', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createFiscalEmitter);
+app.put('/api/admin/fiscal/emitters', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateFiscalEmitter);
+app.post('/api/admin/fiscal/assign-service', authenticateToken, requireMinLevel(ROLES.DIRECTOR), assignEmitterToService);
+app.get('/api/admin/invoices', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAllInvoices);
+app.post('/api/admin/invoices/cancel', authenticateToken, requireMinLevel(ROLES.DIRECTOR), cancelInvoice);
 
 // Facturación por servicio
 app.get('/api/admin/service-fiscal/all', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getAllServiceFiscalConfig);
 app.get('/api/admin/service-fiscal/:serviceType', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getServiceFiscalConfig);
-app.post('/api/admin/service-fiscal/assign', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), assignFiscalToService);
-app.post('/api/admin/service-fiscal/remove', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), removeFiscalFromService);
-app.post('/api/admin/service-fiscal/set-default', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), setDefaultFiscalForService);
+app.post('/api/admin/service-fiscal/assign', authenticateToken, requireMinLevel(ROLES.DIRECTOR), assignFiscalToService);
+app.post('/api/admin/service-fiscal/remove', authenticateToken, requireMinLevel(ROLES.DIRECTOR), removeFiscalFromService);
+app.post('/api/admin/service-fiscal/set-default', authenticateToken, requireMinLevel(ROLES.DIRECTOR), setDefaultFiscalForService);
 app.get('/api/admin/service-invoices/:serviceType', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getServiceInvoices);
 app.post('/api/admin/service-invoices', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), createServiceInvoice);
 app.post('/api/admin/service-invoices/:id/stamp', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), stampServiceInvoice);
@@ -903,13 +903,13 @@ app.get('/api/admin/service-invoicing-summary', authenticateToken, requireMinLev
 // Direcciones de servicio (Admin)
 app.get('/api/admin/service-instructions/all', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getAllServiceInstructions);
 app.get('/api/admin/service-instructions/:serviceType', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getServiceInstructions);
-app.put('/api/admin/service-instructions/:serviceType', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateServiceInstructions);
+app.put('/api/admin/service-instructions/:serviceType', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateServiceInstructions);
 app.get('/api/admin/service-addresses/all', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getAllServiceAddresses);
 app.get('/api/admin/service-addresses/:serviceType', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getServiceAddresses);
-app.post('/api/admin/service-addresses', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createServiceAddress);
-app.put('/api/admin/service-addresses/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateServiceAddress);
-app.delete('/api/admin/service-addresses/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deleteServiceAddress);
-app.post('/api/admin/service-addresses/:id/set-primary', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), setPrimaryAddress);
+app.post('/api/admin/service-addresses', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createServiceAddress);
+app.put('/api/admin/service-addresses/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateServiceAddress);
+app.delete('/api/admin/service-addresses/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteServiceAddress);
+app.post('/api/admin/service-addresses/:id/set-primary', authenticateToken, requireMinLevel(ROLES.DIRECTOR), setPrimaryAddress);
 
 // Información pública de servicios (para usuarios)
 app.get('/api/services/:serviceType/info', getPublicServiceInfo);
@@ -936,22 +936,22 @@ app.get('/api/fiscal/catalogs', getSatCatalogs);
 
 // Tipo de cambio
 app.get('/api/exchange-rate', getCurrentExchangeRate);
-app.post('/api/admin/exchange-rate', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateExchangeRate);
-app.get('/api/admin/exchange-rate/history', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getExchangeRateHistory);
+app.post('/api/admin/exchange-rate', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateExchangeRate);
+app.get('/api/admin/exchange-rate/history', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getExchangeRateHistory);
 
 // Proveedores de pago (Admin)
-app.get('/api/admin/payment-providers', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getPaymentProviders);
-app.post('/api/admin/payment-providers', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createPaymentProvider);
-app.put('/api/admin/payment-providers', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updatePaymentProvider);
+app.get('/api/admin/payment-providers', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getPaymentProviders);
+app.post('/api/admin/payment-providers', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createPaymentProvider);
+app.put('/api/admin/payment-providers', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updatePaymentProvider);
 
 // Configuración por cliente (Admin)
-app.get('/api/admin/client-settings/:userId', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getClientPaymentSettings);
-app.post('/api/admin/client-settings', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), saveClientPaymentSettings);
+app.get('/api/admin/client-settings/:userId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getClientPaymentSettings);
+app.post('/api/admin/client-settings', authenticateToken, requireMinLevel(ROLES.DIRECTOR), saveClientPaymentSettings);
 
 // Solicitudes de pago (Admin)
-app.get('/api/admin/supplier-payments', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getAllSupplierPayments);
-app.put('/api/admin/supplier-payments/status', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateSupplierPaymentStatus);
-app.get('/api/admin/supplier-payments/stats', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getSupplierPaymentStats);
+app.get('/api/admin/supplier-payments', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAllSupplierPayments);
+app.put('/api/admin/supplier-payments/status', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateSupplierPaymentStatus);
+app.get('/api/admin/supplier-payments/stats', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getSupplierPaymentStats);
 
 // Cliente: Pagos a proveedores
 app.post('/api/supplier-payments/quote', authenticateToken, quotePayment);
@@ -967,35 +967,35 @@ app.get('/api/logistics/services', getLogisticsServices);
 app.post('/api/quotes/calculate', authenticateToken, calculateQuoteEndpoint);
 
 // Admin: Listas de precios
-app.get('/api/admin/price-lists', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getPriceLists);
-app.post('/api/admin/price-lists', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createPriceList);
-app.delete('/api/admin/price-lists/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deletePriceList);
+app.get('/api/admin/price-lists', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getPriceLists);
+app.post('/api/admin/price-lists', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createPriceList);
+app.delete('/api/admin/price-lists/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deletePriceList);
 
 // Admin: Reglas de precio
-app.get('/api/admin/pricing-rules/:priceListId', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getPricingRules);
-app.post('/api/admin/pricing-rules', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createPricingRule);
-app.put('/api/admin/pricing-rules/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updatePricingRule);
-app.delete('/api/admin/pricing-rules/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deletePricingRule);
+app.get('/api/admin/pricing-rules/:priceListId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getPricingRules);
+app.post('/api/admin/pricing-rules', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createPricingRule);
+app.put('/api/admin/pricing-rules/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updatePricingRule);
+app.delete('/api/admin/pricing-rules/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deletePricingRule);
 
 // Admin: Servicios logísticos
-app.post('/api/admin/logistics-services', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createLogisticsService);
-app.put('/api/admin/logistics-services/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateLogisticsService);
+app.post('/api/admin/logistics-services', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createLogisticsService);
+app.put('/api/admin/logistics-services/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateLogisticsService);
 
 // Admin: Asignar lista de precios a cliente
-app.put('/api/admin/users/:userId/price-list', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), assignPriceListToUser);
+app.put('/api/admin/users/:userId/price-list', authenticateToken, requireMinLevel(ROLES.DIRECTOR), assignPriceListToUser);
 
 // ========== MOTOR DE TARIFAS MARÍTIMO ==========
 
 // Categorías de carga
 app.get('/api/admin/pricing-categories', authenticateToken, requireMinLevel(ROLES.ADMIN), getPricingCategories);
-app.post('/api/admin/pricing-categories', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createPricingCategory);
-app.put('/api/admin/pricing-categories/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updatePricingCategory);
+app.post('/api/admin/pricing-categories', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createPricingCategory);
+app.put('/api/admin/pricing-categories/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updatePricingCategory);
 
 // Tarifas por rango/CBM
 app.get('/api/admin/pricing-tiers', authenticateToken, requireMinLevel(ROLES.ADMIN), getPricingTiers);
-app.post('/api/admin/pricing-tiers', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createPricingTier);
-app.put('/api/admin/pricing-tiers', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updatePricingTiers);
-app.delete('/api/admin/pricing-tiers/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deletePricingTier);
+app.post('/api/admin/pricing-tiers', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createPricingTier);
+app.put('/api/admin/pricing-tiers', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updatePricingTiers);
+app.delete('/api/admin/pricing-tiers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deletePricingTier);
 
 // Toggle VIP pricing para clientes
 app.put('/api/admin/users/:id/vip-pricing', authenticateToken, requireMinLevel(ROLES.ADMIN), toggleUserVipPricing);
@@ -1005,9 +1005,9 @@ app.post('/api/maritime/calculate', calculateMaritimeCost);
 
 // ========== TARIFAS DE FLETE NACIONAL (TERRESTRE) ==========
 app.get('/api/admin/national-freight-rates', authenticateToken, requireMinLevel(ROLES.ADMIN), getAllNationalRates);
-app.post('/api/admin/national-freight-rates', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createNationalRate);
+app.post('/api/admin/national-freight-rates', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createNationalRate);
 app.put('/api/admin/national-freight-rates/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateNationalRate);
-app.delete('/api/admin/national-freight-rates/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deleteNationalRate);
+app.delete('/api/admin/national-freight-rates/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteNationalRate);
 // Cotizador público
 app.post('/api/national-freight/quote', quoteNationalFreight);
 
@@ -1105,9 +1105,9 @@ app.get('/api/admin/users/search', authenticateToken, requireMinLevel(ROLES.WARE
 
 // CRUD completo de sucursales
 app.get('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.ADMIN), getAllBranches);
-app.post('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), createBranch);
-app.put('/api/admin/branches/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateBranch);
-app.delete('/api/admin/branches/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deleteBranch);
+app.post('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createBranch);
+app.put('/api/admin/branches/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateBranch);
+app.delete('/api/admin/branches/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteBranch);
 // Asignación de empleados
 app.post('/api/admin/assign-branch', authenticateToken, requireMinLevel(ROLES.ADMIN), assignWorkerToBranch);
 // Geocerca de sucursales
@@ -1117,7 +1117,7 @@ app.get('/api/branches/:id/geofence', authenticateToken, requireMinLevel(ROLES.A
 // ========== DHL MONTERREY (AA DHL) ==========
 // Tarifas
 app.get('/api/admin/dhl/rates', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlRates);
-app.put('/api/admin/dhl/rates/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateDhlRate);
+app.put('/api/admin/dhl/rates/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateDhlRate);
 // Precios especiales por cliente
 app.get('/api/admin/dhl/client-pricing', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlClientPricing);
 app.put('/api/admin/dhl/client-pricing/:userId', authenticateToken, requireMinLevel(ROLES.ADMIN), updateDhlClientPricing);
@@ -1136,9 +1136,9 @@ app.post('/api/client/dhl/quote', authenticateToken, clientQuoteDhl);
 
 // ========== RECEPCIÓN DE BODEGA (WAREHOUSE) ==========
 
-// Configuración de ubicaciones (Admin)
-app.get('/api/admin/warehouse-locations', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), getWarehouseLocations);
-app.put('/api/admin/users/:id/warehouse-location', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), assignWarehouseLocation);
+// Configuración de ubicaciones (Admin/Director)
+app.get('/api/admin/warehouse-locations', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getWarehouseLocations);
+app.put('/api/admin/users/:id/warehouse-location', authenticateToken, requireMinLevel(ROLES.DIRECTOR), assignWarehouseLocation);
 
 // Panel de bodega (Staff)
 app.get('/api/warehouse/services', authenticateToken, getWarehouseServices);
@@ -1165,7 +1165,7 @@ app.get('/api/china/stats', authenticateToken, getChinaStats);
 
 // Tipo de cambio
 app.get('/api/gex/exchange-rate', authenticateToken, getExchangeRate);
-app.post('/api/gex/exchange-rate', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateGexExchangeRate);
+app.post('/api/gex/exchange-rate', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateGexExchangeRate);
 
 // Cotización y creación de pólizas
 app.post('/api/gex/quote', authenticateToken, quoteWarranty);
@@ -1218,10 +1218,10 @@ app.get('/api/admin/crm/clients/export', authenticateToken, requireMinLevel(ROLE
 
 // Módulo 2: Recuperación y Sostenimiento
 app.get('/api/admin/crm/promotions', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getRecoveryPromotions);
-app.post('/api/admin/crm/promotions', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), saveRecoveryPromotion);
+app.post('/api/admin/crm/promotions', authenticateToken, requireMinLevel(ROLES.DIRECTOR), saveRecoveryPromotion);
 app.post('/api/admin/crm/recovery/action', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), executeRecoveryAction);
 app.get('/api/admin/crm/recovery/history/:userId', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getRecoveryHistory);
-app.post('/api/admin/crm/recovery/detect', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), detectAtRiskClients);
+app.post('/api/admin/crm/recovery/detect', authenticateToken, requireMinLevel(ROLES.DIRECTOR), detectAtRiskClients);
 
 // Módulo 3: Prospectos (Leads mejorado)
 app.get('/api/admin/crm/prospects', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getProspects);
@@ -1282,7 +1282,7 @@ app.get('/api/notifications/unread-count', authenticateToken, getUnreadCount);
 app.post('/api/admin/notifications/send', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), sendNotificationToUser);
 
 // Admin: Enviar notificación masiva
-app.post('/api/admin/notifications/broadcast', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), sendBroadcastNotification);
+app.post('/api/admin/notifications/broadcast', authenticateToken, requireMinLevel(ROLES.DIRECTOR), sendBroadcastNotification);
 
 // ========== COSTEO TDI AÉREO (MASTER AIR WAYBILLS) ==========
 
@@ -1302,7 +1302,7 @@ app.get('/api/master-cost/:awb', authenticateToken, requireMinLevel(ROLES.COUNTE
 app.post('/api/master-cost', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), saveMasterCost);
 
 // Admin: Eliminar guía
-app.delete('/api/master-cost/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deleteMasterAwb);
+app.delete('/api/master-cost/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteMasterAwb);
 
 // ========== MÓDULO MARÍTIMO (Contenedores y Costeo) ==========
 
@@ -1315,7 +1315,7 @@ app.get('/api/maritime/containers/:id', authenticateToken, requireMinLevel(ROLES
 app.post('/api/maritime/containers', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createContainer);
 app.put('/api/maritime/containers/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateContainer);
 app.put('/api/maritime/containers/:id/status', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateContainerStatus);
-app.delete('/api/maritime/containers/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deleteContainer);
+app.delete('/api/maritime/containers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteContainer);
 
 // Costos de contenedor
 app.get('/api/maritime/containers/:containerId/costs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getContainerCosts);
@@ -1332,14 +1332,14 @@ app.put('/api/maritime/shipments/:id', authenticateToken, requireMinLevel(ROLES.
 app.post('/api/maritime/shipments/assign-container', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), assignShipmentToContainer);
 app.post('/api/maritime/shipments/:id/assign-client', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), assignClientToShipment);
 app.put('/api/maritime/shipments/:id/receive-cedis', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), receiveAtCedis);
-app.delete('/api/maritime/shipments/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deleteMaritimeShipment);
+app.delete('/api/maritime/shipments/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteMaritimeShipment);
 
 // Tarifas Marítimas (Costo por CBM)
 app.get('/api/maritime/rates', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getMaritimeRates);
 app.get('/api/maritime/rates/active', authenticateToken, getActiveMaritimeRate);
 app.post('/api/maritime/rates', authenticateToken, requireMinLevel(ROLES.ADMIN), createMaritimeRate);
 app.put('/api/maritime/rates/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateMaritimeRate);
-app.delete('/api/maritime/rates/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deleteMaritimeRate);
+app.delete('/api/maritime/rates/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteMaritimeRate);
 app.post('/api/maritime/calculate-cost', authenticateToken, calculateShipmentCost);
 
 // ========== MÓDULO MARÍTIMO CON IA (Nuevo Panel Bodega) ==========
@@ -1406,7 +1406,7 @@ app.get('/api/maritime-api/my-orders/:id', authenticateToken, getMyMaritimeOrder
 app.get('/api/inventory/:serviceType/items', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getInventoryItems);
 app.post('/api/inventory/:serviceType/items', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createInventoryItem);
 app.put('/api/inventory/:serviceType/items/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateInventoryItem);
-app.delete('/api/inventory/:serviceType/items/:id', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), deleteInventoryItem);
+app.delete('/api/inventory/:serviceType/items/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteInventoryItem);
 
 // Movimientos de inventario
 app.post('/api/inventory/:serviceType/movement', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), registerInventoryMovement);
@@ -1431,7 +1431,7 @@ app.get('/api/admin/facebook/chat/:prospectId', authenticateToken, requireMinLev
 app.post('/api/admin/facebook/toggle-ai/:prospectId', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), toggleAI);
 app.post('/api/admin/facebook/send/:prospectId', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), sendManualMessage);
 // Endpoint de pruebas (desarrollo)
-app.post('/api/admin/facebook/simulate', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), simulateMessage);
+app.post('/api/admin/facebook/simulate', authenticateToken, requireMinLevel(ROLES.DIRECTOR), simulateMessage);
 
 // ============================================================
 // MÓDULO DE PERMISOS Y MATRIZ DE CONTROL
@@ -1504,7 +1504,7 @@ app.post('/api/wallet/pay-credit', authenticateToken, payCredit);
 app.post('/api/admin/wallet/deposit', authenticateToken, requireMinLevel(ROLES.ADMIN), manualDeposit);
 
 // Admin: Gestionar línea de crédito de un usuario
-app.post('/api/admin/credit/update', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateCreditLine);
+app.post('/api/admin/credit/update', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateCreditLine);
 
 // Admin: Ver todos los usuarios con crédito
 app.get('/api/admin/credit/users', authenticateToken, requireMinLevel(ROLES.ADMIN), getCreditUsers);
