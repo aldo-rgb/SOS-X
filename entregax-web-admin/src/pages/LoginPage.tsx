@@ -40,7 +40,7 @@ function TabPanel(props: TabPanelProps) {
   );
 }
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 
 export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [tabValue, setTabValue] = useState(0);
