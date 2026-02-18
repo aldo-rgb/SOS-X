@@ -295,13 +295,11 @@ export default function DhlOperationsPage() {
     setDetailDialog(true);
   };
 
-  // Filter by tab
+  // Filter by tab - Solo Recibidos y Despachados
   const getFilteredShipments = () => {
     switch (tabValue) {
-      case 1: return shipments.filter(s => s.status === 'received_mty');
-      case 2: return shipments.filter(s => s.status === 'quoted');
-      case 3: return shipments.filter(s => s.status === 'paid');
-      case 4: return shipments.filter(s => s.status === 'dispatched');
+      case 0: return shipments.filter(s => s.status === 'received_mty');
+      case 1: return shipments.filter(s => s.status === 'dispatched');
       default: return shipments;
     }
   };
@@ -395,37 +393,26 @@ export default function DhlOperationsPage() {
         <Tabs 
           value={tabValue} 
           onChange={(_, v) => setTabValue(v)}
-          variant="scrollable"
-          scrollButtons="auto"
           sx={{ 
             borderBottom: 1, 
             borderColor: 'divider',
             '& .Mui-selected': { color: DHL_COLOR }
           }}
         >
-          <Tab label="Todos" />
           <Tab 
             label={
-              <Badge badgeContent={stats?.pending_quote || 0} color="warning">
+              <Badge badgeContent={stats?.today_received || 0} color="primary">
                 Recibidos
               </Badge>
             } 
           />
           <Tab 
             label={
-              <Badge badgeContent={stats?.pending_payment || 0} color="error">
-                Cotizados
+              <Badge badgeContent={stats?.today_dispatched || 0} color="success">
+                Despachados
               </Badge>
             } 
           />
-          <Tab 
-            label={
-              <Badge badgeContent={stats?.ready_dispatch || 0} color="success">
-                Pagados
-              </Badge>
-            } 
-          />
-          <Tab label="Despachados" />
         </Tabs>
 
         {/* Filters */}
