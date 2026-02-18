@@ -874,7 +874,7 @@ export default function MaritimePricingEnginePage() {
         </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <TextField
                 fullWidth
                 label="Nombre de la Categoría"
@@ -884,7 +884,7 @@ export default function MaritimePricingEnginePage() {
                 required
               />
             </Grid>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <TextField
                 fullWidth
                 label="Recargo por CBM (USD)"
@@ -897,7 +897,7 @@ export default function MaritimePricingEnginePage() {
                 helperText="Recargo adicional que se suma a la tarifa base. Dejar en 0 si no aplica."
               />
             </Grid>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <TextField
                 fullWidth
                 label="Descripción"
