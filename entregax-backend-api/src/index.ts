@@ -511,6 +511,25 @@ app.get('/health', (_req: Request, res: Response) => {
   });
 });
 
+// DEBUG: Verificar conexión a base de datos
+app.get('/health/db', async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query('SELECT NOW() as time, current_database() as db');
+    res.json({ 
+      status: 'OK', 
+      database: result.rows[0].db,
+      time: result.rows[0].time,
+      dbUrl: process.env.DATABASE_URL ? 'configured' : 'missing'
+    });
+  } catch (error: any) {
+    res.status(500).json({ 
+      status: 'ERROR', 
+      error: error.message,
+      dbUrl: process.env.DATABASE_URL ? 'configured' : 'missing'
+    });
+  }
+});
+
 // Endpoint para migración de columnas de documentos oficiales
 app.get('/api/migrate/container-docs', async (_req: Request, res: Response) => {
   try {
