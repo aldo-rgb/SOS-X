@@ -65,6 +65,16 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   const allPackages = multiplePackages && multiplePackages.length > 0 ? multiplePackages : [pkg];
   const isMultiple = allPackages.length > 1;
   
+  // Determinar tipo de envío para mostrar ícono correcto
+  const shipmentType = (pkg as any).shipment_type;
+  const getShipmentIcon = (): 'boat' | 'airplane' | 'car' => {
+    if (shipmentType === 'maritime') return 'boat';
+    if (shipmentType === 'china_air') return 'airplane';
+    if (shipmentType === 'dhl') return 'car';
+    return 'boat'; // default
+  };
+  const shipmentIcon = getShipmentIcon();
+  
   // Verificar si ya tiene instrucciones asignadas (modo edición)
   const hasExistingInstructions = !!(pkg as any).delivery_address_id;
   
@@ -256,7 +266,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
             {/* Header con contador */}
             <View style={styles.packageSummaryHeader}>
               <View style={styles.packageCountBadge}>
-                <Ionicons name="boat" size={20} color="white" />
+                <Ionicons name={shipmentIcon} size={20} color="white" />
                 <Text style={styles.packageCountText}>{allPackages.length}</Text>
               </View>
               <Text style={styles.packageSummaryTitle}>
@@ -466,7 +476,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
             {/* Resumen visual */}
             <View style={styles.successSummary}>
               <View style={styles.successSummaryItem}>
-                <Ionicons name="boat" size={24} color={SEA_COLOR} />
+                <Ionicons name={shipmentIcon} size={24} color={SEA_COLOR} />
                 <Text style={styles.successSummaryText}>{savedCount} paquete{savedCount > 1 ? 's' : ''}</Text>
               </View>
               <View style={styles.successSummaryItem}>

@@ -32,24 +32,12 @@ import ReturnScanScreen from './src/screens/ReturnScanScreen';
 import DeliveryConfirmScreen from './src/screens/DeliveryConfirmScreen';
 import EmployeeHomeScreen from './src/screens/EmployeeHomeScreen';
 import AttendanceCheckerScreen from './src/screens/AttendanceCheckerScreen';
+import WarehouseScannerScreen from './src/screens/WarehouseScannerScreen';
 import { Package } from './src/services/api';
+import { EMPLOYEE_ROLES } from './src/constants/roles';
 
-// Roles de empleados que deben ir al EmployeeHomeScreen
-export const EMPLOYEE_ROLES = [
-  'repartidor',
-  'warehouse_ops',
-  'counter_staff',
-  'customer_service',
-  'branch_manager',
-  'director',
-  'admin',
-  'super_admin',
-  // Roles de asesores
-  'advisor',
-  'asesor',
-  'asesor_lider',
-  'sub_advisor'
-];
+// Re-exportar para compatibilidad
+export { EMPLOYEE_ROLES };
 
 // Tipos para navegación
 export type RootStackParamList = {
@@ -81,6 +69,8 @@ export type RootStackParamList = {
   DeliveryConfirm: { user: any; token: string; package?: any };
   // Pantalla de Asistencia
   AttendanceChecker: { user: any; token: string };
+  // Escáner de Bodega
+  WarehouseScanner: { user: any; token: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -190,6 +180,11 @@ export default function App() {
           <Stack.Screen 
             name="AttendanceChecker" 
             component={AttendanceCheckerScreen}
+          />
+          {/* Escáner de Bodega Multisucursal */}
+          <Stack.Screen 
+            name="WarehouseScanner" 
+            component={WarehouseScannerScreen}
           />
         </Stack.Navigator>
       </NavigationContainer>

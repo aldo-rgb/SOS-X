@@ -5,6 +5,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { createNotification } from './notificationController';
 
 // INTERFACES DEL JSON DE LA API CHINA
 interface ChinaApiPayload {
@@ -339,6 +340,14 @@ export const updateChinaReceiptStatus = async (req: Request, res: Response): Pro
         const { id } = req.params;
         const { status, notes, internationalTracking } = req.body;
 
+        // Obtener datos del recibo antes de actualizar
+        const receiptResult = await pool.query(`
+            SELECT r.*, r.user_id, r.fno, r.shipping_mark
+            FROM china_receipts r
+            WHERE r.id = $1
+        `, [id]);
+        const receipt = receiptResult.rows[0];
+
         await pool.query(`
             UPDATE china_receipts SET
                 status = COALESCE($1, status),
@@ -355,6 +364,43 @@ export const updateChinaReceiptStatus = async (req: Request, res: Response): Pro
                 UPDATE packages SET status = $1, updated_at = CURRENT_TIMESTAMP
                 WHERE china_receipt_id = $2
             `, [packageStatus, id]);
+
+            // Enviar notificación según el status
+            if (receipt && receipt.user_id) {
+                const statusMessages: Record<string, string> = {
+                    'in_transit': `✈️ Tu envío China Air ${receipt.fno || receipt.shipping_mark} está en tránsito internacional hacia México.`,
+                    'arrived_mexico': `🛬 Tu envío China Air ${receipt.fno || receipt.shipping_mark} ha llegado a México. Pronto pasará por aduana.`,
+                    'in_customs': `🛃 Tu envío China Air ${receipt.fno || receipt.shipping_mark} está en proceso de liberación aduanal.`,
+                    'at_cedis': `📦 Tu envío China Air ${receipt.fno || receipt.shipping_mark} ha llegado a nuestro CEDIS y está listo para despacho.`,
+                    'dispatched': `🚚 Tu envío China Air ${receipt.fno || receipt.shipping_mark} ha sido despachado. ¡Revisa tu guía nacional!`,
+                    'delivered': `✅ Tu envío China Air ${receipt.fno || receipt.shipping_mark} ha sido entregado. ¡Gracias por tu confianza!`
+                };
+
+                const notificationTypes: Record<string, 'PACKAGE_RECEIVED' | 'PACKAGE_IN_TRANSIT' | 'PACKAGE_DELIVERED'> = {
+                    'in_transit': 'PACKAGE_IN_TRANSIT',
+                    'arrived_mexico': 'PACKAGE_RECEIVED',
+                    'in_customs': 'PACKAGE_IN_TRANSIT',
+                    'at_cedis': 'PACKAGE_RECEIVED',
+                    'dispatched': 'PACKAGE_IN_TRANSIT',
+                    'delivered': 'PACKAGE_DELIVERED'
+                };
+
+                if (statusMessages[status]) {
+                    const notifType = notificationTypes[status] || 'PACKAGE_IN_TRANSIT';
+                    await createNotification(
+                        receipt.user_id,
+                        notifType,
+                        statusMessages[status],
+                        { 
+                            receiptId: id, 
+                            fno: receipt.fno,
+                            status: status,
+                            service: 'China Air'
+                        },
+                        '/china-dashboard'
+                    );
+                }
+            }
         }
 
         res.json({ success: true, message: 'Recibo actualizado' });

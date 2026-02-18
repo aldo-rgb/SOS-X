@@ -3,6 +3,7 @@ import { pool } from './db';
 import { AuthRequest } from './authController';
 import fs from 'fs';
 import path from 'path';
+import { createNotification } from './notificationController';
 
 // ========== CONTENEDORES ==========
 
@@ -149,11 +150,60 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
       return res.status(400).json({ error: 'Estado inválido' });
     }
 
+    // Obtener datos del contenedor y sus envíos con usuarios
+    const containerResult = await pool.query('SELECT * FROM containers WHERE id = $1', [id]);
+    const container = containerResult.rows[0];
+
+    // Obtener todos los usuarios con envíos en este contenedor
+    const usersResult = await pool.query(`
+      SELECT DISTINCT ms.user_id, ms.tracking 
+      FROM maritime_shipments ms 
+      WHERE ms.container_id = $1 AND ms.user_id IS NOT NULL
+    `, [id]);
+
     // Actualizar contenedor
     await pool.query('UPDATE containers SET status = $1, updated_at = NOW() WHERE id = $2', [status, id]);
 
     // Actualizar todos los envíos del contenedor
     await pool.query('UPDATE maritime_shipments SET status = $1, updated_at = NOW() WHERE container_id = $2', [status, id]);
+
+    // Enviar notificaciones a todos los usuarios afectados
+    const statusMessages: Record<string, string> = {
+      'received_origin': '📦 Tu envío marítimo ha sido recibido en origen.',
+      'consolidated': '📦 Tu envío marítimo ha sido consolidado en el contenedor.',
+      'in_transit': '🚢 Tu envío marítimo está en tránsito hacia México.',
+      'arrived_port': '⚓ Tu envío marítimo ha llegado al puerto en México.',
+      'customs_cleared': '🛃 Tu envío marítimo ha sido liberado de aduana.',
+      'received_cedis': '📦 Tu envío marítimo ha llegado a nuestro CEDIS y está listo para despacho.'
+    };
+
+    const notificationTypes: Record<string, 'PACKAGE_RECEIVED' | 'PACKAGE_IN_TRANSIT'> = {
+      'received_origin': 'PACKAGE_RECEIVED',
+      'consolidated': 'PACKAGE_RECEIVED',
+      'in_transit': 'PACKAGE_IN_TRANSIT',
+      'arrived_port': 'PACKAGE_IN_TRANSIT',
+      'customs_cleared': 'PACKAGE_IN_TRANSIT',
+      'received_cedis': 'PACKAGE_RECEIVED'
+    };
+
+    if (statusMessages[status]) {
+      for (const shipment of usersResult.rows) {
+        const notifType = notificationTypes[status] || 'PACKAGE_IN_TRANSIT';
+        await createNotification(
+          shipment.user_id,
+          notifType,
+          `${statusMessages[status]} Contenedor: ${container?.container_number || 'N/A'}`,
+          { 
+            containerId: id, 
+            containerNumber: container?.container_number,
+            tracking: shipment.tracking,
+            status: status,
+            service: 'Maritime'
+          },
+          '/maritime-dashboard'
+        );
+      }
+    }
 
     res.json({ success: true, message: 'Estado actualizado' });
   } catch (error) {

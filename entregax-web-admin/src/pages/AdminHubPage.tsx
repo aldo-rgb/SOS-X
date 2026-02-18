@@ -56,7 +56,6 @@ import ServiceInstructionsPanel from './ServiceInstructionsPanel';
 import InventoryPanel from './InventoryPanel';
 import VerificationsPage from './VerificationsPage';
 import SupplierPaymentsPage from './SupplierPaymentsPage';
-import PermissionMatrixPanel from './PermissionMatrixPanel';
 import InboundEmailsPage from './InboundEmailsPage';
 import MaritimeApiPage from './MaritimeApiPage';
 import AirApiPage from './AirApiPage';
@@ -69,12 +68,22 @@ import PaymentInvoicesPage from './PaymentInvoicesPage';
 import NationalFreightRatesPage from './NationalFreightRatesPage';
 import LastMilePage from './LastMilePage';
 import DhlRatesPage from './DhlRatesPage';
+import POBoxRatesPage from './POBoxRatesPage';
+import ExchangeRateConfigPage from './ExchangeRateConfigPage';
 import BranchManagementPage from './BranchManagementPage';
+import CarouselSlidesPage from './CarouselSlidesPage';
 import {
     UploadFile as UploadIcon,
     AccountBalanceWallet as WalletIcon,
     LocalShipping as LocalShippingIcon,
+    Badge as BadgeIcon,
+    DirectionsCar as DirectionsCarIcon,
+    Smartphone as SmartphoneIcon,
 } from '@mui/icons-material';
+
+// Importar páginas de HR y Fleet
+import HRManagementPage from './HRManagementPage';
+import FleetManagementPage from './FleetManagementPage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -102,6 +111,8 @@ const SERVICE_COLORS = {
 const MODULE_ICONS: Record<string, React.ReactElement> = {
     costing: <CalculateIcon />,
     pricing: <SellIcon />,
+    pobox_rates: <SellIcon />,
+    exchange_rates: <WalletIcon />,
     invoicing: <ReceiptIcon />,
     reports: <AssessmentIcon />,
     verifications: <VerifiedUserIcon />,
@@ -142,7 +153,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
     ],
     usa_pobox: [
         { key: 'inventory', status: 'active' },
-        { key: 'pricing', status: 'pending' },
+        { key: 'pobox_rates', status: 'active' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
         { key: 'verifications', status: 'pending' },
@@ -196,11 +207,14 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
     const [showGex, setShowGex] = useState(false);
     const [showVerifications, setShowVerifications] = useState(false);
     const [showSupplierPayments, setShowSupplierPayments] = useState(false);
-    const [showPermissions, setShowPermissions] = useState(false);
     const [showLegacyClients, setShowLegacyClients] = useState(false);
     const [showFinancial, setShowFinancial] = useState(false);
     const [showPaymentInvoices, setShowPaymentInvoices] = useState(false);
     const [showBranches, setShowBranches] = useState(false);
+    const [showHR, setShowHR] = useState(false);
+    const [showFleet, setShowFleet] = useState(false);
+    const [showExchangeRates, setShowExchangeRates] = useState(false);
+    const [showCarousel, setShowCarousel] = useState(false);
     const [locations, setLocations] = useState<WarehouseLocation[]>([]);
     const [loadingLocations, setLoadingLocations] = useState(true);
 
@@ -287,6 +301,42 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
     }
 
     // ============================================
+    // RENDER: Recursos Humanos
+    // ============================================
+    if (showHR) {
+        return (
+            <Box>
+                <Box sx={{ mb: 2 }}>
+                    <Chip
+                        label={t('panels.backToAdmin')}
+                        onClick={() => setShowHR(false)}
+                        sx={{ cursor: 'pointer' }}
+                    />
+                </Box>
+                <HRManagementPage />
+            </Box>
+        );
+    }
+
+    // ============================================
+    // RENDER: Gestión de Flotilla
+    // ============================================
+    if (showFleet) {
+        return (
+            <Box>
+                <Box sx={{ mb: 2 }}>
+                    <Chip
+                        label={t('panels.backToAdmin')}
+                        onClick={() => setShowFleet(false)}
+                        sx={{ cursor: 'pointer' }}
+                    />
+                </Box>
+                <FleetManagementPage />
+            </Box>
+        );
+    }
+
+    // ============================================
     // RENDER: Página de Pago a Proveedores
     // ============================================
     if (showSupplierPayments) {
@@ -300,24 +350,6 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                     />
                 </Box>
                 <SupplierPaymentsPage />
-            </Box>
-        );
-    }
-
-    // ============================================
-    // RENDER: Matriz de Permisos (Solo Super Admin)
-    // ============================================
-    if (showPermissions) {
-        return (
-            <Box>
-                <Box sx={{ mb: 2 }}>
-                    <Chip
-                        label={t('panels.backToAdmin')}
-                        onClick={() => setShowPermissions(false)}
-                        sx={{ cursor: 'pointer' }}
-                    />
-                </Box>
-                <PermissionMatrixPanel />
             </Box>
         );
     }
@@ -372,6 +404,42 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                     />
                 </Box>
                 <PaymentInvoicesPage />
+            </Box>
+        );
+    }
+
+    // ============================================
+    // RENDER: Configuración de Tipo de Cambio
+    // ============================================
+    if (showExchangeRates) {
+        return (
+            <Box>
+                <Box sx={{ mb: 2 }}>
+                    <Chip
+                        label={t('panels.backToAdmin')}
+                        onClick={() => setShowExchangeRates(false)}
+                        sx={{ cursor: 'pointer' }}
+                    />
+                </Box>
+                <ExchangeRateConfigPage />
+            </Box>
+        );
+    }
+
+    // ============================================
+    // RENDER: Gestión del Carrusel de la App
+    // ============================================
+    if (showCarousel) {
+        return (
+            <Box>
+                <Box sx={{ mb: 2 }}>
+                    <Chip
+                        label={t('panels.backToAdmin')}
+                        onClick={() => setShowCarousel(false)}
+                        sx={{ cursor: 'pointer' }}
+                    />
+                </Box>
+                <CarouselSlidesPage />
             </Box>
         );
     }
@@ -604,6 +672,30 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         />
                     </Box>
                     <DhlRatesPage />
+                </Box>
+            );
+        }
+
+        // Panel de Tarifas PO Box USA (pobox_rates) - solo usa_pobox
+        if (selectedModule === 'pobox_rates' && selectedService === 'usa_pobox') {
+            return (
+                <Box>
+                    {/* Breadcrumb */}
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    <POBoxRatesPage />
                 </Box>
             );
         }
@@ -1123,61 +1215,6 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                     </Card>
                 </Grid>
 
-                {/* Tarjeta especial: Matriz de Permisos - AMARILLO */}
-                {isSuperAdmin && (
-                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
-                        <CardActionArea
-                            onClick={() => setShowPermissions(true)}
-                            sx={{ height: '100%' }}
-                        >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #F9A825 0%, #FFEE58 100%)',
-                                    p: 3,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <SecurityIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    🎛️
-                                </Typography>
-                            </Box>
-                            <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
-                                    Matriz de Permisos
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                    Configurar qué puede hacer cada rol en el sistema
-                                </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    Solo Super Admin
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="Roles" size="small" sx={{ bgcolor: '#F9A825', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="Permisos" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="Seguridad" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
-                            </CardContent>
-                        </CardActionArea>
-                    </Card>
-                </Grid>
-                )}
-
                 {/* Tarjeta especial: Gestión de Sucursales - VERDE */}
                 {isSuperAdmin && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
@@ -1388,6 +1425,218 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                                     <Chip label="Facturas" size="small" sx={{ bgcolor: '#303F9F', color: 'white', fontSize: '0.7rem' }} />
                                     <Chip label="Multi-RFC" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                     <Chip label="SPEI" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                </Box>
+                            </CardContent>
+                        </CardActionArea>
+                    </Card>
+                </Grid>
+
+                {/* Tarjeta especial: Tipo de Cambio - VERDE ESMERALDA */}
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    <Card
+                        sx={{
+                            height: '100%',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                                transform: 'translateY(-8px)',
+                                boxShadow: 6,
+                            },
+                        }}
+                    >
+                        <CardActionArea
+                            onClick={() => setShowExchangeRates(true)}
+                            sx={{ height: '100%' }}
+                        >
+                            <Box
+                                sx={{
+                                    background: 'linear-gradient(135deg, #00695C 0%, #4DB6AC 100%)',
+                                    p: 3,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                }}
+                            >
+                                <Box sx={{ color: 'white' }}>
+                                    <WalletIcon sx={{ fontSize: 48 }} />
+                                </Box>
+                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
+                                    💱
+                                </Typography>
+                            </Box>
+                            <CardContent>
+                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                    Tipo de Cambio
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                    Configuración de tipo de cambio y sobreprecio por servicio
+                                </Typography>
+                                <Divider sx={{ my: 1 }} />
+                                <Typography variant="caption" color="text.secondary">
+                                    Solo Super Admin
+                                </Typography>
+                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+                                    <Chip label="Banxico" size="small" sx={{ bgcolor: '#00695C', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="Sobreprecio" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                    <Chip label="USD/MXN" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                </Box>
+                            </CardContent>
+                        </CardActionArea>
+                    </Card>
+                </Grid>
+
+                {/* Tarjeta especial: Carrusel de la App - NARANJA */}
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    <Card
+                        sx={{
+                            height: '100%',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                                transform: 'translateY(-8px)',
+                                boxShadow: 6,
+                            },
+                        }}
+                    >
+                        <CardActionArea
+                            onClick={() => setShowCarousel(true)}
+                            sx={{ height: '100%' }}
+                        >
+                            <Box
+                                sx={{
+                                    background: 'linear-gradient(135deg, #E64A19 0%, #FF7043 100%)',
+                                    p: 3,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                }}
+                            >
+                                <Box sx={{ color: 'white' }}>
+                                    <SmartphoneIcon sx={{ fontSize: 48 }} />
+                                </Box>
+                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
+                                    📱
+                                </Typography>
+                            </Box>
+                            <CardContent>
+                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                    Carrusel de la App
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                    Gestión de slides promocionales en la app móvil
+                                </Typography>
+                                <Divider sx={{ my: 1 }} />
+                                <Typography variant="caption" color="text.secondary">
+                                    Solo Super Admin
+                                </Typography>
+                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+                                    <Chip label="Slides" size="small" sx={{ bgcolor: '#E64A19', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="Promos" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                    <Chip label="CTR" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                </Box>
+                            </CardContent>
+                        </CardActionArea>
+                    </Card>
+                </Grid>
+
+                {/* Tarjeta especial: Recursos Humanos - ROSA */}
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    <Card
+                        sx={{
+                            height: '100%',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                                transform: 'translateY(-8px)',
+                                boxShadow: 6,
+                            },
+                        }}
+                    >
+                        <CardActionArea
+                            onClick={() => setShowHR(true)}
+                            sx={{ height: '100%' }}
+                        >
+                            <Box
+                                sx={{
+                                    background: 'linear-gradient(135deg, #AD1457 0%, #F06292 100%)',
+                                    p: 3,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                }}
+                            >
+                                <Box sx={{ color: 'white' }}>
+                                    <BadgeIcon sx={{ fontSize: 48 }} />
+                                </Box>
+                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
+                                    👥
+                                </Typography>
+                            </Box>
+                            <CardContent>
+                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                    Recursos Humanos
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                    Gestión de empleados, checador y nómina
+                                </Typography>
+                                <Divider sx={{ my: 1 }} />
+                                <Typography variant="caption" color="text.secondary">
+                                    Admin / Super Admin
+                                </Typography>
+                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+                                    <Chip label="Empleados" size="small" sx={{ bgcolor: '#AD1457', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="Checador" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                    <Chip label="Nómina" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                </Box>
+                            </CardContent>
+                        </CardActionArea>
+                    </Card>
+                </Grid>
+
+                {/* Tarjeta especial: Gestión de Flotilla - MARRÓN */}
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    <Card
+                        sx={{
+                            height: '100%',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                                transform: 'translateY(-8px)',
+                                boxShadow: 6,
+                            },
+                        }}
+                    >
+                        <CardActionArea
+                            onClick={() => setShowFleet(true)}
+                            sx={{ height: '100%' }}
+                        >
+                            <Box
+                                sx={{
+                                    background: 'linear-gradient(135deg, #5D4037 0%, #8D6E63 100%)',
+                                    p: 3,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                }}
+                            >
+                                <Box sx={{ color: 'white' }}>
+                                    <DirectionsCarIcon sx={{ fontSize: 48 }} />
+                                </Box>
+                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
+                                    🚛
+                                </Typography>
+                            </Box>
+                            <CardContent>
+                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                    Gestión de Flotilla
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                    Vehículos, mantenimiento y combustible
+                                </Typography>
+                                <Divider sx={{ my: 1 }} />
+                                <Typography variant="caption" color="text.secondary">
+                                    Admin / Super Admin
+                                </Typography>
+                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+                                    <Chip label="Vehículos" size="small" sx={{ bgcolor: '#5D4037', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="Gasolina" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                    <Chip label="Servicios" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                 </Box>
                             </CardContent>
                         </CardActionArea>

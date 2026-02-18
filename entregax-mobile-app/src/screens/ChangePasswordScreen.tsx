@@ -132,31 +132,27 @@ export default function ChangePasswordScreen({ navigation, route }: ChangePasswo
       }
       
       // Solo para clientes: Verificar si necesita verificación de identidad
+      let needsVerification = false;
+      
       try {
         const statusResponse = await api.get('/api/verify/status', {
           headers: { Authorization: `Bearer ${token}` }
         });
         
-        if (!statusResponse.data.isVerified) {
-          Alert.alert(
-            '✅ Contraseña Actualizada',
-            'Ahora necesitas verificar tu identidad para continuar.',
-            [
-              {
-                text: 'Continuar',
-                onPress: () => {
-                  navigation.replace('Verification', { user, token });
-                },
-              },
-            ]
-          );
-          return;
-        }
+        console.log('🔍 Verification status response:', statusResponse.data);
+        needsVerification = !statusResponse.data.isVerified;
       } catch (verifyError) {
-        // Si falla la verificación para un cliente, redirigir a Verification
+        // Si falla el API, verificar si el usuario ya tiene isVerified en su objeto
+        console.log('⚠️ Error checking verification status:', verifyError);
+        // Usar el dato del usuario que viene del login si está disponible
+        needsVerification = user.isVerified !== true;
+        console.log('🔍 Using user.isVerified fallback:', user.isVerified, '-> needsVerification:', needsVerification);
+      }
+      
+      if (needsVerification) {
         Alert.alert(
           '✅ Contraseña Actualizada',
-          'Ahora necesitas verificar tu identidad.',
+          'Ahora necesitas verificar tu identidad para continuar.',
           [
             {
               text: 'Continuar',

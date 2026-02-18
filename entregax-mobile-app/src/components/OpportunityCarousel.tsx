@@ -20,8 +20,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = SCREEN_WIDTH - 32; // 16px padding each side
-const CARD_HEIGHT = CARD_WIDTH * (9 / 16); // Aspect ratio 16:9
+const CARD_WIDTH = SCREEN_WIDTH - 48; // 24px padding each side - más estrecho
+const CARD_HEIGHT = 155; // 10% más alto
 
 // Colores de marca
 const ORANGE = '#F05A28';
@@ -199,17 +199,6 @@ export default function OpportunityCarousel({
 
             {/* Contenido */}
             <View style={styles.cardContent}>
-              {/* Icono pequeño */}
-              {opportunity.iconName && (
-                <View style={styles.iconContainer}>
-                  <Ionicons 
-                    name={opportunity.iconName as any} 
-                    size={28} 
-                    color="white" 
-                  />
-                </View>
-              )}
-
               {/* Textos */}
               <View style={styles.textContainer}>
                 <Text style={styles.title} numberOfLines={2}>
@@ -252,15 +241,6 @@ export default function OpportunityCarousel({
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
       {/* Carrusel */}
       <View style={styles.carouselWrapper}>
-        {/* Botón de cerrar flotante */}
-        <Pressable 
-          onPress={handleDismiss}
-          style={styles.floatingDismissButton}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Ionicons name="close-circle" size={24} color="rgba(255,255,255,0.9)" />
-        </Pressable>
-
         {/* Carrusel */}
         <ScrollView
           ref={scrollViewRef}
@@ -362,15 +342,15 @@ const styles = StyleSheet.create({
   },
   badge: {
     position: 'absolute',
-    top: 16,
-    left: 16,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
+    top: 10,
+    left: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   badgeText: {
     color: 'white',
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
   },
   cardContent: {
@@ -387,35 +367,35 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   textContainer: {
-    marginBottom: 16,
+    marginBottom: 8,
   },
   title: {
-    fontSize: 22,
+    fontSize: 16,
     fontWeight: '800',
     color: 'white',
-    marginBottom: 6,
+    marginBottom: 4,
     textShadowColor: 'rgba(0,0,0,0.3)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
   subtitle: {
-    fontSize: 14,
+    fontSize: 12,
     color: 'rgba(255,255,255,0.9)',
-    lineHeight: 20,
+    lineHeight: 16,
   },
   ctaButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'white',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 25,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 20,
     alignSelf: 'flex-start',
-    gap: 8,
+    gap: 6,
   },
   ctaText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '700',
     color: ORANGE,
   },

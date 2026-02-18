@@ -43,6 +43,8 @@ import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import CloseIcon from '@mui/icons-material/Close';
+import LockResetIcon from '@mui/icons-material/LockReset';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 
 interface User {
   id: number;
@@ -57,6 +59,7 @@ interface ClientsPageProps {
   users: User[];
   loading: boolean;
   onRefresh: () => void;
+  currentUser?: { id: number; name: string; email: string; role: string } | null;
 }
 
 // Función para obtener las iniciales del nombre
@@ -100,7 +103,7 @@ const translateRole = (role: string): string => {
   return translations[role] || role;
 };
 
-export default function ClientsPage({ users, loading, onRefresh }: ClientsPageProps) {
+export default function ClientsPage({ users, loading, onRefresh, currentUser }: ClientsPageProps) {
   const { t } = useTranslation();
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
@@ -116,6 +119,14 @@ export default function ClientsPage({ users, loading, onRefresh }: ClientsPagePr
   const [createForm, setCreateForm] = useState({ full_name: '', email: '', phone: '' });
   const [creating, setCreating] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  
+  // Estados para cambio de contraseña (solo super_admin)
+  const [newPassword, setNewPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [resettingPassword, setResettingPassword] = useState(false);
+  
+  const isSuperAdmin = currentUser?.role === 'super_admin';
 
   const API_URL = 'http://localhost:3001/api';
   // getToken utility available if needed
@@ -225,11 +236,69 @@ export default function ClientsPage({ users, loading, onRefresh }: ClientsPagePr
       );
       
       setEditOpen(false);
+      setNewPassword('');
       setSnackbar({ open: true, message: 'Usuario actualizado correctamente', severity: 'success' });
       onRefresh(); // Recargar lista
     } catch (error) {
       console.error('Error al actualizar usuario:', error);
       setSnackbar({ open: true, message: 'Error al actualizar usuario', severity: 'error' });
+    }
+  };
+
+  // Cambiar contraseña (solo super_admin)
+  const handleChangePassword = async () => {
+    if (!selectedUser || !newPassword) {
+      setSnackbar({ open: true, message: 'Ingresa una nueva contraseña', severity: 'error' });
+      return;
+    }
+    
+    if (newPassword.length < 6) {
+      setSnackbar({ open: true, message: 'La contraseña debe tener al menos 6 caracteres', severity: 'error' });
+      return;
+    }
+    
+    setChangingPassword(true);
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      
+      await axios.put(
+        `${API_URL}/api/admin/users/${selectedUser.id}/password`,
+        { newPassword, requireChange: false },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      setNewPassword('');
+      setSnackbar({ open: true, message: '✅ Contraseña actualizada correctamente', severity: 'success' });
+    } catch (error: any) {
+      console.error('Error al cambiar contraseña:', error);
+      setSnackbar({ open: true, message: error.response?.data?.error || 'Error al cambiar contraseña', severity: 'error' });
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
+  // Resetear contraseña a Entregax123 y exigir cambio
+  const handleResetPassword = async () => {
+    if (!selectedUser) return;
+    
+    setResettingPassword(true);
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      
+      await axios.put(
+        `${API_URL}/api/admin/users/${selectedUser.id}/password`,
+        { newPassword: 'Entregax123', requireChange: true },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      setSnackbar({ open: true, message: '🔐 Contraseña reseteada a Entregax123. El usuario deberá cambiarla en el próximo inicio de sesión.', severity: 'success' });
+    } catch (error: any) {
+      console.error('Error al resetear contraseña:', error);
+      setSnackbar({ open: true, message: error.response?.data?.error || 'Error al resetear contraseña', severity: 'error' });
+    } finally {
+      setResettingPassword(false);
     }
   };
 
@@ -662,10 +731,74 @@ export default function ClientsPage({ users, loading, onRefresh }: ClientsPagePr
                 helperText="El casillero no puede ser modificado"
               />
             )}
+            
+            {/* Sección de Contraseña - Solo visible para super_admin */}
+            {isSuperAdmin && (
+              <>
+                <Divider sx={{ my: 1 }} />
+                <Typography variant="subtitle2" fontWeight={600} color="text.secondary">
+                  🔐 Gestión de Contraseña
+                </Typography>
+                
+                {/* Cambiar Contraseña */}
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                  <TextField
+                    label="Nueva Contraseña"
+                    fullWidth
+                    type={showPassword ? 'text' : 'password'}
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    placeholder="Mínimo 6 caracteres"
+                    size="small"
+                    InputProps={{
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <IconButton
+                            size="small"
+                            onClick={() => setShowPassword(!showPassword)}
+                          >
+                            {showPassword ? <VisibilityOffIcon fontSize="small" /> : <VisibilityIcon fontSize="small" />}
+                          </IconButton>
+                        </InputAdornment>
+                      ),
+                    }}
+                  />
+                  <Button
+                    variant="contained"
+                    size="small"
+                    onClick={handleChangePassword}
+                    disabled={changingPassword || !newPassword}
+                    sx={{ 
+                      minWidth: 100,
+                      bgcolor: '#2196F3',
+                      '&:hover': { bgcolor: '#1976D2' }
+                    }}
+                  >
+                    {changingPassword ? <CircularProgress size={20} color="inherit" /> : 'Cambiar'}
+                  </Button>
+                </Box>
+                
+                {/* Botón Resetear */}
+                <Button
+                  variant="outlined"
+                  color="warning"
+                  startIcon={resettingPassword ? <CircularProgress size={18} /> : <LockResetIcon />}
+                  onClick={handleResetPassword}
+                  disabled={resettingPassword}
+                  fullWidth
+                  sx={{ mt: 1 }}
+                >
+                  {resettingPassword ? 'Reseteando...' : 'Resetear a Entregax123'}
+                </Button>
+                <Typography variant="caption" color="text.secondary" sx={{ mt: -1 }}>
+                  El usuario deberá cambiar la contraseña en su próximo inicio de sesión
+                </Typography>
+              </>
+            )}
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 2.5, pt: 1 }}>
-          <Button onClick={() => setEditOpen(false)} sx={{ color: 'text.secondary' }}>
+          <Button onClick={() => { setEditOpen(false); setNewPassword(''); }} sx={{ color: 'text.secondary' }}>
             Cancelar
           </Button>
           <Button 

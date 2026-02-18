@@ -205,6 +205,28 @@ import {
   verifyPackageForDelivery
 } from './driverController';
 import {
+  // PO Box USA Rates
+  calcularCotizacionPOBox,
+  getTarifasVolumen,
+  updateTarifaVolumen,
+  createTarifaVolumen,
+  getServiciosExtra,
+  updateServicioExtra,
+  createServicioExtra
+} from './poboxRatesController';
+import {
+  // Exchange Rate Config
+  getExchangeRateConfig,
+  getExchangeRateByService,
+  updateExchangeRateConfig,
+  refreshAllExchangeRates,
+  getExchangeRateHistory as getExchangeHistory,
+  createExchangeRateConfig,
+  getExchangeRateSystemStatus,
+  getExchangeRateAlerts,
+  resolveExchangeRateAlert
+} from './exchangeRateController';
+import {
   getExchangeRate,
   updateExchangeRate as updateGexExchangeRate,
   quoteWarranty,
@@ -486,6 +508,22 @@ import {
   checkExpiringDocuments,
   checkUpcomingMaintenance
 } from './fleetController';
+import {
+  // API Pública (app móvil)
+  getActiveSlides,
+  registerSlideClick,
+  // API Admin
+  getAllSlides,
+  getSlideById,
+  createSlide,
+  updateSlide,
+  deleteSlide,
+  reorderSlides,
+  toggleSlideActive,
+  getCarouselStats,
+  duplicateSlide,
+  uploadSlideImage
+} from './carouselController';
 
 // Cargar variables de entorno
 dotenv.config();
@@ -671,6 +709,49 @@ app.post('/api/users/assign-advisor', authenticateToken, assignAdvisor);
 app.get('/api/users', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER), getAllUsers);
 // Actualizar usuario (admin y superiores)
 app.put('/api/admin/users/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateUser);
+
+// Cambiar contraseña de usuario (solo super_admin)
+app.put('/api/admin/users/:id/password', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = parseInt(req.params.id as string);
+    const { newPassword, requireChange } = req.body;
+    
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+    }
+    
+    const bcrypt = require('bcrypt');
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    
+    // Actualizar contraseña y opcionalmente marcar para cambio obligatorio
+    const result = await pool.query(
+      `UPDATE users 
+       SET password = $1, 
+           must_change_password = $2,
+           updated_at = CURRENT_TIMESTAMP 
+       WHERE id = $3 
+       RETURNING id, full_name, email`,
+      [hashedPassword, requireChange || false, userId]
+    );
+    
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    
+    console.log(`🔐 [SUPER_ADMIN] Contraseña ${requireChange ? 'reseteada' : 'cambiada'} para usuario ${result.rows[0].email} por ${req.user?.email}`);
+    
+    res.json({ 
+      success: true, 
+      message: requireChange 
+        ? 'Contraseña reseteada. El usuario deberá cambiarla en su próximo inicio de sesión.'
+        : 'Contraseña actualizada correctamente',
+      user: result.rows[0]
+    });
+  } catch (error: any) {
+    console.error('Error al cambiar contraseña:', error);
+    res.status(500).json({ error: 'Error al cambiar contraseña' });
+  }
+});
 
 // --- RUTAS DE ADMINISTRACIÓN (solo staff y superiores) ---
 app.get('/api/admin/dashboard', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), (req: AuthRequest, res: Response) => {
@@ -943,16 +1024,16 @@ app.get('/api/admin/last-mile/reprint/:id', authenticateToken, requireMinLevel(R
 
 // ========== PANEL DE BODEGA MULTI-SUCURSAL ==========
 // Info del empleado y su sucursal
-app.get('/api/warehouse/branch-info', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getWorkerBranchInfo);
+app.get('/api/warehouse/branch-info', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), getWorkerBranchInfo);
 // Escáner inteligente
-app.post('/api/warehouse/scan', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), processWarehouseScan);
+app.post('/api/warehouse/scan', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), processWarehouseScan);
 // Historial y estadísticas
-app.get('/api/warehouse/scan-history', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getScanHistory);
-app.get('/api/warehouse/daily-stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDailyStats);
+app.get('/api/warehouse/scan-history', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), getScanHistory);
+app.get('/api/warehouse/daily-stats', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), getDailyStats);
 // Sucursales (público para empleados)
 app.get('/api/warehouse/branches', authenticateToken, getBranches);
 // Validación de supervisor (para DHL)
-app.post('/api/warehouse/validate-supervisor', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), validateSupervisor);
+app.post('/api/warehouse/validate-supervisor', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), validateSupervisor);
 // Actualizar PIN de supervisor (gerentes/admins)
 app.post('/api/warehouse/update-supervisor-pin', authenticateToken, updateSupervisorPin);
 // Historial de autorizaciones
@@ -1362,7 +1443,12 @@ import {
   deletePermission,
   checkUserPermission,
   getRolePermissions,
-  bulkAssignPermissions
+  bulkAssignPermissions,
+  getAllPanels,
+  getUserPanelPermissions,
+  updateUserPanelPermissions,
+  getMyPanelPermissions,
+  listUsersWithPanelPermissions
 } from './permissionController';
 import { requireSuperAdmin } from './authMiddleware';
 
@@ -1610,6 +1696,13 @@ app.post('/api/admin/permissions/add', authenticateToken, requireSuperAdmin(), a
 app.delete('/api/admin/permissions/:id', authenticateToken, requireSuperAdmin(), deletePermission);
 app.post('/api/admin/permissions/bulk', authenticateToken, requireSuperAdmin(), bulkAssignPermissions);
 
+// Permisos de Paneles por Usuario
+app.get('/api/admin/panels', authenticateToken, requireSuperAdmin(), getAllPanels);
+app.get('/api/admin/panels/users', authenticateToken, requireSuperAdmin(), listUsersWithPanelPermissions);
+app.get('/api/admin/panels/user/:userId', authenticateToken, requireSuperAdmin(), getUserPanelPermissions);
+app.put('/api/admin/panels/user/:userId', authenticateToken, requireSuperAdmin(), updateUserPanelPermissions);
+app.get('/api/panels/me', authenticateToken, getMyPanelPermissions);
+
 // Consultas de permisos (cualquier usuario autenticado)
 app.get('/api/permissions/check/:slug', authenticateToken, checkUserPermission);
 app.get('/api/permissions/role/:role', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getRolePermissions);
@@ -1740,6 +1833,89 @@ app.get('/api/driver/deliveries-today', authenticateToken, requireMinLevel(ROLES
 
 // Verificar paquete antes de entregar
 app.get('/api/driver/verify-package/:barcode', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), verifyPackageForDelivery);
+
+// ============================================
+// TARIFAS PO BOX USA
+// ============================================
+// Cotizador público
+app.post('/api/pobox/cotizar', calcularCotizacionPOBox);
+// Gestión de tarifas de volumen (Admin)
+app.get('/api/admin/pobox/tarifas-volumen', authenticateToken, requireRole('super_admin'), getTarifasVolumen);
+app.put('/api/admin/pobox/tarifas-volumen/:id', authenticateToken, requireRole('super_admin'), updateTarifaVolumen);
+app.post('/api/admin/pobox/tarifas-volumen', authenticateToken, requireRole('super_admin'), createTarifaVolumen);
+// Gestión de servicios extra (Admin)
+app.get('/api/admin/pobox/servicios-extra', authenticateToken, requireRole('super_admin'), getServiciosExtra);
+app.put('/api/admin/pobox/servicios-extra/:id', authenticateToken, requireRole('super_admin'), updateServicioExtra);
+app.post('/api/admin/pobox/servicios-extra', authenticateToken, requireRole('super_admin'), createServicioExtra);
+
+// ============================================
+// CONFIGURACIÓN TIPO DE CAMBIO
+// ============================================
+// Obtener configuración completa
+app.get('/api/admin/exchange-rate/config', authenticateToken, requireRole('super_admin'), getExchangeRateConfig);
+// Obtener tipo de cambio por servicio
+app.get('/api/exchange-rate/:servicio', authenticateToken, getExchangeRateByService);
+// Actualizar configuración
+app.put('/api/admin/exchange-rate/config/:id', authenticateToken, requireRole('super_admin'), updateExchangeRateConfig);
+// Crear nueva configuración
+app.post('/api/admin/exchange-rate/config', authenticateToken, requireRole('super_admin'), createExchangeRateConfig);
+// Refrescar todos los tipos de cambio desde API
+app.post('/api/admin/exchange-rate/refresh', authenticateToken, requireRole('super_admin'), refreshAllExchangeRates);
+// Historial de tipos de cambio
+app.get('/api/admin/exchange-rate/history', authenticateToken, requireRole('super_admin'), getExchangeHistory);
+// Estado del sistema de tipo de cambio
+app.get('/api/admin/exchange-rate/system-status', authenticateToken, requireRole('super_admin'), getExchangeRateSystemStatus);
+// Alertas de tipo de cambio
+app.get('/api/admin/exchange-rate/alerts', authenticateToken, requireRole('super_admin'), getExchangeRateAlerts);
+// Resolver alerta
+app.put('/api/admin/exchange-rate/alerts/:id/resolve', authenticateToken, requireRole('super_admin'), resolveExchangeRateAlert);
+
+// ============================================
+// CARRUSEL DE LA APP MÓVIL
+// ============================================
+// Configuración de multer para imágenes del carrusel
+const carouselStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    const dir = path.join(__dirname, '..', 'uploads', 'carousel');
+    // Crear directorio si no existe
+    require('fs').mkdirSync(dir, { recursive: true });
+    cb(null, dir);
+  },
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, `slide-${uniqueSuffix}${ext}`);
+  }
+});
+const carouselUpload = multer({ 
+  storage: carouselStorage, 
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max
+  fileFilter: (_req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Tipo de archivo no permitido. Solo JPG, PNG, WEBP, GIF'));
+    }
+  }
+});
+
+// API Pública (para la app)
+app.get('/api/carousel/slides', getActiveSlides);
+app.post('/api/carousel/slides/:key/click', registerSlideClick);
+// Admin - CRUD
+app.get('/api/admin/carousel/slides', authenticateToken, requireRole('super_admin'), getAllSlides);
+app.get('/api/admin/carousel/slides/:id', authenticateToken, requireRole('super_admin'), getSlideById);
+app.post('/api/admin/carousel/slides', authenticateToken, requireRole('super_admin'), createSlide);
+app.put('/api/admin/carousel/slides/:id', authenticateToken, requireRole('super_admin'), updateSlide);
+app.delete('/api/admin/carousel/slides/:id', authenticateToken, requireRole('super_admin'), deleteSlide);
+// Admin - Acciones especiales
+app.put('/api/admin/carousel/reorder', authenticateToken, requireRole('super_admin'), reorderSlides);
+app.patch('/api/admin/carousel/slides/:id/toggle', authenticateToken, requireRole('super_admin'), toggleSlideActive);
+app.post('/api/admin/carousel/slides/:id/duplicate', authenticateToken, requireRole('super_admin'), duplicateSlide);
+app.get('/api/admin/carousel/stats', authenticateToken, requireRole('super_admin'), getCarouselStats);
+// Admin - Upload de imágenes
+app.post('/api/admin/carousel/upload', authenticateToken, requireRole('super_admin'), carouselUpload.single('image'), uploadSlideImage);
 
 // Iniciar CRON Jobs para automatización
 import { initCronJobs } from './cronJobs';

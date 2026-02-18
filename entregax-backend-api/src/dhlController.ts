@@ -6,6 +6,7 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import * as skydropx from './services/skydropxService';
+import { createNotification } from './notificationController';
 
 // =========================================
 // TARIFAS DHL
@@ -258,6 +259,19 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
     // TODO: Enviar notificación push al cliente
     // await sendPushNotification(userId, '📦 Paquete DHL Recibido', 'Tu paquete llegó a MTY...');
 
+    // Enviar notificación al usuario
+    await createNotification(
+      userId,
+      'PACKAGE_RECEIVED',
+      `📦 Tu paquete DHL con guía ${inbound_tracking} ha llegado a nuestro CEDIS en Monterrey y ha sido auditado correctamente.`,
+      { 
+        tracking: inbound_tracking, 
+        shipmentId: result.rows[0].id,
+        service: 'DHL'
+      },
+      '/dhl-dashboard'
+    );
+
     res.json({
       success: true,
       message: 'Paquete recibido y auditado',
@@ -425,6 +439,20 @@ export const dispatchDhlShipment = async (req: Request, res: Response) => {
       dispatchedBy,
       shipment_id
     ]);
+
+    // Enviar notificación de despacho al usuario
+    await createNotification(
+      shipment.user_id,
+      'PACKAGE_IN_TRANSIT',
+      `🚚 Tu paquete DHL con guía ${shipment.inbound_tracking} ha sido despachado. Guía nacional: ${labelResult.trackingNumber} (${selectedRate.provider})`,
+      { 
+        tracking: shipment.inbound_tracking,
+        nationalTracking: labelResult.trackingNumber,
+        carrier: selectedRate.provider,
+        service: 'DHL'
+      },
+      '/dhl-dashboard'
+    );
 
     res.json({
       success: true,

@@ -41,6 +41,7 @@ import ClientsPage from './pages/ClientsPage';
 // QuotesPage removido - ahora se accede desde PanelsHubPage > Nacional México
 // ConsolidationsPage removido - ahora se accede desde PanelsHubPage > PO Box USA > Salida
 import CommissionsPage from './pages/CommissionsPage';
+import PermissionsPage from './pages/PermissionsPage';
 // VerificationsPage removido - ahora se accede desde PanelsHubPage > Paneles Admin
 import FiscalPage from './pages/FiscalPage';
 // SupplierPaymentsPage removido - ahora se accede desde PanelsHubPage > Paneles Admin
@@ -70,6 +71,7 @@ import HRManagementPage from './pages/HRManagementPage';
 import FleetManagementPage from './pages/FleetManagementPage';
 import BadgeIcon from '@mui/icons-material/Badge';
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
+import SecurityIcon from '@mui/icons-material/Security';
 
 const drawerWidth = 280;
 
@@ -180,11 +182,10 @@ const menuItemsConfig: Array<{
       { key: 'panelsAdmin', icon: <BuildIcon /> },         // Herramientas Administrativas
       { key: 'panelsOperations', icon: <InventoryIcon /> }, // Herramientas de Operación
       { key: 'panelsService', icon: <HeadsetMicIcon /> },   // Servicio a Cliente
-      { key: 'panelsHR', icon: <BadgeIcon /> },             // Recursos Humanos
-      { key: 'panelsFleet', icon: <DirectionsCarIcon /> },  // Gestión de Flotilla
     ]
   },
   { key: 'commissions', icon: <MonetizationOnIcon /> },
+  { key: 'permissions', icon: <SecurityIcon /> },
   { key: 'fiscal', icon: <ReceiptLongIcon /> },
 ];
 
@@ -630,7 +631,7 @@ function App() {
     switch (selectedIndex) {
       case 0: return <Dashboard />;
       case 1: return <SalesReportPage />; // CRM - Reportes de Ventas
-      case 2: return <ClientsPage users={users} loading={loading} onRefresh={fetchUsers} />;
+      case 2: return <ClientsPage users={users} loading={loading} onRefresh={fetchUsers} currentUser={currentUser} />;
       case 3: 
         // Si panels está seleccionado pero no hay submenú, expandir automáticamente
         if (!panelsExpanded) {
@@ -638,7 +639,8 @@ function App() {
         }
         return null; // No renderiza nada, debe seleccionar un submenú
       case 4: return <CommissionsPage />; // Comisiones (incluye tipos de servicio)
-      case 5: return <FiscalPage />; // Facturación
+      case 5: return <PermissionsPage />; // Matriz de Permisos
+      case 6: return <FiscalPage />; // Facturación
       default: 
         return (
           <Box sx={{ py: 8, textAlign: 'center' }}>

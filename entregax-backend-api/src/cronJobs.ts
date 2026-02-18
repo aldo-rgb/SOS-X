@@ -419,6 +419,106 @@ export const startDriverLicenseCheckCron = () => {
 };
 
 /**
+ * CRON JOB: Verificación de tipo de cambio
+ * Se ejecuta cada hora para actualizar tipo de cambio y verificar alertas
+ */
+export const startExchangeRateCheckCron = () => {
+  // Ejecutar cada hora en el minuto 30
+  cron.schedule('30 * * * *', async () => {
+    console.log('💱 [CRON] Verificando estado de tipo de cambio...');
+    
+    try {
+      const { fetchExchangeRateWithFallback } = await import('./exchangeRateController');
+      
+      // Intentar obtener tipo de cambio (esto actualiza el sistema automáticamente)
+      const result = await fetchExchangeRateWithFallback();
+      
+      console.log(`💱 [CRON] TC obtenido: $${result.rate.toFixed(4)} (Fuente: ${result.source})`);
+      
+      // Si estamos usando fallback, verificar tiempo sin conexión
+      if (result.source === 'fallback') {
+        const statusResult = await pool.query(`
+          SELECT 
+            EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - ultima_actualizacion_exitosa)) / 3600 as horas_sin_api,
+            alerta_activa
+          FROM exchange_rate_system_status 
+          LIMIT 1
+        `);
+
+        if (statusResult.rows.length > 0) {
+          const { horas_sin_api, alerta_activa } = statusResult.rows[0];
+          const horas = parseFloat(horas_sin_api) || 0;
+          
+          if (horas >= 12 && !alerta_activa) {
+            console.warn(`🚨 [CRON] ALERTA: ${horas.toFixed(1)} horas sin conexión a API de tipo de cambio`);
+            
+            // Crear alerta
+            await pool.query(`
+              INSERT INTO exchange_rate_alerts (tipo, mensaje, horas_desconectado)
+              VALUES ('alerta_12h', $1, $2)
+            `, [
+              `APIs de tipo de cambio desconectadas por ${Math.floor(horas)} horas`,
+              Math.floor(horas)
+            ]);
+
+            // Marcar alerta activa
+            await pool.query('UPDATE exchange_rate_system_status SET alerta_activa = TRUE');
+
+            // Notificar a administradores y directores
+            const admins = await pool.query(`
+              SELECT id FROM users 
+              WHERE role IN ('super_admin', 'admin', 'director') 
+              AND estado = TRUE
+            `);
+
+            for (const admin of admins.rows) {
+              await pool.query(`
+                INSERT INTO notifications (user_id, title, message, type, icon, action_url)
+                VALUES ($1, $2, $3, 'warning', 'alert-circle', '/admin/exchange-rates')
+              `, [
+                admin.id,
+                '🚨 Alerta de Tipo de Cambio',
+                `El sistema lleva ${Math.floor(horas)} horas sin conexión a las APIs de tipo de cambio. Se está usando el último valor conocido ($${result.rate.toFixed(2)}).`
+              ]);
+            }
+
+            console.log(`📧 [CRON] Notificaciones enviadas a ${admins.rows.length} administradores`);
+          }
+        }
+      } else {
+        // API conectada, actualizar todos los tipos de cambio
+        const configs = await pool.query(
+          'SELECT id, sobreprecio, sobreprecio_porcentaje FROM exchange_rate_config WHERE usar_api = TRUE'
+        );
+
+        for (const config of configs.rows) {
+          let tcFinal = result.rate;
+          if (config.sobreprecio) tcFinal += parseFloat(config.sobreprecio);
+          if (config.sobreprecio_porcentaje) tcFinal += result.rate * (parseFloat(config.sobreprecio_porcentaje) / 100);
+
+          await pool.query(`
+            UPDATE exchange_rate_config 
+            SET tipo_cambio_final = $1, 
+                ultimo_tc_api = $2,
+                ultima_conexion_api = CURRENT_TIMESTAMP,
+                api_activa = TRUE,
+                horas_sin_api = 0
+            WHERE id = $3
+          `, [tcFinal, result.rate, config.id]);
+        }
+
+        console.log(`💱 [CRON] ${configs.rows.length} servicios actualizados con TC desde API`);
+      }
+
+    } catch (error) {
+      console.error('❌ [CRON] Error en verificación de tipo de cambio:', error);
+    }
+  });
+
+  console.log('📅 [CRON] Job de tipo de cambio programado cada hora (:30)');
+};
+
+/**
  * Inicializar todos los CRON jobs
  */
 export const initCronJobs = () => {
@@ -429,6 +529,7 @@ export const initCronJobs = () => {
   startCreditBlockingCron();
   startFleetAlertsCron();
   startDriverLicenseCheckCron();
+  startExchangeRateCheckCron();
 };
 
 export default initCronJobs;

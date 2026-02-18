@@ -147,6 +147,17 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       return chinaAirLabels[status] || status;
     }
     
+    // 🚚 Labels para DHL Express
+    if (shipmentType === 'dhl') {
+      const dhlLabels: Record<string, string> = {
+        received_mty: '📦 Cedis MTY',
+        in_transit: '🚚 En Tránsito',
+        out_for_delivery: '🚛 En Reparto',
+        delivered: '✅ Entregado',
+      };
+      return dhlLabels[status] || status;
+    }
+    
     // Labels para aéreo (USA)
     const statusLabels: Record<string, string> = {
       received: t('status.inWarehouse'),
@@ -221,8 +232,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   };
 
   // 🔥 Lógica de Selección (Toggle) - Solo si está verificado (o empleado onboarded)
-  // No permite mezclar paquetes USA con marítimos
-  const toggleSelection = (id: number, isMaritime: boolean) => {
+  // No permite mezclar paquetes de diferentes tipos de envío
+  const toggleSelection = (id: number, shipmentType: string | undefined) => {
     // Los empleados que completaron onboarding pueden operar sin verificación de cliente
     const canOperate = isEmployee ? isEmployeeOnboarded : isUserVerified;
     
@@ -257,17 +268,31 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       return;
     }
     
-    // Si ya hay paquetes seleccionados, verificar que sean del mismo tipo
+    // Si ya hay paquetes seleccionados, verificar que sean del mismo tipo de envío
     if (selectedIds.length > 0) {
       const firstSelectedPkg = packages.find(p => selectedIds.includes(p.id));
-      const firstIsMaritime = (firstSelectedPkg as any)?.shipment_type === 'maritime';
+      const firstShipmentType = (firstSelectedPkg as any)?.shipment_type || 'air';
+      const currentShipmentType = shipmentType || 'air';
       
-      if (firstIsMaritime !== isMaritime) {
+      // Agrupar tipos: USA (air, undefined) vs Maritime vs China Air vs DHL
+      const getTypeGroup = (type: string | undefined) => {
+        if (!type || type === 'air') return 'usa';
+        return type; // 'maritime', 'china_air', 'dhl'
+      };
+      
+      const firstGroup = getTypeGroup(firstShipmentType);
+      const currentGroup = getTypeGroup(currentShipmentType);
+      
+      if (firstGroup !== currentGroup) {
+        const typeNames: Record<string, string> = {
+          'usa': 'USA',
+          'maritime': 'Marítimos',
+          'china_air': 'TDI Aéreo China',
+          'dhl': 'DHL'
+        };
         Alert.alert(
           '⚠️ No puedes mezclar envíos',
-          isMaritime 
-            ? 'Ya tienes paquetes USA seleccionados. Deselecciónalos primero para seleccionar paquetes marítimos.'
-            : 'Ya tienes paquetes marítimos seleccionados. Deselecciónalos primero para seleccionar paquetes USA.',
+          `Ya tienes paquetes ${typeNames[firstGroup]} seleccionados. Deselecciónalos primero para seleccionar paquetes ${typeNames[currentGroup]}.`,
           [{ text: 'Entendido', style: 'default' }]
         );
         return;
@@ -330,15 +355,19 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // ✈️🇨🇳 Es paquete TDI Aéreo China?
     const isChinaAir = item.shipment_type === 'china_air';
     
+    // 🚚 Es paquete DHL Express?
+    const isDHL = item.shipment_type === 'dhl';
+    
     // ¿Ya tiene instrucciones de entrega asignadas?
     const hasDeliveryInstructions = !!(item as any).delivery_address_id;
     
-    // Solo permitimos seleccionar paquetes en bodega (USA) o recibidos en China (marítimo/china_air) Y usuario verificado
-    // Para marítimos/china_air: NO seleccionable si ya tiene instrucciones asignadas
+    // Solo permitimos seleccionar paquetes en bodega (USA) o recibidos en China (marítimo/china_air) o DHL en Cedis Y usuario verificado
+    // Para marítimos/china_air/dhl: NO seleccionable si ya tiene instrucciones asignadas
     const isSelectable = isUserVerified && (
-      (!isMaritime && !isChinaAir && item.status === 'received') || 
+      (!isMaritime && !isChinaAir && !isDHL && item.status === 'received') || 
       (isMaritime && ['received_china', 'in_transit', 'at_port'].includes(item.status) && !hasDeliveryInstructions) ||
-      (isChinaAir && ['received_origin', 'in_transit', 'at_customs'].includes(item.status) && !hasDeliveryInstructions)
+      (isChinaAir && ['received_origin', 'in_transit', 'at_customs'].includes(item.status) && !hasDeliveryInstructions) ||
+      (isDHL && ['received_mty'].includes(item.status) && !hasDeliveryInstructions)
     );
     const isSelected = selectedIds.includes(item.id);
     
@@ -359,8 +388,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
            item.consolidation_status !== 'shipped'));
 
     const handlePress = () => {
-      // Si es marítimo o china_air con instrucciones asignadas, navegar a detalle del embarque
-      if ((isMaritime || isChinaAir) && hasDeliveryInstructions) {
+      // Si es marítimo, china_air o DHL con instrucciones asignadas, navegar a detalle del embarque
+      if ((isMaritime || isChinaAir || isDHL) && hasDeliveryInstructions) {
         navigation.navigate('MaritimeDetail', {
           package: item,
           user,
@@ -369,7 +398,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         return;
       }
       if (isSelectable) {
-        toggleSelection(item.id, isMaritime || isChinaAir);
+        toggleSelection(item.id, item.shipment_type);
       }
     };
     
@@ -382,7 +411,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       });
     };
 
-    // 🚢✈️ Navegar a instrucciones de entrega (marítimo y china_air)
+    // 🚢✈️🚚 Navegar a instrucciones de entrega (marítimo, china_air y DHL)
     const handleDeliveryInstructions = () => {
       navigation.navigate('DeliveryInstructions', {
         package: item,
@@ -391,12 +420,14 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       });
     };
 
-    // 🚢✈️ Mostrar botón de instrucciones para paquetes marítimos y china_air (solo cuando está seleccionado)
+    // 🚢✈️🚚 Mostrar botón de instrucciones para paquetes marítimos, china_air y DHL (solo cuando está seleccionado)
     // Solo mostrar si NO ha asignado dirección todavía
-    const canAssignDelivery = isSelected && (isMaritime || isChinaAir) && 
+    const canAssignDelivery = isSelected && (isMaritime || isChinaAir || isDHL) && 
       (isMaritime 
         ? ['received_china', 'in_transit', 'at_port'].includes(item.status)
-        : ['received_origin', 'in_transit', 'at_customs'].includes(item.status)) &&
+        : isChinaAir 
+          ? ['received_origin', 'in_transit', 'at_customs'].includes(item.status)
+          : ['received_mty'].includes(item.status)) &&
       !(item as any).delivery_address_id;
 
     return (
@@ -482,8 +513,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     </View>
                   )}
                   
-                  {/* ✅ Badge de Instrucciones Asignadas (Marítimo y China Air) */}
-                  {(isMaritime || isChinaAir) && hasDeliveryInstructions && (
+                  {/* ✅ Badge de Instrucciones Asignadas (Marítimo, China Air y DHL) */}
+                  {(isMaritime || isChinaAir || isDHL) && hasDeliveryInstructions && (
                     <Pressable 
                       style={styles.deliveryAssignedBadge}
                       onPress={handleDeliveryInstructions}
@@ -502,16 +533,16 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     <Text style={styles.infoText}>{item.weight ? `${item.weight} kg` : '--'}</Text>
                   </View>
                   <View style={styles.infoItem}>
-                    <Text style={styles.infoIcon}>{isMaritime || isChinaAir ? '📦' : '📏'}</Text>
+                    <Text style={styles.infoIcon}>{isMaritime || isChinaAir || isDHL ? '📦' : '📏'}</Text>
                     <Text style={styles.infoText}>
-                      {isMaritime || isChinaAir
-                        ? ((item as any).volume ? `${(item as any).volume} m³` : '--')
+                      {isMaritime || isChinaAir || isDHL
+                        ? ((item as any).volume ? `${(item as any).volume} m³` : (item.dimensions || '--'))
                         : (item.dimensions || '--')}
                     </Text>
                   </View>
                   {item.carrier && (
                     <View style={styles.infoItem}>
-                      <Text style={styles.infoIcon}>{isMaritime ? '🚢' : isChinaAir ? '✈️' : '🚚'}</Text>
+                      <Text style={styles.infoIcon}>{isMaritime ? '🚢' : isChinaAir ? '✈️' : isDHL ? '🚚' : '🚚'}</Text>
                       <Text style={styles.infoText}>{item.carrier}</Text>
                     </View>
                   )}
@@ -697,7 +728,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             >
               <Ionicons name="location-outline" size={24} color={BLACK} />
               <Text style={styles.menuItemText}>{t('profile.myAddresses')}</Text>
-              <Ionicons name="chevron-forward" size={20} color="#999" />
+              <Ionicons name="chevron-forward" size={20} color="#ccc" />
             </TouchableOpacity>
 
             <TouchableOpacity 
@@ -709,7 +740,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             >
               <Ionicons name="wallet-outline" size={24} color={BLACK} />
               <Text style={styles.menuItemText}>{t('profile.myPaymentMethods')}</Text>
-              <Ionicons name="chevron-forward" size={20} color="#999" />
+              <Ionicons name="chevron-forward" size={20} color="#ccc" />
             </TouchableOpacity>
 
             <TouchableOpacity 
@@ -719,9 +750,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 navigation.navigate('MyPayments' as any, { user, token });
               }}
             >
-              <Ionicons name="receipt-outline" size={24} color={ORANGE} />
-              <Text style={[styles.menuItemText, { color: ORANGE, fontWeight: '600' }]}>💳 Mis Cuentas por Pagar</Text>
-              <Ionicons name="chevron-forward" size={20} color={ORANGE} />
+              <Ionicons name="receipt-outline" size={24} color={BLACK} />
+              <Text style={styles.menuItemText}>Mis Cuentas por Pagar</Text>
+              <Ionicons name="chevron-forward" size={20} color="#ccc" />
             </TouchableOpacity>
             </>
             )}
@@ -735,7 +766,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             >
               <Ionicons name="person-circle-outline" size={24} color={BLACK} />
               <Text style={styles.menuItemText}>{t('profile.title')}</Text>
-              <Ionicons name="chevron-forward" size={20} color="#999" />
+              <Ionicons name="chevron-forward" size={20} color="#ccc" />
             </TouchableOpacity>
 
             {/* Opciones solo para clientes */}
@@ -748,9 +779,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 navigation.navigate('RequestAdvisor', { user, token });
               }}
             >
-              <Ionicons name="people-outline" size={24} color={ORANGE} />
-              <Text style={[styles.menuItemText, { color: ORANGE }]}>{t('profile.requestAdvisor')}</Text>
-              <Ionicons name="chevron-forward" size={20} color={ORANGE} />
+              <Ionicons name="people-outline" size={24} color={BLACK} />
+              <Text style={styles.menuItemText}>{t('profile.requestAdvisor')}</Text>
+              <Ionicons name="chevron-forward" size={20} color="#ccc" />
             </TouchableOpacity>
 
             <TouchableOpacity 
@@ -762,7 +793,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             >
               <Ionicons name="chatbubbles-outline" size={24} color="#2196F3" />
               <Text style={[styles.menuItemText, { color: '#2196F3' }]}>{t('profile.helpCenter')}</Text>
-              <Ionicons name="chevron-forward" size={20} color="#2196F3" />
+              <Ionicons name="chevron-forward" size={20} color="#ccc" />
             </TouchableOpacity>
             </>
             )}
@@ -913,81 +944,13 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         </View>
       )}
 
-      {/* 🎯 OPPORTUNITY CAROUSEL - "El Punto Caliente" - Solo para clientes */}
-      {!isEmployee && (
-      <OpportunityCarousel 
-        onOpportunityPress={(opportunity) => {
-          // Manejar navegación basada en ctaAction
-          const action = opportunity.ctaAction;
-          if (action.startsWith('navigate:')) {
-            const screenName = action.replace('navigate:', '');
-            if (screenName === 'GEXPromo') {
-              // Mostrar alerta informativa sobre GEX
-              Alert.alert(
-                '🛡️ Garantía Extendida GEX',
-                'Protege tu carga contra daños, pérdida o robo por solo el 5% del valor declarado.\n\n✅ Cobertura total\n✅ Proceso de reclamo en 24hrs\n✅ Sin deducibles',
-                [
-                  { text: 'Ahora no', style: 'cancel' },
-                  { 
-                    text: 'Activar en mis paquetes', 
-                    onPress: () => {
-                      // Scroll a la lista de paquetes
-                    }
-                  }
-                ]
-              );
-            } else if (screenName === 'RequestAdvisor') {
-              navigation.navigate('RequestAdvisor', { user, token });
-            }
-          } else if (action.startsWith('modal:')) {
-            const modalType = action.replace('modal:', '');
-            if (modalType === 'referral') {
-              Alert.alert(
-                '🎁 Programa de Referidos',
-                `¡Comparte tu código y gana!\n\nTu código: ${user.boxId}\n\nPor cada amigo que haga su primer envío, ambos reciben $500 MXN de crédito.`,
-                [
-                  { text: 'Cerrar', style: 'cancel' },
-                  { text: 'Compartir Código', onPress: () => {} }
-                ]
-              );
-            }
-          }
-        }}
-      />
-      )}
-
-      {/* 🎯 Filtros de Servicio */}
-      <View style={styles.serviceFilters}>
-        <Pressable
-          style={[styles.filterChip, serviceFilter === 'air' && styles.filterChipActive]}
-          onPress={() => setServiceFilter(serviceFilter === 'air' ? null : 'air')}
-        >
-          <Text style={styles.filterIcon}>✈️</Text>
-          <Text style={[styles.filterText, serviceFilter === 'air' && styles.filterTextActive]}>Aéreo</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.filterChip, serviceFilter === 'maritime' && styles.filterChipActive]}
-          onPress={() => setServiceFilter(serviceFilter === 'maritime' ? null : 'maritime')}
-        >
-          <Text style={styles.filterIcon}>🚢</Text>
-          <Text style={[styles.filterText, serviceFilter === 'maritime' && styles.filterTextActive]}>Marítimo</Text>
-        </Pressable>
-        <Pressable
-          style={[styles.filterChip, serviceFilter === 'usa' && styles.filterChipActive]}
-          onPress={() => setServiceFilter(serviceFilter === 'usa' ? null : 'usa')}
-        >
-          <Text style={styles.filterIcon}>🚚</Text>
-          <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>Terrestre</Text>
-        </Pressable>
-      </View>
-
-      {/* Lista de paquetes */}
+      {/* Lista de paquetes con Carrusel y Filtros en el Header */}
       <FlatList
         data={packages.filter(pkg => {
           if (serviceFilter === null) return true;
           if (serviceFilter === 'air') return pkg.shipment_type === 'china_air';
           if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime';
-          if (serviceFilter === 'usa') return !pkg.shipment_type || pkg.shipment_type === 'air';
+          if (serviceFilter === 'usa') return !pkg.shipment_type || pkg.shipment_type === 'air' || pkg.shipment_type === 'dhl';
           return true;
         })}
         renderItem={renderPackageCard}
@@ -1001,6 +964,77 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             tintColor={ORANGE}
           />
         }
+        ListHeaderComponent={
+          <>
+            {/* 🎯 OPPORTUNITY CAROUSEL - "El Punto Caliente" - Solo para clientes */}
+            {!isEmployee && (
+              <OpportunityCarousel 
+                onOpportunityPress={(opportunity) => {
+                  // Manejar navegación basada en ctaAction
+                  const action = opportunity.ctaAction;
+                  if (action.startsWith('navigate:')) {
+                    const screenName = action.replace('navigate:', '');
+                    if (screenName === 'GEXPromo') {
+                      // Mostrar alerta informativa sobre GEX
+                      Alert.alert(
+                        '🛡️ Garantía Extendida GEX',
+                        'Protege tu carga contra daños, pérdida o robo por solo el 5% del valor declarado.\n\n✅ Cobertura total\n✅ Proceso de reclamo en 24hrs\n✅ Sin deducibles',
+                        [
+                          { text: 'Ahora no', style: 'cancel' },
+                          { 
+                            text: 'Activar en mis paquetes', 
+                            onPress: () => {
+                              // Scroll a la lista de paquetes
+                            }
+                          }
+                        ]
+                      );
+                    } else if (screenName === 'RequestAdvisor') {
+                      navigation.navigate('RequestAdvisor', { user, token });
+                    }
+                  } else if (action.startsWith('modal:')) {
+                    const modalType = action.replace('modal:', '');
+                    if (modalType === 'referral') {
+                      Alert.alert(
+                        '🎁 Programa de Referidos',
+                        `¡Comparte tu código y gana!\n\nTu código: ${user.boxId}\n\nPor cada amigo que haga su primer envío, ambos reciben $500 MXN de crédito.`,
+                        [
+                          { text: 'Cerrar', style: 'cancel' },
+                          { text: 'Compartir Código', onPress: () => {} }
+                        ]
+                      );
+                    }
+                  }
+                }}
+              />
+            )}
+
+            {/* 🎯 Filtros de Servicio */}
+            <View style={styles.serviceFilters}>
+              <Pressable
+                style={[styles.filterChip, serviceFilter === 'air' && styles.filterChipActive]}
+                onPress={() => setServiceFilter(serviceFilter === 'air' ? null : 'air')}
+              >
+                <Text style={styles.filterIcon}>✈️</Text>
+                <Text style={[styles.filterText, serviceFilter === 'air' && styles.filterTextActive]}>Aéreo</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.filterChip, serviceFilter === 'maritime' && styles.filterChipActive]}
+                onPress={() => setServiceFilter(serviceFilter === 'maritime' ? null : 'maritime')}
+              >
+                <Text style={styles.filterIcon}>🚢</Text>
+                <Text style={[styles.filterText, serviceFilter === 'maritime' && styles.filterTextActive]}>Marítimo</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.filterChip, serviceFilter === 'usa' && styles.filterChipActive]}
+                onPress={() => setServiceFilter(serviceFilter === 'usa' ? null : 'usa')}
+              >
+                <Text style={styles.filterIcon}>🚚</Text>
+                <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>Terrestre</Text>
+              </Pressable>
+            </View>
+          </>
+        }
         ListEmptyComponent={renderEmptyList}
         showsVerticalScrollIndicator={false}
       />
@@ -1008,16 +1042,20 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       {/* 🔥 FAB para ENVIAR - Solo aparece si hay selección */}
       {selectedIds.length > 0 && (() => {
         const firstSelectedPkg = packages.find(p => selectedIds.includes(p.id));
-        const isMaritimeSelection = (firstSelectedPkg as any)?.shipment_type === 'maritime';
+        const shipmentType = (firstSelectedPkg as any)?.shipment_type;
+        const isMaritimeSelection = shipmentType === 'maritime';
+        const isChinaAirSelection = shipmentType === 'china_air';
+        const isDHLSelection = shipmentType === 'dhl';
+        const needsInstructions = isMaritimeSelection || isChinaAirSelection || isDHLSelection;
         return (
           <FAB
-            icon={isMaritimeSelection ? "ferry" : "airplane-takeoff"}
-            label={isMaritimeSelection 
+            icon={needsInstructions ? (isMaritimeSelection ? "ferry" : isChinaAirSelection ? "airplane" : "truck-delivery") : "airplane-takeoff"}
+            label={needsInstructions 
               ? `Asignar Instrucciones (${selectedIds.length})`
               : `${t('home.requestConsolidation')} (${selectedIds.length})`}
             style={styles.fabSend}
             color="white"
-            onPress={isMaritimeSelection ? handleMaritimeInstructions : handleConsolidate}
+            onPress={needsInstructions ? handleMaritimeInstructions : handleConsolidate}
           />
         );
       })()}

@@ -676,8 +676,69 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             gex_folio: pkg.gex_folio || null
         }));
 
+        // 4. Paquetes DHL (dhl_shipments)
+        const dhlResult = await pool.query(`
+            SELECT ds.*, u.full_name, u.box_id
+            FROM dhl_shipments ds
+            LEFT JOIN users u ON ds.user_id = u.id
+            WHERE ds.user_id = $1
+            ORDER BY ds.created_at DESC
+        `, [userId]);
+
+        const dhlPackages = dhlResult.rows.map(pkg => {
+            // Mapear estado DHL a estado visual
+            const getDhlStatusLabel = (status: string): string => {
+                const labels: Record<string, string> = {
+                    'pending_inspection': '🔍 Pendiente Inspección',
+                    'received_mty': '📦 Recibido MTY',
+                    'inspected': '✅ Inspeccionado',
+                    'pending_payment': '💳 Pendiente de Pago',
+                    'paid': '✅ Pagado',
+                    'dispatched': '🚚 Enviado',
+                    'delivered': '✅ Entregado'
+                };
+                return labels[status] || status;
+            };
+
+            return {
+                id: pkg.id + 300000, // Offset para evitar colisión de IDs
+                tracking_internal: pkg.inbound_tracking,
+                tracking_provider: pkg.national_tracking || null,
+                description: pkg.description || 'Paquete DHL',
+                weight: pkg.weight_kg ? parseFloat(pkg.weight_kg) : null,
+                dimensions: pkg.length_cm && pkg.width_cm && pkg.height_cm 
+                    ? `${pkg.length_cm}×${pkg.width_cm}×${pkg.height_cm} cm` 
+                    : null,
+                declared_value: pkg.import_cost_usd ? parseFloat(pkg.import_cost_usd) : null,
+                status: pkg.status,
+                statusLabel: getDhlStatusLabel(pkg.status),
+                carrier: pkg.national_carrier || 'DHL Express',
+                destination_city: 'MTY',
+                destination_country: 'MX',
+                image_url: pkg.photos && pkg.photos.length > 0 ? pkg.photos[0] : null,
+                is_master: false,
+                total_boxes: 1,
+                received_at: pkg.inspected_at || pkg.created_at,
+                delivered_at: pkg.status === 'delivered' ? pkg.updated_at : null,
+                created_at: pkg.created_at,
+                consolidation_id: null,
+                consolidation_status: null,
+                warehouse_location: 'mx_cedis',
+                service_type: 'AA_DHL',
+                shipment_type: 'dhl',
+                // Info específica DHL
+                import_cost_mxn: pkg.import_cost_mxn ? parseFloat(pkg.import_cost_mxn) : null,
+                national_cost_mxn: pkg.national_cost_mxn ? parseFloat(pkg.national_cost_mxn) : null,
+                total_cost_mxn: pkg.total_cost_mxn ? parseFloat(pkg.total_cost_mxn) : null,
+                paid_at: pkg.paid_at,
+                // GEX
+                has_gex: pkg.has_gex || false,
+                gex_folio: pkg.gex_folio || null
+            };
+        });
+
         // Combinar todos los tipos
-        const allPackages = [...airPackages, ...maritimePackages, ...chinaAirPackages];
+        const allPackages = [...airPackages, ...maritimePackages, ...chinaAirPackages, ...dhlPackages];
         
         // Ordenar por fecha de creación
         allPackages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());

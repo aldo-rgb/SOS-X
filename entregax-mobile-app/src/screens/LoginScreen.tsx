@@ -17,7 +17,7 @@ import {
 } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { loginApi, api } from '../services/api';
-import { EMPLOYEE_ROLES } from '../../App';
+import { EMPLOYEE_ROLES } from '../constants/roles';
 
 // Colores de marca
 const ORANGE = '#F05A28';

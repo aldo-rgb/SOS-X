@@ -226,7 +226,7 @@ export default function DhlRatesPage() {
             <CardContent>
               <Typography variant="subtitle2" color="text.secondary">Tarifa High Value</Typography>
               <Typography variant="h5" fontWeight="bold">${highValueRate} USD</Typography>
-              <Typography variant="caption" color="text.secondary">Refacciones</Typography>
+              <Typography variant="caption" color="text.secondary">Sensibles</Typography>
             </CardContent>
           </Card>
         </Grid>
@@ -532,7 +532,7 @@ export default function DhlRatesPage() {
             InputProps={{
               startAdornment: <InputAdornment position="start">$</InputAdornment>
             }}
-            helperText="Refacciones y productos de alto valor"
+            helperText="Sensibles"
           />
           
           <Divider sx={{ my: 2 }} />

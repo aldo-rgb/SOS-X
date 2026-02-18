@@ -309,7 +309,7 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
           length_cm: dimensions.length || 30,
           width_cm: dimensions.width || 20,
           height_cm: dimensions.height || 15,
-          description: productType === 'standard' ? 'Accesorios/Mixto' : 'Refacciones Auto',
+          description: productType === 'standard' ? 'Low' : 'High',
         })
       });
 
@@ -479,7 +479,7 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
         >
           <Ionicons name="construct-outline" size={60} color="#ff9800" />
           <Text style={styles.classifyButtonTitle}>High Value</Text>
-          <Text style={styles.classifyButtonSubtitle}>Refacciones Auto</Text>
+          <Text style={styles.classifyButtonSubtitle}>High</Text>
         </TouchableOpacity>
       </View>
     </View>
