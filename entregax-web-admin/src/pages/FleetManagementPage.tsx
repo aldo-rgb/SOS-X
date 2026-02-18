@@ -477,8 +477,8 @@ export default function FleetManagementPage() {
     }
   };
 
-  // Skeleton para KPI cards
-  const KpiSkeleton = () => (
+  // Skeleton para KPI cards (disponible para uso futuro)
+  const _KpiSkeleton = () => (
     <Card>
       <CardContent sx={{ textAlign: 'center', py: 2 }}>
         <Skeleton variant="text" width={60} height={50} sx={{ mx: 'auto' }} />
@@ -486,6 +486,7 @@ export default function FleetManagementPage() {
       </CardContent>
     </Card>
   );
+  void _KpiSkeleton; // Evitar warning de unused
 
   return (
     <Box>
