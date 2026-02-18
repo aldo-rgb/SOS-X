@@ -66,7 +66,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 interface Draft {
     id: number;
-    document_type: 'LOG' | 'BL';
+    document_type: 'LOG' | 'BL' | 'LCL' | 'FCL';
     extracted_data: any;
     confidence: string;
     pdf_url: string;
