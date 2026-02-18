@@ -771,24 +771,51 @@ Responde SOLO con JSON válido, sin explicaciones.`;
   console.log('📤 Enviando imagen a OpenAI GPT-4o Vision...');
   console.log('📤 Tamaño de imagen enviada:', imageUrl.length, 'caracteres');
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      { 
-        role: "system", 
-        content: "Eres un experto en documentos de comercio internacional marítimo, especialmente Bills of Lading (BL). SIEMPRE respondes con JSON válido sin markdown. Extraes datos con precisión máxima, especialmente B/L Number, S/O Number, Container Number, peso y volumen." 
-      },
-      { 
-        role: "user", 
-        content: [
-          { type: "text", text: prompt }, 
-          { type: "image_url", image_url: { url: imageUrl, detail: "high" } }
-        ] 
+  // Intentar primero con detail "low" para evitar rechazos por tamaño
+  // Si falla, reintentar con "high"
+  let response;
+  let attempts = [{ detail: 'low' as const }, { detail: 'high' as const }];
+  
+  for (const attempt of attempts) {
+    try {
+      console.log(`📤 Intento con detail: ${attempt.detail}`);
+      response = await openai.chat.completions.create({
+        model: "gpt-4o",
+        messages: [
+          { 
+            role: "system", 
+            content: "Eres un asistente experto en análisis de documentos de comercio internacional marítimo. Tu tarea es extraer información estructurada de Bills of Lading (BL). SIEMPRE respondes con JSON válido sin markdown ni explicaciones adicionales. Extraes datos con precisión máxima." 
+          },
+          { 
+            role: "user", 
+            content: [
+              { type: "text", text: prompt }, 
+              { type: "image_url", image_url: { url: imageUrl, detail: attempt.detail } }
+            ] 
+          }
+        ],
+        max_tokens: 2500,
+        temperature: 0.1,
+      });
+      
+      const content = response.choices[0]?.message?.content || '';
+      // Verificar que la respuesta no sea un rechazo
+      if (!content.includes("I'm sorry") && !content.includes("I cannot") && !content.includes("Lo siento") && content.includes('{')) {
+        console.log(`✅ Respuesta válida obtenida con detail: ${attempt.detail}`);
+        break;
+      } else {
+        console.log(`⚠️ Respuesta rechazada/inválida con detail: ${attempt.detail}, reintentando...`);
+        response = null;
       }
-    ],
-    max_tokens: 2500,
-    temperature: 0.1,  // Baja temperatura para más precisión
-  });
+    } catch (e: any) {
+      console.error(`❌ Error con detail ${attempt.detail}:`, e.message);
+    }
+  }
+  
+  if (!response) {
+    console.error('❌ No se pudo obtener respuesta válida de OpenAI');
+    return {};
+  }
 
   const rawContent = response.choices[0]?.message?.content || '{}';
   console.log('🤖 OpenAI respuesta BL completa:');
