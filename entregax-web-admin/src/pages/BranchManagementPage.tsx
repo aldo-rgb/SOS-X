@@ -88,19 +88,6 @@ const AVAILABLE_SERVICES = [
   { value: 'ALL', label: 'Todos los servicios' },
 ];
 
-const MEXICAN_CITIES = [
-  'Monterrey',
-  'Ciudad de México',
-  'Guadalajara',
-  'Querétaro',
-  'Tijuana',
-  'León',
-  'Puebla',
-  'Mérida',
-  'Cancún',
-  'Aguascalientes',
-];
-
 export default function BranchManagementPage() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [users, setUsers] = useState<User[]>([]);
