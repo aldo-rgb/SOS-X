@@ -610,14 +610,12 @@ export default function BranchManagementPage() {
 
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, md: 6 }}>
-                <Autocomplete
-                  options={MEXICAN_CITIES}
+                <TextField
+                  label="Ciudad"
                   value={branchForm.city}
-                  onChange={(_, value) => setBranchForm({ ...branchForm, city: value || '' })}
-                  freeSolo
-                  renderInput={(params) => (
-                    <TextField {...params} label="Ciudad" placeholder="Seleccionar o escribir..." />
-                  )}
+                  onChange={(e) => setBranchForm({ ...branchForm, city: e.target.value })}
+                  placeholder="Ej: Monterrey, Hidalgo TX, etc."
+                  fullWidth
                 />
               </Grid>
               <Grid size={{ xs: 12, md: 6 }}>
@@ -784,7 +782,7 @@ export default function BranchManagementPage() {
           <Button 
             variant="contained" 
             onClick={handleSaveBranch}
-            disabled={!branchForm.name || !branchForm.code || !branchForm.city}
+            disabled={!branchForm.name || !branchForm.code}
           >
             {editingBranch ? 'Guardar Cambios' : 'Crear Sucursal'}
           </Button>
