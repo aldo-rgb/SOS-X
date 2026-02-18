@@ -96,8 +96,6 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
   const [filterType, setFilterType] = useState<string>('all');
   const [error, setError] = useState<string | null>(null);
 
-  const token = localStorage.getItem('token');
-
   // Cargar sucursales
   useEffect(() => {
     fetchBranches();

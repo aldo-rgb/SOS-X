@@ -65,7 +65,7 @@ interface ClientInfo {
 // Wizard Steps - Ahora con Cliente primero
 const STEPS = ['Cliente', 'Escanear', 'Clasificar', 'Peso', 'Medidas'];
 
-export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlReceptionWizardProps) {
+export default function DhlReceptionWizard({ open, onClose, onSuccess: _onSuccess }: DhlReceptionWizardProps) {
   // Wizard state
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
