@@ -1017,60 +1017,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                     );
                 })}
 
-                {/* Tarjeta especial: Garantía Extendida GEX */}
-                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
-                        <CardActionArea
-                            onClick={() => setShowGex(true)}
-                            sx={{ height: '100%' }}
-                        >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #00897B 0%, #4DB6AC 100%)',
-                                    p: 3,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <SecurityIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    🇲🇽
-                                </Typography>
-                            </Box>
-                            <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
-                                    {t('Modulo GEX')}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                    {t('panels.gex.description')}
-                                </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    5 {t('panels.modulesAvailable')}
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="GEX" size="small" sx={{ bgcolor: '#00897B', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="Pólizas" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="Seguros" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
-                            </CardContent>
-                        </CardActionArea>
-                    </Card>
-                </Grid>
-
-                {/* Tarjeta especial: Verificaciones KYC */}
+                {/* Tarjeta especial: Verificaciones KYC - ROJO */}
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
                         sx={{
@@ -1088,7 +1035,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         >
                             <Box
                                 sx={{
-                                    background: 'linear-gradient(135deg, #303F9F 0%, #5C6BC0 100%)',
+                                    background: 'linear-gradient(135deg, #C62828 0%, #EF5350 100%)',
                                     p: 3,
                                     display: 'flex',
                                     alignItems: 'center',
@@ -1104,17 +1051,17 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                             </Box>
                             <CardContent>
                                 <Typography variant="h6" fontWeight="bold" gutterBottom>
-                                    {t('Verificaciones de Identidad')}
+                                    Verificaciones de Identidad
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                    {t('panels.verifications.description')}
+                                    Revisión y aprobación de documentos KYC de usuarios
                                 </Typography>
                                 <Divider sx={{ my: 1 }} />
                                 <Typography variant="caption" color="text.secondary">
-                                    3 {t('panels.modulesAvailable')}
+                                    3 módulos disponibles
                                 </Typography>
                                 <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="KYC" size="small" sx={{ bgcolor: '#303F9F', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="KYC" size="small" sx={{ bgcolor: '#C62828', color: 'white', fontSize: '0.7rem' }} />
                                     <Chip label="INE/Pasaporte" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                     <Chip label="Revisión" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                 </Box>
@@ -1123,7 +1070,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                     </Card>
                 </Grid>
 
-                {/* Tarjeta especial: Pago a Proveedores */}
+                {/* Tarjeta especial: Pago a Proveedores - NARANJA */}
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
                         sx={{
@@ -1141,7 +1088,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         >
                             <Box
                                 sx={{
-                                    background: 'linear-gradient(135deg, #F57C00 0%, #FFB74D 100%)',
+                                    background: 'linear-gradient(135deg, #E65100 0%, #FF9800 100%)',
                                     p: 3,
                                     display: 'flex',
                                     alignItems: 'center',
@@ -1157,17 +1104,17 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                             </Box>
                             <CardContent>
                                 <Typography variant="h6" fontWeight="bold" gutterBottom>
-                                    {t('Pago a Proveedores')}
+                                    Pago a Proveedores
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                    {t('panels.supplierPayments.description')}
+                                    Gestión de pagos a proveedores internacionales
                                 </Typography>
                                 <Divider sx={{ my: 1 }} />
                                 <Typography variant="caption" color="text.secondary">
-                                    {t('panels.inDevelopment')}
+                                    En desarrollo
                                 </Typography>
                                 <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="Pagos" size="small" sx={{ bgcolor: '#F57C00', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="Pagos" size="small" sx={{ bgcolor: '#E65100', color: 'white', fontSize: '0.7rem' }} />
                                     <Chip label="Proveedores" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                     <Chip label="China" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                 </Box>
@@ -1176,7 +1123,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                     </Card>
                 </Grid>
 
-                {/* Tarjeta especial: Matriz de Permisos (Solo Super Admin) */}
+                {/* Tarjeta especial: Matriz de Permisos - AMARILLO */}
                 {isSuperAdmin && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
@@ -1195,7 +1142,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         >
                             <Box
                                 sx={{
-                                    background: 'linear-gradient(135deg, #7B1FA2 0%, #CE93D8 100%)',
+                                    background: 'linear-gradient(135deg, #F9A825 0%, #FFEE58 100%)',
                                     p: 3,
                                     display: 'flex',
                                     alignItems: 'center',
@@ -1211,7 +1158,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                             </Box>
                             <CardContent>
                                 <Typography variant="h6" fontWeight="bold" gutterBottom>
-                                    {t('Matriz de Permisos')}
+                                    Matriz de Permisos
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                                     Configurar qué puede hacer cada rol en el sistema
@@ -1221,7 +1168,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                                     Solo Super Admin
                                 </Typography>
                                 <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="Roles" size="small" sx={{ bgcolor: '#7B1FA2', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="Roles" size="small" sx={{ bgcolor: '#F9A825', color: 'white', fontSize: '0.7rem' }} />
                                     <Chip label="Permisos" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                     <Chip label="Seguridad" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                 </Box>
@@ -1231,15 +1178,13 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                 </Grid>
                 )}
 
-                {/* Tarjeta especial: Gestión de Sucursales (Solo Super Admin) */}
+                {/* Tarjeta especial: Gestión de Sucursales - VERDE */}
                 {isSuperAdmin && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
                         sx={{
                             height: '100%',
                             transition: 'all 0.3s ease',
-                            border: '2px solid',
-                            borderColor: 'primary.main',
                             '&:hover': {
                                 transform: 'translateY(-8px)',
                                 boxShadow: 6,
@@ -1252,7 +1197,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         >
                             <Box
                                 sx={{
-                                    background: 'linear-gradient(135deg, #C1272D 0%, #F05A28 100%)',
+                                    background: 'linear-gradient(135deg, #2E7D32 0%, #66BB6A 100%)',
                                     p: 3,
                                     display: 'flex',
                                     alignItems: 'center',
@@ -1278,7 +1223,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                                     Solo Super Admin
                                 </Typography>
                                 <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="CEDIS" size="small" sx={{ bgcolor: '#F05A28', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="CEDIS" size="small" sx={{ bgcolor: '#2E7D32', color: 'white', fontSize: '0.7rem' }} />
                                     <Chip label="Empleados" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                     <Chip label="Servicios" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                 </Box>
@@ -1288,7 +1233,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                 </Grid>
                 )}
 
-                {/* Tarjeta especial: Migración de Clientes Legacy (Solo Super Admin) */}
+                {/* Tarjeta especial: Migración de Clientes - CIAN */}
                 {isSuperAdmin && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
@@ -1307,7 +1252,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         >
                             <Box
                                 sx={{
-                                    background: 'linear-gradient(135deg, #00695C 0%, #4DB6AC 100%)',
+                                    background: 'linear-gradient(135deg, #0097A7 0%, #4DD0E1 100%)',
                                     p: 3,
                                     display: 'flex',
                                     alignItems: 'center',
@@ -1333,7 +1278,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                                     Solo Super Admin
                                 </Typography>
                                 <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="Migración" size="small" sx={{ bgcolor: '#00695C', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="Migración" size="small" sx={{ bgcolor: '#0097A7', color: 'white', fontSize: '0.7rem' }} />
                                     <Chip label="Legacy" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                     <Chip label="Importar" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                 </Box>
@@ -1343,7 +1288,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                 </Grid>
                 )}
 
-                {/* Tarjeta especial: Gestión Financiera - Monedero y Crédito B2B */}
+                {/* Tarjeta especial: Gestión Financiera - AZUL */}
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
                         sx={{
@@ -1361,7 +1306,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         >
                             <Box
                                 sx={{
-                                    background: 'linear-gradient(135deg, #0097A7 0%, #26C6DA 100%)',
+                                    background: 'linear-gradient(135deg, #1565C0 0%, #42A5F5 100%)',
                                     p: 3,
                                     display: 'flex',
                                     alignItems: 'center',
@@ -1387,7 +1332,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                                     Admin / Super Admin
                                 </Typography>
                                 <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="Monedero" size="small" sx={{ bgcolor: '#0097A7', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="Monedero" size="small" sx={{ bgcolor: '#1565C0', color: 'white', fontSize: '0.7rem' }} />
                                     <Chip label="Crédito" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                     <Chip label="SPEI" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                 </Box>
@@ -1396,7 +1341,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                     </Card>
                 </Grid>
 
-                {/* Tarjeta especial: Cuentas por Cobrar - Multi-RFC */}
+                {/* Tarjeta especial: Cuentas por Cobrar - ÍNDIGO */}
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
                         sx={{
@@ -1414,7 +1359,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         >
                             <Box
                                 sx={{
-                                    background: 'linear-gradient(135deg, #F05A28 0%, #FF8A65 100%)',
+                                    background: 'linear-gradient(135deg, #303F9F 0%, #7986CB 100%)',
                                     p: 3,
                                     display: 'flex',
                                     alignItems: 'center',
@@ -1425,26 +1370,77 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                                     <ReceiptIcon sx={{ fontSize: 48 }} />
                                 </Box>
                                 <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    💳
+                                    📋
                                 </Typography>
                             </Box>
                             <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom color="text.primary">
+                                <Typography variant="h6" fontWeight="bold" gutterBottom>
                                     Cuentas por Cobrar
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                    Facturas de cobro por servicio (Multi-RFC). Cada empresa con su CLABE de Openpay.
+                                    Facturas de cobro por servicio (Multi-RFC)
                                 </Typography>
                                 <Divider sx={{ my: 1 }} />
                                 <Typography variant="caption" color="text.secondary">
                                     Admin / Super Admin
                                 </Typography>
                                 <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="✈️ Aéreo" size="small" sx={{ bgcolor: '#3498DB', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="🚢 Marítimo" size="small" sx={{ bgcolor: '#1ABC9C', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="🚛 Terrestre" size="small" sx={{ bgcolor: '#E67E22', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="📦 DHL" size="small" sx={{ bgcolor: '#F1C40F', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="📮 PO Box" size="small" sx={{ bgcolor: '#9B59B6', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="Facturas" size="small" sx={{ bgcolor: '#303F9F', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="Multi-RFC" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                    <Chip label="SPEI" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                </Box>
+                            </CardContent>
+                        </CardActionArea>
+                    </Card>
+                </Grid>
+
+                {/* Tarjeta especial: Módulo GEX - VIOLETA */}
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    <Card
+                        sx={{
+                            height: '100%',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                                transform: 'translateY(-8px)',
+                                boxShadow: 6,
+                            },
+                        }}
+                    >
+                        <CardActionArea
+                            onClick={() => setShowGex(true)}
+                            sx={{ height: '100%' }}
+                        >
+                            <Box
+                                sx={{
+                                    background: 'linear-gradient(135deg, #7B1FA2 0%, #BA68C8 100%)',
+                                    p: 3,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                }}
+                            >
+                                <Box sx={{ color: 'white' }}>
+                                    <SecurityIcon sx={{ fontSize: 48 }} />
+                                </Box>
+                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
+                                    🛡️
+                                </Typography>
+                            </Box>
+                            <CardContent>
+                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                    Módulo GEX
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                    Garantía extendida y pólizas de seguro
+                                </Typography>
+                                <Divider sx={{ my: 1 }} />
+                                <Typography variant="caption" color="text.secondary">
+                                    5 módulos disponibles
+                                </Typography>
+                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+                                    <Chip label="GEX" size="small" sx={{ bgcolor: '#7B1FA2', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="Pólizas" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                    <Chip label="Seguros" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                 </Box>
                             </CardContent>
                         </CardActionArea>
