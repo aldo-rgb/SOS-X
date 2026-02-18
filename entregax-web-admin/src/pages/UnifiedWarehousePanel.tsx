@@ -7,8 +7,6 @@ import {
   TextField,
   Alert,
   Chip,
-  Card,
-  CardContent,
   Grid,
   Table,
   TableBody,
@@ -27,9 +25,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Stepper,
-  Step,
-  StepLabel,
   AlertTitle,
 } from '@mui/material';
 import {
@@ -44,8 +39,6 @@ import {
   Person as PersonIcon,
   Store as StoreIcon,
   Lock as LockIcon,
-  LocalShipping as DhlIcon,
-  Warning as WarningIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import DhlReceptionWizard from './DhlReceptionWizard';
@@ -147,7 +140,7 @@ const UnifiedWarehousePanel: React.FC = () => {
   const [scanning, setScanning] = useState(false);
   const [lastResult, setLastResult] = useState<ScanResult | null>(null);
   const [scanHistory, setScanHistory] = useState<ScanHistoryItem[]>([]);
-  const [dailyStats, setDailyStats] = useState<DailyStats | null>(null);
+  const [, setDailyStats] = useState<DailyStats | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   
   // Estados para validación de guías DHL y supervisor
@@ -156,7 +149,6 @@ const UnifiedWarehousePanel: React.FC = () => {
   const [supervisorError, setSupervisorError] = useState('');
   const [pendingDhlTracking, setPendingDhlTracking] = useState('');
   const [showDhlWizard, setShowDhlWizard] = useState(false);
-  const [dhlWizardStep, setDhlWizardStep] = useState(0);
   const [dhlPackageData, setDhlPackageData] = useState<{
     tracking: string;
     weight?: number;
@@ -406,8 +398,8 @@ const UnifiedWarehousePanel: React.FC = () => {
     }
   };
   
-  // Procesar recepción DHL después del wizard
-  const handleDhlReception = async () => {
+  // Procesar recepción DHL después del wizard (disponible para uso futuro)
+  const _handleDhlReception = async () => {
     if (!dhlPackageData) return;
     
     setScanning(true);
@@ -452,6 +444,7 @@ const UnifiedWarehousePanel: React.FC = () => {
       setScanning(false);
     }
   };
+  void _handleDhlReception; // Evitar warning de unused
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
