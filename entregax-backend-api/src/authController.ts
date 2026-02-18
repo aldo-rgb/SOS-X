@@ -207,9 +207,12 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
             }
         });
 
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error en login:', error);
-        res.status(500).json({ error: 'Error al iniciar sesión' });
+        res.status(500).json({ 
+            error: 'Error al iniciar sesión',
+            details: process.env.NODE_ENV !== 'production' ? error.message : undefined
+        });
     }
 };
 
