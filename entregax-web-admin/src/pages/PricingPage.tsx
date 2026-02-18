@@ -43,7 +43,7 @@ import Inventory2Icon from '@mui/icons-material/Inventory2';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import StarIcon from '@mui/icons-material/Star';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 
 interface LogisticsService {
     id: number;

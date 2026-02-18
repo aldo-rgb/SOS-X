@@ -41,7 +41,7 @@ import PersonOffIcon from '@mui/icons-material/PersonOff';
 import AttachMoneyIcon from '@mui/icons-material/AttachMoney';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 
 interface SalesData {
   advisor_id: number;
