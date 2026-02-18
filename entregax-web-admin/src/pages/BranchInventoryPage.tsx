@@ -108,7 +108,7 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
 
   const fetchBranches = async () => {
     try {
-      const response = await api.get('/api/admin/branches');
+      const response = await api.get('/admin/branches');
       setBranches(response.data.branches || []);
     } catch (err) {
       console.error('Error fetching branches:', err);
@@ -140,7 +140,7 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
       
       params.append('limit', '200');
       
-      const response = await api.get(`/api/warehouse/inventory?${params.toString()}`);
+      const response = await api.get(`/warehouse/inventory?${params.toString()}`);
       
       setInventory(response.data.inventory || []);
       setSummary(response.data.summary || null);
