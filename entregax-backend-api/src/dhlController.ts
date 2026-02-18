@@ -129,6 +129,7 @@ export const getDhlShipments = async (req: Request, res: Response) => {
     let query = `
       SELECT 
         ds.*,
+        ds.inspected_at as received_at,
         u.full_name as client_name,
         u.email as client_email,
         u.box_id as client_box_id,
