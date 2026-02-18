@@ -3,7 +3,7 @@
 // Sistema de precios por categoría, rangos y VIP
 // ============================================
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -50,14 +50,11 @@ import {
   Delete as DeleteIcon,
   Save as SaveIcon,
   Calculate as CalculateIcon,
-  CheckCircle as CheckCircleIcon,
   AttachMoney as MoneyIcon,
   ExpandMore as ExpandMoreIcon,
   Category as CategoryIcon,
-  TrendingUp as TrendingUpIcon,
   Star as StarIcon,
   LocalShipping as ShippingIcon,
-  Info as InfoIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -104,7 +101,7 @@ interface CalculationResult {
 }
 
 export default function MaritimePricingEnginePage() {
-  const { t } = useTranslation();
+  const { t: _t } = useTranslation();
   const token = localStorage.getItem('token');
 
   // Estado
@@ -526,7 +523,7 @@ export default function MaritimePricingEnginePage() {
       {/* Tab 1: Calculadora */}
       {activeTab === 1 && (
         <Grid container spacing={3}>
-          <Grid size={{ xs: 12 }} md={5}>
+          <Grid size={{ xs: 12, md: 5 }}>
             <Card>
               <CardContent>
                 <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -617,7 +614,7 @@ export default function MaritimePricingEnginePage() {
             </Card>
           </Grid>
 
-          <Grid size={{ xs: 12 }} md={7}>
+          <Grid size={{ xs: 12, md: 7 }}>
             {calcResult ? (
               <Card sx={{ border: `2px solid ${SEA_COLOR}` }}>
                 <CardContent>
@@ -726,7 +723,7 @@ export default function MaritimePricingEnginePage() {
 
           <Grid container spacing={3}>
             {categories.map(cat => (
-              <Grid size={{ xs: 12 }} sm={6} md={3} key={cat.id}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }} key={cat.id}>
                 <Card sx={{ 
                   border: cat.is_active ? `2px solid ${SEA_COLOR}` : '1px solid #ddd',
                   opacity: cat.is_active ? 1 : 0.6,

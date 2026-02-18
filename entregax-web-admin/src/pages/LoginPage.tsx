@@ -14,7 +14,6 @@ import {
   IconButton,
   Fade,
 } from '@mui/material';
-import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import PersonOutlineIcon from '@mui/icons-material/PersonOutline';

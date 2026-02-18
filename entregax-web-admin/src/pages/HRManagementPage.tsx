@@ -383,8 +383,8 @@ export default function HRManagementPage() {
   const notCheckedIn = employees.filter(e => !e.check_in_time).length;
   const lateToday = employees.filter(e => e.attendance_status === 'late').length;
 
-  // Skeleton para las tarjetas de stats
-  const StatCardSkeleton = () => (
+  // Skeleton para las tarjetas de stats (disponible para uso futuro)
+  const _StatCardSkeleton = () => (
     <Card sx={{ height: '100%' }}>
       <CardContent sx={{ textAlign: 'center', py: 3 }}>
         <Skeleton variant="circular" width={48} height={48} sx={{ mx: 'auto', mb: 1 }} />
@@ -393,9 +393,10 @@ export default function HRManagementPage() {
       </CardContent>
     </Card>
   );
+  void _StatCardSkeleton;
 
-  // Skeleton para filas de tabla
-  const TableRowSkeleton = () => (
+  // Skeleton para filas de tabla (disponible para uso futuro)
+  const _TableRowSkeleton = () => (
     <TableRow>
       <TableCell><Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
         <Skeleton variant="circular" width={40} height={40} />
@@ -411,6 +412,7 @@ export default function HRManagementPage() {
       <TableCell><Skeleton variant="text" width={60} /></TableCell>
     </TableRow>
   );
+  void _TableRowSkeleton;
 
   return (
     <Box sx={{ p: 3 }}>

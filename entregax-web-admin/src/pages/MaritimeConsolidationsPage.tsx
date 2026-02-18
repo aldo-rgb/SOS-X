@@ -37,24 +37,18 @@ import {
   Tabs,
   Tab,
   FormControlLabel,
-  RadioGroup,
-  Radio,
   Divider,
-  Badge,
   InputAdornment,
   Switch,
   Autocomplete
 } from '@mui/material';
 import DirectionsBoatIcon from '@mui/icons-material/DirectionsBoat';
-import LocalShippingIcon from '@mui/icons-material/LocalShipping';
-import WarehouseIcon from '@mui/icons-material/Warehouse';
 import AssignmentIcon from '@mui/icons-material/Assignment';
 import EditIcon from '@mui/icons-material/Edit';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import RouteIcon from '@mui/icons-material/Route';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import SearchIcon from '@mui/icons-material/Search';
-import FilterListIcon from '@mui/icons-material/FilterList';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import PendingIcon from '@mui/icons-material/Pending';
@@ -513,7 +507,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
 
       {/* Stats Cards */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={6} md={3}>
+        <Grid size={{ xs: 6, md: 3 }}>
           <Card sx={{ bgcolor: 'info.light' }}>
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
               <InventoryIcon sx={{ fontSize: 32, color: 'info.dark' }} />
@@ -522,7 +516,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={6} md={3}>
+        <Grid size={{ xs: 6, md: 3 }}>
           <Card sx={{ bgcolor: 'success.light' }}>
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
               <CheckCircleIcon sx={{ fontSize: 32, color: 'success.dark' }} />
@@ -531,7 +525,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={6} md={3}>
+        <Grid size={{ xs: 6, md: 3 }}>
           <Card sx={{ bgcolor: 'warning.light' }}>
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
               <PendingIcon sx={{ fontSize: 32, color: 'warning.dark' }} />
@@ -540,7 +534,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={6} md={3}>
+        <Grid size={{ xs: 6, md: 3 }}>
           <Card sx={{ bgcolor: 'secondary.light' }}>
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
               <DescriptionIcon sx={{ fontSize: 32, color: 'secondary.dark' }} />
@@ -561,7 +555,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
       {/* Filtros */}
       <Paper sx={{ p: 2, mb: 2 }}>
         <Grid container spacing={2} alignItems="center">
-          <Grid item xs={12} md={3}>
+          <Grid size={{ xs: 12, md: 3 }}>
             <TextField
               fullWidth
               size="small"
@@ -573,7 +567,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
               }}
             />
           </Grid>
-          <Grid item xs={12} md={3}>
+          <Grid size={{ xs: 12, md: 3 }}>
             <FormControl fullWidth size="small">
               <InputLabel>Contenedor</InputLabel>
               <Select
@@ -592,7 +586,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={3}>
+          <Grid size={{ xs: 12, md: 3 }}>
             <FormControl fullWidth size="small">
               <InputLabel>Tipo Mercancía</InputLabel>
               <Select
@@ -606,7 +600,7 @@ const MaritimeConsolidationsPage: React.FC = () => {
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={12} md={3}>
+          <Grid size={{ xs: 12, md: 3 }}>
             <FormControl fullWidth size="small">
               <InputLabel>Packing List</InputLabel>
               <Select
