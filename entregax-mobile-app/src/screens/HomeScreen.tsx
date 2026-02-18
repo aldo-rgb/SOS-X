@@ -1029,8 +1029,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 style={[styles.filterChip, serviceFilter === 'usa' && styles.filterChipActive]}
                 onPress={() => setServiceFilter(serviceFilter === 'usa' ? null : 'usa')}
               >
-                <Text style={styles.filterIcon}>🚚</Text>
-                <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>Terrestre</Text>
+                <Text style={styles.filterIcon}>�</Text>
+                <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>PO Box</Text>
               </Pressable>
             </View>
           </>
