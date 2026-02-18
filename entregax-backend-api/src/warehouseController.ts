@@ -1219,6 +1219,8 @@ export const updateBranch = async (req: Request, res: Response): Promise<void> =
             latitud, longitud, radio_geocerca_metros, wifi_ssid, wifi_validation_enabled
         } = req.body;
 
+        console.log('Updating branch:', id, 'with data:', JSON.stringify(req.body));
+
         // Verificar que el código no exista en otra sucursal
         if (code) {
             const existingCode = await pool.query(
@@ -1230,6 +1232,10 @@ export const updateBranch = async (req: Request, res: Response): Promise<void> =
                 return;
             }
         }
+
+        // Convertir allowed_services a array si es necesario
+        const servicesArray = Array.isArray(allowed_services) ? allowed_services : 
+            (allowed_services ? [allowed_services] : null);
 
         const result = await pool.query(`
             UPDATE branches SET
@@ -1244,12 +1250,11 @@ export const updateBranch = async (req: Request, res: Response): Promise<void> =
                 longitud = $9,
                 radio_geocerca_metros = COALESCE($10, radio_geocerca_metros),
                 wifi_ssid = $11,
-                wifi_validation_enabled = COALESCE($12, wifi_validation_enabled),
-                updated_at = NOW()
+                wifi_validation_enabled = COALESCE($12, wifi_validation_enabled)
             WHERE id = $13
             RETURNING *
-        `, [name, code, city, address, phone, allowed_services, is_active, 
-            latitud, longitud, radio_geocerca_metros, wifi_ssid, wifi_validation_enabled, id]);
+        `, [name, code, city, address, phone, servicesArray, is_active, 
+            latitud || null, longitud || null, radio_geocerca_metros, wifi_ssid || null, wifi_validation_enabled, id]);
 
         if (result.rows.length === 0) {
             res.status(404).json({ error: 'Sucursal no encontrada' });
@@ -1261,9 +1266,12 @@ export const updateBranch = async (req: Request, res: Response): Promise<void> =
             message: 'Sucursal actualizada exitosamente',
             branch: result.rows[0]
         });
-    } catch (error) {
+    } catch (error: any) {
         console.error('Error actualizando sucursal:', error);
-        res.status(500).json({ error: 'Error al actualizar sucursal' });
+        res.status(500).json({ 
+            error: 'Error al actualizar sucursal',
+            details: error.message || String(error)
+        });
     }
 };
 
