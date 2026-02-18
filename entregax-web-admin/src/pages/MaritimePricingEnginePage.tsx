@@ -526,7 +526,7 @@ export default function MaritimePricingEnginePage() {
       {/* Tab 1: Calculadora */}
       {activeTab === 1 && (
         <Grid container spacing={3}>
-          <Grid item xs={12} md={5}>
+          <Grid size={{ xs: 12 }} md={5}>
             <Card>
               <CardContent>
                 <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -540,7 +540,7 @@ export default function MaritimePricingEnginePage() {
                 </Alert>
 
                 <Grid container spacing={2}>
-                  <Grid item xs={4}>
+                  <Grid size={{ xs: 4 }}>
                     <TextField
                       fullWidth
                       label="Largo (cm)"
@@ -549,7 +549,7 @@ export default function MaritimePricingEnginePage() {
                       onChange={(e) => setCalcForm({ ...calcForm, lengthCm: e.target.value })}
                     />
                   </Grid>
-                  <Grid item xs={4}>
+                  <Grid size={{ xs: 4 }}>
                     <TextField
                       fullWidth
                       label="Ancho (cm)"
@@ -558,7 +558,7 @@ export default function MaritimePricingEnginePage() {
                       onChange={(e) => setCalcForm({ ...calcForm, widthCm: e.target.value })}
                     />
                   </Grid>
-                  <Grid item xs={4}>
+                  <Grid size={{ xs: 4 }}>
                     <TextField
                       fullWidth
                       label="Alto (cm)"
@@ -567,7 +567,7 @@ export default function MaritimePricingEnginePage() {
                       onChange={(e) => setCalcForm({ ...calcForm, heightCm: e.target.value })}
                     />
                   </Grid>
-                  <Grid item xs={6}>
+                  <Grid size={{ xs: 6 }}>
                     <TextField
                       fullWidth
                       label="Peso (kg)"
@@ -576,7 +576,7 @@ export default function MaritimePricingEnginePage() {
                       onChange={(e) => setCalcForm({ ...calcForm, weightKg: e.target.value })}
                     />
                   </Grid>
-                  <Grid item xs={6}>
+                  <Grid size={{ xs: 6 }}>
                     <FormControl fullWidth>
                       <InputLabel>Categoría</InputLabel>
                       <Select
@@ -590,7 +590,7 @@ export default function MaritimePricingEnginePage() {
                       </Select>
                     </FormControl>
                   </Grid>
-                  <Grid item xs={12}>
+                  <Grid size={{ xs: 12 }}>
                     <TextField
                       fullWidth
                       label="ID de Usuario (0 = público)"
@@ -600,7 +600,7 @@ export default function MaritimePricingEnginePage() {
                       helperText="Si el usuario es VIP, obtendrá la tarifa más baja"
                     />
                   </Grid>
-                  <Grid item xs={12}>
+                  <Grid size={{ xs: 12 }}>
                     <Button
                       fullWidth
                       variant="contained"
@@ -617,7 +617,7 @@ export default function MaritimePricingEnginePage() {
             </Card>
           </Grid>
 
-          <Grid item xs={12} md={7}>
+          <Grid size={{ xs: 12 }} md={7}>
             {calcResult ? (
               <Card sx={{ border: `2px solid ${SEA_COLOR}` }}>
                 <CardContent>
@@ -627,19 +627,19 @@ export default function MaritimePricingEnginePage() {
                   <Divider sx={{ mb: 2 }} />
 
                   <Grid container spacing={2}>
-                    <Grid item xs={6}>
+                    <Grid size={{ xs: 6 }}>
                       <Paper sx={{ p: 2, bgcolor: '#f5f5f5' }}>
                         <Typography variant="caption" color="text.secondary">CBM Físico</Typography>
                         <Typography variant="h5">{calcResult.physicalCbm} m³</Typography>
                       </Paper>
                     </Grid>
-                    <Grid item xs={6}>
+                    <Grid size={{ xs: 6 }}>
                       <Paper sx={{ p: 2, bgcolor: '#f5f5f5' }}>
                         <Typography variant="caption" color="text.secondary">CBM Volumétrico (÷600)</Typography>
                         <Typography variant="h5">{calcResult.volumetricCbm} m³</Typography>
                       </Paper>
                     </Grid>
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                       <Paper sx={{ p: 2, bgcolor: SEA_COLOR + '15', border: `1px solid ${SEA_COLOR}` }}>
                         <Typography variant="caption" color="text.secondary">CBM Cobrable (Mayor)</Typography>
                         <Typography variant="h4" fontWeight="bold" color={SEA_COLOR}>
@@ -648,33 +648,33 @@ export default function MaritimePricingEnginePage() {
                       </Paper>
                     </Grid>
 
-                    <Grid item xs={6}>
+                    <Grid size={{ xs: 6 }}>
                       <Typography variant="caption" color="text.secondary">Categoría Original</Typography>
                       <Typography>{calcResult.originalCategory}</Typography>
                     </Grid>
-                    <Grid item xs={6}>
+                    <Grid size={{ xs: 6 }}>
                       <Typography variant="caption" color="text.secondary">Categoría Aplicada</Typography>
                       <Chip label={calcResult.appliedCategory} color="primary" size="small" />
                     </Grid>
 
-                    <Grid item xs={6}>
+                    <Grid size={{ xs: 6 }}>
                       <Typography variant="caption" color="text.secondary">Tarifa Aplicada</Typography>
                       <Typography>${calcResult.appliedRate} USD {calcResult.isFlatFee ? '(Plana)' : '/CBM'}</Typography>
                     </Grid>
-                    <Grid item xs={6}>
+                    <Grid size={{ xs: 6 }}>
                       <Typography variant="caption" color="text.secondary">Recargo Logotipo</Typography>
                       <Typography>${calcResult.surchargeApplied} USD/CBM</Typography>
                     </Grid>
 
                     {calcResult.isVipApplied && (
-                      <Grid item xs={12}>
+                      <Grid size={{ xs: 12 }}>
                         <Alert severity="success" icon={<StarIcon />}>
                           🌟 Tarifa VIP aplicada - El cliente obtuvo el mejor precio
                         </Alert>
                       </Grid>
                     )}
 
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                       <Divider sx={{ my: 1 }} />
                       <Box sx={{ p: 2, bgcolor: ORANGE + '15', borderRadius: 2 }}>
                         <Typography variant="caption" color="text.secondary">Desglose</Typography>
@@ -682,7 +682,7 @@ export default function MaritimePricingEnginePage() {
                       </Box>
                     </Grid>
 
-                    <Grid item xs={12}>
+                    <Grid size={{ xs: 12 }}>
                       <Paper sx={{ p: 3, bgcolor: '#111', color: '#fff', textAlign: 'center' }}>
                         <Typography variant="caption">COSTO TOTAL ESTIMADO</Typography>
                         <Typography variant="h3" fontWeight="bold" sx={{ color: ORANGE }}>
@@ -726,7 +726,7 @@ export default function MaritimePricingEnginePage() {
 
           <Grid container spacing={3}>
             {categories.map(cat => (
-              <Grid item xs={12} sm={6} md={3} key={cat.id}>
+              <Grid size={{ xs: 12 }} sm={6} md={3} key={cat.id}>
                 <Card sx={{ 
                   border: cat.is_active ? `2px solid ${SEA_COLOR}` : '1px solid #ddd',
                   opacity: cat.is_active ? 1 : 0.6,
@@ -790,7 +790,7 @@ export default function MaritimePricingEnginePage() {
         <DialogTitle>Agregar Nueva Tarifa</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <FormControl fullWidth>
                 <InputLabel>Categoría</InputLabel>
                 <Select
@@ -804,7 +804,7 @@ export default function MaritimePricingEnginePage() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid item xs={6}>
+            <Grid size={{ xs: 6 }}>
               <TextField
                 fullWidth
                 label="Min CBM"
@@ -814,7 +814,7 @@ export default function MaritimePricingEnginePage() {
                 inputProps={{ step: '0.01' }}
               />
             </Grid>
-            <Grid item xs={6}>
+            <Grid size={{ xs: 6 }}>
               <TextField
                 fullWidth
                 label="Max CBM"
@@ -824,7 +824,7 @@ export default function MaritimePricingEnginePage() {
                 inputProps={{ step: '0.01' }}
               />
             </Grid>
-            <Grid item xs={8}>
+            <Grid size={{ xs: 8 }}>
               <TextField
                 fullWidth
                 label="Precio (USD)"
@@ -836,7 +836,7 @@ export default function MaritimePricingEnginePage() {
                 }}
               />
             </Grid>
-            <Grid item xs={4}>
+            <Grid size={{ xs: 4 }}>
               <FormControlLabel
                 control={
                   <Switch
@@ -847,7 +847,7 @@ export default function MaritimePricingEnginePage() {
                 label="Tarifa Plana"
               />
             </Grid>
-            <Grid item xs={12}>
+            <Grid size={{ xs: 12 }}>
               <TextField
                 fullWidth
                 label="Notas"
