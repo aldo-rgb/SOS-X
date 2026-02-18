@@ -3,7 +3,7 @@
 // Vista de paquetes en inventario por cada sucursal
 // ============================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Box,
   Paper,
@@ -21,8 +21,6 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  CircularProgress,
-  IconButton,
   FormControl,
   InputLabel,
   Select,
@@ -31,7 +29,6 @@ import {
   Tab,
   Skeleton,
   InputAdornment,
-  Tooltip,
   Badge,
 } from '@mui/material';
 import {
@@ -42,7 +39,6 @@ import {
   LocalPostOffice as UsaIcon,
   Search as SearchIcon,
   Refresh as RefreshIcon,
-  FilterList as FilterIcon,
   Download as DownloadIcon,
   QrCode as QrCodeIcon,
   CheckCircle as InStockIcon,
@@ -50,8 +46,6 @@ import {
   Store as StoreIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 // Tipos
 interface Branch {
