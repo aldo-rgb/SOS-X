@@ -983,7 +983,17 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                 </Typography>
 
                 <Grid container spacing={2}>
-                    {modules.map((module) => (
+                    {modules
+                        .filter((module) => {
+                            // Filtrar módulos por rol
+                            const userRole = currentUser?.role;
+                            if (module.key === 'anticipos') {
+                                // anticipos solo visible para super_admin, admin, director
+                                return ['super_admin', 'admin', 'director'].includes(userRole);
+                            }
+                            return true; // Otros módulos visibles para todos
+                        })
+                        .map((module) => (
                         <Grid size={{ xs: 12, sm: 6, md: 4 }} key={module.key}>
                             <Card
                                 sx={{
