@@ -1475,37 +1475,39 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
       // ============ LCL: Crear contenedor + LOGs del SUMMARY ============
       console.log('📦 Procesando aprobación LCL...');
       
-      // 2a. Crear o actualizar contenedor con datos del BL
+      // VALIDACIÓN: Verificar que el contenedor no exista previamente
+      const containerNumber = finalData.containerNumber || `LCL-${Date.now()}`;
+      const existingContainer = await pool.query(
+        'SELECT id, container_number, bl_number FROM containers WHERE container_number = $1',
+        [containerNumber]
+      );
+      
+      if (existingContainer.rows.length > 0) {
+        const existing = existingContainer.rows[0];
+        return res.status(400).json({ 
+          error: `El contenedor ${containerNumber} ya existe en el sistema`,
+          details: `Contenedor ID: ${existing.id}, BL: ${existing.bl_number || 'N/A'}`,
+          duplicateContainer: true
+        });
+      }
+      
+      // Obtener tipo de cambio actual y congelarlo para este contenedor
+      const fxResult = await pool.query(`
+        SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1
+      `);
+      const exchangeRate = fxResult.rows[0]?.rate || 20.50;
+      
+      // 2a. Crear contenedor con datos del BL (ya no usa ON CONFLICT)
       const containerRes = await pool.query(`
         INSERT INTO containers 
         (container_number, bl_number, eta, status, notes, consignee, shipper, 
          vessel, pol, pod, route_id,
          vessel_name, voyage_number, port_of_loading, port_of_discharge, so_number,
-         total_weight_kg, total_cbm, total_packages, carrier, laden_on_board)
-        VALUES ($1, $2, $3, 'consolidated', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-        ON CONFLICT (container_number) DO UPDATE SET
-          bl_number = COALESCE(EXCLUDED.bl_number, containers.bl_number),
-          eta = COALESCE(EXCLUDED.eta, containers.eta),
-          consignee = COALESCE(EXCLUDED.consignee, containers.consignee),
-          shipper = COALESCE(EXCLUDED.shipper, containers.shipper),
-          vessel = COALESCE(EXCLUDED.vessel, containers.vessel),
-          pol = COALESCE(EXCLUDED.pol, containers.pol),
-          pod = COALESCE(EXCLUDED.pod, containers.pod),
-          route_id = COALESCE(EXCLUDED.route_id, containers.route_id),
-          vessel_name = COALESCE(EXCLUDED.vessel_name, containers.vessel_name),
-          voyage_number = COALESCE(EXCLUDED.voyage_number, containers.voyage_number),
-          port_of_loading = COALESCE(EXCLUDED.port_of_loading, containers.port_of_loading),
-          port_of_discharge = COALESCE(EXCLUDED.port_of_discharge, containers.port_of_discharge),
-          so_number = COALESCE(EXCLUDED.so_number, containers.so_number),
-          total_weight_kg = COALESCE(EXCLUDED.total_weight_kg, containers.total_weight_kg),
-          total_cbm = COALESCE(EXCLUDED.total_cbm, containers.total_cbm),
-          total_packages = COALESCE(EXCLUDED.total_packages, containers.total_packages),
-          carrier = COALESCE(EXCLUDED.carrier, containers.carrier),
-          laden_on_board = COALESCE(EXCLUDED.laden_on_board, containers.laden_on_board),
-          updated_at = NOW()
+         total_weight_kg, total_cbm, total_packages, carrier, laden_on_board, exchange_rate_usd_mxn)
+        VALUES ($1, $2, $3, 'consolidated', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
         RETURNING id
       `, [
-        finalData.containerNumber || `LCL-${Date.now()}`,
+        containerNumber,
         finalData.blNumber,
         finalData.eta,
         `Vessel: ${finalData.vesselName || 'N/A'}, Voyage: ${finalData.voyageNumber || 'N/A'}`,
@@ -1525,7 +1527,8 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         finalData.volumeCbm ? parseFloat(finalData.volumeCbm) : null,
         finalData.packages ? parseInt(finalData.packages) : null,
         finalData.carrier || null,
-        finalData.ladenOnBoard || null
+        finalData.ladenOnBoard || null,
+        exchangeRate
       ]);
 
       const containerId = containerRes.rows[0].id;
@@ -1759,31 +1762,36 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
 
     } else if (draft.document_type === 'BL' || draft.document_type === 'FCL') {
       // ============ FCL: Solo crear contenedor ============
+      
+      // VALIDACIÓN: Verificar que el contenedor no exista previamente
+      const containerNumber = finalData.containerNumber;
+      if (!containerNumber) {
+        return res.status(400).json({ 
+          error: 'El número de contenedor es requerido',
+          missingField: 'containerNumber'
+        });
+      }
+      
+      const existingContainer = await pool.query(
+        'SELECT id, container_number, bl_number FROM containers WHERE container_number = $1',
+        [containerNumber]
+      );
+      
+      if (existingContainer.rows.length > 0) {
+        const existing = existingContainer.rows[0];
+        return res.status(400).json({ 
+          error: `El contenedor ${containerNumber} ya existe en el sistema`,
+          details: `Contenedor ID: ${existing.id}, BL: ${existing.bl_number || 'N/A'}`,
+          duplicateContainer: true
+        });
+      }
+      
       const containerRes = await pool.query(`
         INSERT INTO containers 
         (container_number, bl_number, eta, status, notes, consignee, shipper, vessel, pol, pod,
          vessel_name, voyage_number, port_of_loading, port_of_discharge, so_number,
          total_weight_kg, total_cbm, total_packages, carrier, laden_on_board)
         VALUES ($1, $2, $3, 'in_transit', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
-        ON CONFLICT (container_number) DO UPDATE SET
-          bl_number = EXCLUDED.bl_number,
-          eta = EXCLUDED.eta,
-          consignee = COALESCE(EXCLUDED.consignee, containers.consignee),
-          shipper = COALESCE(EXCLUDED.shipper, containers.shipper),
-          vessel = COALESCE(EXCLUDED.vessel, containers.vessel),
-          pol = COALESCE(EXCLUDED.pol, containers.pol),
-          pod = COALESCE(EXCLUDED.pod, containers.pod),
-          vessel_name = COALESCE(EXCLUDED.vessel_name, containers.vessel_name),
-          voyage_number = COALESCE(EXCLUDED.voyage_number, containers.voyage_number),
-          port_of_loading = COALESCE(EXCLUDED.port_of_loading, containers.port_of_loading),
-          port_of_discharge = COALESCE(EXCLUDED.port_of_discharge, containers.port_of_discharge),
-          so_number = COALESCE(EXCLUDED.so_number, containers.so_number),
-          total_weight_kg = COALESCE(EXCLUDED.total_weight_kg, containers.total_weight_kg),
-          total_cbm = COALESCE(EXCLUDED.total_cbm, containers.total_cbm),
-          total_packages = COALESCE(EXCLUDED.total_packages, containers.total_packages),
-          carrier = COALESCE(EXCLUDED.carrier, containers.carrier),
-          laden_on_board = COALESCE(EXCLUDED.laden_on_board, containers.laden_on_board),
-          updated_at = NOW()
         RETURNING id
       `, [
         finalData.containerNumber,

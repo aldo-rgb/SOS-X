@@ -945,7 +945,7 @@
     "noRoute": "No route",
     "routeUpdated": "Route updated successfully",
     "errorUpdatingRoute": "Error updating route",
-    "eta": "ETA (Estimated Arrival)",
+    "eta": "ETA",
     "status": "Status",
     "container": "Container",
     "packages": "Packages",

@@ -72,6 +72,7 @@ import POBoxRatesPage from './POBoxRatesPage';
 import ExchangeRateConfigPage from './ExchangeRateConfigPage';
 import BranchManagementPage from './BranchManagementPage';
 import CarouselSlidesPage from './CarouselSlidesPage';
+import AdvanceControlPanel from './AdvanceControlPanel';
 import {
     UploadFile as UploadIcon,
     AccountBalanceWallet as WalletIcon,
@@ -127,6 +128,7 @@ const MODULE_ICONS: Record<string, React.ReactElement> = {
     routes: <RouteIcon />,
     last_mile: <LocalShippingIcon />,
     dhl_rates: <SellIcon />,
+    anticipos: <WalletIcon />,
 };
 
 const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
@@ -149,6 +151,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'consolidations', status: 'active' },
         { key: 'inbound_emails', status: 'active' },
         { key: 'maritime_api', status: 'active' },
+        { key: 'anticipos', status: 'active' },
         { key: 'reports', status: 'pending' },
     ],
     usa_pobox: [
@@ -550,6 +553,30 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
         if (selectedModule === 'maritime_api' && selectedService === 'china_sea') {
             return (
                 <MaritimeApiPage onBack={() => setSelectedModule(null)} />
+            );
+        }
+
+        // Panel Control de Anticipos (anticipos) - solo china_sea
+        if (selectedModule === 'anticipos' && selectedService === 'china_sea') {
+            return (
+                <Box>
+                    {/* Breadcrumb */}
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    <AdvanceControlPanel />
+                </Box>
             );
         }
 

@@ -17,7 +17,7 @@ export const getContainers = async (req: AuthRequest, res: Response): Promise<an
       SELECT c.*, 
         mr.code as route_code,
         mr.name as route_name,
-        (SELECT COUNT(*) FROM maritime_shipments ms WHERE ms.container_id = c.id) as shipment_count,
+        (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.container_id = c.id) as shipment_count,
         cc.is_fully_costed,
         cc.calculated_release_cost
       FROM containers c
@@ -89,11 +89,17 @@ export const createContainer = async (req: AuthRequest, res: Response): Promise<
   try {
     const { containerNumber, blNumber, eta, notes } = req.body;
 
+    // Obtener tipo de cambio actual y congelarlo
+    const fxResult = await pool.query(`
+      SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1
+    `);
+    const exchangeRate = fxResult.rows[0]?.rate || 20.50;
+
     const result = await pool.query(`
-      INSERT INTO containers (container_number, bl_number, eta, notes, status)
-      VALUES ($1, $2, $3, $4, 'consolidated')
+      INSERT INTO containers (container_number, bl_number, eta, notes, status, exchange_rate_usd_mxn)
+      VALUES ($1, $2, $3, $4, 'consolidated', $5)
       RETURNING *
-    `, [containerNumber, blNumber, eta, notes]);
+    `, [containerNumber, blNumber, eta, notes, exchangeRate]);
 
     // Crear registro de costos vacío
     await pool.query(`
@@ -841,6 +847,269 @@ export const deleteMaritimeRate = async (req: AuthRequest, res: Response): Promi
   } catch (error) {
     console.error('Error deleting maritime rate:', error);
     res.status(500).json({ error: 'Error al eliminar tarifa' });
+  }
+};
+
+// ========== UTILIDADES POR CONTENEDOR ==========
+
+// Obtener desglose de utilidades de un contenedor
+export const getContainerProfitBreakdown = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { containerId } = req.params;
+
+    // Obtener datos del contenedor y sus costos
+    const containerRes = await pool.query(`
+      SELECT c.*, 
+        c.exchange_rate_usd_mxn,
+        cc.calculated_release_cost as total_cost,
+        cc.debit_note_amount, cc.demurrage_amount, cc.storage_amount,
+        cc.maneuvers_amount, cc.custody_amount, cc.transport_amount,
+        cc.advance_1_amount, cc.advance_2_amount, cc.advance_3_amount, cc.advance_4_amount,
+        cc.other_amount, cc.calculated_aa_cost, cc.is_fully_costed
+      FROM containers c
+      LEFT JOIN container_costs cc ON cc.container_id = c.id
+      WHERE c.id = $1
+    `, [containerId]);
+
+    if (containerRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Contenedor no encontrado' });
+    }
+
+    const container = containerRes.rows[0];
+    
+    // Tipo de cambio congelado del contenedor (o fallback a valor actual)
+    const exchangeRate = parseFloat(container.exchange_rate_usd_mxn) || 20.50;
+
+    // Obtener LOGs del contenedor desde maritime_orders
+    const shipmentsRes = await pool.query(`
+      SELECT 
+        mo.id,
+        mo.ordersn as log_number,
+        mo.bl_client_name as client_name,
+        mo.bl_client_code as client_code,
+        mo.summary_boxes as box_count,
+        mo.summary_weight as weight_kg,
+        mo.summary_volume as volume_cbm,
+        mo.summary_description as description,
+        mo.brand_type,
+        mo.has_battery,
+        mo.has_liquid,
+        mo.is_pickup,
+        mo.status,
+        u.full_name as user_name,
+        u.box_id,
+        u.email
+      FROM maritime_orders mo
+      LEFT JOIN users u ON u.id = mo.user_id
+      WHERE mo.container_id = $1
+      ORDER BY mo.ordersn ASC
+    `, [containerId]);
+
+    // Obtener todas las categorías y tiers para el cálculo
+    const categoriesRes = await pool.query(`
+      SELECT id, name, surcharge_per_cbm FROM pricing_categories WHERE is_active = TRUE
+    `);
+    const categories = categoriesRes.rows;
+    
+    const tiersRes = await pool.query(`
+      SELECT pt.*, pc.name as category_name 
+      FROM pricing_tiers pt
+      JOIN pricing_categories pc ON pt.category_id = pc.id
+      WHERE pt.is_active = TRUE
+      ORDER BY pt.category_id, pt.min_cbm
+    `);
+    const allTiers = tiersRes.rows;
+
+    // Función helper para mapear brand_type a nombre de categoría
+    const mapBrandTypeToCategory = (brandType: string | null): string => {
+      switch (brandType?.toLowerCase()) {
+        case 'generic': return 'Generico';
+        case 'sensitive': return 'Sensible';
+        case 'logo': return 'Logotipo';
+        case 'startup': return 'StartUp';
+        default: return 'Generico';
+      }
+    };
+
+    // Función para calcular el precio según categoría y CBM
+    const calculatePriceForShipment = (cbm: number, weightKg: number, brandType: string | null): {
+      estimatedCharge: number;
+      chargeType: string;
+      appliedCategory: string;
+      appliedRate: number;
+      breakdown: string;
+    } => {
+      // 1. Determinar categoría original
+      let originalCategory = mapBrandTypeToCategory(brandType);
+      let appliedCategory = originalCategory;
+      
+      // 2. Calcular CBM cobrable (físico vs volumétrico)
+      const volumetricCbm = weightKg / 600; // Factor marítimo
+      let chargeableCbm = Math.max(cbm, volumetricCbm);
+      
+      // 3. Reglas especiales de CBM
+      if (chargeableCbm <= 0.75) {
+        // Tarifa StartUp para envíos pequeños
+        appliedCategory = 'StartUp';
+      } else if (chargeableCbm >= 0.76 && chargeableCbm < 1) {
+        // Redondear a 1 CBM
+        chargeableCbm = 1;
+      }
+      
+      // 4. Buscar categoría en la BD
+      // Para Logotipo, usamos Genérico como base + surcharge
+      const baseCategoryName = appliedCategory === 'Logotipo' ? 'Generico' : appliedCategory;
+      const category = categories.find(c => c.name === baseCategoryName);
+      
+      if (!category) {
+        // Fallback a tarifa genérica
+        return {
+          estimatedCharge: chargeableCbm * 899, // Tarifa base
+          chargeType: 'CBM',
+          appliedCategory: 'Generico (fallback)',
+          appliedRate: 899,
+          breakdown: `${chargeableCbm.toFixed(2)} m³ × $899 = $${(chargeableCbm * 899).toFixed(2)}`
+        };
+      }
+      
+      // 5. Buscar tier correcto para el CBM
+      const categoryTiers = allTiers.filter(t => t.category_id === category.id);
+      let tier = categoryTiers.find(t => 
+        chargeableCbm >= parseFloat(t.min_cbm) && chargeableCbm <= parseFloat(t.max_cbm)
+      );
+      
+      // Si no encuentra tier, usar el último (mayor volumen)
+      if (!tier && categoryTiers.length > 0) {
+        tier = categoryTiers[categoryTiers.length - 1];
+      }
+      
+      if (!tier) {
+        return {
+          estimatedCharge: chargeableCbm * 899,
+          chargeType: 'CBM',
+          appliedCategory: appliedCategory + ' (sin tier)',
+          appliedRate: 899,
+          breakdown: `${chargeableCbm.toFixed(2)} m³ × $899 = $${(chargeableCbm * 899).toFixed(2)}`
+        };
+      }
+      
+      // 6. Calcular precio final
+      let estimatedCharge = 0;
+      let breakdown = '';
+      const tierPrice = parseFloat(tier.price);
+      
+      // Surcharge para Logotipo
+      const logoSurcharge = originalCategory === 'Logotipo' ? 100 : 0;
+      
+      if (tier.is_flat_fee) {
+        // Tarifa plana (StartUp)
+        estimatedCharge = tierPrice;
+        breakdown = `Tarifa plana ${appliedCategory}: $${tierPrice.toFixed(2)}`;
+      } else {
+        // Tarifa por CBM
+        const rateWithSurcharge = tierPrice + logoSurcharge;
+        estimatedCharge = chargeableCbm * rateWithSurcharge;
+        
+        if (logoSurcharge > 0) {
+          breakdown = `${chargeableCbm.toFixed(2)} m³ × ($${tierPrice} + $${logoSurcharge} logo) = $${estimatedCharge.toFixed(2)}`;
+        } else {
+          breakdown = `${chargeableCbm.toFixed(2)} m³ × $${tierPrice}/m³ = $${estimatedCharge.toFixed(2)}`;
+        }
+      }
+      
+      return {
+        estimatedCharge: Math.round(estimatedCharge * 100) / 100,
+        chargeType: tier.is_flat_fee ? 'PLANA' : 'CBM',
+        appliedCategory,
+        appliedRate: tierPrice + logoSurcharge,
+        breakdown
+      };
+    };
+
+    // Calcular cobro estimado por cada shipment usando el motor de tarifas
+    const shipmentsWithCharges = shipmentsRes.rows.map((shipment: any) => {
+      const cbm = parseFloat(shipment.volume_cbm) || 0;
+      const kg = parseFloat(shipment.weight_kg) || 0;
+      
+      const priceCalc = calculatePriceForShipment(cbm, kg, shipment.brand_type);
+
+      return {
+        ...shipment,
+        cbm,
+        kg,
+        estimated_charge: priceCalc.estimatedCharge,
+        charge_type: priceCalc.chargeType,
+        applied_category: priceCalc.appliedCategory,
+        applied_rate: priceCalc.appliedRate,
+        price_breakdown: priceCalc.breakdown
+      };
+    });
+
+    // Calcular totales
+    const totalCbm = shipmentsWithCharges.reduce((sum: number, s: any) => sum + s.cbm, 0);
+    const totalKg = shipmentsWithCharges.reduce((sum: number, s: any) => sum + s.kg, 0);
+    // Cobros están en USD
+    const totalEstimatedRevenueUsd = shipmentsWithCharges.reduce((sum: number, s: any) => sum + s.estimated_charge, 0);
+    // Convertir a MXN usando tipo de cambio congelado
+    const totalEstimatedRevenueMxn = totalEstimatedRevenueUsd * exchangeRate;
+    // Costo ya está en MXN
+    const totalCost = parseFloat(container.total_cost) || 0;
+    // Utilidad en MXN
+    const estimatedProfit = totalEstimatedRevenueMxn - totalCost;
+    const profitMargin = totalEstimatedRevenueMxn > 0 ? ((estimatedProfit / totalEstimatedRevenueMxn) * 100) : 0;
+
+    res.json({
+      container: {
+        id: container.id,
+        container_number: container.container_number,
+        bl_number: container.bl_number,
+        status: container.status,
+        is_fully_costed: container.is_fully_costed,
+        exchange_rate: exchangeRate
+      },
+      costs: {
+        naviera: {
+          debit_note: parseFloat(container.debit_note_amount) || 0,
+          demurrage: parseFloat(container.demurrage_amount) || 0,
+          storage: parseFloat(container.storage_amount) || 0
+        },
+        aduana: {
+          customs_aa: parseFloat(container.calculated_aa_cost) || 0
+        },
+        logistica: {
+          maneuvers: parseFloat(container.maneuvers_amount) || 0,
+          custody: parseFloat(container.custody_amount) || 0,
+          transport: parseFloat(container.transport_amount) || 0,
+          advances: (parseFloat(container.advance_1_amount) || 0) + 
+                    (parseFloat(container.advance_2_amount) || 0) + 
+                    (parseFloat(container.advance_3_amount) || 0) + 
+                    (parseFloat(container.advance_4_amount) || 0),
+          other: parseFloat(container.other_amount) || 0
+        },
+        total: totalCost
+      },
+      shipments: shipmentsWithCharges,
+      summary: {
+        total_shipments: shipmentsWithCharges.length,
+        total_cbm: Math.round(totalCbm * 1000) / 1000,
+        total_kg: Math.round(totalKg * 100) / 100,
+        // Costos en MXN
+        total_cost_mxn: Math.round(totalCost * 100) / 100,
+        // Venta estimada en USD y MXN
+        total_estimated_revenue_usd: Math.round(totalEstimatedRevenueUsd * 100) / 100,
+        total_estimated_revenue_mxn: Math.round(totalEstimatedRevenueMxn * 100) / 100,
+        // Tipo de cambio usado
+        exchange_rate: exchangeRate,
+        // Utilidad en MXN
+        estimated_profit_mxn: Math.round(estimatedProfit * 100) / 100,
+        profit_margin_percent: Math.round(profitMargin * 100) / 100,
+        rate_used: 'Motor de Tarifas por Categoría',
+        pricing_note: `Cobros en USD × TC ${exchangeRate} = MXN. Costos en MXN.`
+      }
+    });
+  } catch (error) {
+    console.error('Error getting container profit breakdown:', error);
+    res.status(500).json({ error: 'Error al obtener desglose de utilidades' });
   }
 };
 

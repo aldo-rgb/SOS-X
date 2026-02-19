@@ -490,7 +490,16 @@ export default function InboundEmailsPage() {
                 loadStats();
             } else {
                 const error = await res.json();
-                setSnackbar({ open: true, message: error.error || 'Error al aprobar', severity: 'error' });
+                // Mensaje específico para contenedor duplicado
+                if (error.duplicateContainer) {
+                    setSnackbar({ 
+                        open: true, 
+                        message: `⚠️ ${error.error}. ${error.details || 'El contenedor ya fue registrado previamente.'}`, 
+                        severity: 'error' 
+                    });
+                } else {
+                    setSnackbar({ open: true, message: error.error || 'Error al aprobar', severity: 'error' });
+                }
             }
         } catch (error) {
             console.error('Error approving draft:', error);

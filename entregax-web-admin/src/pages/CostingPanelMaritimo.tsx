@@ -42,7 +42,7 @@ import {
 } from '@mui/material';
 import {
     DirectionsBoat as BoatIcon,
-    // Add as AddIcon, // No se usa actualmente
+    Add as AddIcon,
     Save as SaveIcon,
     Calculate as CalculateIcon,
     AttachFile as AttachFileIcon,
@@ -65,9 +65,11 @@ import {
     Delete as DeleteIcon,
     Close as CloseIcon,
     OpenInNew as OpenInNewIcon,
+    TrendingUp as TrendingUpIcon,
+    Person as PersonIcon,
+    Inventory as InventoryIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
-
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 // Colores del tema marítimo
@@ -128,6 +130,17 @@ interface TrackingLog {
     voyage_number?: string;
     is_manual: boolean;
     created_at: string;
+}
+
+interface BolsaAnticipo {
+    id: number;
+    proveedor_id: number;
+    proveedor_nombre: string;
+    referencia: string;
+    monto_total: number;
+    monto_disponible: number;
+    fecha_deposito: string;
+    notas?: string;
 }
 
 interface MaritimeRoute {
@@ -245,6 +258,24 @@ export default function CostingPanelMaritimo() {
     const [statusFilter, setStatusFilter] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+    
+    // Obtener rol del usuario del localStorage
+    const getUserRole = (): string => {
+        try {
+            const userStr = localStorage.getItem('user');
+            if (userStr) {
+                const user = JSON.parse(userStr);
+                return user.role || '';
+            }
+        } catch {
+            return '';
+        }
+        return '';
+    };
+    const userRole = getUserRole();
+    // Normalizar rol para comparación (puede venir como "Super Admin" o "super_admin")
+    const normalizedRole = userRole.toLowerCase().replace(/\s+/g, '_');
+    const canViewUtilidades = ['admin', 'super_admin'].includes(normalizedRole);
     const [savingCosts, setSavingCosts] = useState(false);
     const [tabValue, setTabValue] = useState(0);
     const [trackingLogs, setTrackingLogs] = useState<TrackingLog[]>([]);
@@ -252,6 +283,30 @@ export default function CostingPanelMaritimo() {
     const [subscribingVizion, setSubscribingVizion] = useState(false);
     const [_uploadingField, setUploadingField] = useState<string | null>(null);
     
+    // Estado para pestaña de Utilidades
+    const [profitData, setProfitData] = useState<any>(null);
+    const [loadingProfit, setLoadingProfit] = useState(false);
+
+    // Estado para bolsas de anticipos disponibles
+    const [bolsasDisponibles, setBolsasDisponibles] = useState<BolsaAnticipo[]>([]);
+    const [selectedBolsas, setSelectedBolsas] = useState<{
+        advance_1: number | null;
+        advance_2: number | null;
+        advance_3: number | null;
+        advance_4: number | null;
+    }>({ advance_1: null, advance_2: null, advance_3: null, advance_4: null });
+    
+    // Estado para rastrear las asignaciones originales (ya guardadas en BD)
+    const [originalBolsas, setOriginalBolsas] = useState<{
+        advance_1: number | null;
+        advance_2: number | null;
+        advance_3: number | null;
+        advance_4: number | null;
+    }>({ advance_1: null, advance_2: null, advance_3: null, advance_4: null });
+
+    // Estado para gastos adicionales (otros gastos múltiples)
+    const [extraCosts, setExtraCosts] = useState<{ description: string; amount: number }[]>([]);
+
     // Estado para modal de gestión de archivos PDF
     const [fileModal, setFileModal] = useState<{
         open: boolean;
@@ -422,18 +477,135 @@ export default function CostingPanelMaritimo() {
         }
     };
 
+    // Cargar bolsas de anticipos disponibles
+    const fetchBolsasDisponibles = async () => {
+        try {
+            const res = await axios.get(`${API_URL}/api/anticipos/bolsas/disponibles`, {
+                headers: { Authorization: `Bearer ${getToken()}` }
+            });
+            setBolsasDisponibles(res.data || []);
+        } catch (error) {
+            console.error('Error loading bolsas disponibles:', error);
+        }
+    };
+
+    // Manejar selección de bolsa de anticipo
+    const handleBolsaSelect = (advanceKey: 'advance_1' | 'advance_2' | 'advance_3' | 'advance_4', bolsaId: number | null) => {
+        setSelectedBolsas(prev => ({ ...prev, [advanceKey]: bolsaId }));
+        if (bolsaId) {
+            const bolsa = bolsasDisponibles.find(b => b.id === bolsaId);
+            if (bolsa) {
+                const amountKey = `${advanceKey}_amount` as keyof ContainerCosts;
+                const monto = parseFloat(String(bolsa.monto_disponible)) || 0;
+                setCosts(prev => ({ ...prev, [amountKey]: monto }));
+            }
+        } else {
+            const amountKey = `${advanceKey}_amount` as keyof ContainerCosts;
+            setCosts(prev => ({ ...prev, [amountKey]: 0 }));
+        }
+    };
+
+    // Cargar asignaciones existentes para un contenedor
+    const loadExistingAsignaciones = async (containerId: number) => {
+        try {
+            const res = await axios.get(`${API_URL}/api/anticipos/container/${containerId}/asignaciones`, {
+                headers: { Authorization: `Bearer ${getToken()}` }
+            });
+            const asignaciones = res.data || [];
+            console.log('Asignaciones cargadas:', asignaciones);
+            
+            // Pre-seleccionar las bolsas asignadas
+            const newSelectedBolsas: typeof selectedBolsas = {
+                advance_1: null,
+                advance_2: null,
+                advance_3: null,
+                advance_4: null
+            };
+            
+            // Agregar las bolsas asignadas a la lista de bolsas disponibles (aunque tengan saldo 0)
+            const bolsasAsignadas: BolsaAnticipo[] = [];
+            
+            asignaciones.forEach((asig: any) => {
+                if (asig.campo_anticipo === 'advance_1') newSelectedBolsas.advance_1 = asig.bolsa_anticipo_id;
+                if (asig.campo_anticipo === 'advance_2') newSelectedBolsas.advance_2 = asig.bolsa_anticipo_id;
+                if (asig.campo_anticipo === 'advance_3') newSelectedBolsas.advance_3 = asig.bolsa_anticipo_id;
+                if (asig.campo_anticipo === 'advance_4') newSelectedBolsas.advance_4 = asig.bolsa_anticipo_id;
+                
+                // Crear objeto de bolsa con la info de la asignación para mostrar en el select
+                const bolsaAsignada: BolsaAnticipo = {
+                    id: asig.bolsa_anticipo_id,
+                    proveedor_id: 0,
+                    proveedor_nombre: asig.proveedor_nombre || 'Proveedor',
+                    monto_total: asig.monto_asignado,
+                    monto_disponible: 0, // Ya fue usado
+                    referencia: asig.bolsa_referencia || '',
+                    fecha_deposito: '',
+                    notas: `Asignado: $${asig.monto_asignado}`
+                };
+                
+                // Solo agregar si no está ya en la lista
+                if (!bolsasAsignadas.find(b => b.id === bolsaAsignada.id)) {
+                    bolsasAsignadas.push(bolsaAsignada);
+                }
+            });
+            
+            // Combinar bolsas disponibles con bolsas ya asignadas
+            setBolsasDisponibles(prev => {
+                const combined = [...prev];
+                bolsasAsignadas.forEach(ba => {
+                    if (!combined.find(b => b.id === ba.id)) {
+                        combined.push(ba);
+                    }
+                });
+                return combined;
+            });
+            
+            setSelectedBolsas(newSelectedBolsas);
+            // Guardar las originales para comparar al guardar
+            setOriginalBolsas({ ...newSelectedBolsas });
+            console.log('Bolsas seleccionadas después de cargar:', newSelectedBolsas);
+        } catch (error) {
+            console.error('Error loading existing asignaciones:', error);
+        }
+    };
+
     // Cargar costos de un contenedor
     const loadContainerCosts = async (container: Container) => {
         try {
-            const res = await axios.get(`${API_URL}/api/maritime/containers/${container.id}/costs`, {
-                headers: { Authorization: `Bearer ${getToken()}` }
-            });
-            setCosts(res.data || { ...emptyCosts, container_id: container.id });
+            const [costsRes] = await Promise.all([
+                axios.get(`${API_URL}/api/maritime/containers/${container.id}/costs`, {
+                    headers: { Authorization: `Bearer ${getToken()}` }
+                }),
+                fetchBolsasDisponibles()
+            ]);
+            setCosts(costsRes.data || { ...emptyCosts, container_id: container.id });
+            setSelectedBolsas({ advance_1: null, advance_2: null, advance_3: null, advance_4: null });
+            setOriginalBolsas({ advance_1: null, advance_2: null, advance_3: null, advance_4: null });
+            setExtraCosts([]); // Reset gastos adicionales
             setSelectedContainer(container);
             setCostDialogOpen(true);
+            
+            // Cargar asignaciones existentes DESPUÉS de abrir el modal
+            await loadExistingAsignaciones(container.id);
         } catch (error) {
             console.error('Error loading costs:', error);
             setSnackbar({ open: true, message: t('maritime.errorLoadingCosts'), severity: 'error' });
+        }
+    };
+
+    // Cargar desglose de utilidades de un contenedor
+    const loadProfitBreakdown = async (containerId: number) => {
+        setLoadingProfit(true);
+        try {
+            const res = await axios.get(`${API_URL}/api/maritime/containers/${containerId}/profit`, {
+                headers: { Authorization: `Bearer ${getToken()}` }
+            });
+            setProfitData(res.data);
+        } catch (error) {
+            console.error('Error loading profit breakdown:', error);
+            setSnackbar({ open: true, message: 'Error al cargar utilidades', severity: 'error' });
+        } finally {
+            setLoadingProfit(false);
         }
     };
 
@@ -442,11 +614,78 @@ export default function CostingPanelMaritimo() {
         if (!selectedContainer) return;
         setSavingCosts(true);
         try {
+            // Calcular total de otros gastos incluyendo extras
+            const extraCostsTotal = extraCosts.reduce((sum, e) => sum + (e.amount || 0), 0);
+            const totalOtherAmount = (parseFloat(String(costs.other_amount)) || 0) + extraCostsTotal;
+            
+            // Construir descripción completa de otros gastos
+            const descriptions: string[] = [];
+            if (costs.other_description && (parseFloat(String(costs.other_amount)) || 0) > 0) {
+                descriptions.push(`${costs.other_description}: $${formatCurrency(costs.other_amount || 0)}`);
+            }
+            extraCosts.forEach(e => {
+                if (e.amount > 0) {
+                    descriptions.push(`${e.description || 'Gasto adicional'}: $${formatCurrency(e.amount)}`);
+                }
+            });
+            const fullDescription = descriptions.join(' | ');
+            
+            // Preparar costos con el total consolidado
+            const costsToSave = {
+                ...costs,
+                other_amount: totalOtherAmount,
+                other_description: fullDescription || costs.other_description
+            };
+            
+            // Primero guardar los costos
             const res = await axios.put(
                 `${API_URL}/api/maritime/containers/${selectedContainer.id}/costs`,
-                { costs },
+                { costs: costsToSave },
                 { headers: { Authorization: `Bearer ${getToken()}` } }
             );
+
+            // Registrar SOLO las asignaciones NUEVAS (que no existían antes)
+            const asignaciones = [
+                { key: 'advance_1' as const, bolsaId: selectedBolsas.advance_1, originalBolsaId: originalBolsas.advance_1, amount: parseFloat(String(costs.advance_1_amount)) || 0 },
+                { key: 'advance_2' as const, bolsaId: selectedBolsas.advance_2, originalBolsaId: originalBolsas.advance_2, amount: parseFloat(String(costs.advance_2_amount)) || 0 },
+                { key: 'advance_3' as const, bolsaId: selectedBolsas.advance_3, originalBolsaId: originalBolsas.advance_3, amount: parseFloat(String(costs.advance_3_amount)) || 0 },
+                { key: 'advance_4' as const, bolsaId: selectedBolsas.advance_4, originalBolsaId: originalBolsas.advance_4, amount: parseFloat(String(costs.advance_4_amount)) || 0 },
+            ];
+
+            console.log('Asignaciones a procesar:', asignaciones);
+            console.log('Selected Bolsas:', selectedBolsas);
+            console.log('Original Bolsas:', originalBolsas);
+
+            for (const asig of asignaciones) {
+                // Solo crear asignación si:
+                // 1. Hay una bolsa seleccionada
+                // 2. El monto es mayor a 0
+                // 3. Es una NUEVA selección (no existía antes o es diferente)
+                const isNewAssignment = asig.bolsaId && asig.bolsaId !== asig.originalBolsaId;
+                
+                if (isNewAssignment && asig.amount > 0) {
+                    console.log(`Enviando asignación NUEVA: bolsa=${asig.bolsaId}, monto=${asig.amount}, campo=${asig.key}`);
+                    try {
+                        const asigRes = await axios.post(
+                            `${API_URL}/api/anticipos/asignar`,
+                            {
+                                bolsa_anticipo_id: asig.bolsaId,
+                                container_id: selectedContainer.id,
+                                campo_anticipo: asig.key,
+                                monto_asignado: asig.amount,
+                                concepto: `Anticipo para contenedor ${selectedContainer.container_number}`,
+                            },
+                            { headers: { Authorization: `Bearer ${getToken()}` } }
+                        );
+                        console.log(`Asignación exitosa:`, asigRes.data);
+                    } catch (err: any) {
+                        console.error(`Error asignando ${asig.key}:`, err.response?.data || err.message);
+                        // Mostrar error al usuario
+                        setSnackbar({ open: true, message: err.response?.data?.error || 'Error al asignar anticipo', severity: 'error' });
+                    }
+                }
+            }
+
             setSnackbar({ open: true, message: res.data.message, severity: 'success' });
             setCostDialogOpen(false);
             fetchContainers();
@@ -491,12 +730,19 @@ export default function CostingPanelMaritimo() {
 
     // Calcular totales en tiempo real
     const calculateTotals = () => {
-        const aa = (costs.advance_1_amount || 0) + (costs.advance_2_amount || 0) + 
-                   (costs.advance_3_amount || 0) + (costs.advance_4_amount || 0);
-        const release = aa + (costs.debit_note_amount || 0) + (costs.demurrage_amount || 0) +
-                       (costs.storage_amount || 0) + (costs.maneuvers_amount || 0) +
-                       (costs.custody_amount || 0) + (costs.transport_amount || 0) +
-                       (costs.other_amount || 0);
+        const aa = (parseFloat(String(costs.advance_1_amount)) || 0) + 
+                   (parseFloat(String(costs.advance_2_amount)) || 0) + 
+                   (parseFloat(String(costs.advance_3_amount)) || 0) + 
+                   (parseFloat(String(costs.advance_4_amount)) || 0);
+        const extraCostsTotal = extraCosts.reduce((sum, e) => sum + (e.amount || 0), 0);
+        const release = aa + (parseFloat(String(costs.debit_note_amount)) || 0) + 
+                       (parseFloat(String(costs.demurrage_amount)) || 0) +
+                       (parseFloat(String(costs.storage_amount)) || 0) + 
+                       (parseFloat(String(costs.maneuvers_amount)) || 0) +
+                       (parseFloat(String(costs.custody_amount)) || 0) + 
+                       (parseFloat(String(costs.transport_amount)) || 0) +
+                       (parseFloat(String(costs.other_amount)) || 0) +
+                       extraCostsTotal;
         return { aa, release };
     };
 
@@ -764,6 +1010,7 @@ export default function CostingPanelMaritimo() {
                 <Table>
                     <TableHead sx={{ bgcolor: '#F5F5F5' }}>
                         <TableRow>
+                            <TableCell align="center"><strong>{t('common.actions')}</strong></TableCell>
                             <TableCell><strong>{t('maritime.container')}</strong></TableCell>
                             <TableCell><strong>{t('maritime.blNumber')}</strong></TableCell>
                             <TableCell><strong>{t('maritime.route')}</strong></TableCell>
@@ -772,12 +1019,21 @@ export default function CostingPanelMaritimo() {
                             <TableCell align="center"><strong>{t('maritime.packages')}</strong></TableCell>
                             <TableCell align="right"><strong>{t('maritime.weight')}</strong></TableCell>
                             <TableCell align="right"><strong>{t('maritime.cost')}</strong></TableCell>
-                            <TableCell align="center"><strong>{t('common.actions')}</strong></TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
                         {containers.map((container) => (
                             <TableRow key={container.id} hover>
+                                <TableCell align="center">
+                                    <Tooltip title={t('maritime.editCosts')}>
+                                        <IconButton 
+                                            color="primary"
+                                            onClick={() => loadContainerCosts(container)}
+                                        >
+                                            <CalculateIcon />
+                                        </IconButton>
+                                    </Tooltip>
+                                </TableCell>
                                 <TableCell>
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                         <BoatIcon sx={{ color: SEA_COLOR }} />
@@ -856,21 +1112,11 @@ export default function CostingPanelMaritimo() {
                                         />
                                     )}
                                 </TableCell>
-                                <TableCell align="center">
-                                    <Tooltip title={t('maritime.editCosts')}>
-                                        <IconButton 
-                                            color="primary"
-                                            onClick={() => loadContainerCosts(container)}
-                                        >
-                                            <CalculateIcon />
-                                        </IconButton>
-                                    </Tooltip>
-                                </TableCell>
                             </TableRow>
                         ))}
                         {containers.length === 0 && !loading && (
                             <TableRow>
-                                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                                     <Typography color="text.secondary">
                                         {t('maritime.noContainers')}
                                     </Typography>
@@ -972,6 +1218,10 @@ export default function CostingPanelMaritimo() {
                             if (v === 5 && selectedContainer) {
                                 loadTrackingHistory(selectedContainer.id);
                             }
+                            // Cargar utilidades al cambiar a esa pestaña (solo si tiene permiso)
+                            if (v === 6 && selectedContainer && canViewUtilidades) {
+                                loadProfitBreakdown(selectedContainer.id);
+                            }
                         }}>
                             <Tab icon={<BoatIcon />} label={t('BL') || 'Datos BL'} />
                             <Tab icon={<ReceiptIcon />} label={t('maritime.navieraCosts')} />
@@ -979,6 +1229,7 @@ export default function CostingPanelMaritimo() {
                             <Tab icon={<ShippingIcon />} label={t('maritime.logisticsCosts')} />
                             <Tab icon={<DescriptionIcon />} label={t('maritime.officialDocuments')} />
                             <Tab icon={<SatelliteIcon />} label="🛰️ Tracking" />
+                            {canViewUtilidades && <Tab icon={<TrendingUpIcon />} label="💰 Utilidades" />}
                         </Tabs>
                     </Box>
 
@@ -1227,20 +1478,52 @@ export default function CostingPanelMaritimo() {
                         </Grid>
                     )}
 
-                    {/* Tab 2: Gastos Aduanales (AA) */}
+                    {/* Tab 2: Gastos de Liberación */}
                     {tabValue === 2 && (
                         <Grid container spacing={3}>
                             <Grid size={{ xs: 12 }}>
                                 <Alert severity="info" sx={{ mb: 2 }}>
                                     {t('maritime.customsInfo')}
+                                    {bolsasDisponibles.length > 0 && (
+                                        <Typography variant="body2" sx={{ mt: 1 }}>
+                                            💰 Hay <strong>{bolsasDisponibles.length}</strong> bolsas de anticipo disponibles para asignar
+                                        </Typography>
+                                    )}
                                 </Alert>
                             </Grid>
-                            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                <Card variant="outlined" sx={{ borderColor: SEA_COLOR }}>
+                            
+                            {/* Anticipo 1 */}
+                            <Grid size={{ xs: 12, sm: 6 }}>
+                                <Card variant="outlined" sx={{ borderColor: selectedBolsas.advance_1 ? '#4CAF50' : SEA_COLOR }}>
                                     <CardContent>
-                                        <Typography variant="subtitle2" color="text.secondary">
+                                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                                             {t('maritime.advance')} 1
                                         </Typography>
+                                        <FormControl fullWidth size="small" sx={{ mb: 1 }}>
+                                            <InputLabel>Seleccionar Bolsa de Anticipo</InputLabel>
+                                            <Select
+                                                value={selectedBolsas.advance_1 || ''}
+                                                label="Seleccionar Bolsa de Anticipo"
+                                                onChange={(e) => handleBolsaSelect('advance_1', e.target.value as number | null)}
+                                            >
+                                                <MenuItem value="">
+                                                    <em>Sin asignar / Manual</em>
+                                                </MenuItem>
+                                                {bolsasDisponibles.map((bolsa) => (
+                                                    <MenuItem 
+                                                        key={bolsa.id} 
+                                                        value={bolsa.id}
+                                                        disabled={
+                                                            selectedBolsas.advance_2 === bolsa.id ||
+                                                            selectedBolsas.advance_3 === bolsa.id ||
+                                                            selectedBolsas.advance_4 === bolsa.id
+                                                        }
+                                                    >
+                                                        {bolsa.proveedor_nombre} - {bolsa.referencia} (${formatCurrency(bolsa.monto_disponible)})
+                                                    </MenuItem>
+                                                ))}
+                                            </Select>
+                                        </FormControl>
                                         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                                             <TextField
                                                 label={t('maritime.amount')}
@@ -1261,15 +1544,50 @@ export default function CostingPanelMaritimo() {
                                                 {costs.advance_1_pdf ? <CheckCircleIcon /> : <AttachFileIcon />}
                                             </IconButton>
                                         </Box>
+                                        {selectedBolsas.advance_1 && (
+                                            <Chip 
+                                                size="small" 
+                                                color="success" 
+                                                label="Bolsa asignada" 
+                                                sx={{ mt: 1 }}
+                                            />
+                                        )}
                                     </CardContent>
                                 </Card>
                             </Grid>
-                            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                <Card variant="outlined" sx={{ borderColor: SEA_COLOR }}>
+                            
+                            {/* Anticipo 2 */}
+                            <Grid size={{ xs: 12, sm: 6 }}>
+                                <Card variant="outlined" sx={{ borderColor: selectedBolsas.advance_2 ? '#4CAF50' : SEA_COLOR }}>
                                     <CardContent>
-                                        <Typography variant="subtitle2" color="text.secondary">
+                                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                                             {t('maritime.advance')} 2
                                         </Typography>
+                                        <FormControl fullWidth size="small" sx={{ mb: 1 }}>
+                                            <InputLabel>Seleccionar Bolsa de Anticipo</InputLabel>
+                                            <Select
+                                                value={selectedBolsas.advance_2 || ''}
+                                                label="Seleccionar Bolsa de Anticipo"
+                                                onChange={(e) => handleBolsaSelect('advance_2', e.target.value as number | null)}
+                                            >
+                                                <MenuItem value="">
+                                                    <em>Sin asignar / Manual</em>
+                                                </MenuItem>
+                                                {bolsasDisponibles.map((bolsa) => (
+                                                    <MenuItem 
+                                                        key={bolsa.id} 
+                                                        value={bolsa.id}
+                                                        disabled={
+                                                            selectedBolsas.advance_1 === bolsa.id ||
+                                                            selectedBolsas.advance_3 === bolsa.id ||
+                                                            selectedBolsas.advance_4 === bolsa.id
+                                                        }
+                                                    >
+                                                        {bolsa.proveedor_nombre} - {bolsa.referencia} (${formatCurrency(bolsa.monto_disponible)})
+                                                    </MenuItem>
+                                                ))}
+                                            </Select>
+                                        </FormControl>
                                         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                                             <TextField
                                                 label={t('maritime.amount')}
@@ -1290,15 +1608,50 @@ export default function CostingPanelMaritimo() {
                                                 {costs.advance_2_pdf ? <CheckCircleIcon /> : <AttachFileIcon />}
                                             </IconButton>
                                         </Box>
+                                        {selectedBolsas.advance_2 && (
+                                            <Chip 
+                                                size="small" 
+                                                color="success" 
+                                                label="Bolsa asignada" 
+                                                sx={{ mt: 1 }}
+                                            />
+                                        )}
                                     </CardContent>
                                 </Card>
                             </Grid>
-                            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                <Card variant="outlined" sx={{ borderColor: SEA_COLOR }}>
+                            
+                            {/* Anticipo 3 */}
+                            <Grid size={{ xs: 12, sm: 6 }}>
+                                <Card variant="outlined" sx={{ borderColor: selectedBolsas.advance_3 ? '#4CAF50' : SEA_COLOR }}>
                                     <CardContent>
-                                        <Typography variant="subtitle2" color="text.secondary">
+                                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                                             {t('maritime.advance')} 3
                                         </Typography>
+                                        <FormControl fullWidth size="small" sx={{ mb: 1 }}>
+                                            <InputLabel>Seleccionar Bolsa de Anticipo</InputLabel>
+                                            <Select
+                                                value={selectedBolsas.advance_3 || ''}
+                                                label="Seleccionar Bolsa de Anticipo"
+                                                onChange={(e) => handleBolsaSelect('advance_3', e.target.value as number | null)}
+                                            >
+                                                <MenuItem value="">
+                                                    <em>Sin asignar / Manual</em>
+                                                </MenuItem>
+                                                {bolsasDisponibles.map((bolsa) => (
+                                                    <MenuItem 
+                                                        key={bolsa.id} 
+                                                        value={bolsa.id}
+                                                        disabled={
+                                                            selectedBolsas.advance_1 === bolsa.id ||
+                                                            selectedBolsas.advance_2 === bolsa.id ||
+                                                            selectedBolsas.advance_4 === bolsa.id
+                                                        }
+                                                    >
+                                                        {bolsa.proveedor_nombre} - {bolsa.referencia} (${formatCurrency(bolsa.monto_disponible)})
+                                                    </MenuItem>
+                                                ))}
+                                            </Select>
+                                        </FormControl>
                                         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                                             <TextField
                                                 label={t('maritime.amount')}
@@ -1319,15 +1672,50 @@ export default function CostingPanelMaritimo() {
                                                 {costs.advance_3_pdf ? <CheckCircleIcon /> : <AttachFileIcon />}
                                             </IconButton>
                                         </Box>
+                                        {selectedBolsas.advance_3 && (
+                                            <Chip 
+                                                size="small" 
+                                                color="success" 
+                                                label="Bolsa asignada" 
+                                                sx={{ mt: 1 }}
+                                            />
+                                        )}
                                     </CardContent>
                                 </Card>
                             </Grid>
-                            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                                <Card variant="outlined" sx={{ borderColor: SEA_COLOR }}>
+                            
+                            {/* Anticipo 4 */}
+                            <Grid size={{ xs: 12, sm: 6 }}>
+                                <Card variant="outlined" sx={{ borderColor: selectedBolsas.advance_4 ? '#4CAF50' : SEA_COLOR }}>
                                     <CardContent>
-                                        <Typography variant="subtitle2" color="text.secondary">
+                                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                                             {t('maritime.advance')} 4
                                         </Typography>
+                                        <FormControl fullWidth size="small" sx={{ mb: 1 }}>
+                                            <InputLabel>Seleccionar Bolsa de Anticipo</InputLabel>
+                                            <Select
+                                                value={selectedBolsas.advance_4 || ''}
+                                                label="Seleccionar Bolsa de Anticipo"
+                                                onChange={(e) => handleBolsaSelect('advance_4', e.target.value as number | null)}
+                                            >
+                                                <MenuItem value="">
+                                                    <em>Sin asignar / Manual</em>
+                                                </MenuItem>
+                                                {bolsasDisponibles.map((bolsa) => (
+                                                    <MenuItem 
+                                                        key={bolsa.id} 
+                                                        value={bolsa.id}
+                                                        disabled={
+                                                            selectedBolsas.advance_1 === bolsa.id ||
+                                                            selectedBolsas.advance_2 === bolsa.id ||
+                                                            selectedBolsas.advance_3 === bolsa.id
+                                                        }
+                                                    >
+                                                        {bolsa.proveedor_nombre} - {bolsa.referencia} (${formatCurrency(bolsa.monto_disponible)})
+                                                    </MenuItem>
+                                                ))}
+                                            </Select>
+                                        </FormControl>
                                         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                                             <TextField
                                                 label={t('maritime.amount')}
@@ -1348,9 +1736,18 @@ export default function CostingPanelMaritimo() {
                                                 {costs.advance_4_pdf ? <CheckCircleIcon /> : <AttachFileIcon />}
                                             </IconButton>
                                         </Box>
+                                        {selectedBolsas.advance_4 && (
+                                            <Chip 
+                                                size="small" 
+                                                color="success" 
+                                                label="Bolsa asignada" 
+                                                sx={{ mt: 1 }}
+                                            />
+                                        )}
                                     </CardContent>
                                 </Card>
                             </Grid>
+                            
                             <Grid size={{ xs: 12 }}>
                                 <Card sx={{ bgcolor: '#E0F7FA' }}>
                                     <CardContent>
@@ -1490,9 +1887,21 @@ export default function CostingPanelMaritimo() {
                             <Grid size={{ xs: 12, sm: 6 }}>
                                 <Card variant="outlined">
                                     <CardContent>
-                                        <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                                            📝 {t('maritime.other')}
-                                        </Typography>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                                            <Typography variant="subtitle1" fontWeight="bold">
+                                                📝 {t('maritime.other')}
+                                            </Typography>
+                                            <Button
+                                                size="small"
+                                                startIcon={<AddIcon />}
+                                                onClick={() => setExtraCosts([...extraCosts, { description: '', amount: 0 }])}
+                                                sx={{ textTransform: 'none' }}
+                                            >
+                                                Agregar
+                                            </Button>
+                                        </Box>
+                                        
+                                        {/* Gasto principal */}
                                         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1 }}>
                                             <TextField
                                                 label={t('maritime.otherAmount')}
@@ -1501,10 +1910,18 @@ export default function CostingPanelMaritimo() {
                                                 value={costs.other_amount || ''}
                                                 onChange={(e) => setCosts(prev => ({ ...prev, other_amount: parseFloat(e.target.value) || 0 }))}
                                                 InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                                                sx={{ flex: 1 }}
+                                            />
+                                            <TextField
+                                                size="small"
+                                                label="Descripción"
+                                                value={costs.other_description || ''}
+                                                onChange={(e) => setCosts(prev => ({ ...prev, other_description: e.target.value }))}
                                                 sx={{ flex: 2 }}
                                             />
                                             <IconButton 
                                                 color={costs.other_pdf ? 'success' : 'default'}
+                                                size="small"
                                                 onClick={() => {
                                                     if (costs.other_pdf) openFileModal(costs.other_pdf, 'other_pdf', 'Otros Gastos');
                                                     else openFileSelector('other_pdf');
@@ -1513,13 +1930,55 @@ export default function CostingPanelMaritimo() {
                                                 {costs.other_pdf ? <CheckCircleIcon /> : <AttachFileIcon />}
                                             </IconButton>
                                         </Box>
-                                        <TextField
-                                            fullWidth
-                                            size="small"
-                                            label={t('maritime.otherDescription')}
-                                            value={costs.other_description || ''}
-                                            onChange={(e) => setCosts(prev => ({ ...prev, other_description: e.target.value }))}
-                                        />
+                                        
+                                        {/* Gastos adicionales */}
+                                        {extraCosts.map((extra, idx) => (
+                                            <Box key={idx} sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1 }}>
+                                                <TextField
+                                                    label="Monto"
+                                                    type="number"
+                                                    size="small"
+                                                    value={extra.amount || ''}
+                                                    onChange={(e) => {
+                                                        const updated = [...extraCosts];
+                                                        updated[idx].amount = parseFloat(e.target.value) || 0;
+                                                        setExtraCosts(updated);
+                                                    }}
+                                                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                                                    sx={{ flex: 1 }}
+                                                />
+                                                <TextField
+                                                    size="small"
+                                                    label="Descripción"
+                                                    value={extra.description}
+                                                    onChange={(e) => {
+                                                        const updated = [...extraCosts];
+                                                        updated[idx].description = e.target.value;
+                                                        setExtraCosts(updated);
+                                                    }}
+                                                    sx={{ flex: 2 }}
+                                                />
+                                                <IconButton 
+                                                    color="error"
+                                                    size="small"
+                                                    onClick={() => {
+                                                        const updated = extraCosts.filter((_, i) => i !== idx);
+                                                        setExtraCosts(updated);
+                                                    }}
+                                                >
+                                                    <DeleteIcon fontSize="small" />
+                                                </IconButton>
+                                            </Box>
+                                        ))}
+                                        
+                                        {/* Total de otros gastos */}
+                                        {extraCosts.length > 0 && (
+                                            <Box sx={{ mt: 2, pt: 1, borderTop: '1px dashed #ccc' }}>
+                                                <Typography variant="body2" color="text.secondary">
+                                                    Total otros gastos: <strong>${formatCurrency((costs.other_amount || 0) + extraCosts.reduce((sum, e) => sum + e.amount, 0))}</strong>
+                                                </Typography>
+                                            </Box>
+                                        )}
                                     </CardContent>
                                 </Card>
                             </Grid>
@@ -1961,21 +2420,289 @@ export default function CostingPanelMaritimo() {
                         </Grid>
                     )}
 
-                    {/* Resumen Total */}
-                    <Divider sx={{ my: 3 }} />
-                    <Card sx={{ bgcolor: '#E8F5E9', border: '2px solid #4CAF50' }}>
-                        <CardContent>
-                            <Typography variant="h6" gutterBottom textAlign="center">
-                                {t('maritime.totalReleaseCost')}
+                    {/* Tab 6: Utilidades (solo admin/super_admin) */}
+                    {tabValue === 6 && selectedContainer && canViewUtilidades && (
+                        <Grid container spacing={3}>
+                            <Grid size={{ xs: 12 }}>
+                                <Alert 
+                                    severity={profitData?.summary?.estimated_profit > 0 ? 'success' : 'warning'} 
+                                    icon={<TrendingUpIcon />}
+                                >
+                                    💰 Desglose de utilidades estimadas para este contenedor
+                                </Alert>
+                            </Grid>
+
+                            {loadingProfit ? (
+                                <Grid size={{ xs: 12 }}>
+                                    <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                                        <CircularProgress />
+                                    </Box>
+                                </Grid>
+                            ) : profitData ? (
+                                <>
+                                    {/* Resumen de Utilidad */}
+                                    <Grid size={{ xs: 12, md: 6 }}>
+                                        <Card sx={{ bgcolor: (profitData.summary.estimated_profit_mxn || profitData.summary.estimated_profit) >= 0 ? '#E8F5E9' : '#FFEBEE', border: `2px solid ${(profitData.summary.estimated_profit_mxn || profitData.summary.estimated_profit) >= 0 ? '#4CAF50' : '#F44336'}` }}>
+                                            <CardContent>
+                                                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    <TrendingUpIcon /> Utilidad Estimada
+                                                </Typography>
+                                                <Typography variant="h3" fontWeight="bold" color={(profitData.summary.estimated_profit_mxn || profitData.summary.estimated_profit) >= 0 ? '#2E7D32' : '#C62828'} textAlign="center">
+                                                    ${formatCurrency(profitData.summary.estimated_profit_mxn || profitData.summary.estimated_profit)} MXN
+                                                </Typography>
+                                                <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ mt: 1 }}>
+                                                    Margen: {profitData.summary.profit_margin_percent}%
+                                                </Typography>
+                                            </CardContent>
+                                        </Card>
+                                    </Grid>
+
+                                    {/* Totales con USD y Conversión */}
+                                    <Grid size={{ xs: 12, md: 6 }}>
+                                        <Card variant="outlined">
+                                            <CardContent>
+                                                <Typography variant="h6" gutterBottom>📊 Resumen Financiero</Typography>
+                                                <Divider sx={{ mb: 2 }} />
+                                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                                                    {/* Venta en USD */}
+                                                    <Box sx={{ p: 1.5, bgcolor: '#E3F2FD', borderRadius: 1 }}>
+                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                            <Typography fontWeight="bold" color="primary">💵 Venta (USD):</Typography>
+                                                            <Typography variant="h6" fontWeight="bold" color="primary">
+                                                                ${formatCurrency(profitData.summary.total_estimated_revenue_usd || profitData.summary.total_estimated_revenue)} USD
+                                                            </Typography>
+                                                        </Box>
+                                                    </Box>
+                                                    
+                                                    {/* Tipo de Cambio */}
+                                                    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 1 }}>
+                                                        <Typography variant="body2" color="text.secondary">
+                                                            × TC Congelado:
+                                                        </Typography>
+                                                        <Chip 
+                                                            label={`$${profitData.summary.exchange_rate || profitData.container?.exchange_rate || '20.50'} MXN`}
+                                                            color="warning"
+                                                            size="small"
+                                                        />
+                                                    </Box>
+                                                    
+                                                    {/* Venta en MXN */}
+                                                    <Box sx={{ p: 1.5, bgcolor: '#E8F5E9', borderRadius: 1 }}>
+                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                            <Typography fontWeight="bold" color="success.main">= Venta (MXN):</Typography>
+                                                            <Typography variant="h6" fontWeight="bold" color="success.main">
+                                                                +${formatCurrency(profitData.summary.total_estimated_revenue_mxn || (profitData.summary.total_estimated_revenue * (profitData.summary.exchange_rate || 20.50)))} MXN
+                                                            </Typography>
+                                                        </Box>
+                                                    </Box>
+                                                    
+                                                    {/* Costo en MXN */}
+                                                    <Box sx={{ p: 1.5, bgcolor: '#FFEBEE', borderRadius: 1 }}>
+                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                            <Typography fontWeight="bold" color="error">💸 Costo (MXN):</Typography>
+                                                            <Typography variant="h6" fontWeight="bold" color="error">
+                                                                -${formatCurrency(profitData.summary.total_cost_mxn || profitData.summary.total_cost)} MXN
+                                                            </Typography>
+                                                        </Box>
+                                                    </Box>
+                                                    
+                                                    <Divider />
+                                                    <Typography variant="caption" color="text.secondary" textAlign="center">
+                                                        {profitData.summary.pricing_note || 'Cobros en USD × TC = MXN'}
+                                                    </Typography>
+                                                </Box>
+                                            </CardContent>
+                                        </Card>
+                                    </Grid>
+
+                                    {/* Volúmenes Totales */}
+                                    <Grid size={{ xs: 12, md: 4 }}>
+                                        <Card variant="outlined" sx={{ bgcolor: '#E3F2FD' }}>
+                                            <CardContent sx={{ textAlign: 'center' }}>
+                                                <InventoryIcon sx={{ fontSize: 40, color: '#1976D2' }} />
+                                                <Typography variant="h4" fontWeight="bold">{profitData.summary.total_shipments}</Typography>
+                                                <Typography color="text.secondary">Embarques</Typography>
+                                            </CardContent>
+                                        </Card>
+                                    </Grid>
+                                    <Grid size={{ xs: 12, md: 4 }}>
+                                        <Card variant="outlined" sx={{ bgcolor: '#FFF3E0' }}>
+                                            <CardContent sx={{ textAlign: 'center' }}>
+                                                <Typography variant="h4" fontWeight="bold">{profitData.summary.total_cbm}</Typography>
+                                                <Typography color="text.secondary">CBM Totales</Typography>
+                                            </CardContent>
+                                        </Card>
+                                    </Grid>
+                                    <Grid size={{ xs: 12, md: 4 }}>
+                                        <Card variant="outlined" sx={{ bgcolor: '#F3E5F5' }}>
+                                            <CardContent sx={{ textAlign: 'center' }}>
+                                                <Typography variant="h4" fontWeight="bold">{profitData.summary.total_kg}</Typography>
+                                                <Typography color="text.secondary">KG Totales</Typography>
+                                            </CardContent>
+                                        </Card>
+                                    </Grid>
+
+                                    {/* Lista de Embarques */}
+                                    <Grid size={{ xs: 12 }}>
+                                        <Card variant="outlined">
+                                            <CardContent>
+                                                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    <InventoryIcon /> Desglose por Embarque ({profitData.shipments.length})
+                                                </Typography>
+                                                <Divider sx={{ mb: 2 }} />
+                                                
+                                                {profitData.shipments.length === 0 ? (
+                                                    <Alert severity="info">
+                                                        No hay embarques asignados a este contenedor todavía.
+                                                    </Alert>
+                                                ) : (
+                                                    <TableContainer>
+                                                        <Table size="small">
+                                                            <TableHead>
+                                                                <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                                                                    <TableCell><strong>Cliente</strong></TableCell>
+                                                                    <TableCell><strong>LOG #</strong></TableCell>
+                                                                    <TableCell align="right"><strong>CBM</strong></TableCell>
+                                                                    <TableCell align="right"><strong>KG</strong></TableCell>
+                                                                    <TableCell align="center"><strong>Categoría</strong></TableCell>
+                                                                    <TableCell align="right"><strong>Cobro USD</strong></TableCell>
+                                                                </TableRow>
+                                                            </TableHead>
+                                                            <TableBody>
+                                                                {profitData.shipments.map((shipment: any) => (
+                                                                    <TableRow key={shipment.id} hover>
+                                                                        <TableCell>
+                                                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                                                <PersonIcon fontSize="small" color="action" />
+                                                                                <Box>
+                                                                                    <Typography variant="body2" fontWeight="bold">
+                                                                                        {shipment.client_name || 'Sin asignar'}
+                                                                                    </Typography>
+                                                                                    <Typography variant="caption" color="text.secondary">
+                                                                                        {shipment.box_id || '-'}
+                                                                                    </Typography>
+                                                                                </Box>
+                                                                            </Box>
+                                                                        </TableCell>
+                                                                        <TableCell>
+                                                                            <Typography variant="body2" fontFamily="monospace" fontWeight="bold" color="primary.main">
+                                                                                {shipment.log_number || '-'}
+                                                                            </Typography>
+                                                                        </TableCell>
+                                                                        <TableCell align="right">
+                                                                            <Typography variant="body2">{shipment.cbm.toFixed(3)}</Typography>
+                                                                        </TableCell>
+                                                                        <TableCell align="right">
+                                                                            <Typography variant="body2">{shipment.kg.toFixed(2)}</Typography>
+                                                                        </TableCell>
+                                                                        <TableCell align="center">
+                                                                            <Tooltip title={shipment.price_breakdown || ''}>
+                                                                                <Chip 
+                                                                                    label={shipment.applied_category || shipment.charge_type} 
+                                                                                    size="small"
+                                                                                    color={
+                                                                                        shipment.applied_category === 'Logotipo' ? 'warning' :
+                                                                                        shipment.applied_category === 'Sensible' ? 'error' :
+                                                                                        shipment.applied_category === 'StartUp' ? 'secondary' :
+                                                                                        'primary'
+                                                                                    }
+                                                                                />
+                                                                            </Tooltip>
+                                                                        </TableCell>
+                                                                        <TableCell align="right">
+                                                                            <Tooltip title={`${shipment.price_breakdown || ''} | Tarifa: $${shipment.applied_rate || 0}/m³ USD`}>
+                                                                                <Typography variant="body2" fontWeight="bold" color="primary.main">
+                                                                                    ${formatCurrency(shipment.estimated_charge)} USD
+                                                                                </Typography>
+                                                                            </Tooltip>
+                                                                        </TableCell>
+                                                                    </TableRow>
+                                                                ))}
+                                                                {/* Fila de totales */}
+                                                                <TableRow sx={{ bgcolor: '#E3F2FD' }}>
+                                                                    <TableCell colSpan={2}>
+                                                                        <Typography fontWeight="bold">TOTAL</Typography>
+                                                                    </TableCell>
+                                                                    <TableCell align="right">
+                                                                        <Typography fontWeight="bold">{profitData.summary.total_cbm}</Typography>
+                                                                    </TableCell>
+                                                                    <TableCell align="right">
+                                                                        <Typography fontWeight="bold">{profitData.summary.total_kg}</Typography>
+                                                                    </TableCell>
+                                                                    <TableCell />
+                                                                    <TableCell align="right">
+                                                                        <Typography fontWeight="bold" color="primary.main">
+                                                                            ${formatCurrency(profitData.summary.total_estimated_revenue_usd || profitData.summary.total_estimated_revenue)} USD
+                                                                        </Typography>
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            </TableBody>
+                                                        </Table>
+                                                    </TableContainer>
+                                                )}
+                                            </CardContent>
+                                        </Card>
+                                    </Grid>
+
+                                    {/* Desglose de Costos */}
+                                    <Grid size={{ xs: 12 }}>
+                                        <Card variant="outlined" sx={{ bgcolor: '#FFF8E1' }}>
+                                            <CardContent>
+                                                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    📋 Desglose de Costos del Contenedor
+                                                </Typography>
+                                                <Divider sx={{ mb: 2 }} />
+                                                <Grid container spacing={2}>
+                                                    <Grid size={{ xs: 12, md: 4 }}>
+                                                        <Typography variant="subtitle2" color="primary" gutterBottom>🚢 Naviera</Typography>
+                                                        <Box sx={{ pl: 2 }}>
+                                                            <Typography variant="body2">Nota de Débito: ${formatCurrency(profitData.costs.naviera.debit_note)}</Typography>
+                                                            <Typography variant="body2">Demoras: ${formatCurrency(profitData.costs.naviera.demurrage)}</Typography>
+                                                            <Typography variant="body2">Almacenaje: ${formatCurrency(profitData.costs.naviera.storage)}</Typography>
+                                                        </Box>
+                                                    </Grid>
+                                                    <Grid size={{ xs: 12, md: 4 }}>
+                                                        <Typography variant="subtitle2" color="secondary" gutterBottom>🏛️ Aduana</Typography>
+                                                        <Box sx={{ pl: 2 }}>
+                                                            <Typography variant="body2">Honorarios AA: ${formatCurrency(profitData.costs.aduana.customs_aa)}</Typography>
+                                                        </Box>
+                                                    </Grid>
+                                                    <Grid size={{ xs: 12, md: 4 }}>
+                                                        <Typography variant="subtitle2" color="success.main" gutterBottom>🚚 Logística</Typography>
+                                                        <Box sx={{ pl: 2 }}>
+                                                            <Typography variant="body2">Maniobras: ${formatCurrency(profitData.costs.logistica.maneuvers)}</Typography>
+                                                            <Typography variant="body2">Custodia: ${formatCurrency(profitData.costs.logistica.custody)}</Typography>
+                                                            <Typography variant="body2">Transporte: ${formatCurrency(profitData.costs.logistica.transport)}</Typography>
+                                                            <Typography variant="body2">Anticipos: ${formatCurrency(profitData.costs.logistica.advances)}</Typography>
+                                                            <Typography variant="body2">Otros: ${formatCurrency(profitData.costs.logistica.other)}</Typography>
+                                                        </Box>
+                                                    </Grid>
+                                                </Grid>
+                                            </CardContent>
+                                        </Card>
+                                    </Grid>
+                                </>
+                            ) : (
+                                <Grid size={{ xs: 12 }}>
+                                    <Alert severity="info">
+                                        Haz clic en esta pestaña para cargar el desglose de utilidades.
+                                    </Alert>
+                                </Grid>
+                            )}
+                        </Grid>
+                    )}
+
+                    {/* Resumen Total - Compacto */}
+                    <Box sx={{ mt: 2, p: 2, bgcolor: '#E3F2FD', borderRadius: 2, border: '1px solid #1976D2' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Typography variant="subtitle1" color="#1565C0" fontWeight="bold">
+                                💰 {t('maritime.totalReleaseCost')}:
                             </Typography>
-                            <Typography variant="h3" fontWeight="bold" color="#2E7D32" textAlign="center">
+                            <Typography variant="h5" fontWeight="bold" color="#1565C0">
                                 ${formatCurrency(totals.release)} MXN
                             </Typography>
-                            <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ mt: 1 }}>
-                                {t('maritime.includesAll')}
-                            </Typography>
-                        </CardContent>
-                    </Card>
+                        </Box>
+                    </Box>
                 </DialogContent>
                 <DialogActions sx={{ p: 2 }}>
                     <Button onClick={() => setCostDialogOpen(false)}>

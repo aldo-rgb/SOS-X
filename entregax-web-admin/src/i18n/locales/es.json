@@ -571,7 +571,8 @@
       "routes": "Rutas",
       "last_mile": "Última Milla",
       "dhl_rates": "Tarifas DHL",
-      "dhl_operations": "Operaciones DHL"
+      "dhl_operations": "Operaciones DHL",
+      "anticipos": "Control de Anticipos"
     },
     "moduleFeatures": {
       "clients": {
@@ -949,7 +950,7 @@
     "noRoute": "Sin ruta",
     "routeUpdated": "Ruta actualizada correctamente",
     "errorUpdatingRoute": "Error al actualizar la ruta",
-    "eta": "ETA (Llegada Estimada)",
+    "eta": "ETA",
     "status": "Estado",
     "container": "Contenedor",
     "packages": "Paquetes",
@@ -973,7 +974,7 @@
     "costingContainer": "Costeo de Contenedor",
     "complete": "Completado",
     "navieraCosts": "Gastos en Origen",
-    "customsCosts": "Gastos Aduanales (AA)",
+    "customsCosts": "Gastos de Liberación",
     "logisticsCosts": "Gastos Logísticos",
     "officialDocuments": "Documentos Oficiales",
     "officialDocumentsInfo": "Suba los documentos oficiales del contenedor: TELEX RELEASE y Bill of Lading (BL)",
@@ -988,7 +989,7 @@
     "customsInfo": "Los anticipos de aduana (AA) se suman automáticamente para calcular el costo total.",
     "advance": "Anticipo",
     "amount": "Monto",
-    "totalAA": "Total Gastos Aduanales",
+    "totalAA": "Total Gastos de Liberación",
     "storage": "Almacenaje",
     "storageAmount": "Monto Almacenaje",
     "maneuvers": "Maniobras",

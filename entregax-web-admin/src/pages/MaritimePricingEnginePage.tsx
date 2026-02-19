@@ -134,12 +134,9 @@ export default function MaritimePricingEnginePage() {
 
   // Calculadora
   const [calcForm, setCalcForm] = useState({
-    lengthCm: '',
-    widthCm: '',
-    heightCm: '',
+    cbm: '',
     weightKg: '',
-    category: 'Generico',
-    userId: '0',
+    category: 'Generico'
   });
   const [calcResult, setCalcResult] = useState<CalculationResult | null>(null);
   const [calculating, setCalculating] = useState(false);
@@ -310,24 +307,73 @@ export default function MaritimePricingEnginePage() {
     }
   };
 
-  // Calcular costo
+  // Calcular costo (local, usando categorías cargadas)
   const handleCalculate = async () => {
-    if (!calcForm.lengthCm || !calcForm.widthCm || !calcForm.heightCm || !calcForm.weightKg) {
-      setSnackbar({ open: true, message: 'Completa las dimensiones y peso', severity: 'error' });
+    if (!calcForm.cbm || !calcForm.weightKg) {
+      setSnackbar({ open: true, message: 'Ingresa el CBM y el peso', severity: 'error' });
       return;
     }
-
+    
+    setCalculating(true);
     try {
-      setCalculating(true);
-      const response = await axios.post(`${API_URL}/api/maritime/calculate`, calcForm);
-      setCalcResult(response.data);
-    } catch (error: any) {
-      console.error('Error calculating:', error);
-      setSnackbar({ 
-        open: true, 
-        message: error.response?.data?.error || 'Error al calcular', 
-        severity: 'error' 
+      const cbm = parseFloat(calcForm.cbm);
+      const weightKg = parseFloat(calcForm.weightKg);
+      const volumetricCbm = weightKg / 600;
+      const chargeableCbm = Math.max(cbm, volumetricCbm);
+      
+      // Aplicar reglas de StartUp si CBM <= 0.75
+      let appliedCategory = calcForm.category;
+      let finalCbm = chargeableCbm;
+      
+      if (chargeableCbm <= 0.75) {
+        appliedCategory = 'StartUp';
+      } else if (chargeableCbm > 0.75 && chargeableCbm < 1) {
+        finalCbm = 1; // Redondear a 1 CBM
+      }
+      
+      // Buscar tarifa en categorías cargadas
+      const categoryData = tiersByCategory.find(c => c.name === appliedCategory);
+      let rate = 0;
+      let isFlatFee = false;
+      let surcharge = 0;
+      
+      if (categoryData && categoryData.tiers && categoryData.tiers.length > 0) {
+        const applicableTier = categoryData.tiers.find(
+          (t) => parseFloat(String(finalCbm)) >= parseFloat(t.min_cbm) && parseFloat(String(finalCbm)) <= parseFloat(t.max_cbm)
+        ) || categoryData.tiers[categoryData.tiers.length - 1];
+        
+        rate = parseFloat(applicableTier?.price || '0');
+        isFlatFee = applicableTier?.is_flat_fee || false;
+        
+        // Recargo de logotipo si categoría original es Logotipo
+        if (calcForm.category === 'Logotipo') {
+          const logoCategory = tiersByCategory.find(c => c.name === 'Logotipo');
+          surcharge = parseFloat(logoCategory?.surcharge_per_cbm || '0');
+        }
+      }
+      
+      const basePrice = isFlatFee ? rate : rate * finalCbm;
+      const surchargeAmount = surcharge * finalCbm;
+      const finalPrice = basePrice + surchargeAmount;
+      
+      setCalcResult({
+        physicalCbm: cbm.toFixed(3),
+        volumetricCbm: volumetricCbm.toFixed(3),
+        chargeableCbm: finalCbm.toFixed(3),
+        originalCategory: calcForm.category,
+        appliedCategory: appliedCategory,
+        appliedRate: rate.toString(),
+        isFlatFee: isFlatFee,
+        surchargeApplied: surcharge,
+        isVipApplied: false,
+        breakdown: isFlatFee 
+          ? `Tarifa plana: $${rate}` 
+          : `${finalCbm.toFixed(3)} CBM × $${rate}/CBM = $${basePrice.toFixed(2)}${surcharge > 0 ? ` + recargo logo $${surchargeAmount.toFixed(2)}` : ''}`,
+        finalPriceUsd: finalPrice.toFixed(2)
       });
+    } catch (error) {
+      console.error('Error calculating:', error);
+      setSnackbar({ open: true, message: 'Error al calcular', severity: 'error' });
     } finally {
       setCalculating(false);
     }
@@ -533,35 +579,20 @@ export default function MaritimePricingEnginePage() {
                 <Divider sx={{ mb: 2 }} />
 
                 <Alert severity="info" sx={{ mb: 2 }}>
-                  💡 Ingresa las dimensiones y el motor calculará automáticamente si aplica peso volumétrico (÷600) o CBM físico.
+                  💡 Ingresa el CBM y peso - el motor calculará automáticamente si aplica peso volumétrico (÷600) o CBM físico. Si el CBM es ≤0.75 aplica tarifa StartUp.
                 </Alert>
 
                 <Grid container spacing={2}>
-                  <Grid size={{ xs: 4 }}>
+                  <Grid size={{ xs: 6 }}>
                     <TextField
                       fullWidth
-                      label="Largo (cm)"
+                      label="CBM (m³)"
                       type="number"
-                      value={calcForm.lengthCm}
-                      onChange={(e) => setCalcForm({ ...calcForm, lengthCm: e.target.value })}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 4 }}>
-                    <TextField
-                      fullWidth
-                      label="Ancho (cm)"
-                      type="number"
-                      value={calcForm.widthCm}
-                      onChange={(e) => setCalcForm({ ...calcForm, widthCm: e.target.value })}
-                    />
-                  </Grid>
-                  <Grid size={{ xs: 4 }}>
-                    <TextField
-                      fullWidth
-                      label="Alto (cm)"
-                      type="number"
-                      value={calcForm.heightCm}
-                      onChange={(e) => setCalcForm({ ...calcForm, heightCm: e.target.value })}
+                      value={calcForm.cbm}
+                      onChange={(e) => setCalcForm({ ...calcForm, cbm: e.target.value })}
+                      placeholder="Ej: 0.5"
+                      helperText="Volumen cúbico del envío"
+                      inputProps={{ step: '0.001', min: '0' }}
                     />
                   </Grid>
                   <Grid size={{ xs: 6 }}>
@@ -571,31 +602,31 @@ export default function MaritimePricingEnginePage() {
                       type="number"
                       value={calcForm.weightKg}
                       onChange={(e) => setCalcForm({ ...calcForm, weightKg: e.target.value })}
+                      placeholder="Ej: 25"
+                      helperText="Peso real del envío"
                     />
-                  </Grid>
-                  <Grid size={{ xs: 6 }}>
-                    <FormControl fullWidth>
-                      <InputLabel>Categoría</InputLabel>
-                      <Select
-                        value={calcForm.category}
-                        label="Categoría"
-                        onChange={(e) => setCalcForm({ ...calcForm, category: e.target.value })}
-                      >
-                        <MenuItem value="Generico">📦 Genérico</MenuItem>
-                        <MenuItem value="Sensible">🔶 Sensible</MenuItem>
-                        <MenuItem value="Logotipo">🏷️ Con Logotipo (+$100/CBM)</MenuItem>
-                      </Select>
-                    </FormControl>
                   </Grid>
                   <Grid size={{ xs: 12 }}>
-                    <TextField
-                      fullWidth
-                      label="ID de Usuario (0 = público)"
-                      type="number"
-                      value={calcForm.userId}
-                      onChange={(e) => setCalcForm({ ...calcForm, userId: e.target.value })}
-                      helperText="Si el usuario es VIP, obtendrá la tarifa más baja"
-                    />
+                    <FormControl fullWidth>
+                      <InputLabel>Categoría de Producto</InputLabel>
+                      <Select
+                        value={calcForm.category}
+                        label="Categoría de Producto"
+                        onChange={(e) => setCalcForm({ ...calcForm, category: e.target.value })}
+                      >
+                        {categories.map((cat) => (
+                          <MenuItem key={cat.id} value={cat.name}>
+                            {cat.name === 'Generico' && '📦 '}
+                            {cat.name === 'Sensible' && '🔶 '}
+                            {cat.name === 'Logotipo' && '🏷️ '}
+                            {cat.name === 'StartUp' && '🚀 '}
+                            {cat.name === 'FCL 40 Pies' && '🚛 '}
+                            {cat.name}
+                            {cat.name === 'Logotipo' && parseFloat(cat.surcharge_per_cbm) > 0 ? ` (+$${cat.surcharge_per_cbm}/CBM)` : ''}
+                          </MenuItem>
+                        ))}
+                      </Select>
+                    </FormControl>
                   </Grid>
                   <Grid size={{ xs: 12 }}>
                     <Button
@@ -695,7 +726,7 @@ export default function MaritimePricingEnginePage() {
                 <Box textAlign="center" p={4}>
                   <ShippingIcon sx={{ fontSize: 80, color: '#ddd', mb: 2 }} />
                   <Typography color="text.secondary">
-                    Ingresa las dimensiones y peso para calcular el costo del envío marítimo
+                    Ingresa el CBM, peso y categoría para calcular el costo del envío marítimo
                   </Typography>
                 </Box>
               </Card>

@@ -335,8 +335,27 @@ import {
   createMaritimeRate,
   updateMaritimeRate,
   deleteMaritimeRate,
-  calculateShipmentCost
+  calculateShipmentCost,
+  // Utilidades
+  getContainerProfitBreakdown
 } from './maritimeController';
+import {
+  // Módulo de Anticipos a Proveedores
+  getProveedoresAnticipos,
+  getProveedorById,
+  createProveedor,
+  updateProveedor,
+  getBolsasAnticipos,
+  getBolsasDisponibles,
+  createBolsaAnticipo,
+  updateBolsaAnticipo,
+  deleteBolsaAnticipo,
+  getAsignacionesByContainer,
+  getAsignacionesByBolsa,
+  asignarAnticipo,
+  revertirAsignacion,
+  getAnticiposStats
+} from './anticiposController';
 import {
   // IA Extraction
   extractLogDataLcl,
@@ -1340,6 +1359,35 @@ app.post('/api/maritime/rates', authenticateToken, requireMinLevel(ROLES.ADMIN),
 app.put('/api/maritime/rates/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateMaritimeRate);
 app.delete('/api/maritime/rates/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteMaritimeRate);
 app.post('/api/maritime/calculate-cost', authenticateToken, calculateShipmentCost);
+
+// Utilidades por Contenedor
+app.get('/api/maritime/containers/:containerId/profit', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getContainerProfitBreakdown);
+
+// ========== MÓDULO DE ANTICIPOS A PROVEEDORES ==========
+// Upload para comprobantes de anticipos
+const anticipoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+// Proveedores
+app.get('/api/anticipos/proveedores', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getProveedoresAnticipos);
+app.get('/api/anticipos/proveedores/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getProveedorById);
+app.post('/api/anticipos/proveedores', authenticateToken, requireMinLevel(ROLES.ADMIN), createProveedor);
+app.put('/api/anticipos/proveedores/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateProveedor);
+
+// Bolsas de Anticipos (Depósitos)
+app.get('/api/anticipos/bolsas', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getBolsasAnticipos);
+app.get('/api/anticipos/bolsas/disponibles', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getBolsasDisponibles);
+app.post('/api/anticipos/bolsas', authenticateToken, requireMinLevel(ROLES.ADMIN), anticipoUpload.single('comprobante'), createBolsaAnticipo);
+app.put('/api/anticipos/bolsas/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateBolsaAnticipo);
+app.delete('/api/anticipos/bolsas/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteBolsaAnticipo);
+app.get('/api/anticipos/bolsas/:bolsaId/asignaciones', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAsignacionesByBolsa);
+
+// Asignaciones de Anticipos
+app.get('/api/anticipos/container/:containerId/asignaciones', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAsignacionesByContainer);
+app.post('/api/anticipos/asignar', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), asignarAnticipo);
+app.delete('/api/anticipos/asignaciones/:id/revertir', authenticateToken, requireMinLevel(ROLES.ADMIN), revertirAsignacion);
+
+// Estadísticas de Anticipos
+app.get('/api/anticipos/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAnticiposStats);
 
 // ========== MÓDULO MARÍTIMO CON IA (Nuevo Panel Bodega) ==========
 
