@@ -97,6 +97,7 @@ interface DhlShipment {
 
 interface DhlStats {
   today_received: number;
+  today_dispatched: number;
   pending_quote: number;
   pending_payment: number;
   ready_dispatch: number;

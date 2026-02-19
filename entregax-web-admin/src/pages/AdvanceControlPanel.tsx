@@ -47,14 +47,10 @@ import {
     Receipt as ReceiptIcon,
     History as HistoryIcon,
     Visibility as VisibilityIcon,
-    Edit as EditIcon,
     ExpandMore as ExpandMoreIcon,
     ExpandLess as ExpandLessIcon,
     CloudUpload as UploadIcon,
-    CheckCircle as CheckCircleIcon,
-    Warning as WarningIcon,
     TrendingUp as TrendingUpIcon,
-    Search as SearchIcon,
     Refresh as RefreshIcon,
     Assignment as AssignmentIcon,
 } from '@mui/icons-material';
@@ -64,7 +60,6 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 // Colores del tema
 const THEME_COLOR = '#00BCD4';
-const THEME_DARK = '#0097A7';
 
 // Interfaces
 interface Proveedor {
@@ -341,7 +336,7 @@ export default function AdvanceControlPanel() {
             {/* Estadísticas */}
             {stats && (
                 <Grid container spacing={2} sx={{ mb: 3 }}>
-                    <Grid item xs={6} md={2}>
+                    <Grid size={{ xs: 6, md: 2 }}>
                         <Card sx={{ bgcolor: '#E3F2FD' }}>
                             <CardContent sx={{ textAlign: 'center', py: 2 }}>
                                 <BusinessIcon sx={{ fontSize: 30, color: '#1976D2' }} />
@@ -350,7 +345,7 @@ export default function AdvanceControlPanel() {
                             </CardContent>
                         </Card>
                     </Grid>
-                    <Grid item xs={6} md={2}>
+                    <Grid size={{ xs: 6, md: 2 }}>
                         <Card sx={{ bgcolor: '#E8F5E9' }}>
                             <CardContent sx={{ textAlign: 'center', py: 2 }}>
                                 <ReceiptIcon sx={{ fontSize: 30, color: '#388E3C' }} />
@@ -359,7 +354,7 @@ export default function AdvanceControlPanel() {
                             </CardContent>
                         </Card>
                     </Grid>
-                    <Grid item xs={6} md={2}>
+                    <Grid size={{ xs: 6, md: 2 }}>
                         <Card sx={{ bgcolor: '#FFF3E0' }}>
                             <CardContent sx={{ textAlign: 'center', py: 2 }}>
                                 <MoneyIcon sx={{ fontSize: 30, color: '#F57C00' }} />
@@ -368,7 +363,7 @@ export default function AdvanceControlPanel() {
                             </CardContent>
                         </Card>
                     </Grid>
-                    <Grid item xs={6} md={3}>
+                    <Grid size={{ xs: 6, md: 3 }}>
                         <Card sx={{ bgcolor: '#E8F5E9', border: '2px solid #4CAF50' }}>
                             <CardContent sx={{ textAlign: 'center', py: 2 }}>
                                 <TrendingUpIcon sx={{ fontSize: 30, color: '#2E7D32' }} />
@@ -379,7 +374,7 @@ export default function AdvanceControlPanel() {
                             </CardContent>
                         </Card>
                     </Grid>
-                    <Grid item xs={12} md={3}>
+                    <Grid size={{ xs: 12, md: 3 }}>
                         <Card sx={{ bgcolor: '#FCE4EC' }}>
                             <CardContent sx={{ textAlign: 'center', py: 2 }}>
                                 <AssignmentIcon sx={{ fontSize: 30, color: '#C2185B' }} />
@@ -522,28 +517,28 @@ export default function AdvanceControlPanel() {
                                 <Card key={bolsa.id} variant="outlined">
                                     <CardContent>
                                         <Grid container spacing={2} alignItems="center">
-                                            <Grid item xs={12} md={3}>
+                                            <Grid size={{ xs: 12, md: 3 }}>
                                                 <Typography variant="subtitle2" color="text.secondary">Proveedor</Typography>
                                                 <Typography fontWeight="bold">{bolsa.proveedor_nombre}</Typography>
                                                 <Typography variant="caption" color="text.secondary">
                                                     {bolsa.referencia_pago || 'Sin referencia'}
                                                 </Typography>
                                             </Grid>
-                                            <Grid item xs={6} md={2}>
+                                            <Grid size={{ xs: 6, md: 2 }}>
                                                 <Typography variant="subtitle2" color="text.secondary">Fecha Pago</Typography>
                                                 <Typography>{new Date(bolsa.fecha_pago).toLocaleDateString()}</Typography>
                                             </Grid>
-                                            <Grid item xs={6} md={2}>
+                                            <Grid size={{ xs: 6, md: 2 }}>
                                                 <Typography variant="subtitle2" color="text.secondary">Monto Original</Typography>
                                                 <Typography fontWeight="bold">${formatCurrency(bolsa.monto_original)}</Typography>
                                             </Grid>
-                                            <Grid item xs={6} md={2}>
+                                            <Grid size={{ xs: 6, md: 2 }}>
                                                 <Typography variant="subtitle2" color="text.secondary">Saldo Disponible</Typography>
                                                 <Typography fontWeight="bold" color={parseFloat(String(bolsa.saldo_disponible)) > 0 ? 'success.main' : 'error.main'}>
                                                     ${formatCurrency(bolsa.saldo_disponible)}
                                                 </Typography>
                                             </Grid>
-                                            <Grid item xs={6} md={2}>
+                                            <Grid size={{ xs: 6, md: 2 }}>
                                                 <Typography variant="subtitle2" color="text.secondary">Utilizado</Typography>
                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                                     <LinearProgress 
@@ -555,7 +550,7 @@ export default function AdvanceControlPanel() {
                                                     <Typography variant="caption">{bolsa.porcentaje_utilizado}%</Typography>
                                                 </Box>
                                             </Grid>
-                                            <Grid item xs={12} md={1}>
+                                            <Grid size={{ xs: 12, md: 1 }}>
                                                 <Box sx={{ display: 'flex', gap: 1 }}>
                                                     {bolsa.comprobante_url && (
                                                         <Tooltip title="Ver comprobante">
@@ -650,7 +645,7 @@ export default function AdvanceControlPanel() {
                 </DialogTitle>
                 <DialogContent sx={{ pt: 3 }}>
                     <Grid container spacing={2} sx={{ mt: 1 }}>
-                        <Grid item xs={12}>
+                        <Grid size={{ xs: 12 }}>
                             <TextField
                                 fullWidth
                                 label="Nombre del Proveedor *"
@@ -659,7 +654,7 @@ export default function AdvanceControlPanel() {
                                 placeholder="Ej: Agente Aduanal Manzanillo"
                             />
                         </Grid>
-                        <Grid item xs={12} md={6}>
+                        <Grid size={{ xs: 12, md: 6 }}>
                             <TextField
                                 fullWidth
                                 label="Referencia / RFC"
@@ -668,7 +663,7 @@ export default function AdvanceControlPanel() {
                                 placeholder="Ej: AA-MZT-001"
                             />
                         </Grid>
-                        <Grid item xs={12} md={6}>
+                        <Grid size={{ xs: 12, md: 6 }}>
                             <FormControl fullWidth>
                                 <InputLabel>Tipo</InputLabel>
                                 <Select
@@ -711,7 +706,7 @@ export default function AdvanceControlPanel() {
                         💡 Registra aquí los depósitos globales que realizas a proveedores. Luego podrás asignar montos específicos a cada contenedor.
                     </Alert>
                     <Grid container spacing={2} sx={{ mt: 1 }}>
-                        <Grid item xs={12}>
+                        <Grid size={{ xs: 12 }}>
                             <FormControl fullWidth required>
                                 <InputLabel>Proveedor *</InputLabel>
                                 <Select
@@ -727,7 +722,7 @@ export default function AdvanceControlPanel() {
                                 </Select>
                             </FormControl>
                         </Grid>
-                        <Grid item xs={12} md={6}>
+                        <Grid size={{ xs: 12, md: 6 }}>
                             <TextField
                                 fullWidth
                                 required
@@ -740,7 +735,7 @@ export default function AdvanceControlPanel() {
                                 }}
                             />
                         </Grid>
-                        <Grid item xs={12} md={6}>
+                        <Grid size={{ xs: 12, md: 6 }}>
                             <TextField
                                 fullWidth
                                 required
@@ -751,7 +746,7 @@ export default function AdvanceControlPanel() {
                                 InputLabelProps={{ shrink: true }}
                             />
                         </Grid>
-                        <Grid item xs={12} md={6}>
+                        <Grid size={{ xs: 12, md: 6 }}>
                             <TextField
                                 fullWidth
                                 label="Referencia / Concepto"
@@ -760,7 +755,7 @@ export default function AdvanceControlPanel() {
                                 placeholder="Ej: Anticipo operaciones febrero"
                             />
                         </Grid>
-                        <Grid item xs={12} md={6}>
+                        <Grid size={{ xs: 12, md: 6 }}>
                             <TextField
                                 fullWidth
                                 label="No. Operación Bancaria"
@@ -768,7 +763,7 @@ export default function AdvanceControlPanel() {
                                 onChange={(e) => setNewBolsa({ ...newBolsa, numero_operacion: e.target.value })}
                             />
                         </Grid>
-                        <Grid item xs={12} md={6}>
+                        <Grid size={{ xs: 12, md: 6 }}>
                             <TextField
                                 fullWidth
                                 label="Banco Origen"
@@ -776,7 +771,7 @@ export default function AdvanceControlPanel() {
                                 onChange={(e) => setNewBolsa({ ...newBolsa, banco_origen: e.target.value })}
                             />
                         </Grid>
-                        <Grid item xs={12} md={6}>
+                        <Grid size={{ xs: 12, md: 6 }}>
                             <Button
                                 variant="outlined"
                                 component="label"
@@ -793,7 +788,7 @@ export default function AdvanceControlPanel() {
                                 />
                             </Button>
                         </Grid>
-                        <Grid item xs={12}>
+                        <Grid size={{ xs: 12 }}>
                             <TextField
                                 fullWidth
                                 multiline
