@@ -108,19 +108,51 @@ const getDocumentType = (recipient: string): 'FCL' | 'LCL' | 'LOG' | 'BL' | null
 };
 
 /**
- * Extraer código de ruta del subject del correo
- * Busca patrones como CHN-LAX-ELP-MEX o similar
+ * Extraer código de ruta, week y referencia del subject del correo
+ * Formato esperado: CHN-LZC-MXC - Week 32.1 - JSM26-0030
+ * Donde: RUTA - WEEK - REFERENCIA
  */
-const extractRouteFromSubject = async (subject: string): Promise<{ routeId: number | null; routeCode: string | null }> => {
-  if (!subject) return { routeId: null, routeCode: null };
+const extractRouteFromSubject = async (subject: string): Promise<{ 
+  routeId: number | null; 
+  routeCode: string | null;
+  weekNumber: string | null;
+  referenceCode: string | null;
+}> => {
+  if (!subject) return { routeId: null, routeCode: null, weekNumber: null, referenceCode: null };
   
   // Buscar patrones de ruta (3+ segmentos separados por guiones, ej: CHN-LAX-ELP-MEX)
   const routePattern = /\b([A-Z]{2,4}(?:-[A-Z]{2,4}){2,})\b/gi;
   const matches = subject.match(routePattern);
   
+  // Buscar patrón de Week (Week 32, Week 32.1, Week32, etc.)
+  const weekPattern = /\bWeek\s*(\d+(?:\.\d+)?)\b/i;
+  const weekMatch = subject.match(weekPattern);
+  const weekNumber = weekMatch ? `Week ${weekMatch[1]}` : null;
+  
+  // Buscar referencia formato AAA00-0000 (3 letras + 2 números + guion + 4 números)
+  // Ejemplos: JSM26-0030, ABC12-1234, XYZ99-0001
+  const refPattern = /\b([A-Z]{3}\d{2}-\d{4})\b/i;
+  const refMatch = subject.match(refPattern);
+  let referenceCode = (refMatch && refMatch[1]) ? refMatch[1].toUpperCase() : null;
+  
+  // Si no encontramos el patrón específico, buscamos el último segmento después de " - "
+  if (!referenceCode) {
+    const parts = subject.split(/\s*-\s*/);
+    if (parts.length >= 3) {
+      // El último segmento podría ser la referencia
+      const lastPart = parts[parts.length - 1]?.trim();
+      // Verificar que no sea un patrón de ruta o week
+      if (lastPart && !lastPart.match(routePattern) && !lastPart.match(/week/i)) {
+        referenceCode = lastPart;
+      }
+    }
+  }
+  
+  console.log(`📍 Subject parseado: Ruta=${matches?.[0] || 'N/A'}, Week=${weekNumber || 'N/A'}, Ref=${referenceCode || 'N/A'}`);
+  
   if (!matches || matches.length === 0) {
     console.log('📍 No se encontró patrón de ruta en subject:', subject);
-    return { routeId: null, routeCode: null };
+    return { routeId: null, routeCode: null, weekNumber, referenceCode };
   }
 
   // Intentar hacer match con rutas existentes
@@ -132,12 +164,12 @@ const extractRouteFromSubject = async (subject: string): Promise<{ routeId: numb
     
     if (result.rows.length > 0) {
       console.log(`📍 Ruta encontrada: ${result.rows[0].code} (ID: ${result.rows[0].id})`);
-      return { routeId: result.rows[0].id, routeCode: result.rows[0].code };
+      return { routeId: result.rows[0].id, routeCode: result.rows[0].code, weekNumber, referenceCode };
     }
   }
 
   console.log('📍 Código de ruta no registrado:', matches[0]);
-  return { routeId: null, routeCode: matches[0]?.toUpperCase() || null };
+  return { routeId: null, routeCode: matches[0]?.toUpperCase() || null, weekNumber, referenceCode };
 };
 
 /**
@@ -736,13 +768,28 @@ PARTE CENTRAL:
 
 PARTE INFERIOR:
 - Container No.: Formato XXXX1234567 (ej: WHSU6463903)
-- Packages/Weight/Volume: Datos de carga
+- Packages/Weight/Volume: Datos de carga (BUSCAR EN LA FILA DE TOTALES)
 - Laden on Board: Fecha de embarque
 
 ⚠️ IMPORTANTE - NO CONFUNDIR:
 - El "SHIPPING AGENT REFERENCES" (ej: WAN HAI LINES MEXICO, S.A. DE C.V...) NO es el Consignee
 - El Consignee es el DESTINATARIO que está en la parte superior izquierda, bajo "Shipper"
 - Busca el campo etiquetado específicamente como "Consignee"
+
+⚠️ IMPORTANTE - PACKAGES, PESO Y VOLUMEN:
+- Buscar en la FILA DE TOTALES al final de la tabla de carga (última fila con datos numéricos)
+- La tabla tiene columnas: "Packages" | "Gross weight" | "Measurement"
+- Ejemplo de fila de totales: "458 PKGS | 9600.000 | 65.0000"
+- packages = 458 (el número antes de PKGS en la fila de totales)
+- weightKg = 9600 (el número en Gross weight, sin decimales)
+- volumeCbm = 65 (el número en Measurement)
+- ⚠️ IGNORAR la primera fila que dice "1 CTR" - eso es el contenedor, NO los packages
+- ⚠️ Los packages reales suelen ser números grandes (100+, 200+, 400+)
+
+⚠️ MUY IMPORTANTE - NO INVENTAR DATOS:
+- Si NO puedes leer claramente un valor, devuelve null para ese campo
+- Es preferible dejar un campo vacío que inventar un número
+- Solo extrae datos que puedas ver claramente en el documento
 
 EXTRAE Y DEVUELVE ESTE JSON:
 {
@@ -759,9 +806,9 @@ EXTRAE Y DEVUELVE ESTE JSON:
   "placeOfDelivery": "Lugar de entrega",
   "eta": "Fecha ETA YYYY-MM-DD o null",
   "ladenOnBoard": "Fecha embarque YYYY-MM-DD",
-  "packages": número de bultos (integer),
-  "weightKg": peso en kg (número sin comas),
-  "volumeCbm": volumen CBM (número decimal),
+  "packages": "número total de bultos/PKGS (integer, ej: 458 de '458 PKGS')",
+  "weightKg": "peso bruto total en kg (número de Gross weight, ej: 9600)",
+  "volumeCbm": "volumen total CBM (número de Measurement, ej: 65)",
   "goodsDescription": "Descripción mercancía",
   "carrier": "Línea naviera (del logo: WAN HAI, COSCO, etc.)"
 }
@@ -771,10 +818,10 @@ Responde SOLO con JSON válido, sin explicaciones.`;
   console.log('📤 Enviando imagen a OpenAI GPT-4o Vision...');
   console.log('📤 Tamaño de imagen enviada:', imageUrl.length, 'caracteres');
 
-  // Intentar primero con detail "low" para evitar rechazos por tamaño
-  // Si falla, reintentar con "high"
+  // Intentar primero con detail "high" para mejor lectura de números
+  // Si falla, reintentar con "low"
   let response;
-  let attempts = [{ detail: 'low' as const }, { detail: 'high' as const }];
+  let attempts = [{ detail: 'high' as const }, { detail: 'low' as const }];
   
   for (const attempt of attempts) {
     try {
@@ -1083,11 +1130,17 @@ export const handleInboundEmail = async (req: Request, res: Response): Promise<a
           }
         }
 
-        // Extraer ruta del subject
-        const { routeId, routeCode } = await extractRouteFromSubject(body.subject);
+        // Extraer ruta, week y referencia del subject
+        const { routeId, routeCode, weekNumber, referenceCode } = await extractRouteFromSubject(body.subject);
         if (routeCode) {
           extractedData.route_code = routeCode;
           extractedData.route_id = routeId;
+        }
+        if (weekNumber) {
+          extractedData.week_number = weekNumber;
+        }
+        if (referenceCode) {
+          extractedData.reference_code = referenceCode;
         }
 
         extractedData.bl_document_pdf = blPdfUrl;
@@ -1230,11 +1283,17 @@ export const handleInboundEmail = async (req: Request, res: Response): Promise<a
           confidence = extractedData.blNumber ? 'high' : 'low';
         }
 
-        // Extraer ruta del subject del correo
-        const { routeId, routeCode } = await extractRouteFromSubject(body.subject);
+        // Extraer ruta, week y referencia del subject del correo
+        const { routeId, routeCode, weekNumber, referenceCode } = await extractRouteFromSubject(body.subject);
         if (routeCode) {
           extractedData.route_code = routeCode;
           extractedData.route_id = routeId;
+        }
+        if (weekNumber) {
+          extractedData.week_number = weekNumber;
+        }
+        if (referenceCode) {
+          extractedData.reference_code = referenceCode;
         }
 
         // Agregar URLs de documentos a los datos extraídos
@@ -1428,7 +1487,11 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
           portOfDischarge: editedData.bl.portOfDischarge || finalData.portOfDischarge,
           packages: editedData.bl.packages || finalData.packages,
           weightKg: editedData.bl.weightKg || finalData.weightKg,
-          volumeCbm: editedData.bl.volumeCbm || finalData.volumeCbm
+          volumeCbm: editedData.bl.volumeCbm || finalData.volumeCbm,
+          // Nuevos campos editables
+          week_number: editedData.bl.weekNumber || finalData.week_number,
+          reference_code: editedData.bl.referenceCode || finalData.reference_code,
+          eta: editedData.bl.eta || finalData.eta
         };
       }
       
@@ -1497,14 +1560,18 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
       `);
       const exchangeRate = fxResult.rows[0]?.rate || 20.50;
       
+      // Extraer week y reference de los datos extraídos del borrador
+      const weekNumber = finalData.week_number || null;
+      const referenceCode = finalData.reference_code || null;
+      
       // 2a. Crear contenedor con datos del BL (ya no usa ON CONFLICT)
       const containerRes = await pool.query(`
         INSERT INTO containers 
         (container_number, bl_number, eta, status, notes, consignee, shipper, 
-         vessel, pol, pod, route_id,
+         vessel, pol, pod, route_id, week_number, reference_code,
          vessel_name, voyage_number, port_of_loading, port_of_discharge, so_number,
          total_weight_kg, total_cbm, total_packages, carrier, laden_on_board, exchange_rate_usd_mxn)
-        VALUES ($1, $2, $3, 'consolidated', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+        VALUES ($1, $2, $3, 'consolidated', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
         RETURNING id
       `, [
         containerNumber,
@@ -1517,6 +1584,8 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         finalData.portOfLoading,
         finalData.portOfDischarge,
         draft.route_id,
+        weekNumber,
+        referenceCode,
         // Campos adicionales para el frontend
         finalData.vesselName,
         finalData.voyageNumber,
@@ -1786,12 +1855,17 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         });
       }
       
+      // Extraer week y reference de los datos extraídos del borrador
+      const weekNumber = finalData.week_number || null;
+      const referenceCode = finalData.reference_code || null;
+      
       const containerRes = await pool.query(`
         INSERT INTO containers 
         (container_number, bl_number, eta, status, notes, consignee, shipper, vessel, pol, pod,
+         week_number, reference_code,
          vessel_name, voyage_number, port_of_loading, port_of_discharge, so_number,
          total_weight_kg, total_cbm, total_packages, carrier, laden_on_board)
-        VALUES ($1, $2, $3, 'in_transit', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+        VALUES ($1, $2, $3, 'in_transit', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
         RETURNING id
       `, [
         finalData.containerNumber,
@@ -1803,6 +1877,8 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         finalData.vesselName,
         finalData.portOfLoading,
         finalData.portOfDischarge,
+        weekNumber,
+        referenceCode,
         // Campos adicionales para el frontend
         finalData.vesselName,
         finalData.voyageNumber,
@@ -2075,6 +2151,8 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
     // Usar routeId del request si viene, sino extraer del subject
     let finalRouteId = routeId ? parseInt(routeId) : null;
     let finalRouteCode: string | null = null;
+    let weekNumber: string | null = null;
+    let referenceCode: string | null = null;
     
     if (finalRouteId) {
       // Obtener código de la ruta
@@ -2085,8 +2163,12 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
         extractedData.route_id = finalRouteId;
         console.log('📍 Ruta desde selector:', finalRouteCode);
       }
+      // Aún extraer week y referencia del subject
+      const subjectParsed = await extractRouteFromSubject(subject || '');
+      weekNumber = subjectParsed.weekNumber;
+      referenceCode = subjectParsed.referenceCode;
     } else {
-      // Extraer ruta del subject
+      // Extraer ruta, week y referencia del subject
       const routeExtracted = await extractRouteFromSubject(subject || '');
       if (routeExtracted.routeCode) {
         finalRouteId = routeExtracted.routeId;
@@ -2094,6 +2176,16 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
         extractedData.route_code = finalRouteCode;
         extractedData.route_id = finalRouteId;
       }
+      weekNumber = routeExtracted.weekNumber;
+      referenceCode = routeExtracted.referenceCode;
+    }
+    
+    // Guardar week y referencia en extractedData
+    if (weekNumber) {
+      extractedData.week_number = weekNumber;
+    }
+    if (referenceCode) {
+      extractedData.reference_code = referenceCode;
     }
 
     // Para FCL: Extraer código de cliente del subject

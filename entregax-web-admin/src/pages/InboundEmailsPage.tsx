@@ -138,6 +138,9 @@ interface EditableBL {
     volumeCbm: string;
     carrier: string;
     ladenOnBoard: string;
+    weekNumber: string;
+    referenceCode: string;
+    eta: string;
 }
 
 export default function InboundEmailsPage() {
@@ -389,7 +392,10 @@ export default function InboundEmailsPage() {
             weightKg: ed.weightKg || '',
             volumeCbm: ed.volumeCbm || '',
             carrier: ed.carrier || '',
-            ladenOnBoard: ed.ladenOnBoard || ''
+            ladenOnBoard: ed.ladenOnBoard || '',
+            weekNumber: ed.week_number || '',
+            referenceCode: ed.reference_code || '',
+            eta: ed.eta || ''
         });
         
         setIsEditing(false);
@@ -464,6 +470,27 @@ export default function InboundEmailsPage() {
 
     // Aprobar borrador (usa datos editados)
     const handleApprove = async (draft: Draft) => {
+        // Validar campos críticos para LCL/FCL antes de aprobar
+        if (draft.document_type === 'LCL' || draft.document_type === 'FCL' || draft.document_type === 'BL') {
+            const packages = editableBL?.packages;
+            const weight = editableBL?.weightKg;
+            const volume = editableBL?.volumeCbm;
+            
+            const missingFields: string[] = [];
+            if (!packages || packages === '0' || packages === '') missingFields.push('Packages');
+            if (!weight || weight === '0' || weight === '') missingFields.push('Peso (KGS)');
+            if (!volume || volume === '0' || volume === '') missingFields.push('Volumen (CBM)');
+            
+            if (missingFields.length > 0) {
+                setSnackbar({ 
+                    open: true, 
+                    message: `⚠️ Campos requeridos vacíos: ${missingFields.join(', ')}. Por favor completa manualmente antes de aprobar.`, 
+                    severity: 'warning' 
+                });
+                return;
+            }
+        }
+
         try {
             const savedUser = localStorage.getItem('user');
             const userId = savedUser ? JSON.parse(savedUser).id : null;
@@ -1302,6 +1329,59 @@ export default function InboundEmailsPage() {
                                         <strong>Confianza IA:</strong>{' '}
                                         <Chip label={selectedDraft.confidence} size="small" color={getConfidenceColor(selectedDraft.confidence) as any} />
                                     </Typography>
+                                </Paper>
+
+                                {/* Datos extraídos del correo */}
+                                <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 2 }}>Datos Extraídos del Correo</Typography>
+                                <Paper variant="outlined" sx={{ p: 2, mt: 1, bgcolor: '#E8F5E9' }}>
+                                    <Grid container spacing={2}>
+                                        <Grid size={{ xs: 4 }}>
+                                            <TextField
+                                                label="Week"
+                                                size="small"
+                                                fullWidth
+                                                placeholder="Week 1.1"
+                                                value={editableBL?.weekNumber || ''}
+                                                onChange={(e) => editableBL && setEditableBL({...editableBL, weekNumber: e.target.value})}
+                                                slotProps={{
+                                                    input: {
+                                                        sx: { fontWeight: 600, color: '#2E7D32' }
+                                                    }
+                                                }}
+                                            />
+                                        </Grid>
+                                        <Grid size={{ xs: 4 }}>
+                                            <TextField
+                                                label="Referencia (AAA00-0000)"
+                                                size="small"
+                                                fullWidth
+                                                placeholder="JSM26-0030"
+                                                value={editableBL?.referenceCode || ''}
+                                                onChange={(e) => editableBL && setEditableBL({...editableBL, referenceCode: e.target.value.toUpperCase()})}
+                                                slotProps={{
+                                                    input: {
+                                                        sx: { fontWeight: 600, fontFamily: 'monospace', color: '#1565C0' }
+                                                    }
+                                                }}
+                                            />
+                                        </Grid>
+                                        <Grid size={{ xs: 4 }}>
+                                            <TextField
+                                                label="ETA"
+                                                size="small"
+                                                fullWidth
+                                                type="date"
+                                                value={editableBL?.eta || ''}
+                                                onChange={(e) => editableBL && setEditableBL({...editableBL, eta: e.target.value})}
+                                                slotProps={{
+                                                    inputLabel: { shrink: true },
+                                                    input: {
+                                                        sx: { fontWeight: 600, color: '#E65100' }
+                                                    }
+                                                }}
+                                            />
+                                        </Grid>
+                                    </Grid>
                                 </Paper>
 
                                 {/* Cliente Asignado - Solo para BL, no para LOG que tiene múltiples clientes */}

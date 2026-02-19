@@ -31,7 +31,6 @@ import {
     Tabs,
     Tab,
     LinearProgress,
-    InputAdornment,
     Tooltip,
     FormControl,
     InputLabel,
@@ -129,7 +128,7 @@ const formatCurrency = (value: number | string | null): string => {
 
 export default function AdvanceControlPanel() {
     // Estados principales
-    const [tabValue, setTabValue] = useState(0);
+    const [tabValue, setTabValue] = useState(1); // Tab 1 = Depósitos (Bolsas) preseleccionado
     const [loading, setLoading] = useState(true);
     const [stats, setStats] = useState<Stats | null>(null);
     
@@ -144,13 +143,16 @@ export default function AdvanceControlPanel() {
     const [bolsaDialog, setBolsaDialog] = useState(false);
     const [newBolsa, setNewBolsa] = useState({
         proveedor_id: 0,
-        monto_original: '',
         fecha_pago: new Date().toISOString().split('T')[0],
-        referencia_pago: '',
+        tipo_pago: 'transferencia' as 'transferencia' | 'efectivo',
         numero_operacion: '',
         banco_origen: '',
-        notas: ''
+        notas: '',
+        referenciasText: '' // Texto pegado con referencias
     });
+    const [parsedReferencias, setParsedReferencias] = useState<{ referencia: string; monto: number }[]>([]);
+    const [referenciasValidas, setReferenciasValidas] = useState<{ reference_code: string; container_number: string }[]>([]);
+    const [referenciasValidacion, setReferenciasValidacion] = useState<{ [key: string]: { valida: boolean; container_number?: string; duplicada?: boolean } }>({});
     const [comprobanteFile, setComprobanteFile] = useState<File | null>(null);
     
     // Asignaciones
@@ -158,10 +160,22 @@ export default function AdvanceControlPanel() {
     const [expandedBolsa, setExpandedBolsa] = useState<number | null>(null);
     
     // UI
-    const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' });
+    const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
     const [saving, setSaving] = useState(false);
 
     const getToken = () => localStorage.getItem('token');
+
+    // Cargar referencias válidas del sistema
+    const fetchReferenciasValidas = useCallback(async () => {
+        try {
+            const res = await axios.get(`${API_URL}/api/anticipos/referencias/validas`, {
+                headers: { Authorization: `Bearer ${getToken()}` }
+            });
+            setReferenciasValidas(res.data);
+        } catch (error) {
+            console.error('Error fetching referencias válidas:', error);
+        }
+    }, []);
 
     // Cargar datos
     const fetchStats = useCallback(async () => {
@@ -214,11 +228,11 @@ export default function AdvanceControlPanel() {
     useEffect(() => {
         const loadData = async () => {
             setLoading(true);
-            await Promise.all([fetchStats(), fetchProveedores(), fetchBolsas()]);
+            await Promise.all([fetchStats(), fetchProveedores(), fetchBolsas(), fetchReferenciasValidas()]);
             setLoading(false);
         };
         loadData();
-    }, [fetchStats, fetchProveedores, fetchBolsas]);
+    }, [fetchStats, fetchProveedores, fetchBolsas, fetchReferenciasValidas]);
 
     // Crear proveedor
     const handleCreateProveedor = async () => {
@@ -243,25 +257,115 @@ export default function AdvanceControlPanel() {
         }
     };
 
-    // Crear bolsa de anticipo
+    // Parsear texto de referencias (formato: JSM26-0023 $50,000)
+    const parseReferencias = (text: string) => {
+        const lines = text.split('\n').filter(line => line.trim());
+        const refs: { referencia: string; monto: number }[] = [];
+        
+        for (const line of lines) {
+            // Expresión regular para capturar referencia y monto
+            // Soporta formatos: "JSM26-0023 $50,000" o "JSM26-0023 50000" o "JSM26-0023 $50000.00"
+            const match = line.match(/^([A-Za-z0-9\-_]+)\s+\$?([\d,]+(?:\.\d{2})?)/);
+            if (match) {
+                const referencia = match[1].trim();
+                const montoStr = match[2].replace(/,/g, ''); // Remover comas
+                const monto = parseFloat(montoStr);
+                if (referencia && !isNaN(monto) && monto > 0) {
+                    refs.push({ referencia, monto });
+                }
+            }
+        }
+        
+        return refs;
+    };
+
+    // Manejar cambio en texto de referencias
+    const handleReferenciasChange = (text: string) => {
+        setNewBolsa({ ...newBolsa, referenciasText: text });
+        const parsed = parseReferencias(text);
+        setParsedReferencias(parsed);
+        
+        // Detectar referencias duplicadas
+        const conteoReferencias: { [key: string]: number } = {};
+        parsed.forEach(ref => {
+            conteoReferencias[ref.referencia] = (conteoReferencias[ref.referencia] || 0) + 1;
+        });
+        
+        // Validar referencias contra el catálogo de referencias válidas y detectar duplicados
+        const validacion: { [key: string]: { valida: boolean; container_number?: string; duplicada?: boolean } } = {};
+        parsed.forEach(ref => {
+            const encontrada = referenciasValidas.find(rv => rv.reference_code === ref.referencia);
+            const esDuplicada = conteoReferencias[ref.referencia] > 1;
+            if (encontrada) {
+                validacion[ref.referencia] = { valida: true, container_number: encontrada.container_number, duplicada: esDuplicada };
+            } else {
+                validacion[ref.referencia] = { valida: false, duplicada: esDuplicada };
+            }
+        });
+        setReferenciasValidacion(validacion);
+    };
+
+    // Verificar si hay referencias inválidas
+    const tieneReferenciasInvalidas = () => {
+        return parsedReferencias.some(ref => !referenciasValidacion[ref.referencia]?.valida);
+    };
+
+    // Verificar si hay referencias duplicadas
+    const tieneReferenciasDuplicadas = () => {
+        return parsedReferencias.some(ref => referenciasValidacion[ref.referencia]?.duplicada);
+    };
+
+    // Calcular total de referencias
+    const getTotalReferencias = () => {
+        return parsedReferencias.reduce((sum, ref) => sum + ref.monto, 0);
+    };
+
+    // Crear bolsa de anticipo con referencias
     const handleCreateBolsa = async () => {
-        if (!newBolsa.proveedor_id || !newBolsa.monto_original || !newBolsa.fecha_pago) {
-            setSnackbar({ open: true, message: 'Proveedor, monto y fecha son requeridos', severity: 'error' });
+        if (!newBolsa.proveedor_id) {
+            setSnackbar({ open: true, message: '⚠️ Debes seleccionar un proveedor', severity: 'error' });
             return;
         }
+        if (!newBolsa.fecha_pago) {
+            setSnackbar({ open: true, message: '⚠️ Debes seleccionar la fecha de pago', severity: 'error' });
+            return;
+        }
+        if (parsedReferencias.length === 0) {
+            setSnackbar({ open: true, message: '⚠️ Debes agregar al menos una referencia con monto', severity: 'error' });
+            return;
+        }
+        // Validar duplicados
+        if (tieneReferenciasDuplicadas()) {
+            setSnackbar({ open: true, message: '⚠️ No se pueden duplicar referencias en un mismo depósito', severity: 'error' });
+            return;
+        }
+        // Validar que todas las referencias existan en el sistema
+        if (tieneReferenciasInvalidas()) {
+            const invalidas = parsedReferencias.filter(ref => !referenciasValidacion[ref.referencia]?.valida).map(ref => ref.referencia);
+            setSnackbar({ open: true, message: `⚠️ Las siguientes referencias no existen en el sistema: ${invalidas.join(', ')}`, severity: 'error' });
+            return;
+        }
+        if (newBolsa.tipo_pago === 'transferencia' && (!newBolsa.numero_operacion || !newBolsa.banco_origen)) {
+            setSnackbar({ open: true, message: '⚠️ Para transferencia, el número de operación y banco son requeridos', severity: 'error' });
+            return;
+        }
+        // Validar comprobante obligatorio
+        if (!comprobanteFile) {
+            setSnackbar({ open: true, message: '⚠️ Debes subir el comprobante de pago', severity: 'error' });
+            return;
+        }
+        
         setSaving(true);
         try {
             const formData = new FormData();
             formData.append('proveedor_id', String(newBolsa.proveedor_id));
-            formData.append('monto_original', newBolsa.monto_original);
             formData.append('fecha_pago', newBolsa.fecha_pago);
-            formData.append('referencia_pago', newBolsa.referencia_pago);
-            formData.append('numero_operacion', newBolsa.numero_operacion);
-            formData.append('banco_origen', newBolsa.banco_origen);
+            formData.append('tipo_pago', newBolsa.tipo_pago);
+            formData.append('numero_operacion', newBolsa.tipo_pago === 'transferencia' ? newBolsa.numero_operacion : '');
+            formData.append('banco_origen', newBolsa.tipo_pago === 'transferencia' ? newBolsa.banco_origen : '');
             formData.append('notas', newBolsa.notas);
-            if (comprobanteFile) {
-                formData.append('comprobante', comprobanteFile);
-            }
+            formData.append('referencias', JSON.stringify(parsedReferencias));
+            formData.append('comprobante', comprobanteFile);
 
             await axios.post(`${API_URL}/api/anticipos/bolsas`, formData, {
                 headers: { 
@@ -269,23 +373,25 @@ export default function AdvanceControlPanel() {
                     'Content-Type': 'multipart/form-data'
                 }
             });
-            setSnackbar({ open: true, message: 'Depósito registrado exitosamente', severity: 'success' });
+            setSnackbar({ open: true, message: `✅ Depósito de $${formatCurrency(getTotalReferencias())} registrado con ${parsedReferencias.length} referencia(s)`, severity: 'success' });
             setBolsaDialog(false);
             setNewBolsa({
                 proveedor_id: 0,
-                monto_original: '',
                 fecha_pago: new Date().toISOString().split('T')[0],
-                referencia_pago: '',
+                tipo_pago: 'transferencia',
                 numero_operacion: '',
                 banco_origen: '',
-                notas: ''
+                notas: '',
+                referenciasText: ''
             });
+            setParsedReferencias([]);
             setComprobanteFile(null);
             fetchBolsas();
             fetchProveedores();
             fetchStats();
-        } catch (error) {
-            setSnackbar({ open: true, message: 'Error al registrar depósito', severity: 'error' });
+        } catch (error: any) {
+            const errorMsg = error.response?.data?.error || 'Error al registrar depósito';
+            setSnackbar({ open: true, message: errorMsg, severity: 'error' });
         } finally {
             setSaving(false);
         }
@@ -703,10 +809,11 @@ export default function AdvanceControlPanel() {
                 </DialogTitle>
                 <DialogContent sx={{ pt: 3 }}>
                     <Alert severity="info" sx={{ mb: 2 }}>
-                        💡 Registra aquí los depósitos globales que realizas a proveedores. Luego podrás asignar montos específicos a cada contenedor.
+                        💡 Pega las referencias y montos (una por línea). El sistema calculará automáticamente el monto total del depósito.
                     </Alert>
                     <Grid container spacing={2} sx={{ mt: 1 }}>
-                        <Grid size={{ xs: 12 }}>
+                        {/* Proveedor */}
+                        <Grid size={{ xs: 12, md: 6 }}>
                             <FormControl fullWidth required>
                                 <InputLabel>Proveedor *</InputLabel>
                                 <Select
@@ -722,19 +829,8 @@ export default function AdvanceControlPanel() {
                                 </Select>
                             </FormControl>
                         </Grid>
-                        <Grid size={{ xs: 12, md: 6 }}>
-                            <TextField
-                                fullWidth
-                                required
-                                label="Monto del Depósito *"
-                                type="number"
-                                value={newBolsa.monto_original}
-                                onChange={(e) => setNewBolsa({ ...newBolsa, monto_original: e.target.value })}
-                                InputProps={{
-                                    startAdornment: <InputAdornment position="start">$</InputAdornment>
-                                }}
-                            />
-                        </Grid>
+
+                        {/* Fecha de Pago */}
                         <Grid size={{ xs: 12, md: 6 }}>
                             <TextField
                                 fullWidth
@@ -746,40 +842,78 @@ export default function AdvanceControlPanel() {
                                 InputLabelProps={{ shrink: true }}
                             />
                         </Grid>
+
+                        {/* Tipo de Pago */}
+                        <Grid size={{ xs: 12, md: 6 }}>
+                            <FormControl fullWidth required>
+                                <InputLabel>Tipo de Pago *</InputLabel>
+                                <Select
+                                    value={newBolsa.tipo_pago}
+                                    label="Tipo de Pago *"
+                                    onChange={(e) => setNewBolsa({ ...newBolsa, tipo_pago: e.target.value as 'transferencia' | 'efectivo' })}
+                                >
+                                    <MenuItem value="transferencia">💳 Transferencia Bancaria</MenuItem>
+                                    <MenuItem value="efectivo">💵 Efectivo</MenuItem>
+                                </Select>
+                            </FormControl>
+                        </Grid>
+
+                        {/* Monto Total (SOLO LECTURA) */}
                         <Grid size={{ xs: 12, md: 6 }}>
                             <TextField
                                 fullWidth
-                                label="Referencia / Concepto"
-                                value={newBolsa.referencia_pago}
-                                onChange={(e) => setNewBolsa({ ...newBolsa, referencia_pago: e.target.value })}
-                                placeholder="Ej: Anticipo operaciones febrero"
+                                label="Monto Total del Depósito"
+                                value={`$${formatCurrency(getTotalReferencias())}`}
+                                InputProps={{
+                                    readOnly: true,
+                                    sx: { 
+                                        bgcolor: '#E8F5E9', 
+                                        fontWeight: 'bold',
+                                        fontSize: '1.1rem',
+                                        color: getTotalReferencias() > 0 ? '#2E7D32' : '#666'
+                                    }
+                                }}
+                                helperText={parsedReferencias.length > 0 ? `${parsedReferencias.length} referencia(s) detectadas` : 'Calculado automáticamente'}
                             />
                         </Grid>
-                        <Grid size={{ xs: 12, md: 6 }}>
-                            <TextField
-                                fullWidth
-                                label="No. Operación Bancaria"
-                                value={newBolsa.numero_operacion}
-                                onChange={(e) => setNewBolsa({ ...newBolsa, numero_operacion: e.target.value })}
-                            />
-                        </Grid>
-                        <Grid size={{ xs: 12, md: 6 }}>
-                            <TextField
-                                fullWidth
-                                label="Banco Origen"
-                                value={newBolsa.banco_origen}
-                                onChange={(e) => setNewBolsa({ ...newBolsa, banco_origen: e.target.value })}
-                            />
-                        </Grid>
-                        <Grid size={{ xs: 12, md: 6 }}>
+
+                        {/* Campos de Transferencia (condicionales) */}
+                        {newBolsa.tipo_pago === 'transferencia' && (
+                            <>
+                                <Grid size={{ xs: 12, md: 6 }}>
+                                    <TextField
+                                        fullWidth
+                                        required
+                                        label="No. Operación Bancaria *"
+                                        value={newBolsa.numero_operacion}
+                                        onChange={(e) => setNewBolsa({ ...newBolsa, numero_operacion: e.target.value })}
+                                        placeholder="Ej: 123456789"
+                                    />
+                                </Grid>
+                                <Grid size={{ xs: 12, md: 6 }}>
+                                    <TextField
+                                        fullWidth
+                                        required
+                                        label="Banco Origen *"
+                                        value={newBolsa.banco_origen}
+                                        onChange={(e) => setNewBolsa({ ...newBolsa, banco_origen: e.target.value })}
+                                        placeholder="Ej: BBVA, Banorte, Santander..."
+                                    />
+                                </Grid>
+                            </>
+                        )}
+
+                        {/* Comprobante */}
+                        <Grid size={{ xs: 12, md: newBolsa.tipo_pago === 'efectivo' ? 12 : 6 }}>
                             <Button
                                 variant="outlined"
                                 component="label"
                                 fullWidth
                                 startIcon={<UploadIcon />}
+                                color={comprobanteFile ? 'success' : 'primary'}
                                 sx={{ height: 56 }}
                             >
-                                {comprobanteFile ? comprobanteFile.name : 'Subir Comprobante'}
+                                {comprobanteFile ? `✅ ${comprobanteFile.name}` : 'Subir Comprobante'}
                                 <input
                                     type="file"
                                     hidden
@@ -788,28 +922,173 @@ export default function AdvanceControlPanel() {
                                 />
                             </Button>
                         </Grid>
+
+                        {/* Area de Referencias */}
+                        <Grid size={{ xs: 12 }}>
+                            <TextField
+                                fullWidth
+                                multiline
+                                rows={5}
+                                label="Referencias y Montos *"
+                                placeholder={`Pega las referencias (una por línea):\nJSM26-0023 $50,000\nJSM26-0026 $34,000\nJSM26-0027 $20,000`}
+                                value={newBolsa.referenciasText}
+                                onChange={(e) => handleReferenciasChange(e.target.value)}
+                                error={newBolsa.referenciasText.length > 0 && parsedReferencias.length === 0}
+                                helperText={
+                                    newBolsa.referenciasText.length > 0 && parsedReferencias.length === 0 
+                                        ? 'Formato incorrecto. Usa: REFERENCIA $MONTO (ej: JSM26-0023 $50,000)' 
+                                        : 'Formato: REFERENCIA $MONTO (una por línea)'
+                                }
+                                sx={{
+                                    '& .MuiInputBase-root': {
+                                        fontFamily: 'monospace'
+                                    }
+                                }}
+                            />
+                        </Grid>
+
+                        {/* Preview de referencias parseadas */}
+                        {parsedReferencias.length > 0 && (
+                            <Grid size={{ xs: 12 }}>
+                                <Paper variant="outlined" sx={{ p: 2, bgcolor: '#FAFAFA' }}>
+                                    <Typography variant="subtitle2" color="primary" gutterBottom>
+                                        📋 Referencias detectadas ({parsedReferencias.length}):
+                                        {tieneReferenciasDuplicadas() && (
+                                            <Chip 
+                                                label="🔁 Referencias duplicadas" 
+                                                size="small" 
+                                                color="warning" 
+                                                sx={{ ml: 1 }} 
+                                            />
+                                        )}
+                                        {tieneReferenciasInvalidas() && (
+                                            <Chip 
+                                                label="⚠️ Algunas referencias no existen" 
+                                                size="small" 
+                                                color="error" 
+                                                sx={{ ml: 1 }} 
+                                            />
+                                        )}
+                                    </Typography>
+                                    <Table size="small">
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell>Estado</TableCell>
+                                                <TableCell>Referencia</TableCell>
+                                                <TableCell>Contenedor</TableCell>
+                                                <TableCell align="right">Monto</TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {parsedReferencias.map((ref, idx) => {
+                                                const validacion = referenciasValidacion[ref.referencia];
+                                                const esValida = validacion?.valida;
+                                                const esDuplicada = validacion?.duplicada;
+                                                return (
+                                                    <TableRow key={idx} sx={{ bgcolor: esDuplicada ? '#FFF3E0' : (esValida ? 'inherit' : '#FFEBEE') }}>
+                                                        <TableCell>
+                                                            {esDuplicada ? (
+                                                                <Tooltip title="Esta referencia está duplicada en el mismo depósito">
+                                                                    <Chip label="🔁" size="small" color="warning" sx={{ minWidth: 32 }} />
+                                                                </Tooltip>
+                                                            ) : esValida ? (
+                                                                <Chip label="✓" size="small" color="success" sx={{ minWidth: 32 }} />
+                                                            ) : (
+                                                                <Tooltip title="Esta referencia no existe en el sistema">
+                                                                    <Chip label="✗" size="small" color="error" sx={{ minWidth: 32 }} />
+                                                                </Tooltip>
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <Chip 
+                                                                label={ref.referencia} 
+                                                                size="small" 
+                                                                color={esDuplicada ? "warning" : (esValida ? "primary" : "error")}
+                                                                variant="outlined" 
+                                                            />
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            {esDuplicada ? (
+                                                                <Typography variant="body2" color="warning.main">
+                                                                    ⚠️ Duplicada
+                                                                </Typography>
+                                                            ) : esValida ? (
+                                                                <Typography variant="body2" color="text.secondary">
+                                                                    {validacion.container_number || '-'}
+                                                                </Typography>
+                                                            ) : (
+                                                                <Typography variant="body2" color="error">
+                                                                    No encontrado
+                                                                </Typography>
+                                                            )}
+                                                        </TableCell>
+                                                        <TableCell align="right">${formatCurrency(ref.monto)}</TableCell>
+                                                    </TableRow>
+                                                );
+                                            })}
+                                            <TableRow sx={{ bgcolor: (tieneReferenciasInvalidas() || tieneReferenciasDuplicadas()) ? '#FFCDD2' : '#E8F5E9' }}>
+                                                <TableCell colSpan={3}><strong>TOTAL</strong></TableCell>
+                                                <TableCell align="right">
+                                                    <strong style={{ color: (tieneReferenciasInvalidas() || tieneReferenciasDuplicadas()) ? '#C62828' : '#2E7D32' }}>
+                                                        ${formatCurrency(getTotalReferencias())}
+                                                    </strong>
+                                                </TableCell>
+                                            </TableRow>
+                                        </TableBody>
+                                    </Table>
+                                </Paper>
+                            </Grid>
+                        )}
+
+                        {/* Notas */}
                         <Grid size={{ xs: 12 }}>
                             <TextField
                                 fullWidth
                                 multiline
                                 rows={2}
-                                label="Notas"
+                                label="Notas (opcional)"
                                 value={newBolsa.notas}
                                 onChange={(e) => setNewBolsa({ ...newBolsa, notas: e.target.value })}
                             />
                         </Grid>
                     </Grid>
                 </DialogContent>
-                <DialogActions sx={{ p: 2 }}>
-                    <Button onClick={() => setBolsaDialog(false)}>Cancelar</Button>
-                    <Button 
-                        variant="contained" 
-                        onClick={handleCreateBolsa}
-                        disabled={saving}
-                        sx={{ bgcolor: THEME_COLOR }}
-                    >
-                        {saving ? <CircularProgress size={20} /> : 'Registrar Depósito'}
-                    </Button>
+                <DialogActions sx={{ p: 2, justifyContent: 'space-between' }}>
+                    <Typography variant="body2" color={(tieneReferenciasInvalidas() || tieneReferenciasDuplicadas() || !comprobanteFile) ? 'error' : 'text.secondary'}>
+                        {!newBolsa.proveedor_id 
+                            ? '⚠️ Selecciona un proveedor'
+                            : !comprobanteFile
+                                ? '📎 Sube el comprobante de pago'
+                                : parsedReferencias.length === 0
+                                    ? '📝 Ingresa al menos una referencia'
+                                    : tieneReferenciasDuplicadas()
+                                        ? `🔁 No se pueden duplicar referencias en un mismo depósito`
+                                        : tieneReferenciasInvalidas()
+                                            ? `⚠️ ${parsedReferencias.filter(ref => !referenciasValidacion[ref.referencia]?.valida).length} referencia(s) no válida(s)`
+                                            : newBolsa.tipo_pago === 'transferencia' && (!newBolsa.numero_operacion || !newBolsa.banco_origen)
+                                                ? '🏦 Completa los datos bancarios'
+                                                : `💰 Total: $${formatCurrency(getTotalReferencias())} MXN`
+                        }
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Button onClick={() => setBolsaDialog(false)}>Cancelar</Button>
+                        <Button 
+                            variant="contained" 
+                            onClick={handleCreateBolsa}
+                            disabled={
+                                saving || 
+                                !newBolsa.proveedor_id || 
+                                !comprobanteFile || 
+                                parsedReferencias.length === 0 || 
+                                tieneReferenciasInvalidas() || 
+                                tieneReferenciasDuplicadas() ||
+                                (newBolsa.tipo_pago === 'transferencia' && (!newBolsa.numero_operacion || !newBolsa.banco_origen))
+                            }
+                            sx={{ bgcolor: (tieneReferenciasInvalidas() || tieneReferenciasDuplicadas() || !comprobanteFile) ? '#9E9E9E' : THEME_COLOR }}
+                        >
+                            {saving ? <CircularProgress size={20} /> : `Registrar Depósito ($${formatCurrency(getTotalReferencias())})`}
+                        </Button>
+                    </Box>
                 </DialogActions>
             </Dialog>
 

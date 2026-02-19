@@ -329,6 +329,8 @@ import {
   getMaritimeStats,
   receiveAtCedis,
   uploadCostPdf,
+  downloadPdf,
+  extractDebitNoteFromPdf,
   // Tarifas Marítimas
   getMaritimeRates,
   getActiveMaritimeRate,
@@ -347,6 +349,12 @@ import {
   updateProveedor,
   getBolsasAnticipos,
   getBolsasDisponibles,
+  getReferenciasDisponibles,
+  getReferenciasByBolsa,
+  asignarReferenciaAContainer,
+  validarReferenciasExisten,
+  getReferenciasValidas,
+  getAnticiposByContainer,
   createBolsaAnticipo,
   updateBolsaAnticipo,
   deleteBolsaAnticipo,
@@ -1329,6 +1337,19 @@ app.get('/api/maritime/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_
 
 // Contenedores
 app.get('/api/maritime/containers', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getContainers);
+
+// Rutas específicas ANTES de :id para evitar conflictos
+// Upload de PDFs para costos
+const costUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB max
+app.post('/api/maritime/containers/upload-cost-pdf', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), costUpload.single('file'), uploadCostPdf);
+
+// Descarga de PDFs (proxy para S3)
+app.get('/api/maritime/containers/download-pdf', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), downloadPdf);
+
+// Extracción de datos de Nota de Débito con IA
+app.post('/api/maritime/containers/extract-debit-note', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), costUpload.single('file'), extractDebitNoteFromPdf);
+
+// Rutas con parámetros
 app.get('/api/maritime/containers/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getContainerDetail);
 app.post('/api/maritime/containers', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createContainer);
 app.put('/api/maritime/containers/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateContainer);
@@ -1338,10 +1359,6 @@ app.delete('/api/maritime/containers/:id', authenticateToken, requireMinLevel(RO
 // Costos de contenedor
 app.get('/api/maritime/containers/:containerId/costs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getContainerCosts);
 app.put('/api/maritime/containers/:containerId/costs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateContainerCosts);
-
-// Upload de PDFs para costos
-const costUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB max
-app.post('/api/maritime/containers/upload-cost-pdf', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), costUpload.single('file'), uploadCostPdf);
 
 // Envíos marítimos (Recepciones)
 app.get('/api/maritime/shipments', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getMaritimeShipments);
@@ -1380,6 +1397,16 @@ app.post('/api/anticipos/bolsas', authenticateToken, requireMinLevel(ROLES.ADMIN
 app.put('/api/anticipos/bolsas/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateBolsaAnticipo);
 app.delete('/api/anticipos/bolsas/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteBolsaAnticipo);
 app.get('/api/anticipos/bolsas/:bolsaId/asignaciones', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAsignacionesByBolsa);
+app.get('/api/anticipos/bolsas/:bolsaId/referencias', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getReferenciasByBolsa);
+
+// Referencias de Anticipos (nuevo sistema)
+app.get('/api/anticipos/referencias/disponibles', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getReferenciasDisponibles);
+app.get('/api/anticipos/referencias/validas', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getReferenciasValidas);
+app.post('/api/anticipos/referencias/validar', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), validarReferenciasExisten);
+app.post('/api/anticipos/referencias/asignar', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), asignarReferenciaAContainer);
+
+// Anticipos por contenedor
+app.get('/api/anticipos/container/:containerId/anticipos', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAnticiposByContainer);
 
 // Asignaciones de Anticipos
 app.get('/api/anticipos/container/:containerId/asignaciones', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAsignacionesByContainer);

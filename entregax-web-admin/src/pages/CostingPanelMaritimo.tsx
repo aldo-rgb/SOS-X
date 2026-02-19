@@ -68,6 +68,8 @@ import {
     TrendingUp as TrendingUpIcon,
     Person as PersonIcon,
     Inventory as InventoryIcon,
+    AutoAwesome as AutoAwesomeIcon,
+    CloudUpload as CloudUploadIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -94,6 +96,8 @@ interface Container {
     route_id?: number;
     route_code?: string;
     route_name?: string;
+    week_number?: string;
+    reference_code?: string;
     // BL Data extracted from documents
     shipper?: string;
     consignee?: string;
@@ -287,8 +291,32 @@ export default function CostingPanelMaritimo() {
     const [profitData, setProfitData] = useState<any>(null);
     const [loadingProfit, setLoadingProfit] = useState(false);
 
-    // Estado para bolsas de anticipos disponibles
-    const [bolsasDisponibles, setBolsasDisponibles] = useState<BolsaAnticipo[]>([]);
+    // Estado para anticipos del contenedor (nuevo sistema dinámico)
+    interface AnticipoReferencia {
+        id: number;
+        referencia: string;
+        monto: number;
+        estado: string;
+        usado_at: string | null;
+        created_at: string;
+        bolsa_id: number;
+        fecha_pago: string;
+        comprobante_url: string | null;
+        tipo_pago: string;
+        numero_operacion: string | null;
+        banco_origen: string | null;
+        proveedor_nombre: string;
+    }
+    const [anticiposContainer, setAnticiposContainer] = useState<{
+        container_number: string;
+        reference_code: string | null;
+        anticipos: AnticipoReferencia[];
+        total: number;
+    } | null>(null);
+    const [loadingAnticipos, setLoadingAnticipos] = useState(false);
+
+    // Estado para bolsas de anticipos disponibles (legacy - mantener para compatibilidad)
+    const [, setBolsasDisponibles] = useState<BolsaAnticipo[]>([]);
     const [selectedBolsas, setSelectedBolsas] = useState<{
         advance_1: number | null;
         advance_2: number | null;
@@ -322,6 +350,36 @@ export default function CostingPanelMaritimo() {
         message: string;
         onConfirm: () => void;
     }>({ open: false, title: '', message: '', onConfirm: () => {} });
+
+    // Estado para modal de Nota de Débito con extracción IA
+    const [debitNoteModal, setDebitNoteModal] = useState<{
+        open: boolean;
+        pdfUrl: string | null;
+        extracting: boolean;
+        extraction: {
+            total_usd: number;
+            total_mxn: number;
+            exchange_rate: number;
+            fee_percent: number;
+            fee_amount: number;
+            total_with_fee: number;
+            line_items: { description: string; amount_usd: number }[];
+            container_number?: string;
+            bl_number?: string;
+            invoice_number?: string;
+            eta?: string;
+        } | null;
+        error: string | null;
+        pendingFile: File | null; // Guardar archivo para re-intentos
+    }>({
+        open: false,
+        pdfUrl: null,
+        extracting: false,
+        extraction: null,
+        error: null,
+        pendingFile: null
+    });
+    const debitNoteInputRef = useRef<HTMLInputElement>(null);
 
     const getToken = () => localStorage.getItem('token');
 
@@ -379,6 +437,275 @@ export default function CostingPanelMaritimo() {
         }
     };
 
+    // ========== FUNCIONES PARA NOTA DE DÉBITO CON MODAL ==========
+    
+    // Paso 1: Subir PDF y abrir modal
+    const handleDebitNoteUpload = async (file: File) => {
+        if (!selectedContainer) return;
+        
+        // Crear URL local para preview (evita problemas de permisos S3)
+        const localPreviewUrl = URL.createObjectURL(file);
+        
+        // Abrir modal inmediatamente con estado de carga y guardar archivo
+        setDebitNoteModal({
+            open: true,
+            pdfUrl: localPreviewUrl, // Usar URL local para preview
+            extracting: true,
+            extraction: null,
+            error: null,
+            pendingFile: file
+        });
+
+        try {
+            // Primero subir el archivo
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('containerId', selectedContainer.id.toString());
+            formData.append('fieldName', 'debit_note_pdf');
+
+            const uploadRes = await axios.post(`${API_URL}/api/maritime/containers/upload-cost-pdf`, formData, {
+                headers: {
+                    'Authorization': `Bearer ${getToken()}`,
+                    'Content-Type': 'multipart/form-data'
+                }
+            });
+
+            if (uploadRes.data.url) {
+                // Guardar URL de S3 para persistencia
+                const s3Url = uploadRes.data.url;
+                setCosts(prev => ({ ...prev, debit_note_pdf: s3Url }));
+                
+                // Mantener URL local para preview en modal
+
+                // Ahora extraer datos
+                await extractDebitNoteData(file, s3Url);
+            }
+        } catch (error: any) {
+            console.error('Error subiendo PDF:', error);
+            setDebitNoteModal(prev => ({
+                ...prev,
+                extracting: false,
+                error: error.response?.data?.error || 'Error al subir el archivo PDF'
+            }));
+        }
+    };
+
+    // Paso 2: Extraer datos del PDF
+    const extractDebitNoteData = async (file?: File, existingUrl?: string) => {
+        console.log('🔍 extractDebitNoteData llamado:', { 
+            hasFile: !!file, 
+            existingUrl, 
+            pendingFile: !!debitNoteModal.pendingFile,
+            selectedContainer: selectedContainer?.id 
+        });
+        
+        if (!selectedContainer) {
+            console.error('❌ No hay contenedor seleccionado');
+            return;
+        }
+
+        // Usar archivo pendiente si no se proporciona uno
+        const fileToUse = file || debitNoteModal.pendingFile;
+        console.log('📄 Archivo a usar:', fileToUse?.name, fileToUse?.size);
+
+        setDebitNoteModal(prev => ({ ...prev, extracting: true, error: null }));
+
+        try {
+            const formData = new FormData();
+            
+            if (fileToUse) {
+                formData.append('file', fileToUse);
+                console.log('📎 Archivo adjuntado al form');
+            } else if (existingUrl) {
+                // Si no hay archivo pero hay URL, el backend intentará descargarla
+                formData.append('pdfUrl', existingUrl);
+                console.log('🔗 URL adjuntada al form');
+            } else {
+                throw new Error('No hay archivo disponible para extraer');
+            }
+            
+            formData.append('containerId', selectedContainer.id.toString());
+            console.log('🚀 Enviando request a:', `${API_URL}/api/maritime/containers/extract-debit-note`);
+
+            const res = await axios.post(`${API_URL}/api/maritime/containers/extract-debit-note`, formData, {
+                headers: {
+                    'Authorization': `Bearer ${getToken()}`,
+                    'Content-Type': 'multipart/form-data'
+                }
+            });
+
+            console.log('✅ Respuesta recibida:', res.data);
+
+            if (res.data.success) {
+                const { extraction, conversion } = res.data;
+                
+                // Calcular fee del 4%
+                const feePercent = 4.00;
+                const feeAmount = conversion.total_mxn * (feePercent / 100);
+                const totalWithFee = conversion.total_mxn + feeAmount;
+                
+                setDebitNoteModal(prev => ({
+                    ...prev,
+                    extracting: false,
+                    extraction: {
+                        total_usd: conversion.total_usd,
+                        total_mxn: conversion.total_mxn,
+                        exchange_rate: conversion.exchange_rate,
+                        fee_percent: feePercent,
+                        fee_amount: feeAmount,
+                        total_with_fee: totalWithFee,
+                        line_items: extraction.line_items || [],
+                        container_number: extraction.container_number,
+                        bl_number: extraction.bl_number,
+                        invoice_number: extraction.invoice_number,
+                        eta: extraction.eta
+                    },
+                    error: null
+                }));
+
+                setSnackbar({ 
+                    open: true, 
+                    message: `✅ Datos extraídos correctamente`, 
+                    severity: 'success' 
+                });
+            }
+        } catch (error: any) {
+            console.error('Error extrayendo datos:', error);
+            setDebitNoteModal(prev => ({
+                ...prev,
+                extracting: false,
+                error: error.response?.data?.error || 'Error al extraer datos del PDF'
+            }));
+        }
+    };
+
+    // Aplicar datos extraídos al formulario
+    // Aplicar datos extraídos al formulario y guardar extracción
+    const applyDebitNoteExtraction = async () => {
+        if (!debitNoteModal.extraction || !selectedContainer) return;
+
+        const { total_with_fee, total_usd, total_mxn, exchange_rate, fee_percent, fee_amount, line_items, container_number, bl_number, invoice_number } = debitNoteModal.extraction;
+        
+        // Actualizar costos localmente
+        const newCosts = { 
+            ...costs, 
+            debit_note_amount: total_with_fee,
+            // Guardar datos de extracción para persistencia
+            debit_note_usd: total_usd,
+            debit_note_exchange_rate: exchange_rate,
+            debit_note_fee_percent: fee_percent,
+            debit_note_fee_amount: fee_amount,
+            debit_note_line_items: line_items,
+            debit_note_invoice_number: invoice_number,
+            debit_note_bl_number: bl_number,
+            debit_note_container_number: container_number
+        };
+        
+        setCosts(newCosts);
+
+        // Guardar inmediatamente en el backend con los datos de extracción
+        try {
+            await axios.put(`${API_URL}/api/maritime/containers/${selectedContainer.id}/costs`, {
+                costs: newCosts,
+                debitNoteExtraction: {
+                    total_usd,
+                    total_mxn,
+                    exchange_rate,
+                    fee_percent,
+                    fee_amount,
+                    line_items,
+                    invoice_number,
+                    bl_number,
+                    container_number
+                }
+            }, {
+                headers: { 'Authorization': `Bearer ${getToken()}` }
+            });
+        } catch (err) {
+            console.error('Error guardando extracción:', err);
+        }
+
+        setDebitNoteModal(prev => ({ ...prev, open: false }));
+        
+        setSnackbar({ 
+            open: true, 
+            message: `✅ Monto de $${formatCurrency(total_with_fee)} MXN aplicado (incluye 4% fee)`, 
+            severity: 'success' 
+        });
+    };
+
+    // Eliminar PDF de nota de débito (persiste en backend)
+    const deleteDebitNotePdf = async () => {
+        if (!selectedContainer) return;
+        
+        try {
+            // Actualizar estado local primero
+            const updatedCosts = { 
+                ...costs, 
+                debit_note_pdf: null,
+                debit_note_amount: 0,
+                debit_note_usd: null,
+                debit_note_exchange_rate: null,
+                debit_note_fee_percent: null,
+                debit_note_fee_amount: null,
+                debit_note_line_items: null,
+                debit_note_invoice_number: null,
+                debit_note_bl_number: null,
+                debit_note_container_number: null
+            };
+            setCosts(updatedCosts);
+            
+            // Llamar al backend para persistir la eliminación
+            await axios.put(`${API_URL}/api/maritime/containers/${selectedContainer.id}/costs`, {
+                costs: updatedCosts,
+                deleteFields: [
+                    'debit_note_pdf',
+                    'debit_note_usd',
+                    'debit_note_exchange_rate',
+                    'debit_note_fee_percent',
+                    'debit_note_fee_amount',
+                    'debit_note_line_items',
+                    'debit_note_invoice_number',
+                    'debit_note_bl_number',
+                    'debit_note_container_number',
+                    'debit_note_extracted_at'
+                ]
+            }, {
+                headers: { 'Authorization': `Bearer ${getToken()}` }
+            });
+            
+            closeDebitNoteModal();
+            setSnackbar({ open: true, message: '🗑️ PDF y datos de extracción eliminados correctamente', severity: 'success' });
+        } catch (err) {
+            console.error('Error eliminando PDF:', err);
+            setSnackbar({ open: true, message: 'Error al eliminar PDF', severity: 'error' });
+        }
+    };
+
+    // Cerrar modal de nota de débito
+    const closeDebitNoteModal = () => {
+        setDebitNoteModal({
+            open: false,
+            pdfUrl: null,
+            extracting: false,
+            extraction: null,
+            error: null,
+            pendingFile: null
+        });
+    };
+
+    // Manejar selección de archivo para nota de débito
+    const handleDebitNoteFileSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file) {
+            handleDebitNoteUpload(file);
+        }
+        // Limpiar el input
+        if (debitNoteInputRef.current) {
+            debitNoteInputRef.current.value = '';
+        }
+    };
+
     // Funciones para el modal de gestión de archivos PDF
     const openFileModal = (url: string, fieldKey: keyof ContainerCosts, label: string) => {
         setFileModal({ open: true, url, fieldKey, fieldLabel: label });
@@ -388,17 +715,33 @@ export default function CostingPanelMaritimo() {
         setFileModal({ open: false, url: '', fieldKey: null, fieldLabel: '' });
     };
 
-    const handleDeleteFile = () => {
-        if (fileModal.fieldKey) {
+    const handleDeleteFile = async () => {
+        if (fileModal.fieldKey && selectedContainer) {
             setConfirmDialog({
                 open: true,
                 title: '🗑️ Eliminar Archivo',
                 message: `¿Está seguro de eliminar el archivo "${fileModal.fieldLabel}"? Esta acción no se puede deshacer.`,
-                onConfirm: () => {
-                    setCosts(prev => ({ ...prev, [fileModal.fieldKey!]: null }));
-                    closeFileModal();
-                    setConfirmDialog(prev => ({ ...prev, open: false }));
-                    setSnackbar({ open: true, message: 'Archivo eliminado correctamente', severity: 'success' });
+                onConfirm: async () => {
+                    try {
+                        // Actualizar estado local
+                        const updatedCosts = { ...costs, [fileModal.fieldKey!]: null };
+                        setCosts(updatedCosts);
+                        
+                        // Persistir en backend
+                        await axios.put(`${API_URL}/api/maritime/containers/${selectedContainer.id}/costs`, {
+                            costs: updatedCosts,
+                            deleteFields: [fileModal.fieldKey]
+                        }, {
+                            headers: { 'Authorization': `Bearer ${getToken()}` }
+                        });
+                        
+                        closeFileModal();
+                        setConfirmDialog(prev => ({ ...prev, open: false }));
+                        setSnackbar({ open: true, message: '🗑️ Archivo eliminado correctamente', severity: 'success' });
+                    } catch (err) {
+                        console.error('Error eliminando archivo:', err);
+                        setSnackbar({ open: true, message: 'Error al eliminar archivo', severity: 'error' });
+                    }
                 }
             });
         }
@@ -489,23 +832,23 @@ export default function CostingPanelMaritimo() {
         }
     };
 
-    // Manejar selección de bolsa de anticipo
-    const handleBolsaSelect = (advanceKey: 'advance_1' | 'advance_2' | 'advance_3' | 'advance_4', bolsaId: number | null) => {
-        setSelectedBolsas(prev => ({ ...prev, [advanceKey]: bolsaId }));
-        if (bolsaId) {
-            const bolsa = bolsasDisponibles.find(b => b.id === bolsaId);
-            if (bolsa) {
-                const amountKey = `${advanceKey}_amount` as keyof ContainerCosts;
-                const monto = parseFloat(String(bolsa.monto_disponible)) || 0;
-                setCosts(prev => ({ ...prev, [amountKey]: monto }));
-            }
-        } else {
-            const amountKey = `${advanceKey}_amount` as keyof ContainerCosts;
-            setCosts(prev => ({ ...prev, [amountKey]: 0 }));
+    // Cargar anticipos del contenedor (nuevo sistema dinámico)
+    const fetchAnticiposContainer = async (containerId: number) => {
+        setLoadingAnticipos(true);
+        try {
+            const res = await axios.get(`${API_URL}/api/anticipos/container/${containerId}/anticipos`, {
+                headers: { Authorization: `Bearer ${getToken()}` }
+            });
+            setAnticiposContainer(res.data);
+        } catch (error) {
+            console.error('Error loading anticipos del contenedor:', error);
+            setAnticiposContainer(null);
+        } finally {
+            setLoadingAnticipos(false);
         }
     };
 
-    // Cargar asignaciones existentes para un contenedor
+    // Cargar asignaciones existentes para un contenedor (legacy - no longer used but kept for reference)
     const loadExistingAsignaciones = async (containerId: number) => {
         try {
             const res = await axios.get(`${API_URL}/api/anticipos/container/${containerId}/asignaciones`, {
@@ -576,7 +919,8 @@ export default function CostingPanelMaritimo() {
                 axios.get(`${API_URL}/api/maritime/containers/${container.id}/costs`, {
                     headers: { Authorization: `Bearer ${getToken()}` }
                 }),
-                fetchBolsasDisponibles()
+                fetchBolsasDisponibles(),
+                fetchAnticiposContainer(container.id) // Cargar anticipos del contenedor
             ]);
             setCosts(costsRes.data || { ...emptyCosts, container_id: container.id });
             setSelectedBolsas({ advance_1: null, advance_2: null, advance_3: null, advance_4: null });
@@ -730,10 +1074,8 @@ export default function CostingPanelMaritimo() {
 
     // Calcular totales en tiempo real
     const calculateTotals = () => {
-        const aa = (parseFloat(String(costs.advance_1_amount)) || 0) + 
-                   (parseFloat(String(costs.advance_2_amount)) || 0) + 
-                   (parseFloat(String(costs.advance_3_amount)) || 0) + 
-                   (parseFloat(String(costs.advance_4_amount)) || 0);
+        // Usar el total de anticipos dinámicos del contenedor
+        const aa = anticiposContainer?.total || 0;
         const extraCostsTotal = extraCosts.reduce((sum, e) => sum + (e.amount || 0), 0);
         const release = aa + (parseFloat(String(costs.debit_note_amount)) || 0) + 
                        (parseFloat(String(costs.demurrage_amount)) || 0) +
@@ -1014,6 +1356,7 @@ export default function CostingPanelMaritimo() {
                             <TableCell><strong>{t('maritime.container')}</strong></TableCell>
                             <TableCell><strong>{t('maritime.blNumber')}</strong></TableCell>
                             <TableCell><strong>{t('maritime.route')}</strong></TableCell>
+                            <TableCell><strong>Week</strong></TableCell>
                             <TableCell><strong>{t('maritime.eta')}</strong></TableCell>
                             <TableCell><strong>{t('maritime.status')}</strong></TableCell>
                             <TableCell align="center"><strong>{t('maritime.packages')}</strong></TableCell>
@@ -1062,6 +1405,15 @@ export default function CostingPanelMaritimo() {
                                             ))}
                                         </Select>
                                     </FormControl>
+                                </TableCell>
+                                <TableCell>
+                                    {container.week_number ? (
+                                        <Chip 
+                                            label={`W${container.week_number}`} 
+                                            size="small" 
+                                            sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 'bold' }}
+                                        />
+                                    ) : '-'}
                                 </TableCell>
                                 <TableCell>
                                     {container.eta ? new Date(container.eta).toLocaleDateString() : '-'}
@@ -1284,17 +1636,33 @@ export default function CostingPanelMaritimo() {
                                         </Typography>
                                         <Divider sx={{ mb: 2 }} />
                                         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                                            <Box>
-                                                <Typography variant="caption" color="text.secondary">NO. B/L</Typography>
-                                                <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>
-                                                    {selectedContainer.bl_number || '-'}
-                                                </Typography>
+                                            <Box sx={{ display: 'flex', gap: 3 }}>
+                                                <Box sx={{ flex: 1 }}>
+                                                    <Typography variant="caption" color="text.secondary">NO. B/L</Typography>
+                                                    <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>
+                                                        {selectedContainer.bl_number || '-'}
+                                                    </Typography>
+                                                </Box>
+                                                <Box sx={{ flex: 1 }}>
+                                                    <Typography variant="caption" color="text.secondary">WEEK</Typography>
+                                                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#2E7D32' }}>
+                                                        {selectedContainer.week_number || '-'}
+                                                    </Typography>
+                                                </Box>
                                             </Box>
-                                            <Box>
-                                                <Typography variant="caption" color="text.secondary">NO. S/O</Typography>
-                                                <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>
-                                                    {selectedContainer.so_number || '-'}
-                                                </Typography>
+                                            <Box sx={{ display: 'flex', gap: 3 }}>
+                                                <Box sx={{ flex: 1 }}>
+                                                    <Typography variant="caption" color="text.secondary">NO. S/O</Typography>
+                                                    <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>
+                                                        {selectedContainer.so_number || '-'}
+                                                    </Typography>
+                                                </Box>
+                                                <Box sx={{ flex: 1 }}>
+                                                    <Typography variant="caption" color="text.secondary">REFERENCIA</Typography>
+                                                    <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', color: '#1565C0' }}>
+                                                        {selectedContainer.reference_code || '-'}
+                                                    </Typography>
+                                                </Box>
                                             </Box>
                                             <Box>
                                                 <Typography variant="caption" color="text.secondary">NO. CONTENEDOR</Typography>
@@ -1328,11 +1696,19 @@ export default function CostingPanelMaritimo() {
                                                     {selectedContainer.voyage_number || '-'}
                                                 </Typography>
                                             </Box>
-                                            <Box>
-                                                <Typography variant="caption" color="text.secondary">FECHA EMBARQUE</Typography>
-                                                <Typography variant="body2" sx={{ fontWeight: 500 }}>
-                                                    {selectedContainer.laden_on_board || '-'}
-                                                </Typography>
+                                            <Box sx={{ display: 'flex', gap: 3 }}>
+                                                <Box sx={{ flex: 1 }}>
+                                                    <Typography variant="caption" color="text.secondary">FECHA EMBARQUE</Typography>
+                                                    <Typography variant="body2" sx={{ fontWeight: 500 }}>
+                                                        {selectedContainer.laden_on_board || '-'}
+                                                    </Typography>
+                                                </Box>
+                                                <Box sx={{ flex: 1 }}>
+                                                    <Typography variant="caption" color="text.secondary">ETA</Typography>
+                                                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#E65100' }}>
+                                                        {selectedContainer.eta ? new Date(selectedContainer.eta).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}
+                                                    </Typography>
+                                                </Box>
                                             </Box>
                                         </Box>
                                     </CardContent>
@@ -1401,6 +1777,15 @@ export default function CostingPanelMaritimo() {
                     {/* Tab 1: Gastos en Origen */}
                     {tabValue === 1 && (
                         <Grid container spacing={3}>
+                            {/* Input oculto para Nota de Débito */}
+                            <input
+                                type="file"
+                                ref={debitNoteInputRef}
+                                onChange={handleDebitNoteFileSelected}
+                                accept=".pdf"
+                                style={{ display: 'none' }}
+                            />
+
                             <Grid size={{ xs: 12, md: 6 }}>
                                 <Card variant="outlined">
                                     <CardContent>
@@ -1420,21 +1805,71 @@ export default function CostingPanelMaritimo() {
                                                 }}
                                                 sx={{ flex: 2 }}
                                             />
-                                            <Tooltip title={costs.debit_note_pdf ? 'Gestionar archivo' : 'Adjuntar'}>
+                                            <Tooltip title={costs.debit_note_pdf ? 'Ver PDF y datos extraídos' : 'Subir PDF con extracción IA'}>
                                                 <IconButton 
-                                                    color={costs.debit_note_pdf ? 'success' : 'default'}
-                                                    onClick={() => {
-                                                        if (costs.debit_note_pdf) {
-                                                            openFileModal(costs.debit_note_pdf, 'debit_note_pdf', 'Nota de Débito');
+                                                    color={costs.debit_note_pdf ? 'success' : 'primary'}
+                                                    onClick={async () => {
+                                                        // Si hay datos guardados de extracción, cargarlos
+                                                        const savedExtraction = (costs as any).debit_note_usd ? {
+                                                            total_usd: (costs as any).debit_note_usd,
+                                                            total_mxn: (costs as any).debit_note_usd * ((costs as any).debit_note_exchange_rate || 17.5),
+                                                            exchange_rate: (costs as any).debit_note_exchange_rate || 17.5,
+                                                            fee_percent: (costs as any).debit_note_fee_percent || 4.00,
+                                                            fee_amount: (costs as any).debit_note_fee_amount || 0,
+                                                            total_with_fee: costs.debit_note_amount || 0,
+                                                            line_items: (costs as any).debit_note_line_items || [],
+                                                            container_number: (costs as any).debit_note_container_number,
+                                                            bl_number: (costs as any).debit_note_bl_number,
+                                                            invoice_number: (costs as any).debit_note_invoice_number
+                                                        } : null;
+                                                        
+                                                        if (costs.debit_note_pdf || savedExtraction) {
+                                                            // Abrir modal con datos guardados si existen
+                                                            setDebitNoteModal({
+                                                                open: true,
+                                                                pdfUrl: null, // Se cargará después
+                                                                extracting: false,
+                                                                extraction: savedExtraction,
+                                                                error: null,
+                                                                pendingFile: null
+                                                            });
+                                                            
+                                                            // Intentar descargar PDF si existe
+                                                            if (costs.debit_note_pdf) {
+                                                                try {
+                                                                    const response = await axios.get(`${API_URL}/api/maritime/containers/download-pdf`, {
+                                                                        params: { url: costs.debit_note_pdf },
+                                                                        headers: { 'Authorization': `Bearer ${getToken()}` },
+                                                                        responseType: 'blob'
+                                                                    });
+                                                                    
+                                                                    const blob = new Blob([response.data], { type: 'application/pdf' });
+                                                                    const localUrl = URL.createObjectURL(blob);
+                                                                    
+                                                                    setDebitNoteModal(prev => ({
+                                                                        ...prev,
+                                                                        pdfUrl: localUrl
+                                                                    }));
+                                                                } catch (err) {
+                                                                    console.error('Error descargando PDF:', err);
+                                                                    // No mostrar error, los datos extraídos ya están cargados
+                                                                }
+                                                            }
                                                         } else {
-                                                            openFileSelector('debit_note_pdf');
+                                                            // Abrir selector de archivo
+                                                            debitNoteInputRef.current?.click();
                                                         }
                                                     }}
                                                 >
-                                                    {costs.debit_note_pdf ? <CheckCircleIcon /> : <AttachFileIcon />}
+                                                    {costs.debit_note_pdf ? <CheckCircleIcon /> : <CloudUploadIcon />}
                                                 </IconButton>
                                             </Tooltip>
                                         </Box>
+                                        {costs.debit_note_pdf && (
+                                            <Typography variant="caption" color="success.main" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                <CheckCircleIcon fontSize="small" /> PDF adjunto - Click en ✓ para ver detalles
+                                            </Typography>
+                                        )}
                                     </CardContent>
                                 </Card>
                             </Grid>
@@ -1482,281 +1917,132 @@ export default function CostingPanelMaritimo() {
                     {tabValue === 2 && (
                         <Grid container spacing={3}>
                             <Grid size={{ xs: 12 }}>
-                                <Alert severity="info" sx={{ mb: 2 }}>
-                                    {t('maritime.customsInfo')}
-                                    {bolsasDisponibles.length > 0 && (
+                                {anticiposContainer?.reference_code ? (
+                                    <Alert severity="success" sx={{ mb: 2 }}>
+                                        <Typography variant="body1">
+                                            📋 Referencia del contenedor: <strong>{anticiposContainer.reference_code}</strong>
+                                        </Typography>
+                                        {anticiposContainer.anticipos.length > 0 ? (
+                                            <Typography variant="body2" sx={{ mt: 1 }}>
+                                                💰 Este contenedor tiene <strong>{anticiposContainer.anticipos.length}</strong> anticipo(s) registrado(s) 
+                                                por un total de <strong>${formatCurrency(anticiposContainer.total)}</strong>
+                                            </Typography>
+                                        ) : (
+                                            <Typography variant="body2" sx={{ mt: 1 }}>
+                                                ⚠️ No hay anticipos registrados para esta referencia. 
+                                                Registra un depósito en el panel de Control de Anticipos.
+                                            </Typography>
+                                        )}
+                                    </Alert>
+                                ) : (
+                                    <Alert severity="warning" sx={{ mb: 2 }}>
+                                        <Typography variant="body1">
+                                            ⚠️ Este contenedor no tiene una referencia asignada.
+                                        </Typography>
                                         <Typography variant="body2" sx={{ mt: 1 }}>
-                                            💰 Hay <strong>{bolsasDisponibles.length}</strong> bolsas de anticipo disponibles para asignar
+                                            Asigna una referencia al contenedor para poder registrar anticipos.
                                         </Typography>
-                                    )}
-                                </Alert>
+                                    </Alert>
+                                )}
                             </Grid>
                             
-                            {/* Anticipo 1 */}
-                            <Grid size={{ xs: 12, sm: 6 }}>
-                                <Card variant="outlined" sx={{ borderColor: selectedBolsas.advance_1 ? '#4CAF50' : SEA_COLOR }}>
-                                    <CardContent>
-                                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                                            {t('maritime.advance')} 1
-                                        </Typography>
-                                        <FormControl fullWidth size="small" sx={{ mb: 1 }}>
-                                            <InputLabel>Seleccionar Bolsa de Anticipo</InputLabel>
-                                            <Select
-                                                value={selectedBolsas.advance_1 || ''}
-                                                label="Seleccionar Bolsa de Anticipo"
-                                                onChange={(e) => handleBolsaSelect('advance_1', e.target.value as number | null)}
-                                            >
-                                                <MenuItem value="">
-                                                    <em>Sin asignar / Manual</em>
-                                                </MenuItem>
-                                                {bolsasDisponibles.map((bolsa) => (
-                                                    <MenuItem 
-                                                        key={bolsa.id} 
-                                                        value={bolsa.id}
-                                                        disabled={
-                                                            selectedBolsas.advance_2 === bolsa.id ||
-                                                            selectedBolsas.advance_3 === bolsa.id ||
-                                                            selectedBolsas.advance_4 === bolsa.id
-                                                        }
-                                                    >
-                                                        {bolsa.proveedor_nombre} - {bolsa.referencia} (${formatCurrency(bolsa.monto_disponible)})
-                                                    </MenuItem>
-                                                ))}
-                                            </Select>
-                                        </FormControl>
-                                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                                            <TextField
-                                                label={t('maritime.amount')}
-                                                type="number"
-                                                size="small"
-                                                value={costs.advance_1_amount || ''}
-                                                onChange={(e) => setCosts(prev => ({ ...prev, advance_1_amount: parseFloat(e.target.value) || 0 }))}
-                                                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                                                sx={{ flex: 2 }}
-                                            />
-                                            <IconButton 
-                                                color={costs.advance_1_pdf ? 'success' : 'default'}
-                                                onClick={() => {
-                                                    if (costs.advance_1_pdf) openFileModal(costs.advance_1_pdf, 'advance_1_pdf', 'Anticipo 1');
-                                                    else openFileSelector('advance_1_pdf');
+                            {/* Mostrar anticipos dinámicamente */}
+                            {loadingAnticipos ? (
+                                <Grid size={{ xs: 12 }}>
+                                    <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                                        <CircularProgress />
+                                    </Box>
+                                </Grid>
+                            ) : anticiposContainer?.anticipos && anticiposContainer.anticipos.length > 0 ? (
+                                <>
+                                    {anticiposContainer.anticipos.map((anticipo, index) => (
+                                        <Grid size={{ xs: 12, sm: 6 }} key={anticipo.id}>
+                                            <Card 
+                                                variant="outlined" 
+                                                sx={{ 
+                                                    borderColor: anticipo.estado === 'disponible' ? '#4CAF50' : '#FF9800',
+                                                    borderWidth: 2
                                                 }}
                                             >
-                                                {costs.advance_1_pdf ? <CheckCircleIcon /> : <AttachFileIcon />}
-                                            </IconButton>
-                                        </Box>
-                                        {selectedBolsas.advance_1 && (
-                                            <Chip 
-                                                size="small" 
-                                                color="success" 
-                                                label="Bolsa asignada" 
-                                                sx={{ mt: 1 }}
-                                            />
-                                        )}
-                                    </CardContent>
-                                </Card>
-                            </Grid>
-                            
-                            {/* Anticipo 2 */}
-                            <Grid size={{ xs: 12, sm: 6 }}>
-                                <Card variant="outlined" sx={{ borderColor: selectedBolsas.advance_2 ? '#4CAF50' : SEA_COLOR }}>
-                                    <CardContent>
-                                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                                            {t('maritime.advance')} 2
+                                                <CardContent>
+                                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                                                        <Typography variant="subtitle2" color="text.secondary">
+                                                            Anticipo #{index + 1}
+                                                        </Typography>
+                                                        <Chip 
+                                                            size="small" 
+                                                            label={anticipo.estado === 'disponible' ? '✓ Disponible' : '⚡ Usado'}
+                                                            color={anticipo.estado === 'disponible' ? 'success' : 'warning'}
+                                                        />
+                                                    </Box>
+                                                    
+                                                    <Typography variant="h5" fontWeight="bold" color={SEA_DARK} sx={{ mb: 1 }}>
+                                                        ${formatCurrency(anticipo.monto)}
+                                                    </Typography>
+                                                    
+                                                    <Box sx={{ mb: 1 }}>
+                                                        <Typography variant="body2" color="text.secondary">
+                                                            📅 Fecha: {new Date(anticipo.fecha_pago).toLocaleDateString()}
+                                                        </Typography>
+                                                        <Typography variant="body2" color="text.secondary">
+                                                            🏢 Proveedor: {anticipo.proveedor_nombre}
+                                                        </Typography>
+                                                        <Typography variant="body2" color="text.secondary">
+                                                            💳 Tipo: {anticipo.tipo_pago === 'transferencia' ? 'Transferencia' : 'Efectivo'}
+                                                        </Typography>
+                                                        {anticipo.tipo_pago === 'transferencia' && anticipo.numero_operacion && (
+                                                            <Typography variant="body2" color="text.secondary">
+                                                                🔢 Op: {anticipo.numero_operacion} ({anticipo.banco_origen})
+                                                            </Typography>
+                                                        )}
+                                                    </Box>
+                                                    
+                                                    {anticipo.comprobante_url && (
+                                                        <Button
+                                                            size="small"
+                                                            variant="outlined"
+                                                            startIcon={<AttachFileIcon />}
+                                                            onClick={() => window.open(anticipo.comprobante_url!, '_blank')}
+                                                            sx={{ mt: 1 }}
+                                                        >
+                                                            Ver Comprobante
+                                                        </Button>
+                                                    )}
+                                                </CardContent>
+                                            </Card>
+                                        </Grid>
+                                    ))}
+                                </>
+                            ) : (
+                                <Grid size={{ xs: 12 }}>
+                                    <Card sx={{ bgcolor: '#FFF3E0', p: 3 }}>
+                                        <Typography variant="body1" textAlign="center" color="text.secondary">
+                                            📭 No hay anticipos registrados para este contenedor.
+                                            <br />
+                                            <Typography variant="body2" sx={{ mt: 1 }}>
+                                                Ve al panel de <strong>Control de Anticipos</strong> para registrar depósitos 
+                                                con la referencia <strong>{anticiposContainer?.reference_code || 'del contenedor'}</strong>
+                                            </Typography>
                                         </Typography>
-                                        <FormControl fullWidth size="small" sx={{ mb: 1 }}>
-                                            <InputLabel>Seleccionar Bolsa de Anticipo</InputLabel>
-                                            <Select
-                                                value={selectedBolsas.advance_2 || ''}
-                                                label="Seleccionar Bolsa de Anticipo"
-                                                onChange={(e) => handleBolsaSelect('advance_2', e.target.value as number | null)}
-                                            >
-                                                <MenuItem value="">
-                                                    <em>Sin asignar / Manual</em>
-                                                </MenuItem>
-                                                {bolsasDisponibles.map((bolsa) => (
-                                                    <MenuItem 
-                                                        key={bolsa.id} 
-                                                        value={bolsa.id}
-                                                        disabled={
-                                                            selectedBolsas.advance_1 === bolsa.id ||
-                                                            selectedBolsas.advance_3 === bolsa.id ||
-                                                            selectedBolsas.advance_4 === bolsa.id
-                                                        }
-                                                    >
-                                                        {bolsa.proveedor_nombre} - {bolsa.referencia} (${formatCurrency(bolsa.monto_disponible)})
-                                                    </MenuItem>
-                                                ))}
-                                            </Select>
-                                        </FormControl>
-                                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                                            <TextField
-                                                label={t('maritime.amount')}
-                                                type="number"
-                                                size="small"
-                                                value={costs.advance_2_amount || ''}
-                                                onChange={(e) => setCosts(prev => ({ ...prev, advance_2_amount: parseFloat(e.target.value) || 0 }))}
-                                                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                                                sx={{ flex: 2 }}
-                                            />
-                                            <IconButton 
-                                                color={costs.advance_2_pdf ? 'success' : 'default'}
-                                                onClick={() => {
-                                                    if (costs.advance_2_pdf) openFileModal(costs.advance_2_pdf, 'advance_2_pdf', 'Anticipo 2');
-                                                    else openFileSelector('advance_2_pdf');
-                                                }}
-                                            >
-                                                {costs.advance_2_pdf ? <CheckCircleIcon /> : <AttachFileIcon />}
-                                            </IconButton>
-                                        </Box>
-                                        {selectedBolsas.advance_2 && (
-                                            <Chip 
-                                                size="small" 
-                                                color="success" 
-                                                label="Bolsa asignada" 
-                                                sx={{ mt: 1 }}
-                                            />
-                                        )}
-                                    </CardContent>
-                                </Card>
-                            </Grid>
+                                    </Card>
+                                </Grid>
+                            )}
                             
-                            {/* Anticipo 3 */}
-                            <Grid size={{ xs: 12, sm: 6 }}>
-                                <Card variant="outlined" sx={{ borderColor: selectedBolsas.advance_3 ? '#4CAF50' : SEA_COLOR }}>
-                                    <CardContent>
-                                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                                            {t('maritime.advance')} 3
-                                        </Typography>
-                                        <FormControl fullWidth size="small" sx={{ mb: 1 }}>
-                                            <InputLabel>Seleccionar Bolsa de Anticipo</InputLabel>
-                                            <Select
-                                                value={selectedBolsas.advance_3 || ''}
-                                                label="Seleccionar Bolsa de Anticipo"
-                                                onChange={(e) => handleBolsaSelect('advance_3', e.target.value as number | null)}
-                                            >
-                                                <MenuItem value="">
-                                                    <em>Sin asignar / Manual</em>
-                                                </MenuItem>
-                                                {bolsasDisponibles.map((bolsa) => (
-                                                    <MenuItem 
-                                                        key={bolsa.id} 
-                                                        value={bolsa.id}
-                                                        disabled={
-                                                            selectedBolsas.advance_1 === bolsa.id ||
-                                                            selectedBolsas.advance_2 === bolsa.id ||
-                                                            selectedBolsas.advance_4 === bolsa.id
-                                                        }
-                                                    >
-                                                        {bolsa.proveedor_nombre} - {bolsa.referencia} (${formatCurrency(bolsa.monto_disponible)})
-                                                    </MenuItem>
-                                                ))}
-                                            </Select>
-                                        </FormControl>
-                                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                                            <TextField
-                                                label={t('maritime.amount')}
-                                                type="number"
-                                                size="small"
-                                                value={costs.advance_3_amount || ''}
-                                                onChange={(e) => setCosts(prev => ({ ...prev, advance_3_amount: parseFloat(e.target.value) || 0 }))}
-                                                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                                                sx={{ flex: 2 }}
-                                            />
-                                            <IconButton 
-                                                color={costs.advance_3_pdf ? 'success' : 'default'}
-                                                onClick={() => {
-                                                    if (costs.advance_3_pdf) openFileModal(costs.advance_3_pdf, 'advance_3_pdf', 'Anticipo 3');
-                                                    else openFileSelector('advance_3_pdf');
-                                                }}
-                                            >
-                                                {costs.advance_3_pdf ? <CheckCircleIcon /> : <AttachFileIcon />}
-                                            </IconButton>
-                                        </Box>
-                                        {selectedBolsas.advance_3 && (
-                                            <Chip 
-                                                size="small" 
-                                                color="success" 
-                                                label="Bolsa asignada" 
-                                                sx={{ mt: 1 }}
-                                            />
-                                        )}
-                                    </CardContent>
-                                </Card>
-                            </Grid>
-                            
-                            {/* Anticipo 4 */}
-                            <Grid size={{ xs: 12, sm: 6 }}>
-                                <Card variant="outlined" sx={{ borderColor: selectedBolsas.advance_4 ? '#4CAF50' : SEA_COLOR }}>
-                                    <CardContent>
-                                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                                            {t('maritime.advance')} 4
-                                        </Typography>
-                                        <FormControl fullWidth size="small" sx={{ mb: 1 }}>
-                                            <InputLabel>Seleccionar Bolsa de Anticipo</InputLabel>
-                                            <Select
-                                                value={selectedBolsas.advance_4 || ''}
-                                                label="Seleccionar Bolsa de Anticipo"
-                                                onChange={(e) => handleBolsaSelect('advance_4', e.target.value as number | null)}
-                                            >
-                                                <MenuItem value="">
-                                                    <em>Sin asignar / Manual</em>
-                                                </MenuItem>
-                                                {bolsasDisponibles.map((bolsa) => (
-                                                    <MenuItem 
-                                                        key={bolsa.id} 
-                                                        value={bolsa.id}
-                                                        disabled={
-                                                            selectedBolsas.advance_1 === bolsa.id ||
-                                                            selectedBolsas.advance_2 === bolsa.id ||
-                                                            selectedBolsas.advance_3 === bolsa.id
-                                                        }
-                                                    >
-                                                        {bolsa.proveedor_nombre} - {bolsa.referencia} (${formatCurrency(bolsa.monto_disponible)})
-                                                    </MenuItem>
-                                                ))}
-                                            </Select>
-                                        </FormControl>
-                                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                                            <TextField
-                                                label={t('maritime.amount')}
-                                                type="number"
-                                                size="small"
-                                                value={costs.advance_4_amount || ''}
-                                                onChange={(e) => setCosts(prev => ({ ...prev, advance_4_amount: parseFloat(e.target.value) || 0 }))}
-                                                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                                                sx={{ flex: 2 }}
-                                            />
-                                            <IconButton 
-                                                color={costs.advance_4_pdf ? 'success' : 'default'}
-                                                onClick={() => {
-                                                    if (costs.advance_4_pdf) openFileModal(costs.advance_4_pdf, 'advance_4_pdf', 'Anticipo 4');
-                                                    else openFileSelector('advance_4_pdf');
-                                                }}
-                                            >
-                                                {costs.advance_4_pdf ? <CheckCircleIcon /> : <AttachFileIcon />}
-                                            </IconButton>
-                                        </Box>
-                                        {selectedBolsas.advance_4 && (
-                                            <Chip 
-                                                size="small" 
-                                                color="success" 
-                                                label="Bolsa asignada" 
-                                                sx={{ mt: 1 }}
-                                            />
-                                        )}
-                                    </CardContent>
-                                </Card>
-                            </Grid>
-                            
+                            {/* Total de Anticipos - Dinámico */}
                             <Grid size={{ xs: 12 }}>
                                 <Card sx={{ bgcolor: '#E0F7FA' }}>
                                     <CardContent>
                                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                            <Typography variant="h6" fontWeight="bold">
-                                                {t('maritime.totalAA')}
-                                            </Typography>
+                                            <Box>
+                                                <Typography variant="h6" fontWeight="bold">
+                                                    {t('maritime.totalAA')}
+                                                </Typography>
+                                                <Typography variant="body2" color="text.secondary">
+                                                    {anticiposContainer?.anticipos?.length || 0} anticipo(s) registrado(s)
+                                                </Typography>
+                                            </Box>
                                             <Typography variant="h4" fontWeight="bold" color={SEA_DARK}>
-                                                ${formatCurrency(totals.aa)}
+                                                ${formatCurrency(anticiposContainer?.total || 0)}
                                             </Typography>
                                         </Box>
                                     </CardContent>
@@ -2906,6 +3192,324 @@ export default function CostingPanelMaritimo() {
                     >
                         Sí, Eliminar
                     </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* ========== MODAL DE NOTA DE DÉBITO CON EXTRACCIÓN IA ========== */}
+            <Dialog 
+                open={debitNoteModal.open} 
+                onClose={closeDebitNoteModal}
+                maxWidth="lg"
+                fullWidth
+            >
+                <DialogTitle sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'space-between', 
+                    bgcolor: '#E65100', 
+                    color: 'white' 
+                }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <ReceiptIcon />
+                        <Typography variant="h6">Nota de Débito - {selectedContainer?.container_number}</Typography>
+                    </Box>
+                    <IconButton onClick={closeDebitNoteModal} sx={{ color: 'white' }}>
+                        <CloseIcon />
+                    </IconButton>
+                </DialogTitle>
+                <DialogContent sx={{ p: 0 }}>
+                    <Grid container>
+                        {/* Columna izquierda: Preview del PDF */}
+                        <Grid size={{ xs: 12, md: 7 }} sx={{ borderRight: '1px solid #e0e0e0' }}>
+                            <Box sx={{ 
+                                height: '600px', 
+                                bgcolor: '#f5f5f5',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}>
+                                {debitNoteModal.pdfUrl ? (
+                                    <iframe
+                                        src={debitNoteModal.pdfUrl}
+                                        style={{ width: '100%', height: '100%', border: 'none' }}
+                                        title="Nota de Débito PDF"
+                                    />
+                                ) : debitNoteModal.extracting ? (
+                                    <Box sx={{ textAlign: 'center' }}>
+                                        <CircularProgress size={60} sx={{ color: '#E65100' }} />
+                                        <Typography variant="body1" sx={{ mt: 2 }}>
+                                            Subiendo PDF...
+                                        </Typography>
+                                    </Box>
+                                ) : (
+                                    <Typography color="text.secondary">
+                                        No hay PDF cargado
+                                    </Typography>
+                                )}
+                            </Box>
+                        </Grid>
+
+                        {/* Columna derecha: Datos extraídos */}
+                        <Grid size={{ xs: 12, md: 5 }}>
+                            <Box sx={{ p: 3, height: '600px', overflow: 'auto' }}>
+                                <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <AutoAwesomeIcon sx={{ color: '#E65100' }} />
+                                    Datos Extraídos con IA
+                                </Typography>
+                                <Divider sx={{ mb: 2 }} />
+
+                                {debitNoteModal.extracting && (
+                                    <Box sx={{ textAlign: 'center', py: 4 }}>
+                                        <CircularProgress sx={{ color: '#E65100' }} />
+                                        <Typography variant="body2" sx={{ mt: 2 }}>
+                                            Extrayendo datos del PDF con Inteligencia Artificial...
+                                        </Typography>
+                                    </Box>
+                                )}
+
+                                {debitNoteModal.error && (
+                                    <Alert severity="error" sx={{ mb: 2 }}>
+                                        <Typography variant="body2" fontWeight="bold">Error en extracción:</Typography>
+                                        <Typography variant="body2">{debitNoteModal.error}</Typography>
+                                        <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
+                                            {(debitNoteModal.pendingFile || debitNoteModal.pdfUrl) && (
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    color="error"
+                                                    onClick={() => {
+                                                        if (debitNoteModal.pendingFile) {
+                                                            extractDebitNoteData(debitNoteModal.pendingFile, debitNoteModal.pdfUrl || undefined);
+                                                        } else if (debitNoteModal.pdfUrl) {
+                                                            extractDebitNoteData(undefined, debitNoteModal.pdfUrl);
+                                                        }
+                                                    }}
+                                                >
+                                                    🔄 Reintentar Extracción
+                                                </Button>
+                                            )}
+                                            <Button
+                                                size="small"
+                                                variant="contained"
+                                                color="primary"
+                                                onClick={() => {
+                                                    // Limpiar estado y abrir selector de archivos
+                                                    setDebitNoteModal(prev => ({
+                                                        ...prev,
+                                                        error: null,
+                                                        pdfUrl: null,
+                                                        pendingFile: null,
+                                                        extraction: null
+                                                    }));
+                                                    setTimeout(() => debitNoteInputRef.current?.click(), 100);
+                                                }}
+                                            >
+                                                📄 Subir Nuevo PDF
+                                            </Button>
+                                        </Box>
+                                    </Alert>
+                                )}
+
+                                {debitNoteModal.extraction && (
+                                    <>
+                                        {/* Información del documento */}
+                                        {(debitNoteModal.extraction.container_number || debitNoteModal.extraction.invoice_number) && (
+                                            <Card variant="outlined" sx={{ mb: 2, bgcolor: '#FFF3E0' }}>
+                                                <CardContent sx={{ py: 1.5 }}>
+                                                    <Typography variant="caption" color="text.secondary">DOCUMENTO</Typography>
+                                                    {debitNoteModal.extraction.invoice_number && (
+                                                        <Typography variant="body2">
+                                                            <strong>Factura:</strong> {debitNoteModal.extraction.invoice_number}
+                                                        </Typography>
+                                                    )}
+                                                    {debitNoteModal.extraction.container_number && (
+                                                        <Typography variant="body2">
+                                                            <strong>Contenedor:</strong> {debitNoteModal.extraction.container_number}
+                                                            {debitNoteModal.extraction.container_number === selectedContainer?.container_number && (
+                                                                <CheckCircleIcon sx={{ ml: 1, fontSize: 16, color: 'success.main' }} />
+                                                            )}
+                                                        </Typography>
+                                                    )}
+                                                    {debitNoteModal.extraction.bl_number && (
+                                                        <Typography variant="body2">
+                                                            <strong>BL:</strong> {debitNoteModal.extraction.bl_number}
+                                                        </Typography>
+                                                    )}
+                                                    {debitNoteModal.extraction.eta && (
+                                                        <Typography variant="body2">
+                                                            <strong>ETA:</strong> {debitNoteModal.extraction.eta}
+                                                        </Typography>
+                                                    )}
+                                                </CardContent>
+                                            </Card>
+                                        )}
+
+                                        {/* Totales */}
+                                        <Card variant="outlined" sx={{ mb: 2, bgcolor: '#E8F5E9' }}>
+                                            <CardContent>
+                                                <Typography variant="caption" color="text.secondary">CONVERSIÓN USD → MXN</Typography>
+                                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+                                                    <Box>
+                                                        <Typography variant="body2" color="text.secondary">Total USD:</Typography>
+                                                        <Typography variant="h6" fontWeight="bold" color="primary">
+                                                            ${(Number(debitNoteModal.extraction.total_usd) || 0).toFixed(2)}
+                                                        </Typography>
+                                                    </Box>
+                                                    <Typography variant="h5" color="text.secondary">×</Typography>
+                                                    <Box sx={{ textAlign: 'center' }}>
+                                                        <Typography variant="body2" color="text.secondary">T.C.:</Typography>
+                                                        <Typography variant="h6" fontWeight="bold">
+                                                            {(Number(debitNoteModal.extraction.exchange_rate) || 0).toFixed(2)}
+                                                        </Typography>
+                                                    </Box>
+                                                    <Typography variant="h5" color="text.secondary">=</Typography>
+                                                    <Box sx={{ textAlign: 'right' }}>
+                                                        <Typography variant="body2" color="text.secondary">Subtotal MXN:</Typography>
+                                                        <Typography variant="h6" fontWeight="bold" sx={{ color: '#1976D2' }}>
+                                                            ${formatCurrency(debitNoteModal.extraction.total_mxn)}
+                                                        </Typography>
+                                                    </Box>
+                                                </Box>
+                                            </CardContent>
+                                        </Card>
+
+                                        {/* Fee de envío de dinero */}
+                                        <Card variant="outlined" sx={{ mb: 2, bgcolor: '#FFF8E1' }}>
+                                            <CardContent>
+                                                <Typography variant="caption" color="text.secondary">FEE DE ENVÍO DE DINERO ({debitNoteModal.extraction.fee_percent}%)</Typography>
+                                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+                                                    <Box>
+                                                        <Typography variant="body2" color="text.secondary">Subtotal MXN:</Typography>
+                                                        <Typography variant="body1" fontWeight="bold">
+                                                            ${formatCurrency(debitNoteModal.extraction.total_mxn)}
+                                                        </Typography>
+                                                    </Box>
+                                                    <Typography variant="h5" color="text.secondary">+</Typography>
+                                                    <Box sx={{ textAlign: 'center' }}>
+                                                        <Typography variant="body2" color="text.secondary">Fee {debitNoteModal.extraction.fee_percent}%:</Typography>
+                                                        <Typography variant="body1" fontWeight="bold" sx={{ color: '#F57C00' }}>
+                                                            ${formatCurrency(debitNoteModal.extraction.fee_amount)}
+                                                        </Typography>
+                                                    </Box>
+                                                    <Typography variant="h5" color="text.secondary">=</Typography>
+                                                    <Box sx={{ textAlign: 'right' }}>
+                                                        <Typography variant="body2" color="text.secondary">TOTAL A APLICAR:</Typography>
+                                                        <Typography variant="h5" fontWeight="bold" sx={{ color: '#2E7D32' }}>
+                                                            ${formatCurrency(debitNoteModal.extraction.total_with_fee)}
+                                                        </Typography>
+                                                    </Box>
+                                                </Box>
+                                            </CardContent>
+                                        </Card>
+
+                                        {/* Desglose de conceptos */}
+                                        {debitNoteModal.extraction.line_items && debitNoteModal.extraction.line_items.length > 0 && (
+                                            <Card variant="outlined">
+                                                <CardContent sx={{ py: 1.5 }}>
+                                                    <Typography variant="caption" color="text.secondary" gutterBottom sx={{ display: 'block' }}>
+                                                        CONCEPTOS DETECTADOS ({debitNoteModal.extraction.line_items.length})
+                                                    </Typography>
+                                                    <Box sx={{ maxHeight: 200, overflow: 'auto' }}>
+                                                        {debitNoteModal.extraction.line_items.map((item, idx) => (
+                                                            <Box key={idx} sx={{ 
+                                                                display: 'flex', 
+                                                                justifyContent: 'space-between', 
+                                                                py: 0.5,
+                                                                borderBottom: idx < (debitNoteModal.extraction?.line_items?.length || 0) - 1 ? '1px dashed #e0e0e0' : 'none'
+                                                            }}>
+                                                                <Typography variant="body2" sx={{ maxWidth: '70%', fontSize: '0.8rem' }}>
+                                                                    {item.description}
+                                                                </Typography>
+                                                                <Typography variant="body2" fontWeight="bold" sx={{ fontSize: '0.8rem' }}>
+                                                                    ${(Number(item.amount_usd) || 0).toFixed(2)}
+                                                                </Typography>
+                                                            </Box>
+                                                        ))}
+                                                    </Box>
+                                                </CardContent>
+                                            </Card>
+                                        )}
+                                    </>
+                                )}
+
+                                {!debitNoteModal.extracting && !debitNoteModal.extraction && !debitNoteModal.error && debitNoteModal.pdfUrl && (
+                                    <Box sx={{ textAlign: 'center', py: 4 }}>
+                                        <Typography variant="body2" color="text.secondary" gutterBottom>
+                                            PDF cargado. Haz click para extraer los datos.
+                                        </Typography>
+                                        <Button
+                                            variant="contained"
+                                            startIcon={<AutoAwesomeIcon />}
+                                            onClick={() => extractDebitNoteData(undefined, debitNoteModal.pdfUrl!)}
+                                            sx={{ bgcolor: '#E65100', '&:hover': { bgcolor: '#BF360C' } }}
+                                        >
+                                            Extraer Datos con IA
+                                        </Button>
+                                    </Box>
+                                )}
+
+                                {/* Estado vacío - sin PDF cargado */}
+                                {!debitNoteModal.extracting && !debitNoteModal.extraction && !debitNoteModal.error && !debitNoteModal.pdfUrl && (
+                                    <Box sx={{ textAlign: 'center', py: 6 }}>
+                                        <CloudUploadIcon sx={{ fontSize: 64, color: '#bdbdbd', mb: 2 }} />
+                                        <Typography variant="body1" color="text.secondary" gutterBottom>
+                                            No hay PDF cargado
+                                        </Typography>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                                            Sube un PDF de Nota de Débito para extraer los datos automáticamente
+                                        </Typography>
+                                        <Button
+                                            variant="contained"
+                                            startIcon={<CloudUploadIcon />}
+                                            onClick={() => debitNoteInputRef.current?.click()}
+                                            sx={{ bgcolor: '#E65100', '&:hover': { bgcolor: '#BF360C' } }}
+                                        >
+                                            Subir PDF de Nota de Débito
+                                        </Button>
+                                    </Box>
+                                )}
+                            </Box>
+                        </Grid>
+                    </Grid>
+                </DialogContent>
+                <DialogActions sx={{ p: 2, gap: 1, justifyContent: 'space-between', bgcolor: '#fafafa' }}>
+                    <Box>
+                        {debitNoteModal.pdfUrl && (
+                            <>
+                                <Button
+                                    variant="outlined"
+                                    startIcon={<VisibilityIcon />}
+                                    onClick={() => window.open(debitNoteModal.pdfUrl!, '_blank')}
+                                    sx={{ mr: 1 }}
+                                >
+                                    Abrir PDF
+                                </Button>
+                                <Button
+                                    variant="outlined"
+                                    color="error"
+                                    startIcon={<DeleteIcon />}
+                                    onClick={deleteDebitNotePdf}
+                                >
+                                    Eliminar
+                                </Button>
+                            </>
+                        )}
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Button variant="outlined" onClick={closeDebitNoteModal}>
+                            Cerrar
+                        </Button>
+                        {debitNoteModal.extraction && (
+                            <Button
+                                variant="contained"
+                                startIcon={<SaveIcon />}
+                                onClick={applyDebitNoteExtraction}
+                                sx={{ bgcolor: '#E65100', '&:hover': { bgcolor: '#BF360C' } }}
+                            >
+                                Aplicar ${formatCurrency(debitNoteModal.extraction.total_with_fee)} MXN
+                            </Button>
+                        )}
+                    </Box>
                 </DialogActions>
             </Dialog>
         </Box>

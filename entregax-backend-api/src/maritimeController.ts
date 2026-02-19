@@ -6,6 +6,11 @@ import path from 'path';
 import { createNotification } from './notificationController';
 import { uploadToS3, isS3Configured } from './s3Service';
 
+// Función auxiliar para formatear moneda
+const formatCurrency = (value: number): string => {
+  return value.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
 // ========== CONTENEDORES ==========
 
 // Listar todos los contenedores
@@ -271,7 +276,10 @@ export const updateContainerCosts = async (req: AuthRequest, res: Response): Pro
   try {
     await client.query('BEGIN');
     const { containerId } = req.params;
-    const { costs } = req.body;
+    const { costs, debitNoteExtraction, deleteFields } = req.body;
+
+    // Si hay campos para eliminar explícitamente (borrar PDFs)
+    const fieldsToDelete: string[] = deleteFields || [];
 
     // Cálculos matemáticos
     const ant1 = parseFloat(costs.advance_1_amount || 0);
@@ -294,11 +302,24 @@ export const updateContainerCosts = async (req: AuthRequest, res: Response): Pro
     // Validar si está completo (al menos debit note y un anticipo)
     const isComplete = debit > 0 && calculatedAA > 0;
 
+    // Datos de extracción de nota de débito (si se proporcionan)
+    const debitNoteUsd = debitNoteExtraction?.total_usd || costs.debit_note_usd || null;
+    const debitNoteExchangeRate = debitNoteExtraction?.exchange_rate || costs.debit_note_exchange_rate || null;
+    const debitNoteFeePercent = debitNoteExtraction?.fee_percent ?? costs.debit_note_fee_percent ?? 4.00;
+    const debitNoteFeeAmount = debitNoteExtraction?.fee_amount || costs.debit_note_fee_amount || null;
+    const debitNoteLineItems = debitNoteExtraction?.line_items || costs.debit_note_line_items || null;
+    const debitNoteInvoiceNumber = debitNoteExtraction?.invoice_number || costs.debit_note_invoice_number || null;
+    const debitNoteBlNumber = debitNoteExtraction?.bl_number || costs.debit_note_bl_number || null;
+    const debitNoteContainerNumber = debitNoteExtraction?.container_number || costs.debit_note_container_number || null;
+
     // Upsert costos
     await client.query(`
       INSERT INTO container_costs (
         container_id,
         debit_note_amount, debit_note_pdf,
+        debit_note_usd, debit_note_exchange_rate, debit_note_fee_percent, debit_note_fee_amount,
+        debit_note_line_items, debit_note_invoice_number, debit_note_bl_number, debit_note_container_number,
+        debit_note_extracted_at,
         demurrage_amount, demurrage_pdf,
         storage_amount, storage_pdf,
         maneuvers_amount, maneuvers_pdf,
@@ -312,10 +333,19 @@ export const updateContainerCosts = async (req: AuthRequest, res: Response): Pro
         telex_release_pdf, bl_document_pdf,
         calculated_aa_cost, calculated_release_cost,
         is_fully_costed, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, NOW())
       ON CONFLICT (container_id) DO UPDATE SET
         debit_note_amount = EXCLUDED.debit_note_amount,
         debit_note_pdf = COALESCE(EXCLUDED.debit_note_pdf, container_costs.debit_note_pdf),
+        debit_note_usd = COALESCE(EXCLUDED.debit_note_usd, container_costs.debit_note_usd),
+        debit_note_exchange_rate = COALESCE(EXCLUDED.debit_note_exchange_rate, container_costs.debit_note_exchange_rate),
+        debit_note_fee_percent = COALESCE(EXCLUDED.debit_note_fee_percent, container_costs.debit_note_fee_percent),
+        debit_note_fee_amount = COALESCE(EXCLUDED.debit_note_fee_amount, container_costs.debit_note_fee_amount),
+        debit_note_line_items = COALESCE(EXCLUDED.debit_note_line_items, container_costs.debit_note_line_items),
+        debit_note_invoice_number = COALESCE(EXCLUDED.debit_note_invoice_number, container_costs.debit_note_invoice_number),
+        debit_note_bl_number = COALESCE(EXCLUDED.debit_note_bl_number, container_costs.debit_note_bl_number),
+        debit_note_container_number = COALESCE(EXCLUDED.debit_note_container_number, container_costs.debit_note_container_number),
+        debit_note_extracted_at = COALESCE(EXCLUDED.debit_note_extracted_at, container_costs.debit_note_extracted_at),
         demurrage_amount = EXCLUDED.demurrage_amount,
         demurrage_pdf = COALESCE(EXCLUDED.demurrage_pdf, container_costs.demurrage_pdf),
         storage_amount = EXCLUDED.storage_amount,
@@ -346,6 +376,10 @@ export const updateContainerCosts = async (req: AuthRequest, res: Response): Pro
     `, [
       containerId,
       debit, costs.debit_note_pdf || null,
+      debitNoteUsd, debitNoteExchangeRate, debitNoteFeePercent, debitNoteFeeAmount,
+      debitNoteLineItems ? JSON.stringify(debitNoteLineItems) : null,
+      debitNoteInvoiceNumber, debitNoteBlNumber, debitNoteContainerNumber,
+      debitNoteExtraction ? new Date() : null,
       demu, costs.demurrage_pdf || null,
       stor, costs.storage_pdf || null,
       maneu, costs.maneuvers_pdf || null,
@@ -360,6 +394,31 @@ export const updateContainerCosts = async (req: AuthRequest, res: Response): Pro
       calculatedAA, calculatedRelease,
       isComplete
     ]);
+
+    // Si hay campos para eliminar (borrar PDFs), hacerlo explícitamente
+    if (fieldsToDelete.length > 0) {
+      const validFields = [
+        'debit_note_pdf', 'demurrage_pdf', 'storage_pdf', 'maneuvers_pdf', 
+        'custody_pdf', 'advance_1_pdf', 'advance_2_pdf', 'advance_3_pdf', 
+        'advance_4_pdf', 'transport_pdf', 'other_pdf', 'telex_release_pdf', 
+        'bl_document_pdf',
+        // También los datos de extracción de debit note si se borra el PDF
+        'debit_note_usd', 'debit_note_exchange_rate', 'debit_note_fee_percent',
+        'debit_note_fee_amount', 'debit_note_line_items', 'debit_note_invoice_number',
+        'debit_note_bl_number', 'debit_note_container_number', 'debit_note_extracted_at'
+      ];
+      
+      const fieldsToNull = fieldsToDelete.filter((f: string) => validFields.includes(f));
+      
+      if (fieldsToNull.length > 0) {
+        const setClause = fieldsToNull.map((f: string) => `${f} = NULL`).join(', ');
+        await client.query(
+          `UPDATE container_costs SET ${setClause}, updated_at = NOW() WHERE container_id = $1`,
+          [containerId]
+        );
+        console.log(`[updateContainerCosts] Campos eliminados: ${fieldsToNull.join(', ')} para container ${containerId}`);
+      }
+    }
 
     // Actualizar costo final en contenedor si está completo
     if (isComplete) {
@@ -670,6 +729,315 @@ const VALID_PDF_FIELDS = [
   'bl_document_pdf'
 ];
 
+// ========== EXTRACCIÓN DE DATOS DE NOTA DE DÉBITO (PDF con IA) ==========
+
+interface DebitNoteExtraction {
+  total_usd: number;
+  total_mxn: number;
+  exchange_rate: number;
+  line_items: { description: string; amount_usd: number }[];
+  invoice_number?: string;
+  invoice_date?: string;
+  vessel_name?: string;
+  container_number?: string;
+  bl_number?: string;
+  eta?: string;
+  demurrage_usd?: number;
+  storage_usd?: number;
+  thc_usd?: number;
+  doc_fee_usd?: number;
+  other_charges_usd?: number;
+}
+
+/**
+ * Extraer datos de un PDF de Nota de Débito usando OpenAI Vision
+ * POST /api/maritime/containers/extract-debit-note
+ */
+export const extractDebitNoteFromPdf = async (req: AuthRequest, res: Response): Promise<any> => {
+  console.log('🎯 extractDebitNoteFromPdf INICIO');
+  console.log('📦 Body:', req.body);
+  console.log('📎 File:', (req as any).file ? 'Presente' : 'No presente');
+  
+  try {
+    let file = (req as any).file as Express.Multer.File | undefined;
+    const { containerId, pdfUrl } = req.body;
+    
+    console.log('🔍 containerId:', containerId, 'pdfUrl:', pdfUrl ? 'presente' : 'no');
+
+    if (!containerId) {
+      return res.status(400).json({ error: 'Container ID requerido' });
+    }
+
+    // Si no hay archivo pero hay URL, intentar descargar el PDF
+    if (!file && pdfUrl) {
+      console.log(`📥 Descargando PDF desde URL: ${pdfUrl}`);
+      try {
+        const pdfResponse = await fetch(pdfUrl);
+        if (!pdfResponse.ok) {
+          console.error('❌ Error descargando PDF desde S3:', pdfResponse.status);
+          return res.status(400).json({ error: 'No se pudo acceder al PDF guardado. Por favor sube el archivo nuevamente.' });
+        }
+        const pdfBuffer = Buffer.from(await pdfResponse.arrayBuffer());
+        file = {
+          buffer: pdfBuffer,
+          mimetype: 'application/pdf',
+          originalname: 'debit_note.pdf',
+          size: pdfBuffer.length
+        } as Express.Multer.File;
+        console.log(`✅ PDF descargado: ${pdfBuffer.length} bytes`);
+      } catch (downloadError: any) {
+        console.error('❌ Error descargando PDF:', downloadError.message);
+        return res.status(400).json({ error: 'Error al descargar el PDF. Sube el archivo nuevamente.' });
+      }
+    }
+
+    if (!file) {
+      return res.status(400).json({ error: 'No se proporcionó archivo PDF' });
+    }
+
+    // Verificar que OpenAI está configurado
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    if (!openaiApiKey) {
+      return res.status(500).json({ error: 'OpenAI API no configurada. Contacta al administrador.' });
+    }
+
+    // Obtener datos del contenedor
+    const containerRes = await pool.query(
+      'SELECT container_number, exchange_rate_usd_mxn FROM containers WHERE id = $1',
+      [containerId]
+    );
+    
+    if (containerRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Contenedor no encontrado' });
+    }
+
+    const containerNumber = containerRes.rows[0].container_number;
+    let exchangeRate = parseFloat(containerRes.rows[0].exchange_rate_usd_mxn) || 20.50;
+    
+    // Si no hay tipo de cambio en el contenedor, obtener el general
+    if (!containerRes.rows[0].exchange_rate_usd_mxn) {
+      const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
+      if (fxRes.rows.length > 0) {
+        exchangeRate = parseFloat(fxRes.rows[0].rate);
+      }
+    }
+
+    console.log(`📄 Procesando PDF para contenedor ${containerNumber}...`);
+
+    // Convertir PDF a imagen usando pdftoppm (poppler-utils) para renderizar fuentes correctamente
+    let base64Image: string;
+    try {
+      const { execSync } = await import('child_process');
+      const fs = await import('fs');
+      const os = await import('os');
+      const path = await import('path');
+      
+      // Crear archivo temporal para el PDF
+      const tempDir = os.tmpdir();
+      const tempPdfPath = path.join(tempDir, `debit_note_${Date.now()}.pdf`);
+      const tempPngPath = path.join(tempDir, `debit_note_${Date.now()}`);
+      
+      // Escribir el buffer del PDF a un archivo temporal
+      fs.writeFileSync(tempPdfPath, file.buffer);
+      console.log('📄 PDF guardado temporalmente en:', tempPdfPath);
+      
+      // Usar pdftoppm para convertir PDF a PNG (renderiza fuentes correctamente)
+      const pdftoppmCmd = `pdftoppm -png -r 200 -singlefile "${tempPdfPath}" "${tempPngPath}"`;
+      console.log('🔧 Ejecutando:', pdftoppmCmd);
+      execSync(pdftoppmCmd);
+      
+      // Leer la imagen PNG generada
+      const pngFilePath = `${tempPngPath}.png`;
+      if (!fs.existsSync(pngFilePath)) {
+        throw new Error('pdftoppm no generó archivo PNG');
+      }
+      
+      const imageBuffer = fs.readFileSync(pngFilePath);
+      base64Image = imageBuffer.toString('base64');
+      
+      console.log('✅ PDF convertido a imagen correctamente con pdftoppm');
+      console.log('🖼️ Base64 length:', base64Image.length);
+      
+      // Limpiar archivos temporales
+      try {
+        fs.unlinkSync(tempPdfPath);
+        fs.unlinkSync(pngFilePath);
+      } catch (cleanupErr) {
+        console.warn('⚠️ No se pudieron limpiar archivos temporales');
+      }
+    } catch (pdfError: any) {
+      console.error('❌ Error convirtiendo PDF:', pdfError.message);
+      return res.status(400).json({ 
+        error: 'Error al procesar el archivo PDF. Asegúrate de que sea un PDF válido.',
+        details: pdfError.message 
+      });
+    }
+
+    console.log('🤖 Enviando imagen a OpenAI Vision para extracción...');
+
+    // Llamar a OpenAI Vision API
+    const openaiResponse = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${openaiApiKey}`
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `Extract all data from this shipping debit note document.
+                
+Return a JSON object with these fields:
+- container_number: the container number (look for "CNT No:" field, format like WHSU6463903)
+- bl_number: the BL number if present
+- invoice_number: Job No or Inv No
+- eta: the ETA date (look for "ETA:" field, return in format YYYY-MM-DD)
+- total_usd: the total amount from "Balance" or "Total" row (should be around 4000)
+- line_items: array of objects with "description" and "amount_usd" for each charge in the Debit column
+
+Return ONLY the JSON, no markdown or explanation.`
+              },
+              {
+                type: 'image_url',
+                image_url: {
+                  url: `data:image/png;base64,${base64Image}`,
+                  detail: 'high'
+                }
+              }
+            ]
+          }
+        ],
+        max_tokens: 2000,
+        temperature: 0.1
+      })
+    });
+
+    if (!openaiResponse.ok) {
+      const errorText = await openaiResponse.text();
+      console.error('❌ Error OpenAI:', errorText);
+      return res.status(500).json({ error: 'Error al procesar imagen con IA', details: errorText });
+    }
+
+    const openaiData: any = await openaiResponse.json();
+    console.log('🔍 OpenAI RAW response:', JSON.stringify(openaiData, null, 2));
+    const aiContent = openaiData.choices?.[0]?.message?.content || '';
+
+    console.log('📊 Respuesta de OpenAI (aiContent):', aiContent);
+    console.log('📊 Tipo de aiContent:', typeof aiContent);
+    console.log('📊 Longitud de aiContent:', aiContent.length);
+
+    // Parsear el JSON de la respuesta
+    let extractedData: Partial<DebitNoteExtraction>;
+    try {
+      // Limpiar el contenido por si viene con markdown
+      let cleanJson = aiContent
+        .replace(/```json\n?/gi, '')
+        .replace(/```\n?/g, '')
+        .replace(/^\s*[\r\n]/gm, '')
+        .trim();
+      
+      // Intentar encontrar el JSON si hay texto antes o después
+      const jsonMatch = cleanJson.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        cleanJson = jsonMatch[0];
+      }
+      
+      extractedData = JSON.parse(cleanJson);
+    } catch (parseError: any) {
+      console.error('❌ Error parseando JSON de OpenAI:', parseError.message);
+      console.error('Contenido recibido:', aiContent);
+      return res.status(500).json({ 
+        error: 'No se pudo interpretar los datos del PDF. Intenta con otro archivo.',
+        raw_response: aiContent.substring(0, 500)
+      });
+    }
+
+    // Validar que el número de contenedor coincida (solo advertencia, no bloquea)
+    const extractedContainer = extractedData.container_number?.toUpperCase().replace(/\s/g, '') || '';
+    const expectedContainer = containerNumber.toUpperCase().replace(/\s/g, '');
+    let containerWarning = '';
+    
+    // Solo advertir si se extrajo un número de contenedor válido que no coincide
+    if (extractedContainer && extractedContainer !== 'UNKNOWN' && extractedContainer !== 'NULL' && extractedContainer.length > 5) {
+      if (!extractedContainer.includes(expectedContainer) && !expectedContainer.includes(extractedContainer)) {
+        console.warn(`⚠️ Contenedor no coincide: PDF=${extractedContainer}, Esperado=${expectedContainer}`);
+        containerWarning = `Nota: El contenedor extraído (${extractedContainer}) no coincide con ${expectedContainer}. Verifica que sea el archivo correcto.`;
+        // Ya no bloqueamos, solo advertimos
+      }
+    } else {
+      console.log('⚠️ No se pudo extraer número de contenedor del PDF, usando el del sistema');
+    }
+    
+    // Usar el contenedor del sistema si no se extrajo correctamente
+    if (!extractedContainer || extractedContainer === 'UNKNOWN' || extractedContainer === 'NULL') {
+      extractedData.container_number = containerNumber;
+    }
+
+    // Calcular el total en USD
+    let totalUsd = extractedData.total_usd || 0;
+    if (!totalUsd && extractedData.line_items && extractedData.line_items.length > 0) {
+      totalUsd = extractedData.line_items.reduce((sum, item) => sum + (item.amount_usd || 0), 0);
+    }
+
+    // Convertir a MXN usando el tipo de cambio
+    const totalMxn = Math.round(totalUsd * exchangeRate * 100) / 100;
+
+    // Preparar respuesta con la conversión
+    const result: DebitNoteExtraction = {
+      ...extractedData as DebitNoteExtraction,
+      total_usd: Math.round(totalUsd * 100) / 100,
+      total_mxn: totalMxn,
+      exchange_rate: exchangeRate,
+      line_items: extractedData.line_items || []
+    };
+
+    // También calcular THC en MXN si existe
+    const thcMxn = result.thc_usd ? Math.round(result.thc_usd * exchangeRate * 100) / 100 : null;
+
+    // Actualizar ETA en el contenedor si se extrajo
+    if (extractedData.eta) {
+      try {
+        const etaDate = new Date(extractedData.eta);
+        if (!isNaN(etaDate.getTime())) {
+          await pool.query(
+            'UPDATE containers SET eta = $1, updated_at = NOW() WHERE id = $2',
+            [etaDate, containerId]
+          );
+          console.log(`📅 ETA actualizado en contenedor: ${extractedData.eta}`);
+        }
+      } catch (etaError) {
+        console.warn('⚠️ No se pudo actualizar ETA:', etaError);
+      }
+    }
+
+    console.log(`✅ Extracción completada: $${totalUsd.toFixed(2)} USD → $${totalMxn.toFixed(2)} MXN (TC: ${exchangeRate})`);
+
+    res.json({
+      success: true,
+      extraction: result,
+      conversion: {
+        total_usd: result.total_usd,
+        exchange_rate: exchangeRate,
+        total_mxn: totalMxn,
+        thc_mxn: thcMxn
+      },
+      validated_container: containerNumber,
+      extracted_eta: extractedData.eta || null,
+      warning: containerWarning || undefined,
+      message: `✅ Contenedor ${containerNumber}. ${result.line_items.length} conceptos extraídos. Total: $${totalUsd.toFixed(2)} USD = $${formatCurrency(totalMxn)} MXN${containerWarning ? ' ⚠️' : ''}${extractedData.eta ? ` ETA: ${extractedData.eta}` : ''}`
+    });
+
+  } catch (error: any) {
+    console.error('Error extrayendo datos de nota de débito:', error);
+    res.status(500).json({ error: 'Error al procesar PDF', details: error.message });
+  }
+};
+
 // Subir archivo PDF para un campo de costo específico
 export const uploadCostPdf = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
@@ -738,6 +1106,72 @@ export const uploadCostPdf = async (req: AuthRequest, res: Response): Promise<an
   } catch (error: any) {
     console.error('Error subiendo archivo PDF:', error);
     res.status(500).json({ error: 'Error al subir archivo: ' + error.message });
+  }
+};
+
+// Descargar PDF desde S3 (proxy para evitar CORS/permisos)
+export const downloadPdf = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { url } = req.query;
+
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ error: 'URL requerida' });
+    }
+
+    console.log(`📥 Descargando PDF desde: ${url}`);
+
+    // Si es URL de S3, generar URL firmada o descargar directamente
+    if (url.includes('s3.') || url.includes('amazonaws.com')) {
+      // Extraer la key de S3 de la URL
+      const urlObj = new URL(url);
+      const s3Key = urlObj.pathname.startsWith('/') ? urlObj.pathname.slice(1) : urlObj.pathname;
+      
+      // Verificar si tenemos credenciales de S3
+      if (isS3Configured()) {
+        const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
+        
+        const s3Client = new S3Client({
+          region: process.env.AWS_REGION || 'us-east-1',
+          credentials: {
+            accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+            secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!
+          }
+        });
+
+        const command = new GetObjectCommand({
+          Bucket: process.env.AWS_S3_BUCKET!,
+          Key: s3Key
+        });
+
+        const response = await s3Client.send(command);
+        
+        // Convertir stream a buffer
+        const chunks: Uint8Array[] = [];
+        for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
+          chunks.push(chunk);
+        }
+        const buffer = Buffer.concat(chunks);
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'inline; filename="document.pdf"');
+        return res.send(buffer);
+      }
+    }
+
+    // Fallback: intentar descargar con fetch
+    const pdfResponse = await fetch(url);
+    if (!pdfResponse.ok) {
+      return res.status(404).json({ error: 'PDF no encontrado' });
+    }
+
+    const buffer = Buffer.from(await pdfResponse.arrayBuffer());
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="document.pdf"');
+    res.send(buffer);
+
+  } catch (error: any) {
+    console.error('Error descargando PDF:', error);
+    res.status(500).json({ error: 'Error al descargar PDF: ' + error.message });
   }
 };
 

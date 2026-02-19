@@ -182,23 +182,326 @@ export const getBolsasDisponibles = async (_req: AuthRequest, res: Response): Pr
   }
 };
 
-// Crear bolsa de anticipo (nuevo depósito)
-export const createBolsaAnticipo = async (req: AuthRequest, res: Response): Promise<void> => {
+// Obtener referencias disponibles (no usadas) - NUEVO SISTEMA
+export const getReferenciasDisponibles = async (_req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { proveedor_id, monto_original, fecha_pago, referencia_pago, numero_operacion, banco_origen, notas } = req.body;
+    const result = await pool.query(`
+      SELECT 
+        ar.id,
+        ar.bolsa_anticipo_id,
+        ar.referencia,
+        ar.monto,
+        ar.estado,
+        ba.fecha_pago,
+        pa.nombre as proveedor_nombre,
+        pa.id as proveedor_id
+      FROM anticipo_referencias ar
+      JOIN bolsas_anticipos ba ON ba.id = ar.bolsa_anticipo_id
+      JOIN proveedores_anticipos pa ON pa.id = ba.proveedor_id
+      WHERE ar.estado = 'disponible'
+      ORDER BY pa.nombre, ar.referencia
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching referencias disponibles:', error);
+    res.status(500).json({ error: 'Error al obtener referencias disponibles' });
+  }
+};
+
+// Validar si las referencias existen en el sistema (containers.reference_code)
+export const validarReferenciasExisten = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { referencias } = req.body; // Array de strings con las referencias a validar
+    
+    if (!referencias || !Array.isArray(referencias) || referencias.length === 0) {
+      res.status(400).json({ error: 'Se requiere un array de referencias' });
+      return;
+    }
+
+    const results: { referencia: string; existe: boolean; container_id?: number; container_number?: string }[] = [];
+    const notFound: string[] = [];
+
+    for (const ref of referencias) {
+      const result = await pool.query(
+        'SELECT id, container_number, reference_code FROM containers WHERE reference_code = $1',
+        [ref]
+      );
+      
+      if (result.rows.length > 0) {
+        results.push({
+          referencia: ref,
+          existe: true,
+          container_id: result.rows[0].id,
+          container_number: result.rows[0].container_number
+        });
+      } else {
+        results.push({ referencia: ref, existe: false });
+        notFound.push(ref);
+      }
+    }
+
+    res.json({
+      valid: notFound.length === 0,
+      results,
+      notFound,
+      message: notFound.length === 0 
+        ? 'Todas las referencias son válidas' 
+        : `Referencias no encontradas: ${notFound.join(', ')}`
+    });
+  } catch (error) {
+    console.error('Error validando referencias:', error);
+    res.status(500).json({ error: 'Error al validar referencias' });
+  }
+};
+
+// Obtener todas las referencias válidas del sistema (para autocompletado)
+export const getReferenciasValidas = async (_req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(`
+      SELECT DISTINCT reference_code, id as container_id, container_number, week_number
+      FROM containers 
+      WHERE reference_code IS NOT NULL AND reference_code != ''
+      ORDER BY reference_code
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching referencias válidas:', error);
+    res.status(500).json({ error: 'Error al obtener referencias válidas' });
+  }
+};
+
+// Obtener anticipos de un contenedor por su reference_code
+export const getAnticiposByContainer = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { containerId } = req.params;
+    
+    // Obtener el reference_code del contenedor
+    const containerRes = await pool.query(
+      'SELECT id, reference_code, container_number FROM containers WHERE id = $1',
+      [containerId]
+    );
+    
+    if (containerRes.rows.length === 0) {
+      res.status(404).json({ error: 'Contenedor no encontrado' });
+      return;
+    }
+    
+    const { reference_code, container_number } = containerRes.rows[0];
+    
+    if (!reference_code) {
+      res.json({ 
+        container_number,
+        reference_code: null,
+        anticipos: [],
+        total: 0,
+        message: 'Este contenedor no tiene una referencia asignada'
+      });
+      return;
+    }
+    
+    // Obtener todos los anticipos para esta referencia
+    const result = await pool.query(`
+      SELECT 
+        ar.id,
+        ar.referencia,
+        ar.monto,
+        ar.estado,
+        ar.usado_at,
+        ar.created_at,
+        ba.id as bolsa_id,
+        ba.fecha_pago,
+        ba.comprobante_url,
+        ba.tipo_pago,
+        ba.numero_operacion,
+        ba.banco_origen,
+        p.nombre as proveedor_nombre
+      FROM anticipo_referencias ar
+      INNER JOIN bolsas_anticipos ba ON ba.id = ar.bolsa_anticipo_id
+      INNER JOIN proveedores_anticipos p ON p.id = ba.proveedor_id
+      WHERE ar.referencia = $1
+      ORDER BY ar.created_at DESC
+    `, [reference_code]);
+    
+    const total = result.rows.reduce((sum, r) => sum + Number(r.monto), 0);
+    
+    res.json({
+      container_number,
+      reference_code,
+      anticipos: result.rows,
+      total
+    });
+  } catch (error) {
+    console.error('Error fetching anticipos by container:', error);
+    res.status(500).json({ error: 'Error al obtener anticipos del contenedor' });
+  }
+};
+
+// Obtener referencias de una bolsa específica
+export const getReferenciasByBolsa = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { bolsaId } = req.params;
+    const result = await pool.query(`
+      SELECT 
+        ar.*,
+        c.container_number,
+        u.full_name as usado_por_nombre
+      FROM anticipo_referencias ar
+      LEFT JOIN containers c ON c.id = ar.container_id
+      LEFT JOIN users u ON u.id = ar.usado_por
+      WHERE ar.bolsa_anticipo_id = $1
+      ORDER BY ar.referencia
+    `, [bolsaId]);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching referencias:', error);
+    res.status(500).json({ error: 'Error al obtener referencias' });
+  }
+};
+
+// Asignar una referencia a un contenedor (marcar como usada)
+export const asignarReferenciaAContainer = async (req: AuthRequest, res: Response): Promise<void> => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    const { referenciaId, containerId } = req.body;
+    const userId = req.user?.userId;
+
+    if (!referenciaId || !containerId) {
+      res.status(400).json({ error: 'Referencia y contenedor son requeridos' });
+      return;
+    }
+
+    // Verificar que la referencia existe y está disponible
+    const refRes = await client.query(
+      'SELECT * FROM anticipo_referencias WHERE id = $1 AND estado = $2',
+      [referenciaId, 'disponible']
+    );
+    
+    if (refRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: 'Referencia no encontrada o ya fue utilizada' });
+      return;
+    }
+
+    const referencia = refRes.rows[0];
+
+    // Marcar referencia como usada
+    await client.query(`
+      UPDATE anticipo_referencias SET
+        estado = 'usada',
+        container_id = $1,
+        usado_at = NOW(),
+        usado_por = $2,
+        updated_at = NOW()
+      WHERE id = $3
+    `, [containerId, userId, referenciaId]);
+
+    // Actualizar saldo disponible de la bolsa
+    await client.query(`
+      UPDATE bolsas_anticipos SET
+        saldo_disponible = saldo_disponible - $1,
+        updated_at = NOW()
+      WHERE id = $2
+    `, [referencia.monto, referencia.bolsa_anticipo_id]);
+
+    // Verificar si la bolsa quedó sin saldo
+    const bolsaRes = await client.query('SELECT saldo_disponible FROM bolsas_anticipos WHERE id = $1', [referencia.bolsa_anticipo_id]);
+    if (bolsaRes.rows[0].saldo_disponible <= 0) {
+      await client.query('UPDATE bolsas_anticipos SET estado = $1 WHERE id = $2', ['agotada', referencia.bolsa_anticipo_id]);
+    }
+
+    // Crear registro en asignaciones_anticipos para historial
+    await client.query(`
+      INSERT INTO asignaciones_anticipos 
+      (bolsa_anticipo_id, container_id, campo_anticipo, monto_asignado, concepto, asignado_por)
+      VALUES ($1, $2, $3, $4, $5, $6)
+    `, [referencia.bolsa_anticipo_id, containerId, 'referencia', referencia.monto, `Referencia: ${referencia.referencia}`, userId]);
+
+    await client.query('COMMIT');
+
+    res.json({ 
+      success: true, 
+      message: `Referencia ${referencia.referencia} asignada exitosamente`,
+      monto: referencia.monto
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error asignando referencia:', error);
+    res.status(500).json({ error: 'Error al asignar referencia' });
+  } finally {
+    client.release();
+  }
+};
+
+// Crear bolsa de anticipo (nuevo depósito) con referencias múltiples
+export const createBolsaAnticipo = async (req: AuthRequest, res: Response): Promise<void> => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    const { proveedor_id, fecha_pago, tipo_pago, numero_operacion, banco_origen, notas, referencias } = req.body;
     const file = (req as any).file as Express.Multer.File | undefined;
     const userId = req.user?.userId;
 
-    if (!proveedor_id || !monto_original || !fecha_pago) {
-      res.status(400).json({ error: 'Proveedor, monto y fecha son requeridos' });
+    // Parsear referencias si viene como string
+    let parsedReferencias: { referencia: string; monto: number }[] = [];
+    if (typeof referencias === 'string') {
+      parsedReferencias = JSON.parse(referencias);
+    } else if (Array.isArray(referencias)) {
+      parsedReferencias = referencias;
+    }
+
+    if (!proveedor_id || !fecha_pago || parsedReferencias.length === 0) {
+      res.status(400).json({ error: 'Proveedor, fecha y al menos una referencia son requeridos' });
+      return;
+    }
+
+    // Calcular monto total desde las referencias
+    const monto_original = parsedReferencias.reduce((sum, ref) => sum + Number(ref.monto), 0);
+
+    if (monto_original <= 0) {
+      res.status(400).json({ error: 'El monto total debe ser mayor a 0' });
       return;
     }
 
     // Verificar que el proveedor existe
-    const provRes = await pool.query('SELECT id FROM proveedores_anticipos WHERE id = $1 AND is_active = TRUE', [proveedor_id]);
+    const provRes = await client.query('SELECT id FROM proveedores_anticipos WHERE id = $1 AND is_active = TRUE', [proveedor_id]);
     if (provRes.rows.length === 0) {
+      await client.query('ROLLBACK');
       res.status(404).json({ error: 'Proveedor no encontrado' });
       return;
+    }
+
+    // VALIDACIÓN: Verificar que las referencias existan en containers.reference_code
+    const referenciasNoExisten: string[] = [];
+    for (const ref of parsedReferencias) {
+      const containerRef = await client.query(
+        'SELECT id, container_number FROM containers WHERE reference_code = $1',
+        [ref.referencia]
+      );
+      if (containerRef.rows.length === 0) {
+        referenciasNoExisten.push(ref.referencia);
+      }
+    }
+
+    if (referenciasNoExisten.length > 0) {
+      await client.query('ROLLBACK');
+      res.status(400).json({ 
+        error: `Las siguientes referencias no existen en el sistema: ${referenciasNoExisten.join(', ')}`,
+        referenciasInvalidas: referenciasNoExisten
+      });
+      return;
+    }
+
+    // Verificar que las referencias no hayan sido ya registradas como anticipo
+    for (const ref of parsedReferencias) {
+      const existingRef = await client.query('SELECT id FROM anticipo_referencias WHERE referencia = $1', [ref.referencia]);
+      if (existingRef.rows.length > 0) {
+        await client.query('ROLLBACK');
+        res.status(400).json({ error: `La referencia ${ref.referencia} ya tiene un anticipo registrado` });
+        return;
+      }
     }
 
     let comprobante_url = null;
@@ -226,20 +529,61 @@ export const createBolsaAnticipo = async (req: AuthRequest, res: Response): Prom
       }
     }
 
-    const result = await pool.query(`
+    // Crear la bolsa principal
+    const bolsaResult = await client.query(`
       INSERT INTO bolsas_anticipos 
-      (proveedor_id, monto_original, saldo_disponible, fecha_pago, comprobante_url, referencia_pago, numero_operacion, banco_origen, notas, created_by)
-      VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9)
+      (proveedor_id, monto_original, saldo_disponible, fecha_pago, comprobante_url, 
+       referencia_pago, tipo_pago, numero_operacion, banco_origen, notas, created_by)
+      VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *
-    `, [proveedor_id, monto_original, fecha_pago, comprobante_url, referencia_pago, numero_operacion, banco_origen, notas, userId]);
+    `, [
+      proveedor_id, 
+      monto_original, 
+      fecha_pago, 
+      comprobante_url, 
+      parsedReferencias.map(r => r.referencia).join(', '), // Guardar todas las refs como texto
+      tipo_pago || 'transferencia',
+      tipo_pago === 'transferencia' ? numero_operacion : null,
+      tipo_pago === 'transferencia' ? banco_origen : null,
+      notas, 
+      userId
+    ]);
+
+    const bolsaId = bolsaResult.rows[0].id;
+
+    // Crear las referencias individuales (con container_id)
+    for (const ref of parsedReferencias) {
+      // Obtener el container_id para esta referencia
+      const containerRes = await client.query(
+        'SELECT id FROM containers WHERE reference_code = $1',
+        [ref.referencia]
+      );
+      const containerId = containerRes.rows.length > 0 ? containerRes.rows[0].id : null;
+      
+      await client.query(`
+        INSERT INTO anticipo_referencias (bolsa_anticipo_id, referencia, monto, estado, container_id)
+        VALUES ($1, $2, $3, 'disponible', $4)
+      `, [bolsaId, ref.referencia, ref.monto, containerId]);
+    }
+
+    await client.query('COMMIT');
 
     // Obtener con info del proveedor
-    const fullResult = await pool.query('SELECT * FROM vista_bolsas_anticipos WHERE id = $1', [result.rows[0].id]);
+    const fullResult = await client.query('SELECT * FROM vista_bolsas_anticipos WHERE id = $1', [bolsaId]);
 
-    res.status(201).json(fullResult.rows[0]);
+    // Obtener referencias creadas
+    const refsResult = await client.query('SELECT * FROM anticipo_referencias WHERE bolsa_anticipo_id = $1', [bolsaId]);
+
+    res.status(201).json({
+      ...fullResult.rows[0],
+      referencias: refsResult.rows
+    });
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error creating bolsa anticipo:', error);
     res.status(500).json({ error: 'Error al crear bolsa de anticipo' });
+  } finally {
+    client.release();
   }
 };
 
