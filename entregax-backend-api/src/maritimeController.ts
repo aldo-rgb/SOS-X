@@ -861,6 +861,7 @@ export const getContainerProfitBreakdown = async (req: AuthRequest, res: Respons
     const containerRes = await pool.query(`
       SELECT c.*, 
         c.exchange_rate_usd_mxn,
+        c.collected_amount_usd,
         cc.calculated_release_cost as total_cost,
         cc.debit_note_amount, cc.demurrage_amount, cc.storage_amount,
         cc.maneuvers_amount, cc.custody_amount, cc.transport_amount,
@@ -1063,6 +1064,12 @@ export const getContainerProfitBreakdown = async (req: AuthRequest, res: Respons
     // Utilidad en MXN
     const estimatedProfit = totalEstimatedRevenueMxn - totalCost;
     const profitMargin = totalEstimatedRevenueMxn > 0 ? ((estimatedProfit / totalEstimatedRevenueMxn) * 100) : 0;
+    
+    // Monto cobrado y porcentaje de cobranza
+    const collectedAmountUsd = parseFloat(container.collected_amount_usd) || 0;
+    const collectionPercentage = totalEstimatedRevenueUsd > 0 
+      ? Math.min((collectedAmountUsd / totalEstimatedRevenueUsd) * 100, 100) 
+      : 0;
 
     res.json({
       container: {
@@ -1109,6 +1116,9 @@ export const getContainerProfitBreakdown = async (req: AuthRequest, res: Respons
         // Utilidad en MXN
         estimated_profit_mxn: Math.round(estimatedProfit * 100) / 100,
         profit_margin_percent: Math.round(profitMargin * 100) / 100,
+        // Cobranza
+        collected_amount_usd: Math.round(collectedAmountUsd * 100) / 100,
+        collection_percentage: Math.round(collectionPercentage * 100) / 100,
         rate_used: 'Motor de Tarifas por Categoría',
         pricing_note: `Cobros en USD × TC ${exchangeRate} = MXN. Costos en MXN.`
       }

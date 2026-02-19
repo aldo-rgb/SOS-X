@@ -2506,6 +2506,44 @@ export default function CostingPanelMaritimo() {
                                                         </Box>
                                                     </Box>
                                                     
+                                                    {/* Indicador de Cobranza */}
+                                                    <Box sx={{ p: 1.5, bgcolor: '#F3E5F5', borderRadius: 1 }}>
+                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                                                            <Typography fontWeight="bold" color="secondary">💰 Cobranza:</Typography>
+                                                            <Typography variant="body2" fontWeight="bold">
+                                                                ${formatCurrency(profitData.summary.collected_amount_usd || 0)} / ${formatCurrency(profitData.summary.total_estimated_revenue_usd || 0)} USD
+                                                            </Typography>
+                                                        </Box>
+                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                            <LinearProgress 
+                                                                variant="determinate" 
+                                                                value={profitData.summary.collection_percentage || 0} 
+                                                                sx={{ 
+                                                                    flex: 1, 
+                                                                    height: 12, 
+                                                                    borderRadius: 6,
+                                                                    bgcolor: '#E1BEE7',
+                                                                    '& .MuiLinearProgress-bar': {
+                                                                        bgcolor: profitData.summary.collection_percentage >= 100 ? '#4CAF50' :
+                                                                                profitData.summary.collection_percentage >= 75 ? '#8BC34A' :
+                                                                                profitData.summary.collection_percentage >= 50 ? '#FFC107' :
+                                                                                profitData.summary.collection_percentage >= 25 ? '#FF9800' : '#F44336',
+                                                                        borderRadius: 6
+                                                                    }
+                                                                }}
+                                                            />
+                                                            <Chip 
+                                                                label={`${profitData.summary.collection_percentage || 0}%`}
+                                                                size="small"
+                                                                color={
+                                                                    profitData.summary.collection_percentage >= 100 ? 'success' :
+                                                                    profitData.summary.collection_percentage >= 50 ? 'warning' : 'error'
+                                                                }
+                                                                sx={{ minWidth: 60, fontWeight: 'bold' }}
+                                                            />
+                                                        </Box>
+                                                    </Box>
+                                                    
                                                     <Divider />
                                                     <Typography variant="caption" color="text.secondary" textAlign="center">
                                                         {profitData.summary.pricing_note || 'Cobros en USD × TC = MXN'}
@@ -2566,6 +2604,7 @@ export default function CostingPanelMaritimo() {
                                                                     <TableCell align="right"><strong>KG</strong></TableCell>
                                                                     <TableCell align="center"><strong>Categoría</strong></TableCell>
                                                                     <TableCell align="right"><strong>Cobro USD</strong></TableCell>
+                                                                    <TableCell align="right"><strong>Cobro MXN</strong></TableCell>
                                                                 </TableRow>
                                                             </TableHead>
                                                             <TableBody>
@@ -2616,6 +2655,11 @@ export default function CostingPanelMaritimo() {
                                                                                 </Typography>
                                                                             </Tooltip>
                                                                         </TableCell>
+                                                                        <TableCell align="right">
+                                                                            <Typography variant="body2" fontWeight="bold" color="success.main">
+                                                                                ${formatCurrency(shipment.estimated_charge * (profitData.summary.exchange_rate || 17.5))} MXN
+                                                                            </Typography>
+                                                                        </TableCell>
                                                                     </TableRow>
                                                                 ))}
                                                                 {/* Fila de totales */}
@@ -2633,6 +2677,11 @@ export default function CostingPanelMaritimo() {
                                                                     <TableCell align="right">
                                                                         <Typography fontWeight="bold" color="primary.main">
                                                                             ${formatCurrency(profitData.summary.total_estimated_revenue_usd || profitData.summary.total_estimated_revenue)} USD
+                                                                        </Typography>
+                                                                    </TableCell>
+                                                                    <TableCell align="right">
+                                                                        <Typography fontWeight="bold" color="success.main">
+                                                                            ${formatCurrency(profitData.summary.total_estimated_revenue_mxn)} MXN
                                                                         </Typography>
                                                                     </TableCell>
                                                                 </TableRow>
