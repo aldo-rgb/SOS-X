@@ -3,7 +3,7 @@
 // Sistema Ledger - Gestión de saldos a favor
 // ============================================
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
     Box,
     Typography,
@@ -28,7 +28,6 @@ import {
     Alert,
     Snackbar,
     CircularProgress,
-    Divider,
     Tabs,
     Tab,
     LinearProgress,
