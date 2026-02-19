@@ -1033,10 +1033,16 @@ export const getContainerProfitBreakdown = async (req: AuthRequest, res: Respons
       
       const priceCalc = calculatePriceForShipment(cbm, kg, shipment.brand_type);
 
+      // Priorizar datos del usuario si está asignado, sino usar datos del BL
+      const clientName = shipment.user_name || shipment.client_name || 'Sin asignar';
+      const clientCode = shipment.box_id || shipment.client_code || null;
+
       return {
         ...shipment,
         cbm,
         kg,
+        client_name: clientName,
+        box_id: clientCode,
         estimated_charge: priceCalc.estimatedCharge,
         charge_type: priceCalc.chargeType,
         applied_category: priceCalc.appliedCategory,
