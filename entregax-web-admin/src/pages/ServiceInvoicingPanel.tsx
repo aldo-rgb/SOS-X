@@ -326,7 +326,7 @@ export default function ServiceInvoicingPanel({ serviceType, serviceName, servic
                         </Avatar>
                         <Box>
                             <Typography variant="h5" fontWeight="bold">
-                                {t('panels.modules.invoicing')} - {serviceName}
+                                {t('.invoicing')} - {serviceName}
                             </Typography>
                             <Typography variant="body2" color="text.secondary">
                                 Gestión de facturación y razones sociales asignadas

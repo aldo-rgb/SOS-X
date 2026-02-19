@@ -212,7 +212,12 @@ import {
   createTarifaVolumen,
   getServiciosExtra,
   updateServicioExtra,
-  createServicioExtra
+  createServicioExtra,
+  // PO Box Costing
+  getCostingConfig,
+  saveCostingConfig,
+  getCostingPackages,
+  updatePackageCost
 } from './poboxRatesController';
 import {
   // Exchange Rate Config
@@ -293,7 +298,11 @@ import {
   updateChinaReceiptStatus,
   assignClientToReceipt,
   getChinaStats,
-  createChinaReceipt
+  createChinaReceipt,
+  pullFromMJCustomer,
+  pullBatchFromMJCustomer,
+  updateMJCustomerToken,
+  loginMJCustomerEndpoint
 } from './chinaController';
 import {
   getMasterAwbData,
@@ -1187,6 +1196,12 @@ app.put('/api/china/receipts/:id/status', authenticateToken, updateChinaReceiptS
 app.post('/api/china/receipts/:id/assign', authenticateToken, assignClientToReceipt);
 app.get('/api/china/stats', authenticateToken, getChinaStats);
 
+// Pull desde MJCustomer API (consultar en lugar de recibir webhook)
+app.post('/api/china/mjcustomer/login', authenticateToken, loginMJCustomerEndpoint);
+app.get('/api/china/pull/:orderCode', authenticateToken, pullFromMJCustomer);
+app.post('/api/china/pull-batch', authenticateToken, pullBatchFromMJCustomer);
+app.put('/api/china/config/token', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateMJCustomerToken);
+
 // ========== GARANTÍA EXTENDIDA (GEX) ==========
 
 // Tipo de cambio
@@ -1921,6 +1936,15 @@ app.post('/api/admin/pobox/tarifas-volumen', authenticateToken, requireRole('sup
 app.get('/api/admin/pobox/servicios-extra', authenticateToken, requireRole('super_admin'), getServiciosExtra);
 app.put('/api/admin/pobox/servicios-extra/:id', authenticateToken, requireRole('super_admin'), updateServicioExtra);
 app.post('/api/admin/pobox/servicios-extra', authenticateToken, requireRole('super_admin'), createServicioExtra);
+
+// ============================================
+// COSTEO PO BOX USA
+// Fórmula: Costo = (Volumen Ajustado / 10,780) × 75
+// ============================================
+app.get('/api/pobox/costing/config', authenticateToken, getCostingConfig);
+app.post('/api/pobox/costing/config', authenticateToken, requireRole('super_admin'), saveCostingConfig);
+app.get('/api/pobox/costing/packages', authenticateToken, getCostingPackages);
+app.put('/api/pobox/costing/packages/:id', authenticateToken, requireRole('super_admin'), updatePackageCost);
 
 // ============================================
 // CONFIGURACIÓN TIPO DE CAMBIO

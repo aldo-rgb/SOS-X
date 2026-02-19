@@ -332,7 +332,7 @@ export default function POBoxRatesPage() {
                         inputProps={{ step: 0.001 }}
                       />
                     ) : (
-                      tarifa.cbm_min.toFixed(4)
+                      parseFloat(String(tarifa.cbm_min || 0)).toFixed(4)
                     )}
                   </TableCell>
                   <TableCell>
@@ -346,7 +346,7 @@ export default function POBoxRatesPage() {
                         placeholder="Sin límite"
                       />
                     ) : (
-                      tarifa.cbm_max ? tarifa.cbm_max.toFixed(4) : '∞ (En adelante)'
+                      tarifa.cbm_max ? parseFloat(String(tarifa.cbm_max)).toFixed(4) : '∞ (En adelante)'
                     )}
                   </TableCell>
                   <TableCell>
@@ -362,7 +362,7 @@ export default function POBoxRatesPage() {
                         }}
                       />
                     ) : (
-                      <strong>${tarifa.costo.toFixed(2)} {tarifa.moneda}</strong>
+                      <strong>${parseFloat(String(tarifa.costo || 0)).toFixed(2)} {tarifa.moneda}</strong>
                     )}
                   </TableCell>
                   <TableCell>
@@ -469,7 +469,7 @@ export default function POBoxRatesPage() {
                         }}
                       />
                     ) : (
-                      <strong>${servicio.costo.toFixed(2)} {servicio.moneda}</strong>
+                      <strong>${parseFloat(String(servicio.costo || 0)).toFixed(2)} {servicio.moneda}</strong>
                     )}
                   </TableCell>
                   <TableCell>

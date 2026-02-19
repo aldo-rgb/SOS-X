@@ -567,7 +567,9 @@
       "routes": "Routes",
       "last_mile": "Last Mile",
       "dhl_rates": "DHL Rates",
-      "dhl_operations": "DHL Operations"
+      "dhl_operations": "DHL Operations",
+      "anticipos": "Advance Control",
+      "pobox_rates": "PO Box Rates"
     },
     "moduleFeatures": {
       "clients": {
@@ -1085,5 +1087,25 @@
     "deactivated": "Route deactivated",
     "errorLoading": "Error loading routes",
     "codeRequired": "Route code is required"
+  },
+  "pobox": {
+    "costing": {
+      "title": "PO Box Costing Panel",
+      "subtitle": "Calculate the cost of each shipment based on dimensions",
+      "formula": "Costing Formula",
+      "calculator": "Calculator",
+      "packages": "Packages",
+      "history": "History",
+      "manualCalc": "Manual Calculator",
+      "enterDimensions": "Enter box dimensions in centimeters",
+      "enterDimensionsToCalc": "Enter dimensions to calculate",
+      "result": "Result",
+      "configTitle": "Costing Configuration",
+      "conversionFactor": "Conversion Factor",
+      "divisor": "Dimensional Divisor",
+      "baseRate": "Base Rate",
+      "minCost": "Minimum Cost",
+      "active": "Active Configuration"
+    }
   }
 }

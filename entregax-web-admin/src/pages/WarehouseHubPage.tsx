@@ -139,9 +139,10 @@ export default function WarehouseHubPage({ users = [] }: Props) {
             });
             if (res.ok) {
                 const data = await res.json();
-                setUserRole(data.user.role);
+                const role = data.user?.role || data.role || '';
+                setUserRole(role);
                 // Si el usuario tiene ubicación asignada, ir directamente a su panel
-                if (data.user.warehouse_location && data.user.role !== 'super_admin') {
+                if (data.user?.warehouse_location && role !== 'super_admin') {
                     setSelectedPanel(data.user.warehouse_location);
                 }
             }

@@ -491,3 +491,435 @@ export const getChinaStats = async (req: Request, res: Response): Promise<any> =
         res.status(500).json({ success: false, error: error.message });
     }
 };
+
+// ============================================
+// API MJCUSTOMER.COM - CONFIGURACIÓN
+// ============================================
+const MJCUSTOMER_API = {
+    baseUrl: process.env.MJCUSTOMER_API_URL || 'http://api.mjcustomer.com',
+    token: process.env.MJCUSTOMER_API_TOKEN || '',
+    username: process.env.MJCUSTOMER_USERNAME || '',
+    password: process.env.MJCUSTOMER_PASSWORD || '',
+    tokenExpiry: 0  // Timestamp de expiración
+};
+
+// ============================================
+// LOGIN: Obtener token de MJCustomer
+// ============================================
+async function loginToMJCustomer(): Promise<string | null> {
+    try {
+        console.log('🔐 Iniciando login en MJCustomer...');
+        console.log('   Usuario:', MJCUSTOMER_API.username);
+        
+        const response = await fetch(
+            `${MJCUSTOMER_API.baseUrl}/api/sysAuth/login`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({
+                    account: MJCUSTOMER_API.username,
+                    password: MJCUSTOMER_API.password
+                })
+            }
+        );
+
+        const data = await response.json();
+        console.log('   Respuesta:', data.code, data.message);
+        
+        if (data.code === 200 && data.result?.accessToken) {
+            const token = data.result.accessToken;
+            MJCUSTOMER_API.token = token;
+            // Token válido por 23 horas (para renovar antes de expirar)
+            MJCUSTOMER_API.tokenExpiry = Date.now() + (23 * 60 * 60 * 1000);
+            
+            // Guardar en BD para persistencia
+            try {
+                await pool.query(`
+                    INSERT INTO system_config (key, value, updated_at)
+                    VALUES ('mjcustomer_token', $1, NOW())
+                    ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()
+                `, [token]);
+            } catch (dbErr) {
+                console.warn('⚠️ No se pudo guardar token en BD');
+            }
+            
+            console.log('✅ Login exitoso en MJCustomer');
+            return token;
+        } else {
+            console.error('❌ Login fallido:', data.message);
+            return null;
+        }
+    } catch (error: any) {
+        console.error('❌ Error en login MJCustomer:', error.message);
+        return null;
+    }
+}
+
+// Obtener token válido (login automático si es necesario)
+async function getMJCustomerToken(): Promise<string> {
+    // Si el token está vacío o expiró, hacer login
+    if (!MJCUSTOMER_API.token || Date.now() >= MJCUSTOMER_API.tokenExpiry) {
+        const newToken = await loginToMJCustomer();
+        if (!newToken) {
+            throw new Error('No se pudo obtener token de MJCustomer. Verifica credenciales.');
+        }
+    }
+    return MJCUSTOMER_API.token;
+}
+
+// ============================================
+// ENDPOINT: Login manual a MJCustomer
+// POST /api/china/mjcustomer/login
+// ============================================
+export const loginMJCustomerEndpoint = async (req: Request, res: Response): Promise<any> => {
+    try {
+        // Permitir enviar credenciales en body para override temporal
+        const { username, password } = req.body;
+        
+        if (username) MJCUSTOMER_API.username = username;
+        if (password) MJCUSTOMER_API.password = password;
+        
+        if (!MJCUSTOMER_API.username || !MJCUSTOMER_API.password) {
+            return res.status(400).json({
+                success: false,
+                error: 'Se requiere username y password. Configura MJCUSTOMER_USERNAME y MJCUSTOMER_PASSWORD en .env o envíalos en el body'
+            });
+        }
+
+        const token = await loginToMJCustomer();
+        
+        if (token) {
+            res.json({
+                success: true,
+                message: 'Login exitoso',
+                tokenPreview: token.substring(0, 20) + '...',
+                expiresAt: new Date(MJCUSTOMER_API.tokenExpiry).toISOString()
+            });
+        } else {
+            res.status(401).json({
+                success: false,
+                error: 'Login fallido. Verifica credenciales.'
+            });
+        }
+    } catch (error: any) {
+        console.error('Error en login:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// Interface para respuesta de MJCustomer API
+// El formato es EXACTO al webhook original - misma estructura
+interface MJCustomerOrderResponse {
+    code: number;
+    type: string;
+    message: string;
+    result: ChinaApiPayload | ChinaApiPayload[] | null;  // Usa el mismo formato que webhook
+    extras: any;
+    time: string;
+}
+
+// ============================================
+// PULL: Consultar orden por código desde MJCustomer
+// GET /api/china/pull/:orderCode
+// ============================================
+export const pullFromMJCustomer = async (req: Request, res: Response): Promise<any> => {
+    const client = await pool.connect();
+    
+    try {
+        const { orderCode } = req.params;
+        
+        if (!orderCode) {
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Se requiere el código de orden' 
+            });
+        }
+
+        console.log(`🔄 Consultando MJCustomer API: ${orderCode}`);
+
+        // Obtener token válido (login automático si es necesario)
+        const token = await getMJCustomerToken();
+
+        // Llamar al API externo
+        const apiResponse = await fetch(
+            `${MJCUSTOMER_API.baseUrl}/api/otherSystem/orderByList/${orderCode}`,
+            {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Accept': 'application/json'
+                }
+            }
+        );
+
+        const apiData: MJCustomerOrderResponse = await apiResponse.json();
+        
+        console.log(`  → Respuesta API: code=${apiData.code}, message=${apiData.message}`);
+
+        if (apiData.code !== 200 || !apiData.result) {
+            return res.status(apiResponse.status === 401 ? 401 : 400).json({
+                success: false,
+                error: apiData.message || 'Error al consultar API externa',
+                apiCode: apiData.code
+            });
+        }
+
+        // Procesar resultado (puede ser un objeto o array)
+        const orders = Array.isArray(apiData.result) ? apiData.result : [apiData.result];
+        
+        await client.query('BEGIN');
+
+        const results: any[] = [];
+
+        for (const order of orders) {
+            // El JSON usa: fno, shippingMark, totalQty, totalWeight, totalVolume, totalCbm, file, data
+            const fno = order.fno || orderCode;
+            const shippingMark = order.shippingMark || 'UNKNOWN';
+
+            // Buscar cliente por shipping mark
+            const userCheck = await client.query(
+                `SELECT id, full_name FROM users WHERE box_id = $1 OR box_id ILIKE $2`,
+                [shippingMark, `%${shippingMark}%`]
+            );
+            const userId = userCheck.rows.length > 0 ? userCheck.rows[0].id : null;
+            const userName = userCheck.rows.length > 0 ? userCheck.rows[0].full_name : 'Sin asignar';
+            
+            console.log(`  → Cliente: ${userName} (${shippingMark})`);
+
+            // Insertar o actualizar recibo
+            const receiptResult = await client.query(`
+                INSERT INTO china_receipts 
+                (fno, user_id, shipping_mark, total_qty, total_weight, total_volume, total_cbm, 
+                 evidence_urls, notes)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                ON CONFLICT (fno) DO UPDATE SET
+                    total_qty = COALESCE(EXCLUDED.total_qty, china_receipts.total_qty),
+                    total_weight = COALESCE(EXCLUDED.total_weight, china_receipts.total_weight),
+                    total_cbm = COALESCE(EXCLUDED.total_cbm, china_receipts.total_cbm),
+                    evidence_urls = COALESCE(EXCLUDED.evidence_urls, china_receipts.evidence_urls),
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING id
+            `, [
+                fno,
+                userId,
+                shippingMark,
+                order.totalQty || 1,
+                order.totalWeight || 0,
+                order.totalVolume || 0,
+                order.totalCbm || 0,
+                order.file || [],  // "file" en el JSON original
+                `Sincronizado desde MJCustomer: ${new Date().toISOString()}`
+            ]);
+
+            const receiptId = receiptResult.rows[0].id;
+            let packagesCreated = 0;
+            let packagesUpdated = 0;
+
+            // Procesar cajas - El JSON usa "data" (array de ChinaPackageData)
+            if (order.data && Array.isArray(order.data)) {
+                for (const item of order.data) {
+                    const childNo = item.childNo;
+                    
+                    const existingPkg = await client.query(
+                        'SELECT id FROM packages WHERE child_no = $1',
+                        [childNo]
+                    );
+
+                    if (existingPkg.rows.length > 0) {
+                        // Actualizar caja existente
+                        await client.query(`
+                            UPDATE packages SET
+                                international_tracking = COALESCE($1, international_tracking),
+                                weight = $2,
+                                pro_name = $3,
+                                customs_bno = $4,
+                                etd = $5,
+                                eta = $6,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE child_no = $7
+                        `, [
+                            item.billNo || null,
+                            item.weight,
+                            item.proName,
+                            item.customsBno,
+                            item.etd || null,
+                            item.eta || null,
+                            childNo
+                        ]);
+                        packagesUpdated++;
+                    } else {
+                        // Crear nueva caja
+                        const trackingInternal = `CN-${childNo.slice(-8)}`;
+                        const dimensions = `${item.long}x${item.width}x${item.height}`;
+                        
+                        await client.query(`
+                            INSERT INTO packages 
+                            (tracking_internal, child_no, china_receipt_id, user_id, 
+                             weight, dimensions, long_cm, width_cm, height_cm,
+                             description, pro_name, customs_bno, trajectory_name,
+                             single_volume, single_cbm, international_tracking,
+                             etd, eta, service_type, warehouse_location, status)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                        `, [
+                            trackingInternal,
+                            childNo,
+                            receiptId,
+                            userId,
+                            item.weight,
+                            dimensions,
+                            item.long,
+                            item.width,
+                            item.height,
+                            item.proName,
+                            item.proName,
+                            item.customsBno,
+                            item.trajecotryName,
+                            item.singleVolume,
+                            item.singleCbm,
+                            item.billNo || null,
+                            item.etd || null,
+                            item.eta || null,
+                            'AIR_CHN_MX',
+                            'china_air',
+                            'received_china'
+                        ]);
+                        packagesCreated++;
+                    }
+                }
+            }
+
+            results.push({
+                fno,
+                receiptId,
+                userId,
+                shippingMark,
+                packagesCreated,
+                packagesUpdated
+            });
+        }
+
+        await client.query('COMMIT');
+
+        console.log(`  ✅ Sincronización completada: ${results.length} órdenes procesadas`);
+
+        res.json({
+            success: true,
+            message: 'Datos sincronizados desde MJCustomer',
+            data: results,
+            rawResponse: apiData.result
+        });
+
+    } catch (error: any) {
+        await client.query('ROLLBACK');
+        console.error("❌ Error consultando MJCustomer:", error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Error al sincronizar con MJCustomer',
+            details: error.message 
+        });
+    } finally {
+        client.release();
+    }
+};
+
+// ============================================
+// PULL MASIVO: Sincronizar múltiples órdenes
+// POST /api/china/pull-batch
+// Body: { orderCodes: ["CODE1", "CODE2", ...] }
+// ============================================
+export const pullBatchFromMJCustomer = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { orderCodes } = req.body;
+
+        if (!orderCodes || !Array.isArray(orderCodes) || orderCodes.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: 'Se requiere un array de códigos de orden'
+            });
+        }
+
+        console.log(`🔄 Sincronización masiva: ${orderCodes.length} códigos`);
+
+        // Obtener token válido antes de empezar
+        const token = await getMJCustomerToken();
+
+        const results: any[] = [];
+        const errors: any[] = [];
+
+        for (const code of orderCodes) {
+            try {
+                const apiResponse = await fetch(
+                    `${MJCUSTOMER_API.baseUrl}/api/otherSystem/orderByList/${code}`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': `Bearer ${token}`,
+                            'Accept': 'application/json'
+                        }
+                    }
+                );
+
+                const apiData: MJCustomerOrderResponse = await apiResponse.json();
+                
+                if (apiData.code === 200 && apiData.result) {
+                    results.push({ code, status: 'success', data: apiData.result });
+                } else {
+                    errors.push({ code, status: 'error', message: apiData.message });
+                }
+            } catch (err: any) {
+                errors.push({ code, status: 'error', message: err.message });
+            }
+
+            // Pequeña pausa entre requests para no saturar
+            await new Promise(resolve => setTimeout(resolve, 200));
+        }
+
+        res.json({
+            success: true,
+            message: `Procesados ${results.length} exitosos, ${errors.length} errores`,
+            results,
+            errors
+        });
+
+    } catch (error: any) {
+        console.error("❌ Error en sincronización masiva:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// ============================================
+// CONFIG: Actualizar token de MJCustomer
+// PUT /api/china/config/token
+// ============================================
+export const updateMJCustomerToken = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { token } = req.body;
+
+        if (!token) {
+            return res.status(400).json({ success: false, error: 'Token requerido' });
+        }
+
+        // Guardar en variable de entorno en runtime (temporal)
+        process.env.MJCUSTOMER_API_TOKEN = token;
+        MJCUSTOMER_API.token = token;
+
+        // También podemos guardarlo en la BD para persistencia
+        await pool.query(`
+            INSERT INTO system_config (key, value, updated_at)
+            VALUES ('mjcustomer_token', $1, NOW())
+            ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()
+        `, [token]);
+
+        res.json({ 
+            success: true, 
+            message: 'Token actualizado correctamente' 
+        });
+
+    } catch (error: any) {
+        console.error("Error actualizando token:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};

@@ -249,3 +249,139 @@ export const createServicioExtra = async (req: Request, res: Response): Promise<
         res.status(500).json({ error: 'Error al crear servicio' });
     }
 };
+
+// ============================================
+// COSTING - PANEL DE COSTEO PO BOX
+// Fórmula: Costo = (Volumen Ajustado / 10,780) × 75
+// Volumen Ajustado = Largo × Alto × Ancho × 2.45
+// ============================================
+
+export const getCostingConfig = async (req: Request, res: Response): Promise<void> => {
+    try {
+        // Buscar configuración activa
+        const result = await pool.query(`
+            SELECT * FROM pobox_costing_config 
+            WHERE is_active = TRUE 
+            ORDER BY updated_at DESC 
+            LIMIT 1
+        `);
+
+        if (result.rows.length === 0) {
+            // Retornar configuración por defecto
+            res.json({
+                config: {
+                    conversion_factor: 2.45,
+                    dimensional_divisor: 10780,
+                    base_rate: 75,
+                    min_cost: 50,
+                    currency: 'MXN',
+                    is_active: true,
+                }
+            });
+            return;
+        }
+
+        res.json({ config: result.rows[0] });
+    } catch (error) {
+        console.error('Error obteniendo configuración de costeo:', error);
+        // Si la tabla no existe, retornar config por defecto
+        res.json({
+            config: {
+                conversion_factor: 2.45,
+                dimensional_divisor: 10780,
+                base_rate: 75,
+                min_cost: 50,
+                currency: 'MXN',
+                is_active: true,
+            }
+        });
+    }
+};
+
+export const saveCostingConfig = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { conversion_factor, dimensional_divisor, base_rate, min_cost, currency, is_active } = req.body;
+
+        // Verificar si existe la tabla, si no, crearla
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS pobox_costing_config (
+                id SERIAL PRIMARY KEY,
+                conversion_factor NUMERIC(8,4) NOT NULL DEFAULT 2.45,
+                dimensional_divisor NUMERIC(12,2) NOT NULL DEFAULT 10780,
+                base_rate NUMERIC(10,2) NOT NULL DEFAULT 75,
+                min_cost NUMERIC(10,2) NOT NULL DEFAULT 50,
+                currency VARCHAR(10) DEFAULT 'MXN',
+                is_active BOOLEAN DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        `);
+
+        // Desactivar otras configuraciones
+        await pool.query(`UPDATE pobox_costing_config SET is_active = FALSE`);
+
+        // Insertar nueva configuración
+        const result = await pool.query(`
+            INSERT INTO pobox_costing_config (conversion_factor, dimensional_divisor, base_rate, min_cost, currency, is_active)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING *
+        `, [conversion_factor, dimensional_divisor, base_rate, min_cost, currency || 'MXN', is_active !== false]);
+
+        res.json({ success: true, config: result.rows[0] });
+    } catch (error) {
+        console.error('Error guardando configuración de costeo:', error);
+        res.status(500).json({ error: 'Error al guardar configuración' });
+    }
+};
+
+export const getCostingPackages = async (req: Request, res: Response): Promise<void> => {
+    try {
+        // Obtener paquetes POBox con dimensiones
+        const result = await pool.query(`
+            SELECT 
+                p.id,
+                COALESCE(p.tracking_provider, p.tracking_internal) as tracking,
+                p.pkg_length,
+                p.pkg_width,
+                p.pkg_height,
+                p.weight,
+                p.status,
+                p.received_at,
+                u.full_name as user_name
+            FROM packages p
+            LEFT JOIN users u ON p.user_id = u.id
+            WHERE p.warehouse_location = 'usa_pobox' OR p.service_type = 'POBOX_USA'
+            ORDER BY p.received_at DESC NULLS LAST, p.created_at DESC
+            LIMIT 100
+        `);
+
+        res.json({ packages: result.rows });
+    } catch (error) {
+        console.error('Error obteniendo paquetes para costeo:', error);
+        res.status(500).json({ error: 'Error al obtener paquetes' });
+    }
+};
+
+export const updatePackageCost = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { id } = req.params;
+        const { calculated_cost } = req.body;
+
+        const result = await pool.query(`
+            UPDATE packages 
+            SET assigned_cost_mxn = $1, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $2
+            RETURNING id, assigned_cost_mxn
+        `, [calculated_cost, id]);
+
+        if (result.rows.length === 0) {
+            res.status(404).json({ error: 'Paquete no encontrado' });
+            return;
+        }
+
+        res.json({ success: true, package: result.rows[0] });
+    } catch (error) {
+        console.error('Error actualizando costo del paquete:', error);
+        res.status(500).json({ error: 'Error al actualizar costo' });
+    }
+};

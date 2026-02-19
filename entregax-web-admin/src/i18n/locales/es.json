@@ -572,7 +572,8 @@
       "last_mile": "Última Milla",
       "dhl_rates": "Tarifas DHL",
       "dhl_operations": "Operaciones DHL",
-      "anticipos": "Control de Anticipos"
+      "anticipos": "Control de Anticipos",
+      "pobox_rates": "Tarifas PO Box"
     },
     "moduleFeatures": {
       "clients": {
@@ -1099,5 +1100,25 @@
     "deactivated": "Ruta desactivada",
     "errorLoading": "Error al cargar las rutas",
     "codeRequired": "El código de ruta es requerido"
+  },
+  "pobox": {
+    "costing": {
+      "title": "Panel de Costeo PO Box",
+      "subtitle": "Calcula el costo de cada guía basado en dimensiones",
+      "formula": "Fórmula de Costeo",
+      "calculator": "Calculadora",
+      "packages": "Paquetes",
+      "history": "Historial",
+      "manualCalc": "Calculadora Manual",
+      "enterDimensions": "Ingresa las dimensiones de la caja en centímetros",
+      "enterDimensionsToCalc": "Ingresa las dimensiones para calcular",
+      "result": "Resultado",
+      "configTitle": "Configuración de Costeo",
+      "conversionFactor": "Factor de Conversión",
+      "divisor": "Divisor Dimensional",
+      "baseRate": "Tarifa Base",
+      "minCost": "Costo Mínimo",
+      "active": "Configuración Activa"
+    }
   }
 }
