@@ -336,29 +336,164 @@ export const saveCostingConfig = async (req: Request, res: Response): Promise<vo
 
 export const getCostingPackages = async (req: Request, res: Response): Promise<void> => {
     try {
-        // Obtener paquetes POBox con dimensiones
+        const { date_from, date_to, status, paid } = req.query;
+        
+        // Construir condiciones de filtro
+        let dateFilter = '';
+        const params: any[] = [];
+        let paramIndex = 1;
+        
+        if (date_from) {
+            dateFilter += ` AND (p.received_at >= $${paramIndex} OR p.created_at >= $${paramIndex})`;
+            params.push(date_from);
+            paramIndex++;
+        }
+        if (date_to) {
+            dateFilter += ` AND (p.received_at <= $${paramIndex} OR p.created_at <= $${paramIndex})`;
+            params.push(date_to + ' 23:59:59');
+            paramIndex++;
+        }
+        if (status) {
+            dateFilter += ` AND p.status = $${paramIndex}`;
+            params.push(status);
+            paramIndex++;
+        }
+        if (paid === 'true') {
+            dateFilter += ` AND p.costing_paid = TRUE`;
+        } else if (paid === 'false') {
+            dateFilter += ` AND (p.costing_paid IS NULL OR p.costing_paid = FALSE)`;
+        }
+
         const result = await pool.query(`
             SELECT 
                 p.id,
                 COALESCE(p.tracking_provider, p.tracking_internal) as tracking,
-                p.pkg_length,
-                p.pkg_width,
-                p.pkg_height,
-                p.weight,
+                p.tracking_internal,
+                COALESCE(p.long_cm, 0) as pkg_length,
+                COALESCE(p.width_cm, 0) as pkg_width,
+                COALESCE(p.height_cm, 0) as pkg_height,
+                COALESCE(p.weight, 0) as weight,
                 p.status,
+                p.warehouse_location,
+                p.service_type,
                 p.received_at,
-                u.full_name as user_name
+                p.created_at,
+                p.costing_paid,
+                p.costing_paid_at,
+                p.assigned_cost_mxn,
+                u.full_name as user_name,
+                u.box_id as client_box_id
             FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
-            WHERE p.warehouse_location = 'usa_pobox' OR p.service_type = 'POBOX_USA'
+            WHERE (p.warehouse_location IN ('usa_pobox', 'china_air')
+               OR p.service_type IN ('POBOX_USA', 'AIR_CHN_MX')
+               OR p.tracking_internal ILIKE 'AIR%'
+               OR p.tracking_internal ILIKE 'US-%'
+               OR p.tracking_internal ILIKE 'US%'
+               OR p.tracking_internal ILIKE 'CN-%')
+            ${dateFilter}
             ORDER BY p.received_at DESC NULLS LAST, p.created_at DESC
-            LIMIT 100
-        `);
+            LIMIT 500
+        `, params);
 
+        console.log(`📦 POBox/AIR Packages encontrados: ${result.rows.length}`);
         res.json({ packages: result.rows });
     } catch (error) {
         console.error('Error obteniendo paquetes para costeo:', error);
         res.status(500).json({ error: 'Error al obtener paquetes' });
+    }
+};
+
+// Marcar paquetes como pagados
+export const markPackagesAsPaid = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { package_ids, total_cost, payment_reference } = req.body;
+        const user = (req as any).user;
+
+        if (!package_ids || !Array.isArray(package_ids) || package_ids.length === 0) {
+            res.status(400).json({ error: 'Se requiere un array de IDs de paquetes' });
+            return;
+        }
+
+        // Actualizar paquetes como pagados
+        const result = await pool.query(`
+            UPDATE packages 
+            SET costing_paid = TRUE,
+                costing_paid_at = CURRENT_TIMESTAMP,
+                costing_paid_by = $1,
+                payment_reference = $2,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = ANY($3)
+            RETURNING id, tracking_internal, assigned_cost_mxn
+        `, [user.userId, payment_reference || null, package_ids]);
+
+        // Registrar el pago en historial
+        await pool.query(`
+            INSERT INTO pobox_payment_history 
+            (package_ids, total_cost, payment_reference, paid_by, paid_at)
+            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+        `, [JSON.stringify(package_ids), total_cost, payment_reference, user.userId]);
+
+        console.log(`💰 ${result.rows.length} paquetes marcados como pagados`);
+        res.json({ 
+            success: true, 
+            message: `${result.rows.length} paquetes marcados como pagados`,
+            packages: result.rows,
+            total_cost
+        });
+    } catch (error: any) {
+        // Si la tabla de historial no existe, crearla
+        if (error.code === '42P01') {
+            await pool.query(`
+                CREATE TABLE IF NOT EXISTS pobox_payment_history (
+                    id SERIAL PRIMARY KEY,
+                    package_ids JSONB NOT NULL,
+                    total_cost DECIMAL(12,2),
+                    payment_reference VARCHAR(100),
+                    paid_by INTEGER REFERENCES users(id),
+                    paid_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            `);
+            // Reintentar
+            return markPackagesAsPaid(req, res);
+        }
+        console.error('Error marcando paquetes como pagados:', error);
+        res.status(500).json({ error: 'Error al marcar paquetes como pagados' });
+    }
+};
+
+// Obtener historial de pagos
+export const getPaymentHistory = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { date_from, date_to } = req.query;
+        
+        let dateFilter = '';
+        const params: any[] = [];
+        
+        if (date_from) {
+            dateFilter += ' AND paid_at >= $1';
+            params.push(date_from);
+        }
+        if (date_to) {
+            dateFilter += ` AND paid_at <= $${params.length + 1}`;
+            params.push(date_to + ' 23:59:59');
+        }
+
+        const result = await pool.query(`
+            SELECT 
+                ph.*,
+                u.full_name as paid_by_name
+            FROM pobox_payment_history ph
+            LEFT JOIN users u ON ph.paid_by = u.id
+            WHERE 1=1 ${dateFilter}
+            ORDER BY ph.paid_at DESC
+            LIMIT 100
+        `, params);
+
+        res.json({ history: result.rows });
+    } catch (error) {
+        console.error('Error obteniendo historial de pagos:', error);
+        res.json({ history: [] });
     }
 };
 

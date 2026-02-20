@@ -33,6 +33,7 @@ import DeliveryConfirmScreen from './src/screens/DeliveryConfirmScreen';
 import EmployeeHomeScreen from './src/screens/EmployeeHomeScreen';
 import AttendanceCheckerScreen from './src/screens/AttendanceCheckerScreen';
 import WarehouseScannerScreen from './src/screens/WarehouseScannerScreen';
+import FirmaAbandonoScreen from './src/screens/FirmaAbandonoScreen';
 import { Package } from './src/services/api';
 import { EMPLOYEE_ROLES } from './src/constants/roles';
 
@@ -71,6 +72,8 @@ export type RootStackParamList = {
   AttendanceChecker: { user: any; token: string };
   // Escáner de Bodega
   WarehouseScanner: { user: any; token: string };
+  // Firma de Abandono
+  FirmaAbandono: { user: any; token: string; abandonoToken: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -185,6 +188,11 @@ export default function App() {
           <Stack.Screen 
             name="WarehouseScanner" 
             component={WarehouseScannerScreen}
+          />
+          {/* Firma de Documento de Abandono */}
+          <Stack.Screen 
+            name="FirmaAbandono" 
+            component={FirmaAbandonoScreen}
           />
         </Stack.Navigator>
       </NavigationContainer>

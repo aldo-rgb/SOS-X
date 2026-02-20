@@ -1,0 +1,63 @@
+================================================================================
+                    API ACCESS REQUEST - MJCUSTOMER
+                    EntregaX Integration Support
+================================================================================
+
+Date: February 19, 2026
+From: EntregaX Development Team
+To: MJCustomer / Mojie Technical Support
+
+================================================================================
+UPDATE - TOKEN EXPIRED
+================================================================================
+
+The token you provided has expired:
+
+Error Response:
+{
+    "code": 401,
+    "message": "401 登录已过期，请重新登录"
+}
+
+Token that expired:
+eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJVc2VySWQiOjEzMDAwMDAwMDAxMDEsIl...
+
+================================================================================
+REQUEST
+================================================================================
+
+Please provide ONE of the following:
+
+OPTION A - New Token (temporary solution):
+------------------------------------------
+Generate a new Bearer token for us to use.
+
+OPTION B - API Credentials (permanent solution - PREFERRED):
+------------------------------------------------------------
+Provide us with account credentials so we can auto-login:
+- Account (账号): ?
+- Password (密码): ?
+
+Login endpoint we found: POST /api/sysAuth/login
+Request format: { "account": "xxx", "password": "xxx" }
+
+================================================================================
+API ENDPOINT WE NEED TO USE
+================================================================================
+
+GET /api/otherSystem/orderByList/{orderCode}
+
+Example:
+curl --request GET \
+  --url http://api.mjcustomer.com/api/otherSystem/orderByList/SHIP2507438tkMW \
+  --header 'Authorization: Bearer {TOKEN}'
+
+================================================================================
+CONTACT
+================================================================================
+
+Company: EntregaX / Grupo LSD
+Purpose: Automatic shipment data synchronization
+
+Thank you!
+================================================================================

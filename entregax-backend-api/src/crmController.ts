@@ -803,10 +803,9 @@ export const convertProspectToClient = async (req: Request, res: Response): Prom
       }
     }
 
-    // Generar box_id
-    const boxPrefix = 'ETX';
-    const boxSeq = await pool.query("SELECT COALESCE(MAX(CAST(SUBSTRING(box_id FROM 5) AS INTEGER)), 0) + 1 as next FROM users WHERE box_id LIKE 'ETX-%'");
-    const boxId = `${boxPrefix}-${String(boxSeq.rows[0].next).padStart(4, '0')}`;
+    // Generar box_id consecutivo S4XXX
+    const boxSeq = await pool.query("SELECT COALESCE(MAX(CAST(SUBSTRING(box_id FROM 2) AS INTEGER)), 3999) + 1 as next FROM users WHERE box_id ~ '^S[0-9]+$'");
+    const boxId = `S${boxSeq.rows[0].next}`;
 
     // Crear usuario
     const bcrypt = require('bcryptjs');

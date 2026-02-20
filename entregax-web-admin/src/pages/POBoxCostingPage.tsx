@@ -34,6 +34,8 @@ import {
     Tab,
     Switch,
     FormControlLabel,
+    Checkbox,
+    Snackbar,
 } from '@mui/material';
 import {
     Calculate as CalculateIcon,
@@ -45,6 +47,9 @@ import {
     Inventory as InventoryIcon,
     AttachMoney as MoneyIcon,
     LocalShipping as ShippingIcon,
+    Payment as PaymentIcon,
+    CheckCircle as CheckCircleIcon,
+    FilterList as FilterIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import api from '../services/api';
@@ -76,7 +81,10 @@ interface PackageCosting {
     calculated_cost: number;        // (Vol Ajustado / 10,780) × 75
     status: string;
     received_at: string;
+    created_at: string;
     user_name?: string;
+    costing_paid?: boolean;
+    costing_paid_at?: string;
 }
 
 interface TabPanelProps {
@@ -136,6 +144,22 @@ export default function POBoxCostingPage() {
         cost: number;
     } | null>(null);
 
+    // Filtros de fecha
+    const [dateFrom, setDateFrom] = useState<string>('');
+    const [dateTo, setDateTo] = useState<string>('');
+    const [showPaidFilter, setShowPaidFilter] = useState<'all' | 'paid' | 'unpaid'>('unpaid');
+
+    // Selección de paquetes para pago
+    const [selectedPackages, setSelectedPackages] = useState<number[]>([]);
+    const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+    const [paymentReference, setPaymentReference] = useState('');
+    const [processingPayment, setProcessingPayment] = useState(false);
+    const [snackbar, setSnackbar] = useState<{open: boolean; message: string; severity: 'success' | 'error'}>({
+        open: false,
+        message: '',
+        severity: 'success'
+    });
+
     // ============================================
     // FUNCIONES DE CÁLCULO
     // ============================================
@@ -175,7 +199,7 @@ export default function POBoxCostingPage() {
 
     const loadConfig = async () => {
         try {
-            const response = await api.get('/api/pobox/costing/config');
+            const response = await api.get('/pobox/costing/config');
             if (response.data?.config) {
                 setConfig(response.data.config);
             }
@@ -186,18 +210,28 @@ export default function POBoxCostingPage() {
 
     const loadPackages = async () => {
         setLoading(true);
+        setSelectedPackages([]); // Limpiar selección al recargar
         try {
-            const response = await api.get('/api/pobox/costing/packages');
+            // Construir query params con filtros
+            const params = new URLSearchParams();
+            if (dateFrom) params.append('date_from', dateFrom);
+            if (dateTo) params.append('date_to', dateTo);
+            if (showPaidFilter === 'paid') params.append('paid', 'true');
+            if (showPaidFilter === 'unpaid') params.append('paid', 'false');
+            
+            const response = await api.get(`/pobox/costing/packages?${params.toString()}`);
             if (response.data?.packages) {
                 // Calcular costos para cada paquete
                 const packagesWithCosts = response.data.packages.map((pkg: any) => {
-                    const { volume_raw, volume_adjusted, cost } = calculateCost(
-                        parseFloat(pkg.pkg_length) || 0,
-                        parseFloat(pkg.pkg_width) || 0,
-                        parseFloat(pkg.pkg_height) || 0
-                    );
+                    const length = parseFloat(pkg.pkg_length) || 0;
+                    const width = parseFloat(pkg.pkg_width) || 0;
+                    const height = parseFloat(pkg.pkg_height) || 0;
+                    const { volume_raw, volume_adjusted, cost } = calculateCost(length, width, height);
                     return {
                         ...pkg,
+                        pkg_length: length,
+                        pkg_width: width,
+                        pkg_height: height,
                         volume_raw,
                         volume_adjusted,
                         calculated_cost: cost,
@@ -214,12 +248,73 @@ export default function POBoxCostingPage() {
 
     const saveConfig = async () => {
         try {
-            await api.post('/api/pobox/costing/config', tempConfig);
+            await api.post('/pobox/costing/config', tempConfig);
             setConfig(tempConfig);
             setEditConfigOpen(false);
             loadPackages(); // Recalcular con nueva config
         } catch (error) {
             console.error('Error guardando configuración:', error);
+        }
+    };
+
+    // ============================================
+    // SELECCIÓN Y PAGO
+    // ============================================
+
+    const handleSelectPackage = (pkgId: number) => {
+        setSelectedPackages(prev => 
+            prev.includes(pkgId) 
+                ? prev.filter(id => id !== pkgId)
+                : [...prev, pkgId]
+        );
+    };
+
+    const handleSelectAll = () => {
+        const unpaidPackages = packages.filter(p => !p.costing_paid);
+        if (selectedPackages.length === unpaidPackages.length) {
+            setSelectedPackages([]);
+        } else {
+            setSelectedPackages(unpaidPackages.map(p => p.id));
+        }
+    };
+
+    const getSelectedTotal = () => {
+        return packages
+            .filter(p => selectedPackages.includes(p.id))
+            .reduce((sum, p) => sum + (p.calculated_cost || 0), 0);
+    };
+
+    const handleMarkAsPaid = async () => {
+        if (selectedPackages.length === 0) return;
+        
+        setProcessingPayment(true);
+        try {
+            const totalCost = getSelectedTotal();
+            await api.post('/pobox/costing/mark-paid', {
+                package_ids: selectedPackages,
+                total_cost: totalCost,
+                payment_reference: paymentReference
+            });
+            
+            setSnackbar({
+                open: true,
+                message: `✅ ${selectedPackages.length} paquetes marcados como pagados - Total: $${totalCost.toFixed(2)}`,
+                severity: 'success'
+            });
+            
+            setPaymentDialogOpen(false);
+            setPaymentReference('');
+            setSelectedPackages([]);
+            loadPackages();
+        } catch (error) {
+            console.error('Error marcando paquetes como pagados:', error);
+            setSnackbar({
+                open: true,
+                message: '❌ Error al procesar el pago',
+                severity: 'error'
+            });
+        } finally {
+            setProcessingPayment(false);
         }
     };
 
@@ -247,13 +342,18 @@ export default function POBoxCostingPage() {
     // ESTADÍSTICAS
     // ============================================
 
+    const unpaidPackages = packages.filter(p => !p.costing_paid);
+    const paidPackages = packages.filter(p => p.costing_paid);
+    
     const stats = {
         totalPackages: packages.length,
         totalCost: packages.reduce((sum, pkg) => sum + (pkg.calculated_cost || 0), 0),
         avgCost: packages.length > 0 
             ? packages.reduce((sum, pkg) => sum + (pkg.calculated_cost || 0), 0) / packages.length 
             : 0,
-        pendingCost: packages.filter(p => p.status === 'pending' || p.status === 'received').length,
+        pendingPayment: unpaidPackages.length,
+        selectedCount: selectedPackages.length,
+        selectedTotal: getSelectedTotal(),
     };
 
     // ============================================
@@ -356,11 +456,11 @@ export default function POBoxCostingPage() {
                     <Card sx={{ bgcolor: 'info.light', color: 'info.contrastText' }}>
                         <CardContent>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <ShippingIcon />
-                                <Typography variant="subtitle2">Pendientes</Typography>
+                                <PaymentIcon />
+                                <Typography variant="subtitle2">Por Pagar</Typography>
                             </Box>
                             <Typography variant="h4" fontWeight="bold">
-                                {stats.pendingCost}
+                                {stats.pendingPayment}
                             </Typography>
                         </CardContent>
                     </Card>
@@ -371,7 +471,7 @@ export default function POBoxCostingPage() {
             <Paper sx={{ mb: 3 }}>
                 <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)}>
                     <Tab label={t('pobox.costing.calculator', '🧮 Calculadora')} />
-                    <Tab label={t('pobox.costing.packages', '📦 Paquetes')} />
+                    <Tab label={`📦 Paquetes (${stats.pendingPayment} pendientes)`} />
                     <Tab label={t('pobox.costing.history', '📊 Historial')} />
                 </Tabs>
             </Paper>
@@ -543,10 +643,93 @@ export default function POBoxCostingPage() {
 
             {/* Tab: Paquetes */}
             <TabPanel value={activeTab} index={1}>
+                {/* Filtros */}
+                <Paper sx={{ p: 2, mb: 2 }}>
+                    <Grid container spacing={2} alignItems="center">
+                        <Grid size={{ xs: 12, sm: 3 }}>
+                            <TextField
+                                fullWidth
+                                type="date"
+                                label="Fecha Desde"
+                                value={dateFrom}
+                                onChange={(e) => setDateFrom(e.target.value)}
+                                InputLabelProps={{ shrink: true }}
+                                size="small"
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 3 }}>
+                            <TextField
+                                fullWidth
+                                type="date"
+                                label="Fecha Hasta"
+                                value={dateTo}
+                                onChange={(e) => setDateTo(e.target.value)}
+                                InputLabelProps={{ shrink: true }}
+                                size="small"
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 3 }}>
+                            <TextField
+                                fullWidth
+                                select
+                                label="Estado de Pago"
+                                value={showPaidFilter}
+                                onChange={(e) => setShowPaidFilter(e.target.value as any)}
+                                size="small"
+                                SelectProps={{ native: true }}
+                            >
+                                <option value="all">Todos</option>
+                                <option value="unpaid">Sin Pagar</option>
+                                <option value="paid">Pagados</option>
+                            </TextField>
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 3 }}>
+                            <Button 
+                                fullWidth 
+                                variant="contained" 
+                                onClick={loadPackages}
+                                startIcon={<FilterIcon />}
+                            >
+                                Filtrar
+                            </Button>
+                        </Grid>
+                    </Grid>
+                </Paper>
+
+                {/* Barra de acciones de selección */}
+                {selectedPackages.length > 0 && (
+                    <Alert 
+                        severity="info" 
+                        sx={{ mb: 2 }}
+                        action={
+                            <Button 
+                                color="success" 
+                                variant="contained"
+                                size="small"
+                                startIcon={<PaymentIcon />}
+                                onClick={() => setPaymentDialogOpen(true)}
+                            >
+                                Registrar Pago (${stats.selectedTotal.toFixed(2)})
+                            </Button>
+                        }
+                    >
+                        <strong>{selectedPackages.length}</strong> paquetes seleccionados - 
+                        Total: <strong>${stats.selectedTotal.toFixed(2)}</strong>
+                    </Alert>
+                )}
+
                 <TableContainer component={Paper}>
                     <Table>
                         <TableHead>
                             <TableRow sx={{ bgcolor: 'primary.main' }}>
+                                <TableCell padding="checkbox" sx={{ color: 'white' }}>
+                                    <Checkbox
+                                        sx={{ color: 'white' }}
+                                        indeterminate={selectedPackages.length > 0 && selectedPackages.length < unpaidPackages.length}
+                                        checked={unpaidPackages.length > 0 && selectedPackages.length === unpaidPackages.length}
+                                        onChange={handleSelectAll}
+                                    />
+                                </TableCell>
                                 <TableCell sx={{ color: 'white' }}>Tracking</TableCell>
                                 <TableCell sx={{ color: 'white' }} align="center">Largo</TableCell>
                                 <TableCell sx={{ color: 'white' }} align="center">Ancho</TableCell>
@@ -554,19 +737,19 @@ export default function POBoxCostingPage() {
                                 <TableCell sx={{ color: 'white' }} align="center">Vol. Bruto</TableCell>
                                 <TableCell sx={{ color: 'white' }} align="center">Vol. Ajustado</TableCell>
                                 <TableCell sx={{ color: 'white' }} align="right">Costo</TableCell>
-                                <TableCell sx={{ color: 'white' }} align="center">Estado</TableCell>
+                                <TableCell sx={{ color: 'white' }} align="center">Pago</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
                             {loading ? (
                                 <TableRow>
-                                    <TableCell colSpan={8} align="center" sx={{ py: 5 }}>
+                                    <TableCell colSpan={9} align="center" sx={{ py: 5 }}>
                                         <CircularProgress />
                                     </TableCell>
                                 </TableRow>
                             ) : packages.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={8} align="center" sx={{ py: 5 }}>
+                                    <TableCell colSpan={9} align="center" sx={{ py: 5 }}>
                                         <Typography color="text.secondary">
                                             No hay paquetes POBox para mostrar
                                         </Typography>
@@ -574,7 +757,22 @@ export default function POBoxCostingPage() {
                                 </TableRow>
                             ) : (
                                 packages.map((pkg) => (
-                                    <TableRow key={pkg.id} hover>
+                                    <TableRow 
+                                        key={pkg.id} 
+                                        hover
+                                        selected={selectedPackages.includes(pkg.id)}
+                                        sx={{ 
+                                            bgcolor: pkg.costing_paid ? 'success.50' : 'inherit',
+                                            '&.Mui-selected': { bgcolor: 'primary.50' }
+                                        }}
+                                    >
+                                        <TableCell padding="checkbox">
+                                            <Checkbox
+                                                checked={selectedPackages.includes(pkg.id)}
+                                                onChange={() => handleSelectPackage(pkg.id)}
+                                                disabled={pkg.costing_paid}
+                                            />
+                                        </TableCell>
                                         <TableCell>
                                             <Typography variant="body2" fontWeight="medium">
                                                 {pkg.tracking}
@@ -586,37 +784,47 @@ export default function POBoxCostingPage() {
                                             )}
                                         </TableCell>
                                         <TableCell align="center">
-                                            {pkg.pkg_length?.toFixed(1) || '-'} cm
+                                            {pkg.pkg_length ? Number(pkg.pkg_length).toFixed(1) : '-'} cm
                                         </TableCell>
                                         <TableCell align="center">
-                                            {pkg.pkg_width?.toFixed(1) || '-'} cm
+                                            {pkg.pkg_width ? Number(pkg.pkg_width).toFixed(1) : '-'} cm
                                         </TableCell>
                                         <TableCell align="center">
-                                            {pkg.pkg_height?.toFixed(1) || '-'} cm
+                                            {pkg.pkg_height ? Number(pkg.pkg_height).toFixed(1) : '-'} cm
                                         </TableCell>
                                         <TableCell align="center">
                                             <Typography variant="body2" color="text.secondary">
-                                                {pkg.volume_raw?.toLocaleString() || '-'} cm³
+                                                {pkg.volume_raw ? pkg.volume_raw.toLocaleString() : '-'} cm³
                                             </Typography>
                                         </TableCell>
                                         <TableCell align="center">
                                             <Typography variant="body2">
-                                                {pkg.volume_adjusted?.toLocaleString() || '-'} cm³
+                                                {pkg.volume_adjusted ? pkg.volume_adjusted.toLocaleString() : '-'} cm³
                                             </Typography>
                                         </TableCell>
                                         <TableCell align="right">
                                             <Chip
-                                                label={`$${pkg.calculated_cost?.toFixed(2) || '0.00'}`}
+                                                label={`$${pkg.calculated_cost ? pkg.calculated_cost.toFixed(2) : '0.00'}`}
                                                 color="success"
                                                 size="small"
                                             />
                                         </TableCell>
                                         <TableCell align="center">
-                                            <Chip
-                                                label={pkg.status}
-                                                size="small"
-                                                variant="outlined"
-                                            />
+                                            {pkg.costing_paid ? (
+                                                <Chip
+                                                    icon={<CheckCircleIcon />}
+                                                    label="Pagado"
+                                                    color="success"
+                                                    size="small"
+                                                />
+                                            ) : (
+                                                <Chip
+                                                    label="Pendiente"
+                                                    color="warning"
+                                                    size="small"
+                                                    variant="outlined"
+                                                />
+                                            )}
                                         </TableCell>
                                     </TableRow>
                                 ))
@@ -719,6 +927,71 @@ export default function POBoxCostingPage() {
                     </Button>
                 </DialogActions>
             </Dialog>
+
+            {/* Dialog: Confirmar Pago */}
+            <Dialog open={paymentDialogOpen} onClose={() => setPaymentDialogOpen(false)} maxWidth="sm" fullWidth>
+                <DialogTitle>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <PaymentIcon color="success" />
+                        Registrar Pago de Paquetes
+                    </Box>
+                </DialogTitle>
+                <DialogContent dividers>
+                    <Alert severity="info" sx={{ mb: 3 }}>
+                        <Typography variant="body2">
+                            Se marcarán <strong>{selectedPackages.length} paquetes</strong> como pagados
+                        </Typography>
+                    </Alert>
+                    
+                    <Box sx={{ bgcolor: 'success.50', p: 3, borderRadius: 2, textAlign: 'center', mb: 3 }}>
+                        <Typography variant="h6" color="text.secondary">
+                            Total a Pagar
+                        </Typography>
+                        <Typography variant="h3" fontWeight="bold" color="success.main">
+                            ${stats.selectedTotal.toFixed(2)}
+                        </Typography>
+                    </Box>
+                    
+                    <TextField
+                        fullWidth
+                        label="Referencia de Pago (opcional)"
+                        placeholder="Ej: Transferencia #12345, Efectivo, etc."
+                        value={paymentReference}
+                        onChange={(e) => setPaymentReference(e.target.value)}
+                        helperText="Ingresa un número de referencia o nota para identificar este pago"
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setPaymentDialogOpen(false)} disabled={processingPayment}>
+                        Cancelar
+                    </Button>
+                    <Button 
+                        variant="contained" 
+                        color="success"
+                        startIcon={processingPayment ? <CircularProgress size={20} /> : <CheckCircleIcon />}
+                        onClick={handleMarkAsPaid}
+                        disabled={processingPayment}
+                    >
+                        {processingPayment ? 'Procesando...' : 'Confirmar Pago'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Snackbar de notificaciones */}
+            <Snackbar
+                open={snackbar.open}
+                autoHideDuration={6000}
+                onClose={() => setSnackbar({ ...snackbar, open: false })}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            >
+                <Alert 
+                    onClose={() => setSnackbar({ ...snackbar, open: false })} 
+                    severity={snackbar.severity}
+                    sx={{ width: '100%' }}
+                >
+                    {snackbar.message}
+                </Alert>
+            </Snackbar>
         </Box>
     );
 }

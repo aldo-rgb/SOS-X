@@ -354,10 +354,9 @@ export const createAdvisor = async (req: Request, res: Response): Promise<any> =
         // Generar código de referido
         const referralCode = generateReferralCode(full_name);
         
-        // Generar box_id para el asesor
-        const prefix = 'ETX';
-        const random = Math.floor(1000 + Math.random() * 9000);
-        const boxId = `${prefix}-${random}`;
+        // Generar box_id consecutivo S4XXX
+        const boxSeq = await pool.query("SELECT COALESCE(MAX(CAST(SUBSTRING(box_id FROM 2) AS INTEGER)), 3999) + 1 as next FROM users WHERE box_id ~ '^S[0-9]+$'");
+        const boxId = `S${boxSeq.rows[0].next}`;
         
         // Hash de contraseña
         const bcrypt = require('bcrypt');

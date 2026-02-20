@@ -143,12 +143,40 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
     return date.toLocaleDateString();
   };
 
+  const handleNotificationPress = (item: Notification) => {
+    // Marcar como leída
+    markAsRead(item.id);
+    
+    // Verificar si tiene acción de navegación
+    if (item.action_url && item.action_url.includes('firma-abandono')) {
+      // Extraer el token del URL
+      const tokenMatch = item.action_url.match(/firma-abandono\/([a-f0-9]+)/);
+      if (tokenMatch) {
+        (navigation as any).navigate('FirmaAbandono', { 
+          user, 
+          token, 
+          abandonoToken: tokenMatch[1] 
+        });
+        return;
+      }
+    }
+    
+    // También verificar data.token para notificaciones de abandono
+    if (item.data?.token && item.title?.includes('Abandono')) {
+      (navigation as any).navigate('FirmaAbandono', { 
+        user, 
+        token, 
+        abandonoToken: item.data.token 
+      });
+    }
+  };
+
   const renderNotification = ({ item }: { item: Notification }) => {
     const typeColor = getTypeColor(item.type);
     
     return (
       <TouchableOpacity 
-        onPress={() => markAsRead(item.id)}
+        onPress={() => handleNotificationPress(item)}
         activeOpacity={0.7}
       >
         <Surface 

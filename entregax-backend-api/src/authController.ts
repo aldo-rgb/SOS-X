@@ -7,25 +7,23 @@ import { generateReferralCode } from './commissionController';
 // Función para generar un ID de Casillero único consecutivo (Ej. S4000, S4001, S4002...)
 const generateBoxId = async (): Promise<string> => {
     try {
-        // Buscar el último casillero con formato S4XXX
+        // Buscar el máximo número de casillero S4XXX ordenando numéricamente
         const result = await pool.query(
-            "SELECT box_id FROM users WHERE box_id LIKE 'S4%' ORDER BY box_id DESC LIMIT 1"
+            "SELECT MAX(CAST(SUBSTRING(box_id FROM 2) AS INTEGER)) as max_num FROM users WHERE box_id ~ '^S[0-9]+$'"
         );
         
-        if (result.rows.length > 0) {
-            // Extraer el número del último casillero
-            const lastBoxId = result.rows[0].box_id;
-            const lastNumber = parseInt(lastBoxId.replace('S', ''), 10);
-            return `S${lastNumber + 1}`;
+        if (result.rows.length > 0 && result.rows[0].max_num !== null) {
+            const nextNumber = result.rows[0].max_num + 1;
+            return `S${nextNumber}`;
         }
         
         // Si no hay casilleros S4XXX, empezar en S4000
         return 'S4000';
     } catch (error) {
         console.error('Error generando box_id:', error);
-        // Fallback con número aleatorio
-        const randomNum = Math.floor(4000 + Math.random() * 1000);
-        return `S${randomNum}`;
+        // Fallback: buscar de forma simple
+        const fallback = await pool.query("SELECT COUNT(*) as total FROM users WHERE box_id LIKE 'S%'");
+        return `S${4000 + parseInt(fallback.rows[0].total)}`;
     }
 };
 
