@@ -61,7 +61,9 @@
     "quotes": "Cotizaciones",
     "warranties": "Garantía GEX",
     "commissions": "Comisiones",
+    "cajaChica": "Caja Chica",
     "permissions": "Permisos",
+    "legalDocs": "Documentos Legales",
     "serviceTypes": "Tipos de Servicio",
     "fiscal": "Empresas",
     "supplierPayments": "Pago Proveedores",
@@ -377,7 +379,7 @@
     "branch_manager": "Gerente de Sucursal",
     "customer_service": "Servicio a Cliente",
     "counter_staff": "Personal de Mostrador",
-    "warehouse_ops": "Operaciones de Bodega",
+    "warehouse_ops": "Operaciones",
     "client": "Cliente"
   },
   "quotes": {

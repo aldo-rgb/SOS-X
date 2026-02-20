@@ -10,11 +10,13 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import WhatshotIcon from '@mui/icons-material/Whatshot';
 import PersonSearchIcon from '@mui/icons-material/PersonSearch';
 import HeadsetMicIcon from '@mui/icons-material/HeadsetMic';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 
 // Importar las páginas individuales
 import UnifiedLeadsPage from './UnifiedLeadsPage';
 import CRMClientsPage from './CRMClientsPage';
 import SupportBoardPage from './SupportBoardPage';
+import CarteraVencidaPage from './CarteraVencidaPage';
 
 interface User {
   id: number;
@@ -30,7 +32,7 @@ interface CustomerServiceHubPageProps {
   onRefresh: () => void;
 }
 
-type ActiveView = 'hub' | 'leads' | 'clients' | 'support';
+type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera';
 
 export default function CustomerServiceHubPage({ users: _users, loading: _loading, onRefresh: _onRefresh }: CustomerServiceHubPageProps) {
   const { t } = useTranslation();
@@ -61,6 +63,14 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
       icon: <HeadsetMicIcon sx={{ fontSize: 40 }} />,
       color: '#10B981',
       bgColor: 'rgba(16, 185, 129, 0.1)',
+    },
+    {
+      key: 'cartera',
+      title: t('customerService.cartera.title', 'Ajustes y Abandonos'),
+      description: t('customerService.cartera.description', 'Cargos, descuentos, cobranza y abandono de mercancía'),
+      icon: <AccountBalanceWalletIcon sx={{ fontSize: 40 }} />,
+      color: '#EF4444',
+      bgColor: 'rgba(239, 68, 68, 0.1)',
     },
   ];
 
@@ -109,6 +119,22 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           </Typography>
         </Box>
         <SupportBoardPage />
+      </Box>
+    );
+  }
+
+  if (activeView === 'cartera') {
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <IconButton onClick={() => setActiveView('hub')} sx={{ bgcolor: 'rgba(0,0,0,0.05)' }}>
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight={700}>
+            {t('customerService.cartera.title', 'Ajustes y Cartera Vencida')}
+          </Typography>
+        </Box>
+        <CarteraVencidaPage />
       </Box>
     );
   }

@@ -217,8 +217,24 @@ import {
   getCostingConfig,
   saveCostingConfig,
   getCostingPackages,
-  updatePackageCost
+  updatePackageCost,
+  markPackagesAsPaid,
+  getPaymentHistory
 } from './poboxRatesController';
+import {
+  getCajaChicaStats,
+  registrarIngreso,
+  registrarEgreso,
+  getTransacciones,
+  buscarGuiaParaCobro,
+  realizarCorte,
+  getCortes,
+  buscarCliente,
+  getGuiasPendientesCliente,
+  registrarPagoCliente,
+  getDetalleTransaccion,
+  getHistorialPagosCliente
+} from './cajaChicaController';
 import {
   // Exchange Rate Config
   getExchangeRateConfig,
@@ -302,7 +318,10 @@ import {
   pullFromMJCustomer,
   pullBatchFromMJCustomer,
   updateMJCustomerToken,
-  loginMJCustomerEndpoint
+  loginMJCustomerEndpoint,
+  mojieCallbackEncrypted,
+  trackFNO,
+  getTrajectory
 } from './chinaController';
 import {
   getMasterAwbData,
@@ -560,6 +579,34 @@ import {
   duplicateSlide,
   uploadSlideImage
 } from './carouselController';
+import {
+  // Ajustes Financieros
+  getAjustesGuia,
+  createAjuste,
+  deleteAjuste,
+  // Cartera Vencida
+  getCarteraCliente,
+  getCarteraDashboard,
+  searchGuiasCS,
+  // Abandono y Firma Digital
+  generarDocumentoAbandono,
+  getDocumentoAbandono,
+  firmarDocumentoAbandono,
+  // Resumen Financiero
+  getResumenFinancieroGuia,
+  // Cron helpers
+  actualizarCarteraVencida,
+  sincronizarCartera
+} from './customerServiceController';
+import {
+  getAllLegalDocuments,
+  getLegalDocumentByType,
+  updateLegalDocument,
+  createLegalDocument,
+  getLegalDocumentHistory,
+  getPublicServiceContract,
+  getPublicPrivacyNotice
+} from './legalDocumentsController';
 
 // Cargar variables de entorno
 dotenv.config();
@@ -1188,6 +1235,9 @@ app.get('/api/warehouse/client/:boxId', authenticateToken, searchClientByBoxId);
 // Webhook para recibir datos del sistema chino (público o con API key)
 app.post('/api/china/receive', receiveFromChina);
 
+// Callback de MoJie con datos encriptados DES (público para webhook)
+app.post('/api/china/callback', mojieCallbackEncrypted);
+
 // Panel administrativo de recepciones China
 app.get('/api/china/receipts', authenticateToken, getChinaReceipts);
 app.post('/api/china/receipts', authenticateToken, createChinaReceipt); // Captura manual
@@ -1201,6 +1251,10 @@ app.post('/api/china/mjcustomer/login', authenticateToken, loginMJCustomerEndpoi
 app.get('/api/china/pull/:orderCode', authenticateToken, pullFromMJCustomer);
 app.post('/api/china/pull-batch', authenticateToken, pullBatchFromMJCustomer);
 app.put('/api/china/config/token', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateMJCustomerToken);
+
+// Rastreo de FNO y trayectoria (consulta sin guardar)
+app.get('/api/china/track/:fno', authenticateToken, trackFNO);
+app.get('/api/china/trajectory/:childNo', authenticateToken, getTrajectory);
 
 // ========== GARANTÍA EXTENDIDA (GEX) ==========
 
@@ -1945,6 +1999,8 @@ app.get('/api/pobox/costing/config', authenticateToken, getCostingConfig);
 app.post('/api/pobox/costing/config', authenticateToken, requireRole('super_admin'), saveCostingConfig);
 app.get('/api/pobox/costing/packages', authenticateToken, getCostingPackages);
 app.put('/api/pobox/costing/packages/:id', authenticateToken, requireRole('super_admin'), updatePackageCost);
+app.post('/api/pobox/costing/mark-paid', authenticateToken, requireRole('super_admin'), markPackagesAsPaid);
+app.get('/api/pobox/costing/payment-history', authenticateToken, getPaymentHistory);
 
 // ============================================
 // CONFIGURACIÓN TIPO DE CAMBIO
@@ -2019,6 +2075,61 @@ app.post('/api/admin/carousel/slides/:id/duplicate', authenticateToken, requireR
 app.get('/api/admin/carousel/stats', authenticateToken, requireRole('super_admin'), getCarouselStats);
 // Admin - Upload de imágenes
 app.post('/api/admin/carousel/upload', authenticateToken, requireRole('super_admin'), carouselUpload.single('image'), uploadSlideImage);
+
+// ============================================
+// CAJA CHICA (PETTY CASH)
+// Módulo para gestión de efectivo en sucursal
+// Soporta pagos parciales y multi-guía
+// ============================================
+app.get('/api/caja-chica/stats', authenticateToken, getCajaChicaStats);
+app.get('/api/caja-chica/buscar-cliente', authenticateToken, buscarCliente);
+app.get('/api/caja-chica/cliente/:clienteId/guias-pendientes', authenticateToken, getGuiasPendientesCliente);
+app.get('/api/caja-chica/cliente/:clienteId/historial-pagos', authenticateToken, getHistorialPagosCliente);
+app.post('/api/caja-chica/pago-cliente', authenticateToken, registrarPagoCliente);
+app.post('/api/caja-chica/ingreso', authenticateToken, registrarIngreso);
+app.post('/api/caja-chica/egreso', authenticateToken, registrarEgreso);
+app.get('/api/caja-chica/transacciones', authenticateToken, getTransacciones);
+app.get('/api/caja-chica/transacciones/:id', authenticateToken, getDetalleTransaccion);
+app.get('/api/caja-chica/buscar-guia', authenticateToken, buscarGuiaParaCobro);
+app.post('/api/caja-chica/corte', authenticateToken, realizarCorte);
+app.get('/api/caja-chica/cortes', authenticateToken, getCortes);
+
+// ============================================
+// CUSTOMER SERVICE - CARTERA VENCIDA
+// Gestión de cargos, descuentos y cartera vencida
+// Incluye firma digital para abandono de mercancía
+// ============================================
+// Ajustes Financieros (Cargos/Descuentos)
+app.get('/api/cs/ajustes/:servicio/:tracking', authenticateToken, getAjustesGuia);
+app.post('/api/cs/ajustes', authenticateToken, createAjuste);
+app.delete('/api/cs/ajustes/:id', authenticateToken, deleteAjuste);
+
+// Cartera Vencida Dashboard
+app.get('/api/cs/cartera/dashboard', authenticateToken, getCarteraDashboard);
+app.get('/api/cs/cartera/cliente/:clienteId', authenticateToken, getCarteraCliente);
+app.get('/api/cs/cartera/buscar', authenticateToken, searchGuiasCS);
+
+// Resumen Financiero de Guía
+app.get('/api/cs/guia/:servicio/:tracking/resumen', authenticateToken, getResumenFinancieroGuia);
+
+// Abandono y Firma Digital
+app.post('/api/cs/abandono/generar', authenticateToken, generarDocumentoAbandono);
+app.get('/api/firma-abandono/:token', getDocumentoAbandono); // Público
+app.post('/api/firma-abandono/:token', firmarDocumentoAbandono); // Público
+
+// ============================================
+// DOCUMENTOS LEGALES - Super Admin
+// Gestión de contratos y avisos de privacidad
+// ============================================
+app.get('/api/legal-documents', authenticateToken, requireRole('super_admin'), getAllLegalDocuments);
+app.get('/api/legal-documents/:type', authenticateToken, getLegalDocumentByType);
+app.post('/api/legal-documents', authenticateToken, requireRole('super_admin'), createLegalDocument);
+app.put('/api/legal-documents/:id', authenticateToken, requireRole('super_admin'), updateLegalDocument);
+app.get('/api/legal-documents/:id/history', authenticateToken, requireRole('super_admin'), getLegalDocumentHistory);
+
+// Endpoints públicos para apps
+app.get('/api/public/legal/service-contract', getPublicServiceContract);
+app.get('/api/public/legal/privacy-notice', getPublicPrivacyNotice);
 
 // Iniciar CRON Jobs para automatización
 import { initCronJobs } from './cronJobs';

@@ -65,11 +65,15 @@ import ExpandMore from '@mui/icons-material/ExpandMore';
 import BuildIcon from '@mui/icons-material/Build';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import HeadsetMicIcon from '@mui/icons-material/HeadsetMic';
+import LocalAtmIcon from '@mui/icons-material/LocalAtm';
 import AdminHubPage from './pages/AdminHubPage';
+import CajaChicaPage from './pages/CajaChicaPage';
 import WarehouseHubPage from './pages/WarehouseHubPage';
 import HRManagementPage from './pages/HRManagementPage';
 import FleetManagementPage from './pages/FleetManagementPage';
 import SecurityIcon from '@mui/icons-material/Security';
+import DescriptionIcon from '@mui/icons-material/Description';
+import LegalDocumentsPage from './pages/LegalDocumentsPage';
 
 const drawerWidth = 280;
 
@@ -182,8 +186,10 @@ const menuItemsConfig: Array<{
       { key: 'panelsService', icon: <HeadsetMicIcon /> },   // Servicio a Cliente
     ]
   },
+  { key: 'cajaChica', icon: <LocalAtmIcon /> }, // Caja Chica - solo admin/super_admin/director
   { key: 'commissions', icon: <MonetizationOnIcon /> },
   { key: 'permissions', icon: <SecurityIcon /> },
+  { key: 'legalDocs', icon: <DescriptionIcon /> }, // Documentos Legales - solo super_admin
   { key: 'fiscal', icon: <ReceiptLongIcon /> },
 ];
 
@@ -249,12 +255,17 @@ function App() {
         return true;
       }
       
-      // admin: Dashboard, Reportes Ventas, Herramientas
+      // admin: Dashboard, Reportes Ventas, Herramientas, Caja Chica
       if (role === 'admin') {
-        return ['dashboard', 'salesReport', 'panels'].includes(item.key);
+        return ['dashboard', 'salesReport', 'panels', 'cajaChica'].includes(item.key);
       }
       
-      // director y todos los demás: Dashboard, Herramientas
+      // director: Dashboard, Herramientas, Caja Chica
+      if (role === 'director') {
+        return ['dashboard', 'panels', 'cajaChica'].includes(item.key);
+      }
+      
+      // Todos los demás: Dashboard, Herramientas
       return ['dashboard', 'panels'].includes(item.key);
     })
     .map(item => ({
@@ -640,7 +651,9 @@ function App() {
         }
         return null; // No renderiza nada, debe seleccionar un submenú
       case 'commissions': return <CommissionsPage />; // Comisiones (incluye tipos de servicio)
+      case 'cajaChica': return <CajaChicaPage />; // Caja Chica
       case 'permissions': return <PermissionsPage />; // Matriz de Permisos
+      case 'legalDocs': return <LegalDocumentsPage />; // Documentos Legales (Contratos y Aviso Privacidad)
       case 'fiscal': return <FiscalPage />; // Facturación
       default: 
         return (

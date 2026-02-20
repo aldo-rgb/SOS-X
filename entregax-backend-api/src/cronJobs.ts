@@ -3,6 +3,8 @@ import { pool } from './db';
 import { syncOrdersFromChina, syncAllActiveTrackings } from './maritimeApiController';
 import { blockOverdueAccounts, runCreditCollectionEngine } from './financeController';
 import { checkExpiringDocuments, checkUpcomingMaintenance } from './fleetController';
+import { actualizarCarteraVencida, sincronizarCartera } from './customerServiceController';
+import { syncActiveMJCustomerOrders } from './chinaController';
 
 /**
  * CRON JOB: Detección automática de clientes en riesgo
@@ -519,6 +521,54 @@ export const startExchangeRateCheckCron = () => {
 };
 
 /**
+ * CRON JOB: Actualización de Cartera Vencida
+ * Se ejecuta todos los días a las 02:00 hrs
+ * - Sincroniza guías en CEDIS a tabla de cartera
+ * - Actualiza días en almacén
+ * - Procesa día 30, 60, 90 automáticamente
+ */
+export const startCarteraVencidaCron = () => {
+  // Ejecutar a las 02:00 todos los días
+  cron.schedule('0 2 * * *', async () => {
+    console.log('🔄 [CRON] Procesando cartera vencida...');
+    try {
+      await sincronizarCartera();
+      await actualizarCarteraVencida();
+      console.log('✅ [CRON] Cartera vencida procesada exitosamente');
+    } catch (error) {
+      console.error('❌ [CRON] Error en cartera vencida:', error);
+    }
+  });
+
+  console.log('📅 [CRON] Job de cartera vencida programado para las 02:00 hrs diariamente');
+};
+
+/**
+ * CRON JOB: Sincronización con MJCustomer (China Aéreo)
+ * Se ejecuta cada 15 minutos
+ * - Sincroniza órdenes activas de los últimos 30 días
+ * - Actualiza tracking, ETA, ETD
+ */
+export const startMJCustomerSyncCron = () => {
+  // Ejecutar cada 15 minutos (en los minutos 0, 15, 30, 45)
+  cron.schedule('*/15 * * * *', async () => {
+    console.log('🇨🇳 [CRON] Sincronizando con MJCustomer...');
+    try {
+      const result = await syncActiveMJCustomerOrders();
+      if (result.success) {
+        console.log(`✅ [CRON] MJCustomer: ${result.ordersUpdated}/${result.ordersProcessed} órdenes actualizadas`);
+      } else {
+        console.log(`⚠️ [CRON] MJCustomer con errores: ${result.errors.join(', ')}`);
+      }
+    } catch (error) {
+      console.error('❌ [CRON] Error en sincronización MJCustomer:', error);
+    }
+  });
+
+  console.log('📅 [CRON] Job de MJCustomer (China aéreo) programado cada 15 minutos');
+};
+
+/**
  * Inicializar todos los CRON jobs
  */
 export const initCronJobs = () => {
@@ -530,6 +580,8 @@ export const initCronJobs = () => {
   startFleetAlertsCron();
   startDriverLicenseCheckCron();
   startExchangeRateCheckCron();
+  startCarteraVencidaCron();
+  startMJCustomerSyncCron();
 };
 
 export default initCronJobs;

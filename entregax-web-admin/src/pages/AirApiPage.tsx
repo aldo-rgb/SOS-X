@@ -52,6 +52,8 @@ import AddIcon from '@mui/icons-material/Add';
 import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import PersonSearchIcon from '@mui/icons-material/PersonSearch';
+import SearchIcon from '@mui/icons-material/Search';
+import ImageIcon from '@mui/icons-material/Image';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -164,10 +166,72 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
     internationalTracking: ''
   });
 
+  // Dialog de rastreo de guía MJCustomer
+  const [trackDialog, setTrackDialog] = useState<{
+    open: boolean;
+    fno: string;
+    loading: boolean;
+    error: string | null;
+    result: any | null;
+  }>({
+    open: false,
+    fno: '',
+    loading: false,
+    error: null,
+    result: null
+  });
+
   const token = localStorage.getItem('token');
 
-  // Cargar datos
-  const loadData = useCallback(async () => {
+  // Sincronizar con MoJie API
+  const syncWithMoJie = useCallback(async () => {
+    try {
+      setSyncing(true);
+      const headers = { 
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      };
+
+      // Obtener recepciones activas para sincronizar
+      const activeReceipts = receipts.filter(r => 
+        r.status && !['delivered', 'cancelled'].includes(r.status)
+      );
+
+      if (activeReceipts.length === 0) {
+        setSnackbar({ open: true, message: 'No hay recepciones activas para sincronizar', severity: 'success' });
+        return;
+      }
+
+      // Sincronizar en batch
+      const orderCodes = activeReceipts.map(r => r.fno).filter(Boolean);
+      
+      const syncRes = await fetch(`${API_URL}/api/china/pull-batch`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ orderCodes })
+      });
+
+      const syncData = await syncRes.json();
+
+      if (syncData.success) {
+        setSnackbar({ 
+          open: true, 
+          message: `✅ Sincronizado: ${syncData.results?.filter((r: any) => r.success).length || 0} órdenes actualizadas`, 
+          severity: 'success' 
+        });
+      } else {
+        setSnackbar({ open: true, message: syncData.error || 'Error en sincronización', severity: 'error' });
+      }
+    } catch (error: any) {
+      console.error('Error sincronizando con MoJie:', error);
+      setSnackbar({ open: true, message: 'Error de conexión con MoJie API', severity: 'error' });
+    } finally {
+      setSyncing(false);
+    }
+  }, [token, receipts]);
+
+  // Cargar datos y opcionalmente sincronizar
+  const loadData = useCallback(async (shouldSync = false) => {
     try {
       setLoading(true);
       const headers = { Authorization: `Bearer ${token}` };
@@ -291,6 +355,38 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
     }
   };
 
+  // Rastrear guía en MJCustomer API (solo informativo, no guarda en BD)
+  const handleTrackFNO = async () => {
+    if (!trackDialog.fno.trim()) return;
+    
+    setTrackDialog(prev => ({ ...prev, loading: true, error: null, result: null }));
+    
+    try {
+      // Usar endpoint /track que solo consulta sin insertar en BD
+      const res = await fetch(`${API_URL}/api/china/track/${trackDialog.fno.trim()}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      
+      if (data.success && data.raw) {
+        // El endpoint track devuelve los datos en 'raw'
+        setTrackDialog(prev => ({ ...prev, loading: false, result: data.raw }));
+      } else {
+        setTrackDialog(prev => ({ 
+          ...prev, 
+          loading: false, 
+          error: data.error || 'No se encontró la guía en el sistema MoJie' 
+        }));
+      }
+    } catch (error: any) {
+      setTrackDialog(prev => ({ 
+        ...prev, 
+        loading: false, 
+        error: 'Error de conexión con el API' 
+      }));
+    }
+  };
+
   // Asignar cliente
   const handleAssignClient = async () => {
     if (!assignDialog.receipt || !assignDialog.userId) return;
@@ -356,17 +452,29 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
         <Box sx={{ flexGrow: 1 }} />
         <Button
           variant="outlined"
-          startIcon={<AddIcon />}
-          onClick={() => setCreateDialog({ ...createDialog, open: true })}
-          sx={{ mr: 1 }}
+          startIcon={<SearchIcon />}
+          onClick={() => setTrackDialog({ open: true, fno: '', loading: false, error: null, result: null })}
+          sx={{ mr: 1, borderColor: '#4CAF50', color: '#4CAF50' }}
         >
-          Nueva Recepción
+          Rastrear Guía
+        </Button>
+        <Button
+          variant="outlined"
+          startIcon={syncing ? <CircularProgress size={20} /> : <SyncIcon />}
+          onClick={async () => {
+            await syncWithMoJie();
+            await loadData();
+          }}
+          disabled={syncing || loading}
+          sx={{ mr: 1, borderColor: '#E53935', color: '#E53935' }}
+        >
+          Sincronizar MoJie
         </Button>
         <Button
           variant="contained"
-          startIcon={syncing ? <CircularProgress size={20} /> : <RefreshIcon />}
+          startIcon={loading ? <CircularProgress size={20} /> : <RefreshIcon />}
           onClick={() => loadData()}
-          disabled={syncing}
+          disabled={syncing || loading}
           sx={{ bgcolor: '#E53935', '&:hover': { bgcolor: '#C62828' } }}
         >
           Actualizar
@@ -919,6 +1027,208 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
         <DialogActions>
           <Button onClick={() => setAssignDialog({ open: false, receipt: null, userId: '' })}>Cancelar</Button>
           <Button variant="contained" onClick={handleAssignClient}>Asignar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog: Rastrear Guía MJCustomer */}
+      <Dialog 
+        open={trackDialog.open} 
+        onClose={() => setTrackDialog({ open: false, fno: '', loading: false, error: null, result: null })}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <SearchIcon color="success" />
+          Rastrear Guía en MoJie (China)
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', gap: 2, mt: 2, mb: 3 }}>
+            <TextField
+              label="FNO (Folio de envío)"
+              value={trackDialog.fno}
+              onChange={(e) => setTrackDialog(prev => ({ ...prev, fno: e.target.value.toUpperCase() }))}
+              placeholder="Ej: AIR2609096hyXgs o SHIP2507438tkMW"
+              fullWidth
+              onKeyPress={(e) => e.key === 'Enter' && handleTrackFNO()}
+              autoFocus
+            />
+            <Button
+              variant="contained"
+              onClick={handleTrackFNO}
+              disabled={trackDialog.loading || !trackDialog.fno.trim()}
+              sx={{ bgcolor: '#4CAF50', minWidth: 120 }}
+            >
+              {trackDialog.loading ? <CircularProgress size={24} color="inherit" /> : 'Buscar'}
+            </Button>
+          </Box>
+
+          {trackDialog.error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {trackDialog.error}
+            </Alert>
+          )}
+
+          {trackDialog.result && (
+            <Box>
+              {/* Información General */}
+              <Paper sx={{ p: 2, mb: 2, bgcolor: 'success.light' }}>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <Typography variant="subtitle2" color="text.secondary">FNO</Typography>
+                    <Typography variant="h6" fontWeight="bold">{trackDialog.result.fno}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6, md: 3 }}>
+                    <Typography variant="subtitle2" color="text.secondary">Shipping Mark</Typography>
+                    <Typography fontWeight="bold">{trackDialog.result.shippingMark}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6, md: 3 }}>
+                    <Typography variant="subtitle2" color="text.secondary">Estado</Typography>
+                    <Chip 
+                      label={trackDialog.result.trajecotryName || trackDialog.result.trajectoryName || 'En proceso'} 
+                      color="primary" 
+                      size="small" 
+                    />
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              {/* Estadísticas */}
+              <Grid container spacing={2} sx={{ mb: 2 }}>
+                <Grid size={{ xs: 6, md: 3 }}>
+                  <Card variant="outlined">
+                    <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                      <Typography variant="h4" fontWeight="bold" color="primary">
+                        {trackDialog.result.totalQty || 0}
+                      </Typography>
+                      <Typography variant="caption">Cajas</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid size={{ xs: 6, md: 3 }}>
+                  <Card variant="outlined">
+                    <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                      <Typography variant="h4" fontWeight="bold" color="info.main">
+                        {Number(trackDialog.result.totalWeight || 0).toFixed(2)}
+                      </Typography>
+                      <Typography variant="caption">Peso (kg)</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid size={{ xs: 6, md: 3 }}>
+                  <Card variant="outlined">
+                    <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                      <Typography variant="h4" fontWeight="bold" color="warning.main">
+                        {Number(trackDialog.result.totalCbm || 0).toFixed(4)}
+                      </Typography>
+                      <Typography variant="caption">CBM</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid size={{ xs: 6, md: 3 }}>
+                  <Card variant="outlined">
+                    <CardContent sx={{ textAlign: 'center', py: 1 }}>
+                      <Typography variant="h6" fontWeight="bold">
+                        {trackDialog.result.billNo || trackDialog.result.customsBno || '-'}
+                      </Typography>
+                      <Typography variant="caption">Guía Aérea</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+
+              {/* Fotos/Evidencias */}
+              {(() => {
+                // Parsear file si viene como string JSON
+                let fileArray: string[] = [];
+                if (trackDialog.result.file) {
+                  if (Array.isArray(trackDialog.result.file)) {
+                    fileArray = trackDialog.result.file;
+                  } else if (typeof trackDialog.result.file === 'string') {
+                    try {
+                      const parsed = JSON.parse(trackDialog.result.file);
+                      fileArray = Array.isArray(parsed) ? parsed : [trackDialog.result.file];
+                    } catch {
+                      fileArray = [trackDialog.result.file];
+                    }
+                  }
+                }
+                return fileArray.length > 0 ? (
+                <Box sx={{ mb: 2 }}>
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    startIcon={<ImageIcon />}
+                    onClick={() => window.open(fileArray[0], '_blank')}
+                  >
+                    Ver Foto del Producto ({fileArray.length})
+                  </Button>
+                </Box>
+                ) : null;
+              })()}
+
+              {/* Detalle de Cajas */}
+              {trackDialog.result.data && trackDialog.result.data.length > 0 && (
+                <Box>
+                  <Typography variant="subtitle1" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <InventoryIcon color="primary" />
+                    Detalle de Cajas ({trackDialog.result.data.length})
+                  </Typography>
+                  <Paper sx={{ maxHeight: 300, overflow: 'auto' }}>
+                    <Table size="small">
+                      <TableHead sx={{ bgcolor: 'grey.100' }}>
+                        <TableRow>
+                          <TableCell>Child No</TableCell>
+                          <TableCell>Producto</TableCell>
+                          <TableCell align="right">Peso</TableCell>
+                          <TableCell>Dimensiones</TableCell>
+                          <TableCell>Código Aduanal</TableCell>
+                          <TableCell>Estado</TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {trackDialog.result.data.map((pkg: any, idx: number) => (
+                          <TableRow key={idx} hover>
+                            <TableCell>
+                              <Typography fontSize="0.8rem" fontWeight="bold" fontFamily="monospace">
+                                {pkg.childNo}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography fontSize="0.85rem">{pkg.proName || '-'}</Typography>
+                            </TableCell>
+                            <TableCell align="right">
+                              {Number(pkg.weight || 0).toFixed(2)} kg
+                            </TableCell>
+                            <TableCell>
+                              {pkg.long && pkg.width && pkg.height 
+                                ? `${pkg.long}x${pkg.width}x${pkg.height} cm`
+                                : '-'
+                              }
+                            </TableCell>
+                            <TableCell>
+                              <Chip label={pkg.customsBno || '-'} size="small" variant="outlined" />
+                            </TableCell>
+                            <TableCell>
+                              <Chip 
+                                label={pkg.trajecotryName || pkg.trajectoryName || 'En proceso'} 
+                                size="small" 
+                                color="info" 
+                              />
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </Paper>
+                </Box>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTrackDialog({ open: false, fno: '', loading: false, error: null, result: null })}>
+            Cerrar
+          </Button>
         </DialogActions>
       </Dialog>
 

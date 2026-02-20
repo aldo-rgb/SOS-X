@@ -86,6 +86,8 @@ import {
 // Importar páginas de HR y Fleet
 import HRManagementPage from './HRManagementPage';
 import FleetManagementPage from './FleetManagementPage';
+import CajaChicaPage from './CajaChicaPage';
+import LocalAtmIcon from '@mui/icons-material/LocalAtm';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -220,6 +222,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
     const [showFleet, setShowFleet] = useState(false);
     const [showExchangeRates, setShowExchangeRates] = useState(false);
     const [showCarousel, setShowCarousel] = useState(false);
+    const [showCajaChica, setShowCajaChica] = useState(false);
     const [locations, setLocations] = useState<WarehouseLocation[]>([]);
     const [loadingLocations, setLoadingLocations] = useState(true);
 
@@ -445,6 +448,24 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                     />
                 </Box>
                 <CarouselSlidesPage />
+            </Box>
+        );
+    }
+
+    // ============================================
+    // RENDER: Caja Chica (Petty Cash)
+    // ============================================
+    if (showCajaChica) {
+        return (
+            <Box>
+                <Box sx={{ mb: 2 }}>
+                    <Chip
+                        label={t('panels.backToAdmin')}
+                        onClick={() => setShowCajaChica(false)}
+                        sx={{ cursor: 'pointer' }}
+                    />
+                </Box>
+                <CajaChicaPage />
             </Box>
         );
     }
@@ -1700,6 +1721,59 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                                     <Chip label="Vehículos" size="small" sx={{ bgcolor: '#5D4037', color: 'white', fontSize: '0.7rem' }} />
                                     <Chip label="Gasolina" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                     <Chip label="Servicios" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                </Box>
+                            </CardContent>
+                        </CardActionArea>
+                    </Card>
+                </Grid>
+
+                {/* Tarjeta especial: Caja Chica - NARANJA */}
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    <Card
+                        sx={{
+                            height: '100%',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                                transform: 'translateY(-8px)',
+                                boxShadow: 6,
+                            },
+                        }}
+                    >
+                        <CardActionArea
+                            onClick={() => setShowCajaChica(true)}
+                            sx={{ height: '100%' }}
+                        >
+                            <Box
+                                sx={{
+                                    background: 'linear-gradient(135deg, #E65100 0%, #FF9800 100%)',
+                                    p: 3,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                }}
+                            >
+                                <Box sx={{ color: 'white' }}>
+                                    <LocalAtmIcon sx={{ fontSize: 48 }} />
+                                </Box>
+                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
+                                    💵
+                                </Typography>
+                            </Box>
+                            <CardContent>
+                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                    Caja Chica
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                    Control de efectivo, ingresos, egresos y cortes de caja
+                                </Typography>
+                                <Divider sx={{ my: 1 }} />
+                                <Typography variant="caption" color="text.secondary">
+                                    Sucursal / Admin
+                                </Typography>
+                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+                                    <Chip label="Efectivo" size="small" sx={{ bgcolor: '#E65100', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="Cobros" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                    <Chip label="Cortes" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
                                 </Box>
                             </CardContent>
                         </CardActionArea>
