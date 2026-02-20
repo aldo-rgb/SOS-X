@@ -29,7 +29,7 @@ import {
   Card,
   CardContent,
   Divider,
-  Grid2 as Grid,
+  Stack,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
@@ -294,8 +294,8 @@ export default function CarteraVencidaPage() {
           ) : dashboard ? (
             <>
               {/* Resumen por semáforo */}
-              <Grid container spacing={2} sx={{ mb: 4 }}>
-                <Grid size={{ xs: 12, md: 3 }}>
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 4 }}>
+                <Box sx={{ flex: 1 }}>
                   <Card sx={{ bgcolor: '#4CAF50', color: 'white' }}>
                     <CardContent>
                       <Typography variant="h4" fontWeight={700}>
@@ -305,8 +305,8 @@ export default function CarteraVencidaPage() {
                       <Typography variant="caption">${Number(dashboard.porSemaforo?.verde?.deuda || 0).toLocaleString()}</Typography>
                     </CardContent>
                   </Card>
-                </Grid>
-                <Grid size={{ xs: 12, md: 3 }}>
+                </Box>
+                <Box sx={{ flex: 1 }}>
                   <Card sx={{ bgcolor: '#FF9800', color: 'white' }}>
                     <CardContent>
                       <Typography variant="h4" fontWeight={700}>
@@ -316,8 +316,8 @@ export default function CarteraVencidaPage() {
                       <Typography variant="caption">${Number(dashboard.porSemaforo?.amarillo?.deuda || 0).toLocaleString()}</Typography>
                     </CardContent>
                   </Card>
-                </Grid>
-                <Grid size={{ xs: 12, md: 3 }}>
+                </Box>
+                <Box sx={{ flex: 1 }}>
                   <Card sx={{ bgcolor: '#F44336', color: 'white' }}>
                     <CardContent>
                       <Typography variant="h4" fontWeight={700}>
@@ -327,8 +327,8 @@ export default function CarteraVencidaPage() {
                       <Typography variant="caption">${Number(dashboard.porSemaforo?.rojo?.deuda || 0).toLocaleString()}</Typography>
                     </CardContent>
                   </Card>
-                </Grid>
-                <Grid size={{ xs: 12, md: 3 }}>
+                </Box>
+                <Box sx={{ flex: 1 }}>
                   <Card sx={{ bgcolor: 'grey.800', color: 'white' }}>
                     <CardContent>
                       <Typography variant="h4" fontWeight={700}>
@@ -338,8 +338,8 @@ export default function CarteraVencidaPage() {
                       <Typography variant="caption">${Number(dashboard.totalDeuda || 0).toLocaleString()} deuda</Typography>
                     </CardContent>
                   </Card>
-                </Grid>
-              </Grid>
+                </Box>
+              </Stack>
 
               {/* Guías críticas */}
               <Paper sx={{ p: 2 }}>

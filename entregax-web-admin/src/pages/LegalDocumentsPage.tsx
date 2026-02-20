@@ -3,15 +3,12 @@ import {
   Box,
   Typography,
   Paper,
-  Card,
-  CardContent,
   Button,
   TextField,
   Alert,
   CircularProgress,
   Divider,
   Chip,
-  IconButton,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -22,7 +19,6 @@ import {
 } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import EditIcon from '@mui/icons-material/Edit';
-import HistoryIcon from '@mui/icons-material/History';
 import DescriptionIcon from '@mui/icons-material/Description';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -232,7 +228,7 @@ export default function LegalDocumentsPage() {
               },
             }}
           >
-            {documents.map((doc, index) => (
+            {documents.map((doc) => (
               <Tab
                 key={doc.id}
                 label={
