@@ -29,7 +29,7 @@ import {
   Card,
   CardContent,
   Divider,
-  Grid,
+  Grid2 as Grid,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
@@ -40,7 +40,6 @@ import GavelIcon from '@mui/icons-material/Gavel';
 import DrawIcon from '@mui/icons-material/Draw';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import PersonIcon from '@mui/icons-material/Person';
-import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import HistoryIcon from '@mui/icons-material/History';
 import api from '../services/api';
 
@@ -296,7 +295,7 @@ export default function CarteraVencidaPage() {
             <>
               {/* Resumen por semáforo */}
               <Grid container spacing={2} sx={{ mb: 4 }}>
-                <Grid item xs={12} md={3}>
+                <Grid size={{ xs: 12, md: 3 }}>
                   <Card sx={{ bgcolor: '#4CAF50', color: 'white' }}>
                     <CardContent>
                       <Typography variant="h4" fontWeight={700}>
@@ -307,7 +306,7 @@ export default function CarteraVencidaPage() {
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid item xs={12} md={3}>
+                <Grid size={{ xs: 12, md: 3 }}>
                   <Card sx={{ bgcolor: '#FF9800', color: 'white' }}>
                     <CardContent>
                       <Typography variant="h4" fontWeight={700}>
@@ -318,7 +317,7 @@ export default function CarteraVencidaPage() {
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid item xs={12} md={3}>
+                <Grid size={{ xs: 12, md: 3 }}>
                   <Card sx={{ bgcolor: '#F44336', color: 'white' }}>
                     <CardContent>
                       <Typography variant="h4" fontWeight={700}>
@@ -329,7 +328,7 @@ export default function CarteraVencidaPage() {
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid item xs={12} md={3}>
+                <Grid size={{ xs: 12, md: 3 }}>
                   <Card sx={{ bgcolor: 'grey.800', color: 'white' }}>
                     <CardContent>
                       <Typography variant="h4" fontWeight={700}>

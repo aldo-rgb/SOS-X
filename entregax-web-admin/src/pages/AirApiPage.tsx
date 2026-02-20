@@ -230,8 +230,8 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
     }
   }, [token, receipts]);
 
-  // Cargar datos y opcionalmente sincronizar
-  const loadData = useCallback(async (shouldSync = false) => {
+  // Cargar datos
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       const headers = { Authorization: `Bearer ${token}` };
