@@ -1645,14 +1645,14 @@ export default function InboundEmailsPage() {
                             fontFamily: 'monospace',
                             fontSize: '0.9rem'
                         }}>
-                            [RUTA] - [CLIENTE] - BL [NÚMERO] - [NAVIERA]<br/>
+                            [RUTA] / Week [NÚMERO] / [REFERENCIA]<br/>
                             <Typography variant="caption" color="text.secondary">
-                                Ejemplo: CHN-LZC-MEX - S3117 - BL SA26010033 - COSCO
+                                Ejemplo: CHN-LZC-MEX / Week 2-2 / JSM00-1234
                             </Typography>
                         </Box>
                         <Alert severity="success" sx={{ mt: 1 }} icon={false}>
                             <Typography variant="caption">
-                                💡 <strong>Importante:</strong> El código de cliente (ej: S3117) se usará para asignar automáticamente el envío.
+                                💡 <strong>Importante:</strong> La referencia (ej: JSM00-1234) se usará para identificar el contenedor.
                             </Typography>
                         </Alert>
                     </Box>
@@ -1697,7 +1697,7 @@ export default function InboundEmailsPage() {
                             </li>
                             <li>
                                 <Typography variant="body2">
-                                    <strong>Telex Release</strong> - Archivo PDF o Imagen (JPG/PNG)
+                                    <strong></strong> - Archivo PDF o Imagen (JPG/PNG)
                                 </Typography>
                             </li>
                             <li>
@@ -1833,7 +1833,7 @@ export default function InboundEmailsPage() {
                     </Box>
 
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                        📜 Telex Release - PDF o Imagen
+                        📜 Telex Release / ISF - PDF o Imagen
                     </Typography>
                     <Box sx={{ mb: 2 }}>
                         <input
@@ -1985,12 +1985,15 @@ export default function InboundEmailsPage() {
 
                     <TextField
                         fullWidth
-                        label="Referencia (opcional)"
-                        placeholder="SA26010033"
+                        label="Referencia (obligatoria) *"
+                        placeholder="JSM00-1234"
                         value={lclSubject}
-                        onChange={(e) => setLclSubject(e.target.value)}
+                        onChange={(e) => setLclSubject(e.target.value.toUpperCase())}
                         sx={{ mb: 3 }}
-                        helperText="Referencia adicional como número de consolidación"
+                        error={lclSubject.length > 0 && !/^[A-Z]{3}\d{2}-\d{4}$/.test(lclSubject)}
+                        helperText={lclSubject.length > 0 && !/^[A-Z]{3}\d{2}-\d{4}$/.test(lclSubject) 
+                            ? "Formato inválido. Ej: CHN-LZC-MEX / Week 0-0 / JSM00-1234" 
+                            : "Ej: CHN-LZC-MEX / Week 0-0 / JSM00-1234"}
                     />
 
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
@@ -2014,7 +2017,7 @@ export default function InboundEmailsPage() {
                     </Box>
 
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                        📜 Telex Release - PDF o Imagen
+                        📜 
                     </Typography>
                     <Box sx={{ mb: 2 }}>
                         <input
@@ -2073,10 +2076,10 @@ export default function InboundEmailsPage() {
                     <Button 
                         variant="contained"
                         color="secondary"
-                        disabled={!lclBlFile || !lclRouteId || uploadLoading}
+                        disabled={!lclBlFile || !lclRouteId || !lclSubject || !/^[A-Z]{3}\d{2}-\d{4}$/.test(lclSubject) || uploadLoading}
                         startIcon={uploadLoading ? <CircularProgress size={20} /> : <UploadIcon />}
                         onClick={async () => {
-                            if (!lclBlFile || !lclRouteId) return;
+                            if (!lclBlFile || !lclRouteId || !/^[A-Z]{3}\d{2}-\d{4}$/.test(lclSubject)) return;
                             setUploadLoading(true);
                             try {
                                 const formData = new FormData();

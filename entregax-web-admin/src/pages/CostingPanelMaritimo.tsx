@@ -1353,6 +1353,7 @@ export default function CostingPanelMaritimo() {
                     <TableHead sx={{ bgcolor: '#F5F5F5' }}>
                         <TableRow>
                             <TableCell align="center"><strong>{t('common.actions')}</strong></TableCell>
+                            <TableCell><strong>{t('maritime.reference') || 'Referencia'}</strong></TableCell>
                             <TableCell><strong>{t('maritime.container')}</strong></TableCell>
                             <TableCell><strong>{t('maritime.blNumber')}</strong></TableCell>
                             <TableCell><strong>{t('maritime.route')}</strong></TableCell>
@@ -1361,7 +1362,6 @@ export default function CostingPanelMaritimo() {
                             <TableCell><strong>{t('maritime.status')}</strong></TableCell>
                             <TableCell align="center"><strong>{t('maritime.packages')}</strong></TableCell>
                             <TableCell align="right"><strong>{t('maritime.weight')}</strong></TableCell>
-                            <TableCell align="right"><strong>{t('maritime.cost')}</strong></TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
@@ -1376,6 +1376,11 @@ export default function CostingPanelMaritimo() {
                                             <CalculateIcon />
                                         </IconButton>
                                     </Tooltip>
+                                </TableCell>
+                                <TableCell>
+                                    <Typography sx={{ fontFamily: 'monospace', color: '#666' }}>
+                                        {container.reference_code || '-'}
+                                    </Typography>
                                 </TableCell>
                                 <TableCell>
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1447,28 +1452,11 @@ export default function CostingPanelMaritimo() {
                                 <TableCell align="right">
                                     {container.total_weight_kg?.toLocaleString()} kg
                                 </TableCell>
-                                <TableCell align="right">
-                                    {container.is_fully_costed ? (
-                                        <Chip 
-                                            icon={<CheckCircleIcon />}
-                                            label={`$${container.calculated_release_cost?.toLocaleString() || container.final_cost_mxn?.toLocaleString()}`}
-                                            color="success"
-                                            size="small"
-                                        />
-                                    ) : (
-                                        <Chip 
-                                            icon={<WarningIcon />}
-                                            label={t('maritime.pending')}
-                                            color="warning"
-                                            size="small"
-                                        />
-                                    )}
-                                </TableCell>
                             </TableRow>
                         ))}
                         {containers.length === 0 && !loading && (
                             <TableRow>
-                                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                                <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                                     <Typography color="text.secondary">
                                         {t('maritime.noContainers')}
                                     </Typography>

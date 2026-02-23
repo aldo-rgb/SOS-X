@@ -109,8 +109,8 @@ const getDocumentType = (recipient: string): 'FCL' | 'LCL' | 'LOG' | 'BL' | null
 
 /**
  * Extraer código de ruta, week y referencia del subject del correo
- * Formato esperado: CHN-LZC-MXC - Week 32.1 - JSM26-0030
- * Donde: RUTA - WEEK - REFERENCIA
+ * Formato esperado: CHN-LZC-MEX / Week 2-2 / JSM00-1234
+ * Donde: RUTA / WEEK / REFERENCIA
  */
 const extractRouteFromSubject = async (subject: string): Promise<{ 
   routeId: number | null; 
@@ -124,20 +124,20 @@ const extractRouteFromSubject = async (subject: string): Promise<{
   const routePattern = /\b([A-Z]{2,4}(?:-[A-Z]{2,4}){2,})\b/gi;
   const matches = subject.match(routePattern);
   
-  // Buscar patrón de Week (Week 32, Week 32.1, Week32, etc.)
-  const weekPattern = /\bWeek\s*(\d+(?:\.\d+)?)\b/i;
+  // Buscar patrón de Week (Week 32, Week 32.1, Week 2-2, Week32, etc.)
+  const weekPattern = /\bWeek\s*(\d+(?:[-\.]\d+)?)\b/i;
   const weekMatch = subject.match(weekPattern);
   const weekNumber = weekMatch ? `Week ${weekMatch[1]}` : null;
   
   // Buscar referencia formato AAA00-0000 (3 letras + 2 números + guion + 4 números)
-  // Ejemplos: JSM26-0030, ABC12-1234, XYZ99-0001
+  // Ejemplos: JSM26-0030, ABC12-1234, XYZ99-0001, JSM00-1234
   const refPattern = /\b([A-Z]{3}\d{2}-\d{4})\b/i;
   const refMatch = subject.match(refPattern);
   let referenceCode = (refMatch && refMatch[1]) ? refMatch[1].toUpperCase() : null;
   
-  // Si no encontramos el patrón específico, buscamos el último segmento después de " - "
+  // Si no encontramos el patrón específico, buscamos el último segmento después de " / " o " - "
   if (!referenceCode) {
-    const parts = subject.split(/\s*-\s*/);
+    const parts = subject.split(/\s*[\/\-]\s*/);
     if (parts.length >= 3) {
       // El último segmento podría ser la referencia
       const lastPart = parts[parts.length - 1]?.trim();
@@ -627,19 +627,30 @@ const convertPdfToImage = async (pdfData: string | Buffer): Promise<string> => {
     fs.writeFileSync(tempPdfPath, pdfBuffer);
     console.log('📄 PDF guardado en:', tempPdfPath);
     
-    // Iniciar Puppeteer con Chrome del sistema
-    browser = await puppeteer.launch({
+    // Detectar si estamos en producción (Linux) o desarrollo (macOS)
+    const isProduction = process.env.NODE_ENV === 'production' || !fs.existsSync('/Applications/Google Chrome.app');
+    console.log('🔍 Entorno:', isProduction ? 'Producción (usando Chromium bundled)' : 'Desarrollo (usando Chrome del sistema)');
+    
+    // Iniciar Puppeteer - en producción usar Chromium bundled, en dev usar Chrome del sistema
+    const launchOptions: any = {
       headless: true,
-      executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
       args: [
         '--no-sandbox', 
         '--disable-setuid-sandbox', 
         '--disable-dev-shm-usage',
         '--disable-web-security',
         '--allow-file-access-from-files',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--single-process' // Ayuda en entornos con recursos limitados
       ]
-    });
+    };
+    
+    // Solo usar executablePath en desarrollo local con Chrome disponible
+    if (!isProduction) {
+      launchOptions.executablePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+    }
+    
+    browser = await puppeteer.launch(launchOptions);
     
     const page = await browser.newPage();
     
