@@ -1,7 +1,7 @@
 # 📚 EntregaX - Manual del Programador
 
 > **Última actualización:** 6 de febrero de 2026  
-> **Versión:** 2.1.0
+> **Versión:** 2.2.0
 
 ---
 
@@ -24,10 +24,11 @@
 15. [Sistema de Pagos](#sistema-de-pagos)
 16. [Sistema de Pagos a Proveedores](#sistema-de-pagos-a-proveedores)
 17. [Sistema de Direcciones](#sistema-de-direcciones)
-18. [Módulos Implementados](#módulos-implementados)
-19. [Guía de Desarrollo](#guía-de-desarrollo)
-20. [Credenciales de Prueba](#credenciales-de-prueba)
-21. [Changelog](#changelog)
+18. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo) ⭐ NUEVO
+19. [Módulos Implementados](#módulos-implementados)
+20. [Guía de Desarrollo](#guía-de-desarrollo)
+21. [Credenciales de Prueba](#credenciales-de-prueba)
+22. [Changelog](#changelog)
 
 ---
 
@@ -1563,6 +1564,458 @@ PUT /api/addresses/:id/default
 
 ---
 
+## 🇨🇳 API MJCustomer - China TDI Aéreo
+
+### Descripción General
+
+La integración con **MJCustomer** (api.mjcustomer.com) permite la sincronización automática de envíos desde China. El sistema soporta:
+
+- **Recepción de webhooks** desde MoJie con encriptación DES
+- **Consulta de órdenes** por FNO o Shipping Mark
+- **Tracking de paquetes** en tiempo real
+- **Sincronización automática** cada 15 minutos (cron job)
+
+### Arquitectura de la Integración
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   MJCustomer API Integration                     │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  ┌─────────────────┐         ┌─────────────────┐                 │
+│  │    MJCustomer   │ ──────> │   EntregaX      │                 │
+│  │    (api.mj...)  │ Callback│   /api/china/   │                 │
+│  └────────┬────────┘         └────────┬────────┘                 │
+│           │                           │                          │
+│           │ Pull/Track                │ Save to DB               │
+│           ▼                           ▼                          │
+│  ┌─────────────────┐         ┌─────────────────┐                 │
+│  │   orderByList   │         │ china_receipts  │                 │
+│  │   trajectory    │         │    packages     │                 │
+│  └─────────────────┘         └─────────────────┘                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Archivo Principal
+
+| Archivo | Descripción |
+|---------|-------------|
+| `chinaController.ts` | Controlador principal con todas las funciones MJCustomer |
+
+### Variables de Entorno Requeridas
+
+```bash
+# entregax-backend-api/.env
+MJCUSTOMER_API_URL=http://api.mjcustomer.com
+MJCUSTOMER_API_TOKEN=eyJhbGciOiJIUzI1NiIs...  # Token JWT (168h validez)
+MJCUSTOMER_DES_KEY=ENTREGAX                    # Llave DES para callbacks
+```
+
+### Interfaces TypeScript
+
+```typescript
+// Payload principal de la API MJCustomer
+interface ChinaApiPayload {
+    fno: string;           // "AIR2609..." - Identificador único del envío
+    shippingMark: string;  // "S3019" - Código del cliente (box_id)
+    totalQty: number;      // Total de cajas
+    totalWeight: number;   // Peso total en kg
+    totalVolume: number;   // Volumen total
+    totalCbm: number;      // CBM total
+    file: string[];        // Array de URLs de fotos/evidencias
+    data: ChinaPackageData[]; // Array de cajas individuales
+}
+
+// Datos de cada caja individual
+interface ChinaPackageData {
+    childNo: string;       // "AIR2609...-001" - ID único de la caja
+    trajecotryName: string; // Nombre de la trayectoria (nota: typo en API original)
+    weight: number;        // Peso en kg
+    long: number;          // Largo en cm
+    width: number;         // Ancho en cm
+    height: number;        // Alto en cm
+    proName: string;       // Descripción del producto
+    customsBno: string;    // Código aduanal
+    singleVolume: number;  // Volumen individual
+    singleCbm: number;     // CBM individual
+    billNo?: string;       // Guía aérea internacional
+    etd?: string;          // Fecha estimada de salida
+    eta?: string;          // Fecha estimada de llegada
+}
+
+// Respuesta de trayectoria
+interface TrajectoryResponse {
+    code: number;
+    message: string;
+    result: Array<{
+        ch: string;      // Texto en chino
+        en: string;      // Texto en español/inglés
+        date: string;    // Fecha del evento
+    }>;
+}
+```
+
+### Endpoints Disponibles
+
+#### 🔓 Webhooks (Sin Autenticación)
+
+| Método | Endpoint | Función | Descripción |
+|--------|----------|---------|-------------|
+| POST | `/api/china/receive` | `receiveFromChina` | Webhook directo para recibir datos JSON |
+| POST | `/api/china/callback` | `mojieCallbackEncrypted` | Webhook con datos encriptados DES |
+
+#### 🔐 Endpoints Protegidos (Requieren JWT)
+
+| Método | Endpoint | Función | Descripción |
+|--------|----------|---------|-------------|
+| GET | `/api/china/receipts` | `getChinaReceipts` | Listar todas las recepciones China |
+| POST | `/api/china/receipts` | `createChinaReceipt` | Crear recepción manual |
+| GET | `/api/china/receipts/:id` | `getChinaReceiptDetail` | Detalle de un recibo con sus paquetes |
+| PUT | `/api/china/receipts/:id/status` | `updateChinaReceiptStatus` | Actualizar estado del recibo |
+| POST | `/api/china/receipts/:id/assign` | `assignClientToReceipt` | Asignar cliente a recibo huérfano |
+| GET | `/api/china/stats` | `getChinaStats` | Estadísticas del panel China |
+| POST | `/api/china/mjcustomer/login` | `loginMJCustomerEndpoint` | Login manual en MJCustomer |
+| GET | `/api/china/pull/:orderCode` | `pullFromMJCustomer` | Sincronizar orden desde MJCustomer |
+| POST | `/api/china/pull-batch` | `pullBatchFromMJCustomer` | Sincronización masiva de órdenes |
+| PUT | `/api/china/config/token` | `updateMJCustomerToken` | Actualizar token (rol: Director+) |
+| GET | `/api/china/track/:fno` | `trackFNO` | Rastrear FNO sin guardar en BD |
+| GET | `/api/china/trajectory/:childNo` | `getTrajectory` | Obtener trayectoria detallada |
+
+### Ejemplos de Uso
+
+#### 1. Login Manual en MJCustomer
+```bash
+curl -X POST "http://localhost:3001/api/china/mjcustomer/login" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Respuesta:**
+```json
+{
+  "success": true,
+  "message": "Login exitoso",
+  "tokenPreview": "eyJhbGciOiJIUzI1NiIs...",
+  "expiresAt": "2026-02-12T10:30:00.000Z"
+}
+```
+
+#### 2. Consultar Orden por Código (Pull)
+```bash
+curl -X GET "http://localhost:3001/api/china/pull/S3019" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Respuesta:**
+```json
+{
+  "success": true,
+  "message": "Datos sincronizados desde MJCustomer",
+  "data": [{
+    "fno": "AIR2609001234",
+    "receiptId": 42,
+    "userId": 156,
+    "shippingMark": "S3019",
+    "packagesCreated": 3,
+    "packagesUpdated": 0
+  }],
+  "order": {
+    "fno": "AIR2609001234",
+    "shippingMark": "S3019",
+    "totalQty": 3,
+    "totalWeight": 15.5,
+    "totalCbm": 0.08
+  }
+}
+```
+
+#### 3. Rastrear FNO (Sin Guardar)
+```bash
+curl -X GET "http://localhost:3001/api/china/track/AIR2609001234" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Respuesta:**
+```json
+{
+  "success": true,
+  "tracking": {
+    "fno": "AIR2609001234",
+    "shippingMark": "S3019",
+    "totalQty": 3,
+    "totalWeight": 15.5,
+    "evidencias": ["https://mjcustomer.com/files/photo1.jpg"],
+    "paquetes": [{
+      "childNo": "AIR2609001234-001",
+      "status": "En tránsito aéreo",
+      "peso": 5.2,
+      "dimensiones": "30x25x20 cm",
+      "producto": "Electrónicos",
+      "guiaInternacional": "172-12345678",
+      "etd": "2026-02-08",
+      "eta": "2026-02-15"
+    }]
+  }
+}
+```
+
+#### 4. Obtener Trayectoria de Paquete
+```bash
+curl -X GET "http://localhost:3001/api/china/trajectory/AIR2609001234-001" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Respuesta:**
+```json
+{
+  "success": true,
+  "childNo": "AIR2609001234-001",
+  "eventos": 5,
+  "trayectoria": [
+    { "fecha": "2026-02-05 10:30:00", "descripcion": "Recibido en almacén China" },
+    { "fecha": "2026-02-06 14:20:00", "descripcion": "En proceso de despacho" },
+    { "fecha": "2026-02-07 08:00:00", "descripcion": "Cargado en vuelo" },
+    { "fecha": "2026-02-08 16:30:00", "descripcion": "En tránsito aéreo" }
+  ]
+}
+```
+
+#### 5. Listar Recepciones China
+```bash
+curl -X GET "http://localhost:3001/api/china/receipts?status=in_transit&limit=20" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Respuesta:**
+```json
+{
+  "success": true,
+  "receipts": [{
+    "id": 42,
+    "fno": "AIR2609001234",
+    "shipping_mark": "S3019",
+    "total_qty": 3,
+    "total_weight": 15.5,
+    "status": "in_transit",
+    "client_name": "Juan Pérez",
+    "client_box_id": "ETX-1234",
+    "package_count": 3,
+    "created_at": "2026-02-05T10:30:00Z"
+  }],
+  "total": 15
+}
+```
+
+#### 6. Crear Recepción Manual
+```bash
+curl -X POST "http://localhost:3001/api/china/receipts" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fno": "AIR2609MANUAL001",
+    "shipping_mark": "S3019",
+    "total_qty": 2,
+    "total_weight": 8.5,
+    "notes": "Captura manual - guía física"
+  }'
+```
+
+#### 7. Actualizar Estado del Recibo
+```bash
+curl -X PUT "http://localhost:3001/api/china/receipts/42/status" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "status": "arrived_mexico",
+    "notes": "Llegó al aeropuerto AICM",
+    "internationalTracking": "172-12345678"
+  }'
+```
+
+**Estados Disponibles:**
+| Estado | Descripción | Notificación al Cliente |
+|--------|-------------|------------------------|
+| `received_origin` | Recibido en almacén China | - |
+| `in_transit` | En tránsito internacional | ✈️ En tránsito hacia México |
+| `arrived_mexico` | Llegó a México | 🛬 Ha llegado a México |
+| `in_customs` | En proceso aduanal | 🛃 En liberación aduanal |
+| `at_cedis` | En CEDIS listo para despacho | 📦 Listo para despacho |
+| `dispatched` | Despachado con guía nacional | 🚚 Despachado |
+| `delivered` | Entregado al cliente | ✅ Entregado |
+
+#### 8. Asignar Cliente a Recibo Huérfano
+```bash
+curl -X POST "http://localhost:3001/api/china/receipts/42/assign" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "userId": 156 }'
+```
+
+#### 9. Estadísticas del Panel China
+```bash
+curl -X GET "http://localhost:3001/api/china/stats" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+**Respuesta:**
+```json
+{
+  "success": true,
+  "stats": {
+    "byStatus": [
+      { "status": "received_origin", "count": "12" },
+      { "status": "in_transit", "count": "8" },
+      { "status": "at_cedis", "count": "5" }
+    ],
+    "todayPackages": 15,
+    "unassignedReceipts": 3,
+    "pendingBillNo": 4
+  }
+}
+```
+
+#### 10. Sincronización Masiva (Pull Batch)
+```bash
+curl -X POST "http://localhost:3001/api/china/pull-batch" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{ "orderCodes": ["S3019", "S3020", "S3021"] }'
+```
+
+### Webhook de MoJie (Callback Encriptado)
+
+MoJie puede enviar datos encriptados con DES. El endpoint `/api/china/callback` los procesa automáticamente:
+
+```bash
+# Ejemplo de callback (datos encriptados en Base64)
+curl -X POST "http://localhost:3001/api/china/callback" \
+  -H "Content-Type: application/json" \
+  -d '{ "data": "BASE64_ENCRYPTED_STRING" }'
+```
+
+El sistema:
+1. Detecta si los datos vienen encriptados o en texto plano
+2. Si están encriptados, usa la llave DES configurada (`MJCUSTOMER_DES_KEY`)
+3. Procesa el JSON resultante y crea/actualiza el recibo
+
+### Cron Job: Sincronización Automática
+
+El sistema ejecuta cada 15 minutos la función `syncActiveMJCustomerOrders()`:
+
+```typescript
+// En cronJobs.ts
+cron.schedule('*/15 * * * *', async () => {
+    await syncActiveMJCustomerOrders();
+});
+```
+
+**Comportamiento:**
+- Consulta órdenes con status activo (no `delivered`/`cancelled`)
+- Sincroniza cambios de ETA/ETD, tracking internacional
+- Actualiza status basado en trajectory name
+- Máximo 50 órdenes por ciclo
+- Pausa de 500ms entre requests para no saturar el API
+
+### Tabla de Base de Datos: china_receipts
+
+```sql
+CREATE TABLE china_receipts (
+    id SERIAL PRIMARY KEY,
+    fno VARCHAR(100) UNIQUE,          -- Número de orden MJCustomer
+    user_id INTEGER REFERENCES users(id),
+    shipping_mark VARCHAR(50),         -- Código del cliente
+    total_qty INTEGER DEFAULT 1,
+    total_weight DECIMAL(10,2) DEFAULT 0,
+    total_volume DECIMAL(10,4) DEFAULT 0,
+    total_cbm DECIMAL(10,4) DEFAULT 0,
+    evidence_urls TEXT[],              -- Array de URLs de fotos
+    international_tracking VARCHAR(100),
+    status VARCHAR(50) DEFAULT 'received_origin',
+    source VARCHAR(50) DEFAULT 'api',  -- 'api', 'manual', 'mojie_callback'
+    notes TEXT,
+    last_sync_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Índices
+CREATE INDEX idx_china_receipts_user ON china_receipts(user_id);
+CREATE INDEX idx_china_receipts_status ON china_receipts(status);
+CREATE INDEX idx_china_receipts_shipping_mark ON china_receipts(shipping_mark);
+```
+
+### Campos en Tabla packages para China Air
+
+```sql
+-- Campos específicos de paquetes China Air
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS china_receipt_id INTEGER REFERENCES china_receipts(id);
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS child_no VARCHAR(100) UNIQUE;
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS pro_name VARCHAR(255);
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS customs_bno VARCHAR(100);
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS trajectory_name VARCHAR(255);
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS single_volume DECIMAL(10,4);
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS single_cbm DECIMAL(10,4);
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS international_tracking VARCHAR(100);
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS etd DATE;
+ALTER TABLE packages ADD COLUMN IF NOT EXISTS eta DATE;
+```
+
+### Gestión del Token JWT
+
+El token de MJCustomer tiene validez de **168 horas (7 días)**. El sistema:
+
+1. **Almacena en memoria** para uso inmediato
+2. **Persiste en `system_config`** para sobrevivir reinicios
+3. **Renueva a los 6 días** (1 día de margen)
+4. **Permite actualización manual** vía endpoint (solo Director+)
+
+```sql
+-- Configuración del token en BD
+INSERT INTO system_config (key, value) VALUES 
+  ('mjcustomer_token', 'eyJhbGciOiJIUzI1NiIs...'),
+  ('mjcustomer_token_expiry', '1738934400000');
+```
+
+### Autenticación con MJCustomer
+
+El login usa credenciales pre-encriptadas SM2:
+
+```typescript
+const loginResponse = await fetch(
+    'http://api.mjcustomer.com/api/sysAuth/login',
+    {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json-patch+json',
+            'request-from': 'swagger'
+        },
+        body: JSON.stringify({
+            account: 'h5api',
+            password: 'PASSWORD_SM2_ENCRYPTED',  // Pre-encriptado
+            loginMode: 1
+        })
+    }
+);
+```
+
+### Endpoints de API MJCustomer Consumidos
+
+| Método | Endpoint MJCustomer | Uso |
+|--------|---------------------|-----|
+| POST | `/api/sysAuth/login` | Obtener token JWT |
+| GET | `/api/otherSystem/orderByList/{code}` | Consultar orden por FNO o ShippingMark |
+| POST | `/api/orderInfo/orderSystemByTrajectoryData/{childNo}` | Trayectoria detallada de paquete |
+
+### Troubleshooting
+
+| Error | Causa | Solución |
+|-------|-------|----------|
+| `401 Unauthorized` | Token expirado | Ejecutar login manual o esperar cron |
+| `No token available` | Token no configurado | Configurar `MJCUSTOMER_API_TOKEN` en .env |
+| `Error desencriptación DES` | Llave incorrecta | Verificar `MJCUSTOMER_DES_KEY` |
+| `Usuario no encontrado` | Shipping Mark no coincide | Verificar `box_id` del usuario |
+
+---
+
 ## 📦 Módulos Implementados
 
 ### ✅ Completados
@@ -1589,6 +2042,7 @@ PUT /api/addresses/:id/default
 | **Verificación KYC** ⭐ | GPT-4 Vision para rostros | `verificationController.ts`, `VerificationsPage.tsx` |
 | **Pagos PayPal** ⭐ | Integración PayPal API v2 | `paymentController.ts` |
 | **Direcciones** ⭐ | Gestión de direcciones | `addressController.ts` |
+| **API MJCustomer** ⭐ | China TDI Aéreo (callback, pull, track, sync) | `chinaController.ts`, `china_receipts` |
 
 ### 🚧 Pendientes
 
@@ -1750,6 +2204,24 @@ curl -s "http://localhost:3001/api/warehouse/stats" \
 ---
 
 ## 📝 Changelog
+
+### v2.2.0 (6 Feb 2026) - API MJCUSTOMER CHINA TDI AÉREO ⭐
+- ✅ **Integración MJCustomer API** - Conexión con api.mjcustomer.com
+- ✅ **chinaController.ts** - Controlador completo (1609 líneas)
+- ✅ **Webhook /api/china/receive** - Recepción directa de datos JSON
+- ✅ **Webhook /api/china/callback** - Recepción con encriptación DES
+- ✅ **Pull /api/china/pull/:code** - Sincronización bajo demanda
+- ✅ **Track /api/china/track/:fno** - Rastreo de FNO sin guardar
+- ✅ **Trajectory /api/china/trajectory/:childNo** - Trayectoria detallada
+- ✅ **Pull Batch** - Sincronización masiva de múltiples órdenes
+- ✅ **CRON Job** - Sincronización automática cada 15 minutos
+- ✅ **Tabla china_receipts** - Almacenamiento de recepciones China
+- ✅ **Campos packages** - child_no, pro_name, customs_bno, trajectory, etd, eta
+- ✅ **Sistema de notificaciones** - Alertas por cambio de status
+- ✅ **Login MJCustomer** - Autenticación con SM2 pre-encriptado
+- ✅ **Gestión de token** - Persistencia en BD + renovación automática
+- ✅ **Desencriptación DES** - Para callbacks encriptados de MoJie
+- ✅ **Stats endpoint** - Estadísticas del panel China
 
 ### v2.1.0 (6 Feb 2026) - BODEGAS MULTI-UBICACIÓN & PRICING
 - ✅ **Sistema de Bodegas Multi-Ubicación** - 5 paneles por ubicación geográfica
