@@ -1414,7 +1414,7 @@ export default function CostingPanelMaritimo() {
                                 <TableCell>
                                     {container.week_number ? (
                                         <Chip 
-                                            label={`W${container.week_number}`} 
+                                            label={container.week_number} 
                                             size="small" 
                                             sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 'bold' }}
                                         />

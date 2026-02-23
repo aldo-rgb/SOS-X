@@ -1565,11 +1565,19 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         });
       }
       
-      // Obtener tipo de cambio actual y congelarlo para este contenedor
+      // Obtener tipo de cambio del servicio MARÍTIMO (con sobreprecio incluido)
       const fxResult = await pool.query(`
-        SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1
+        SELECT 
+          COALESCE(
+            es.manual_rate,
+            (SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1) + COALESCE(es.surcharge_amount, 0) + 
+            ((SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1) * COALESCE(es.surcharge_percent, 0) / 100)
+          ) as final_rate
+        FROM exchange_rate_services es
+        WHERE es.service_code = 'maritimo'
       `);
-      const exchangeRate = fxResult.rows[0]?.rate || 20.50;
+      const exchangeRate = parseFloat(fxResult.rows[0]?.final_rate) || 20.50;
+      console.log(`💱 TC Congelado para contenedor: $${exchangeRate} (servicio maritimo)`);
       
       // Extraer week y reference de los datos extraídos del borrador
       const weekNumber = finalData.week_number || null;
