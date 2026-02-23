@@ -1566,15 +1566,11 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
       }
       
       // Obtener tipo de cambio del servicio MARÍTIMO (con sobreprecio incluido)
+      // Obtener TC del servicio marítimo desde exchange_rate_config
       const fxResult = await pool.query(`
-        SELECT 
-          COALESCE(
-            es.manual_rate,
-            (SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1) + COALESCE(es.surcharge_amount, 0) + 
-            ((SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1) * COALESCE(es.surcharge_percent, 0) / 100)
-          ) as final_rate
-        FROM exchange_rate_services es
-        WHERE es.service_code = 'maritimo'
+        SELECT tipo_cambio_final as final_rate
+        FROM exchange_rate_config
+        WHERE servicio = 'maritimo'
       `);
       const exchangeRate = parseFloat(fxResult.rows[0]?.final_rate) || 20.50;
       console.log(`💱 TC Congelado para contenedor: $${exchangeRate} (servicio maritimo)`);
