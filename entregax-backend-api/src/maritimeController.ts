@@ -1306,6 +1306,14 @@ export const getContainerProfitBreakdown = async (req: AuthRequest, res: Respons
       WHERE c.id = $1
     `, [containerId]);
 
+    // Obtener anticipos asignados desde tabla anticipo_referencias
+    const anticiposRes = await pool.query(`
+      SELECT COALESCE(SUM(ar.monto), 0) as total_anticipos
+      FROM anticipo_referencias ar
+      WHERE ar.container_id = $1
+    `, [containerId]);
+    const totalAnticiposFromTable = parseFloat(anticiposRes.rows[0]?.total_anticipos) || 0;
+
     if (containerRes.rows.length === 0) {
       return res.status(404).json({ error: 'Contenedor no encontrado' });
     }
@@ -1493,8 +1501,19 @@ export const getContainerProfitBreakdown = async (req: AuthRequest, res: Respons
     const totalEstimatedRevenueUsd = shipmentsWithCharges.reduce((sum: number, s: any) => sum + s.estimated_charge, 0);
     // Convertir a MXN usando tipo de cambio congelado
     const totalEstimatedRevenueMxn = totalEstimatedRevenueUsd * exchangeRate;
-    // Costo ya está en MXN
-    const totalCost = parseFloat(container.total_cost) || 0;
+    
+    // Calcular costo total real sumando todos los componentes
+    // Incluir anticipos desde tabla anticipo_referencias (no desde campos legacy advance_*_amount)
+    const debitNote = parseFloat(container.debit_note_amount) || 0;
+    const demurrage = parseFloat(container.demurrage_amount) || 0;
+    const storage = parseFloat(container.storage_amount) || 0;
+    const maneuvers = parseFloat(container.maneuvers_amount) || 0;
+    const custody = parseFloat(container.custody_amount) || 0;
+    const transport = parseFloat(container.transport_amount) || 0;
+    const other = parseFloat(container.other_amount) || 0;
+    
+    // Costo total = Naviera (debit+demurrage+storage) + Anticipos + Logística (maniobras+custodia+transporte+otros)
+    const totalCost = debitNote + demurrage + storage + totalAnticiposFromTable + maneuvers + custody + transport + other;
     // Utilidad en MXN
     const estimatedProfit = totalEstimatedRevenueMxn - totalCost;
     const profitMargin = totalEstimatedRevenueMxn > 0 ? ((estimatedProfit / totalEstimatedRevenueMxn) * 100) : 0;
@@ -1516,22 +1535,19 @@ export const getContainerProfitBreakdown = async (req: AuthRequest, res: Respons
       },
       costs: {
         naviera: {
-          debit_note: parseFloat(container.debit_note_amount) || 0,
-          demurrage: parseFloat(container.demurrage_amount) || 0,
-          storage: parseFloat(container.storage_amount) || 0
+          debit_note: debitNote,
+          demurrage: demurrage,
+          storage: storage
         },
         aduana: {
-          customs_aa: parseFloat(container.calculated_aa_cost) || 0
+          customs_aa: totalAnticiposFromTable  // Usar anticipos de tabla real
         },
         logistica: {
-          maneuvers: parseFloat(container.maneuvers_amount) || 0,
-          custody: parseFloat(container.custody_amount) || 0,
-          transport: parseFloat(container.transport_amount) || 0,
-          advances: (parseFloat(container.advance_1_amount) || 0) + 
-                    (parseFloat(container.advance_2_amount) || 0) + 
-                    (parseFloat(container.advance_3_amount) || 0) + 
-                    (parseFloat(container.advance_4_amount) || 0),
-          other: parseFloat(container.other_amount) || 0
+          maneuvers: maneuvers,
+          custody: custody,
+          transport: transport,
+          advances: totalAnticiposFromTable,  // Usar anticipos de tabla real
+          other: other
         },
         total: totalCost
       },
