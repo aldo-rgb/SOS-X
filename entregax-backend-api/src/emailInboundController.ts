@@ -1766,15 +1766,30 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
             // El SUMMARY es la fuente oficial, crear el LOG con toda la información
             console.log(`  📝 LOG ${log.log} no existe - CREANDO con datos del SUMMARY...`);
             
-            // Buscar usuario por legacyClientId o por clientCode
+            // Buscar usuario por legacyClientId -> box_id -> users.box_id
             let shipmentUserId = null;
+            let shippingMark = null;
             
             if (log.legacyClientId) {
-              const userRes = await pool.query(
-                'SELECT id FROM users WHERE legacy_client_id = $1',
-                [log.legacyClientId]
-              );
-              shipmentUserId = userRes.rows[0]?.id || null;
+              try {
+                // Primero obtener el box_id del legacy_client
+                const legacyRes = await pool.query(
+                  'SELECT box_id FROM legacy_clients WHERE id = $1',
+                  [log.legacyClientId]
+                );
+                if (legacyRes.rows.length > 0 && legacyRes.rows[0].box_id) {
+                  shippingMark = legacyRes.rows[0].box_id;
+                  // Buscar usuario que tenga ese box_id
+                  const userRes = await pool.query(
+                    'SELECT id FROM users WHERE box_id = $1',
+                    [shippingMark]
+                  );
+                  shipmentUserId = userRes.rows[0]?.id || null;
+                  console.log(`    → Legacy client ${log.legacyClientId} → box_id=${shippingMark} → user_id=${shipmentUserId}`);
+                }
+              } catch (lookupError: any) {
+                console.log(`    ⚠️ Error buscando usuario para legacy_client ${log.legacyClientId}:`, lookupError.message);
+              }
             }
 
             // Buscar dirección predeterminada para servicio marítimo
@@ -1794,7 +1809,7 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
             }
 
             // Crear el LOG completo con toda la información del SUMMARY
-            // NOTA: shipping_mark se deja NULL porque solo viene de la API de China
+            // Usar shipping_mark si lo encontramos del legacy_client
             // weight y volume se llenan con datos del Summary ya que no hay datos de API
             await pool.query(`
               INSERT INTO maritime_orders 
@@ -1805,11 +1820,11 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
                bl_client_name, bl_client_code, route_id,
                delivery_address_id, instructions_assigned_at,
                sync_source, status, created_at, updated_at)
-              VALUES ($1, $2, NULL, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'summary', 'pending_api', NOW(), NOW())
+              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'summary', 'pending_api', NOW(), NOW())
             `, [
               log.log,
               shipmentUserId,
-              // shipping_mark = NULL (solo viene de API, no del Summary)
+              shippingMark,  // shipping_mark del legacy_client (box_id)
               containerId,
               brandType,
               log.hasBattery || false,
