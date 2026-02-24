@@ -2785,7 +2785,7 @@ export default function CostingPanelMaritimo() {
                                                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                                                             <Typography fontWeight="bold" color="secondary">💰 Cobranza:</Typography>
                                                             <Typography variant="body2" fontWeight="bold">
-                                                                ${formatCurrency(profitData.summary.collected_amount_usd || 0)} / ${formatCurrency(profitData.summary.total_estimated_revenue_usd || 0)} USD
+                                                                ${formatCurrency((profitData.summary.collected_amount_usd || 0) * (profitData.summary.exchange_rate || 1))} / ${formatCurrency(profitData.summary.total_estimated_revenue_mxn || 0)} MXN
                                                             </Typography>
                                                         </Box>
                                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>

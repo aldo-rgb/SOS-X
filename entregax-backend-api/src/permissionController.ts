@@ -435,3 +435,192 @@ export const listUsersWithPanelPermissions = async (req: Request, res: Response)
     res.status(500).json({ error: 'Error al listar usuarios' });
   }
 };
+
+// ============================================
+// 13. OBTENER MÓDULOS DE UN PANEL
+// ============================================
+export const getPanelModules = async (req: Request, res: Response): Promise<any> => {
+  const { panelKey } = req.params;
+
+  try {
+    const result = await pool.query(`
+      SELECT module_key, module_name, description, icon, sort_order
+      FROM admin_panel_modules
+      WHERE panel_key = $1 AND is_active = true
+      ORDER BY sort_order
+    `, [panelKey]);
+
+    res.json({ modules: result.rows });
+  } catch (error) {
+    console.error('Error al obtener módulos del panel:', error);
+    res.status(500).json({ error: 'Error al obtener módulos' });
+  }
+};
+
+// ============================================
+// 14. OBTENER PERMISOS DE MÓDULOS DE UN USUARIO
+// ============================================
+export const getUserModulePermissions = async (req: Request, res: Response): Promise<any> => {
+  const { userId, panelKey } = req.params;
+
+  try {
+    // Obtener info del usuario
+    const userResult = await pool.query(
+      'SELECT id, full_name, email, role FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+
+    const user = userResult.rows[0];
+
+    // Super admin tiene acceso a todo
+    if (user.role === 'super_admin') {
+      const allModules = await pool.query(`
+        SELECT module_key, module_name, description, icon
+        FROM admin_panel_modules 
+        WHERE panel_key = $1 AND is_active = true
+        ORDER BY sort_order
+      `, [panelKey]);
+
+      return res.json({
+        user,
+        permissions: allModules.rows.map((m: any) => ({
+          module_key: m.module_key,
+          module_name: m.module_name,
+          can_view: true,
+          can_edit: true
+        })),
+        isSuperAdmin: true
+      });
+    }
+
+    // Obtener permisos específicos del usuario
+    const permsResult = await pool.query(`
+      SELECT apm.module_key, apm.module_name, apm.description, apm.icon,
+             COALESCE(ump.can_view, false) as can_view,
+             COALESCE(ump.can_edit, false) as can_edit
+      FROM admin_panel_modules apm
+      LEFT JOIN user_module_permissions ump 
+        ON apm.panel_key = ump.panel_key 
+        AND apm.module_key = ump.module_key 
+        AND ump.user_id = $1
+      WHERE apm.panel_key = $2 AND apm.is_active = true
+      ORDER BY apm.sort_order
+    `, [userId, panelKey]);
+
+    res.json({
+      user,
+      permissions: permsResult.rows,
+      isSuperAdmin: false
+    });
+  } catch (error) {
+    console.error('Error al obtener permisos de módulos:', error);
+    res.status(500).json({ error: 'Error al obtener permisos' });
+  }
+};
+
+// ============================================
+// 15. ACTUALIZAR PERMISOS DE MÓDULOS DE UN USUARIO
+// ============================================
+export const updateUserModulePermissions = async (req: Request, res: Response): Promise<any> => {
+  const { userId, panelKey } = req.params;
+  const { permissions } = req.body; // Array de { module_key, can_view, can_edit }
+  const grantedBy = (req as any).user?.id;
+
+  if (!permissions || !Array.isArray(permissions)) {
+    return res.status(400).json({ error: 'Permisos inválidos' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Eliminar permisos anteriores de este panel
+    await client.query(
+      'DELETE FROM user_module_permissions WHERE user_id = $1 AND panel_key = $2',
+      [userId, panelKey]
+    );
+
+    // Insertar nuevos permisos
+    for (const perm of permissions) {
+      if (perm.can_view) {
+        await client.query(`
+          INSERT INTO user_module_permissions (user_id, panel_key, module_key, can_view, can_edit, granted_by)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `, [userId, panelKey, perm.module_key, perm.can_view, perm.can_edit || false, grantedBy]);
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({ 
+      success: true, 
+      userId, 
+      panelKey,
+      count: permissions.filter((p: any) => p.can_view).length 
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error al actualizar permisos de módulos:', error);
+    res.status(500).json({ error: 'Error al actualizar permisos' });
+  } finally {
+    client.release();
+  }
+};
+
+// ============================================
+// 16. OBTENER MIS PERMISOS DE MÓDULOS (Usuario actual)
+// ============================================
+export const getMyModulePermissions = async (req: Request, res: Response): Promise<any> => {
+  const user = (req as any).user;
+  const { panelKey } = req.params;
+
+  if (!user) {
+    return res.status(401).json({ error: 'No autorizado' });
+  }
+
+  try {
+    // Super admin tiene acceso a todo
+    if (user.role === 'super_admin') {
+      const allModules = await pool.query(`
+        SELECT module_key, module_name, description, icon
+        FROM admin_panel_modules 
+        WHERE panel_key = $1 AND is_active = true
+        ORDER BY sort_order
+      `, [panelKey]);
+
+      return res.json({
+        modules: allModules.rows.map((m: any) => ({
+          ...m,
+          can_view: true,
+          can_edit: true
+        })),
+        isSuperAdmin: true
+      });
+    }
+
+    // Obtener permisos específicos del usuario
+    const permsResult = await pool.query(`
+      SELECT apm.module_key, apm.module_name, apm.description, apm.icon,
+             COALESCE(ump.can_view, false) as can_view,
+             COALESCE(ump.can_edit, false) as can_edit
+      FROM admin_panel_modules apm
+      LEFT JOIN user_module_permissions ump 
+        ON apm.panel_key = ump.panel_key 
+        AND apm.module_key = ump.module_key 
+        AND ump.user_id = $1
+      WHERE apm.panel_key = $2 AND apm.is_active = true
+      ORDER BY apm.sort_order
+    `, [user.id, panelKey]);
+
+    res.json({
+      modules: permsResult.rows,
+      isSuperAdmin: false
+    });
+  } catch (error) {
+    console.error('Error al obtener mis permisos de módulos:', error);
+    res.status(500).json({ error: 'Error al obtener permisos' });
+  }
+};

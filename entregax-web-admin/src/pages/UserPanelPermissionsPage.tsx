@@ -56,7 +56,9 @@ import {
   AdminPanelSettings as AdminIcon,
   Build as BuildIcon,
   Inventory as InventoryIcon,
+  Settings as SettingsIcon,
 } from '@mui/icons-material';
+import ModulePermissionsDialog from './ModulePermissionsDialog';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -121,6 +123,10 @@ export default function UserPanelPermissionsPage() {
   const [userPermissions, setUserPermissions] = useState<Record<string, { can_view: boolean; can_edit: boolean }>>({});
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
+
+  // Dialog para permisos de módulos
+  const [moduleDialog, setModuleDialog] = useState(false);
+  const [selectedPanel, setSelectedPanel] = useState<Panel | null>(null);
 
   const token = localStorage.getItem('token');
 
@@ -516,6 +522,7 @@ export default function UserPanelPermissionsPage() {
                           <TableCell>Panel</TableCell>
                           <TableCell align="center">Puede Ver</TableCell>
                           <TableCell align="center">Puede Editar</TableCell>
+                          <TableCell align="center">Módulos</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -565,6 +572,24 @@ export default function UserPanelPermissionsPage() {
                                 }}
                               />
                             </TableCell>
+                            <TableCell align="center">
+                              {/* Botón para configurar módulos solo si el panel tiene módulos */}
+                              {panel.panel_key.startsWith('admin_') && (
+                                <Tooltip title="Configurar permisos de módulos">
+                                  <IconButton
+                                    size="small"
+                                    color="primary"
+                                    onClick={() => {
+                                      setSelectedPanel(panel);
+                                      setModuleDialog(true);
+                                    }}
+                                    disabled={!userPermissions[panel.panel_key]?.can_view}
+                                  >
+                                    <SettingsIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -589,6 +614,28 @@ export default function UserPanelPermissionsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Dialog de permisos de módulos */}
+      {selectedUser && selectedPanel && (
+        <ModulePermissionsDialog
+          open={moduleDialog}
+          onClose={() => {
+            setModuleDialog(false);
+            setSelectedPanel(null);
+          }}
+          userId={selectedUser.id}
+          userName={selectedUser.full_name}
+          panelKey={selectedPanel.panel_key}
+          panelName={selectedPanel.panel_name}
+          onSaved={() => {
+            setSnackbar({ 
+              open: true, 
+              message: 'Permisos de módulos actualizados', 
+              severity: 'success' 
+            });
+          }}
+        />
+      )}
 
       {/* Snackbar */}
       <Snackbar

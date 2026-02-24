@@ -1591,7 +1591,11 @@ import {
   getUserPanelPermissions,
   updateUserPanelPermissions,
   getMyPanelPermissions,
-  listUsersWithPanelPermissions
+  listUsersWithPanelPermissions,
+  getPanelModules,
+  getUserModulePermissions,
+  updateUserModulePermissions,
+  getMyModulePermissions
 } from './permissionController';
 import { requireSuperAdmin } from './authMiddleware';
 
@@ -1845,6 +1849,12 @@ app.get('/api/admin/panels/users', authenticateToken, requireSuperAdmin(), listU
 app.get('/api/admin/panels/user/:userId', authenticateToken, requireSuperAdmin(), getUserPanelPermissions);
 app.put('/api/admin/panels/user/:userId', authenticateToken, requireSuperAdmin(), updateUserPanelPermissions);
 app.get('/api/panels/me', authenticateToken, getMyPanelPermissions);
+
+// Permisos de Módulos por Usuario (granular dentro de cada panel)
+app.get('/api/admin/panels/:panelKey/modules', authenticateToken, requireSuperAdmin(), getPanelModules);
+app.get('/api/admin/panels/:panelKey/user/:userId/modules', authenticateToken, requireSuperAdmin(), getUserModulePermissions);
+app.put('/api/admin/panels/:panelKey/user/:userId/modules', authenticateToken, requireSuperAdmin(), updateUserModulePermissions);
+app.get('/api/modules/:panelKey/me', authenticateToken, getMyModulePermissions);
 
 // Consultas de permisos (cualquier usuario autenticado)
 app.get('/api/permissions/check/:slug', authenticateToken, checkUserPermission);
