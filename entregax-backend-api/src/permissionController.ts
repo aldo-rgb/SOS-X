@@ -359,6 +359,9 @@ export const getMyPanelPermissions = async (req: Request, res: Response): Promis
     return res.status(401).json({ error: 'No autorizado' });
   }
 
+  // Soportar tanto userId como id (diferentes formatos de token)
+  const userId = user.userId || user.id;
+
   try {
     // Super admin tiene acceso a todo
     if (user.role === 'super_admin') {
@@ -382,7 +385,7 @@ export const getMyPanelPermissions = async (req: Request, res: Response): Promis
       LEFT JOIN user_panel_permissions upp ON ap.panel_key = upp.panel_key AND upp.user_id = $1
       WHERE ap.is_active = true
       ORDER BY ap.category, ap.sort_order
-    `, [user.id]);
+    `, [userId]);
 
     res.json({
       panels: permsResult.rows,
@@ -581,6 +584,9 @@ export const getMyModulePermissions = async (req: Request, res: Response): Promi
     return res.status(401).json({ error: 'No autorizado' });
   }
 
+  // Soportar ambos formatos de token (userId o id)
+  const userId = user.userId || user.id;
+
   try {
     // Super admin tiene acceso a todo
     if (user.role === 'super_admin') {
@@ -613,7 +619,7 @@ export const getMyModulePermissions = async (req: Request, res: Response): Promi
         AND ump.user_id = $1
       WHERE apm.panel_key = $2 AND apm.is_active = true
       ORDER BY apm.sort_order
-    `, [user.id, panelKey]);
+    `, [userId, panelKey]);
 
     res.json({
       modules: permsResult.rows,

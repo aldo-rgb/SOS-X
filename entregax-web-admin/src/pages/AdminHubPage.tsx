@@ -3,7 +3,7 @@
 // Vista para gestión administrativa de cada ruta/servicio
 // ============================================
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     Box,
@@ -199,6 +199,9 @@ interface Props {
     users?: any[];
     loading?: boolean;
     onRefresh?: () => void;
+    // Permisos pasados desde App.tsx
+    panelPermissions?: Record<string, boolean>;
+    permissionsReady?: boolean;
 }
 
 interface WarehouseLocation {
@@ -207,8 +210,18 @@ interface WarehouseLocation {
     services: string[];
 }
 
-export default function AdminHubPage({ users = [], loading = false, onRefresh }: Props) {
+// Mapeo de panel_key a código de servicio
+const PANEL_TO_SERVICE: Record<string, string> = {
+    'admin_china_air': 'china_air',
+    'admin_china_sea': 'china_sea',
+    'admin_usa_pobox': 'usa_pobox',
+    'admin_mx_cedis': 'mx_cedis',
+    'admin_mx_national': 'mx_national',
+};
+
+export default function AdminHubPage({ users = [], loading = false, onRefresh, panelPermissions = {}, permissionsReady = false }: Props) {
     const { t } = useTranslation();
+    
     const [selectedService, setSelectedService] = useState<string | null>(null);
     const [selectedModule, setSelectedModule] = useState<string | null>(null);
     const [showGex, setShowGex] = useState(false);
@@ -223,10 +236,19 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
     const [showExchangeRates, setShowExchangeRates] = useState(false);
     const [showCarousel, setShowCarousel] = useState(false);
     const [showCajaChica, setShowCajaChica] = useState(false);
-    const [locations, setLocations] = useState<WarehouseLocation[]>([]);
-    const [loadingLocations, setLoadingLocations] = useState(true);
+    
+    // Estado para permisos de módulos del servicio seleccionado
+    const [modulePermissions, setModulePermissions] = useState<Record<string, boolean>>({});
+    const [modulePermissionsLoading, setModulePermissionsLoading] = useState(false);
+    // Lista estática de servicios - no depende de endpoint que requiere nivel DIRECTOR
+    const SERVICES_LIST = [
+        { code: 'china_air', name: 'China Air', services: ['AIR_CHN_MX'] },
+        { code: 'china_sea', name: 'China Sea', services: ['SEA_CHN_MX'] },
+        { code: 'usa_pobox', name: 'USA PO Box', services: ['POBOX_USA'] },
+        { code: 'mx_cedis', name: 'MX CEDIS', services: ['AA_DHL'] },
+        { code: 'mx_national', name: 'MX National', services: ['NATIONAL'] },
+    ];
 
-    const token = localStorage.getItem('token');
     const savedUser = localStorage.getItem('user');
     const currentUser = savedUser ? JSON.parse(savedUser) : null;
     const isSuperAdmin = currentUser?.role === 'super_admin';
@@ -234,25 +256,74 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
     // Evitar warnings de variables no usadas
     console.debug('AdminHubPage props:', { users: users.length, loading, onRefresh: !!onRefresh });
 
-    // IMPORTANTE: useEffect DEBE estar ANTES de cualquier return condicional
+    // Función para verificar si el usuario tiene permiso para un panel
+    // Usa los permisos pasados desde App.tsx
+    const hasPermission = (panelKey: string): boolean => {
+        if (isSuperAdmin) return true;
+        const result = panelPermissions[panelKey] === true;
+        return result;
+    };
+
+    // Función para verificar si tiene permiso para un servicio (por código)
+    const hasServicePermission = (serviceCode: string): boolean => {
+        if (isSuperAdmin) return true;
+        // Buscar el panel_key correspondiente al servicio
+        const panelKey = Object.entries(PANEL_TO_SERVICE).find(([, code]) => code === serviceCode)?.[0];
+        const result = panelKey ? hasPermission(panelKey) : false;
+        console.log(`🔍 hasServicePermission(${serviceCode}): panelKey=${panelKey}, result=${result}`);
+        return result;
+    };
+
+    // Función para verificar si tiene permiso para un módulo específico
+    const hasModulePermission = useCallback((moduleKey: string): boolean => {
+        if (isSuperAdmin) return true;
+        const result = modulePermissions[moduleKey] === true;
+        console.log(`🔍 hasModulePermission(${moduleKey}): ${result}`);
+        return result;
+    }, [isSuperAdmin, modulePermissions]);
+
+    // Cargar permisos de módulos cuando se selecciona un servicio
     useEffect(() => {
-        const loadLocations = async () => {
-            try {
-                const res = await fetch(`${API_URL}/api/admin/warehouse-locations`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    setLocations(data.locations || []);
+        const fetchModulePermissions = async () => {
+            if (!selectedService || isSuperAdmin) {
+                // Super admin tiene acceso a todo
+                if (isSuperAdmin) {
+                    setModulePermissions({});
                 }
-            } catch (err) {
-                console.error('Error fetching locations:', err);
+                return;
+            }
+
+            const panelKey = Object.entries(PANEL_TO_SERVICE)
+                .find(([, code]) => code === selectedService)?.[0];
+            
+            if (!panelKey) return;
+
+            setModulePermissionsLoading(true);
+            try {
+                const token = localStorage.getItem('token');
+                const response = await fetch(`${API_URL}/api/modules/${panelKey}/me`, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    
+                    // Convertir array a objeto para acceso rápido
+                    const permsObj: Record<string, boolean> = {};
+                    data.modules?.forEach((m: { module_key: string; can_view: boolean }) => {
+                        permsObj[m.module_key] = m.can_view === true;
+                    });
+                    setModulePermissions(permsObj);
+                }
+            } catch (error) {
+                console.error('Error loading module permissions:', error);
             } finally {
-                setLoadingLocations(false);
+                setModulePermissionsLoading(false);
             }
         };
-        loadLocations();
-    }, [token]);
+
+        fetchModulePermissions();
+    }, [selectedService, isSuperAdmin]);
 
     // ============================================
     // RENDER: Página de Garantía Extendida GEX
@@ -1029,16 +1100,27 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                     {t('panels.selectModule')}
                 </Typography>
 
+                {modulePermissionsLoading ? (
+                    <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                        <CircularProgress />
+                    </Box>
+                ) : (
                 <Grid container spacing={2}>
                     {modules
                         .filter((module) => {
-                            // Filtrar módulos por rol
-                            const userRole = currentUser?.role;
-                            if (module.key === 'anticipos') {
-                                // anticipos solo visible para super_admin, admin, director
-                                return ['super_admin', 'admin', 'director'].includes(userRole);
+                            // Super admin ve todo
+                            if (isSuperAdmin) {
+                                // Filtrar anticipos solo para roles específicos
+                                if (module.key === 'anticipos') {
+                                    return ['super_admin', 'admin', 'director'].includes(currentUser?.role);
+                                }
+                                return true;
                             }
-                            return true; // Otros módulos visibles para todos
+                            
+                            // Para otros usuarios, verificar permisos de módulo
+                            const hasAccess = hasModulePermission(module.key);
+                            console.log(`🔍 Module filter: ${module.key} -> hasAccess: ${hasAccess}`);
+                            return hasAccess;
                         })
                         .map((module) => (
                         <Grid size={{ xs: 12, sm: 6, md: 4 }} key={module.key}>
@@ -1090,6 +1172,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         </Grid>
                     ))}
                 </Grid>
+                )}
 
                 {/* Info */}
                 <Alert severity="info" sx={{ mt: 4 }}>
@@ -1102,13 +1185,21 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
     // ============================================
     // RENDER: Hub principal - Grid de servicios
     // ============================================
-    if (loadingLocations) {
+    // Mostrar loading mientras App.tsx carga los permisos
+    if (!permissionsReady && !isSuperAdmin) {
         return (
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
                 <CircularProgress />
             </Box>
         );
     }
+
+    // Filtrar servicios a los que el usuario tiene acceso
+    const availableServices = SERVICES_LIST.filter(svc => {
+        return hasServicePermission(svc.code);
+    });
+    
+    console.log('🎯 availableServices:', availableServices.map(s => s.code));
 
     return (
         <Box sx={{ p: 3 }}>
@@ -1122,9 +1213,16 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                 </Typography>
             </Box>
 
+            {/* Mensaje si no tiene acceso a ningún servicio */}
+            {availableServices.length === 0 && (
+                <Alert severity="info" sx={{ mb: 3 }}>
+                    No tienes acceso a ningún servicio administrativo. Contacta a tu supervisor si necesitas permisos.
+                </Alert>
+            )}
+
             {/* Grid de servicios */}
             <Grid container spacing={3}>
-                {locations.map((location) => {
+                {availableServices.map((location) => {
                     const serviceColors = SERVICE_COLORS[location.code as keyof typeof SERVICE_COLORS];
                     const serviceIcon = SERVICE_ICONS[location.code as keyof typeof SERVICE_ICONS];
                     const modules = SERVICE_MODULES[location.code as keyof typeof SERVICE_MODULES];
@@ -1194,6 +1292,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                 })}
 
                 {/* Tarjeta especial: Verificaciones KYC - ROJO */}
+                {hasPermission('admin_verifications') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
                         sx={{
@@ -1245,8 +1344,10 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         </CardActionArea>
                     </Card>
                 </Grid>
+                )}
 
                 {/* Tarjeta especial: Pago a Proveedores - NARANJA */}
+                {hasPermission('admin_supplier_payments') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
                         sx={{
@@ -1298,6 +1399,62 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         </CardActionArea>
                     </Card>
                 </Grid>
+                )}
+
+                {/* Tarjeta especial: Gestión Financiera - Ahora antes de Sucursales */}
+                {hasPermission('admin_financial') && (
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    <Card
+                        sx={{
+                            height: '100%',
+                            transition: 'all 0.3s ease',
+                            '&:hover': {
+                                transform: 'translateY(-8px)',
+                                boxShadow: 6,
+                            },
+                        }}
+                    >
+                        <CardActionArea
+                            onClick={() => setShowFinancial(true)}
+                            sx={{ height: '100%' }}
+                        >
+                            <Box
+                                sx={{
+                                    background: 'linear-gradient(135deg, #00695C 0%, #4DB6AC 100%)',
+                                    p: 3,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                }}
+                            >
+                                <Box sx={{ color: 'white' }}>
+                                    <WalletIcon sx={{ fontSize: 48 }} />
+                                </Box>
+                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
+                                    💳
+                                </Typography>
+                            </Box>
+                            <CardContent>
+                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                    Gestión Financiera
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                    Monederos de clientes, líneas de crédito B2B y transacciones
+                                </Typography>
+                                <Divider sx={{ my: 1 }} />
+                                <Typography variant="caption" color="text.secondary">
+                                    Admin / Super Admin
+                                </Typography>
+                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+                                    <Chip label="Monedero" size="small" sx={{ bgcolor: '#00695C', color: 'white', fontSize: '0.7rem' }} />
+                                    <Chip label="Crédito" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                    <Chip label="SPEI" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                                </Box>
+                            </CardContent>
+                        </CardActionArea>
+                    </Card>
+                </Grid>
+                )}
 
                 {/* Tarjeta especial: Gestión de Sucursales - VERDE */}
                 {isSuperAdmin && (
@@ -1409,60 +1566,8 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                 </Grid>
                 )}
 
-                {/* Tarjeta especial: Gestión Financiera - AZUL */}
-                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
-                        <CardActionArea
-                            onClick={() => setShowFinancial(true)}
-                            sx={{ height: '100%' }}
-                        >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #1565C0 0%, #42A5F5 100%)',
-                                    p: 3,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <WalletIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    💳
-                                </Typography>
-                            </Box>
-                            <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
-                                    Gestión Financiera
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                    Monederos de clientes, líneas de crédito B2B y transacciones
-                                </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    Admin / Super Admin
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="Monedero" size="small" sx={{ bgcolor: '#1565C0', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="Crédito" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="SPEI" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
-                            </CardContent>
-                        </CardActionArea>
-                    </Card>
-                </Grid>
-
                 {/* Tarjeta especial: Cuentas por Cobrar - ÍNDIGO */}
+                {hasPermission('admin_payment_invoices') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
                         sx={{
@@ -1514,8 +1619,10 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         </CardActionArea>
                     </Card>
                 </Grid>
+                )}
 
                 {/* Tarjeta especial: Tipo de Cambio - VERDE ESMERALDA */}
+                {hasPermission('admin_exchange_rates') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
                         sx={{
@@ -1567,8 +1674,10 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         </CardActionArea>
                     </Card>
                 </Grid>
+                )}
 
                 {/* Tarjeta especial: Carrusel de la App - NARANJA */}
+                {hasPermission('admin_carousel') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
                         sx={{
@@ -1620,8 +1729,10 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         </CardActionArea>
                     </Card>
                 </Grid>
+                )}
 
                 {/* Tarjeta especial: Recursos Humanos - ROSA */}
+                {hasPermission('admin_hr') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
                         sx={{
@@ -1673,8 +1784,10 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         </CardActionArea>
                     </Card>
                 </Grid>
+                )}
 
                 {/* Tarjeta especial: Gestión de Flotilla - MARRÓN */}
+                {hasPermission('admin_fleet') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
                         sx={{
@@ -1726,8 +1839,10 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         </CardActionArea>
                     </Card>
                 </Grid>
+                )}
 
                 {/* Tarjeta especial: Caja Chica - NARANJA */}
+                {isSuperAdmin && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
                         sx={{
@@ -1779,8 +1894,10 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         </CardActionArea>
                     </Card>
                 </Grid>
+                )}
 
                 {/* Tarjeta especial: Módulo GEX - VIOLETA */}
+                {hasPermission('admin_gex') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card
                         sx={{
@@ -1832,6 +1949,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh }:
                         </CardActionArea>
                     </Card>
                 </Grid>
+                )}
             </Grid>
 
             {/* Tip */}

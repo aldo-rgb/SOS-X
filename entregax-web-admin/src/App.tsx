@@ -244,6 +244,81 @@ function App() {
   const [langAnchorEl, setLangAnchorEl] = useState<null | HTMLElement>(null);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [userPanelPermissions, setUserPanelPermissions] = useState<Record<string, boolean>>({});
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+
+  // Cargar permisos del usuario para filtrar menú
+  useEffect(() => {
+    const loadMenuPermissions = async () => {
+      if (!isAuthenticated) {
+        setPermissionsLoaded(false);
+        return;
+      }
+      if (isSuperAdmin) {
+        setPermissionsLoaded(true);
+        return;
+      }
+      const token = localStorage.getItem('token');
+      
+      try {
+        const url = `${API_URL}/panels/me`;
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const permsMap: Record<string, boolean> = {};
+          // El backend retorna "panels" no "permissions"
+          (data.panels || []).forEach((p: { panel_key: string; can_view: boolean }) => {
+            if (p.can_view) {
+              permsMap[p.panel_key] = true;
+            }
+          });
+          setUserPanelPermissions(permsMap);
+          setPermissionsLoaded(true);
+        } else {
+          setPermissionsLoaded(true);
+        }
+      } catch (err) {
+        console.error('Error loading menu permissions:', err);
+        setPermissionsLoaded(true);
+      }
+    };
+    loadMenuPermissions();
+  }, [isAuthenticated, isSuperAdmin]);
+
+  // Función para verificar si tiene algún permiso de servicio a cliente
+  const hasAnyCustomerServicePermission = (): boolean => {
+    if (isSuperAdmin) return true;
+    // Si los permisos aún no cargan, mostrar el menú (se filtrará dentro del componente)
+    if (!permissionsLoaded) return true;
+    return ['cs_leads', 'cs_clients', 'cs_support'].some(key => userPanelPermissions[key]);
+  };
+
+  // Función para verificar si tiene algún permiso de administración
+  const hasAnyAdminPermission = (): boolean => {
+    if (isSuperAdmin) return true;
+    // Si los permisos aún no cargan, mostrar el menú (se filtrará dentro del componente)
+    if (!permissionsLoaded) return true;
+    const adminPanels = [
+      'admin_china_air', 'admin_china_sea', 'admin_usa_pobox', 'admin_mx_cedis', 'admin_mx_national',
+      'admin_verifications', 'admin_supplier_payments', 'admin_financial', 'admin_payment_invoices',
+      'admin_exchange_rates', 'admin_carousel', 'admin_hr', 'admin_fleet', 'admin_gex'
+    ];
+    const hasPermission = adminPanels.some(key => userPanelPermissions[key]);
+    return hasPermission;
+  };
+
+  // Función para verificar si tiene algún permiso de operaciones
+  const hasAnyOperationsPermission = (): boolean => {
+    if (isSuperAdmin) return true;
+    // Si los permisos aún no cargan, mostrar el menú (se filtrará dentro del componente)
+    if (!permissionsLoaded) return true;
+    const opsPanels = ['ops_usa_pobox', 'ops_china_air', 'ops_china_sea', 'ops_mx_cedis', 'ops_mx_national', 'ops_scanner', 'ops_inventory'];
+    return opsPanels.some(key => userPanelPermissions[key]);
+  };
 
   // Menu items with translated text - filtrado por rol
   const menuItems = menuItemsConfig
@@ -268,14 +343,18 @@ function App() {
       // Todos los demás: Dashboard, Herramientas
       return ['dashboard', 'panels'].includes(item.key);
     })
-    .map(item => ({
-      ...item,
-      text: t(`menu.${item.key}`),
-      subItems: item.subItems?.map(sub => ({
-        ...sub,
-        text: t(`menu.${sub.key}`)
-      }))
-    }));
+    .map(item => {
+      // NO filtrar subItems aquí - dejar que cada página interna filtre sus propios permisos
+      // Esto evita problemas de sincronización con el estado de permisos
+      return {
+        ...item,
+        text: t(`menu.${item.key}`),
+        subItems: item.subItems?.map(sub => ({
+          ...sub,
+          text: t(`menu.${sub.key}`)
+        }))
+      };
+    });
 
   // Toggle language
   const toggleLanguage = (lang: string) => {
@@ -630,7 +709,7 @@ function App() {
     // Si hay un submenú seleccionado y estamos en panels
     if (selectedSubIndex !== null && currentMenuKey === 'panels') {
       switch (selectedSubIndex) {
-        case 0: return <AdminHubPage users={users} loading={loading} onRefresh={fetchUsers} />; // Administración
+        case 0: return <AdminHubPage users={users} loading={loading} onRefresh={fetchUsers} panelPermissions={userPanelPermissions} permissionsReady={permissionsLoaded} />; // Administración
         case 1: return <WarehouseHubPage users={users} />; // Operaciones (Bodegas)
         case 2: return <CustomerServiceHubPage users={users} loading={loading} onRefresh={fetchUsers} />; // Servicio a Cliente
         case 3: return <HRManagementPage />; // Recursos Humanos

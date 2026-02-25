@@ -165,7 +165,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
 
         // 4. Determinar permisos y nivel de acceso
         const permissions = ROLE_PERMISSIONS[user.role] || [];
-        const isAdmin = ['super_admin', 'admin', 'branch_manager'].includes(user.role);
+        const isAdmin = ['super_admin', 'admin', 'branch_manager', 'director'].includes(user.role);
         const isStaff = ['advisor', 'sub_advisor', 'counter_staff', 'warehouse_ops', 'customer_service', 'repartidor'].includes(user.role);
 
         // 5. Responder con datos del usuario, token y permisos
