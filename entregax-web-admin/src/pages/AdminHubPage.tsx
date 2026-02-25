@@ -204,12 +204,6 @@ interface Props {
     permissionsReady?: boolean;
 }
 
-interface WarehouseLocation {
-    code: string;
-    name: string;
-    services: string[];
-}
-
 // Mapeo de panel_key a código de servicio
 const PANEL_TO_SERVICE: Record<string, string> = {
     'admin_china_air': 'china_air',

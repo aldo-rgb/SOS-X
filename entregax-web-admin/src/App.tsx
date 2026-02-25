@@ -289,29 +289,6 @@ function App() {
     loadMenuPermissions();
   }, [isAuthenticated, isSuperAdmin]);
 
-  // Función para verificar si tiene algún permiso de administración
-  const hasAnyAdminPermission = (): boolean => {
-    if (isSuperAdmin) return true;
-    // Si los permisos aún no cargan, mostrar el menú (se filtrará dentro del componente)
-    if (!permissionsLoaded) return true;
-    const adminPanels = [
-      'admin_china_air', 'admin_china_sea', 'admin_usa_pobox', 'admin_mx_cedis', 'admin_mx_national',
-      'admin_verifications', 'admin_supplier_payments', 'admin_financial', 'admin_payment_invoices',
-      'admin_exchange_rates', 'admin_carousel', 'admin_hr', 'admin_fleet', 'admin_gex'
-    ];
-    const hasPermission = adminPanels.some(key => userPanelPermissions[key]);
-    return hasPermission;
-  };
-
-  // Función para verificar si tiene algún permiso de operaciones
-  const hasAnyOperationsPermission = (): boolean => {
-    if (isSuperAdmin) return true;
-    // Si los permisos aún no cargan, mostrar el menú (se filtrará dentro del componente)
-    if (!permissionsLoaded) return true;
-    const opsPanels = ['ops_usa_pobox', 'ops_china_air', 'ops_china_sea', 'ops_mx_cedis', 'ops_mx_national', 'ops_scanner', 'ops_inventory'];
-    return opsPanels.some(key => userPanelPermissions[key]);
-  };
-
   // Menu items with translated text - filtrado por rol
   const menuItems = menuItemsConfig
     .filter(item => {

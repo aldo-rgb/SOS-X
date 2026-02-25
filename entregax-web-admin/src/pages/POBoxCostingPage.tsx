@@ -46,7 +46,6 @@ import {
     TrendingUp as TrendingUpIcon,
     Inventory as InventoryIcon,
     AttachMoney as MoneyIcon,
-    LocalShipping as ShippingIcon,
     Payment as PaymentIcon,
     CheckCircle as CheckCircleIcon,
     FilterList as FilterIcon,
@@ -343,7 +342,6 @@ export default function POBoxCostingPage() {
     // ============================================
 
     const unpaidPackages = packages.filter(p => !p.costing_paid);
-    const paidPackages = packages.filter(p => p.costing_paid);
     
     const stats = {
         totalPackages: packages.length,
