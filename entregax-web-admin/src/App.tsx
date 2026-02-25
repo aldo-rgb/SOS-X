@@ -289,14 +289,6 @@ function App() {
     loadMenuPermissions();
   }, [isAuthenticated, isSuperAdmin]);
 
-  // Función para verificar si tiene algún permiso de servicio a cliente
-  const hasAnyCustomerServicePermission = (): boolean => {
-    if (isSuperAdmin) return true;
-    // Si los permisos aún no cargan, mostrar el menú (se filtrará dentro del componente)
-    if (!permissionsLoaded) return true;
-    return ['cs_leads', 'cs_clients', 'cs_support'].some(key => userPanelPermissions[key]);
-  };
-
   // Función para verificar si tiene algún permiso de administración
   const hasAnyAdminPermission = (): boolean => {
     if (isSuperAdmin) return true;
