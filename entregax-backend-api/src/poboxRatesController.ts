@@ -364,7 +364,7 @@ export const getCostingPackages = async (req: Request, res: Response): Promise<v
             dateFilter += ` AND (p.costing_paid IS NULL OR p.costing_paid = FALSE)`;
         }
 
-        // Solo paquetes PO Box USA (shipment_type = 'usa')
+        // Solo paquetes PO Box USA (service_type = 'POBOX_USA')
         const result = await pool.query(`
             SELECT 
                 p.id,
@@ -386,7 +386,7 @@ export const getCostingPackages = async (req: Request, res: Response): Promise<v
                 u.box_id as client_box_id
             FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
-            WHERE p.shipment_type = 'usa'
+            WHERE p.service_type = 'POBOX_USA'
             ${dateFilter}
             ORDER BY p.received_at DESC NULLS LAST, p.created_at DESC
             LIMIT 500
