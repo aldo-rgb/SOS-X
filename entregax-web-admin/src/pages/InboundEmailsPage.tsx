@@ -156,7 +156,7 @@ export default function InboundEmailsPage() {
     const [rejectReason, setRejectReason] = useState('');
     const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
     const [clientSearchOpen, setClientSearchOpen] = useState(false);
-    const [clients, setClients] = useState<Client[]>([]);
+    const [_clients, _setClients] = useState<Client[]>([]);
     const [selectedClient, setSelectedClient] = useState<Client | null>(null);
     
     // Whitelist dialog
@@ -311,7 +311,7 @@ export default function InboundEmailsPage() {
         }
     };
 
-    const loadClients = async (search: string) => {
+    const _loadClients = async (search: string) => {
         if (!search || search.length < 2) return;
         try {
             const res = await fetch(`${API_URL}/api/admin/users?search=${search}&role=client`, {
@@ -319,7 +319,7 @@ export default function InboundEmailsPage() {
             });
             if (res.ok) {
                 const data = await res.json();
-                setClients(data.users || data);
+                _setClients(data.users || data);
             }
         } catch (error) {
             console.error('Error searching clients:', error);
