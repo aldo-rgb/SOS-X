@@ -421,8 +421,8 @@
   "warehouse": {
     "title": "Recepción de Bodega",
     "subtitle": "Registro de paquetes entrantes",
-    "hubTitle": "Herramientas de Operacion",
-    "hubSubtitle": "Selecciona una ubicación para gestionar recepciones",
+    "hubTitle": "Warehouse Hub PO BOX",
+    "hubSubtitle": "Panel exclusivo para gestión de paquetes PO Box USA",
     "backToPanels": "← Volver a Herramientas",
     "backToAllPanels": "← Volver a todas las herramientas",
     "hubTip": "💡 Tip: Cada herramienta muestra solo los servicios asignados a esa ubicación. El staff solo verá la herramienta correspondiente a su ubicación asignada.",

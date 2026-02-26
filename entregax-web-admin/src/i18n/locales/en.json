@@ -421,8 +421,8 @@
   "warehouse": {
     "title": "Warehouse Reception",
     "subtitle": "Incoming package registration",
-    "hubTitle": "Warehouse Tools",
-    "hubSubtitle": "Select a location to manage receptions",
+    "hubTitle": "Warehouse Hub PO BOX",
+    "hubSubtitle": "Exclusive panel for PO Box USA package management",
     "backToPanels": "← Back to Tools",
     "backToAllPanels": "← Back to all tools",
     "hubTip": "💡 Tip: Each tool only shows the services assigned to that location. Staff will only see the tool corresponding to their assigned location.",

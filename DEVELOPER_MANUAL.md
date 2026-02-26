@@ -1,7 +1,7 @@
 # 📚 EntregaX - Manual del Programador
 
 > **Última actualización:** 26 de febrero de 2026  
-> **Versión:** 2.3.0
+> **Versión:** 2.3.2
 
 ---
 
@@ -118,7 +118,8 @@ SOS-X/
 │       ├── addressController.ts     # ⭐ Direcciones de envío del cliente
 │       ├── verificationController.ts # ⭐ Verificación KYC con GPT-4 Vision
 │       ├── paymentController.ts     # ⭐ Pagos con PayPal
-│       └── supplierPaymentController.ts # ⭐ Pagos a proveedores + FX
+│       ├── supplierPaymentController.ts # ⭐ Pagos a proveedores + FX
+│       └── emailInboundController.ts # ⭐ Correos entrantes marítimos + OpenAI BL extraction
 │
 ├── entregax-web-admin/
 │   ├── package.json
@@ -147,7 +148,8 @@ SOS-X/
 │           ├── CommissionsPage.tsx     # ⭐ Comisiones y referidos
 │           ├── SupplierPaymentsPage.tsx # ⭐ Pagos a proveedores
 │           ├── SettingsPage.tsx        # Configuración
-│           └── VerificationsPage.tsx   # ⭐ Verificación de clientes
+│           ├── VerificationsPage.tsx   # ⭐ Verificación de clientes
+│           └── InboundEmailsPage.tsx   # ⭐ Correos entrantes marítimos + extracción IA
 │
 └── entregax-mobile-app/
     ├── package.json
@@ -1369,6 +1371,202 @@ const WAREHOUSE_PANELS = {
 };
 ```
 
+### Flujo PO Box USA - Entrada y Salida
+
+El panel de **PO Box USA** (`usa_pobox`) tiene un flujo especial que diferencia entre **Entrada** (recepción de paquetes) y **Salida** (consolidaciones/despachos).
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Panel PO Box USA                              │
+│                      usa_pobox                                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│   Usuario selecciona "USA PO Box" en WarehouseHubPage           │
+│                         │                                        │
+│                         ▼                                        │
+│   ┌─────────────────────────────────────────────────────┐       │
+│   │           Modal: ¿Qué desea hacer?                  │       │
+│   │                                                     │       │
+│   │  ┌──────────────────┐   ┌──────────────────┐       │       │
+│   │  │  📥 ENTRADA      │   │  📤 SALIDA       │       │       │
+│   │  │  Recibir         │   │  Procesar        │       │       │
+│   │  │  Paquetes        │   │  Despachos       │       │       │
+│   │  └────────┬─────────┘   └────────┬─────────┘       │       │
+│   │           │                      │                  │       │
+│   └───────────│──────────────────────│──────────────────┘       │
+│               ▼                      ▼                           │
+│   ┌───────────────────┐   ┌───────────────────┐                 │
+│   │  ShipmentsPage    │   │ ConsolidationsPage│                 │
+│   │  (Wizard Recibir) │   │ (Control Salidas) │                 │
+│   │  service_type:    │   │                   │                 │
+│   │  POBOX_USA        │   │                   │                 │
+│   └───────────────────┘   └───────────────────┘                 │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Componentes del Flujo
+
+| Modo | Componente | Archivo | Descripción |
+|------|------------|---------|-------------|
+| **Entrada** | `ShipmentsPage` | `ShipmentsPage.tsx` | Wizard para recibir paquetes nuevos |
+| **Salida** | `ConsolidationsPage` | `ConsolidationsPage.tsx` | Control de despachos y consolidaciones |
+
+#### Lógica de Asignación de `service_type`
+
+Cuando se crea un paquete desde el panel PO Box USA:
+
+```typescript
+// WarehouseHubPage.tsx - Pasa warehouseLocation al componente
+<ShipmentsPage users={users} warehouseLocation={selectedPanel} />
+// selectedPanel = 'usa_pobox'
+
+// ShipmentsPage.tsx - Envía warehouseLocation en el payload
+const payload = {
+  boxId,
+  description,
+  boxes: [...],
+  warehouseLocation: warehouseLocation || undefined, // 'usa_pobox'
+};
+
+// packageController.ts - Backend asigna service_type
+const getServiceType = (location?: string): string => {
+    const serviceMap: Record<string, string> = {
+        'usa_pobox': 'POBOX_USA',    // ✅ PO Box USA
+        'china_air': 'AIR_CHN_MX',
+        'china_sea': 'SEA_CHN_MX',
+        'mx_cedis': 'AA_DHL',
+        'mx_national': 'NATIONAL',
+    };
+    return serviceMap[location || ''] || 'AIR_CHN_MX';
+};
+```
+
+### Página de Consolidaciones (ConsolidationsPage)
+
+La página de **Control de Salidas** maneja las solicitudes de despacho generadas por clientes desde la App móvil.
+
+#### Arquitectura
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   ConsolidationsPage.tsx                         │
+│                 Control de Salidas (Consolidaciones)             │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │                    Stats Cards                              │ │
+│  │  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐      │ │
+│  │  │ Por      │ │ Proce-   │ │ En       │ │ Entre-   │      │ │
+│  │  │ Procesar │ │ sando    │ │ Tránsito │ │ gados    │      │ │
+│  │  │ 🟠       │ │ 🔵       │ │ 🔷       │ │ 🟢       │      │ │
+│  │  └──────────┘ └──────────┘ └──────────┘ └──────────┘      │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │                    Tabla de Órdenes                        │ │
+│  │  ┌──────────────────────────────────────────────────────┐ │ │
+│  │  │ ID │ Cliente │ Paquetes │ Peso │ Fecha │ Status │ 🔘 │ │ │
+│  │  │ #1 │ Juan    │    3     │ 5kg  │ Feb26 │ ⏳     │ ✈️ │ │ │
+│  │  │ #2 │ María   │    1     │ 2kg  │ Feb25 │ 🚛     │    │ │ │
+│  │  └──────────────────────────────────────────────────────┘ │ │
+│  └────────────────────────────────────────────────────────────┘ │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Estados de Consolidación
+
+| Status | Label ES | Label EN | Color | Descripción |
+|--------|----------|----------|-------|-------------|
+| `requested` | POR PROCESAR | PENDING | 🟠 warning | Solicitud recibida del cliente |
+| `processing` | PROCESANDO | PROCESSING | 🔵 info | En proceso de preparación |
+| `in_transit` | EN TRÁNSITO | IN TRANSIT | 🔷 primary | Despachado, en camino |
+| `shipped` | ENTREGADO | DELIVERED | 🟢 success | Entregado al cliente final |
+
+#### Endpoints de Consolidaciones
+
+```http
+# Listar consolidaciones
+GET /api/admin/consolidations
+Authorization: Bearer {token}
+
+Response:
+[
+  {
+    "id": 1,
+    "status": "requested",
+    "total_weight": "5.50",
+    "created_at": "2026-02-26T10:30:00Z",
+    "client_name": "Juan Pérez",
+    "box_id": "ETX-5993",
+    "package_count": "3"
+  }
+]
+
+# Despachar consolidación
+PUT /api/admin/consolidations/dispatch
+Authorization: Bearer {token}
+Content-Type: application/json
+
+{
+  "consolidationId": 1,
+  "masterTracking": "AA1234"  // Opcional: vuelo o guía master
+}
+
+Response:
+{
+  "message": "Orden despachada exitosamente",
+  "order": { ... }
+}
+```
+
+#### Flujo de Despacho
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Proceso de Despacho                           │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  1. Cliente solicita envío desde App móvil                      │
+│                    │                                             │
+│                    ▼                                             │
+│  2. Se crea orden con status = 'requested'                      │
+│                    │                                             │
+│                    ▼                                             │
+│  3. Operador ve orden en ConsolidationsPage                     │
+│                    │                                             │
+│                    ▼                                             │
+│  4. Operador hace clic en "Procesar Salida"                     │
+│                    │                                             │
+│                    ▼                                             │
+│  ┌─────────────────────────────────────────┐                    │
+│  │     Modal de Confirmación de Despacho   │                    │
+│  │                                         │                    │
+│  │  • Muestra resumen del cliente          │                    │
+│  │  • Campo opcional: Guía Master/Vuelo    │                    │
+│  │  • Advertencia: notificará al cliente   │                    │
+│  │                                         │                    │
+│  │  [Cancelar]        [Confirmar Despacho] │                    │
+│  └─────────────────────────────────────────┘                    │
+│                    │                                             │
+│                    ▼                                             │
+│  5. Status cambia a 'in_transit'                                │
+│                    │                                             │
+│                    ▼                                             │
+│  6. Cliente recibe notificación push/email                      │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Archivos Relacionados
+
+| Archivo | Ubicación | Propósito |
+|---------|-----------|-----------|
+| `ConsolidationsPage.tsx` | `entregax-web-admin/src/pages/` | UI del panel de consolidaciones |
+| `WarehouseHubPage.tsx` | `entregax-web-admin/src/pages/` | Hub que muestra modal entrada/salida |
+| `packageController.ts` | `entregax-backend-api/src/` | Endpoints de consolidaciones |
+
 ---
 
 ## 💰 Motor de Precios
@@ -2253,11 +2451,209 @@ const loginResponse = await fetch(
 
 ---
 
-## � Panel Marítimo China
+## 🚢 Panel Marítimo China
 
 ### InboundEmailsPage - Recepción de Documentos
 
 El panel de Correos Entrantes permite gestionar documentos marítimos recibidos por email.
+
+### 🤖 Extracción de Datos con IA (OpenAI GPT-4o Vision)
+
+El sistema utiliza **OpenAI GPT-4o Vision** para extraer datos automáticamente de los Bills of Lading (BL) en formato PDF.
+
+#### Flujo de Extracción
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   PDF del BL    │ ──► │  Puppeteer      │ ──► │  OpenAI GPT-4o  │
+│  (data:base64)  │     │  (PDF → PNG)    │     │    Vision       │
+└─────────────────┘     └─────────────────┘     └────────┬────────┘
+                                                         │
+                                                         ▼
+                        ┌─────────────────────────────────────────┐
+                        │  JSON Estructurado con datos del BL      │
+                        │  (blNumber, shipper, consignee, etc.)    │
+                        └─────────────────────────────────────────┘
+```
+
+#### Archivos Involucrados
+
+| Archivo | Función |
+|---------|---------|
+| `emailInboundController.ts` | Controlador principal de extracción |
+| `convertPdfToImage()` | Convierte PDF a PNG usando Puppeteer |
+| `extractBlDataFromUrl()` | Envía imagen a OpenAI y parsea respuesta |
+| `reExtractDraftData()` | Endpoint para re-extraer datos de un draft |
+
+#### Función `convertPdfToImage()`
+
+Convierte un PDF (data URL base64) a imagen PNG para enviar a GPT-4o Vision:
+
+```typescript
+const convertPdfToImage = async (pdfData: string | Buffer): Promise<string> => {
+  // 1. Extraer buffer del data URL
+  const pdfBuffer = Buffer.from(base64Data, 'base64');
+  
+  // 2. Guardar PDF temporalmente
+  const tempPdfPath = path.join(os.tmpdir(), `bl_${Date.now()}.pdf`);
+  fs.writeFileSync(tempPdfPath, pdfBuffer);
+  
+  // 3. Iniciar Puppeteer
+  const browser = await puppeteer.launch({
+    headless: true,
+    // En producción usa Chromium bundled, en dev usa Chrome local
+    executablePath: isProduction ? undefined : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+  
+  // 4. Renderizar PDF y capturar screenshot
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1700, height: 2200, deviceScaleFactor: 2 });
+  await page.goto(`file://${tempPdfPath}`, { waitUntil: 'networkidle0' });
+  
+  // 5. Esperar renderizado y capturar
+  await new Promise(r => setTimeout(r, 5000));
+  const buffer = await page.screenshot({ type: 'png', fullPage: true });
+  
+  // 6. Retornar como data URL PNG
+  return `data:image/png;base64,${buffer.toString('base64')}`;
+};
+```
+
+#### Función `extractBlDataFromUrl()`
+
+Envía la imagen a OpenAI GPT-4o Vision para extraer datos estructurados:
+
+```typescript
+const extractBlDataFromUrl = async (pdfUrl: string): Promise<any> => {
+  // 1. Convertir PDF a imagen
+  const imageUrl = await convertPdfToImage(pdfUrl);
+  
+  // 2. Prompt detallado para GPT-4o
+  const prompt = `Eres un experto en Bills of Lading marítimos...
+    EXTRAE Y DEVUELVE ESTE JSON:
+    {
+      "blNumber": "B/L No. exacto",
+      "containerNumber": "Solo 11 caracteres",
+      "shipper": "Datos del Shipper",
+      "consignee": "Nombre + RFC del Consignee",
+      "vesselName": "Nombre del buque",
+      "voyageNumber": "Número de viaje",
+      "portOfLoading": "Puerto de carga",
+      "portOfDischarge": "Puerto de descarga",
+      "packages": "número total de bultos",
+      "weightKg": "peso bruto total en kg",
+      "volumeCbm": "volumen total CBM",
+      "carrier": "Línea naviera"
+    }`;
+  
+  // 3. Llamar a OpenAI
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: "Experto en BLs marítimos. Responde solo JSON." },
+      { role: "user", content: [
+        { type: "text", text: prompt },
+        { type: "image_url", image_url: { url: imageUrl, detail: "high" } }
+      ]}
+    ],
+    max_tokens: 4096,
+    temperature: 0
+  });
+  
+  // 4. Parsear y retornar JSON
+  return JSON.parse(response.choices[0]?.message?.content || '{}');
+};
+```
+
+#### Endpoint de Re-extracción
+
+```
+POST /api/admin/email/draft/:id/reextract
+```
+
+Re-extrae datos del BL y SUMMARY Excel para un draft existente:
+
+```typescript
+// Frontend (InboundEmailsPage.tsx)
+const handleReExtract = async () => {
+  const res = await fetch(`${API_URL}/api/admin/email/draft/${draftId}/reextract`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data = await res.json();
+  // data.draft.extracted_data contiene los nuevos datos
+};
+```
+
+#### Datos Extraídos (extracted_data)
+
+El JSON `extracted_data` guardado en `maritime_reception_drafts` contiene:
+
+```typescript
+interface ExtractedData {
+  // Datos del BL (extraídos con IA)
+  blNumber: string;           // "SGSIN23052790"
+  containerNumber: string;    // "MSCU6238150"
+  shipper: string;            // "TOP ASIA INT'L CO., LIMITED"
+  consignee: string;          // "URBAN WOD CF, RFC: UWC220711HX0"
+  vesselName: string;         // "SHUN FENG 31"
+  voyageNumber: string;       // "260126000000"
+  portOfLoading: string;      // "NANSHA NEW PORT, CHINA"
+  portOfDischarge: string;    // "LAZARO CARDENAS, MEXICO"
+  packages: number;           // 44
+  weightKg: number;           // 19170
+  volumeCbm: number;          // 44
+  carrier: string;            // "WAN HAI"
+  ladenOnBoard: string;       // "2026-01-15"
+  
+  // Datos del SUMMARY Excel (procesados)
+  logs: LogEntry[];           // Array de LOGs del contenedor
+  summary: {
+    totalLogs: number;
+    linkedToLegacy: number;   // Clientes vinculados
+    pendingLink: number;      // Clientes por vincular
+    byType: { generico: number; sensible: number; logotipo: number; }
+  };
+  
+  // Metadatos
+  route_code: string;         // "CHN-LZC-MXC"
+  week_number: string;        // "Week 8-1"
+  reference_code: string;     // "JSM26-0001"
+}
+```
+
+#### Configuración de OpenAI
+
+**Variable de entorno requerida:**
+```bash
+OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxx
+```
+
+**Inicialización lazy del cliente:**
+```typescript
+// emailInboundController.ts
+let openaiInstance: OpenAI | null = null;
+const getOpenAI = (): OpenAI => {
+  if (!openaiInstance) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY no configurada');
+    }
+    openaiInstance = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return openaiInstance;
+};
+```
+
+#### Troubleshooting
+
+| Problema | Causa | Solución |
+|----------|-------|----------|
+| Datos BL vacíos después de extraer | API Key inválida o con `=` al inicio | Verificar `OPENAI_API_KEY` en Railway |
+| PDF no se convierte | Puppeteer no tiene Chromium | En producción usa bundled, verificar args |
+| `OPENAI_API_KEY no configurada` | Variable no existe | Agregar en `.env` o Railway |
+| Imagen muy pequeña | PDF no renderizó | Aumentar tiempo de espera (5s default) |
+| OpenAI rechaza imagen | Contenido sensible detectado | Reintentar con `detail: "low"` |
 
 #### Modales FCL y LCL
 
@@ -2530,6 +2926,37 @@ curl -s "http://localhost:3001/api/warehouse/stats" \
 ---
 
 ## 📝 Changelog
+
+### v2.3.2 (26 Feb 2026) - DOCUMENTACIÓN PO BOX USA ⭐
+
+#### Flujo PO Box USA - Entrada/Salida
+- ✅ **Documentación completa** - Flujo de entrada (ShipmentsPage) y salida (ConsolidationsPage)
+- ✅ **Modal Entrada/Salida** - Diagrama del modal que diferencia recepción vs despacho
+- ✅ **Asignación service_type** - Documentado cómo `usa_pobox` → `POBOX_USA`
+- ✅ **Mapeo warehouseLocation** - Flujo completo desde frontend hasta base de datos
+
+#### Página de Consolidaciones
+- ✅ **ConsolidationsPage.tsx** - Control de Salidas documentado
+- ✅ **Estados de consolidación** - `requested`, `processing`, `in_transit`, `shipped`
+- ✅ **Endpoints API** - GET/PUT consolidaciones documentados
+- ✅ **Flujo de despacho** - Proceso completo desde solicitud hasta notificación
+- ✅ **Modal de confirmación** - Documentado con campo opcional de guía master
+
+### v2.3.1 (26 Feb 2026) - EXTRACCIÓN IA BL MARÍTIMO ⭐
+
+#### Extracción de Datos con OpenAI GPT-4o Vision
+- ✅ **extractBlDataFromUrl()** - Extrae datos de BL usando GPT-4o Vision
+- ✅ **convertPdfToImage()** - Convierte PDF a PNG con Puppeteer para análisis
+- ✅ **Endpoint reextract** - POST `/api/admin/email/draft/:id/reextract`
+- ✅ **Datos extraídos** - blNumber, containerNumber, shipper, consignee, packages, weight, volume
+- ✅ **Soporte multi-detalle** - Intenta con `detail: "high"`, fallback a `"low"`
+- ✅ **Lazy initialization** - Cliente OpenAI se inicializa solo cuando se necesita
+- ✅ **Puppeteer producción** - Usa Chromium bundled en Railway, Chrome local en dev
+
+#### Fixes
+- ✅ **Fix OPENAI_API_KEY** - Documentado problema de `=` al inicio de la key
+- ✅ **Fix preservación de logs** - Re-extracción BL preserva logs existentes del SUMMARY
+- ✅ **Fix Frontend binding** - `initEditableData()` mapea correctamente extracted_data a editableBL
 
 ### v2.3.0 (26 Feb 2026) - PERMISOS GRANULARES & MARÍTIMO UI ⭐
 

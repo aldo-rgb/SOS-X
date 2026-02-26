@@ -185,6 +185,7 @@ export default function InboundEmailsPage() {
     const [lclTelexFile, setLclTelexFile] = useState<File | null>(null);
     const [lclSummaryFile, setLclSummaryFile] = useState<File | null>(null);
     const [lclSubject, setLclSubject] = useState('');
+    const [lclWeek, setLclWeek] = useState('');
     const [lclRouteId, setLclRouteId] = useState<number | ''>('');
     
     // FCL route
@@ -792,7 +793,7 @@ export default function InboundEmailsPage() {
                                 <TableHead>
                                     <TableRow sx={{ bgcolor: 'grey.100' }}>
                                         <TableCell>Tipo</TableCell>
-                                        <TableCell>Referencia</TableCell>
+                                        <TableCell>Referencia / BL</TableCell>
                                         <TableCell>Cliente</TableCell>
                                         <TableCell>De</TableCell>
                                         <TableCell>Recibido</TableCell>
@@ -2009,11 +2010,6 @@ export default function InboundEmailsPage() {
                             onChange={(e) => {
                                 const routeId = e.target.value as number;
                                 setLclRouteId(routeId);
-                                // Auto-generar subject con el código de ruta
-                                const selectedRoute = routes.find(r => r.id === routeId);
-                                if (selectedRoute) {
-                                    setLclSubject(`${selectedRoute.code} / `);
-                                }
                             }}
                         >
                             {routes.filter(r => r.is_active).map((route) => (
@@ -2035,15 +2031,24 @@ export default function InboundEmailsPage() {
                         )}
                     </FormControl>
 
-                    <TextField
-                        fullWidth
-                        label="Referencia (obligatoria) *"
-                        placeholder="Ruta / Week 0-0 / AAA00-1234"
-                        value={lclSubject}
-                        onChange={(e) => setLclSubject(e.target.value.toUpperCase())}
-                        sx={{ mb: 3 }}
-                        helperText="Ej: CHN-LZC-MXC / Week 8-1 / JSM25-0001"
-                    />
+                    <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+                        <TextField
+                            label="Week *"
+                            placeholder="8-1"
+                            value={lclWeek}
+                            onChange={(e) => setLclWeek(e.target.value)}
+                            sx={{ width: 120 }}
+                            helperText="Ej: 8-1"
+                        />
+                        <TextField
+                            fullWidth
+                            label="Referencia (obligatoria) *"
+                            placeholder="JSM25-0001"
+                            value={lclSubject}
+                            onChange={(e) => setLclSubject(e.target.value.toUpperCase())}
+                            helperText="Ej: JSM25-0001"
+                        />
+                    </Box>
 
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
                         📄 Bill of Lading (BL) - PDF *
@@ -2122,6 +2127,11 @@ export default function InboundEmailsPage() {
                             size="small" 
                         />
                         <Chip 
+                            label={`Week: ${lclWeek ? '✓' : '✗'}`} 
+                            color={lclWeek ? 'success' : 'error'} 
+                            size="small" 
+                        />
+                        <Chip 
                             label={`Ref: ${lclSubject ? '✓' : '✗'}`} 
                             color={lclSubject ? 'success' : 'error'} 
                             size="small" 
@@ -2140,6 +2150,7 @@ export default function InboundEmailsPage() {
                                 setLclTelexFile(null);
                                 setLclSummaryFile(null);
                                 setLclSubject('');
+                                setLclWeek('');
                                 setLclRouteId('');
                             }}
                             disabled={uploadLoading}
@@ -2149,15 +2160,16 @@ export default function InboundEmailsPage() {
                     <Button 
                         variant="contained"
                         color="secondary"
-                        disabled={!lclBlFile || !lclRouteId || !lclSubject || !lclSummaryFile || uploadLoading}
+                        disabled={!lclBlFile || !lclRouteId || !lclSubject || !lclWeek || !lclSummaryFile || uploadLoading}
                         startIcon={uploadLoading ? <CircularProgress size={20} /> : <UploadIcon />}
                         onClick={async () => {
-                            if (!lclBlFile || !lclRouteId || !lclSubject || !lclSummaryFile) return;
+                            if (!lclBlFile || !lclRouteId || !lclSubject || !lclWeek || !lclSummaryFile) return;
                             setUploadLoading(true);
                             try {
                                 const formData = new FormData();
                                 formData.append('shipmentType', 'LCL');
                                 formData.append('subject', lclSubject);
+                                formData.append('weekNumber', lclWeek);
                                 formData.append('routeId', String(lclRouteId));
                                 formData.append('bl', lclBlFile);
                                 if (lclTelexFile) formData.append('telex', lclTelexFile);
@@ -2175,6 +2187,7 @@ export default function InboundEmailsPage() {
                                     setLclTelexFile(null);
                                     setLclSummaryFile(null);
                                     setLclSubject('');
+                                    setLclWeek('');
                                     setLclRouteId('');
                                     loadDrafts();
                                     loadStats();

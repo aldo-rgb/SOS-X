@@ -740,6 +740,7 @@ const convertPdfToImage = async (pdfData: string | Buffer): Promise<string> => {
  */
 const extractBlDataFromUrl = async (pdfUrl: string): Promise<any> => {
   let imageUrl = pdfUrl;
+  let usedFallback = false;
   
   // Si es un PDF, convertirlo a imagen primero
   if (pdfUrl.includes('application/pdf') || pdfUrl.includes('.pdf')) {
@@ -747,13 +748,18 @@ const extractBlDataFromUrl = async (pdfUrl: string): Promise<any> => {
     try {
       imageUrl = await convertPdfToImage(pdfUrl);
       console.log('✅ PDF convertido a imagen exitosamente, longitud:', imageUrl.length);
-    } catch (convError) {
-      console.error('❌ Error convirtiendo PDF:', convError);
-      throw convError;
+    } catch (convError: any) {
+      console.error('❌ Error convirtiendo PDF a imagen:', convError.message);
+      console.log('🔄 Intentando extracción con PDF base64 directamente...');
+      // Fallback: usar el PDF directamente (GPT-4o puede procesar PDFs en base64)
+      imageUrl = pdfUrl;
+      usedFallback = true;
     }
   } else {
     console.log('📸 No es PDF, usando directamente como imagen');
   }
+  
+  console.log(`📤 Enviando a OpenAI GPT-4o (${usedFallback ? 'modo fallback PDF' : 'modo imagen'})...`);
   
   const prompt = `Eres un experto en Bills of Lading marítimos. Extrae los datos de este documento con MÁXIMA PRECISIÓN.
 
@@ -2109,14 +2115,14 @@ export const getEmailStats = async (_req: Request, res: Response): Promise<any> 
  */
 export const uploadManualShipment = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { shipmentType, subject, routeId } = req.body;
+    const { shipmentType, subject, routeId, weekNumber: weekNumberFromForm } = req.body;
     const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
     
     if (!files) {
       return res.status(400).json({ error: 'No se recibieron archivos' });
     }
 
-    console.log('📤 Upload manual:', { shipmentType, subject, routeId, files: Object.keys(files) });
+    console.log('📤 Upload manual:', { shipmentType, subject, routeId, weekNumberFromForm, files: Object.keys(files) });
 
     // Obtener archivos
     const blFile = files['bl']?.[0];
@@ -2209,6 +2215,21 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
       }
       weekNumber = routeExtracted.weekNumber;
       referenceCode = routeExtracted.referenceCode;
+    }
+    
+    // Si viene weekNumber directo del form, usarlo (tiene prioridad)
+    if (weekNumberFromForm) {
+      // Normalizar: si solo viene "8-1" agregar "Week "
+      weekNumber = weekNumberFromForm.toLowerCase().startsWith('week') 
+        ? weekNumberFromForm 
+        : `Week ${weekNumberFromForm}`;
+      console.log('📅 Week desde formulario:', weekNumber);
+    }
+    
+    // Para LCL: usar el subject como referencia directamente si no tiene formato completo
+    if (shipmentType === 'LCL' && subject && !referenceCode) {
+      referenceCode = subject.toUpperCase();
+      console.log('📝 Referencia desde subject (LCL):', referenceCode);
     }
     
     // Guardar week y referencia en extractedData
