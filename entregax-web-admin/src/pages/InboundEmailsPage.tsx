@@ -2117,28 +2117,41 @@ export default function InboundEmailsPage() {
                         </Typography>
                     </Box>
                 </DialogContent>
-                <DialogActions>
+                <DialogActions sx={{ flexDirection: 'column', alignItems: 'stretch', gap: 1, p: 2 }}>
                     {/* Debug: mostrar estado de los campos */}
-                    {(!lclBlFile || !lclRouteId || !lclSubject || !lclSummaryFile) && (
-                        <Typography variant="caption" color="error" sx={{ mr: 'auto', ml: 2 }}>
-                            Faltan: {[
-                                !lclBlFile && 'BL',
-                                !lclRouteId && 'Ruta',
-                                !lclSubject && 'Referencia', 
-                                !lclSummaryFile && 'Summary'
-                            ].filter(Boolean).join(', ')}
-                        </Typography>
-                    )}
-                    <Button 
-                        onClick={() => {
-                            setUploadLCLOpen(false);
-                            setLclBlFile(null);
-                            setLclTelexFile(null);
-                            setLclSummaryFile(null);
-                            setLclSubject('');
-                            setLclRouteId('');
-                        }}
-                        disabled={uploadLoading}
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', justifyContent: 'center', mb: 1 }}>
+                        <Chip 
+                            label={`BL: ${lclBlFile ? '✓' : '✗'}`} 
+                            color={lclBlFile ? 'success' : 'error'} 
+                            size="small" 
+                        />
+                        <Chip 
+                            label={`Ruta: ${lclRouteId ? '✓' : '✗'}`} 
+                            color={lclRouteId ? 'success' : 'error'} 
+                            size="small" 
+                        />
+                        <Chip 
+                            label={`Ref: ${lclSubject ? '✓' : '✗'}`} 
+                            color={lclSubject ? 'success' : 'error'} 
+                            size="small" 
+                        />
+                        <Chip 
+                            label={`Summary: ${lclSummaryFile ? '✓' : '✗'}`} 
+                            color={lclSummaryFile ? 'success' : 'error'} 
+                            size="small" 
+                        />
+                    </Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 2 }}>
+                        <Button 
+                            onClick={() => {
+                                setUploadLCLOpen(false);
+                                setLclBlFile(null);
+                                setLclTelexFile(null);
+                                setLclSummaryFile(null);
+                                setLclSubject('');
+                                setLclRouteId('');
+                            }}
+                            disabled={uploadLoading}
                     >
                         Cancelar
                     </Button>
@@ -2188,6 +2201,7 @@ export default function InboundEmailsPage() {
                     >
                         Subir LCL
                     </Button>
+                    </Box>
                 </DialogActions>
             </Dialog>
 
