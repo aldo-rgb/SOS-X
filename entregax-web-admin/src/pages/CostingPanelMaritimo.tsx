@@ -1652,11 +1652,19 @@ export default function CostingPanelMaritimo() {
                                                     </Typography>
                                                 </Box>
                                             </Box>
-                                            <Box>
-                                                <Typography variant="caption" color="text.secondary">NO. CONTENEDOR</Typography>
-                                                <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>
-                                                    {selectedContainer.container_number || '-'}
-                                                </Typography>
+                                            <Box sx={{ display: 'flex', gap: 3 }}>
+                                                <Box sx={{ flex: 1 }}>
+                                                    <Typography variant="caption" color="text.secondary">NO. CONTENEDOR</Typography>
+                                                    <Typography variant="body2" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>
+                                                        {selectedContainer.container_number || '-'}
+                                                    </Typography>
+                                                </Box>
+                                                <Box sx={{ flex: 1 }}>
+                                                    <Typography variant="caption" color="text.secondary">📅 FECHA DE CAPTURA</Typography>
+                                                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#7B1FA2' }}>
+                                                        {selectedContainer.created_at ? new Date(selectedContainer.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
+                                                    </Typography>
+                                                </Box>
                                             </Box>
                                         </Box>
                                     </CardContent>
@@ -1758,6 +1766,82 @@ export default function CostingPanelMaritimo() {
                                         </Box>
                                     </CardContent>
                                 </Card>
+                            </Grid>
+
+                            {/* Estado de Captura de Costos */}
+                            <Grid size={{ xs: 12 }}>
+                                {(() => {
+                                    // Calcular días transcurridos
+                                    const createdDate = selectedContainer.created_at ? new Date(selectedContainer.created_at) : null;
+                                    const now = new Date();
+                                    const daysSinceCreation = createdDate ? Math.floor((now.getTime() - createdDate.getTime()) / (1000 * 60 * 60 * 24)) : 0;
+                                    
+                                    // Verificar qué campos están capturados
+                                    const costFields = [
+                                        { name: 'Nota de Débito', captured: (costs.debit_note_amount || 0) > 0, amount: costs.debit_note_amount },
+                                        { name: 'Demoras (Demurrage)', captured: (costs.demurrage_amount || 0) > 0, amount: costs.demurrage_amount },
+                                        { name: 'Almacenaje', captured: (costs.storage_amount || 0) > 0, amount: costs.storage_amount },
+                                        { name: 'Maniobras', captured: (costs.maneuvers_amount || 0) > 0, amount: costs.maneuvers_amount },
+                                        { name: 'Custodia', captured: (costs.custody_amount || 0) > 0, amount: costs.custody_amount },
+                                        { name: 'Transporte', captured: (costs.transport_amount || 0) > 0, amount: costs.transport_amount },
+                                    ];
+                                    
+                                    const capturedCount = costFields.filter(f => f.captured).length;
+                                    const isFullyCaptured = capturedCount === costFields.length;
+                                    
+                                    return (
+                                        <Card variant="outlined" sx={{ 
+                                            bgcolor: isFullyCaptured ? '#E8F5E9' : '#FFF3E0',
+                                            border: isFullyCaptured ? '2px solid #4CAF50' : '2px solid #FF9800'
+                                        }}>
+                                            <CardContent>
+                                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                                                    <Typography variant="subtitle1" fontWeight="bold" sx={{ color: isFullyCaptured ? '#2E7D32' : '#E65100' }}>
+                                                        {isFullyCaptured ? '✅' : '⏳'} Estado de Captura de Costos
+                                                    </Typography>
+                                                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                                                        <Chip 
+                                                            label={`${capturedCount}/${costFields.length} campos`}
+                                                            color={isFullyCaptured ? 'success' : 'warning'}
+                                                            size="small"
+                                                        />
+                                                        <Chip 
+                                                            label={isFullyCaptured ? `✓ Completado en ${daysSinceCreation} días` : `⏱️ ${daysSinceCreation} días transcurridos`}
+                                                            color={isFullyCaptured ? 'success' : daysSinceCreation > 7 ? 'error' : 'warning'}
+                                                            variant={isFullyCaptured ? 'filled' : 'outlined'}
+                                                        />
+                                                    </Box>
+                                                </Box>
+                                                
+                                                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                                                    {costFields.map((field, idx) => (
+                                                        <Chip
+                                                            key={idx}
+                                                            label={`${field.captured ? '✓' : '○'} ${field.name}${field.captured ? `: $${formatCurrency(field.amount)}` : ''}`}
+                                                            size="small"
+                                                            sx={{
+                                                                bgcolor: field.captured ? '#C8E6C9' : '#FFECB3',
+                                                                color: field.captured ? '#1B5E20' : '#E65100',
+                                                                fontWeight: field.captured ? 600 : 400,
+                                                            }}
+                                                        />
+                                                    ))}
+                                                </Box>
+                                                
+                                                {!isFullyCaptured && (
+                                                    <Typography variant="caption" sx={{ display: 'block', mt: 1, color: '#E65100' }}>
+                                                        💡 Faltan {costFields.length - capturedCount} campo(s) por capturar. Complete la información en las pestañas de gastos.
+                                                    </Typography>
+                                                )}
+                                                {isFullyCaptured && (
+                                                    <Typography variant="caption" sx={{ display: 'block', mt: 1, color: '#2E7D32' }}>
+                                                        🎉 ¡Todos los costos han sido capturados! El contenedor está listo para facturación.
+                                                    </Typography>
+                                                )}
+                                            </CardContent>
+                                        </Card>
+                                    );
+                                })()}
                             </Grid>
                         </Grid>
                     )}

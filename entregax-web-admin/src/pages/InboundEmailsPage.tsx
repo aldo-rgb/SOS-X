@@ -2118,6 +2118,17 @@ export default function InboundEmailsPage() {
                     </Box>
                 </DialogContent>
                 <DialogActions>
+                    {/* Debug: mostrar estado de los campos */}
+                    {(!lclBlFile || !lclRouteId || !lclSubject || !lclSummaryFile) && (
+                        <Typography variant="caption" color="error" sx={{ mr: 'auto', ml: 2 }}>
+                            Faltan: {[
+                                !lclBlFile && 'BL',
+                                !lclRouteId && 'Ruta',
+                                !lclSubject && 'Referencia', 
+                                !lclSummaryFile && 'Summary'
+                            ].filter(Boolean).join(', ')}
+                        </Typography>
+                    )}
                     <Button 
                         onClick={() => {
                             setUploadLCLOpen(false);
@@ -2134,10 +2145,10 @@ export default function InboundEmailsPage() {
                     <Button 
                         variant="contained"
                         color="secondary"
-                        disabled={!lclBlFile || !lclRouteId || !lclSubject || !/^[A-Z]{3}\d{2}-\d{4}$/.test(lclSubject) || uploadLoading}
+                        disabled={!lclBlFile || !lclRouteId || !lclSubject || !lclSummaryFile || uploadLoading}
                         startIcon={uploadLoading ? <CircularProgress size={20} /> : <UploadIcon />}
                         onClick={async () => {
-                            if (!lclBlFile || !lclRouteId || !/^[A-Z]{3}\d{2}-\d{4}$/.test(lclSubject)) return;
+                            if (!lclBlFile || !lclRouteId || !lclSubject || !lclSummaryFile) return;
                             setUploadLoading(true);
                             try {
                                 const formData = new FormData();
