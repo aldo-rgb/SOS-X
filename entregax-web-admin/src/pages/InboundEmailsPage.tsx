@@ -2021,7 +2021,7 @@ export default function InboundEmailsPage() {
                                 // Auto-generar subject con el código de ruta
                                 const selectedRoute = routes.find(r => r.id === routeId);
                                 if (selectedRoute) {
-                                    setLclSubject(`${selectedRoute.code} / Week 0-0 / AAA00-0000`);
+                                    setLclSubject(`${selectedRoute.code} / `);
                                 }
                             }}
                         >
