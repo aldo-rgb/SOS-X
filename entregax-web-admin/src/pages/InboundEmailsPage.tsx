@@ -189,7 +189,7 @@ export default function InboundEmailsPage() {
     const [lclRouteId, setLclRouteId] = useState<number | ''>('');
     
     // FCL route
-    const [_fclRouteId, _setFclRouteId] = useState<number | ''>('');
+    const [fclRouteId, setFclRouteId] = useState<number | ''>('');
     
     // Maritime routes
     const [routes, setRoutes] = useState<{id: number; code: string; name: string; is_active: boolean}[]>([]);
@@ -565,7 +565,7 @@ export default function InboundEmailsPage() {
         }
     };
 
-    // Asignar cliente
+    // Asignar cliente legacy
     const handleAssignClient = async () => {
         if (!selectedDraft || !selectedClient) return;
         try {
@@ -575,13 +575,21 @@ export default function InboundEmailsPage() {
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${token}`
                 },
-                body: JSON.stringify({ userId: selectedClient.id })
+                body: JSON.stringify({ legacyClientId: selectedClient.id })
             });
 
             if (res.ok) {
                 setSnackbar({ open: true, message: 'Cliente asignado correctamente', severity: 'success' });
                 setClientSearchOpen(false);
                 setSelectedClient(null);
+                // Recargar el draft actual para mostrar el cliente asignado
+                const detailRes = await fetch(`${API_URL}/api/admin/maritime/drafts/${selectedDraft.id}`, {
+                    headers: { Authorization: `Bearer ${token}` }
+                });
+                if (detailRes.ok) {
+                    const updatedDraft = await detailRes.json();
+                    setSelectedDraft(updatedDraft);
+                }
                 loadDrafts();
             } else {
                 const error = await res.json();
@@ -875,16 +883,6 @@ export default function InboundEmailsPage() {
                                                         <ViewIcon />
                                                     </IconButton>
                                                 </Tooltip>
-                                                {draft.pdf_url && (
-                                                    <Tooltip title="Ver BL">
-                                                        <IconButton
-                                                            size="small"
-                                                            onClick={() => window.open(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/admin/email/draft/${draft.id}/pdf/bl`, '_blank')}
-                                                        >
-                                                            <PdfIcon color="error" />
-                                                        </IconButton>
-                                                    </Tooltip>
-                                                )}
                                                 {draft.status === 'draft' && (
                                                     <>
                                                         <Tooltip title="Aprobar">
@@ -1335,22 +1333,25 @@ export default function InboundEmailsPage() {
                                 <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 2 }}>Datos Extraídos del Correo</Typography>
                                 <Paper variant="outlined" sx={{ p: 2, mt: 1, bgcolor: '#E8F5E9' }}>
                                     <Grid container spacing={2}>
-                                        <Grid size={{ xs: 4 }}>
-                                            <TextField
-                                                label="Week"
-                                                size="small"
-                                                fullWidth
-                                                placeholder="Week 1.1"
-                                                value={editableBL?.weekNumber || ''}
-                                                onChange={(e) => editableBL && setEditableBL({...editableBL, weekNumber: e.target.value})}
-                                                slotProps={{
-                                                    input: {
-                                                        sx: { fontWeight: 600, color: '#2E7D32' }
-                                                    }
-                                                }}
-                                            />
-                                        </Grid>
-                                        <Grid size={{ xs: 4 }}>
+                                        {/* Week solo para LCL/LOG, no para FCL/BL */}
+                                        {selectedDraft.document_type !== 'BL' && selectedDraft.document_type !== 'FCL' && (
+                                            <Grid size={{ xs: 4 }}>
+                                                <TextField
+                                                    label="Week"
+                                                    size="small"
+                                                    fullWidth
+                                                    placeholder="Week 1.1"
+                                                    value={editableBL?.weekNumber || ''}
+                                                    onChange={(e) => editableBL && setEditableBL({...editableBL, weekNumber: e.target.value})}
+                                                    slotProps={{
+                                                        input: {
+                                                            sx: { fontWeight: 600, color: '#2E7D32' }
+                                                        }
+                                                    }}
+                                                />
+                                            </Grid>
+                                        )}
+                                        <Grid size={{ xs: (selectedDraft.document_type === 'BL' || selectedDraft.document_type === 'FCL') ? 6 : 4 }}>
                                             <TextField
                                                 label="Referencia (AAA00-0000)"
                                                 size="small"
@@ -1365,7 +1366,7 @@ export default function InboundEmailsPage() {
                                                 }}
                                             />
                                         </Grid>
-                                        <Grid size={{ xs: 4 }}>
+                                        <Grid size={{ xs: (selectedDraft.document_type === 'BL' || selectedDraft.document_type === 'FCL') ? 6 : 4 }}>
                                             <TextField
                                                 label="ETA"
                                                 size="small"
@@ -1384,8 +1385,8 @@ export default function InboundEmailsPage() {
                                     </Grid>
                                 </Paper>
 
-                                {/* Cliente Asignado - Solo para BL, no para LOG que tiene múltiples clientes */}
-                                {selectedDraft.document_type !== 'LOG' && (
+                                {/* Cliente Asignado - Solo para FCL/BL, no para LOG/LCL que tiene múltiples clientes */}
+                                {selectedDraft.document_type !== 'LOG' && selectedDraft.document_type !== 'LCL' && (
                                     <>
                                         <Typography variant="subtitle2" color="text.secondary" sx={{ mt: 2 }}>Cliente Asignado</Typography>
                                         <Paper variant="outlined" sx={{ p: 2, mt: 1 }}>
@@ -1461,6 +1462,22 @@ export default function InboundEmailsPage() {
                                     )}
                                 </Box>
                             </Grid>
+                            
+                            {/* Alerta de campos obligatorios faltantes */}
+                            {(selectedDraft.document_type === 'FCL' || selectedDraft.document_type === 'BL' || selectedDraft.document_type === 'LCL') && (
+                                (!editableBL?.blNumber?.trim() || !editableBL?.containerNumber?.trim() || !editableBL?.referenceCode?.trim()) && (
+                                    <Grid size={{ xs: 12 }}>
+                                        <Alert severity="error" sx={{ mt: 2 }}>
+                                            <strong>Campos obligatorios para aprobar:</strong>
+                                            <ul style={{ margin: '8px 0 0 0', paddingLeft: '20px' }}>
+                                                {!editableBL?.blNumber?.trim() && <li>B/L No. - Número de Bill of Lading</li>}
+                                                {!editableBL?.containerNumber?.trim() && <li>Container Number - Número de contenedor</li>}
+                                                {!editableBL?.referenceCode?.trim() && <li>Referencia - Código de referencia (AAA00-0000)</li>}
+                                            </ul>
+                                        </Alert>
+                                    </Grid>
+                                )
+                            )}
                         </Grid>
                     )}
                 </DialogContent>
@@ -1483,14 +1500,36 @@ export default function InboundEmailsPage() {
                             >
                                 {extracting ? 'Extrayendo...' : 'Extraer Datos'}
                             </Button>
-                            <Button
-                                variant="contained"
-                                color="success"
-                                startIcon={<CheckIcon />}
-                                onClick={() => handleApprove(selectedDraft)}
-                            >
-                                Aprobar y Registrar
-                            </Button>
+                            {/* Validar campos obligatorios para FCL/LCL: BL, Container, Referencia */}
+                            {(() => {
+                                const isFclOrLcl = selectedDraft.document_type === 'FCL' || selectedDraft.document_type === 'BL' || selectedDraft.document_type === 'LCL';
+                                const missingFields: string[] = [];
+                                if (isFclOrLcl) {
+                                    if (!editableBL?.blNumber?.trim()) missingFields.push('B/L No.');
+                                    if (!editableBL?.containerNumber?.trim()) missingFields.push('Container Number');
+                                    if (!editableBL?.referenceCode?.trim()) missingFields.push('Referencia');
+                                }
+                                const canApprove = !isFclOrLcl || missingFields.length === 0;
+                                
+                                return (
+                                    <Tooltip 
+                                        title={!canApprove ? `Campos obligatorios faltantes: ${missingFields.join(', ')}` : ''}
+                                        arrow
+                                    >
+                                        <span>
+                                            <Button
+                                                variant="contained"
+                                                color="success"
+                                                startIcon={<CheckIcon />}
+                                                onClick={() => handleApprove(selectedDraft)}
+                                                disabled={!canApprove}
+                                            >
+                                                Aprobar y Registrar
+                                            </Button>
+                                        </span>
+                                    </Tooltip>
+                                );
+                            })()}
                         </>
                     )}
                 </DialogActions>
@@ -1523,14 +1562,16 @@ export default function InboundEmailsPage() {
                 <DialogTitle>Asignar Cliente</DialogTitle>
                 <DialogContent sx={{ minWidth: 400 }}>
                     <Autocomplete
-                        options={clients}
-                        getOptionLabel={(c) => `${c.full_name} (${c.box_id})`}
+                        options={legacyClients}
+                        getOptionLabel={(c: any) => `${c.full_name} (${c.box_id})`}
+                        loading={searchingClient}
                         value={selectedClient}
                         onChange={(_, v) => setSelectedClient(v)}
-                        onInputChange={(_, v) => loadClients(v)}
+                        onInputChange={(_, v) => searchLegacyClients(v)}
                         renderInput={(params) => (
                             <TextField {...params} label="Buscar cliente..." fullWidth sx={{ mt: 1 }} />
                         )}
+                        noOptionsText="No se encontraron clientes"
                     />
                 </DialogContent>
                 <DialogActions>
@@ -1802,14 +1843,48 @@ export default function InboundEmailsPage() {
                         Sube manualmente los documentos de un embarque FCL. Los archivos serán procesados con IA.
                     </Alert>
 
+                    <FormControl fullWidth sx={{ mb: 3 }}>
+                        <InputLabel>Ruta Marítima *</InputLabel>
+                        <Select
+                            value={fclRouteId}
+                            label="Ruta Marítima *"
+                            onChange={(e) => {
+                                const routeId = e.target.value as number;
+                                setFclRouteId(routeId);
+                                // Auto-generar subject con el código de ruta
+                                const selectedRoute = routes.find(r => r.id === routeId);
+                                if (selectedRoute) {
+                                    setFclSubject(`${selectedRoute.code} / AAA00-0000`);
+                                }
+                            }}
+                        >
+                            {routes.filter(r => r.is_active).map((route) => (
+                                <MenuItem key={route.id} value={route.id}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <BoatIcon fontSize="small" color="primary" />
+                                        <strong>{route.code}</strong>
+                                        <Typography variant="body2" color="text.secondary">
+                                            - {route.name}
+                                        </Typography>
+                                    </Box>
+                                </MenuItem>
+                            ))}
+                        </Select>
+                        {!fclRouteId && (
+                            <Typography variant="caption" color="error" sx={{ mt: 0.5 }}>
+                                Debes seleccionar una ruta para continuar
+                            </Typography>
+                        )}
+                    </FormControl>
+
                     <TextField
                         fullWidth
-                        label="Asunto / Referencia"
-                        placeholder="CHN-LZC-MEX - BL SA26010033 - COSCO"
+                        label="Referencia (obligatoria) *"
+                        placeholder="Ruta / AAA00-0000"
                         value={fclSubject}
-                        onChange={(e) => setFclSubject(e.target.value)}
+                        onChange={(e) => setFclSubject(e.target.value.toUpperCase())}
                         sx={{ mb: 3 }}
-                        helperText="Incluye la ruta (ej: CHN-LZC-MEX) para asignar automáticamente"
+                        helperText="Ej: CHN-LZC-MXC / JSM25-0001"
                     />
 
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
@@ -1883,6 +1958,7 @@ export default function InboundEmailsPage() {
                             setFclTelexFile(null);
                             setFclPackingFile(null);
                             setFclSubject('');
+                            setFclRouteId('');
                         }}
                         disabled={uploadLoading}
                     >
@@ -1890,10 +1966,10 @@ export default function InboundEmailsPage() {
                     </Button>
                     <Button 
                         variant="contained" 
-                        disabled={!fclBlFile || uploadLoading}
+                        disabled={!fclBlFile || !fclRouteId || uploadLoading}
                         startIcon={uploadLoading ? <CircularProgress size={20} /> : <UploadIcon />}
                         onClick={async () => {
-                            if (!fclBlFile) return;
+                            if (!fclBlFile || !fclRouteId) return;
                             setUploadLoading(true);
                             try {
                                 const formData = new FormData();
@@ -1915,6 +1991,7 @@ export default function InboundEmailsPage() {
                                     setFclTelexFile(null);
                                     setFclPackingFile(null);
                                     setFclSubject('');
+                                    setFclRouteId('');
                                     loadDrafts();
                                     loadStats();
                                     setSnackbar({ open: true, message: 'Documentos FCL subidos correctamente', severity: 'success' });
@@ -1960,7 +2037,7 @@ export default function InboundEmailsPage() {
                                 // Auto-generar subject con el código de ruta
                                 const selectedRoute = routes.find(r => r.id === routeId);
                                 if (selectedRoute) {
-                                    setLclSubject(`${selectedRoute.code} - CONSOLIDACION`);
+                                    setLclSubject(`${selectedRoute.code} / Week 0-0 / AAA00-0000`);
                                 }
                             }}
                         >
@@ -1986,14 +2063,11 @@ export default function InboundEmailsPage() {
                     <TextField
                         fullWidth
                         label="Referencia (obligatoria) *"
-                        placeholder="JSM00-1234"
+                        placeholder="Ruta / Week 0-0 / AAA00-1234"
                         value={lclSubject}
                         onChange={(e) => setLclSubject(e.target.value.toUpperCase())}
                         sx={{ mb: 3 }}
-                        error={lclSubject.length > 0 && !/^[A-Z]{3}\d{2}-\d{4}$/.test(lclSubject)}
-                        helperText={lclSubject.length > 0 && !/^[A-Z]{3}\d{2}-\d{4}$/.test(lclSubject) 
-                            ? "Formato inválido. Ej: CHN-LZC-MEX / Week 0-0 / JSM00-1234" 
-                            : "Ej: CHN-LZC-MEX / Week 0-0 / JSM00-1234"}
+                        helperText="Ej: CHN-LZC-MXC / Week 8-1 / JSM25-0001"
                     />
 
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
@@ -2017,7 +2091,7 @@ export default function InboundEmailsPage() {
                     </Box>
 
                     <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-                        📜 
+                        📜 TELEX o ISF
                     </Typography>
                     <Box sx={{ mb: 2 }}>
                         <input

@@ -290,10 +290,10 @@ export const getMasterAwbStats = async (req: Request, res: Response): Promise<vo
                 m.master_awb_number,
                 m.creation_date,
                 m.calc_grand_total as costo_total_operativo,
-                COALESCE(SUM(p.shipping_cost), 0) as venta_total,
-                (COALESCE(SUM(p.shipping_cost), 0) - m.calc_grand_total) as utilidad_mxn,
+                COALESCE(SUM(p.assigned_cost_mxn), 0) as venta_total,
+                (COALESCE(SUM(p.assigned_cost_mxn), 0) - m.calc_grand_total) as utilidad_mxn,
                 CASE WHEN m.calc_grand_total > 0 THEN 
-                    ROUND(((COALESCE(SUM(p.shipping_cost), 0) - m.calc_grand_total) / m.calc_grand_total) * 100, 2)
+                    ROUND(((COALESCE(SUM(p.assigned_cost_mxn), 0) - m.calc_grand_total) / m.calc_grand_total) * 100, 2)
                 ELSE 0 END as margen_porcentaje
             FROM master_air_waybills m
             LEFT JOIN packages p ON p.international_tracking = m.master_awb_number
@@ -330,10 +330,10 @@ export const getProfitReport = async (req: Request, res: Response): Promise<void
                 m.total_boxes,
                 m.total_weight_kg,
                 m.calc_grand_total as costo_total_operativo,
-                COALESCE(SUM(p.shipping_cost), 0) as venta_total,
-                (COALESCE(SUM(p.shipping_cost), 0) - m.calc_grand_total) as utilidad_mxn,
+                COALESCE(SUM(p.assigned_cost_mxn), 0) as venta_total,
+                (COALESCE(SUM(p.assigned_cost_mxn), 0) - m.calc_grand_total) as utilidad_mxn,
                 CASE WHEN m.calc_grand_total > 0 THEN 
-                    ROUND(((COALESCE(SUM(p.shipping_cost), 0) - m.calc_grand_total) / m.calc_grand_total) * 100, 2)
+                    ROUND(((COALESCE(SUM(p.assigned_cost_mxn), 0) - m.calc_grand_total) / m.calc_grand_total) * 100, 2)
                 ELSE 0 END as margen_porcentaje,
                 COUNT(p.id) as packages_linked
             FROM master_air_waybills m

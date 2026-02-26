@@ -33,7 +33,8 @@ import {
   getMyPackages,
   createConsolidation,
   getAdminConsolidations,
-  dispatchConsolidation
+  dispatchConsolidation,
+  assignDeliveryInstructions
 } from './packageController';
 import {
   createPaymentOrder,
@@ -778,7 +779,7 @@ app.get('/api/legacy/verify/:boxId', verifyLegacyBox);
 app.post('/api/legacy/verify-name', verifyLegacyName);
 // Protegidas (para admin)
 app.post('/api/legacy/import', authenticateToken, requireRole(ROLES.SUPER_ADMIN), uploadMiddleware, importLegacyClients);
-app.get('/api/legacy/clients', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER), getLegacyClients);
+app.get('/api/legacy/clients', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.WAREHOUSE_OPS), getLegacyClients);
 app.get('/api/legacy/stats', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER), getLegacyStats);
 app.delete('/api/legacy/clients/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN), deleteLegacyClient);
 
@@ -1542,6 +1543,9 @@ app.delete('/api/maritime-api/routes/:id', authenticateToken, requireMinLevel(RO
 // Endpoints para que los clientes puedan asignar dirección de entrega a sus LOGs marítimos
 app.put('/api/maritime-api/orders/:id/delivery-instructions', authenticateToken, updateDeliveryInstructions);
 app.get('/api/maritime-api/my-orders/:id', authenticateToken, getMyMaritimeOrderDetail);
+
+// Endpoint GENÉRICO para instrucciones de entrega (USA, Marítimo, China Air, DHL)
+app.put('/api/packages/:packageType/:packageId/delivery-instructions', authenticateToken, assignDeliveryInstructions);
 
 // ========== MÓDULO DE INVENTARIO POR SERVICIO ==========
 

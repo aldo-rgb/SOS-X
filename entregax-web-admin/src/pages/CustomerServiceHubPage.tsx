@@ -60,13 +60,14 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
     const loadPermissions = async () => {
       if (isSuperAdmin) return; // Super admin tiene todos los permisos
       try {
-        const res = await fetch(`${API_URL}/api/admin/panels/me`, {
+        const res = await fetch(`${API_URL}/api/panels/me`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {
           const data = await res.json();
           const permsMap: Record<string, { can_view: boolean; can_edit: boolean }> = {};
-          (data.permissions || []).forEach((p: { panel_key: string; can_view: boolean; can_edit: boolean }) => {
+          // La respuesta tiene data.panels con can_view/can_edit
+          (data.panels || []).forEach((p: { panel_key: string; can_view: boolean; can_edit: boolean }) => {
             permsMap[p.panel_key] = { can_view: p.can_view, can_edit: p.can_edit };
           });
           setUserPermissions(permsMap);

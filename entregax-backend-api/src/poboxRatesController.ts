@@ -364,6 +364,7 @@ export const getCostingPackages = async (req: Request, res: Response): Promise<v
             dateFilter += ` AND (p.costing_paid IS NULL OR p.costing_paid = FALSE)`;
         }
 
+        // Solo paquetes PO Box USA (shipment_type = 'usa')
         const result = await pool.query(`
             SELECT 
                 p.id,
@@ -385,18 +386,13 @@ export const getCostingPackages = async (req: Request, res: Response): Promise<v
                 u.box_id as client_box_id
             FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
-            WHERE (p.warehouse_location IN ('usa_pobox', 'china_air')
-               OR p.service_type IN ('POBOX_USA', 'AIR_CHN_MX')
-               OR p.tracking_internal ILIKE 'AIR%'
-               OR p.tracking_internal ILIKE 'US-%'
-               OR p.tracking_internal ILIKE 'US%'
-               OR p.tracking_internal ILIKE 'CN-%')
+            WHERE p.shipment_type = 'usa'
             ${dateFilter}
             ORDER BY p.received_at DESC NULLS LAST, p.created_at DESC
             LIMIT 500
         `, params);
 
-        console.log(`📦 POBox/AIR Packages encontrados: ${result.rows.length}`);
+        console.log(`📦 PO Box USA Packages encontrados: ${result.rows.length}`);
         res.json({ packages: result.rows });
     } catch (error) {
         console.error('Error obteniendo paquetes para costeo:', error);

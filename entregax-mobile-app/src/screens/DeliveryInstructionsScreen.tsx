@@ -175,10 +175,23 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
       // Guardar instrucciones para cada paquete
       for (const currentPkg of allPackages) {
         try {
-          // El ID del paquete marítimo tiene un offset de 100000
-          const realPackageId = currentPkg.id >= 100000 ? currentPkg.id - 100000 : currentPkg.id;
+          // Determinar el tipo de paquete y el endpoint correcto
+          const shipmentType = (currentPkg as any).shipment_type;
+          let endpoint: string;
+          let packageId: number;
           
-          const response = await fetch(`${API_URL}/api/maritime-api/orders/${realPackageId}/delivery-instructions`, {
+          if (shipmentType === 'maritime') {
+            // Órdenes marítimas tienen offset de 100000
+            packageId = currentPkg.id >= 100000 ? currentPkg.id - 100000 : currentPkg.id;
+            endpoint = `${API_URL}/api/maritime-api/orders/${packageId}/delivery-instructions`;
+          } else {
+            // USA, China Air, DHL - usar endpoint genérico
+            packageId = currentPkg.id;
+            const packageType = shipmentType || 'usa'; // Default a USA si no tiene tipo
+            endpoint = `${API_URL}/api/packages/${packageType}/${packageId}/delivery-instructions`;
+          }
+          
+          const response = await fetch(endpoint, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
@@ -290,6 +303,11 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                   <View style={styles.packageListItemStats}>
                     <Text style={styles.packageListStatText}>{currentPkg.weight || 0} kg</Text>
                     <Text style={styles.packageListStatText}>{((currentPkg as any).volume || 0).toFixed(2)} m³</Text>
+                    {estimatedCost && (
+                      <Text style={[styles.packageListStatText, styles.costValueSmall]}>
+                        {formatCurrency(estimatedCost / allPackages.length)}
+                      </Text>
+                    )}
                   </View>
                 </View>
               ))}
@@ -313,9 +331,9 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
               </View>
               {estimatedCost && (
                 <View style={styles.statItem}>
-                  <Text style={styles.statLabel}>Costo Est.</Text>
+                  <Text style={styles.statLabel}>Costo Est. x Caja</Text>
                   <Text style={[styles.statValue, styles.costValue]}>
-                    {formatCurrency(estimatedCost)}
+                    {formatCurrency(estimatedCost / allPackages.length)}
                   </Text>
                 </View>
               )}
@@ -604,6 +622,11 @@ const styles = StyleSheet.create({
   packageListStatText: {
     fontSize: 11,
     color: '#888',
+  },
+  costValueSmall: {
+    color: SEA_COLOR,
+    fontWeight: '600',
+    fontSize: 12,
   },
   packageHeader: {
     flexDirection: 'row',

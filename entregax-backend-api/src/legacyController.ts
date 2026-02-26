@@ -238,15 +238,19 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
                     WHERE box_id ILIKE $1 OR full_name ILIKE $1 OR email ILIKE $1
                 `;
                 
+                // Ordenar priorizando coincidencias exactas en box_id
                 baseQuery = `
                     SELECT lc.*, u.full_name as claimed_by_name
                     FROM legacy_clients lc
                     LEFT JOIN users u ON u.id = lc.claimed_by_user_id
                     WHERE lc.box_id ILIKE $1 OR lc.full_name ILIKE $1 OR lc.email ILIKE $1
-                    ORDER BY lc.created_at DESC
+                    ORDER BY 
+                        CASE WHEN lc.box_id ILIKE $4 THEN 0 ELSE 1 END,
+                        LENGTH(lc.box_id),
+                        lc.box_id
                     LIMIT $2 OFFSET $3
                 `;
-                queryParams = [searchPattern, limitNum, offset];
+                queryParams = [searchPattern, limitNum, offset, words[0]];
                 
                 const countResult = await pool.query(countQuery, [searchPattern]);
                 const total = parseInt(countResult.rows[0].count);

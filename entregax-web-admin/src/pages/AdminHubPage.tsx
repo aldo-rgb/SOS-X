@@ -263,17 +263,13 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
         if (isSuperAdmin) return true;
         // Buscar el panel_key correspondiente al servicio
         const panelKey = Object.entries(PANEL_TO_SERVICE).find(([, code]) => code === serviceCode)?.[0];
-        const result = panelKey ? hasPermission(panelKey) : false;
-        console.log(`🔍 hasServicePermission(${serviceCode}): panelKey=${panelKey}, result=${result}`);
-        return result;
+        return panelKey ? hasPermission(panelKey) : false;
     };
 
     // Función para verificar si tiene permiso para un módulo específico
     const hasModulePermission = useCallback((moduleKey: string): boolean => {
         if (isSuperAdmin) return true;
-        const result = modulePermissions[moduleKey] === true;
-        console.log(`🔍 hasModulePermission(${moduleKey}): ${result}`);
-        return result;
+        return modulePermissions[moduleKey] === true;
     }, [isSuperAdmin, modulePermissions]);
 
     // Cargar permisos de módulos cuando se selecciona un servicio
@@ -1112,9 +1108,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                             }
                             
                             // Para otros usuarios, verificar permisos de módulo
-                            const hasAccess = hasModulePermission(module.key);
-                            console.log(`🔍 Module filter: ${module.key} -> hasAccess: ${hasAccess}`);
-                            return hasAccess;
+                            return hasModulePermission(module.key);
                         })
                         .map((module) => (
                         <Grid size={{ xs: 12, sm: 6, md: 4 }} key={module.key}>

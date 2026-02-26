@@ -1,7 +1,7 @@
 # 📚 EntregaX - Manual del Programador
 
-> **Última actualización:** 6 de febrero de 2026  
-> **Versión:** 2.2.0
+> **Última actualización:** 26 de febrero de 2026  
+> **Versión:** 2.3.0
 
 ---
 
@@ -17,18 +17,20 @@
 8. [Mobile App](#mobile-app)
 9. [Internacionalización (i18n)](#internacionalización-i18n)
 10. [Autenticación y Autorización](#autenticación-y-autorización)
-11. [Sistema de Bodegas Multi-Ubicación](#sistema-de-bodegas-multi-ubicación)
-12. [Motor de Precios](#motor-de-precios)
-13. [Sistema de Facturación Fiscal](#sistema-de-facturación-fiscal)
-14. [Sistema de Verificación KYC](#sistema-de-verificación-kyc)
-15. [Sistema de Pagos](#sistema-de-pagos)
-16. [Sistema de Pagos a Proveedores](#sistema-de-pagos-a-proveedores)
-17. [Sistema de Direcciones](#sistema-de-direcciones)
-18. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo) ⭐ NUEVO
-19. [Módulos Implementados](#módulos-implementados)
-20. [Guía de Desarrollo](#guía-de-desarrollo)
-21. [Credenciales de Prueba](#credenciales-de-prueba)
-22. [Changelog](#changelog)
+11. [Sistema de Permisos Granulares](#sistema-de-permisos-granulares) ⭐ NUEVO
+12. [Sistema de Bodegas Multi-Ubicación](#sistema-de-bodegas-multi-ubicación)
+13. [Motor de Precios](#motor-de-precios)
+14. [Sistema de Facturación Fiscal](#sistema-de-facturación-fiscal)
+15. [Sistema de Verificación KYC](#sistema-de-verificación-kyc)
+16. [Sistema de Pagos](#sistema-de-pagos)
+17. [Sistema de Pagos a Proveedores](#sistema-de-pagos-a-proveedores)
+18. [Sistema de Direcciones](#sistema-de-direcciones)
+19. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo)
+20. [Panel Marítimo China](#panel-marítimo-china) ⭐ NUEVO
+21. [Módulos Implementados](#módulos-implementados)
+22. [Guía de Desarrollo](#guía-de-desarrollo)
+23. [Credenciales de Prueba](#credenciales-de-prueba)
+24. [Changelog](#changelog)
 
 ---
 
@@ -917,6 +919,241 @@ const theme = {
   "boxId": "ETX-1234",
   "iat": 1738654200,
   "exp": 1738740600
+}
+```
+
+---
+
+## 🔐 Sistema de Permisos Granulares
+
+### Arquitectura de Permisos
+
+EntregaX utiliza un sistema de permisos de 3 niveles:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     Sistema de Permisos                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Nivel 1: ROLES (users.role)                                     │
+│  ├── super_admin → Acceso total automático                       │
+│  ├── admin → Requiere permisos explícitos                        │
+│  ├── warehouse_ops → Requiere permisos explícitos                │
+│  └── client → Solo sus propios datos                             │
+│                                                                  │
+│  Nivel 2: PANELES (user_panel_permissions)                       │
+│  ├── admin_china_sea → Marítimo China                            │
+│  ├── admin_china_air → Aéreo China                               │
+│  ├── cs_leads → Central de Leads                                 │
+│  ├── cs_clients → Control de Clientes                            │
+│  └── ... (27 paneles disponibles)                                │
+│                                                                  │
+│  Nivel 3: MÓDULOS (user_module_permissions)                      │
+│  ├── admin_china_sea.consolidations                              │
+│  ├── admin_china_sea.inbound_emails                              │
+│  ├── admin_china_sea.anticipos                                   │
+│  └── ... (38 módulos disponibles)                                │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Tablas de Base de Datos
+
+```sql
+-- Paneles Disponibles
+CREATE TABLE admin_panels (
+  id SERIAL PRIMARY KEY,
+  panel_key VARCHAR(50) UNIQUE NOT NULL,
+  panel_name VARCHAR(100) NOT NULL,
+  description TEXT,
+  icon VARCHAR(50),
+  category VARCHAR(50), -- 'admin', 'customer_service', 'operations'
+  is_active BOOLEAN DEFAULT true
+);
+
+-- Módulos por Panel
+CREATE TABLE admin_panel_modules (
+  id SERIAL PRIMARY KEY,
+  panel_key VARCHAR(50) REFERENCES admin_panels(panel_key),
+  module_key VARCHAR(50) NOT NULL,
+  module_name VARCHAR(100) NOT NULL,
+  description TEXT,
+  icon VARCHAR(50),
+  sort_order INTEGER DEFAULT 0,
+  is_active BOOLEAN DEFAULT true,
+  UNIQUE(panel_key, module_key)
+);
+
+-- Permisos de Usuario por Panel
+CREATE TABLE user_panel_permissions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
+  panel_key VARCHAR(50) NOT NULL,
+  can_view BOOLEAN DEFAULT false,
+  can_edit BOOLEAN DEFAULT false,
+  granted_by INTEGER REFERENCES users(id),
+  granted_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, panel_key)
+);
+
+-- Permisos de Usuario por Módulo
+CREATE TABLE user_module_permissions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
+  panel_key VARCHAR(50) NOT NULL,
+  module_key VARCHAR(50) NOT NULL,
+  can_view BOOLEAN DEFAULT false,
+  can_edit BOOLEAN DEFAULT false,
+  granted_by INTEGER REFERENCES users(id),
+  granted_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, panel_key, module_key)
+);
+```
+
+### Paneles Disponibles
+
+| Panel Key | Nombre | Categoría |
+|-----------|--------|-----------|
+| `admin_china_sea` | Marítimo China | admin |
+| `admin_china_air` | China Aéreo | admin |
+| `admin_usa_pobox` | PO Box USA | admin |
+| `admin_mx_cedis` | CEDIS México | admin |
+| `admin_mx_national` | Nacional México | admin |
+| `admin_gex` | Garantía GEX | admin |
+| `admin_verifications` | Verificaciones KYC | admin |
+| `admin_supplier_payments` | Pago Proveedores | admin |
+| `admin_permissions` | Matriz de Permisos | admin |
+| `admin_financial` | Gestión Financiera | admin |
+| `admin_hr` | Recursos Humanos | admin |
+| `admin_fleet` | Gestión de Flotilla | admin |
+| `cs_leads` | Central de Leads | customer_service |
+| `cs_clients` | Control de Clientes | customer_service |
+| `cs_support` | Centro de Soporte | customer_service |
+| `ops_mx_cedis` | Bodega CEDIS | operations |
+| `ops_usa_pobox` | Recepción PO Box | operations |
+| `ops_china_air` | Recepción China Aéreo | operations |
+| `ops_china_sea` | Recepción China Marítimo | operations |
+
+### Módulos del Panel Marítimo (admin_china_sea)
+
+| Module Key | Nombre | Descripción |
+|------------|--------|-------------|
+| `consolidations` | Consolidaciones | Gestión de contenedores |
+| `inbound_emails` | Correos Entrantes | Recepción de documentos |
+| `maritime_api` | API Marítima | Sincronización con China |
+| `anticipos` | Anticipos | Control de pagos anticipados |
+| `reports` | Reportes | Informes y estadísticas |
+| `costing` | Costeo | Costos por contenedor |
+| `inventory` | Inventario | Control de mercancía |
+| `pricing` | Precios | Tarifas y cotizaciones |
+| `invoicing` | Facturación | CFDI y facturación |
+| `instructions` | Instrucciones | Guías de embarque |
+| `routes` | Rutas | Gestión de rutas marítimas |
+
+### Endpoints de Permisos
+
+```typescript
+// Obtener mis permisos de panel
+GET /api/panels/me
+→ { panels: [{ panel_key, panel_name, can_view, can_edit }, ...] }
+
+// Obtener mis permisos de módulos de un panel
+GET /api/modules/:panelKey/me
+→ { modules: [{ module_key, module_name, can_view, can_edit }, ...] }
+
+// Admin: Lista todos los paneles
+GET /api/admin/panels
+→ { panels: [...] }
+
+// Admin: Permisos de un usuario específico
+GET /api/admin/panels/user/:userId
+→ { permissions: [...] }
+
+// Admin: Actualizar permisos de panel
+PUT /api/admin/panels/user/:userId
+→ Body: { permissions: [{ panel_key, can_view, can_edit }] }
+
+// Admin: Módulos de un panel
+GET /api/admin/panels/:panelKey/modules
+→ { modules: [...] }
+
+// Admin: Actualizar permisos de módulos
+PUT /api/admin/panels/:panelKey/user/:userId/modules
+→ Body: { permissions: [{ module_key, can_view, can_edit }] }
+```
+
+### Uso en Frontend
+
+```typescript
+// CustomerServiceHubPage.tsx - Cargar permisos de panel
+useEffect(() => {
+  const loadPermissions = async () => {
+    if (isSuperAdmin) return;
+    const res = await fetch(`${API_URL}/api/panels/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const permsMap: Record<string, boolean> = {};
+      data.panels?.forEach((p) => {
+        permsMap[p.panel_key] = p.can_view === true;
+      });
+      setUserPermissions(permsMap);
+    }
+  };
+  loadPermissions();
+}, [token, isSuperAdmin]);
+
+// AdminHubPage.tsx - Cargar permisos de módulos
+useEffect(() => {
+  const fetchModulePermissions = async () => {
+    if (isSuperAdmin) return;
+    const res = await fetch(`${API_URL}/api/modules/${panelKey}/me`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const permsObj: Record<string, boolean> = {};
+      data.modules?.forEach((m) => {
+        permsObj[m.module_key] = m.can_view === true;
+      });
+      setModulePermissions(permsObj);
+    }
+  };
+  fetchModulePermissions();
+}, [panelKey, isSuperAdmin]);
+```
+
+### Script para Asignar Todos los Permisos
+
+```javascript
+// Asignar permisos completos a un usuario admin
+const userId = 62; // Juan Segura
+
+// 1. Asignar permisos de todos los paneles
+const panels = await pool.query(
+  `SELECT panel_key FROM admin_panels WHERE is_active = true`
+);
+for (const panel of panels.rows) {
+  await pool.query(`
+    INSERT INTO user_panel_permissions (user_id, panel_key, can_view, can_edit)
+    VALUES ($1, $2, true, true)
+    ON CONFLICT (user_id, panel_key) 
+    DO UPDATE SET can_view = true, can_edit = true
+  `, [userId, panel.panel_key]);
+}
+
+// 2. Asignar permisos de todos los módulos
+const modules = await pool.query(
+  `SELECT panel_key, module_key FROM admin_panel_modules WHERE is_active = true`
+);
+for (const mod of modules.rows) {
+  await pool.query(`
+    INSERT INTO user_module_permissions (user_id, panel_key, module_key, can_view, can_edit)
+    VALUES ($1, $2, $3, true, true)
+    ON CONFLICT (user_id, panel_key, module_key) 
+    DO UPDATE SET can_view = true, can_edit = true
+  `, [userId, mod.panel_key, mod.module_key]);
 }
 ```
 
@@ -2016,7 +2253,96 @@ const loginResponse = await fetch(
 
 ---
 
-## 📦 Módulos Implementados
+## � Panel Marítimo China
+
+### InboundEmailsPage - Recepción de Documentos
+
+El panel de Correos Entrantes permite gestionar documentos marítimos recibidos por email.
+
+#### Modales FCL y LCL
+
+Dos tipos de carga con diferentes formatos de referencia:
+
+| Tipo | Formato de Referencia | Ejemplo |
+|------|----------------------|---------|
+| **FCL** (Full Container Load) | `RUTA / AAA00-0000` | CHN-LZC-MXC / JSM25-0001 |
+| **LCL** (Less than Container Load) | `RUTA / Week 0-0 / AAA00-0000` | CHN-LZC-MXC / Week 8-1 / JSM25-0001 |
+
+#### Campos de Modal FCL
+```typescript
+// Estado
+const [fclRouteId, setFclRouteId] = useState<string>('');
+const [fclSubject, setFclSubject] = useState<string>('');
+const [fclFile, setFclFile] = useState<File | null>(null);
+
+// Auto-generar referencia al seleccionar ruta
+const handleFclRouteChange = (routeId: string) => {
+  setFclRouteId(routeId);
+  const selectedRoute = routes.find(r => r.id.toString() === routeId);
+  if (selectedRoute) {
+    setFclSubject(`${selectedRoute.code} / AAA00-0000`);
+  }
+};
+```
+
+#### Campos de Modal LCL
+```typescript
+// Estado
+const [lclRouteId, setLclRouteId] = useState<string>('');
+const [lclSubject, setLclSubject] = useState<string>('');
+const [lclTelexFile, setLclTelexFile] = useState<File | null>(null);
+const [lclDocumentFile, setLclDocumentFile] = useState<File | null>(null);
+
+// Auto-generar referencia al seleccionar ruta
+const handleLclRouteChange = (routeId: string) => {
+  setLclRouteId(routeId);
+  const selectedRoute = routes.find(r => r.id.toString() === routeId);
+  if (selectedRoute) {
+    setLclSubject(`${selectedRoute.code} / Week 0-0 / AAA00-0000`);
+  }
+};
+```
+
+#### Archivos del Modal LCL
+| Campo | Label | Descripción |
+|-------|-------|-------------|
+| `lclTelexFile` | 📜 TELEX o ISF | Documento de liberación telex |
+| `lclDocumentFile` | 📄 Documento | BL o documento adicional |
+
+### Rutas Marítimas
+
+Las rutas se cargan desde el endpoint `/api/admin/maritime/routes`:
+
+```typescript
+interface Route {
+  id: number;
+  code: string;        // Ej: "CHN-LZC-MXC"
+  origin: string;      // Ej: "Shanghai"
+  destination: string; // Ej: "Lázaro Cárdenas"
+  is_active: boolean;
+}
+
+// Cargar rutas
+useEffect(() => {
+  fetch(`${API_URL}/api/admin/maritime/routes`, {
+    headers: { Authorization: `Bearer ${token}` }
+  })
+  .then(res => res.json())
+  .then(data => setRoutes(data.routes || []));
+}, []);
+```
+
+### Formato de Consolidación
+
+| Componente | Formato | Ejemplo |
+|------------|---------|---------|
+| Ruta | 3 letras origen - 3 letras puerto - 3 letras destino | CHN-LZC-MXC |
+| Week | Week Semana-Día | Week 8-1 |
+| Referencia | 3 letras + 2 dígitos año - 4 dígitos secuencia | JSM25-0001 |
+
+---
+
+## �📦 Módulos Implementados
 
 ### ✅ Completados
 
@@ -2204,6 +2530,102 @@ curl -s "http://localhost:3001/api/warehouse/stats" \
 ---
 
 ## 📝 Changelog
+
+### v2.3.0 (26 Feb 2026) - PERMISOS GRANULARES & MARÍTIMO UI ⭐
+
+#### Sistema de Permisos
+- ✅ **Permisos de Panel** - Tabla `user_panel_permissions` para acceso a paneles
+- ✅ **Permisos de Módulos** - Tabla `user_module_permissions` para módulos dentro de paneles
+- ✅ **Endpoint `/api/panels/me`** - Obtener permisos de panel del usuario actual
+- ✅ **Endpoint `/api/modules/:panelKey/me`** - Obtener permisos de módulos del usuario
+- ✅ **Fix CustomerServiceHubPage** - Corregido endpoint de `/api/admin/panels/me` a `/api/panels/me`
+- ✅ **Fix respuesta API** - Cambiado `data.permissions` a `data.panels` en frontend
+
+#### Panel TDI Aéreo - Costeo
+- ✅ **Fix masterCostController.ts** - Corregido error de columna `shipping_cost` → `assigned_cost_mxn`
+- ✅ **getMasterAwbStats** - Query corregido para usar columna correcta
+- ✅ **getProfitReport** - Query corregido para reportes de ganancia
+
+#### Marítimo China - Modal FCL/LCL
+- ✅ **TELEX o ISF Label** - Agregada etiqueta al campo de segundo archivo en LCL
+- ✅ **Selector de Ruta LCL** - Auto-genera referencia al seleccionar ruta
+- ✅ **Formato LCL** - `RUTA / Week 0-0 / AAA00-0000` (ej: CHN-LZC-MXC / Week 8-1 / JSM25-0001)
+- ✅ **Selector de Ruta FCL** - Agregado igual que LCL para consistencia
+- ✅ **Formato FCL** - `RUTA / AAA00-0000` (ej: CHN-LZC-MXC / JSM25-0001) - Sin Week
+- ✅ **Estado fclRouteId** - Variable para manejar ruta seleccionada en FCL
+- ✅ **Reset en cancel/success** - Limpia fclRouteId al cerrar modales
+
+#### Base de Datos - Esquema de Permisos
+```sql
+-- Permisos de Panel
+CREATE TABLE user_panel_permissions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
+  panel_key VARCHAR(50) NOT NULL,
+  can_view BOOLEAN DEFAULT false,
+  can_edit BOOLEAN DEFAULT false,
+  granted_by INTEGER REFERENCES users(id),
+  granted_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, panel_key)
+);
+
+-- Permisos de Módulos
+CREATE TABLE user_module_permissions (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER REFERENCES users(id),
+  panel_key VARCHAR(50) NOT NULL,
+  module_key VARCHAR(50) NOT NULL,
+  can_view BOOLEAN DEFAULT false,
+  can_edit BOOLEAN DEFAULT false,
+  granted_by INTEGER REFERENCES users(id),
+  granted_at TIMESTAMP DEFAULT NOW(),
+  UNIQUE(user_id, panel_key, module_key)
+);
+
+-- Paneles Disponibles
+SELECT * FROM admin_panels WHERE is_active = true;
+-- Incluye: admin_china_sea, admin_china_air, admin_usa_pobox, admin_mx_cedis,
+--          admin_mx_national, cs_leads, cs_clients, cs_support, ops_*, etc.
+
+-- Módulos por Panel (ejemplo admin_china_sea)
+SELECT * FROM admin_panel_modules WHERE panel_key = 'admin_china_sea';
+-- Incluye: consolidations, inbound_emails, maritime_api, anticipos, reports,
+--          costing, inventory, pricing, invoicing, instructions, routes
+```
+
+#### Endpoints de Permisos
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/panels/me` | Mis permisos de panel |
+| GET | `/api/modules/:panelKey/me` | Mis permisos de módulos |
+| GET | `/api/admin/panels` | Lista todos los paneles (super_admin) |
+| GET | `/api/admin/panels/user/:userId` | Permisos de un usuario específico |
+| PUT | `/api/admin/panels/user/:userId` | Actualizar permisos de panel |
+| GET | `/api/admin/panels/:panelKey/modules` | Módulos de un panel |
+| PUT | `/api/admin/panels/:panelKey/user/:userId/modules` | Actualizar permisos de módulos |
+
+#### Asignación de Permisos (Script)
+```javascript
+// Asignar todos los permisos de panel a un usuario
+const panels = await pool.query(`SELECT panel_key FROM admin_panels WHERE is_active = true`);
+for (const panel of panels.rows) {
+  await pool.query(`
+    INSERT INTO user_panel_permissions (user_id, panel_key, can_view, can_edit)
+    VALUES ($1, $2, true, true)
+    ON CONFLICT (user_id, panel_key) DO UPDATE SET can_view = true, can_edit = true
+  `, [userId, panel.panel_key]);
+}
+
+// Asignar todos los permisos de módulos a un usuario
+const modules = await pool.query(`SELECT panel_key, module_key FROM admin_panel_modules WHERE is_active = true`);
+for (const mod of modules.rows) {
+  await pool.query(`
+    INSERT INTO user_module_permissions (user_id, panel_key, module_key, can_view, can_edit)
+    VALUES ($1, $2, $3, true, true)
+    ON CONFLICT (user_id, panel_key, module_key) DO UPDATE SET can_view = true, can_edit = true
+  `, [userId, mod.panel_key, mod.module_key]);
+}
+```
 
 ### v2.2.0 (6 Feb 2026) - API MJCUSTOMER CHINA TDI AÉREO ⭐
 - ✅ **Integración MJCustomer API** - Conexión con api.mjcustomer.com

@@ -852,8 +852,8 @@ Responde SOLO con JSON válido, sin explicaciones.`;
             ] 
           }
         ],
-        max_tokens: 2500,
-        temperature: 0.1,
+        max_tokens: 4096,
+        temperature: 0,
       });
       
       const content = response.choices[0]?.message?.content || '';
@@ -1387,10 +1387,10 @@ export const getDrafts = async (req: Request, res: Response): Promise<any> => {
     let query = `
       SELECT d.*, 
         e.from_email, e.subject, e.received_at,
-        u.full_name as matched_client_name, u.box_id as matched_box_id
+        lc.full_name as matched_client_name, lc.box_id as matched_box_id
       FROM maritime_reception_drafts d
       LEFT JOIN email_inbound_logs e ON e.id = d.email_log_id
-      LEFT JOIN users u ON u.id = d.matched_user_id
+      LEFT JOIN legacy_clients lc ON lc.id = d.matched_user_id
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -1429,10 +1429,10 @@ export const getDraftDetail = async (req: Request, res: Response): Promise<any> 
     const result = await pool.query(`
       SELECT d.*, 
         e.from_email, e.subject, e.received_at, e.raw_payload,
-        u.full_name as matched_client_name, u.box_id as matched_box_id, u.email as matched_email
+        lc.full_name as matched_client_name, lc.box_id as matched_box_id, lc.email as matched_email
       FROM maritime_reception_drafts d
       LEFT JOIN email_inbound_logs e ON e.id = d.email_log_id
-      LEFT JOIN users u ON u.id = d.matched_user_id
+      LEFT JOIN legacy_clients lc ON lc.id = d.matched_user_id
       WHERE d.id = $1
     `, [id]);
 
@@ -1998,18 +1998,21 @@ export const rejectDraft = async (req: Request, res: Response): Promise<any> => 
 
 /**
  * PUT /api/admin/maritime/drafts/:id/match-client
- * Asignar cliente manualmente a un borrador
+ * Asignar cliente legacy manualmente a un borrador
  */
 export const matchClientToDraft = async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params;
-    const { userId } = req.body;
+    const { legacyClientId, userId } = req.body;
+
+    // Soportar ambos: legacyClientId (nuevo) o userId (legacy)
+    const clientId = legacyClientId || userId;
 
     await pool.query(`
       UPDATE maritime_reception_drafts 
       SET matched_user_id = $1, updated_at = NOW()
       WHERE id = $2
-    `, [userId, id]);
+    `, [clientId, id]);
 
     res.json({ success: true, message: 'Cliente asignado al borrador' });
   } catch (error) {
@@ -2248,12 +2251,23 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
     let summaryExcelUrl: string | null = null;
     let summaryExcelFilename: string | null = null;
     
+    // Para LCL: el archivo se llama 'summary'
     if (summaryFile) {
       const summaryBase64 = summaryFile.buffer.toString('base64');
       summaryExcelUrl = `data:${summaryFile.mimetype};base64,${summaryBase64}`;
       summaryExcelFilename = summaryFile.originalname;
       extractedData.summary_excel_url = summaryExcelUrl;
       extractedData.summary_excel_filename = summaryExcelFilename;
+    }
+    
+    // Para FCL: el archivo se llama 'packingList' - también guardarlo como summary_excel
+    if (packingFile && !summaryFile) {
+      const packingBase64 = packingFile.buffer.toString('base64');
+      summaryExcelUrl = `data:${packingFile.mimetype};base64,${packingBase64}`;
+      summaryExcelFilename = packingFile.originalname;
+      extractedData.summary_excel_url = summaryExcelUrl;
+      extractedData.summary_excel_filename = summaryExcelFilename;
+      extractedData.packing_list_url = summaryExcelUrl;
     }
 
     // Para LCL: Procesar Excel SUMMARY para extraer LOGs

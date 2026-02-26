@@ -97,7 +97,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const [showMenu, setShowMenu] = useState(false); // 📱 Menú de opciones
   const [showLanguageModal, setShowLanguageModal] = useState(false); // 🌐 Modal de idioma
   const [currentLang, setCurrentLang] = useState(getCurrentLanguage());
-  const [serviceFilter, setServiceFilter] = useState<'air' | 'maritime' | 'usa' | null>(null); // 🎯 Filtro de servicio (null = todos)
+  const [serviceFilter, setServiceFilter] = useState<'air' | 'maritime' | 'dhl' | 'usa' | null>(null); // 🎯 Filtro de servicio (null = todos)
 
   // 🔐 Verificar si el usuario está verificado
   const isUserVerified = user.isVerified === true;
@@ -948,9 +948,13 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       <FlatList
         data={packages.filter(pkg => {
           if (serviceFilter === null) return true;
+          // Aéreo: TDI China Air
           if (serviceFilter === 'air') return pkg.shipment_type === 'china_air';
           if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime';
-          if (serviceFilter === 'usa') return !pkg.shipment_type || pkg.shipment_type === 'air' || pkg.shipment_type === 'dhl';
+          // DHL: Solo paquetes DHL Monterrey
+          if (serviceFilter === 'dhl') return pkg.shipment_type === 'dhl';
+          // PO Box: Solo paquetes USA (sin shipment_type o 'air')
+          if (serviceFilter === 'usa') return !pkg.shipment_type || pkg.shipment_type === 'air';
           return true;
         })}
         renderItem={renderPackageCard}
@@ -1026,13 +1030,81 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 <Text style={[styles.filterText, serviceFilter === 'maritime' && styles.filterTextActive]}>Marítimo</Text>
               </Pressable>
               <Pressable
+                style={[styles.filterChip, serviceFilter === 'dhl' && styles.filterChipActive]}
+                onPress={() => setServiceFilter(serviceFilter === 'dhl' ? null : 'dhl')}
+              >
+                <Text style={styles.filterIcon}>🚚</Text>
+                <Text style={[styles.filterText, serviceFilter === 'dhl' && styles.filterTextActive]}>DHL</Text>
+              </Pressable>
+              <Pressable
                 style={[styles.filterChip, serviceFilter === 'usa' && styles.filterChipActive]}
                 onPress={() => setServiceFilter(serviceFilter === 'usa' ? null : 'usa')}
               >
-                <Text style={styles.filterIcon}>�</Text>
+                <Text style={styles.filterIcon}>📦</Text>
                 <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>PO Box</Text>
               </Pressable>
             </View>
+
+            {/* ✅ Botón Seleccionar Todas */}
+            {packages.length > 0 && (
+              <Pressable
+                style={styles.selectAllButton}
+                onPress={() => {
+                  // Obtener los paquetes filtrados actualmente
+                  const filteredPackages = packages.filter(pkg => {
+                    if (serviceFilter === null) return true;
+                    if (serviceFilter === 'air') return pkg.shipment_type === 'china_air';
+                    if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime';
+                    if (serviceFilter === 'dhl') return pkg.shipment_type === 'dhl';
+                    if (serviceFilter === 'usa') return !pkg.shipment_type || pkg.shipment_type === 'air';
+                    return true;
+                  });
+                  const filteredIds = filteredPackages.map(p => p.id);
+                  const allSelected = filteredIds.every(id => selectedIds.includes(id));
+                  
+                  if (allSelected) {
+                    // Deseleccionar todos los filtrados
+                    setSelectedIds(selectedIds.filter(id => !filteredIds.includes(id)));
+                  } else {
+                    // Seleccionar todos los filtrados
+                    setSelectedIds([...new Set([...selectedIds, ...filteredIds])]);
+                  }
+                }}
+              >
+                <Icon 
+                  source={(() => {
+                    const filteredPackages = packages.filter(pkg => {
+                      if (serviceFilter === null) return true;
+                      if (serviceFilter === 'air') return pkg.shipment_type === 'china_air';
+                      if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime';
+                      if (serviceFilter === 'dhl') return pkg.shipment_type === 'dhl';
+                      if (serviceFilter === 'usa') return !pkg.shipment_type || pkg.shipment_type === 'air';
+                      return true;
+                    });
+                    const filteredIds = filteredPackages.map(p => p.id);
+                    const allSelected = filteredIds.length > 0 && filteredIds.every(id => selectedIds.includes(id));
+                    return allSelected ? "checkbox-marked" : "checkbox-blank-outline";
+                  })()}
+                  size={20}
+                  color={ORANGE}
+                />
+                <Text style={styles.selectAllText}>
+                  {(() => {
+                    const filteredPackages = packages.filter(pkg => {
+                      if (serviceFilter === null) return true;
+                      if (serviceFilter === 'air') return pkg.shipment_type === 'china_air';
+                      if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime';
+                      if (serviceFilter === 'dhl') return pkg.shipment_type === 'dhl';
+                      if (serviceFilter === 'usa') return !pkg.shipment_type || pkg.shipment_type === 'air';
+                      return true;
+                    });
+                    const filteredIds = filteredPackages.map(p => p.id);
+                    const allSelected = filteredIds.length > 0 && filteredIds.every(id => selectedIds.includes(id));
+                    return allSelected ? "Deseleccionar todas" : "Seleccionar todas";
+                  })()}
+                </Text>
+              </Pressable>
+            )}
           </>
         }
         ListEmptyComponent={renderEmptyList}
@@ -1102,6 +1174,19 @@ const styles = StyleSheet.create({
   },
   filterTextActive: {
     color: 'white',
+  },
+  // ✅ Botón Seleccionar Todas
+  selectAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    gap: 6,
+  },
+  selectAllText: {
+    fontSize: 14,
+    color: ORANGE,
+    fontWeight: '600',
   },
   loadingContainer: {
     flex: 1,

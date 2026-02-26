@@ -972,6 +972,110 @@ export const dispatchConsolidation = async (req: Request, res: Response): Promis
     }
 };
 
+// ============ ASIGNAR INSTRUCCIONES DE ENTREGA (GENÉRICO) ============
+/**
+ * Endpoint genérico para asignar dirección e instrucciones de entrega
+ * Funciona para: packages (PO Box USA), maritime_orders, china_receipts
+ */
+export const assignDeliveryInstructions = async (req: Request, res: Response) => {
+    try {
+        const { packageId, packageType } = req.params; // packageType: 'usa' | 'maritime' | 'china_air' | 'dhl'
+        const { deliveryAddressId, deliveryInstructions } = req.body;
+        const userId = (req as any).user.userId;
+
+        console.log(`📦 [Instrucciones Entrega] Usuario ${userId} actualizando ${packageType}/${packageId}`);
+
+        // Verificar que la dirección existe y pertenece al usuario
+        if (deliveryAddressId) {
+            const addressCheck = await pool.query(`
+                SELECT id FROM addresses 
+                WHERE id = $1 AND user_id = $2
+            `, [deliveryAddressId, userId]);
+
+            if (addressCheck.rows.length === 0) {
+                return res.status(400).json({ 
+                    success: false, 
+                    error: 'Dirección no válida' 
+                });
+            }
+        }
+
+        let result;
+
+        // Según el tipo, actualizar la tabla correspondiente
+        switch (packageType) {
+            case 'usa':
+            case 'pobox':
+                // Paquetes USA (tabla packages)
+                result = await pool.query(`
+                    UPDATE packages 
+                    SET assigned_address_id = $1, 
+                        notes = COALESCE($2, notes),
+                        needs_instructions = false,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = $3 AND user_id = $4
+                    RETURNING id, tracking_internal
+                `, [deliveryAddressId, deliveryInstructions, packageId, userId]);
+                break;
+
+            case 'maritime':
+                // Órdenes marítimas
+                result = await pool.query(`
+                    UPDATE maritime_orders 
+                    SET delivery_address_id = $1, 
+                        delivery_instructions = $2,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = $3 AND user_id = $4
+                    RETURNING id, ordersn as tracking_internal
+                `, [deliveryAddressId, deliveryInstructions, packageId, userId]);
+                break;
+
+            case 'china_air':
+            case 'dhl':
+                // Paquetes de China (china_receipts) o DHL vienen de packages
+                result = await pool.query(`
+                    UPDATE packages 
+                    SET assigned_address_id = $1, 
+                        notes = COALESCE($2, notes),
+                        needs_instructions = false,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = $3 AND user_id = $4
+                    RETURNING id, tracking_internal
+                `, [deliveryAddressId, deliveryInstructions, packageId, userId]);
+                break;
+
+            default:
+                return res.status(400).json({ 
+                    success: false, 
+                    error: `Tipo de paquete no soportado: ${packageType}` 
+                });
+        }
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Paquete no encontrado o no tienes permiso para modificarlo' 
+            });
+        }
+
+        console.log(`✅ Instrucciones asignadas a ${result.rows[0].tracking_internal}`);
+
+        res.json({ 
+            success: true, 
+            message: 'Instrucciones de entrega guardadas',
+            packageId: result.rows[0].id,
+            tracking: result.rows[0].tracking_internal
+        });
+
+    } catch (error) {
+        console.error('Error al asignar instrucciones:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Error al guardar instrucciones de entrega' 
+        });
+    }
+};
+
 // Aliases
 export const createPackage = createShipment;
 export const getPackageByTracking = getShipmentByTracking;
