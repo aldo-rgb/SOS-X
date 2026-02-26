@@ -181,9 +181,14 @@ export default function WarehouseHubPage({ users = [] }: Props) {
 
     // Handler para selección de entrada/salida en PO Box
     const handlePOBoxSelection = (mode: 'entry' | 'exit') => {
-        setPoboxMode(mode);
+        console.log('🔄 handlePOBoxSelection llamado con modo:', mode);
         setShowPOBoxModal(false);
-        setSelectedPanel('usa_pobox');
+        setPoboxMode(mode);
+        // Usar setTimeout para asegurar que el modal se cierra antes de cambiar el panel
+        setTimeout(() => {
+            console.log('🚀 Cambiando selectedPanel a usa_pobox');
+            setSelectedPanel('usa_pobox');
+        }, 100);
     };
 
     // Handler para volver al hub

@@ -770,7 +770,6 @@ PARTE SUPERIOR IZQUIERDA:
 
 PARTE SUPERIOR DERECHA:
 - B/L No.: Número del BL (ej: 024G506094)
-- S/O No.: Número de booking (ej: LZC60110024)
 
 PARTE CENTRAL:
 - Vessel/Voyage: Buque y número de viaje (ej: "SHUN FENG 31 / 260126000000")
@@ -805,7 +804,6 @@ PARTE INFERIOR:
 EXTRAE Y DEVUELVE ESTE JSON:
 {
   "blNumber": "B/L No. exacto",
-  "soNumber": "S/O No. exacto",
   "containerNumber": "Solo 11 caracteres (4 letras + 7 números)",
   "shipper": "Datos del Shipper (parte superior izquierda)",
   "consignee": "SOLO Nombre + RFC del Consignee (SIN dirección, ej: 'EMPRESA XYZ, RFC: ABC123456XY0')",

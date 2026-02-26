@@ -1163,22 +1163,13 @@ export default function InboundEmailsPage() {
                                 <Paper variant="outlined" sx={{ p: 2, mt: 1 }}>
                                     {editableBL && (
                                     <Grid container spacing={1.5}>
-                                        <Grid size={{ xs: 6 }}>
+                                        <Grid size={{ xs: 12 }}>
                                             <TextField
                                                 label="B/L No."
                                                 size="small"
                                                 fullWidth
                                                 value={editableBL.blNumber}
                                                 onChange={(e) => setEditableBL({...editableBL, blNumber: e.target.value})}
-                                            />
-                                        </Grid>
-                                        <Grid size={{ xs: 6 }}>
-                                            <TextField
-                                                label="S/O No."
-                                                size="small"
-                                                fullWidth
-                                                value={editableBL.soNumber}
-                                                onChange={(e) => setEditableBL({...editableBL, soNumber: e.target.value})}
                                             />
                                         </Grid>
                                         <Grid size={{ xs: 12 }}>

@@ -365,14 +365,15 @@ export const getCostingPackages = async (req: Request, res: Response): Promise<v
         }
 
         // Solo paquetes PO Box USA (service_type = 'POBOX_USA')
+        // Nota: Las medidas de PO Box se guardan en pkg_length/pkg_width/pkg_height (no long_cm/width_cm/height_cm)
         const result = await pool.query(`
             SELECT 
                 p.id,
                 COALESCE(p.tracking_provider, p.tracking_internal) as tracking,
                 p.tracking_internal,
-                COALESCE(p.long_cm, 0) as pkg_length,
-                COALESCE(p.width_cm, 0) as pkg_width,
-                COALESCE(p.height_cm, 0) as pkg_height,
+                COALESCE(p.pkg_length, 0) as pkg_length,
+                COALESCE(p.pkg_width, 0) as pkg_width,
+                COALESCE(p.pkg_height, 0) as pkg_height,
                 COALESCE(p.weight, 0) as weight,
                 p.status,
                 p.warehouse_location,
