@@ -29,6 +29,7 @@ import {
     Tab,
     Grid,
     CircularProgress,
+    LinearProgress,
     Tooltip,
     Autocomplete,
     Divider,
@@ -170,6 +171,15 @@ export default function InboundEmailsPage() {
     const [uploadFCLOpen, setUploadFCLOpen] = useState(false);
     const [uploadLCLOpen, setUploadLCLOpen] = useState(false);
     const [uploadLoading, setUploadLoading] = useState(false);
+    
+    // Upload progress state
+    const [uploadProgress, setUploadProgress] = useState<{
+        step: number;
+        totalSteps: number;
+        currentFile: string;
+        status: 'idle' | 'uploading' | 'processing' | 'done' | 'error';
+        message: string;
+    }>({ step: 0, totalSteps: 4, currentFile: '', status: 'idle', message: '' });
     
     // Re-extract loading
     const [extracting, setExtracting] = useState(false);
@@ -1941,6 +1951,35 @@ export default function InboundEmailsPage() {
                             Debe incluir: códigos de cliente, número de cajas, peso y descripción
                         </Typography>
                     </Box>
+
+                    {/* Indicador de progreso de subida */}
+                    {uploadLoading && (
+                        <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 2 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                                <CircularProgress size={20} sx={{ mr: 2 }} />
+                                <Typography variant="body2" fontWeight="bold">
+                                    {uploadProgress.message || 'Procesando...'}
+                                </Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                {[1, 2, 3, 4].map((step) => (
+                                    <Box
+                                        key={step}
+                                        sx={{
+                                            width: 40,
+                                            height: 8,
+                                            borderRadius: 1,
+                                            bgcolor: step <= uploadProgress.step ? 'primary.main' : 'grey.300',
+                                            transition: 'background-color 0.3s'
+                                        }}
+                                    />
+                                ))}
+                            </Box>
+                            <Typography variant="caption" color="text.secondary">
+                                Paso {uploadProgress.step} de {uploadProgress.totalSteps}: {uploadProgress.currentFile}
+                            </Typography>
+                        </Box>
+                    )}
                 </DialogContent>
                 <DialogActions>
                     <Button 
@@ -1951,6 +1990,7 @@ export default function InboundEmailsPage() {
                             setFclPackingFile(null);
                             setFclSubject('');
                             setFclRouteId('');
+                            setUploadProgress({ step: 0, totalSteps: 4, currentFile: '', status: 'idle', message: '' });
                         }}
                         disabled={uploadLoading}
                     >
@@ -1963,14 +2003,62 @@ export default function InboundEmailsPage() {
                         onClick={async () => {
                             if (!fclBlFile || !fclRouteId) return;
                             setUploadLoading(true);
+                            
+                            // Calcular total de archivos a subir
+                            const totalFiles = 1 + (fclTelexFile ? 1 : 0) + (fclPackingFile ? 1 : 0);
+                            let currentStep = 0;
+                            
                             try {
+                                // Paso 1: Preparando archivos
+                                currentStep++;
+                                setUploadProgress({
+                                    step: currentStep,
+                                    totalSteps: totalFiles + 1,
+                                    currentFile: 'Bill of Lading (BL)',
+                                    status: 'uploading',
+                                    message: `Subiendo archivo ${currentStep} de ${totalFiles}...`
+                                });
+                                
                                 const formData = new FormData();
                                 formData.append('shipmentType', 'FCL');
                                 formData.append('subject', fclSubject);
                                 formData.append('routeId', String(fclRouteId));
                                 formData.append('bl', fclBlFile);
-                                if (fclTelexFile) formData.append('telex', fclTelexFile);
-                                if (fclPackingFile) formData.append('packingList', fclPackingFile);
+                                
+                                // Paso 2: Telex (si existe)
+                                if (fclTelexFile) {
+                                    currentStep++;
+                                    setUploadProgress({
+                                        step: currentStep,
+                                        totalSteps: totalFiles + 1,
+                                        currentFile: 'Telex Release',
+                                        status: 'uploading',
+                                        message: `Subiendo archivo ${currentStep} de ${totalFiles}...`
+                                    });
+                                    formData.append('telex', fclTelexFile);
+                                }
+                                
+                                // Paso 3: Packing List (si existe)
+                                if (fclPackingFile) {
+                                    currentStep++;
+                                    setUploadProgress({
+                                        step: currentStep,
+                                        totalSteps: totalFiles + 1,
+                                        currentFile: 'Packing List',
+                                        status: 'uploading',
+                                        message: `Subiendo archivo ${currentStep} de ${totalFiles}...`
+                                    });
+                                    formData.append('packingList', fclPackingFile);
+                                }
+                                
+                                // Paso final: Procesando con IA
+                                setUploadProgress({
+                                    step: totalFiles + 1,
+                                    totalSteps: totalFiles + 1,
+                                    currentFile: 'Procesando con IA...',
+                                    status: 'processing',
+                                    message: '🤖 Extrayendo datos del BL con IA...'
+                                });
 
                                 const res = await fetch(`${API_URL}/api/admin/maritime/upload-manual`, {
                                     method: 'POST',
@@ -1979,20 +2067,45 @@ export default function InboundEmailsPage() {
                                 });
 
                                 if (res.ok) {
-                                    setUploadFCLOpen(false);
-                                    setFclBlFile(null);
-                                    setFclTelexFile(null);
-                                    setFclPackingFile(null);
-                                    setFclSubject('');
-                                    setFclRouteId('');
-                                    loadDrafts();
-                                    loadStats();
-                                    setSnackbar({ open: true, message: 'Documentos FCL subidos correctamente', severity: 'success' });
+                                    setUploadProgress({
+                                        step: totalFiles + 1,
+                                        totalSteps: totalFiles + 1,
+                                        currentFile: '',
+                                        status: 'done',
+                                        message: '✅ ¡Completado!'
+                                    });
+                                    
+                                    setTimeout(() => {
+                                        setUploadFCLOpen(false);
+                                        setFclBlFile(null);
+                                        setFclTelexFile(null);
+                                        setFclPackingFile(null);
+                                        setFclSubject('');
+                                        setFclRouteId('');
+                                        setUploadProgress({ step: 0, totalSteps: 4, currentFile: '', status: 'idle', message: '' });
+                                        loadDrafts();
+                                        loadStats();
+                                        setSnackbar({ open: true, message: 'Documentos FCL subidos correctamente', severity: 'success' });
+                                    }, 1000);
                                 } else {
                                     const data = await res.json();
+                                    setUploadProgress({
+                                        step: 0,
+                                        totalSteps: 4,
+                                        currentFile: '',
+                                        status: 'error',
+                                        message: '❌ Error al subir'
+                                    });
                                     setSnackbar({ open: true, message: data.error || 'Error al subir', severity: 'error' });
                                 }
                             } catch (e: any) {
+                                setUploadProgress({
+                                    step: 0,
+                                    totalSteps: 4,
+                                    currentFile: '',
+                                    status: 'error',
+                                    message: '❌ Error de conexión'
+                                });
                                 setSnackbar({ open: true, message: e.message, severity: 'error' });
                             } finally {
                                 setUploadLoading(false);
@@ -2129,6 +2242,53 @@ export default function InboundEmailsPage() {
                             Columnas: C=LOG, D=Tipo Mercancía (S/B), M=Battery, N=Liquid, Q=Pick Up
                         </Typography>
                     </Box>
+
+                    {/* Indicador de progreso de subida LCL */}
+                    {uploadProgress.status !== 'idle' && (
+                        <Box sx={{ mt: 2, p: 2, bgcolor: 'background.default', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
+                            <Typography variant="subtitle2" fontWeight="bold" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                {uploadProgress.status === 'uploading' && <CircularProgress size={16} />}
+                                {uploadProgress.status === 'processing' && <CircularProgress size={16} color="secondary" />}
+                                {uploadProgress.status === 'done' && '✅'}
+                                {uploadProgress.status === 'error' && '❌'}
+                                Progreso: {uploadProgress.step} / {uploadProgress.totalSteps}
+                            </Typography>
+                            <LinearProgress 
+                                variant="determinate" 
+                                value={(uploadProgress.step / uploadProgress.totalSteps) * 100}
+                                sx={{ mb: 1, height: 8, borderRadius: 1 }}
+                                color={uploadProgress.status === 'error' ? 'error' : uploadProgress.status === 'done' ? 'success' : 'primary'}
+                            />
+                            <Typography variant="body2" color="text.secondary">
+                                {uploadProgress.message}
+                            </Typography>
+                            {uploadProgress.currentFile && (
+                                <Chip 
+                                    label={`📄 ${uploadProgress.currentFile}`}
+                                    size="small"
+                                    sx={{ mt: 1 }}
+                                    color={uploadProgress.status === 'error' ? 'error' : 'primary'}
+                                />
+                            )}
+                            {/* Barras de progreso visual */}
+                            <Box sx={{ display: 'flex', gap: 0.5, mt: 1 }}>
+                                {[1, 2, 3, 4].map((step) => (
+                                    <Box 
+                                        key={step}
+                                        sx={{ 
+                                            flex: 1, 
+                                            height: 4, 
+                                            borderRadius: 1,
+                                            bgcolor: step <= uploadProgress.step 
+                                                ? (uploadProgress.status === 'error' ? 'error.main' : 'success.main')
+                                                : 'grey.300',
+                                            transition: 'background-color 0.3s ease'
+                                        }}
+                                    />
+                                ))}
+                            </Box>
+                        </Box>
+                    )}
                 </DialogContent>
                 <DialogActions sx={{ flexDirection: 'column', alignItems: 'stretch', gap: 1, p: 2 }}>
                     {/* Debug: mostrar estado de los campos */}
@@ -2182,15 +2342,37 @@ export default function InboundEmailsPage() {
                         onClick={async () => {
                             if (!lclBlFile || !lclRouteId || !lclSubject || !lclWeek || !lclSummaryFile) return;
                             setUploadLoading(true);
+                            
+                            // Iniciar progreso
+                            setUploadProgress({ step: 1, totalSteps: 4, currentFile: lclBlFile.name, status: 'uploading', message: 'Subiendo Bill of Lading (BL)...' });
+                            
                             try {
                                 const formData = new FormData();
                                 formData.append('shipmentType', 'LCL');
                                 formData.append('subject', lclSubject);
                                 formData.append('weekNumber', lclWeek);
                                 formData.append('routeId', String(lclRouteId));
+                                
+                                // Paso 1: BL
                                 formData.append('bl', lclBlFile);
-                                if (lclTelexFile) formData.append('telex', lclTelexFile);
-                                if (lclSummaryFile) formData.append('summary', lclSummaryFile);
+                                await new Promise(resolve => setTimeout(resolve, 300));
+                                
+                                // Paso 2: TELEX
+                                if (lclTelexFile) {
+                                    setUploadProgress({ step: 2, totalSteps: 4, currentFile: lclTelexFile.name, status: 'uploading', message: 'Subiendo TELEX/ISF...' });
+                                    formData.append('telex', lclTelexFile);
+                                    await new Promise(resolve => setTimeout(resolve, 300));
+                                } else {
+                                    setUploadProgress({ step: 2, totalSteps: 4, currentFile: '', status: 'uploading', message: 'Sin TELEX, continuando...' });
+                                }
+                                
+                                // Paso 3: Summary
+                                setUploadProgress({ step: 3, totalSteps: 4, currentFile: lclSummaryFile.name, status: 'uploading', message: 'Subiendo SUMMARY Excel...' });
+                                formData.append('summary', lclSummaryFile);
+                                await new Promise(resolve => setTimeout(resolve, 300));
+                                
+                                // Paso 4: Enviando al servidor
+                                setUploadProgress({ step: 4, totalSteps: 4, currentFile: '', status: 'processing', message: 'Procesando documentos y extrayendo datos con IA...' });
 
                                 const res = await fetch(`${API_URL}/api/admin/maritime/upload-manual`, {
                                     method: 'POST',
@@ -2199,6 +2381,8 @@ export default function InboundEmailsPage() {
                                 });
 
                                 if (res.ok) {
+                                    setUploadProgress({ step: 4, totalSteps: 4, currentFile: '', status: 'done', message: '¡Documentos LCL procesados exitosamente!' });
+                                    await new Promise(resolve => setTimeout(resolve, 1000));
                                     setUploadLCLOpen(false);
                                     setLclBlFile(null);
                                     setLclTelexFile(null);
@@ -2206,14 +2390,17 @@ export default function InboundEmailsPage() {
                                     setLclSubject('');
                                     setLclWeek('');
                                     setLclRouteId('');
+                                    setUploadProgress({ step: 0, totalSteps: 4, currentFile: '', status: 'idle', message: '' });
                                     loadDrafts();
                                     loadStats();
                                     setSnackbar({ open: true, message: 'Documentos LCL subidos correctamente', severity: 'success' });
                                 } else {
                                     const data = await res.json();
+                                    setUploadProgress({ step: 4, totalSteps: 4, currentFile: '', status: 'error', message: data.error || 'Error al procesar' });
                                     setSnackbar({ open: true, message: data.error || 'Error al subir', severity: 'error' });
                                 }
                             } catch (e: any) {
+                                setUploadProgress({ step: uploadProgress.step, totalSteps: 4, currentFile: '', status: 'error', message: e.message });
                                 setSnackbar({ open: true, message: e.message, severity: 'error' });
                             } finally {
                                 setUploadLoading(false);

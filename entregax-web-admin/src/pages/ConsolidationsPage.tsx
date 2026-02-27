@@ -150,7 +150,7 @@ export default function ConsolidationsPage() {
         <Box>
           <Typography variant="h5" fontWeight={700} color="text.primary">
             <FlightTakeoffIcon sx={{ mr: 1, verticalAlign: 'bottom', color: '#F05A28' }} />
-            {i18n.language === 'es' ? 'Control de Salidas (PO Box USA)' : 'Outbound Control (PO Box USA)'}
+            {i18n.language === 'es' ? 'Control de Salidas (Consolidaciones)' : 'Outbound Control (Consolidations)'}
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
             {i18n.language === 'es' 
