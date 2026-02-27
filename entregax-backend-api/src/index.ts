@@ -1534,8 +1534,8 @@ app.post('/api/maritime-api/orders/:ordersn/packing-list', authenticateToken, re
 app.get('/api/maritime-api/sync/logs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSyncLogs);
 app.get('/api/maritime-api/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getMaritimeApiStats);
 
-// Rutas marítimas (lectura: Gerente+, escritura: counter_staff+)
-app.get('/api/maritime-api/routes', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getMaritimeRoutes);
+// Rutas marítimas (lectura: todos los autenticados, escritura: counter_staff+)
+app.get('/api/maritime-api/routes', authenticateToken, getMaritimeRoutes);
 app.post('/api/maritime-api/routes', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createMaritimeRoute);
 app.put('/api/maritime-api/routes/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateMaritimeRoute);
 app.delete('/api/maritime-api/routes/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteMaritimeRoute);
