@@ -13,8 +13,8 @@ import puppeteer from 'puppeteer';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-// pdf-parse v1.1.1 para extraer texto de PDFs
-const pdfParse = require('pdf-parse');
+// pdfjs-dist para extraer texto de PDFs (moderno, ya instalado)
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 // Lazy initialization - only create OpenAI client when API key exists
 let openaiInstance: OpenAI | null = null;
@@ -23,7 +23,11 @@ const getOpenAI = (): OpenAI => {
         if (!process.env.OPENAI_API_KEY) {
             throw new Error('OPENAI_API_KEY no configurada');
         }
-        openaiInstance = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+        openaiInstance = new OpenAI({ 
+            apiKey: process.env.OPENAI_API_KEY,
+            timeout: 120000, // 2 minutos timeout
+            maxRetries: 3,   // Reintentar 3 veces en caso de error de conexión
+        });
     }
     return openaiInstance;
 };
@@ -600,7 +604,7 @@ Responde SOLO con el JSON, sin explicaciones.`;
 };
 
 /**
- * Extraer texto de un PDF usando pdf-parse (fallback cuando Puppeteer falla)
+ * Extraer texto de un PDF usando pdfjs-dist (más moderno y compatible con Node.js)
  */
 const extractTextFromPdf = async (pdfData: string | Buffer): Promise<string> => {
   try {
@@ -618,26 +622,31 @@ const extractTextFromPdf = async (pdfData: string | Buffer): Promise<string> => 
       pdfBuffer = pdfData;
     }
     
-    console.log('📄 Extrayendo texto de PDF, buffer size:', pdfBuffer.length, 'bytes');
+    console.log('📄 Extrayendo texto de PDF con pdfjs-dist, buffer size:', pdfBuffer.length, 'bytes');
     
-    // Opciones para evitar problemas de conexión - deshabilitar funciones que requieren red
-    const options = {
-      // Función custom de render para evitar llamadas de red
-      pagerender: async (pageData: any) => {
-        try {
-          const textContent = await pageData.getTextContent();
-          return textContent.items.map((item: any) => item.str).join(' ');
-        } catch (e) {
-          return '';
-        }
-      }
-    };
+    // Usar pdfjs-dist directamente
+    const uint8Array = new Uint8Array(pdfBuffer);
+    const loadingTask = pdfjs.getDocument({ data: uint8Array });
+    const pdf = await loadingTask.promise;
     
-    const data = await pdfParse(pdfBuffer, options);
-    console.log('✅ Texto extraído del PDF:', data.text?.length, 'caracteres');
-    return data.text || '';
+    let fullText = '';
+    const numPages = pdf.numPages;
+    console.log('📄 PDF tiene', numPages, 'páginas');
+    
+    // Extraer texto de cada página
+    for (let pageNum = 1; pageNum <= numPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => item.str)
+        .join(' ');
+      fullText += pageText + '\n';
+    }
+    
+    console.log('✅ Texto extraído del PDF:', fullText.length, 'caracteres');
+    return fullText.trim();
   } catch (error: any) {
-    console.error('❌ Error extrayendo texto del PDF:', error.message);
+    console.error('❌ Error extrayendo texto del PDF con pdfjs-dist:', error.message);
     console.error('❌ Stack:', error.stack?.substring(0, 500));
     throw error;
   }
@@ -736,9 +745,9 @@ const convertPdfToImage = async (pdfData: string | Buffer): Promise<string> => {
     
     // Detectar si estamos en producción (Linux) o desarrollo (macOS)
     const isProduction = process.env.NODE_ENV === 'production' || !fs.existsSync('/Applications/Google Chrome.app');
-    console.log('🔍 Entorno:', isProduction ? 'Producción (usando Chromium bundled)' : 'Desarrollo (usando Chrome del sistema)');
+    console.log('🔍 Entorno:', isProduction ? 'Producción (usando Chrome instalado)' : 'Desarrollo (usando Chrome del sistema)');
     
-    // Iniciar Puppeteer - en producción usar Chromium bundled, en dev usar Chrome del sistema
+    // Iniciar Puppeteer - en producción usar Chrome del sistema Linux, en dev usar Chrome de macOS
     const launchOptions: any = {
       headless: true,
       args: [
@@ -752,8 +761,14 @@ const convertPdfToImage = async (pdfData: string | Buffer): Promise<string> => {
       ]
     };
     
-    // Solo usar executablePath en desarrollo local con Chrome disponible
-    if (!isProduction) {
+    // Configurar ruta de Chrome según el entorno
+    if (isProduction) {
+      // En Railway/Linux usar Chrome instalado por Dockerfile
+      const chromePath = process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable';
+      console.log('🔍 Usando Chrome en:', chromePath);
+      launchOptions.executablePath = chromePath;
+    } else {
+      // En macOS local
       launchOptions.executablePath = '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
     }
     
@@ -844,42 +859,71 @@ const convertPdfToImage = async (pdfData: string | Buffer): Promise<string> => {
 
 /**
  * Extraer datos de BL usando IA (sin Response)
+ * Estrategia:
+ * 1. Primero intentar extraer TEXTO del PDF (más rápido, funciona en prod)
+ * 2. Si el texto es muy corto (PDF escaneado), usar Puppeteer para imagen
  */
 const extractBlDataFromUrl = async (pdfUrl: string): Promise<any> => {
-  let imageUrl = pdfUrl;
-  let usedFallback = false;
+  console.log('🔄 ============ EXTRACCIÓN BL ============');
+  console.log('🔄 PDF URL length:', pdfUrl?.length || 0);
+  console.log('🔄 PDF URL preview:', pdfUrl?.substring(0, 80));
   
-  // Si es un PDF, convertirlo a imagen primero
-  if (pdfUrl.includes('application/pdf') || pdfUrl.includes('.pdf')) {
-    console.log('📄 Convirtiendo PDF a imagen para análisis con IA...');
-    try {
-      imageUrl = await convertPdfToImage(pdfUrl);
-      console.log('✅ PDF convertido a imagen exitosamente, longitud:', imageUrl.length);
-    } catch (convError: any) {
-      console.error('❌ Error convirtiendo PDF a imagen:', convError.message);
-      console.log('🔄 Intentando extracción de TEXTO del PDF como fallback...');
-      
-      // NUEVO FALLBACK: extraer texto del PDF y usar GPT-4o en modo texto
-      try {
-        const pdfText = await extractTextFromPdf(pdfUrl);
-        if (pdfText && pdfText.length > 100) {
-          console.log('✅ Texto extraído del PDF, usando modo texto para análisis');
-          return await extractBlDataFromText(pdfText);
-        } else {
-          console.log('⚠️ Texto del PDF muy corto o vacío, PDF podría ser imagen escaneada');
-          // Si el PDF no tiene texto (es imagen escaneada), no podemos hacer nada sin Puppeteer
-          throw new Error('PDF sin texto extraíble y Puppeteer no disponible');
-        }
-      } catch (textError: any) {
-        console.error('❌ Error en fallback de texto:', textError.message);
-        throw textError;
-      }
-    }
-  } else {
-    console.log('📸 No es PDF, usando directamente como imagen');
+  // Verificar que tenemos una URL válida
+  if (!pdfUrl || pdfUrl.length < 100) {
+    console.error('❌ URL de PDF inválida o muy corta');
+    return {};
   }
   
-  console.log(`📤 Enviando a OpenAI GPT-4o (${usedFallback ? 'modo fallback PDF' : 'modo imagen'})...`);
+  // Detectar si es un PDF
+  const isPdf = pdfUrl.includes('application/pdf') || pdfUrl.includes('.pdf');
+  console.log('🔄 Es PDF:', isPdf);
+  
+  if (isPdf) {
+    // ESTRATEGIA 1: Intentar extraer texto primero (más rápido y confiable en prod)
+    console.log('📄 Intentando extraer TEXTO del PDF primero...');
+    try {
+      const pdfText = await extractTextFromPdf(pdfUrl);
+      console.log('📄 Texto extraído, longitud:', pdfText?.length || 0);
+      
+      if (pdfText && pdfText.length > 200) {
+        console.log('✅ Texto extraído suficiente, usando modo texto para análisis');
+        console.log('📄 Preview del texto:', pdfText.substring(0, 300));
+        const result = await extractBlDataFromText(pdfText);
+        if (result && (result.blNumber || result.containerNumber)) {
+          console.log('✅ Extracción por texto exitosa');
+          return result;
+        }
+        console.log('⚠️ Texto extraído pero sin datos válidos, probando con imagen...');
+      } else {
+        console.log('⚠️ Texto del PDF muy corto, probablemente es imagen escaneada');
+      }
+    } catch (textError: any) {
+      console.log('⚠️ Error extrayendo texto:', textError.message);
+    }
+    
+    // ESTRATEGIA 2: Si el texto no funcionó, intentar con Puppeteer
+    console.log('📄 Intentando convertir PDF a imagen con Puppeteer...');
+    try {
+      const imageUrl = await convertPdfToImage(pdfUrl);
+      console.log('✅ PDF convertido a imagen exitosamente');
+      return await extractBlDataFromImageUrl(imageUrl);
+    } catch (convError: any) {
+      console.error('❌ Error convirtiendo PDF a imagen:', convError.message);
+      throw new Error(`No se pudo extraer datos del BL: ${convError.message}`);
+    }
+  } else {
+    // No es PDF, es una imagen directamente
+    console.log('📸 No es PDF, usando directamente como imagen');
+    return await extractBlDataFromImageUrl(pdfUrl);
+  }
+};
+
+/**
+ * Extraer datos de BL usando GPT-4o Vision con una imagen
+ */
+const extractBlDataFromImageUrl = async (imageUrl: string): Promise<any> => {
+  console.log(`📤 Enviando imagen a OpenAI GPT-4o Vision...`);
+  console.log('📤 Tamaño de imagen:', imageUrl.length, 'caracteres');
   
   const prompt = `Eres un experto en Bills of Lading marítimos. Extrae los datos de este documento con MÁXIMA PRECISIÓN.
 
@@ -2533,7 +2577,9 @@ export const reExtractDraftData = async (req: Request, res: Response): Promise<a
     console.log('🔄 ============ RE-EXTRACCIÓN BL + SUMMARY ============');
     console.log('🔄 Draft ID:', id);
     console.log('🔄 Document Type:', draft.document_type);
-    console.log('🔄 PDF URL length:', draft.pdf_url?.length);
+    console.log('🔄 PDF URL exists:', !!draft.pdf_url);
+    console.log('🔄 PDF URL length:', draft.pdf_url?.length || 0);
+    console.log('🔄 PDF URL starts with:', draft.pdf_url?.substring(0, 50));
     console.log('🔄 Summary Excel URL:', draft.summary_excel_url ? 'Disponible' : 'No disponible');
     
     // Re-extraer datos del BL
@@ -2542,39 +2588,47 @@ export const reExtractDraftData = async (req: Request, res: Response): Promise<a
     let confidence = 'medium';
     let blExtractionError: string | null = null;
     
-    try {
-      const newBlData = await extractBlDataFromUrl(draft.pdf_url);
-      
-      // Solo actualizar si obtuvimos datos válidos
-      if (newBlData && newBlData.blNumber) {
-        // Merge: nuevos datos del BL + preservar logs existentes si hay
-        const existingLogs = extractedData.logs;
-        const existingSummary = extractedData.summary;
+    // Verificar que tenemos un PDF válido
+    if (!draft.pdf_url || draft.pdf_url.length < 100) {
+      console.log('⚠️ PDF URL inválido o muy corto, no se puede extraer BL');
+      blExtractionError = 'No hay PDF válido para extraer datos del BL';
+    } else {
+      try {
+        console.log('🔄 Iniciando extracción de datos del BL...');
+        const newBlData = await extractBlDataFromUrl(draft.pdf_url);
+        console.log('🔄 Resultado de extracción:', JSON.stringify(newBlData, null, 2)?.substring(0, 500));
         
-        extractedData = { ...extractedData, ...newBlData };
-        
-        // Preservar logs si existían
-        if (existingLogs) extractedData.logs = existingLogs;
-        if (existingSummary) extractedData.summary = existingSummary;
-        
-        console.log('✅ Re-extracción BL exitosa:');
-        console.log('   blNumber:', extractedData.blNumber);
-        console.log('   shipper:', extractedData.shipper?.substring(0, 50));
-        console.log('   containerNumber:', extractedData.containerNumber);
-        
-        confidence = 'high';
-      } else {
-        console.log('⚠️ Extracción BL no obtuvo datos válidos, preservando existentes');
-        console.log('⚠️ newBlData recibido:', JSON.stringify(newBlData));
-        confidence = extractedData.blNumber ? 'medium' : 'low';
-        blExtractionError = 'La extracción no devolvió blNumber válido';
+        // Solo actualizar si obtuvimos datos válidos (al menos blNumber o containerNumber)
+        if (newBlData && (newBlData.blNumber || newBlData.containerNumber || newBlData.shipper)) {
+          // Merge: nuevos datos del BL + preservar logs existentes si hay
+          const existingLogs = extractedData.logs;
+          const existingSummary = extractedData.summary;
+          
+          extractedData = { ...extractedData, ...newBlData };
+          
+          // Preservar logs si existían
+          if (existingLogs) extractedData.logs = existingLogs;
+          if (existingSummary) extractedData.summary = existingSummary;
+          
+          console.log('✅ Re-extracción BL exitosa:');
+          console.log('   blNumber:', extractedData.blNumber);
+          console.log('   shipper:', extractedData.shipper?.substring(0, 50));
+          console.log('   containerNumber:', extractedData.containerNumber);
+          
+          confidence = 'high';
+        } else {
+          console.log('⚠️ Extracción BL no obtuvo datos válidos, preservando existentes');
+          console.log('⚠️ newBlData recibido:', JSON.stringify(newBlData));
+          confidence = extractedData.blNumber ? 'medium' : 'low';
+          blExtractionError = 'La extracción no devolvió datos válidos del BL';
+        }
+      } catch (e: any) {
+        console.error('⚠️ Error en re-extracción BL:', e.message);
+        console.error('⚠️ Stack:', e.stack?.substring(0, 300));
+        console.log('📋 Preservando datos BL existentes');
+        blExtractionError = e.message;
+        // No fallar, continuar con datos existentes
       }
-    } catch (e: any) {
-      console.error('⚠️ Error en re-extracción BL:', e.message);
-      console.error('⚠️ Stack:', e.stack);
-      console.log('📋 Preservando datos BL existentes');
-      blExtractionError = e.message;
-      // No fallar, continuar con datos existentes
     }
     
     // Para LCL y FCL: También procesar el SUMMARY/Packing List Excel si existe

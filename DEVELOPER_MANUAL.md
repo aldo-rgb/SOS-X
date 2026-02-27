@@ -1,7 +1,7 @@
 # 📚 EntregaX - Manual del Programador
 
-> **Última actualización:** 26 de febrero de 2026  
-> **Versión:** 2.3.2
+> **Última actualización:** 27 de febrero de 2026  
+> **Versión:** 2.3.3
 
 ---
 
@@ -27,10 +27,11 @@
 18. [Sistema de Direcciones](#sistema-de-direcciones)
 19. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo)
 20. [Panel Marítimo China](#panel-marítimo-china) ⭐ NUEVO
-21. [Módulos Implementados](#módulos-implementados)
-22. [Guía de Desarrollo](#guía-de-desarrollo)
-23. [Credenciales de Prueba](#credenciales-de-prueba)
-24. [Changelog](#changelog)
+21. [Integración con OpenAI](#integración-con-openai) ⭐ NUEVO
+22. [Módulos Implementados](#módulos-implementados)
+23. [Guía de Desarrollo](#guía-de-desarrollo)
+24. [Credenciales de Prueba](#credenciales-de-prueba)
+25. [Changelog](#changelog)
 
 ---
 
@@ -242,13 +243,19 @@ CREATE TABLE users (
     default_carrier VARCHAR(50)
 );
 
--- ENUM de roles
+-- ENUM de roles (11 roles disponibles)
 CREATE TYPE user_role AS ENUM (
-    'super_admin',      -- Acceso total
-    'branch_manager',   -- Gerente de sucursal
-    'counter_staff',    -- Personal de mostrador
-    'warehouse_ops',    -- Operaciones de bodega
-    'client'            -- Cliente final
+    'super_admin',       -- Jefe máximo - acceso total (jerarquía: 100)
+    'admin',             -- Administrador general (jerarquía: 95)
+    'director',          -- Director de área (jerarquía: 90)
+    'branch_manager',    -- Gerente de sucursal (jerarquía: 80)
+    'customer_service',  -- Servicio a cliente (jerarquía: 70)
+    'counter_staff',     -- Personal de mostrador (jerarquía: 60)
+    'warehouse_ops',     -- Operaciones de bodega (jerarquía: 40)
+    'repartidor',        -- Repartidor / Chofer (jerarquía: 35)
+    'advisor',           -- Asesor comercial (CRM/Leads)
+    'sub_advisor',       -- Sub-asesor (subordinado a asesor)
+    'client'             -- Cliente final (jerarquía: 10)
 );
 ```
 
@@ -904,13 +911,73 @@ const theme = {
 ```
 
 ### Roles y Permisos
-| Rol | Descripción | Acceso |
-|-----|-------------|--------|
-| `super_admin` | Administrador total | Todo el sistema |
-| `branch_manager` | Gerente de sucursal | Su sucursal + reportes |
-| `counter_staff` | Mostrador | Recepción + entregas |
-| `warehouse_ops` | Bodega | Inventario + paquetes |
-| `client` | Cliente final | Solo sus paquetes |
+
+El sistema cuenta con **11 roles** organizados jerárquicamente (mayor número = más poder):
+
+| Rol | Jerarquía | Descripción | Permisos Principales |
+|-----|-----------|-------------|---------------------|
+| `super_admin` | 100 | Jefe máximo | `*` (acceso total) |
+| `admin` | 95 | Administrador general | `users:*`, `shipments:*`, `quotes:*`, `reports:*`, `settings:read` |
+| `director` | 90 | Director de área | `users:read`, `shipments:*`, `quotes:*`, `reports:*` |
+| `branch_manager` | 80 | Gerente de sucursal | `users:read/write`, `shipments:*`, `quotes:*`, `reports:read` |
+| `customer_service` | 70 | Servicio a cliente | `clients:*`, `support:*`, `crm:*`, `quotes:read` |
+| `counter_staff` | 60 | Personal de mostrador | `shipments:read/create`, `quotes:*`, `clients:read` |
+| `warehouse_ops` | 40 | Operaciones de bodega | `shipments:read/update_status`, `inventory:*` |
+| `repartidor` | 35 | Repartidor / Chofer | `deliveries:*`, `shipments:read/update_status` |
+| `advisor` | - | Asesor comercial | CRM, leads, comisiones (rol legacy, mapea a `customer_service`) |
+| `sub_advisor` | - | Sub-asesor | Igual que advisor pero subordinado |
+| `client` | 10 | Cliente final | `profile:read/update`, `shipments:own`, `quotes:own` |
+
+#### Roles Legacy (Aliases)
+Algunos roles tienen nombres alternativos que el sistema normaliza automáticamente:
+
+| Rol en BD | Se normaliza a |
+|-----------|----------------|
+| `advisor` | Servicio a Cliente |
+| `sub_advisor` | Servicio a Cliente |
+| `asesor` | Asesor (legacy) |
+| `asesor_lider` | Líder de equipo de asesores |
+| `cliente` | Cliente |
+| `user` | Cliente |
+
+#### Definición de Roles en Código
+
+```typescript
+// authController.ts - Roles oficiales del sistema
+export const ROLES = {
+    SUPER_ADMIN: 'super_admin',        // Jefe máximo - acceso total
+    ADMIN: 'admin',                    // Administrador general
+    DIRECTOR: 'director',              // Director de área
+    BRANCH_MANAGER: 'branch_manager',  // Gerente de sucursal
+    CUSTOMER_SERVICE: 'customer_service', // Servicio a cliente
+    COUNTER_STAFF: 'counter_staff',    // Personal de mostrador
+    WAREHOUSE_OPS: 'warehouse_ops',    // Operaciones de bodega
+    REPARTIDOR: 'repartidor',          // Repartidor / Delivery driver
+    CLIENT: 'client'                   // Cliente final
+} as const;
+
+// Roles válidos para actualización de usuarios
+const validRoles = [
+    'super_admin', 'admin', 'director', 'branch_manager', 
+    'customer_service', 'counter_staff', 'warehouse_ops', 
+    'advisor', 'sub_advisor', 'repartidor', 'client'
+];
+```
+
+#### Categorización de Usuarios
+
+```typescript
+// Staff interno (pueden acceder al Web Admin)
+const isAdmin = ['super_admin', 'admin', 'director'].includes(user.role);
+
+// Personal operativo
+const isStaff = ['advisor', 'sub_advisor', 'counter_staff', 
+                 'warehouse_ops', 'customer_service', 'repartidor'].includes(user.role);
+
+// Empleados para módulo de RRHH
+const employeeRoles = ['warehouse_ops', 'counter_staff', 'repartidor', 
+                       'customer_service', 'branch_manager'];
+```
 
 ### Estructura del JWT
 ```json
@@ -3030,6 +3097,264 @@ SELECT * FROM admin_panel_modules WHERE panel_key = 'admin_china_sea';
 | PUT | `/api/admin/panels/user/:userId` | Actualizar permisos de panel |
 | GET | `/api/admin/panels/:panelKey/modules` | Módulos de un panel |
 | PUT | `/api/admin/panels/:panelKey/user/:userId/modules` | Actualizar permisos de módulos |
+
+---
+
+## 🤖 Integración con OpenAI
+
+EntregaX utiliza **OpenAI GPT-4o** para múltiples funcionalidades de IA en el sistema.
+
+### Configuración
+
+**Variable de entorno requerida:**
+```bash
+OPENAI_API_KEY=sk-proj-xxxxxxxxxxxxx
+```
+
+### Módulos que usan OpenAI
+
+| Módulo | Archivo | Modelo | Propósito |
+|--------|---------|--------|----------|
+| **Verificación KYC** | `verificationController.ts` | GPT-4o Vision | Comparación facial selfie vs INE |
+| **Extracción BL** | `emailInboundController.ts` | GPT-4o Vision | Extraer datos de Bills of Lading PDF |
+| **Extracción LOG/BL** | `maritimeAiController.ts` | GPT-4o Vision | OCR de documentos marítimos (LCL/FCL) |
+| **Soporte Chat** | `supportController.ts` | GPT-4o-mini | Agente de soporte automático |
+| **Facebook Messenger** | `facebookController.ts` | GPT-4o | Bot de ventas para prospectos |
+| **Consolidaciones** | `maritimeController.ts` | GPT-4o | Análisis de documentos |
+
+### 1. Verificación KYC (verificationController.ts)
+
+Compara la selfie del usuario con su identificación oficial para verificar identidad.
+
+```typescript
+// Comparación facial con GPT-4 Vision
+async function compareFacesWithAI(selfieBase64: string, ineBase64: string) {
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      {
+        role: "system",
+        content: `Eres un experto en verificación de identidad.
+          Tu trabajo es comparar dos imágenes:
+          1. Una selfie de una persona
+          2. Una foto de identificación oficial (INE)
+          
+          Responde SOLO con JSON:
+          { "match": true/false, "confidence": "high/medium/low", "reason": "..." }`
+      },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Compara estas dos imágenes..." },
+          { type: "image_url", image_url: { url: selfieBase64, detail: "high" } },
+          { type: "image_url", image_url: { url: ineBase64, detail: "high" } }
+        ]
+      }
+    ],
+    max_tokens: 300
+  });
+  
+  return JSON.parse(response.choices[0]?.message?.content);
+}
+```
+
+**Resultado:**
+```json
+{
+  "match": true,
+  "confidence": "high",
+  "reason": "Los rasgos faciales coinciden. Misma estructura ósea, ojos y nariz."
+}
+```
+
+### 2. Extracción de Documentos Marítimos (maritimeAiController.ts)
+
+#### Extraer datos de LOG (LCL - Carga Suelta)
+```typescript
+export const extractLogDataLcl = async (req, res) => {
+  const prompt = `Analiza este documento de recepción marítima (LOG de Sanky).
+    Extrae en JSON: logNumber, boxCount, weightKg, volumeCbm, clientCodeRaw, brandType...`;
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { role: "system", content: "Experto en logística marítima." },
+      { role: "user", content: [
+        { type: "text", text: prompt },
+        { type: "image_url", image_url: { url: fileUrl } }
+      ]}
+    ],
+    response_format: { type: "json_object" }
+  });
+};
+```
+
+#### Extraer datos de BL (FCL - Contenedor Completo)
+```typescript
+export const extractBlDataFcl = async (req, res) => {
+  const prompt = `Analiza este Bill of Lading (BL).
+    Extrae: blNumber, containerNumber, eta, pol, pod, weightKg, volumeCbm, consignee...`;
+  // Similar al anterior con GPT-4o Vision
+};
+```
+
+### 3. Soporte Chat con IA (supportController.ts)
+
+Agente de soporte automático que responde como un humano experto en logística.
+
+```typescript
+const SYSTEM_PROMPT = `
+ACTÚA COMO: Javier, un experto en logística Senior de EntregaX con 8 años de experiencia.
+
+🔴 REGLAS DE ORO:
+1. NUNCA digas que eres una IA o bot
+2. Habla en primera persona ("Yo reviso", "Te ayudo")
+3. Sé breve y casual, como WhatsApp
+4. Si el cliente está muy enojado, incluye "[ESCALAR]" para transferir a humano
+
+📦 CONOCIMIENTO:
+- Aéreo China → México: 7-12 días hábiles
+- Marítimo China → México: 35-45 días
+- Aéreo USA → México: 5-8 días hábiles
+`;
+
+async function getAIResponse(userMessage: string, chatHistory: any[]) {
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini', // Más económico
+      messages: [
+        { role: 'system', content: SYSTEM_PROMPT },
+        ...chatHistory.slice(-6),
+        { role: 'user', content: userMessage }
+      ],
+      max_tokens: 500,
+      temperature: 0.7,
+    }),
+  });
+  
+  const aiText = data.choices[0]?.message?.content;
+  const shouldEscalate = aiText.includes('[ESCALAR]');
+  
+  return { response: aiText, shouldEscalate };
+}
+```
+
+### 4. Bot de Facebook Messenger (facebookController.ts)
+
+Bot de ventas que responde automáticamente a prospectos que contactan por Messenger.
+
+```typescript
+const SALES_PROMPT = `
+Eres un asesor comercial de EntregaX. Tu objetivo es:
+1. Calificar al prospecto (¿qué importa? ¿volumen?)
+2. Generar interés en nuestros servicios
+3. Obtener datos de contacto (WhatsApp)
+4. Agendar llamada/cita si hay interés
+
+Si necesitas ayuda humana, incluye [HUMANO_REQUERIDO]
+`;
+
+const completion = await openai.chat.completions.create({
+  model: 'gpt-4o',
+  messages: [
+    { role: 'system', content: SALES_PROMPT },
+    ...conversationHistory
+  ],
+  max_tokens: 300,
+  temperature: 0.7
+});
+```
+
+### Inicialización Lazy del Cliente
+
+Todos los controladores usan inicialización lazy para evitar errores si no hay API key:
+
+```typescript
+import OpenAI from 'openai';
+
+let openaiInstance: OpenAI | null = null;
+
+const getOpenAI = (): OpenAI => {
+  if (!openaiInstance) {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY no configurada');
+    }
+    openaiInstance = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  }
+  return openaiInstance;
+};
+
+// Uso con Proxy para compatibilidad
+const openai = new Proxy({} as OpenAI, {
+  get(_, prop) {
+    return getOpenAI()[prop as keyof OpenAI];
+  }
+});
+```
+
+### Modelos Utilizados
+
+| Modelo | Costo | Uso en EntregaX |
+|--------|-------|----------------|
+| `gpt-4o` | Alto | Verificación KYC, extracción BL, bot Facebook |
+| `gpt-4o-mini` | Bajo | Chat de soporte (alto volumen) |
+
+### Endpoints que usan OpenAI
+
+```http
+# Verificación KYC
+POST /api/verification/submit
+→ Compara selfie vs INE con GPT-4o Vision
+
+# Extracción LOG marítimo
+POST /api/admin/maritime/ai/extract-log
+→ OCR de documento LOG de Sanky
+
+# Extracción BL marítimo  
+POST /api/admin/maritime/ai/extract-bl
+→ OCR de Bill of Lading
+
+# Re-extraer datos de draft
+POST /api/admin/email/draft/:id/reextract
+→ Re-procesa PDF con GPT-4o Vision
+
+# Chat de soporte
+POST /api/support/message
+→ Respuesta automática con GPT-4o-mini
+
+# Webhook Facebook (interno)
+POST /api/facebook/webhook
+→ Bot de ventas con GPT-4o
+```
+
+### Troubleshooting OpenAI
+
+| Error | Causa | Solución |
+|-------|-------|----------|
+| `OPENAI_API_KEY no configurada` | Variable faltante | Agregar en `.env` o Railway |
+| `401 Unauthorized` | API Key inválida | Verificar key en OpenAI dashboard |
+| `429 Too Many Requests` | Rate limit | Implementar retry con backoff |
+| `400 Invalid image` | Imagen muy grande | Reducir tamaño o usar `detail: "low"` |
+| `Timeout` | Imagen pesada o red lenta | Aumentar timeout, comprimir imagen |
+| Respuesta no JSON | Modelo no siguió formato | Usar `response_format: { type: "json_object" }` |
+
+### Costos Aproximados
+
+| Operación | Tokens aprox. | Costo USD |
+|-----------|---------------|----------|
+| Verificación KYC (2 imágenes) | ~2000 | $0.02 |
+| Extracción BL (1 página) | ~1500 | $0.015 |
+| Chat soporte (mensaje) | ~300 | $0.0003 |
+| Bot Facebook (mensaje) | ~500 | $0.005 |
+
+---
+
+## 📝 Changelog
 
 #### Asignación de Permisos (Script)
 ```javascript

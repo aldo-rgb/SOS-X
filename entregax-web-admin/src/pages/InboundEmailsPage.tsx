@@ -436,10 +436,21 @@ export default function InboundEmailsPage() {
 
             if (res.ok) {
                 const data = await res.json();
+                console.log('🔄 Re-extracción respuesta:', data);
                 setSelectedDraft(data.draft);
                 // Re-inicializar los campos editables con los nuevos datos extraídos
                 initEditableData(data.draft);
-                setSnackbar({ open: true, message: 'Datos extraídos exitosamente', severity: 'success' });
+                
+                // Mostrar mensaje según si hubo error en BL
+                if (data.blExtractionError) {
+                    setSnackbar({ 
+                        open: true, 
+                        message: `⚠️ LOGs extraídos, pero BL falló: ${data.blExtractionError}`, 
+                        severity: 'warning' 
+                    });
+                } else {
+                    setSnackbar({ open: true, message: 'Datos extraídos exitosamente', severity: 'success' });
+                }
                 loadDrafts();
             } else {
                 const error = await res.json();

@@ -1190,12 +1190,16 @@ export const syncActiveMJCustomerOrders = async (): Promise<{
         console.log('🔄 [CRON MJCustomer] Iniciando sincronización de órdenes activas...');
 
         // Obtener órdenes activas (no entregadas, últimos 30 días)
+        // Usamos subquery para poder hacer DISTINCT y ORDER BY created_at
         const activeOrders = await pool.query(`
-            SELECT DISTINCT fno 
-            FROM china_receipts 
-            WHERE status NOT IN ('delivered', 'cancelled', 'completed')
-              AND created_at > NOW() - INTERVAL '30 days'
-              AND fno IS NOT NULL
+            SELECT fno FROM (
+                SELECT DISTINCT ON (fno) fno, created_at
+                FROM china_receipts 
+                WHERE status NOT IN ('delivered', 'cancelled', 'completed')
+                  AND created_at > NOW() - INTERVAL '30 days'
+                  AND fno IS NOT NULL
+                ORDER BY fno, created_at DESC
+            ) sub
             ORDER BY created_at DESC
             LIMIT 50
         `);
