@@ -15,6 +15,8 @@ import * as os from 'os';
 import * as path from 'path';
 // pdfjs-dist para extraer texto de PDFs (moderno, ya instalado)
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+// S3 para almacenamiento de archivos grandes
+import { uploadToS3, isS3Configured } from './s3Service';
 
 // Lazy initialization - only create OpenAI client when API key exists
 let openaiInstance: OpenAI | null = null;
@@ -2344,15 +2346,49 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
     
     const emailLogId = emailLogResult.rows[0].id;
 
-    // Por ahora guardamos los archivos en memoria/base64
-    // En producción deberías subirlos a S3/Cloudinary
-    const blBase64 = blFile.buffer.toString('base64');
-    const blDataUrl = `data:${blFile.mimetype};base64,${blBase64}`;
+    // ====== SUBIR ARCHIVOS A S3 (optimizado) ======
+    // Solo guardamos URLs en la BD, los archivos van a S3
+    const timestamp = Date.now();
+    const sanitizedSubject = (subject || 'manual').replace(/[^a-zA-Z0-9-_]/g, '_').substring(0, 50);
     
+    let blS3Url: string | null = null;
+    let telexS3Url: string | null = null;
+    let summaryS3Url: string | null = null;
+    
+    // Crear dataUrl temporal solo para extracción IA (no se guarda)
+    const blDataUrl = `data:${blFile.mimetype};base64,${blFile.buffer.toString('base64')}`;
+    
+    // Subir BL a S3
+    if (isS3Configured()) {
+      try {
+        const blKey = `maritime/${shipmentType?.toLowerCase() || 'manual'}/${timestamp}_${sanitizedSubject}_bl.pdf`;
+        blS3Url = await uploadToS3(blFile.buffer, blKey, blFile.mimetype || 'application/pdf');
+        console.log('☁️ BL subido a S3:', blS3Url);
+      } catch (s3Error: any) {
+        console.error('⚠️ Error subiendo BL a S3, usando fallback base64:', s3Error.message);
+        blS3Url = blDataUrl; // Fallback a base64 si S3 falla
+      }
+    } else {
+      console.log('⚠️ S3 no configurado, usando base64 (no recomendado para producción)');
+      blS3Url = blDataUrl;
+    }
+    
+    // Subir Telex a S3
     let telexDataUrl: string | null = null;
     if (telexFile) {
-      const telexBase64 = telexFile.buffer.toString('base64');
-      telexDataUrl = `data:${telexFile.mimetype};base64,${telexBase64}`;
+      telexDataUrl = `data:${telexFile.mimetype};base64,${telexFile.buffer.toString('base64')}`;
+      if (isS3Configured()) {
+        try {
+          const telexKey = `maritime/${shipmentType?.toLowerCase() || 'manual'}/${timestamp}_${sanitizedSubject}_telex.pdf`;
+          telexS3Url = await uploadToS3(telexFile.buffer, telexKey, telexFile.mimetype || 'application/pdf');
+          console.log('☁️ Telex subido a S3:', telexS3Url);
+        } catch (s3Error: any) {
+          console.error('⚠️ Error subiendo Telex a S3:', s3Error.message);
+          telexS3Url = telexDataUrl;
+        }
+      } else {
+        telexS3Url = telexDataUrl;
+      }
     }
 
     // Extraer datos del BL usando IA
@@ -2462,27 +2498,46 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
     if (packingFile) extractedData.packing_list_filename = packingFile.originalname;
     if (summaryFile) extractedData.summary_filename = summaryFile.originalname;
 
-    // Preparar URLs de archivos
-    let summaryExcelUrl: string | null = null;
+    // ====== SUBIR EXCEL/PACKING LIST A S3 ======
     let summaryExcelFilename: string | null = null;
     
     // Para LCL: el archivo se llama 'summary'
     if (summaryFile) {
-      const summaryBase64 = summaryFile.buffer.toString('base64');
-      summaryExcelUrl = `data:${summaryFile.mimetype};base64,${summaryBase64}`;
       summaryExcelFilename = summaryFile.originalname;
-      extractedData.summary_excel_url = summaryExcelUrl;
+      if (isS3Configured()) {
+        try {
+          const summaryKey = `maritime/${shipmentType?.toLowerCase() || 'manual'}/${timestamp}_${sanitizedSubject}_summary.xlsx`;
+          summaryS3Url = await uploadToS3(summaryFile.buffer, summaryKey, summaryFile.mimetype || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+          console.log('☁️ Summary Excel subido a S3:', summaryS3Url);
+        } catch (s3Error: any) {
+          console.error('⚠️ Error subiendo Summary a S3:', s3Error.message);
+          summaryS3Url = `data:${summaryFile.mimetype};base64,${summaryFile.buffer.toString('base64')}`;
+        }
+      } else {
+        summaryS3Url = `data:${summaryFile.mimetype};base64,${summaryFile.buffer.toString('base64')}`;
+      }
+      extractedData.summary_excel_url = summaryS3Url;
       extractedData.summary_excel_filename = summaryExcelFilename;
     }
     
     // Para FCL: el archivo se llama 'packingList' - también guardarlo como summary_excel
     if (packingFile && !summaryFile) {
-      const packingBase64 = packingFile.buffer.toString('base64');
-      summaryExcelUrl = `data:${packingFile.mimetype};base64,${packingBase64}`;
       summaryExcelFilename = packingFile.originalname;
-      extractedData.summary_excel_url = summaryExcelUrl;
+      if (isS3Configured()) {
+        try {
+          const packingKey = `maritime/${shipmentType?.toLowerCase() || 'manual'}/${timestamp}_${sanitizedSubject}_packing.xlsx`;
+          summaryS3Url = await uploadToS3(packingFile.buffer, packingKey, packingFile.mimetype || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+          console.log('☁️ Packing List subido a S3:', summaryS3Url);
+        } catch (s3Error: any) {
+          console.error('⚠️ Error subiendo Packing a S3:', s3Error.message);
+          summaryS3Url = `data:${packingFile.mimetype};base64,${packingFile.buffer.toString('base64')}`;
+        }
+      } else {
+        summaryS3Url = `data:${packingFile.mimetype};base64,${packingFile.buffer.toString('base64')}`;
+      }
+      extractedData.summary_excel_url = summaryS3Url;
       extractedData.summary_excel_filename = summaryExcelFilename;
-      extractedData.packing_list_url = summaryExcelUrl;
+      extractedData.packing_list_url = summaryS3Url;
     }
 
     // Para LCL: Procesar Excel SUMMARY para extraer LOGs
@@ -2531,7 +2586,7 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
       }
     }
 
-    // Crear borrador
+    // Crear borrador (usando URLs de S3 en lugar de base64)
     await pool.query(`
       INSERT INTO maritime_reception_drafts 
       (email_log_id, document_type, extracted_data, confidence, 
@@ -2544,11 +2599,11 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
       shipmentType || 'MANUAL',
       JSON.stringify(extractedData),
       confidence,
-      blDataUrl,
+      blS3Url,  // URL de S3 en lugar de base64
       blFile.originalname,
-      telexDataUrl,
+      telexS3Url,  // URL de S3 en lugar de base64
       telexFile?.originalname || null,
-      summaryExcelUrl,
+      summaryS3Url,  // URL de S3 en lugar de base64
       summaryExcelFilename,
       detectedClientCode,
       matchedUserId,

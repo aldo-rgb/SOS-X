@@ -1896,8 +1896,8 @@ app.post('/api/admin/containers/:id/tracking/manual', authenticateToken, require
 // Sincronizar tracking desde la naviera (Wan Hai, etc.)
 app.post('/api/admin/containers/:id/tracking/sync-carrier', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), syncCarrierTracking);
 
-// Upload manual de documentos marítimos (FCL/LCL) - Límite 50MB
-const maritimeUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+// Upload manual de documentos marítimos (FCL/LCL) - Archivos van a S3, límite 100MB
+const maritimeUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 app.post('/api/admin/maritime/upload-manual', 
   authenticateToken, 
   requireMinLevel(ROLES.BRANCH_MANAGER),
