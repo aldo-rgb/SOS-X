@@ -1,3 +1,4 @@
+// EntregaX Backend API v2.1.0
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
