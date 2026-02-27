@@ -1533,8 +1533,8 @@ app.post('/api/maritime-api/orders/:ordersn/packing-list', authenticateToken, re
 app.get('/api/maritime-api/sync/logs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSyncLogs);
 app.get('/api/maritime-api/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getMaritimeApiStats);
 
-// Rutas marítimas
-app.get('/api/maritime-api/routes', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getMaritimeRoutes);
+// Rutas marítimas (lectura: Gerente+, escritura: counter_staff+)
+app.get('/api/maritime-api/routes', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getMaritimeRoutes);
 app.post('/api/maritime-api/routes', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createMaritimeRoute);
 app.put('/api/maritime-api/routes/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateMaritimeRoute);
 app.delete('/api/maritime-api/routes/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteMaritimeRoute);
@@ -1872,8 +1872,8 @@ app.post('/api/admin/maritime/drafts/:id/approve', authenticateToken, requireMin
 app.post('/api/admin/maritime/drafts/:id/reject', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), rejectDraft);
 app.put('/api/admin/maritime/drafts/:id/match-client', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), matchClientToDraft);
 
-// Whitelist de correos (Solo Admin+)
-app.get('/api/admin/email/whitelist', authenticateToken, requireMinLevel(ROLES.ADMIN), getWhitelist);
+// Whitelist de correos (Lectura: Gerente+, Escritura: Admin+)
+app.get('/api/admin/email/whitelist', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getWhitelist);
 app.post('/api/admin/email/whitelist', authenticateToken, requireMinLevel(ROLES.ADMIN), addToWhitelist);
 app.delete('/api/admin/email/whitelist/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), removeFromWhitelist);
 app.get('/api/admin/email/stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getEmailStats);

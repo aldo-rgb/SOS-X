@@ -1658,7 +1658,7 @@ export default function InboundEmailsPage() {
                                     <strong>Packing List</strong> - Archivo Excel (.xlsx o .xls)
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 2 }}>
-                                    El packing list debe incluir: códigos de cliente, número de cajas, peso y descripción
+                                    Incluye: códigos de cliente (LOG), número de cajas, peso y descripción
                                 </Typography>
                             </li>
                         </Box>
@@ -1675,12 +1675,12 @@ export default function InboundEmailsPage() {
                         }}>
                             [RUTA] / Week [NÚMERO] / [REFERENCIA]<br/>
                             <Typography variant="caption" color="text.secondary">
-                                Ejemplo: CHN-LZC-MEX / Week 2-2 / JSM00-1234
+                                Ejemplo: CHN-LZC-MEX / Week 2-2 / JSM26-0002
                             </Typography>
                         </Box>
                         <Alert severity="success" sx={{ mt: 1 }} icon={false}>
                             <Typography variant="caption">
-                                💡 <strong>Importante:</strong> La referencia (ej: JSM00-1234) se usará para identificar el contenedor.
+                                💡 <strong>Importante:</strong> La referencia (ej: JSM26-0002) identifica el contenedor/embarque.
                             </Typography>
                         </Alert>
                     </Box>
@@ -1725,7 +1725,7 @@ export default function InboundEmailsPage() {
                             </li>
                             <li>
                                 <Typography variant="body2">
-                                    <strong></strong> - Archivo PDF o Imagen (JPG/PNG)
+                                    <strong>Telex Release</strong> - Archivo PDF o Imagen (JPG/PNG) - <em>Opcional</em>
                                 </Typography>
                             </li>
                             <li>
@@ -1733,7 +1733,7 @@ export default function InboundEmailsPage() {
                                     <strong>SUMMARY</strong> - Archivo Excel (.xlsx o .xls)
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', ml: 2 }}>
-                                    Excel con título "SUMMARY" que incluye información de LOGs
+                                    El nombre del archivo debe contener "SUMMARY". Incluye información de LOGs.
                                 </Typography>
                             </li>
                         </Box>
@@ -1772,11 +1772,16 @@ export default function InboundEmailsPage() {
                             fontFamily: 'monospace',
                             fontSize: '0.9rem'
                         }}>
-                            [RUTA] - CONSOLIDACION [JOB_NO] - [FECHA]<br/>
+                            [RUTA] / Week [NÚMERO] / [REFERENCIA]<br/>
                             <Typography variant="caption" color="text.secondary">
-                                Ejemplo: CHN-LZC-MEX - CONSOLIDACION SA26010033 - 13-Feb-2026
+                                Ejemplo: CHN-LZC-MEX / Week 1-1 / JSM26-0002
                             </Typography>
                         </Box>
+                        <Alert severity="success" sx={{ mt: 1 }} icon={false}>
+                            <Typography variant="caption">
+                                💡 <strong>Importante:</strong> La referencia (ej: JSM26-0002) identifica la consolidación.
+                            </Typography>
+                        </Alert>
                     </Box>
 
                     <Divider sx={{ my: 3 }} />
