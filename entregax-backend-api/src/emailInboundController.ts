@@ -13,6 +13,8 @@ import puppeteer from 'puppeteer';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+// pdf-parse para extraer texto de PDFs
+const pdfParse = require('pdf-parse');
 
 // Lazy initialization - only create OpenAI client when API key exists
 let openaiInstance: OpenAI | null = null;
@@ -598,6 +600,97 @@ Responde SOLO con el JSON, sin explicaciones.`;
 };
 
 /**
+ * Extraer texto de un PDF usando pdf-parse (fallback cuando Puppeteer falla)
+ */
+const extractTextFromPdf = async (pdfData: string | Buffer): Promise<string> => {
+  try {
+    let pdfBuffer: Buffer;
+    
+    if (typeof pdfData === 'string') {
+      if (pdfData.startsWith('data:')) {
+        const commaIndex = pdfData.indexOf(',');
+        const base64Data = commaIndex > -1 ? pdfData.substring(commaIndex + 1) : pdfData;
+        pdfBuffer = Buffer.from(base64Data, 'base64');
+      } else {
+        pdfBuffer = Buffer.from(pdfData, 'base64');
+      }
+    } else {
+      pdfBuffer = pdfData;
+    }
+    
+    console.log('📄 Extrayendo texto de PDF, buffer size:', pdfBuffer.length, 'bytes');
+    
+    const data = await pdfParse(pdfBuffer);
+    console.log('✅ Texto extraído del PDF:', data.text?.length, 'caracteres');
+    return data.text || '';
+  } catch (error: any) {
+    console.error('❌ Error extrayendo texto del PDF:', error.message);
+    throw error;
+  }
+};
+
+/**
+ * Extraer datos de BL usando GPT-4o con texto en lugar de imagen (fallback)
+ */
+const extractBlDataFromText = async (pdfText: string): Promise<any> => {
+  console.log('📤 Enviando texto del PDF a GPT-4o para análisis...');
+  console.log('📄 Texto del PDF (primeros 500 chars):', pdfText.substring(0, 500));
+  
+  const prompt = `Eres un experto en Bills of Lading marítimos. A continuación está el TEXTO EXTRAÍDO de un documento BL.
+Extrae los datos con MÁXIMA PRECISIÓN.
+
+TEXTO DEL DOCUMENTO BL:
+---
+${pdfText}
+---
+
+EXTRAE Y DEVUELVE ESTE JSON:
+{
+  "blNumber": "B/L No. exacto",
+  "containerNumber": "Solo 11 caracteres (4 letras + 7 números)",
+  "shipper": "Datos del Shipper",
+  "consignee": "SOLO Nombre + RFC del Consignee (SIN dirección completa)",
+  "notifyParty": "Notify party",
+  "vesselName": "Nombre del buque",
+  "voyageNumber": "Número de viaje",
+  "portOfLoading": "Puerto de carga",
+  "portOfDischarge": "Puerto de descarga",
+  "placeOfDelivery": "Lugar de entrega",
+  "eta": "Fecha ETA YYYY-MM-DD o null",
+  "ladenOnBoard": "Fecha embarque YYYY-MM-DD",
+  "packages": "número total de bultos/PKGS (integer)",
+  "weightKg": "peso bruto total en kg (número)",
+  "volumeCbm": "volumen total CBM (número)",
+  "goodsDescription": "Descripción mercancía",
+  "carrier": "Línea naviera"
+}
+
+⚠️ MUY IMPORTANTE:
+- Si NO encuentras claramente un valor, devuelve null para ese campo
+- Es preferible dejar un campo vacío que inventar datos
+- Solo extrae datos que puedas encontrar claramente en el texto
+
+Responde SOLO con JSON válido, sin explicaciones.`;
+
+  const response = await openai.chat.completions.create({
+    model: "gpt-4o",
+    messages: [
+      { 
+        role: "system", 
+        content: "Eres un asistente experto en análisis de documentos de comercio internacional marítimo. Extraes información de texto de Bills of Lading con precisión máxima. SIEMPRE respondes con JSON válido sin markdown ni explicaciones." 
+      },
+      { role: "user", content: prompt }
+    ],
+    max_tokens: 1500,
+    response_format: { type: "json_object" }
+  });
+  
+  const result = JSON.parse(response.choices[0]?.message?.content || '{}');
+  console.log('✅ Datos extraídos del texto:', JSON.stringify(result, null, 2));
+  return result;
+};
+
+/**
  * Convertir PDF a imagen usando Puppeteer (mejor calidad)
  * Genera múltiples páginas si es necesario
  */
@@ -750,10 +843,23 @@ const extractBlDataFromUrl = async (pdfUrl: string): Promise<any> => {
       console.log('✅ PDF convertido a imagen exitosamente, longitud:', imageUrl.length);
     } catch (convError: any) {
       console.error('❌ Error convirtiendo PDF a imagen:', convError.message);
-      console.log('🔄 Intentando extracción con PDF base64 directamente...');
-      // Fallback: usar el PDF directamente (GPT-4o puede procesar PDFs en base64)
-      imageUrl = pdfUrl;
-      usedFallback = true;
+      console.log('🔄 Intentando extracción de TEXTO del PDF como fallback...');
+      
+      // NUEVO FALLBACK: extraer texto del PDF y usar GPT-4o en modo texto
+      try {
+        const pdfText = await extractTextFromPdf(pdfUrl);
+        if (pdfText && pdfText.length > 100) {
+          console.log('✅ Texto extraído del PDF, usando modo texto para análisis');
+          return await extractBlDataFromText(pdfText);
+        } else {
+          console.log('⚠️ Texto del PDF muy corto o vacío, PDF podría ser imagen escaneada');
+          // Si el PDF no tiene texto (es imagen escaneada), no podemos hacer nada sin Puppeteer
+          throw new Error('PDF sin texto extraíble y Puppeteer no disponible');
+        }
+      } catch (textError: any) {
+        console.error('❌ Error en fallback de texto:', textError.message);
+        throw textError;
+      }
     }
   } else {
     console.log('📸 No es PDF, usando directamente como imagen');
