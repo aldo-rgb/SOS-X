@@ -2149,12 +2149,18 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
       }
     }
 
-    // 3. Marcar borrador como aprobado
+    // 3. Marcar borrador como aprobado Y guardar el BL editado manualmente
     await pool.query(`
       UPDATE maritime_reception_drafts 
-      SET status = 'approved', reviewed_by = $1, reviewed_at = NOW(), updated_at = NOW()
+      SET status = 'approved', 
+          reviewed_by = $1, 
+          reviewed_at = NOW(), 
+          updated_at = NOW(),
+          bl_number = COALESCE($3, bl_number),
+          container_number = COALESCE($4, container_number),
+          extracted_data = $5
       WHERE id = $2
-    `, [userId, id]);
+    `, [userId, id, finalData.blNumber, finalData.containerNumber, JSON.stringify(finalData)]);
 
     res.json({ 
       success: true, 
