@@ -654,9 +654,10 @@ const extractTextFromPdf = async (pdfData: string | Buffer): Promise<string> => 
 
 /**
  * Extraer datos de BL usando GPT-4o con texto en lugar de imagen (fallback)
+ * Usa fetch directo para mayor compatibilidad con Railway
  */
 const extractBlDataFromText = async (pdfText: string): Promise<any> => {
-  console.log('📤 Enviando texto del PDF a GPT-4o para análisis...');
+  console.log('📤 Enviando texto del PDF a GPT-4o para análisis (fetch directo)...');
   console.log('📄 Texto del PDF (primeros 500 chars):', pdfText.substring(0, 500));
   
   const prompt = `Eres un experto en Bills of Lading marítimos. A continuación está el TEXTO EXTRAÍDO de un documento BL.
@@ -695,22 +696,41 @@ EXTRAE Y DEVUELVE ESTE JSON:
 
 Responde SOLO con JSON válido, sin explicaciones.`;
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      { 
-        role: "system", 
-        content: "Eres un asistente experto en análisis de documentos de comercio internacional marítimo. Extraes información de texto de Bills of Lading con precisión máxima. SIEMPRE respondes con JSON válido sin markdown ni explicaciones." 
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json',
       },
-      { role: "user", content: prompt }
-    ],
-    max_tokens: 1500,
-    response_format: { type: "json_object" }
-  });
-  
-  const result = JSON.parse(response.choices[0]?.message?.content || '{}');
-  console.log('✅ Datos extraídos del texto:', JSON.stringify(result, null, 2));
-  return result;
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          { 
+            role: "system", 
+            content: "Eres un asistente experto en análisis de documentos de comercio internacional marítimo. Extraes información de texto de Bills of Lading con precisión máxima. SIEMPRE respondes con JSON válido sin markdown ni explicaciones." 
+          },
+          { role: "user", content: prompt }
+        ],
+        max_tokens: 1500,
+        response_format: { type: "json_object" }
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ OpenAI API error:', response.status, errorText);
+      throw new Error(`OpenAI error: ${response.status}`);
+    }
+
+    const data = await response.json() as any;
+    const result = JSON.parse(data.choices[0]?.message?.content || '{}');
+    console.log('✅ Datos extraídos del texto:', JSON.stringify(result, null, 2));
+    return result;
+  } catch (error: any) {
+    console.error('❌ Error en extractBlDataFromText:', error.message);
+    throw error;
+  }
 };
 
 /**
@@ -998,86 +1018,92 @@ Responde SOLO con JSON válido, sin explicaciones.`;
   console.log('📤 Tamaño de imagen enviada:', imageUrl.length, 'caracteres');
 
   // Intentar primero con detail "high" para mejor lectura de números
-  // Si falla, reintentar con "low"
-  let response;
-  let attempts = [{ detail: 'high' as const }, { detail: 'low' as const }];
+  // Si falla, reintentar con "low" - Usa fetch directo para compatibilidad con Railway
+  let parsedResult: any = null;
+  let attempts = [{ detail: 'high' }, { detail: 'low' }];
   
   for (const attempt of attempts) {
     try {
       console.log(`📤 Intento con detail: ${attempt.detail}`);
-      response = await openai.chat.completions.create({
-        model: "gpt-4o",
-        messages: [
-          { 
-            role: "system", 
-            content: "Eres un asistente experto en análisis de documentos de comercio internacional marítimo. Tu tarea es extraer información estructurada de Bills of Lading (BL). SIEMPRE respondes con JSON válido sin markdown ni explicaciones adicionales. Extraes datos con precisión máxima." 
-          },
-          { 
-            role: "user", 
-            content: [
-              { type: "text", text: prompt }, 
-              { type: "image_url", image_url: { url: imageUrl, detail: attempt.detail } }
-            ] 
-          }
-        ],
-        max_tokens: 4096,
-        temperature: 0,
-      });
       
-      const content = response.choices[0]?.message?.content || '';
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'gpt-4o',
+          messages: [
+            { 
+              role: "system", 
+              content: "Eres un asistente experto en análisis de documentos de comercio internacional marítimo. Tu tarea es extraer información estructurada de Bills of Lading (BL). SIEMPRE respondes con JSON válido sin markdown ni explicaciones adicionales. Extraes datos con precisión máxima." 
+            },
+            { 
+              role: "user", 
+              content: [
+                { type: "text", text: prompt }, 
+                { type: "image_url", image_url: { url: imageUrl, detail: attempt.detail } }
+              ] 
+            }
+          ],
+          max_tokens: 4096,
+          temperature: 0,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ OpenAI API error (${attempt.detail}):`, response.status, errorText);
+        continue;
+      }
+
+      const data = await response.json() as any;
+      const content = data.choices?.[0]?.message?.content || '';
+      
       // Verificar que la respuesta no sea un rechazo
       if (!content.includes("I'm sorry") && !content.includes("I cannot") && !content.includes("Lo siento") && content.includes('{')) {
         console.log(`✅ Respuesta válida obtenida con detail: ${attempt.detail}`);
+        
+        // Limpiar el contenido
+        let cleanContent = content;
+        if (cleanContent.includes('```json')) {
+          cleanContent = cleanContent.replace(/```json\n?/g, '').replace(/```\n?/g, '');
+        }
+        if (cleanContent.includes('```')) {
+          cleanContent = cleanContent.replace(/```\n?/g, '');
+        }
+        
+        parsedResult = JSON.parse(cleanContent.trim());
         break;
       } else {
         console.log(`⚠️ Respuesta rechazada/inválida con detail: ${attempt.detail}, reintentando...`);
-        response = null;
       }
     } catch (e: any) {
       console.error(`❌ Error con detail ${attempt.detail}:`, e.message);
     }
   }
   
-  if (!response) {
+  if (!parsedResult) {
     console.error('❌ No se pudo obtener respuesta válida de OpenAI');
     return {};
   }
 
-  const rawContent = response.choices[0]?.message?.content || '{}';
-  console.log('🤖 OpenAI respuesta BL completa:');
-  console.log(rawContent);
-  
-  // Limpiar el contenido - a veces viene con ```json
-  let cleanContent = rawContent;
-  if (cleanContent.includes('```json')) {
-    cleanContent = cleanContent.replace(/```json\n?/g, '').replace(/```\n?/g, '');
-  }
-  if (cleanContent.includes('```')) {
-    cleanContent = cleanContent.replace(/```\n?/g, '');
-  }
-  
-  try {
-    const parsed = JSON.parse(cleanContent.trim());
-    console.log('📊 ========== DATOS EXTRAÍDOS DEL BL ==========');
-    console.log('   B/L Number:', parsed.blNumber);
-    console.log('   S/O Number:', parsed.soNumber);
-    console.log('   Container:', parsed.containerNumber);
-    console.log('   Consignee:', parsed.consignee?.substring(0, 60));
-    console.log('   Shipper:', parsed.shipper?.substring(0, 60));
-    console.log('   Vessel:', parsed.vesselName);
-    console.log('   POL:', parsed.portOfLoading);
-    console.log('   POD:', parsed.portOfDischarge);
-    console.log('   Weight:', parsed.weightKg, 'kg');
-    console.log('   Volume:', parsed.volumeCbm, 'CBM');
-    console.log('   Packages:', parsed.packages);
-    console.log('   Carrier:', parsed.carrier);
-    console.log('📊 =============================================');
-    return parsed;
-  } catch (parseError) {
-    console.error('❌ Error parseando JSON:', parseError);
-    console.error('❌ Contenido limpio:', cleanContent);
-    return {};
-  }
+  console.log('📊 ========== DATOS EXTRAÍDOS DEL BL ==========');
+  console.log('   B/L Number:', parsedResult.blNumber);
+  console.log('   S/O Number:', parsedResult.soNumber);
+  console.log('   Container:', parsedResult.containerNumber);
+  console.log('   Consignee:', parsedResult.consignee?.substring(0, 60));
+  console.log('   Shipper:', parsedResult.shipper?.substring(0, 60));
+  console.log('   Vessel:', parsedResult.vesselName);
+  console.log('   POL:', parsedResult.portOfLoading);
+  console.log('   POD:', parsedResult.portOfDischarge);
+  console.log('   Weight:', parsedResult.weightKg, 'kg');
+  console.log('   Volume:', parsedResult.volumeCbm, 'CBM');
+  console.log('   Packages:', parsedResult.packages);
+  console.log('   Carrier:', parsedResult.carrier);
+  console.log('📊 =============================================');
+  return parsedResult;
 };
 
 /**
