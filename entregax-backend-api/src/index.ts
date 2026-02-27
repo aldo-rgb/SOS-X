@@ -742,6 +742,147 @@ app.post('/api/admin/cleanup-db-space', authenticateToken, requireRole('super_ad
   }
 });
 
+// MIGRACIÓN: Mover documentos base64 de la DB a S3 y luego limpiar
+app.post('/api/admin/migrate-base64-to-s3', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
+  const { uploadToS3, isS3Configured } = await import('./s3Service');
+  const logs: string[] = [];
+  
+  try {
+    logs.push('🚀 Iniciando migración de base64 a S3...');
+    
+    // Verificar S3
+    if (!isS3Configured()) {
+      return res.status(400).json({ success: false, error: 'S3 no está configurado', logs });
+    }
+    logs.push('✅ S3 configurado correctamente');
+
+    // Ver tamaño actual
+    const sizeQuery = await pool.query(`SELECT pg_size_pretty(pg_database_size(current_database())) as db_size`);
+    logs.push(`💾 Tamaño actual DB: ${sizeQuery.rows[0].db_size}`);
+
+    // Buscar drafts con datos base64 grandes
+    const draftsWithBase64 = await pool.query(`
+      SELECT id, extracted_data, pdf_url, telex_pdf_url, summary_excel_url
+      FROM maritime_reception_drafts 
+      WHERE LENGTH(extracted_data::text) > 50000
+      ORDER BY id DESC
+      LIMIT 100
+    `);
+    logs.push(`📋 Encontrados ${draftsWithBase64.rows.length} drafts con datos grandes`);
+
+    let migrated = 0;
+    let errors = 0;
+
+    for (const draft of draftsWithBase64.rows) {
+      try {
+        let data = draft.extracted_data;
+        if (typeof data === 'string') data = JSON.parse(data);
+        
+        let modified = false;
+        const timestamp = Date.now();
+
+        // Migrar bl_document_pdf si es base64
+        if (data.bl_document_pdf && typeof data.bl_document_pdf === 'string') {
+          if (data.bl_document_pdf.startsWith('data:') || data.bl_document_pdf.length > 50000) {
+            try {
+              const base64Data = data.bl_document_pdf.replace(/^data:[^;]+;base64,/, '');
+              const buffer = Buffer.from(base64Data, 'base64');
+              const key = `maritime/migration/${draft.id}_bl_${timestamp}.pdf`;
+              const s3Url = await uploadToS3(buffer, key, 'application/pdf');
+              
+              logs.push(`  ✅ Draft ${draft.id}: BL migrado a S3 (${(buffer.length/1024).toFixed(0)} KB)`);
+              data.bl_document_pdf = s3Url;
+              data.bl_migrated_from_base64 = true;
+              modified = true;
+            } catch (e: any) {
+              logs.push(`  ⚠️ Draft ${draft.id}: Error migrando BL - ${e.message}`);
+            }
+          }
+        }
+
+        // Migrar telex_release_pdf si es base64
+        if (data.telex_release_pdf && typeof data.telex_release_pdf === 'string') {
+          if (data.telex_release_pdf.startsWith('data:') || data.telex_release_pdf.length > 50000) {
+            try {
+              const base64Data = data.telex_release_pdf.replace(/^data:[^;]+;base64,/, '');
+              const buffer = Buffer.from(base64Data, 'base64');
+              const key = `maritime/migration/${draft.id}_telex_${timestamp}.pdf`;
+              const s3Url = await uploadToS3(buffer, key, 'application/pdf');
+              
+              logs.push(`  ✅ Draft ${draft.id}: TELEX migrado a S3 (${(buffer.length/1024).toFixed(0)} KB)`);
+              data.telex_release_pdf = s3Url;
+              data.telex_migrated_from_base64 = true;
+              modified = true;
+            } catch (e: any) {
+              logs.push(`  ⚠️ Draft ${draft.id}: Error migrando TELEX - ${e.message}`);
+            }
+          }
+        }
+
+        // Migrar packing_list_data si es base64
+        if (data.packing_list_data && typeof data.packing_list_data === 'string') {
+          if (data.packing_list_data.startsWith('data:') || data.packing_list_data.length > 50000) {
+            try {
+              const base64Data = data.packing_list_data.replace(/^data:[^;]+;base64,/, '');
+              const buffer = Buffer.from(base64Data, 'base64');
+              const ext = data.packing_list_data.includes('spreadsheet') ? 'xlsx' : 'pdf';
+              const key = `maritime/migration/${draft.id}_packing_${timestamp}.${ext}`;
+              const contentType = ext === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/pdf';
+              const s3Url = await uploadToS3(buffer, key, contentType);
+              
+              logs.push(`  ✅ Draft ${draft.id}: Packing migrado a S3 (${(buffer.length/1024).toFixed(0)} KB)`);
+              data.packing_list_data = s3Url;
+              data.packing_migrated_from_base64 = true;
+              modified = true;
+            } catch (e: any) {
+              logs.push(`  ⚠️ Draft ${draft.id}: Error migrando Packing - ${e.message}`);
+            }
+          }
+        }
+
+        // Limpiar rawPdfText si es muy grande (no se puede migrar, solo limpiar)
+        if (data.rawPdfText && data.rawPdfText.length > 50000) {
+          logs.push(`  🧹 Draft ${draft.id}: Limpiando rawPdfText (${(data.rawPdfText.length/1024).toFixed(0)} KB)`);
+          data.rawPdfText = data.rawPdfText.substring(0, 5000) + '... [TRUNCATED]';
+          modified = true;
+        }
+
+        // Truncar packingListData si es muy grande
+        if (data.packingListData && Array.isArray(data.packingListData) && data.packingListData.length > 50) {
+          logs.push(`  🧹 Draft ${draft.id}: Truncando packingListData de ${data.packingListData.length} a 50`);
+          data.packingListData = data.packingListData.slice(0, 50);
+          data.packingListData_truncated = true;
+          modified = true;
+        }
+
+        if (modified) {
+          await pool.query('UPDATE maritime_reception_drafts SET extracted_data = $1 WHERE id = $2', [JSON.stringify(data), draft.id]);
+          migrated++;
+        }
+      } catch (e: any) {
+        logs.push(`  ❌ Draft ${draft.id}: Error general - ${e.message}`);
+        errors++;
+      }
+    }
+
+    logs.push(`\n📊 Resumen: ${migrated} migrados, ${errors} errores`);
+
+    // Ejecutar VACUUM
+    logs.push('🔄 Ejecutando VACUUM ANALYZE...');
+    await pool.query('VACUUM ANALYZE maritime_reception_drafts');
+    logs.push('✅ VACUUM completado');
+
+    // Ver tamaño final
+    const finalSize = await pool.query(`SELECT pg_size_pretty(pg_database_size(current_database())) as db_size`);
+    logs.push(`💾 Tamaño final DB: ${finalSize.rows[0].db_size}`);
+
+    res.json({ success: true, migrated, errors, logs });
+  } catch (error: any) {
+    logs.push(`❌ Error fatal: ${error.message}`);
+    res.status(500).json({ success: false, error: error.message, logs });
+  }
+});
+
 // Endpoint para migración de columnas de documentos oficiales
 app.get('/api/migrate/container-docs', async (_req: Request, res: Response) => {
   try {
