@@ -1967,6 +1967,7 @@ export default function InboundEmailsPage() {
                                 const formData = new FormData();
                                 formData.append('shipmentType', 'FCL');
                                 formData.append('subject', fclSubject);
+                                formData.append('routeId', fclRouteId);
                                 formData.append('bl', fclBlFile);
                                 if (fclTelexFile) formData.append('telex', fclTelexFile);
                                 if (fclPackingFile) formData.append('packingList', fclPackingFile);
