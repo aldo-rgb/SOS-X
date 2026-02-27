@@ -883,6 +883,139 @@ app.post('/api/admin/migrate-base64-to-s3', authenticateToken, requireRole('supe
   }
 });
 
+// Verificar estado de S3
+app.get('/api/admin/s3-status', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
+  const { isS3Configured } = await import('./s3Service');
+  
+  res.json({
+    s3_configured: isS3Configured(),
+    aws_region: process.env.AWS_REGION || 'not set',
+    aws_bucket: process.env.AWS_S3_BUCKET || 'not set',
+    aws_access_key: process.env.AWS_ACCESS_KEY_ID ? '****' + process.env.AWS_ACCESS_KEY_ID.slice(-4) : 'not set',
+    aws_secret_key: process.env.AWS_SECRET_ACCESS_KEY ? '****' + process.env.AWS_SECRET_ACCESS_KEY.slice(-4) : 'not set'
+  });
+});
+
+// Migrar archivos de container_costs de base64 a S3
+app.post('/api/admin/migrate-costs-to-s3', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
+  const { uploadToS3, isS3Configured } = await import('./s3Service');
+  const logs: string[] = [];
+  
+  try {
+    logs.push('🚀 Iniciando migración de archivos de costos a S3...');
+    
+    if (!isS3Configured()) {
+      return res.status(400).json({ success: false, error: 'S3 no está configurado', logs });
+    }
+    logs.push('✅ S3 configurado correctamente');
+
+    // Campos PDF en container_costs
+    const pdfFields = [
+      'debit_note_pdf', 'demurrage_pdf', 'storage_pdf', 'maneuvers_pdf',
+      'custody_pdf', 'advance_1_pdf', 'advance_2_pdf', 'advance_3_pdf',
+      'advance_4_pdf', 'transport_pdf', 'other_pdf', 'telex_release_pdf', 'bl_document_pdf'
+    ];
+
+    // Buscar registros con datos base64 en los campos PDF
+    const costsQuery = await pool.query(`SELECT id, container_id, ${pdfFields.join(', ')} FROM container_costs`);
+    logs.push(`📋 Encontrados ${costsQuery.rows.length} registros de costos`);
+
+    let migrated = 0;
+    let errors = 0;
+
+    for (const cost of costsQuery.rows) {
+      const updates: { field: string; url: string }[] = [];
+
+      for (const field of pdfFields) {
+        const value = cost[field];
+        if (!value) continue;
+
+        // Verificar si es base64 (muy largo y no es URL)
+        if (typeof value === 'string' && value.length > 1000 && !value.startsWith('http')) {
+          try {
+            logs.push(`  📄 Cost ${cost.id} / Container ${cost.container_id}: Migrando ${field}...`);
+            
+            // Extraer el contenido base64
+            let base64Data = value;
+            if (value.startsWith('data:')) {
+              const commaIndex = value.indexOf(',');
+              if (commaIndex > 0) {
+                base64Data = value.substring(commaIndex + 1);
+              }
+            }
+
+            const buffer = Buffer.from(base64Data, 'base64');
+            const timestamp = Date.now();
+            const s3Key = `costs/migrated_${cost.container_id}_${field}_${timestamp}.pdf`;
+            const s3Url = await uploadToS3(buffer, s3Key, 'application/pdf');
+
+            updates.push({ field, url: s3Url });
+            logs.push(`    ✅ Migrado a S3: ${(buffer.length/1024).toFixed(0)} KB`);
+            migrated++;
+          } catch (e: any) {
+            logs.push(`    ❌ Error: ${e.message}`);
+            errors++;
+          }
+        }
+      }
+
+      // Actualizar campos migrados en la DB
+      if (updates.length > 0) {
+        const setClause = updates.map((u, i) => `${u.field} = $${i + 2}`).join(', ');
+        const values = updates.map(u => u.url);
+        await pool.query(
+          `UPDATE container_costs SET ${setClause}, updated_at = NOW() WHERE id = $1`,
+          [cost.id, ...values]
+        );
+      }
+    }
+
+    // Migrar también bolsas_anticipos
+    logs.push('\n📦 Migrando comprobantes de anticipos...');
+    const anticiposQuery = await pool.query(`SELECT id, proveedor_id, comprobante_url FROM bolsas_anticipos WHERE comprobante_url IS NOT NULL`);
+    
+    for (const anticipo of anticiposQuery.rows) {
+      const value = anticipo.comprobante_url;
+      if (typeof value === 'string' && value.length > 1000 && !value.startsWith('http')) {
+        try {
+          logs.push(`  📄 Anticipo ${anticipo.id}: Migrando comprobante...`);
+          
+          let base64Data = value;
+          if (value.startsWith('data:')) {
+            const commaIndex = value.indexOf(',');
+            if (commaIndex > 0) base64Data = value.substring(commaIndex + 1);
+          }
+
+          const buffer = Buffer.from(base64Data, 'base64');
+          const timestamp = Date.now();
+          const s3Key = `anticipos/migrated_${anticipo.proveedor_id}_${timestamp}.pdf`;
+          const s3Url = await uploadToS3(buffer, s3Key, 'application/pdf');
+
+          await pool.query('UPDATE bolsas_anticipos SET comprobante_url = $1 WHERE id = $2', [s3Url, anticipo.id]);
+          logs.push(`    ✅ Migrado: ${(buffer.length/1024).toFixed(0)} KB`);
+          migrated++;
+        } catch (e: any) {
+          logs.push(`    ❌ Error: ${e.message}`);
+          errors++;
+        }
+      }
+    }
+
+    logs.push(`\n📊 Resumen: ${migrated} archivos migrados, ${errors} errores`);
+
+    // VACUUM
+    logs.push('🔄 Ejecutando VACUUM...');
+    await pool.query('VACUUM ANALYZE container_costs');
+    await pool.query('VACUUM ANALYZE bolsas_anticipos');
+    logs.push('✅ VACUUM completado');
+
+    res.json({ success: true, migrated, errors, logs });
+  } catch (error: any) {
+    logs.push(`❌ Error fatal: ${error.message}`);
+    res.status(500).json({ success: false, error: error.message, logs });
+  }
+});
+
 // Endpoint para migración de columnas de documentos oficiales
 app.get('/api/migrate/container-docs', async (_req: Request, res: Response) => {
   try {
