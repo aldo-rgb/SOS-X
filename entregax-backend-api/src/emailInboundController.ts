@@ -620,11 +620,25 @@ const extractTextFromPdf = async (pdfData: string | Buffer): Promise<string> => 
     
     console.log('📄 Extrayendo texto de PDF, buffer size:', pdfBuffer.length, 'bytes');
     
-    const data = await pdfParse(pdfBuffer);
+    // Opciones para evitar problemas de conexión - deshabilitar funciones que requieren red
+    const options = {
+      // Función custom de render para evitar llamadas de red
+      pagerender: async (pageData: any) => {
+        try {
+          const textContent = await pageData.getTextContent();
+          return textContent.items.map((item: any) => item.str).join(' ');
+        } catch (e) {
+          return '';
+        }
+      }
+    };
+    
+    const data = await pdfParse(pdfBuffer, options);
     console.log('✅ Texto extraído del PDF:', data.text?.length, 'caracteres');
     return data.text || '';
   } catch (error: any) {
     console.error('❌ Error extrayendo texto del PDF:', error.message);
+    console.error('❌ Stack:', error.stack?.substring(0, 500));
     throw error;
   }
 };
