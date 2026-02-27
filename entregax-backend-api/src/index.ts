@@ -653,6 +653,95 @@ app.get('/health/db', async (_req: Request, res: Response) => {
   }
 });
 
+// EMERGENCIA: Limpiar espacio en la base de datos
+app.post('/api/admin/cleanup-db-space', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
+  const logs: string[] = [];
+  try {
+    logs.push('🔍 Iniciando limpieza de base de datos...');
+
+    // 1. Ver tamaño actual
+    const sizeQuery = await pool.query(`SELECT pg_size_pretty(pg_database_size(current_database())) as db_size`);
+    logs.push(`💾 Tamaño actual: ${sizeQuery.rows[0].db_size}`);
+
+    // 2. Contar drafts
+    const draftsCount = await pool.query(`SELECT COUNT(*) as total FROM maritime_reception_drafts`);
+    logs.push(`📋 Total drafts: ${draftsCount.rows[0].total}`);
+
+    // 3. Eliminar drafts rechazados antiguos (>7 días)
+    const deleteRejected = await pool.query(`
+      DELETE FROM maritime_reception_drafts 
+      WHERE status = 'rejected' 
+        AND created_at < NOW() - INTERVAL '7 days'
+      RETURNING id
+    `);
+    logs.push(`🗑️ Eliminados ${deleteRejected.rowCount} drafts rechazados antiguos`);
+
+    // 4. Limpiar extracted_data de drafts con base64 embebido
+    const draftsWithLargeData = await pool.query(`
+      SELECT id, extracted_data 
+      FROM maritime_reception_drafts 
+      WHERE LENGTH(extracted_data::text) > 100000
+    `);
+    logs.push(`📊 Encontrados ${draftsWithLargeData.rows.length} drafts con datos grandes`);
+
+    let cleaned = 0;
+    for (const draft of draftsWithLargeData.rows) {
+      try {
+        let data = draft.extracted_data;
+        if (typeof data === 'string') data = JSON.parse(data);
+
+        let modified = false;
+        // Limpiar campos que puedan tener base64
+        const fieldsToClean = [
+          'bl_document_pdf', 'telex_release_pdf', 'packing_list_data',
+          'bl_pdf_base64', 'telex_pdf_base64', 'packing_list_base64',
+          'bl_data', 'telex_data', 'summary_data', 'excel_data',
+          'pdf_data', 'file_data', 'attachment_data', 'rawPdfText'
+        ];
+
+        for (const field of fieldsToClean) {
+          if (data[field] && typeof data[field] === 'string' && data[field].length > 50000) {
+            logs.push(`   Draft ${draft.id}: limpiando ${field} (${(data[field].length/1024).toFixed(0)} KB)`);
+            data[field] = '[CLEANED_TO_SAVE_SPACE]';
+            modified = true;
+          }
+        }
+
+        // Truncar packingListData muy grande
+        if (data.packingListData && JSON.stringify(data.packingListData).length > 50000) {
+          if (Array.isArray(data.packingListData) && data.packingListData.length > 20) {
+            logs.push(`   Draft ${draft.id}: truncando packingListData de ${data.packingListData.length} a 20 items`);
+            data.packingListData = data.packingListData.slice(0, 20);
+            modified = true;
+          }
+        }
+
+        if (modified) {
+          await pool.query('UPDATE maritime_reception_drafts SET extracted_data = $1 WHERE id = $2', [JSON.stringify(data), draft.id]);
+          cleaned++;
+        }
+      } catch (e: any) {
+        logs.push(`   Error en draft ${draft.id}: ${e.message}`);
+      }
+    }
+    logs.push(`✅ Limpiados ${cleaned} drafts`);
+
+    // 5. Ejecutar VACUUM
+    logs.push('🔄 Ejecutando VACUUM ANALYZE...');
+    await pool.query('VACUUM ANALYZE maritime_reception_drafts');
+    logs.push('✅ VACUUM completado');
+
+    // 6. Ver tamaño final
+    const finalSize = await pool.query(`SELECT pg_size_pretty(pg_database_size(current_database())) as db_size`);
+    logs.push(`💾 Tamaño final: ${finalSize.rows[0].db_size}`);
+
+    res.json({ success: true, logs });
+  } catch (error: any) {
+    logs.push(`❌ Error: ${error.message}`);
+    res.status(500).json({ success: false, error: error.message, logs });
+  }
+});
+
 // Endpoint para migración de columnas de documentos oficiales
 app.get('/api/migrate/container-docs', async (_req: Request, res: Response) => {
   try {
