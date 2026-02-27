@@ -2526,6 +2526,7 @@ export const reExtractDraftData = async (req: Request, res: Response): Promise<a
     // Preservar datos existentes por si la extracción falla
     let extractedData: any = draft.extracted_data || {};
     let confidence = 'medium';
+    let blExtractionError: string | null = null;
     
     try {
       const newBlData = await extractBlDataFromUrl(draft.pdf_url);
@@ -2550,11 +2551,15 @@ export const reExtractDraftData = async (req: Request, res: Response): Promise<a
         confidence = 'high';
       } else {
         console.log('⚠️ Extracción BL no obtuvo datos válidos, preservando existentes');
+        console.log('⚠️ newBlData recibido:', JSON.stringify(newBlData));
         confidence = extractedData.blNumber ? 'medium' : 'low';
+        blExtractionError = 'La extracción no devolvió blNumber válido';
       }
     } catch (e: any) {
       console.error('⚠️ Error en re-extracción BL:', e.message);
+      console.error('⚠️ Stack:', e.stack);
       console.log('📋 Preservando datos BL existentes');
+      blExtractionError = e.message;
       // No fallar, continuar con datos existentes
     }
     
@@ -2640,7 +2645,14 @@ export const reExtractDraftData = async (req: Request, res: Response): Promise<a
     
     res.json({
       success: true,
-      message: 'Datos extraídos exitosamente',
+      message: blExtractionError ? 'Datos parcialmente extraídos (BL falló)' : 'Datos extraídos exitosamente',
+      blExtractionError,
+      extractedData: {
+        blNumber: updatedResult.rows[0]?.extracted_data?.blNumber,
+        containerNumber: updatedResult.rows[0]?.extracted_data?.containerNumber,
+        shipper: updatedResult.rows[0]?.extracted_data?.shipper,
+        logsCount: updatedResult.rows[0]?.extracted_data?.logs?.length
+      },
       draft: updatedResult.rows[0]
     });
     
