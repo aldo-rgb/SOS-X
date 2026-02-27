@@ -14,7 +14,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 // pdf-parse para extraer texto de PDFs
-const pdfParse = require('pdf-parse');
+const { PDFParse } = require('pdf-parse');
 
 // Lazy initialization - only create OpenAI client when API key exists
 let openaiInstance: OpenAI | null = null;
@@ -620,7 +620,7 @@ const extractTextFromPdf = async (pdfData: string | Buffer): Promise<string> => 
     
     console.log('📄 Extrayendo texto de PDF, buffer size:', pdfBuffer.length, 'bytes');
     
-    const data = await pdfParse(pdfBuffer);
+    const data = await PDFParse(pdfBuffer);
     console.log('✅ Texto extraído del PDF:', data.text?.length, 'caracteres');
     return data.text || '';
   } catch (error: any) {
