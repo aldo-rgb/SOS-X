@@ -2322,7 +2322,7 @@ app.post('/api/admin/containers/:id/tracking/sync-carrier', authenticateToken, r
 const maritimeUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 app.post('/api/admin/maritime/upload-manual', 
   authenticateToken, 
-  requireMinLevel(ROLES.COUNTER_STAFF),
+  requireMinLevel(ROLES.WAREHOUSE_OPS),
   maritimeUpload.fields([
     { name: 'bl', maxCount: 1 },
     { name: 'telex', maxCount: 1 },
