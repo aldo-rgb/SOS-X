@@ -248,6 +248,7 @@ export const ROLES = {
     DIRECTOR: 'director',              // Director de área
     BRANCH_MANAGER: 'branch_manager',  // Gerente de sucursal
     CUSTOMER_SERVICE: 'customer_service', // Servicio a cliente
+    OPERACIONES: 'operaciones',        // Operaciones marítimas
     COUNTER_STAFF: 'counter_staff',    // Personal de mostrador
     WAREHOUSE_OPS: 'warehouse_ops',    // Operaciones de bodega
     REPARTIDOR: 'repartidor',          // Repartidor / Delivery driver
@@ -261,6 +262,7 @@ const ROLE_HIERARCHY: Record<string, number> = {
     [ROLES.DIRECTOR]: 90,
     [ROLES.BRANCH_MANAGER]: 80,
     [ROLES.CUSTOMER_SERVICE]: 70,
+    [ROLES.OPERACIONES]: 65,
     [ROLES.COUNTER_STAFF]: 60,
     [ROLES.WAREHOUSE_OPS]: 40,
     [ROLES.REPARTIDOR]: 35,
@@ -274,6 +276,7 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     [ROLES.DIRECTOR]: ['users:read', 'shipments:*', 'quotes:*', 'reports:*'], // Director de área
     [ROLES.BRANCH_MANAGER]: ['users:read', 'users:write', 'shipments:*', 'quotes:*', 'reports:read'],
     [ROLES.CUSTOMER_SERVICE]: ['clients:*', 'support:*', 'crm:*', 'quotes:read'], // Servicio a cliente
+    [ROLES.OPERACIONES]: ['shipments:*', 'maritime:*', 'quotes:read', 'reports:read'], // Operaciones marítimas
     [ROLES.COUNTER_STAFF]: ['shipments:read', 'shipments:create', 'quotes:*', 'clients:read'],
     [ROLES.WAREHOUSE_OPS]: ['shipments:read', 'shipments:update_status', 'inventory:*'],
     [ROLES.REPARTIDOR]: ['deliveries:*', 'shipments:read', 'shipments:update_status'], // Entregas
