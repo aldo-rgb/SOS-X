@@ -896,6 +896,65 @@ app.get('/api/admin/s3-status', authenticateToken, requireRole('super_admin'), a
   });
 });
 
+// EMERGENCIA CRÍTICA: Liberar espacio eliminando datos (cuando DB está 100% llena)
+app.delete('/api/admin/emergency-cleanup', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
+  const logs: string[] = [];
+  try {
+    logs.push('🚨 LIMPIEZA DE EMERGENCIA - DB sin espacio');
+
+    // 1. Eliminar TODOS los drafts rechazados
+    const del1 = await pool.query(`DELETE FROM maritime_reception_drafts WHERE status = 'rejected' RETURNING id`);
+    logs.push(`🗑️ Eliminados ${del1.rowCount} drafts rechazados`);
+
+    // 2. Eliminar drafts antiguos (más de 30 días) que no sean aprobados
+    const del2 = await pool.query(`DELETE FROM maritime_reception_drafts WHERE status != 'approved' AND created_at < NOW() - INTERVAL '30 days' RETURNING id`);
+    logs.push(`🗑️ Eliminados ${del2.rowCount} drafts antiguos (>30 días)`);
+
+    // 3. Limpiar extracted_data de drafts restantes (poner NULL en campos grandes)
+    const updateResult = await pool.query(`
+      UPDATE maritime_reception_drafts 
+      SET extracted_data = '{}'::jsonb 
+      WHERE LENGTH(extracted_data::text) > 10000
+      RETURNING id
+    `);
+    logs.push(`🧹 Limpiados ${updateResult.rowCount} drafts con datos grandes`);
+
+    // 4. Limpiar campos base64 en container_costs
+    const pdfFields = [
+      'debit_note_pdf', 'demurrage_pdf', 'storage_pdf', 'maneuvers_pdf',
+      'custody_pdf', 'advance_1_pdf', 'advance_2_pdf', 'advance_3_pdf',
+      'advance_4_pdf', 'transport_pdf', 'other_pdf', 'telex_release_pdf', 'bl_document_pdf'
+    ];
+    
+    for (const field of pdfFields) {
+      const upd = await pool.query(`
+        UPDATE container_costs SET ${field} = NULL 
+        WHERE ${field} IS NOT NULL AND LENGTH(${field}) > 1000 AND ${field} NOT LIKE 'http%'
+        RETURNING id
+      `);
+      if (upd.rowCount && upd.rowCount > 0) {
+        logs.push(`  🧹 ${field}: ${upd.rowCount} campos base64 eliminados`);
+      }
+    }
+
+    // 5. Limpiar comprobantes base64 en anticipos
+    const updAnt = await pool.query(`
+      UPDATE bolsas_anticipos SET comprobante_url = NULL 
+      WHERE comprobante_url IS NOT NULL AND LENGTH(comprobante_url) > 1000 AND comprobante_url NOT LIKE 'http%'
+      RETURNING id
+    `);
+    logs.push(`🧹 Anticipos: ${updAnt.rowCount} comprobantes base64 eliminados`);
+
+    logs.push('✅ Limpieza de emergencia completada');
+    logs.push('⚠️ Ejecuta VACUUM manualmente desde Railway si es posible');
+
+    res.json({ success: true, logs });
+  } catch (error: any) {
+    logs.push(`❌ Error: ${error.message}`);
+    res.status(500).json({ success: false, error: error.message, logs });
+  }
+});
+
 // Migrar archivos de container_costs de base64 a S3
 app.post('/api/admin/migrate-costs-to-s3', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
   const { uploadToS3, isS3Configured } = await import('./s3Service');
@@ -2263,7 +2322,7 @@ app.post('/api/admin/containers/:id/tracking/sync-carrier', authenticateToken, r
 const maritimeUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
 app.post('/api/admin/maritime/upload-manual', 
   authenticateToken, 
-  requireMinLevel(ROLES.BRANCH_MANAGER),
+  requireMinLevel(ROLES.COUNTER_STAFF),
   maritimeUpload.fields([
     { name: 'bl', maxCount: 1 },
     { name: 'telex', maxCount: 1 },
