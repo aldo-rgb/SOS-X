@@ -1,7 +1,7 @@
 # 📚 EntregaX - Manual del Programador
 
 > **Última actualización:** 27 de febrero de 2026  
-> **Versión:** 2.3.3
+> **Versión:** 2.4.0
 
 ---
 
@@ -2993,6 +2993,63 @@ curl -s "http://localhost:3001/api/warehouse/stats" \
 ---
 
 ## 📝 Changelog
+
+### v2.4.0 (27 Feb 2026) - AWS S3 & PERMISOS MARÍTIMOS ⭐
+
+#### AWS S3 - Almacenamiento de Archivos
+- ✅ **s3Service.ts** - Servicio completo para upload/download de archivos a S3
+- ✅ **uploadToS3()** - Sube archivos a S3 y retorna URL pública
+- ✅ **isS3Configured()** - Verifica si las credenciales AWS están configuradas
+- ✅ **Migración base64→S3** - Endpoint `/api/admin/migrate-base64-to-s3` migra archivos antiguos
+- ✅ **Migración costos→S3** - Endpoint `/api/admin/migrate-costs-to-s3` migra PDFs de costos
+- ✅ **S3 status** - Endpoint `/api/admin/s3-status` verifica configuración de S3
+
+#### Variables de Entorno AWS (Railway)
+```env
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=...
+AWS_REGION=us-east-1
+AWS_S3_BUCKET=entregax-uploads
+```
+
+#### Endpoints de Upload con S3
+| Endpoint | Descripción | Almacenamiento |
+|----------|-------------|----------------|
+| `/api/admin/maritime/upload-manual` | Upload FCL/LCL | S3 → `maritime/fcl/` o `maritime/lcl/` |
+| `/api/maritime/containers/upload-cost-pdf` | PDFs de costos | S3 → `costs/` |
+| `/api/anticipos/bolsas` | Comprobantes anticipos | S3 → `anticipos/` |
+
+#### Jerarquía de Roles Actualizada
+```typescript
+const ROLE_HIERARCHY = {
+    'super_admin': 100,    // Acceso total
+    'admin': 95,           // Administrador general
+    'director': 90,        // Director de área
+    'branch_manager': 80,  // Gerente de sucursal
+    'customer_service': 70,// Servicio a cliente
+    'operaciones': 65,     // ⭐ NUEVO - Operaciones marítimas
+    'counter_staff': 60,   // Personal de mostrador
+    'warehouse_ops': 40,   // Operaciones de bodega
+    'repartidor': 35,      // Repartidor
+    'client': 10           // Cliente final
+};
+```
+
+#### Permisos de Upload Marítimo
+- ✅ **warehouse_ops (40)** - Puede subir documentos FCL/LCL
+- ✅ **operaciones (65)** - Nuevo rol para operaciones marítimas
+- ✅ **Endpoint permisivo** - `requireMinLevel(ROLES.WAREHOUSE_OPS)`
+
+#### Indicador de Progreso de Upload
+- ✅ **uploadProgress state** - Estado con step, totalSteps, currentFile, status, message
+- ✅ **LinearProgress** - Barra de progreso visual en diálogos FCL/LCL
+- ✅ **4 pasos** - BL → TELEX → Packing/Summary → Procesando IA
+- ✅ **Estados visuales** - idle, uploading, processing, done, error
+
+#### Limpieza de Base de Datos
+- ✅ **cleanup-db-space** - POST `/api/admin/cleanup-db-space` limpia datos grandes
+- ✅ **emergency-cleanup** - DELETE `/api/admin/emergency-cleanup` para DB llena
+- ✅ **VACUUM automático** - Se ejecuta después de migraciones
 
 ### v2.3.2 (26 Feb 2026) - DOCUMENTACIÓN PO BOX USA ⭐
 
