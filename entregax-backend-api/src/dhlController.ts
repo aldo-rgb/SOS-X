@@ -55,6 +55,261 @@ export const updateDhlRate = async (req: Request, res: Response) => {
 };
 
 // =========================================
+// TARIFAS DE COSTO (Lo que nos cuesta a nosotros)
+// =========================================
+
+// GET /api/admin/dhl/cost-rates - Obtener tarifas de costo
+export const getDhlCostRates = async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT * FROM dhl_cost_rates 
+      ORDER BY rate_type
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error obteniendo tarifas de costo DHL:', error);
+    res.status(500).json({ error: 'Error al obtener tarifas de costo' });
+  }
+};
+
+// PUT /api/admin/dhl/cost-rates/:id - Actualizar tarifa de costo
+export const updateDhlCostRate = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { rate_name, cost_usd, description, is_active } = req.body;
+
+    const result = await pool.query(`
+      UPDATE dhl_cost_rates 
+      SET rate_name = COALESCE($1, rate_name),
+          cost_usd = COALESCE($2, cost_usd),
+          description = COALESCE($3, description),
+          is_active = COALESCE($4, is_active),
+          updated_at = NOW()
+      WHERE id = $5
+      RETURNING *
+    `, [rate_name, cost_usd, description, is_active, id]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Tarifa de costo no encontrada' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error actualizando tarifa de costo DHL:', error);
+    res.status(500).json({ error: 'Error al actualizar tarifa de costo' });
+  }
+};
+
+// =========================================
+// COSTEO DE ENVÍOS (Lista de cajas con costos)
+// =========================================
+
+// GET /api/admin/dhl/costing - Obtener lista de cajas con costeo
+export const getDhlCosting = async (req: Request, res: Response) => {
+  try {
+    const { 
+      status, 
+      search, 
+      date_from, 
+      date_to, 
+      has_cost,
+      limit = 50, 
+      offset = 0 
+    } = req.query;
+
+    let query = `
+      SELECT 
+        ds.id,
+        ds.inbound_tracking,
+        ds.product_type,
+        ds.description,
+        ds.weight_kg,
+        ds.length_cm,
+        ds.width_cm,
+        ds.height_cm,
+        ds.volumetric_weight,
+        ds.status,
+        ds.created_at,
+        ds.inspected_at,
+        ds.assigned_cost_usd,
+        ds.cost_rate_type,
+        ds.cost_assigned_at,
+        u.full_name as client_name,
+        u.box_id as client_box_id,
+        u.email as client_email,
+        cost_user.full_name as cost_assigned_by_name,
+        cr.cost_usd as rate_cost_usd
+      FROM dhl_shipments ds
+      LEFT JOIN users u ON ds.user_id = u.id
+      LEFT JOIN users cost_user ON ds.cost_assigned_by = cost_user.id
+      LEFT JOIN dhl_cost_rates cr ON ds.cost_rate_type = cr.rate_type
+      WHERE 1=1
+    `;
+
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (status && status !== 'all') {
+      query += ` AND ds.status = $${paramIndex}`;
+      params.push(status);
+      paramIndex++;
+    }
+
+    if (search) {
+      query += ` AND (ds.inbound_tracking ILIKE $${paramIndex} OR u.full_name ILIKE $${paramIndex} OR u.box_id ILIKE $${paramIndex})`;
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    if (date_from) {
+      query += ` AND ds.created_at >= $${paramIndex}`;
+      params.push(date_from);
+      paramIndex++;
+    }
+
+    if (date_to) {
+      query += ` AND ds.created_at <= $${paramIndex}`;
+      params.push(date_to);
+      paramIndex++;
+    }
+
+    if (has_cost === 'true') {
+      query += ` AND ds.assigned_cost_usd IS NOT NULL`;
+    } else if (has_cost === 'false') {
+      query += ` AND ds.assigned_cost_usd IS NULL`;
+    }
+
+    // Obtener conteo total
+    const countQueryBase = query.replace(/SELECT .+? FROM/, 'SELECT COUNT(*) as count FROM');
+    const countQuery = countQueryBase.split('ORDER BY')[0] || countQueryBase;
+    const countResult = await pool.query(countQuery, params);
+    const total = parseInt((countResult.rows[0] as { count: string })?.count || '0');
+
+    query += ` ORDER BY ds.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    params.push(limit, offset);
+
+    const result = await pool.query(query, params);
+
+    // Obtener estadísticas
+    const statsResult = await pool.query(`
+      SELECT 
+        COUNT(*) as total_shipments,
+        COUNT(assigned_cost_usd) as with_cost,
+        COUNT(*) - COUNT(assigned_cost_usd) as without_cost,
+        SUM(COALESCE(assigned_cost_usd, 0)) as total_cost_usd,
+        COUNT(CASE WHEN cost_rate_type = 'standard' THEN 1 END) as standard_count,
+        COUNT(CASE WHEN cost_rate_type = 'high_value' THEN 1 END) as high_value_count
+      FROM dhl_shipments
+    `);
+
+    res.json({
+      data: result.rows,
+      total,
+      stats: statsResult.rows[0]
+    });
+  } catch (error) {
+    console.error('Error obteniendo costeo DHL:', error);
+    res.status(500).json({ error: 'Error al obtener costeo' });
+  }
+};
+
+// POST /api/admin/dhl/costing/assign - Asignar costo a envíos
+export const assignDhlCost = async (req: Request, res: Response) => {
+  try {
+    const { shipment_ids, cost_rate_type, custom_cost_usd } = req.body;
+    const userId = (req as any).user?.userId;
+
+    if (!shipment_ids || !Array.isArray(shipment_ids) || shipment_ids.length === 0) {
+      return res.status(400).json({ error: 'Se requieren IDs de envíos' });
+    }
+
+    // Si no se proporciona costo personalizado, obtener de las tarifas
+    let costUsd = custom_cost_usd;
+    if (!costUsd && cost_rate_type) {
+      const rateResult = await pool.query(
+        'SELECT cost_usd FROM dhl_cost_rates WHERE rate_type = $1',
+        [cost_rate_type]
+      );
+      if (rateResult.rows.length > 0) {
+        costUsd = rateResult.rows[0].cost_usd;
+      }
+    }
+
+    if (costUsd === undefined) {
+      return res.status(400).json({ error: 'Se requiere tipo de tarifa o costo personalizado' });
+    }
+
+    // Actualizar los envíos
+    const result = await pool.query(`
+      UPDATE dhl_shipments 
+      SET assigned_cost_usd = $1,
+          cost_rate_type = $2,
+          cost_assigned_at = NOW(),
+          cost_assigned_by = $3
+      WHERE id = ANY($4)
+      RETURNING id, inbound_tracking, assigned_cost_usd, cost_rate_type
+    `, [costUsd, cost_rate_type || 'custom', userId, shipment_ids]);
+
+    res.json({
+      success: true,
+      message: `Costo asignado a ${result.rows.length} envío(s)`,
+      updated: result.rows
+    });
+  } catch (error) {
+    console.error('Error asignando costo DHL:', error);
+    res.status(500).json({ error: 'Error al asignar costo' });
+  }
+};
+
+// POST /api/admin/dhl/costing/auto-assign - Auto-asignar costos basado en tipo
+export const autoAssignDhlCosts = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.userId;
+
+    // Obtener tarifas actuales
+    const ratesResult = await pool.query('SELECT rate_type, cost_usd FROM dhl_cost_rates');
+    const rates: Record<string, number> = {};
+    ratesResult.rows.forEach((r: any) => {
+      rates[r.rate_type] = parseFloat(r.cost_usd);
+    });
+
+    // Actualizar envíos sin costo asignado
+    const standardResult = await pool.query(`
+      UPDATE dhl_shipments 
+      SET assigned_cost_usd = $1,
+          cost_rate_type = 'standard',
+          cost_assigned_at = NOW(),
+          cost_assigned_by = $2
+      WHERE assigned_cost_usd IS NULL 
+        AND (product_type = 'standard' OR product_type IS NULL)
+      RETURNING id
+    `, [rates['standard'] || 0, userId]);
+
+    const highValueResult = await pool.query(`
+      UPDATE dhl_shipments 
+      SET assigned_cost_usd = $1,
+          cost_rate_type = 'high_value',
+          cost_assigned_at = NOW(),
+          cost_assigned_by = $2
+      WHERE assigned_cost_usd IS NULL 
+        AND product_type = 'high_value'
+      RETURNING id
+    `, [rates['high_value'] || 0, userId]);
+
+    res.json({
+      success: true,
+      message: 'Costos auto-asignados',
+      standardUpdated: standardResult.rows.length,
+      highValueUpdated: highValueResult.rows.length,
+      totalUpdated: standardResult.rows.length + highValueResult.rows.length
+    });
+  } catch (error) {
+    console.error('Error auto-asignando costos DHL:', error);
+    res.status(500).json({ error: 'Error al auto-asignar costos' });
+  }
+};
+
+// =========================================
 // PRECIOS ESPECIALES POR CLIENTE
 // =========================================
 

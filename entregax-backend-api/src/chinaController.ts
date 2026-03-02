@@ -7,6 +7,7 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import { createNotification } from './notificationController';
 import crypto from 'crypto';
+import { sm2 } from 'sm-crypto';
 
 // INTERFACES DEL JSON DE LA API CHINA
 interface ChinaApiPayload {
@@ -494,29 +495,111 @@ export const getChinaStats = async (req: Request, res: Response): Promise<any> =
 };
 
 // ============================================
+// GET: Logs de callbacks de MoJie (diagnóstico)
+// GET /api/china/callback-logs
+// ============================================
+export const getCallbackLogs = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { limit = 50 } = req.query;
+        
+        const result = await pool.query(`
+            SELECT id, raw_body, content_type, status, error_message, fno, shipping_mark, created_at
+            FROM china_callback_logs
+            ORDER BY created_at DESC
+            LIMIT $1
+        `, [limit]);
+        
+        res.json({
+            success: true,
+            logs: result.rows,
+            total: result.rowCount
+        });
+    } catch (error: any) {
+        // Si la tabla no existe, informar
+        if (error.code === '42P01') {
+            return res.json({
+                success: false,
+                error: 'Tabla china_callback_logs no existe. Ejecuta la migración add_china_callback_logs.sql',
+                logs: []
+            });
+        }
+        console.error("Error obteniendo logs:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// ============================================
 // API MJCUSTOMER.COM - CONFIGURACIÓN
-// Credenciales h5api con password pre-encriptado SM2
+// Dos métodos de autenticación disponibles:
+// 1. h5api con SM2 (endpoint /api/sysAuth/login) - PRINCIPAL
+// 2. orderSystem plano (endpoint /api/appAuth/loginByOrderSystem) - BACKUP
 // ============================================
 
 const MJCUSTOMER_API = {
     baseUrl: process.env.MJCUSTOMER_API_URL || 'http://api.mjcustomer.com',
     token: process.env.MJCUSTOMER_API_TOKEN || '',
-    // Credenciales h5api - password pre-encriptado con SM2
-    username: 'h5api',
-    password: '6f6a8028e7321318074aae954172fc07da974d3f63907d582b1e7d4323124423a026e4d3fdbaa2af539008d88a64b5e133ca1a74124a0b386ae65334605c304f225020cdd840676eab6a200b4ddf570766995f52601db8d99308e4a3f55a894264678d120e8f8bba',
-    tokenExpiry: 0  // Timestamp de expiración
+    tokenExpiry: 0,
+    
+    // Credenciales h5api con SM2 (principal)
+    h5api: {
+        username: 'h5api',
+        password: 'H_5@nLP.',
+        // PublicKey SM2 proporcionada por MoJie
+        publicKey: '046BB47A0777ADAD614BEF4F234BBE275C4FBB4BB45A9EDCAB5602EEE9588B52AEFB5CD7A29396DA46526E1C4F72650166F5FB41515B83C192AE37134470EB951D'
+    },
+    
+    // Credenciales orderSystem (backup)
+    orderSystem: {
+        username: process.env.MJCUSTOMER_USERNAME || '18824927368',
+        password: process.env.MJCUSTOMER_PASSWORD || 'cM4V92S0RNE2.'
+    }
 };
+
+/**
+ * Encripta una cadena usando SM2 con la llave pública de MoJie
+ */
+function encryptWithSM2(plainText: string): string {
+    try {
+        // La llave pública viene en formato hex con prefijo 04
+        const publicKey = MJCUSTOMER_API.h5api.publicKey;
+        
+        // Encriptar usando sm-crypto (modo C1C3C2 es el estándar)
+        const encrypted = sm2.doEncrypt(plainText, publicKey, 1); // 1 = C1C3C2 mode
+        
+        console.log('🔐 Password encriptado con SM2 correctamente');
+        return encrypted;
+    } catch (error: any) {
+        console.error('❌ Error encriptando con SM2:', error.message);
+        throw error;
+    }
+}
 
 // ============================================
 // LOGIN: Obtener token de MJCustomer
-// Usa endpoint /api/sysAuth/login (credenciales SM2)
+// Intenta primero con h5api/SM2, si falla usa orderSystem
 // ============================================
 async function loginToMJCustomer(): Promise<string | null> {
+    // Intentar primero con h5api + SM2
+    const tokenH5 = await loginWithH5Api();
+    if (tokenH5) return tokenH5;
+    
+    // Si falla, intentar con orderSystem
+    console.log('⚠️ h5api falló, intentando con orderSystem...');
+    return await loginWithOrderSystem();
+}
+
+/**
+ * Login con credenciales h5api y SM2
+ * Endpoint: /api/sysAuth/login
+ */
+async function loginWithH5Api(): Promise<string | null> {
     try {
-        console.log('🔐 Iniciando login en MJCustomer (h5api)...');
-        console.log('   Usuario:', MJCUSTOMER_API.username);
+        console.log('🔐 Iniciando login en MJCustomer (h5api + SM2)...');
+        console.log('   Usuario:', MJCUSTOMER_API.h5api.username);
         
-        // Login con credenciales SM2 pre-encriptadas
+        // Encriptar password con SM2
+        const encryptedPassword = encryptWithSM2(MJCUSTOMER_API.h5api.password);
+        
         const response = await fetch(
             `${MJCUSTOMER_API.baseUrl}/api/sysAuth/login`,
             {
@@ -527,8 +610,8 @@ async function loginToMJCustomer(): Promise<string | null> {
                     'request-from': 'swagger'
                 },
                 body: JSON.stringify({
-                    account: MJCUSTOMER_API.username,
-                    password: MJCUSTOMER_API.password,
+                    account: MJCUSTOMER_API.h5api.username,
+                    password: encryptedPassword,
                     codeId: 0,
                     code: 'string',
                     loginMode: 1
@@ -537,39 +620,92 @@ async function loginToMJCustomer(): Promise<string | null> {
         );
 
         const data = await response.json() as { code: number; message: string; result?: { accessToken: string } };
-        console.log('   Respuesta:', data.code, data.message);
+        console.log('   Respuesta h5api:', data.code, data.message);
         
         if (data.code === 200 && data.result?.accessToken) {
             const token = data.result.accessToken;
             MJCUSTOMER_API.token = token;
-            // Token válido por 7 días (168 horas) - renovar a las 6 días
-            MJCUSTOMER_API.tokenExpiry = Date.now() + (6 * 24 * 60 * 60 * 1000);
+            MJCUSTOMER_API.tokenExpiry = Date.now() + (6 * 24 * 60 * 60 * 1000); // 6 días
             
-            // Guardar en BD para persistencia
-            try {
-                await pool.query(`
-                    INSERT INTO system_config (key, value, updated_at)
-                    VALUES ('mjcustomer_token', $1, NOW())
-                    ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()
-                `, [token]);
-                await pool.query(`
-                    INSERT INTO system_config (key, value, updated_at)
-                    VALUES ('mjcustomer_token_expiry', $1, NOW())
-                    ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()
-                `, [MJCUSTOMER_API.tokenExpiry.toString()]);
-            } catch (dbErr) {
-                console.warn('⚠️ No se pudo guardar token en BD');
-            }
+            // Guardar en BD
+            await saveTokenToDB(token);
             
-            console.log('✅ Login exitoso en MJCustomer');
+            console.log('✅ Login exitoso con h5api + SM2');
             return token;
         } else {
-            console.error('❌ Login fallido:', data.message);
+            console.error('❌ Login h5api fallido:', data.message);
             return null;
         }
     } catch (error: any) {
-        console.error('❌ Error en login MJCustomer:', error.message);
+        console.error('❌ Error en login h5api:', error.message);
         return null;
+    }
+}
+
+/**
+ * Login con credenciales orderSystem (sin encriptación)
+ * Endpoint: /api/appAuth/loginByOrderSystem
+ */
+async function loginWithOrderSystem(): Promise<string | null> {
+    try {
+        console.log('🔐 Iniciando login en MJCustomer (orderSystem)...');
+        console.log('   Usuario:', MJCUSTOMER_API.orderSystem.username);
+        
+        const response = await fetch(
+            `${MJCUSTOMER_API.baseUrl}/api/appAuth/loginByOrderSystem`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json-patch+json',
+                    'Accept': 'text/plain',
+                    'request-from': 'swagger'
+                },
+                body: JSON.stringify({
+                    account: MJCUSTOMER_API.orderSystem.username,
+                    password: MJCUSTOMER_API.orderSystem.password
+                })
+            }
+        );
+
+        const data = await response.json() as { code: number; message: string; result?: { accessToken: string } };
+        console.log('   Respuesta orderSystem:', data.code, data.message);
+        
+        if (data.code === 200 && data.result?.accessToken) {
+            const token = data.result.accessToken;
+            MJCUSTOMER_API.token = token;
+            MJCUSTOMER_API.tokenExpiry = Date.now() + (6 * 24 * 60 * 60 * 1000);
+            
+            await saveTokenToDB(token);
+            
+            console.log('✅ Login exitoso con orderSystem');
+            return token;
+        } else {
+            console.error('❌ Login orderSystem fallido:', data.message);
+            return null;
+        }
+    } catch (error: any) {
+        console.error('❌ Error en login orderSystem:', error.message);
+        return null;
+    }
+}
+
+/**
+ * Guarda el token en la base de datos para persistencia
+ */
+async function saveTokenToDB(token: string): Promise<void> {
+    try {
+        await pool.query(`
+            INSERT INTO system_config (key, value, updated_at)
+            VALUES ('mjcustomer_token', $1, NOW())
+            ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()
+        `, [token]);
+        await pool.query(`
+            INSERT INTO system_config (key, value, updated_at)
+            VALUES ('mjcustomer_token_expiry', $1, NOW())
+            ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()
+        `, [MJCUSTOMER_API.tokenExpiry.toString()]);
+    } catch (dbErr) {
+        console.warn('⚠️ No se pudo guardar token en BD');
     }
 }
 
@@ -618,12 +754,11 @@ async function getMJCustomerToken(): Promise<string> {
 // ============================================
 // ENDPOINT: Login manual a MJCustomer
 // POST /api/china/mjcustomer/login
-// Usa credenciales h5api hardcodeadas (password pre-encriptado SM2)
+// Intenta primero h5api+SM2, si falla usa orderSystem
 // ============================================
 export const loginMJCustomerEndpoint = async (req: Request, res: Response): Promise<any> => {
     try {
-        // Las credenciales ya están configuradas en MJCUSTOMER_API
-        console.log('🔐 Iniciando login MJCustomer con credenciales h5api...');
+        console.log('🔐 Iniciando login MJCustomer...');
         
         const token = await loginToMJCustomer();
         
@@ -631,13 +766,14 @@ export const loginMJCustomerEndpoint = async (req: Request, res: Response): Prom
             res.json({
                 success: true,
                 message: 'Login exitoso',
+                method: 'h5api+SM2 o orderSystem',
                 tokenPreview: token.substring(0, 20) + '...',
                 expiresAt: new Date(MJCUSTOMER_API.tokenExpiry).toISOString()
             });
         } else {
             res.status(401).json({
                 success: false,
-                error: 'Login fallido. Verifica credenciales.'
+                error: 'Login fallido con ambos métodos (h5api+SM2 y orderSystem). Verifica credenciales.'
             });
         }
     } catch (error: any) {
@@ -1330,20 +1466,32 @@ const MOJIE_DES_KEY = process.env.MJCUSTOMER_DES_KEY || 'ENTREGAX'; // Llave DES
 /**
  * Desencripta datos usando DES-ECB
  * MoJie envía los datos encriptados con DES y codificados en Base64 o Hex
+ * La llave DES debe configurarse en .env como MJCUSTOMER_DES_KEY
  */
 function decryptDES(encryptedData: string): string {
     try {
+        console.log('🔐 Intentando desencriptar DES...');
+        console.log('   → Llave DES configurada:', MOJIE_DES_KEY.substring(0, 3) + '***');
+        console.log('   → Longitud datos encriptados:', encryptedData.length);
+        
         // La llave DES debe ser de 8 bytes
         const key = Buffer.from(MOJIE_DES_KEY.padEnd(8, '\0').slice(0, 8));
         
         // Intentar primero con Base64
         let encryptedBuffer: Buffer;
+        let encoding = 'base64';
         try {
             encryptedBuffer = Buffer.from(encryptedData, 'base64');
+            // Verificar si es realmente base64 válido
+            if (encryptedBuffer.toString('base64') !== encryptedData.replace(/\s/g, '')) {
+                throw new Error('No es base64 válido');
+            }
         } catch {
             // Si falla, intentar con Hex
+            encoding = 'hex';
             encryptedBuffer = Buffer.from(encryptedData, 'hex');
         }
+        console.log(`   → Encoding detectado: ${encoding}`);
         
         // Crear decipher DES-ECB (sin IV)
         const decipher = crypto.createDecipheriv('des-ecb', key, null);
@@ -1352,10 +1500,14 @@ function decryptDES(encryptedData: string): string {
         let decrypted = decipher.update(encryptedBuffer);
         decrypted = Buffer.concat([decrypted, decipher.final()]);
         
-        return decrypted.toString('utf8').trim();
+        const result = decrypted.toString('utf8').trim();
+        console.log('   → Desencriptado exitoso, longitud:', result.length);
+        return result;
     } catch (error: any) {
         console.error('❌ Error desencriptando DES:', error.message);
-        throw new Error(`Error de desencriptación DES: ${error.message}`);
+        console.error('   → Llave usada:', MOJIE_DES_KEY);
+        console.error('   → Primeros 50 chars del input:', encryptedData.substring(0, 50));
+        throw new Error(`Error de desencriptación DES: ${error.message}. Verifica la llave MJCUSTOMER_DES_KEY en .env`);
     }
 }
 
@@ -1364,31 +1516,109 @@ function decryptDES(encryptedData: string): string {
 // POST /api/china/callback
 // El body viene como string encriptado con DES
 // ============================================
+
+// Función auxiliar para guardar logs de callbacks (diagnóstico)
+async function logCallback(data: any, status: 'received' | 'processed' | 'error', errorMsg?: string): Promise<void> {
+    try {
+        await pool.query(`
+            INSERT INTO china_callback_logs (raw_body, content_type, status, error_message, created_at)
+            VALUES ($1, $2, $3, $4, NOW())
+        `, [
+            typeof data === 'string' ? data : JSON.stringify(data),
+            'application/json',
+            status,
+            errorMsg || null
+        ]);
+    } catch (e) {
+        // Ignorar errores de log (la tabla puede no existir)
+        console.warn('⚠️ No se pudo guardar log de callback (tabla puede no existir)');
+    }
+}
+
 export const mojieCallbackEncrypted = async (req: Request, res: Response): Promise<any> => {
     const client = await pool.connect();
     
     try {
-        console.log('📥 [MoJie Callback] Recibiendo datos encriptados...');
+        console.log('📥 [MoJie Callback] Recibiendo datos...');
+        console.log('   → Content-Type:', req.headers['content-type']);
+        console.log('   → Body type:', typeof req.body);
+        console.log('   → Body preview:', typeof req.body === 'string' ? req.body.substring(0, 100) : JSON.stringify(req.body).substring(0, 100));
         
-        // El body puede venir como string directo o como { data: "encrypted_string" }
-        let encryptedData: string;
+        // Guardar log del callback recibido
+        await logCallback({ 
+            headers: req.headers, 
+            body: req.body,
+            rawBody: typeof req.body === 'string' ? req.body.substring(0, 500) : null
+        }, 'received');
         
-        if (typeof req.body === 'string') {
-            encryptedData = req.body;
-        } else if (req.body.data && typeof req.body.data === 'string') {
-            encryptedData = req.body.data;
-        } else if (req.body.encrypted && typeof req.body.encrypted === 'string') {
-            encryptedData = req.body.encrypted;
-        } else {
-            // Si viene como JSON sin encriptar, procesarlo directamente
-            if (req.body.fno) {
-                console.log('   → Datos recibidos sin encriptar, procesando directamente...');
-                return processCallbackPayload(client, req.body, res);
+        // El body puede venir en múltiples formatos según cómo MoJie lo envíe
+        let encryptedData: string | null = null;
+        let directPayload: ChinaApiPayload | null = null;
+        
+        // Caso 1: Body es string directo (text/plain)
+        if (typeof req.body === 'string' && req.body.length > 0) {
+            // Verificar si es JSON sin encriptar
+            if (req.body.trim().startsWith('{')) {
+                try {
+                    directPayload = JSON.parse(req.body);
+                    console.log('   → Body es JSON string, parseado correctamente');
+                } catch {
+                    encryptedData = req.body;
+                    console.log('   → Body es string encriptado');
+                }
+            } else {
+                encryptedData = req.body;
+                console.log('   → Body es string encriptado (no JSON)');
             }
+        }
+        // Caso 2: Body es objeto con datos encriptados en algún campo
+        else if (typeof req.body === 'object' && req.body !== null) {
+            if (req.body.data && typeof req.body.data === 'string') {
+                encryptedData = req.body.data;
+                console.log('   → Datos encriptados en campo "data"');
+            } else if (req.body.encrypted && typeof req.body.encrypted === 'string') {
+                encryptedData = req.body.encrypted;
+                console.log('   → Datos encriptados en campo "encrypted"');
+            } else if (req.body.content && typeof req.body.content === 'string') {
+                encryptedData = req.body.content;
+                console.log('   → Datos encriptados en campo "content"');
+            } else if (req.body.fno) {
+                // JSON sin encriptar con estructura esperada
+                directPayload = req.body as ChinaApiPayload;
+                console.log('   → Datos JSON sin encriptar (tiene fno)');
+            } else {
+                // Intentar buscar cualquier campo string largo que pueda ser encriptado
+                for (const key of Object.keys(req.body)) {
+                    if (typeof req.body[key] === 'string' && req.body[key].length > 50) {
+                        encryptedData = req.body[key];
+                        console.log(`   → Posibles datos encriptados en campo "${key}"`);
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Si no encontramos datos válidos
+        if (!encryptedData && !directPayload) {
+            console.error('❌ [MoJie Callback] No se encontraron datos válidos');
+            console.error('   → Body completo:', JSON.stringify(req.body));
             return res.status(400).json({ 
                 success: false, 
-                error: 'Formato de datos no reconocido. Se espera string encriptado o JSON con fno.' 
+                error: 'Formato de datos no reconocido. Se espera string encriptado o JSON con fno.',
+                receivedType: typeof req.body,
+                receivedKeys: typeof req.body === 'object' ? Object.keys(req.body || {}) : 'N/A'
             });
+        }
+        
+        // Si ya tenemos el payload directo, procesarlo
+        if (directPayload) {
+            console.log('   → Procesando payload directo sin desencriptar...');
+            return processCallbackPayload(client, directPayload, res);
+        }
+        
+        // Si llegamos aquí, tenemos datos encriptados
+        if (!encryptedData) {
+            throw new Error('No se encontraron datos encriptados para procesar');
         }
         
         console.log(`   → Datos encriptados recibidos: ${encryptedData.length} caracteres`);

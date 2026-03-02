@@ -1,7 +1,7 @@
 # 📚 EntregaX - Manual del Programador
 
-> **Última actualización:** 27 de febrero de 2026  
-> **Versión:** 2.4.0
+> **Última actualización:** 2 de marzo de 2026  
+> **Versión:** 2.6.0
 
 ---
 
@@ -17,7 +17,7 @@
 8. [Mobile App](#mobile-app)
 9. [Internacionalización (i18n)](#internacionalización-i18n)
 10. [Autenticación y Autorización](#autenticación-y-autorización)
-11. [Sistema de Permisos Granulares](#sistema-de-permisos-granulares) ⭐ NUEVO
+11. [Sistema de Permisos Granulares](#sistema-de-permisos-granulares)
 12. [Sistema de Bodegas Multi-Ubicación](#sistema-de-bodegas-multi-ubicación)
 13. [Motor de Precios](#motor-de-precios)
 14. [Sistema de Facturación Fiscal](#sistema-de-facturación-fiscal)
@@ -26,12 +26,14 @@
 17. [Sistema de Pagos a Proveedores](#sistema-de-pagos-a-proveedores)
 18. [Sistema de Direcciones](#sistema-de-direcciones)
 19. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo)
-20. [Panel Marítimo China](#panel-marítimo-china) ⭐ NUEVO
-21. [Integración con OpenAI](#integración-con-openai) ⭐ NUEVO
-22. [Módulos Implementados](#módulos-implementados)
-23. [Guía de Desarrollo](#guía-de-desarrollo)
-24. [Credenciales de Prueba](#credenciales-de-prueba)
-25. [Changelog](#changelog)
+20. [Panel Marítimo China](#panel-marítimo-china)
+21. [Integración con OpenAI](#integración-con-openai)
+22. [DHL Monterrey - Costeo](#dhl-monterrey---costeo)
+23. [Tradlinx Ocean Visibility](#tradlinx-ocean-visibility---tracking-de-contenedores) ⭐ NUEVO
+24. [Módulos Implementados](#módulos-implementados)
+25. [Guía de Desarrollo](#guía-de-desarrollo)
+26. [Credenciales de Prueba](#credenciales-de-prueba)
+27. [Changelog](#changelog)
 
 ---
 
@@ -2805,7 +2807,149 @@ useEffect(() => {
 
 ---
 
-## �📦 Módulos Implementados
+## 🛰️ Tradlinx Ocean Visibility - Tracking de Contenedores
+
+### Descripción General
+
+Sistema de tracking satelital de contenedores marítimos usando la API de **Tradlinx Ocean Visibility**. Reemplaza la integración anterior con Vizion API.
+
+### Configuración
+
+**Variables de entorno requeridas:**
+```bash
+# API Key de Tradlinx
+TRADLINX_API_KEY=tu_api_key_de_tradlinx
+
+# URL base de la API (opcional, default: https://api.tradlinx.com/v1)
+TRADLINX_API_URL=https://api.tradlinx.com/v1
+
+# Webhook URL donde Tradlinx enviará actualizaciones
+TRADLINX_WEBHOOK_URL=https://tu-dominio.com/api/webhooks/tradlinx
+
+# Client ID para identificar requests (opcional)
+TRADLINX_CLIENT_ID=entregax
+
+# Usar sandbox para pruebas (POC)
+TRADLINX_USE_SANDBOX=true  # Para pruebas
+TRADLINX_USE_SANDBOX=false # Para producción
+```
+
+### Endpoints
+
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| POST | `/api/webhooks/tradlinx` | Webhook para recibir actualizaciones de Tradlinx |
+| POST | `/api/admin/tradlinx/subscribe` | Suscribir contenedor a tracking |
+| POST | `/api/admin/vizion/subscribe` | Alias de compatibilidad |
+| GET | `/api/admin/containers/:id/tracking` | Historial de tracking |
+| POST | `/api/admin/containers/:id/tracking/manual` | Agregar evento manual |
+| POST | `/api/admin/containers/:id/tracking/sync-carrier` | Sincronizar con naviera |
+
+### Parámetros de Suscripción
+
+Al crear un nuevo Folio de Operación, enviar a Tradlinx:
+
+```typescript
+// POST /api/admin/tradlinx/subscribe
+{
+  "containerId": 123,                    // ID interno del contenedor
+  "containerNumber": "WHSU8015030",      // Número del contenedor
+  "blNumber": "024F619991",              // Master BL Number
+  "carrierCode": "WHLC"                  // Código SCAC de la naviera
+}
+```
+
+### Códigos SCAC de Navieras
+
+| Naviera | Código SCAC |
+|---------|-------------|
+| Wan Hai | WHLC |
+| Maersk | MAEU |
+| MSC | MSCU |
+| COSCO | COSU |
+| Evergreen | EGLV |
+| CMA CGM | CMDU |
+| Hapag-Lloyd | HLCU |
+| ONE | ONEY |
+| Yang Ming | YMLU |
+| HMM | HDMU |
+| ZIM | ZIMU |
+| PIL | PCIU |
+
+### Eventos de Tradlinx (Mapeo)
+
+| Código | Evento | Estado Interno | Acción Automática |
+|--------|--------|----------------|-------------------|
+| `ETA_UPDATE` | ETA Predictiva | eta_updated | Actualiza campo eta |
+| `LOADED` / `LF` | Cargado | loaded | - |
+| `GATE_IN` / `GI` | Gate In | gate_in | - |
+| `VESSEL_DEPARTURE` / `VD` | Zarpe | in_transit | - |
+| `VESSEL_ARRIVAL` / `VA` | Arribo | arrived_port | - |
+| `DISCHARGE` / `DS` | Descarga | discharged | - |
+| `CUSTOMS_RELEASED` / `CR` | Liberado Aduana | customs_cleared | - |
+| `GATE_OUT` / `GO` | **Gate Out** | gate_out | **Inicia Rastreo Foráneo** |
+| `DELIVERED` / `DV` | Entregado | delivered | - |
+| `EMPTY_RETURN` / `ER` | **Retorno Vacío** | empty_return | **Cierra Logística Inversa** |
+
+### Acciones Automáticas
+
+#### 🚛 Gate-Out → Inicia Rastreo Foráneo
+Cuando el contenedor sale del puerto (Gate-Out), el sistema:
+1. Marca `foreign_tracking_started = true`
+2. Registra `foreign_tracking_start_date`
+3. Cambia estado a `in_transit_foreign`
+4. Crea registro en `foreign_tracking_logs`
+
+#### ↩️ Empty Return → Cierra Logística Inversa
+Cuando el contenedor vacío se devuelve a la naviera:
+1. Marca `reverse_logistics_closed = true`
+2. Registra `reverse_logistics_close_date`
+3. Registra `empty_return_date`
+4. Cambia estado a `completed`
+5. Cierra el `maritime_shipment` asociado
+
+### Webhook Handler
+
+```typescript
+// POST /api/webhooks/tradlinx
+// Tradlinx envía actualizaciones automáticamente
+
+// Payload de ejemplo:
+{
+  "container_number": "WHSU8015030",
+  "master_bl_number": "024F619991",
+  "event_type": "GATE_OUT",
+  "event_timestamp": "2026-03-02T14:30:00Z",
+  "location": "Lázaro Cárdenas, MX",
+  "vessel_name": "SHUN FENG 31",
+  "voyage_number": "260126000000",
+  "predicted_eta": "2026-03-05T08:00:00Z",
+  "carrier_code": "WHLC"
+}
+```
+
+### Entorno Sandbox (POC)
+
+Para pruebas, usar el entorno sandbox de Tradlinx:
+
+```bash
+TRADLINX_USE_SANDBOX=true
+```
+
+Esto enviará las peticiones a `https://sandbox.api.tradlinx.com/v1` en lugar de producción.
+
+### Archivos Involucrados
+
+| Archivo | Descripción |
+|---------|-------------|
+| `vizionController.ts` | Controlador principal (renombrado internamente a Tradlinx) |
+| `CostingPanelMaritimo.tsx` | UI del tracking en panel de costeo |
+| `container_tracking_logs` | Tabla de logs de tracking |
+| `containers.tradlinx_reference_id` | Reference ID de la suscripción |
+
+---
+
+## 📦 Módulos Implementados
 
 ### ✅ Completados
 
@@ -2993,6 +3137,109 @@ curl -s "http://localhost:3001/api/warehouse/stats" \
 ---
 
 ## 📝 Changelog
+
+### v2.6.0 (2 Mar 2026) - TRADLINX OCEAN VISIBILITY ⭐
+
+#### Reemplazo de Vizion API por Tradlinx
+- ✅ **Tradlinx Integration** - Nueva API de tracking satelital de contenedores
+- ✅ **subscribeToTradlinx()** - Función para suscribir contenedores al tracking
+- ✅ **handleTradlinxWebhook()** - Handler para webhooks de Tradlinx
+- ✅ **Sandbox Support** - Soporte para entorno de pruebas (POC)
+- ✅ **Acciones Automáticas** - Gate-Out inicia rastreo foráneo, Empty Return cierra logística inversa
+
+#### Variables de Entorno Nuevas
+```bash
+TRADLINX_API_KEY=tu_api_key
+TRADLINX_API_URL=https://api.tradlinx.com/v1
+TRADLINX_WEBHOOK_URL=https://tu-dominio.com/api/webhooks/tradlinx
+TRADLINX_CLIENT_ID=entregax
+TRADLINX_USE_SANDBOX=true|false
+```
+
+#### Endpoints Tradlinx
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| POST | `/api/webhooks/tradlinx` | Webhook de actualizaciones |
+| POST | `/api/admin/tradlinx/subscribe` | Suscribir contenedor |
+| POST | `/api/admin/vizion/subscribe` | Alias compatibilidad |
+
+#### Eventos con Acciones Automáticas
+| Evento | Acción |
+|--------|--------|
+| `GATE_OUT` / `GO` | Inicia tracking foráneo (`foreign_tracking_started`) |
+| `EMPTY_RETURN` / `ER` | Cierra logística inversa (`reverse_logistics_closed`) |
+
+#### Archivos Modificados
+- `vizionController.ts` - Reescrito para usar Tradlinx
+- `index.ts` - Nuevas rutas `/api/webhooks/tradlinx` y `/api/admin/tradlinx/subscribe`
+- `CostingPanelMaritimo.tsx` - UI actualizada con branding Tradlinx
+
+---
+
+### v2.5.0 (2 Mar 2026) - DHL COSTING & CHINA API SM2 ⭐
+
+#### DHL Monterrey - Sistema de Costeo
+- ✅ **dhl_cost_rates** - Nueva tabla para tarifas de costo interno (Standard/High Value)
+- ✅ **DhlCostingPage.tsx** - Página de costeo con tabs: Tarifas de Costo + Lista de Cajas
+- ✅ **getDhlCostRates** - Endpoint GET `/api/admin/dhl/cost-rates`
+- ✅ **updateDhlCostRate** - Endpoint PUT `/api/admin/dhl/cost-rates/:id`
+- ✅ **getDhlCosting** - Endpoint GET `/api/admin/dhl/costing` con filtros y estadísticas
+- ✅ **assignDhlCost** - Endpoint POST `/api/admin/dhl/costing/assign` para asignar costos
+- ✅ **autoAssignDhlCosts** - Endpoint POST `/api/admin/dhl/costing/auto-assign` auto-asignación
+- ✅ **Módulo costing** - Agregado a mx_cedis en AdminHubPage
+
+#### Endpoints DHL Costeo
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| GET | `/api/admin/dhl/cost-rates` | Obtener tarifas de costo |
+| PUT | `/api/admin/dhl/cost-rates/:id` | Actualizar tarifa de costo |
+| GET | `/api/admin/dhl/costing` | Lista de cajas con costeo |
+| POST | `/api/admin/dhl/costing/assign` | Asignar costo a envíos |
+| POST | `/api/admin/dhl/costing/auto-assign` | Auto-asignar costos |
+
+#### Tabla dhl_cost_rates
+```sql
+CREATE TABLE dhl_cost_rates (
+    id SERIAL PRIMARY KEY,
+    rate_type VARCHAR(50) UNIQUE,   -- 'standard', 'high_value'
+    rate_name VARCHAR(100),
+    cost_usd DECIMAL(10,2),         -- Lo que nos cuesta
+    description TEXT,
+    is_active BOOLEAN DEFAULT true,
+    updated_at TIMESTAMP
+);
+```
+
+#### Columnas en dhl_shipments
+```sql
+ALTER TABLE dhl_shipments ADD COLUMN assigned_cost_usd DECIMAL(10,2);
+ALTER TABLE dhl_shipments ADD COLUMN cost_rate_type VARCHAR(50);
+ALTER TABLE dhl_shipments ADD COLUMN cost_assigned_at TIMESTAMP;
+ALTER TABLE dhl_shipments ADD COLUMN cost_assigned_by INTEGER REFERENCES users(id);
+```
+
+#### China API - SM2 Encryption
+- ✅ **sm-crypto** - Biblioteca para encriptación SM2 (estándar chino)
+- ✅ **loginWithH5Api()** - Login con credenciales h5api y encriptación SM2
+- ✅ **loginWithOrderSystem()** - Fallback a sistema orderSystem
+- ✅ **encryptWithSM2()** - Función de encriptación para API MJCustomer
+- ✅ **text/plain middleware** - Soporte para callbacks con Content-Type text/plain
+- ✅ **china_callback_logs** - Tabla de logging para callbacks recibidos
+
+#### Credenciales MJCustomer API (h5api)
+```typescript
+const MJCUSTOMER_API = {
+  BASE_URL: 'https://www.mjcustomer.com',
+  ACCOUNT: 'h5api',
+  PASSWORD: 'H_5@nLP.',
+  SM2_PUBLIC_KEY: '046BB47A0777ADAD614BEF4F234BBE275C4FBB4BB45A9EDCAB5602EEE9588B52AEFB5CD7A29396DA46526E1C4F72650166F5FB41515B83C192AE37134470EB951D'
+};
+```
+
+#### POBox USA - Tab por defecto
+- ✅ **POBoxCostingPage.tsx** - Tab por defecto cambiado de "Calculadora" (0) a "Paquetes" (1)
+
+---
 
 ### v2.4.0 (27 Feb 2026) - AWS S3 & PERMISOS MARÍTIMOS ⭐
 
@@ -3411,7 +3658,150 @@ POST /api/facebook/webhook
 
 ---
 
-## 📝 Changelog
+## � DHL Monterrey - Costeo
+
+### Descripción General
+
+El módulo de costeo DHL permite gestionar:
+1. **Tarifas de Costo** - Lo que EntregaX paga a DHL por tipo (Standard/High Value)
+2. **Lista de Cajas** - Todos los paquetes AA_DHL con sus costos asignados
+3. **Auto-asignación** - Asignar costos automáticamente basado en el tipo de producto
+
+### Estructura de Base de Datos
+
+#### Tabla: dhl_cost_rates
+```sql
+CREATE TABLE dhl_cost_rates (
+    id SERIAL PRIMARY KEY,
+    rate_type VARCHAR(50) NOT NULL UNIQUE,  -- 'standard', 'high_value'
+    rate_name VARCHAR(100) NOT NULL,
+    cost_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+    description TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Datos iniciales
+INSERT INTO dhl_cost_rates (rate_type, rate_name, cost_usd, description)
+VALUES 
+    ('standard', 'Standard', 0, 'Costo por envío DHL Standard'),
+    ('high_value', 'High Value', 0, 'Costo por envío DHL High Value');
+```
+
+#### Columnas en dhl_shipments
+```sql
+ALTER TABLE dhl_shipments ADD COLUMN assigned_cost_usd DECIMAL(10,2);
+ALTER TABLE dhl_shipments ADD COLUMN cost_rate_type VARCHAR(50);
+ALTER TABLE dhl_shipments ADD COLUMN cost_assigned_at TIMESTAMP;
+ALTER TABLE dhl_shipments ADD COLUMN cost_assigned_by INTEGER REFERENCES users(id);
+```
+
+### Endpoints API
+
+| Método | Endpoint | Descripción | Rol Mínimo |
+|--------|----------|-------------|------------|
+| GET | `/api/admin/dhl/cost-rates` | Obtener tarifas de costo | ADMIN |
+| PUT | `/api/admin/dhl/cost-rates/:id` | Actualizar tarifa de costo | DIRECTOR |
+| GET | `/api/admin/dhl/costing` | Lista de cajas con costeo | ADMIN |
+| POST | `/api/admin/dhl/costing/assign` | Asignar costo a envíos | ADMIN |
+| POST | `/api/admin/dhl/costing/auto-assign` | Auto-asignar costos | ADMIN |
+
+### Parámetros GET /api/admin/dhl/costing
+
+| Parámetro | Tipo | Descripción |
+|-----------|------|-------------|
+| `search` | string | Buscar por tracking, cliente, box_id |
+| `status` | string | Filtrar por estado del envío |
+| `has_cost` | 'true'/'false' | Filtrar por si tiene costo asignado |
+| `date_from` | date | Fecha inicial |
+| `date_to` | date | Fecha final |
+| `limit` | number | Límite de resultados (default: 50) |
+| `offset` | number | Offset para paginación |
+
+### Respuesta GET /api/admin/dhl/costing
+
+```json
+{
+  "data": [
+    {
+      "id": 1,
+      "inbound_tracking": "1234567890",
+      "product_type": "standard",
+      "weight_kg": 5.5,
+      "status": "received_mty",
+      "assigned_cost_usd": 145.00,
+      "cost_rate_type": "standard",
+      "client_name": "Juan Pérez",
+      "client_box_id": "S1234"
+    }
+  ],
+  "total": 150,
+  "stats": {
+    "total_shipments": 150,
+    "with_cost": 120,
+    "without_cost": 30,
+    "total_cost_usd": 17400.00,
+    "standard_count": 100,
+    "high_value_count": 50
+  }
+}
+```
+
+### POST /api/admin/dhl/costing/assign
+
+```json
+// Request
+{
+  "shipment_ids": [1, 2, 3],
+  "cost_rate_type": "standard",     // o "high_value"
+  "custom_cost_usd": null           // si se quiere costo personalizado
+}
+
+// Response
+{
+  "success": true,
+  "message": "Costo asignado a 3 envío(s)",
+  "updated": [
+    { "id": 1, "inbound_tracking": "123", "assigned_cost_usd": 145.00 }
+  ]
+}
+```
+
+### Componentes Frontend
+
+#### DhlCostingPage.tsx
+```
+/entregax-web-admin/src/pages/DhlCostingPage.tsx
+
+Tabs:
+├── Tab 0: Tarifas de Costo
+│   └── Tabla editable con Standard y High Value
+│
+└── Tab 1: Lista de Cajas
+    ├── Filtros (búsqueda, estado de costo)
+    ├── Selección múltiple
+    ├── Botón Auto-Asignar
+    ├── Botón Asignar Costo (seleccionados)
+    └── Resumen estadístico
+```
+
+#### Acceso en AdminHubPage
+```
+Admin Hub → MX CEDIS → Costeo
+```
+
+### Migración
+
+```bash
+# Ejecutar migración
+cd entregax-backend-api
+node run_dhl_cost_migration.js
+```
+
+---
+
+## �📝 Changelog
 
 #### Asignación de Permisos (Script)
 ```javascript

@@ -1,0 +1,175 @@
+================================================================================
+          INSTRUCCIONES PARA REENVIAR DATOS DE MOJIE A ENTREGAX
+================================================================================
+
+Fecha: 2 de marzo de 2026
+Última actualización: 2 de marzo de 2026
+De: EntregaX Development Team
+Versión: 1.1
+
+================================================================================
+1. ENDPOINTS DISPONIBLES
+================================================================================
+
+ENDPOINT PRINCIPAL (recomendado):
+  URL:     POST https://entregax.app/api/china/receive
+  Método:  POST
+  Headers: Content-Type: application/json
+  Auth:    No requiere autenticación (endpoint público para webhooks)
+
+ENDPOINT ALTERNATIVO (callback original):
+  URL:     POST https://entregax.app/api/china/callback
+  Método:  POST
+  Headers: Content-Type: text/plain o application/json
+  Auth:    No requiere autenticación
+  Nota:    Acepta tanto JSON como datos encriptados DES (si tienen la llave)
+
+================================================================================
+2. ACCIÓN REQUERIDA
+================================================================================
+
+Cuando reciban datos de MoJie, reenviarlos tal cual (sin modificar) a la URL
+de arriba. Si los datos vienen encriptados con DES, desencriptarlos primero
+y luego enviar el JSON limpio.
+
+================================================================================
+3. EJEMPLO DE CÓDIGO (Node.js / JavaScript)
+================================================================================
+
+const reenviarAEntregaX = async (datosRecibidos) => {
+  try {
+    const response = await fetch('https://entregax.app/api/china/receive', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(datosRecibidos)
+    });
+    
+    const resultado = await response.json();
+    console.log('EntregaX respondió:', resultado);
+    return resultado;
+  } catch (error) {
+    console.error('Error enviando a EntregaX:', error);
+    throw error;
+  }
+};
+
+// Uso: cuando lleguen datos de MoJie
+// reenviarAEntregaX(datosDesencriptadosDeMoJie);
+
+================================================================================
+4. EJEMPLO CON CURL (para pruebas)
+================================================================================
+
+curl -X POST https://entregax.app/api/china/receive \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fno": "AIR2619358CIvUL",
+    "shippingMark": "S1837",
+    "totalQty": 1,
+    "totalWeight": 31.90,
+    "totalVolume": 263844,
+    "totalCbm": 0.2640,
+    "data": [
+      {
+        "childNo": "AIR2619358CIvUL-001",
+        "trajecotryName": "该货件已派送签收",
+        "weight": 31.90,
+        "long": 69,
+        "width": 53,
+        "height": 72,
+        "proName": "鞋子-Zapatos",
+        "customsBno": "LI类"
+      }
+    ]
+  }'
+
+================================================================================
+5. ESTRUCTURA DEL JSON ESPERADO
+================================================================================
+
+{
+  "fno": "AIR2619358CIvUL",       // ID único del envío (requerido)
+  "shippingMark": "S1837",        // Código del cliente (requerido)
+  "totalQty": 1,                  // Cantidad total de cajas
+  "totalWeight": 31.90,           // Peso total en kg
+  "totalVolume": 263844,          // Volumen total en cm³
+  "totalCbm": 0.2640,             // CBM total
+  "file": ["url_foto1.jpg"],      // URLs de evidencias (opcional)
+  "data": [                       // Array de cajas (requerido)
+    {
+      "childNo": "AIR2619358CIvUL-001",  // ID único de la caja
+      "trajecotryName": "状态描述",       // Estado/trayectoria
+      "weight": 31.90,                   // Peso en kg
+      "long": 69,                        // Largo en cm
+      "width": 53,                       // Ancho en cm
+      "height": 72,                      // Alto en cm
+      "proName": "鞋子-Zapatos",          // Descripción del producto
+      "customsBno": "LI类",              // Código aduanal
+      "singleVolume": 263844,            // Volumen individual
+      "singleCbm": 0.2640,               // CBM individual
+      "billNo": "176-12345678",          // Guía aérea (opcional)
+      "etd": "2026-03-05",               // Fecha salida (opcional)
+      "eta": "2026-03-10"                // Fecha llegada (opcional)
+    }
+  ]
+}
+
+================================================================================
+6. RESPUESTA ESPERADA DE ENTREGAX
+================================================================================
+
+Respuesta exitosa (HTTP 200):
+{
+  "success": true,
+  "message": "Datos de China procesados correctamente",
+  "data": {
+    "fno": "AIR2619358CIvUL",
+    "receiptId": 123,
+    "userId": 45,
+    "packagesCreated": 1,
+    "packagesUpdated": 0
+  }
+}
+
+Respuesta de error (HTTP 500):
+{
+  "success": false,
+  "error": "Error procesando datos de China",
+  "details": "Mensaje de error específico"
+}
+
+================================================================================
+7. NOTAS IMPORTANTES
+================================================================================
+
+- El endpoint NO requiere autenticación (es público para webhooks)
+- Enviar los datos tal cual los reciben de MoJie, sin modificar la estructura
+- Si los datos vienen encriptados con DES, desencriptarlos primero
+- Los campos "fno", "shippingMark" y "data" son obligatorios
+- El sistema identifica automáticamente al cliente por el "shippingMark"
+- Dominio correcto: entregax.app (NO .com)
+- El sistema registra todos los callbacks en la tabla china_callback_logs
+
+================================================================================
+8. MAPEO DE ESTADOS (trajecotryName)
+================================================================================
+
+Estado MoJie                         → Estado EntregaX
+--------------------------------------------------------------------
+"揽收成功"                           → received_cn (Recibido en China)
+"出库完成" / "出库"                  → in_transit (En tránsito)
+"入库完成" / "入库"                  → arrived_mx (Llegó a México)
+"该货件已派送签收"                   → delivered (Entregado)
+
+================================================================================
+9. CONTACTO
+================================================================================
+
+Para dudas técnicas: desarrollo@entregax.com
+Soporte: soporte@entregax.com
+
+================================================================================
+                         FIN DE LAS INSTRUCCIONES
+================================================================================

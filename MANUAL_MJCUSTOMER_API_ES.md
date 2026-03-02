@@ -1,23 +1,24 @@
 # 📦 Manual de Integración MJCustomer API - EntregaX
 
-**Fecha:** 19 de febrero de 2026  
-**Versión:** 2.0  
+**Fecha:** 28 de febrero de 2026  
+**Versión:** 3.0  
 **Idioma:** Español
 
 ---
 
 ## 📋 Resumen
 
-Este manual describe cómo configurar la integración entre **EntregaX** y la API de **MJCustomer** (api.mjcustomer.com) para sincronizar datos de envíos desde el almacén en China.
+Este manual describe cómo configurar la integración entre **EntregaX** y la API de **MJCustomer/MoJie** (api.mjcustomer.com) para sincronizar datos de envíos desde el almacén en China.
 
-### Modelo de Integración: PULL (Consulta)
-En lugar de recibir webhooks, EntregaX consulta activamente la API de MJCustomer para obtener datos de órdenes.
+### Modelos de Integración:
+1. **PULL (Consulta)** - EntregaX consulta activamente la API de MJCustomer
+2. **PUSH (Callback)** - MoJie envía datos encriptados DES a nuestro webhook
 
 ---
 
 ## 🔐 1. Configuración de Credenciales
 
-### Opción A: Variables de Entorno (.env)
+### Variables de Entorno (.env)
 
 Editar el archivo `.env` del backend:
 
@@ -26,38 +27,14 @@ Editar el archivo `.env` del backend:
 # MJCUSTOMER API - Integración China
 # ============================================
 MJCUSTOMER_API_URL=http://api.mjcustomer.com
-MJCUSTOMER_USERNAME=tu_usuario_aqui
-MJCUSTOMER_PASSWORD=tu_contraseña_aqui
+MJCUSTOMER_USERNAME=18824927368
+MJCUSTOMER_PASSWORD=cM4V92S0RNE2.
+
+# Llave DES para callback encriptado (solicitar a MoJie)
+MJCUSTOMER_DES_KEY=XXXXXXXX
 ```
 
-**¿Dónde obtener las credenciales?**
-- Contactar al proveedor MJCustomer/Mojie para solicitar acceso a la API
-- Las credenciales son las mismas que usas para acceder a su sistema web
-
-### Opción B: Login Manual via API
-
-Si prefieres no guardar las credenciales en el archivo, puedes hacer login manualmente:
-
-```bash
-# Login manual enviando credenciales en el body
-curl -X POST http://localhost:3001/api/china/mjcustomer/login \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer TU_TOKEN_ENTREGAX" \
-  -d '{
-    "username": "tu_usuario_mjcustomer",
-    "password": "tu_contraseña_mjcustomer"
-  }'
-```
-
-**Respuesta exitosa:**
-```json
-{
-  "success": true,
-  "message": "Login exitoso",
-  "tokenPreview": "eyJhbGciOiJIUzI1N...",
-  "expiresAt": "2026-02-20T21:16:51.055Z"
-}
-```
+**Endpoint de login:** `/api/appAuth/loginByOrderSystem`
 
 ---
 
@@ -70,14 +47,8 @@ POST /api/china/mjcustomer/login
 
 **Headers:**
 - `Authorization: Bearer {token_entregax}`
-- `Content-Type: application/json`
 
-**Body (opcional si ya están en .env):**
-```json
-{
-  "username": "usuario",
-  "password": "contraseña"
-}
+El sistema usa las credenciales configuradas en `.env` automáticamente.
 ```
 
 ### 2.2 Consultar Orden Individual

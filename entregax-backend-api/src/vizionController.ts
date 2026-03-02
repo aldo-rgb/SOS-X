@@ -1,14 +1,21 @@
 // ============================================
-// VIZION API - RASTREO DE CONTENEDORES EN TIEMPO REAL
-// Integración con Vizion API para tracking satelital
+// TRADLINX API - RASTREO DE CONTENEDORES EN TIEMPO REAL
+// Integración con Tradlinx Ocean Visibility API
 // ============================================
 
 import { Request, Response } from 'express';
 import axios from 'axios';
 import { pool } from './db';
 
-const VIZION_API_KEY = process.env.VIZION_API_KEY;
-const VIZION_API_URL = 'https://v2.api.vizionapi.com';
+// Configuración Tradlinx API (se lee dinámicamente)
+const TRADLINX_SANDBOX_URL = 'https://sandbox.api.tradlinx.com/v1'; // POC/Sandbox
+const TRADLINX_PROD_URL = 'https://api.tradlinx.com/v1'; // Producción
+
+// Funciones para obtener config dinámicamente (después de dotenv)
+const getApiKey = () => process.env.TRADLINX_API_KEY;
+const getClientId = () => process.env.TRADLINX_CLIENT_ID || 'entregax';
+const useSandbox = () => process.env.TRADLINX_USE_SANDBOX === 'true';
+const getApiUrl = () => useSandbox() ? TRADLINX_SANDBOX_URL : (process.env.TRADLINX_API_URL || TRADLINX_PROD_URL);
 
 // Códigos SCAC de las navieras más comunes
 export const CARRIER_CODES: Record<string, string> = {
@@ -44,65 +51,85 @@ export const getCarrierCode = (carrierName: string): string => {
 };
 
 /**
- * Suscribir un contenedor a Vizion para tracking en tiempo real
+ * Suscribir un contenedor a Tradlinx para tracking en tiempo real
+ * Se envía master_bl_number o container_number junto con carrier_code
  */
-export const subscribeToVizion = async (
+export const subscribeToTradlinx = async (
     containerNumber: string, 
     carrierCode: string = 'WHLC',
     blNumber?: string
 ): Promise<{ success: boolean; referenceId?: string; error?: string }> => {
-    if (!VIZION_API_KEY) {
-        console.log('⚠️ VIZION_API_KEY no configurada - tracking simulado');
+    const apiKey = getApiKey();
+    
+    if (!apiKey) {
+        console.log('⚠️ TRADLINX_API_KEY no configurada - tracking simulado');
         return { success: true, referenceId: `SIM-${containerNumber}` };
     }
 
     try {
+        const apiUrl = getApiUrl();
+        const isSandbox = useSandbox();
+        console.log(`🔗 Conectando a Tradlinx (${isSandbox ? 'SANDBOX' : 'PRODUCTION'})`);
+        console.log(`   URL: ${apiUrl}`);
+        
         const response = await axios.post(
-            `${VIZION_API_URL}/references`,
+            `${apiUrl}/shipments/subscribe`,
             {
-                reference_number: containerNumber,
+                // Tradlinx acepta master_bl_number o container_number
+                master_bl_number: blNumber || null,
+                container_number: containerNumber,
                 carrier_code: carrierCode,
-                // Opcional: también podemos trackear por BL
-                ...(blNumber && { bill_of_lading: blNumber })
+                // Webhook para recibir actualizaciones
+                callback_url: process.env.TRADLINX_WEBHOOK_URL || `${process.env.API_BASE_URL}/api/webhooks/tradlinx`
             },
             {
                 headers: { 
-                    'X-API-Key': VIZION_API_KEY,
-                    'Content-Type': 'application/json'
+                    'Authorization': `Bearer ${apiKey}`,
+                    'Content-Type': 'application/json',
+                    'X-Client-Id': getClientId()
                 }
             }
         );
 
-        const referenceId = response.data?.id || response.data?.reference_id;
+        const referenceId = response.data?.subscription_id || response.data?.reference_id || response.data?.id;
         
-        console.log(`✅ Contenedor ${containerNumber} suscrito a Vizion API`);
+        console.log(`✅ Contenedor ${containerNumber} suscrito a Tradlinx API`);
         console.log(`   Reference ID: ${referenceId}`);
+        console.log(`   BL: ${blNumber || 'N/A'}`);
         
         return { success: true, referenceId };
 
     } catch (error: any) {
-        const errorMsg = error.response?.data?.message || error.message;
-        console.error(`❌ Error conectando a Vizion:`, errorMsg);
+        const errorMsg = error.response?.data?.message || error.response?.data?.error || error.message;
+        console.error(`❌ Error conectando a Tradlinx:`, errorMsg);
         return { success: false, error: errorMsg };
     }
 };
 
+// Alias para compatibilidad con código existente
+export const subscribeToVizion = subscribeToTradlinx;
+
 /**
- * Cancelar suscripción de un contenedor en Vizion
+ * Cancelar suscripción de un contenedor en Tradlinx
  */
-export const unsubscribeFromVizion = async (referenceId: string): Promise<boolean> => {
-    if (!VIZION_API_KEY || referenceId.startsWith('SIM-')) {
+export const unsubscribeFromTradlinx = async (referenceId: string): Promise<boolean> => {
+    const apiKey = getApiKey();
+    if (!apiKey || referenceId.startsWith('SIM-')) {
         return true;
     }
 
     try {
+        const apiUrl = getApiUrl();
         await axios.delete(
-            `${VIZION_API_URL}/references/${referenceId}`,
+            `${apiUrl}/shipments/unsubscribe/${referenceId}`,
             {
-                headers: { 'X-API-Key': VIZION_API_KEY }
+                headers: { 
+                    'Authorization': `Bearer ${apiKey}`,
+                    'X-Client-Id': getClientId()
+                }
             }
         );
-        console.log(`✅ Suscripción ${referenceId} cancelada en Vizion`);
+        console.log(`✅ Suscripción ${referenceId} cancelada en Tradlinx`);
         return true;
     } catch (error: any) {
         console.error(`❌ Error cancelando suscripción:`, error.message);
@@ -110,93 +137,138 @@ export const unsubscribeFromVizion = async (referenceId: string): Promise<boolea
     }
 };
 
+// Alias para compatibilidad
+export const unsubscribeFromVizion = unsubscribeFromTradlinx;
+
 /**
- * Obtener estado actual de un contenedor desde Vizion
+ * Obtener estado actual de un contenedor desde Tradlinx
  */
-export const getVizionStatus = async (referenceId: string): Promise<any> => {
-    if (!VIZION_API_KEY || referenceId.startsWith('SIM-')) {
+export const getTradlinxStatus = async (referenceId: string): Promise<any> => {
+    const apiKey = getApiKey();
+    if (!apiKey || referenceId.startsWith('SIM-')) {
         return null;
     }
 
     try {
+        const apiUrl = getApiUrl();
         const response = await axios.get(
-            `${VIZION_API_URL}/references/${referenceId}`,
+            `${apiUrl}/shipments/${referenceId}/status`,
             {
-                headers: { 'X-API-Key': VIZION_API_KEY }
+                headers: { 
+                    'Authorization': `Bearer ${apiKey}`,
+                    'X-Client-Id': getClientId()
+                }
             }
         );
         return response.data;
     } catch (error: any) {
-        console.error(`❌ Error obteniendo estado:`, error.message);
+        console.error(`❌ Error obteniendo estado de Tradlinx:`, error.message);
         return null;
     }
 };
 
+// Alias para compatibilidad
+export const getVizionStatus = getTradlinxStatus;
+
 // ============================================
-// WEBHOOK - Recibir actualizaciones de Vizion
+// WEBHOOK - Recibir actualizaciones de Tradlinx
 // ============================================
 
 /**
- * Mapeo de milestones de Vizion a estados del sistema
+ * Mapeo de eventos de Tradlinx a estados del sistema
+ * Eventos clave según integración Tradlinx:
+ * - ETA Update: Actualización de fecha estimada de arribo
+ * - Discharge: Descarga del barco al puerto
+ * - Gate-out: Salida del contenedor del puerto (detona rastreo foráneo)
+ * - Empty Return: Retorno de contenedor vacío (cierra Logística Inversa)
  */
-const MILESTONE_MAP: Record<string, { status: string; message: string; icon: string }> = {
+const MILESTONE_MAP: Record<string, { status: string; message: string; icon: string; triggerAction?: string }> = {
     // Eventos de Carga
     'LF': { status: 'loaded', message: 'Contenedor cargado en puerto origen', icon: '📦' },
+    'LOADED': { status: 'loaded', message: 'Contenedor cargado en puerto origen', icon: '📦' },
     'GI': { status: 'gate_in', message: 'Contenedor ingresó a terminal portuaria', icon: '🚪' },
+    'GATE_IN': { status: 'gate_in', message: 'Contenedor ingresó a terminal portuaria', icon: '🚪' },
     
     // Eventos de Navegación
     'VD': { status: 'in_transit', message: 'Tu contenedor ha zarpado de puerto origen', icon: '🚢' },
+    'VESSEL_DEPARTURE': { status: 'in_transit', message: 'Tu contenedor ha zarpado de puerto origen', icon: '🚢' },
     'VA': { status: 'arrived_port', message: 'El barco ha arribado al puerto de destino', icon: '⚓' },
+    'VESSEL_ARRIVAL': { status: 'arrived_port', message: 'El barco ha arribado al puerto de destino', icon: '⚓' },
     
-    // Eventos de Puerto Destino
+    // 🎯 EVENTO CLAVE: Actualización ETA Predictiva
+    'ETA_UPDATE': { status: 'eta_updated', message: 'ETA actualizada por Tradlinx', icon: '📅' },
+    
+    // 🎯 EVENTO CLAVE: Descarga (Discharge) - Contenedor baja del barco
     'DS': { status: 'discharged', message: 'Contenedor descargado del barco. En espera de aduana', icon: '🏗️' },
-    'CR': { status: 'customs_cleared', message: '¡Aduana superada! Tu contenedor ha sido liberado', icon: '✅' },
-    'AV': { status: 'available', message: 'Contenedor disponible para retiro', icon: '📋' },
+    'DISCHARGE': { status: 'discharged', message: 'Contenedor descargado del barco. En espera de aduana', icon: '🏗️' },
+    'DISCHARGED': { status: 'discharged', message: 'Contenedor descargado del barco. En espera de aduana', icon: '🏗️' },
     
-    // Eventos de Salida
-    'GO': { status: 'gate_out', message: 'Contenedor salió del puerto hacia bodega', icon: '🚛' },
+    // Eventos de Aduana
+    'CR': { status: 'customs_cleared', message: '¡Aduana superada! Tu contenedor ha sido liberado', icon: '✅' },
+    'CUSTOMS_RELEASED': { status: 'customs_cleared', message: '¡Aduana superada! Tu contenedor ha sido liberado', icon: '✅' },
+    'AV': { status: 'available', message: 'Contenedor disponible para retiro', icon: '📋' },
+    'AVAILABLE': { status: 'available', message: 'Contenedor disponible para retiro', icon: '📋' },
+    
+    // 🎯 EVENTO CLAVE: Gate-Out - Detona inicio de rastreo foráneo
+    'GO': { status: 'gate_out', message: 'Contenedor salió del puerto hacia bodega', icon: '🚛', triggerAction: 'START_FOREIGN_TRACKING' },
+    'GATE_OUT': { status: 'gate_out', message: 'Contenedor salió del puerto hacia bodega', icon: '🚛', triggerAction: 'START_FOREIGN_TRACKING' },
     'GT': { status: 'in_transit_local', message: 'Contenedor en ruta terrestre hacia CEDIS', icon: '🚛' },
     
     // Eventos de Entrega
     'DV': { status: 'delivered', message: '¡Tu contenedor ha sido entregado!', icon: '🎉' },
-    'ER': { status: 'empty_return', message: 'Contenedor vacío devuelto a naviera', icon: '↩️' }
+    'DELIVERED': { status: 'delivered', message: '¡Tu contenedor ha sido entregado!', icon: '🎉' },
+    
+    // 🎯 EVENTO CLAVE: Empty Return - Cierra Módulo de Logística Inversa
+    'ER': { status: 'empty_return', message: 'Contenedor vacío devuelto a naviera', icon: '↩️', triggerAction: 'CLOSE_REVERSE_LOGISTICS' },
+    'EMPTY_RETURN': { status: 'empty_return', message: 'Contenedor vacío devuelto a naviera', icon: '↩️', triggerAction: 'CLOSE_REVERSE_LOGISTICS' }
 };
 
 /**
- * POST /api/webhooks/vizion
- * Webhook para recibir actualizaciones de Vizion
+ * POST /api/webhooks/tradlinx
+ * Webhook para recibir actualizaciones de Tradlinx Ocean Visibility
+ * Eventos clave: ETA Update, Discharge, Gate-out, Empty Return
  */
-export const handleVizionWebhook = async (req: Request, res: Response): Promise<any> => {
+export const handleTradlinxWebhook = async (req: Request, res: Response): Promise<any> => {
     try {
         const payload = req.body;
         
-        console.log('📡 Webhook Vizion recibido:', JSON.stringify(payload, null, 2));
+        console.log('📡 Webhook Tradlinx recibido:', JSON.stringify(payload, null, 2));
 
-        // Vizion envía la información del evento
-        const containerNumber = payload.reference_number || payload.container_number;
-        const milestone = payload.milestone || payload.event_code;
-        const eventDate = payload.time_actual || payload.event_time || new Date().toISOString();
-        const location = payload.location?.name || payload.port_name || '';
+        // Tradlinx envía la información del evento
+        const containerNumber = payload.container_number || payload.reference_number;
+        const blNumber = payload.master_bl_number || payload.bl_number;
+        const milestone = payload.event_type || payload.milestone || payload.event_code;
+        const eventDate = payload.event_timestamp || payload.time_actual || new Date().toISOString();
+        const location = payload.location?.name || payload.port_name || payload.location || '';
         const vessel = payload.vessel?.name || payload.vessel_name || '';
         const voyage = payload.vessel?.voyage || payload.voyage_number || '';
+        
+        // Datos adicionales de Tradlinx
+        const predictedEta = payload.predicted_eta || payload.eta;
+        const carrierCode = payload.carrier_code;
 
-        if (!containerNumber) {
-            console.log('⚠️ Webhook sin container_number, ignorando');
-            return res.status(200).send('OK - No container number');
+        if (!containerNumber && !blNumber) {
+            console.log('⚠️ Webhook sin container_number ni bl_number, ignorando');
+            return res.status(200).send('OK - No container/bl number');
         }
 
-        // Buscar el contenedor en nuestra base de datos
+        // Buscar el contenedor en nuestra base de datos (por container o BL)
         const containerResult = await pool.query(
-            `SELECT c.id, c.status, ms.id as shipment_id 
+            `SELECT c.id, c.status, c.eta, ms.id as shipment_id 
              FROM containers c
              LEFT JOIN maritime_shipments ms ON ms.container_id = c.id
-             WHERE c.container_number = $1`,
-            [containerNumber]
+             WHERE c.container_number = $1 OR c.bl_number = $2`,
+            [containerNumber, blNumber]
         );
 
         if (containerResult.rows.length === 0) {
-            console.log(`⚠️ Contenedor ${containerNumber} no encontrado en BD`);
+            console.log(`⚠️ Contenedor ${containerNumber || blNumber} no encontrado en BD`);
             return res.status(200).send('OK - Container not found');
+        }
+        
+        // Log para evento ETA si viene actualización predictiva
+        if (predictedEta) {
+            console.log(`📅 ETA Predictiva de Tradlinx: ${predictedEta}`);
         }
 
         const container = containerResult.rows[0];
@@ -220,18 +292,28 @@ export const handleVizionWebhook = async (req: Request, res: Response): Promise<
 
         // Si hay un cambio de estatus importante, actualizar el contenedor
         if (milestoneInfo) {
+            // Actualizar ETA si viene en el payload
+            const etaUpdate = predictedEta ? `, eta = '${predictedEta}'` : '';
+            
             await pool.query(
                 `UPDATE containers 
                  SET status = $1, 
                      last_tracking_event = $2,
                      last_tracking_date = $3,
-                     last_tracking_location = $4,
+                     last_tracking_location = $4${etaUpdate ? ', eta = $6' : ''},
                      updated_at = NOW() 
                  WHERE id = $5`,
-                [milestoneInfo.status, milestoneInfo.message, eventDate, location, container.id]
+                predictedEta 
+                    ? [milestoneInfo.status, milestoneInfo.message, eventDate, location, container.id, predictedEta]
+                    : [milestoneInfo.status, milestoneInfo.message, eventDate, location, container.id]
             );
 
             console.log(`✅ Contenedor ${containerNumber} actualizado: ${milestoneInfo.status}`);
+            
+            // 🎯 Ejecutar acciones automáticas según el evento
+            if (milestoneInfo.triggerAction) {
+                await handleTradlinxTriggerAction(milestoneInfo.triggerAction, container.id, containerNumber);
+            }
 
             // Buscar usuarios asociados a este contenedor para notificarles
             const usersResult = await pool.query(`
@@ -268,11 +350,76 @@ export const handleVizionWebhook = async (req: Request, res: Response): Promise<
             }
         }
 
-        res.status(200).send('Webhook procesado correctamente');
+        res.status(200).send('Webhook Tradlinx procesado correctamente');
 
     } catch (error: any) {
-        console.error("❌ Error en Webhook Vizion:", error);
+        console.error("❌ Error en Webhook Tradlinx:", error);
         res.status(500).send('Error interno');
+    }
+};
+
+// Alias para compatibilidad con rutas existentes
+export const handleVizionWebhook = handleTradlinxWebhook;
+
+/**
+ * 🎯 Manejar acciones automáticas según eventos de Tradlinx
+ * - START_FOREIGN_TRACKING: Cuando sale del puerto (Gate-Out), inicia rastreo foráneo
+ * - CLOSE_REVERSE_LOGISTICS: Cuando se devuelve vacío (Empty Return), cierra logística inversa
+ */
+const handleTradlinxTriggerAction = async (action: string, containerId: number, containerNumber: string) => {
+    console.log(`🎯 Ejecutando acción automática: ${action} para contenedor ${containerNumber}`);
+    
+    try {
+        switch (action) {
+            case 'START_FOREIGN_TRACKING':
+                // Gate-Out: Contenedor salió del puerto, iniciar rastreo terrestre foráneo
+                console.log(`🚛 Gate-Out detectado: Iniciando rastreo foráneo para ${containerNumber}`);
+                await pool.query(`
+                    UPDATE containers 
+                    SET foreign_tracking_started = true, 
+                        foreign_tracking_start_date = NOW(),
+                        status = 'in_transit_foreign'
+                    WHERE id = $1
+                `, [containerId]);
+                
+                // Crear registro en tracking_foraneo si existe la tabla
+                try {
+                    await pool.query(`
+                        INSERT INTO foreign_tracking_logs (container_id, event_type, event_date, notes)
+                        VALUES ($1, 'STARTED', NOW(), 'Iniciado automáticamente por evento Gate-Out de Tradlinx')
+                        ON CONFLICT DO NOTHING
+                    `, [containerId]);
+                } catch (e) {
+                    // La tabla puede no existir aún
+                }
+                break;
+                
+            case 'CLOSE_REVERSE_LOGISTICS':
+                // Empty Return: Contenedor vacío devuelto, cerrar módulo de logística inversa
+                console.log(`↩️ Empty Return detectado: Cerrando logística inversa para ${containerNumber}`);
+                await pool.query(`
+                    UPDATE containers 
+                    SET reverse_logistics_closed = true, 
+                        reverse_logistics_close_date = NOW(),
+                        empty_return_date = NOW(),
+                        status = 'completed'
+                    WHERE id = $1
+                `, [containerId]);
+                
+                // Actualizar el shipment si existe
+                await pool.query(`
+                    UPDATE maritime_shipments 
+                    SET status = 'completed', 
+                        completed_at = NOW()
+                    WHERE container_id = $1
+                `, [containerId]);
+                break;
+                
+            default:
+                console.log(`⚠️ Acción desconocida: ${action}`);
+        }
+    } catch (error: any) {
+        console.error(`❌ Error ejecutando acción ${action}:`, error.message);
     }
 };
 
@@ -298,33 +445,43 @@ const sendExpoPushNotification = async (pushToken: string, title: string, body: 
 // ============================================
 
 /**
- * POST /api/admin/vizion/subscribe
- * Suscribir manualmente un contenedor a Vizion
+ * POST /api/admin/vizion/subscribe (o /api/admin/tradlinx/subscribe)
+ * Suscribir manualmente un contenedor a Tradlinx Ocean Visibility
+ * Parámetros de entrada:
+ * - containerNumber (o container_number): Número del contenedor (ej. WHSU8015030)
+ * - blNumber (o master_bl_number): Número de BL
+ * - carrierCode (o carrier_code): Código SCAC de la naviera
  */
 export const subscribeContainer = async (req: Request, res: Response): Promise<any> => {
     try {
         const { containerId, containerNumber, carrierCode, blNumber } = req.body;
 
-        if (!containerNumber) {
-            return res.status(400).json({ success: false, error: 'containerNumber requerido' });
+        if (!containerNumber && !blNumber) {
+            return res.status(400).json({ success: false, error: 'containerNumber o blNumber requerido' });
         }
 
         const carrier = carrierCode || 'WHLC';
-        const result = await subscribeToVizion(containerNumber, carrier, blNumber);
+        const result = await subscribeToTradlinx(containerNumber, carrier, blNumber);
 
         if (result.success) {
             // Guardar el reference ID en la base de datos
             if (containerId) {
                 await pool.query(
-                    `UPDATE containers SET vizion_reference_id = $1, vizion_subscribed_at = NOW() WHERE id = $2`,
+                    `UPDATE containers 
+                     SET tradlinx_reference_id = $1, 
+                         tradlinx_subscribed_at = NOW(),
+                         vizion_reference_id = $1,
+                         vizion_subscribed_at = NOW()
+                     WHERE id = $2`,
                     [result.referenceId, containerId]
                 );
             }
 
             res.json({ 
                 success: true, 
-                message: `Contenedor ${containerNumber} suscrito a tracking`,
-                referenceId: result.referenceId 
+                message: `Contenedor ${containerNumber || blNumber} suscrito a Tradlinx Ocean Visibility`,
+                referenceId: result.referenceId,
+                provider: 'tradlinx'
             });
         } else {
             res.status(400).json({ success: false, error: result.error });

@@ -1127,39 +1127,58 @@ export default function CostingPanelMaritimo() {
         }
     };
 
-    // Suscribir contenedor a Vizion
-    const subscribeToVizionTracking = async () => {
-        if (!selectedContainer) return;
-        setSubscribingVizion(true);
-        try {
-            const res = await axios.post(`${API_URL}/api/admin/vizion/subscribe`, {
-                containerId: selectedContainer.id,
-                containerNumber: selectedContainer.container_number,
-                blNumber: selectedContainer.bl_number,
-                carrierCode: selectedContainer.carrier_code || 'WHLC' // Default a Wan Hai
-            }, {
-                headers: { Authorization: `Bearer ${getToken()}` }
-            });
-            setSnackbar({ 
-                open: true, 
-                message: `🛰️ Tracking satelital activado: ${res.data.referenceId}`, 
-                severity: 'success' 
-            });
-            // Recargar contenedor para ver el cambio
-            fetchContainers();
-            if (selectedContainer.id) {
-                loadTrackingHistory(selectedContainer.id);
-            }
-        } catch (error: unknown) {
-            const axiosError = error as { response?: { data?: { error?: string } } };
-            setSnackbar({ 
-                open: true, 
-                message: axiosError.response?.data?.error || 'Error al suscribir a Vizion', 
-                severity: 'error' 
-            });
-        } finally {
-            setSubscribingVizion(false);
+    // Abrir widget de Tradlinx Ocean Visibility
+    const openTradlinxWidget = () => {
+        // Verificar si ya existe el contenedor
+        let tradlinxDiv = document.getElementById('tradlinx-plugin');
+        
+        if (!tradlinxDiv) {
+            // Crear el contenedor del widget
+            tradlinxDiv = document.createElement("div");
+            tradlinxDiv.setAttribute("id", "tradlinx-plugin");
+            tradlinxDiv.style.cssText = "position:fixed;right:40px;bottom:40px;z-index:99999 !important;";
+            document.body.appendChild(tradlinxDiv);
         }
+        
+        // Configurar el plugin (debe existir antes de cargar el script)
+        (window as any).tradlinxPlugin = {
+            pluginKey: "MWI2MmFlM2MtY2ZhYi0zMzNlLWIwZTctOTczYmRiZGUyODQ4",
+            lang: "en",
+            searchLabel: "BL / Contenedor",
+        };
+        
+        // Verificar si el script ya está cargado
+        const existingScript = document.querySelector('script[src*="tradlinx-plugin-web"]');
+        if (!existingScript) {
+            // Cargar el script de Tradlinx
+            const script = document.createElement("script");
+            script.type = "module";
+            script.async = true;
+            script.src = "https://static-cdn.tradlinx.com/plugin/tradlinx-plugin-web.js";
+            script.onload = () => {
+                console.log('✅ Tradlinx widget cargado');
+                // Intentar hacer clic en el botón del widget después de cargar
+                setTimeout(() => {
+                    const widgetButton = document.querySelector('#tradlinx-plugin button, #tradlinx-plugin [role="button"]') as HTMLElement;
+                    if (widgetButton) {
+                        widgetButton.click();
+                    }
+                }, 1000);
+            };
+            document.body.appendChild(script);
+        } else {
+            // El script ya existe, intentar abrir el widget
+            const widgetButton = document.querySelector('#tradlinx-plugin button, #tradlinx-plugin [role="button"]') as HTMLElement;
+            if (widgetButton) {
+                widgetButton.click();
+            }
+        }
+        
+        setSnackbar({ 
+            open: true, 
+            message: `🛰️ Buscando tracking para BL: ${selectedContainer?.bl_number || selectedContainer?.container_number}`, 
+            severity: 'info' 
+        });
     };
 
     // Agregar evento manual de tracking
@@ -2450,7 +2469,7 @@ export default function CostingPanelMaritimo() {
                         </Grid>
                     )}
 
-                    {/* Tab 5: Tracking Satelital (Vizion) */}
+                    {/* Tab 5: Tracking Satelital (Tradlinx Ocean Visibility) */}
                     {tabValue === 5 && selectedContainer && (
                         <Grid container spacing={3}>
                             <Grid size={{ xs: 12 }}>
@@ -2459,7 +2478,7 @@ export default function CostingPanelMaritimo() {
                                     icon={<SatelliteIcon />}
                                 >
                                     {selectedContainer.vizion_reference_id 
-                                        ? `🛰️ Tracking satelital activo - Ref: ${selectedContainer.vizion_reference_id}`
+                                        ? `🛰️ Tracking Tradlinx activo - Ref: ${selectedContainer.vizion_reference_id}`
                                         : '🛰️ Activa el tracking satelital para recibir actualizaciones en tiempo real'
                                     }
                                 </Alert>
@@ -2531,34 +2550,34 @@ export default function CostingPanelMaritimo() {
                                 </Grid>
                             )}
 
-                            {/* Botón para suscribir a Vizion */}
-                            {!selectedContainer.vizion_reference_id && (
-                                <Grid size={{ xs: 12 }}>
-                                    <Card variant="outlined" sx={{ borderColor: '#00BCD4', bgcolor: '#E0F7FA' }}>
-                                        <CardContent>
-                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-                                                <Box>
-                                                    <Typography variant="subtitle1" fontWeight="bold">
-                                                        Activar Tracking Satelital
-                                                    </Typography>
-                                                    <Typography variant="body2" color="text.secondary">
-                                                        Recibe actualizaciones automáticas del contenedor vía Vizion API
-                                                    </Typography>
-                                                </Box>
-                                                <Button
-                                                    variant="contained"
-                                                    startIcon={subscribingVizion ? <CircularProgress size={20} color="inherit" /> : <SatelliteIcon />}
-                                                    onClick={subscribeToVizionTracking}
-                                                    disabled={subscribingVizion || !selectedContainer.container_number}
-                                                    sx={{ bgcolor: '#00BCD4', '&:hover': { bgcolor: '#0097A7' } }}
-                                                >
-                                                    {subscribingVizion ? 'Activando...' : 'Activar Tracking'}
-                                                </Button>
+                            {/* Widget de Tradlinx - Tracking Satelital */}
+                            <Grid size={{ xs: 12 }}>
+                                <Card variant="outlined" sx={{ borderColor: '#00BCD4', bgcolor: '#E0F7FA' }}>
+                                    <CardContent>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+                                            <Box>
+                                                <Typography variant="subtitle1" fontWeight="bold">
+                                                    🛰️ Tracking Satelital (Tradlinx)
+                                                </Typography>
+                                                <Typography variant="body2" color="text.secondary">
+                                                    Busca tu BL o contenedor en el widget azul de la esquina inferior derecha
+                                                </Typography>
+                                                <Typography variant="caption" color="primary" sx={{ mt: 0.5, display: 'block' }}>
+                                                    BL: <strong>{selectedContainer.bl_number}</strong> | Contenedor: <strong>{selectedContainer.container_number}</strong>
+                                                </Typography>
                                             </Box>
-                                        </CardContent>
-                                    </Card>
-                                </Grid>
-                            )}
+                                            <Button
+                                                variant="contained"
+                                                startIcon={<SatelliteIcon />}
+                                                onClick={openTradlinxWidget}
+                                                sx={{ bgcolor: '#00BCD4', '&:hover': { bgcolor: '#0097A7' } }}
+                                            >
+                                                Ver Widget Tradlinx
+                                            </Button>
+                                        </Box>
+                                    </CardContent>
+                                </Card>
+                            </Grid>
 
                             {/* Último estado conocido */}
                             {selectedContainer.last_tracking_event && (

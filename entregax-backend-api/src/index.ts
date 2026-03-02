@@ -323,7 +323,8 @@ import {
   loginMJCustomerEndpoint,
   mojieCallbackEncrypted,
   trackFNO,
-  getTrajectory
+  getTrajectory,
+  getCallbackLogs
 } from './chinaController';
 import {
   getMasterAwbData,
@@ -519,7 +520,12 @@ import {
   getClientDhlPending,
   getClientDhlHistory,
   clientQuoteDhl,
-  measureBoxFromImage
+  measureBoxFromImage,
+  getDhlCostRates,
+  updateDhlCostRate,
+  getDhlCosting,
+  assignDhlCost,
+  autoAssignDhlCosts
 } from './dhlController';
 import {
   getPrivacyNotice,
@@ -620,6 +626,7 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
+app.use(express.text({ limit: '50mb', type: ['text/plain', 'text/html'] })); // Para callbacks encriptados de MoJie
 
 // Servir archivos estáticos de uploads
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
@@ -1621,9 +1628,16 @@ app.post('/api/attendance/validate-geofence', authenticateToken, validateGeofenc
 app.get('/api/branches/:id/geofence', authenticateToken, requireMinLevel(ROLES.ADMIN), getBranchGeofence);
 
 // ========== DHL MONTERREY (AA DHL) ==========
-// Tarifas
+// Tarifas de venta (precio al cliente)
 app.get('/api/admin/dhl/rates', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlRates);
 app.put('/api/admin/dhl/rates/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateDhlRate);
+// Tarifas de costo (lo que nos cuesta a nosotros)
+app.get('/api/admin/dhl/cost-rates', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlCostRates);
+app.put('/api/admin/dhl/cost-rates/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateDhlCostRate);
+// Costeo de envíos (lista de cajas con costos)
+app.get('/api/admin/dhl/costing', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlCosting);
+app.post('/api/admin/dhl/costing/assign', authenticateToken, requireMinLevel(ROLES.ADMIN), assignDhlCost);
+app.post('/api/admin/dhl/costing/auto-assign', authenticateToken, requireMinLevel(ROLES.ADMIN), autoAssignDhlCosts);
 // Precios especiales por cliente
 app.get('/api/admin/dhl/client-pricing', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlClientPricing);
 app.put('/api/admin/dhl/client-pricing/:userId', authenticateToken, requireMinLevel(ROLES.ADMIN), updateDhlClientPricing);
@@ -1669,6 +1683,7 @@ app.get('/api/china/receipts/:id', authenticateToken, getChinaReceiptDetail);
 app.put('/api/china/receipts/:id/status', authenticateToken, updateChinaReceiptStatus);
 app.post('/api/china/receipts/:id/assign', authenticateToken, assignClientToReceipt);
 app.get('/api/china/stats', authenticateToken, getChinaStats);
+app.get('/api/china/callback-logs', authenticateToken, getCallbackLogs); // Logs de diagnóstico
 
 // Pull desde MJCustomer API (consultar en lugar de recibir webhook)
 app.post('/api/china/mjcustomer/login', authenticateToken, loginMJCustomerEndpoint);
@@ -2044,10 +2059,11 @@ import {
   reExtractDraftData
 } from './emailInboundController';
 
-// Vizion API Controller (Tracking satelital de contenedores)
+// Tradlinx API Controller (Tracking satelital de contenedores - Ocean Visibility)
 import {
-    subscribeContainer as subscribeToVizion,
-    handleVizionWebhook,
+    subscribeContainer as subscribeToTradlinx,
+    handleTradlinxWebhook,
+    handleVizionWebhook, // Alias para compatibilidad
     getContainerTracking as getContainerTrackingHistory,
     addManualTrackingEvent,
     syncCarrierTracking
@@ -2057,7 +2073,9 @@ import {
 // Mailgun envía correos aquí automáticamente
 app.post('/api/webhooks/email/inbound', handleInboundEmail);
 
-// Vizion envía updates de tracking aquí
+// Tradlinx envía updates de tracking aquí (Ocean Visibility)
+app.post('/api/webhooks/tradlinx', handleTradlinxWebhook);
+// Alias para compatibilidad con configuraciones existentes
 app.post('/api/webhooks/vizion', handleVizionWebhook);
 
 // Openpay/STP envía notificaciones de depósitos SPEI
@@ -2308,9 +2326,11 @@ app.get('/api/admin/email/draft/:id/excel', authenticateToken, requireMinLevel(R
 // Re-extraer datos de un draft usando IA
 app.post('/api/admin/email/draft/:id/reextract', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), reExtractDraftData);
 
-// ========== VIZION TRACKING (Rastreo satelital de contenedores) ==========
-// Suscribir contenedor a tracking de Vizion
-app.post('/api/admin/vizion/subscribe', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), subscribeToVizion);
+// ========== TRADLINX TRACKING (Rastreo satelital de contenedores - Ocean Visibility) ==========
+// Suscribir contenedor a tracking de Tradlinx
+app.post('/api/admin/tradlinx/subscribe', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), subscribeToTradlinx);
+// Alias para compatibilidad con frontend existente
+app.post('/api/admin/vizion/subscribe', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), subscribeToTradlinx);
 // Historial de tracking de un contenedor
 app.get('/api/admin/containers/:id/tracking', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getContainerTrackingHistory);
 // Agregar evento manual de tracking (para cuando no hay API)

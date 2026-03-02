@@ -68,6 +68,7 @@ import PaymentInvoicesPage from './PaymentInvoicesPage';
 import NationalFreightRatesPage from './NationalFreightRatesPage';
 import LastMilePage from './LastMilePage';
 import DhlRatesPage from './DhlRatesPage';
+import DhlCostingPage from './DhlCostingPage';
 import POBoxRatesPage from './POBoxRatesPage';
 import POBoxCostingPage from './POBoxCostingPage';
 import ExchangeRateConfigPage from './ExchangeRateConfigPage';
@@ -167,6 +168,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'reports', status: 'pending' },
     ],
     mx_cedis: [
+        { key: 'costing', status: 'active' },
         { key: 'dhl_rates', status: 'active' },
         { key: 'inventory', status: 'active' },
         { key: 'pricing', status: 'pending' },
@@ -783,6 +785,30 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                         />
                     </Box>
                     <DhlRatesPage />
+                </Box>
+            );
+        }
+
+        // Panel de Costeo DHL (costing) - solo mx_cedis
+        if (selectedModule === 'costing' && selectedService === 'mx_cedis') {
+            return (
+                <Box>
+                    {/* Breadcrumb */}
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    <DhlCostingPage />
                 </Box>
             );
         }

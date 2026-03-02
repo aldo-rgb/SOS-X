@@ -117,7 +117,7 @@ function TabPanel(props: TabPanelProps) {
 
 export default function POBoxCostingPage() {
     const { t } = useTranslation();
-    const [activeTab, setActiveTab] = useState(0);
+    const [activeTab, setActiveTab] = useState(1); // 1 = Paquetes (mostrar primero)
     const [loading, setLoading] = useState(false);
     const [packages, setPackages] = useState<PackageCosting[]>([]);
     const [config, setConfig] = useState<CostingConfig>({

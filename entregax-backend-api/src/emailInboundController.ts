@@ -1698,7 +1698,8 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
           // Nuevos campos editables
           week_number: editedData.bl.weekNumber || finalData.week_number,
           reference_code: editedData.bl.referenceCode || finalData.reference_code,
-          eta: editedData.bl.eta || finalData.eta
+          eta: editedData.bl.eta || finalData.eta,
+          route_id: editedData.bl.routeId || finalData.route_id || draft.route_id
         };
       }
       
@@ -1794,7 +1795,7 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         finalData.vesselName,
         finalData.portOfLoading,
         finalData.portOfDischarge,
-        draft.route_id,
+        finalData.route_id || draft.route_id,  // Usar route_id de datos editados O del draft
         weekNumber,
         referenceCode,
         // Campos adicionales para el frontend
@@ -2418,10 +2419,12 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
     }
 
     // Usar routeId del request si viene, sino extraer del subject
-    let finalRouteId = routeId ? parseInt(routeId) : null;
+    let finalRouteId = routeId && routeId !== '' && routeId !== '0' ? parseInt(routeId) : null;
     let finalRouteCode: string | null = null;
     let weekNumber: string | null = null;
     let referenceCode: string | null = null;
+    
+    console.log('📍 Route ID recibido:', { routeId, parsed: finalRouteId });
     
     if (finalRouteId) {
       // Obtener código de la ruta
@@ -2619,6 +2622,7 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
     console.log(`✅ Upload manual ${shipmentType} procesado:`, {
       blNumber: extractedData.blNumber,
       containerNumber: extractedData.containerNumber,
+      routeId: finalRouteId,
       routeCode: finalRouteCode,
       confidence
     });
