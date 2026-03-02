@@ -1176,7 +1176,7 @@ export default function CostingPanelMaritimo() {
         setSnackbar({ 
             open: true, 
             message: `🛰️ Buscando tracking para BL: ${selectedContainer?.bl_number || selectedContainer?.container_number}`, 
-            severity: 'info' 
+            severity: 'success' 
         });
     };
 
