@@ -325,7 +325,7 @@ export default function DhlCostingPage() {
           <Card sx={{ borderLeft: `4px solid ${DHL_COLOR}` }}>
             <CardContent>
               <Typography variant="subtitle2" color="text.secondary">Costo Standard</Typography>
-              <Typography variant="h5" fontWeight="bold">${standardCost.toFixed(2)} USD</Typography>
+              <Typography variant="h5" fontWeight="bold">${standardCost.toFixed(2)} MXN</Typography>
               <Typography variant="caption" color="text.secondary">Lo que nos cuesta</Typography>
             </CardContent>
           </Card>
@@ -334,7 +334,7 @@ export default function DhlCostingPage() {
           <Card sx={{ borderLeft: `4px solid ${DHL_YELLOW}` }}>
             <CardContent>
               <Typography variant="subtitle2" color="text.secondary">Costo High Value</Typography>
-              <Typography variant="h5" fontWeight="bold">${highValueCost.toFixed(2)} USD</Typography>
+              <Typography variant="h5" fontWeight="bold">${highValueCost.toFixed(2)} MXN</Typography>
               <Typography variant="caption" color="text.secondary">Lo que nos cuesta</Typography>
             </CardContent>
           </Card>
@@ -394,7 +394,7 @@ export default function DhlCostingPage() {
                   <TableRow sx={{ bgcolor: '#f5f5f5' }}>
                     <TableCell>Tipo</TableCell>
                     <TableCell>Nombre</TableCell>
-                    <TableCell align="right">Costo USD</TableCell>
+                    <TableCell align="right">Costo MXN</TableCell>
                     <TableCell>Descripción</TableCell>
                     <TableCell>Última Actualización</TableCell>
                     <TableCell align="center">Acciones</TableCell>
@@ -419,7 +419,7 @@ export default function DhlCostingPage() {
                       </TableCell>
                       <TableCell align="right">
                         <Typography variant="h6" fontWeight="bold" color="primary">
-                          ${parseFloat(String(rate.cost_usd || 0)).toFixed(2)}
+                          ${parseFloat(String(rate.cost_usd || 0)).toFixed(2)} MXN
                         </Typography>
                       </TableCell>
                       <TableCell>
@@ -648,7 +648,7 @@ export default function DhlCostingPage() {
         <DialogContent>
           <Box sx={{ pt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
             <TextField
-              label="Costo USD"
+              label="Costo MXN"
               type="number"
               value={editCostForm.cost_usd}
               onChange={(e) => setEditCostForm({ ...editCostForm, cost_usd: parseFloat(e.target.value) || 0 })}
@@ -694,14 +694,14 @@ export default function DhlCostingPage() {
                 onChange={(e) => setAssignCostForm({ ...assignCostForm, cost_rate_type: e.target.value, custom_cost_usd: '' })}
               >
                 <MenuItem value="">-- Personalizado --</MenuItem>
-                <MenuItem value="standard">Standard (${standardCost.toFixed(2)} USD)</MenuItem>
-                <MenuItem value="high_value">High Value (${highValueCost.toFixed(2)} USD)</MenuItem>
+                <MenuItem value="standard">Standard (${standardCost.toFixed(2)} MXN)</MenuItem>
+                <MenuItem value="high_value">High Value (${highValueCost.toFixed(2)} MXN)</MenuItem>
               </Select>
             </FormControl>
             
             {!assignCostForm.cost_rate_type && (
               <TextField
-                label="Costo Personalizado USD"
+                label="Costo Personalizado MXN"
                 type="number"
                 value={assignCostForm.custom_cost_usd}
                 onChange={(e) => setAssignCostForm({ ...assignCostForm, custom_cost_usd: e.target.value })}

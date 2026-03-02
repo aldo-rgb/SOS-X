@@ -2059,24 +2059,20 @@ import {
   reExtractDraftData
 } from './emailInboundController';
 
-// Tradlinx API Controller (Tracking satelital de contenedores - Ocean Visibility)
+// Vizion API Controller (Tracking satelital de contenedores)
 import {
-    subscribeContainer as subscribeToTradlinx,
-    handleTradlinxWebhook,
-    handleVizionWebhook, // Alias para compatibilidad
+    subscribeContainer as subscribeToVizion,
+    handleVizionWebhook,
     getContainerTracking as getContainerTrackingHistory,
     addManualTrackingEvent,
-    syncCarrierTracking,
-    fetchTradlinxTracking // Obtener tracking directamente de la API de Tradlinx
+    syncCarrierTracking
 } from './vizionController';
 
 // ========== WEBHOOKS PÚBLICOS (SIN AUTENTICACIÓN) ==========
 // Mailgun envía correos aquí automáticamente
 app.post('/api/webhooks/email/inbound', handleInboundEmail);
 
-// Tradlinx envía updates de tracking aquí (Ocean Visibility)
-app.post('/api/webhooks/tradlinx', handleTradlinxWebhook);
-// Alias para compatibilidad con configuraciones existentes
+// Vizion envía updates de tracking aquí
 app.post('/api/webhooks/vizion', handleVizionWebhook);
 
 // Openpay/STP envía notificaciones de depósitos SPEI
@@ -2327,19 +2323,15 @@ app.get('/api/admin/email/draft/:id/excel', authenticateToken, requireMinLevel(R
 // Re-extraer datos de un draft usando IA
 app.post('/api/admin/email/draft/:id/reextract', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), reExtractDraftData);
 
-// ========== TRADLINX TRACKING (Rastreo satelital de contenedores - Ocean Visibility) ==========
-// Suscribir contenedor a tracking de Tradlinx
-app.post('/api/admin/tradlinx/subscribe', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), subscribeToTradlinx);
-// Alias para compatibilidad con frontend existente
-app.post('/api/admin/vizion/subscribe', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), subscribeToTradlinx);
+// ========== VIZION TRACKING (Rastreo satelital de contenedores) ==========
+// Suscribir contenedor a tracking de Vizion
+app.post('/api/admin/vizion/subscribe', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), subscribeToVizion);
 // Historial de tracking de un contenedor
 app.get('/api/admin/containers/:id/tracking', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getContainerTrackingHistory);
 // Agregar evento manual de tracking (para cuando no hay API)
 app.post('/api/admin/containers/:id/tracking/manual', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), addManualTrackingEvent);
 // Sincronizar tracking desde la naviera (Wan Hai, etc.)
 app.post('/api/admin/containers/:id/tracking/sync-carrier', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), syncCarrierTracking);
-// Obtener tracking directamente de la API de Tradlinx y guardarlo en historial
-app.post('/api/admin/containers/:id/tracking/tradlinx', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), fetchTradlinxTracking);
 
 // Upload manual de documentos marítimos (FCL/LCL) - Archivos van a S3, límite 100MB
 const maritimeUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });

@@ -1126,124 +1126,41 @@ export default function CostingPanelMaritimo() {
         }
     };
 
-    // Sincronizar tracking desde la API de Tradlinx y guardarlo en historial
-    const [syncingTradlinx, setSyncingTradlinx] = useState(false);
+    // Suscribir contenedor a Vizion tracking
+    const [subscribingVizion, setSubscribingVizion] = useState(false);
     
-    const syncTradlinxTracking = async () => {
+    const subscribeToVizionTracking = async () => {
         if (!selectedContainer) return;
-        
-        setSyncingTradlinx(true);
+        setSubscribingVizion(true);
         try {
-            const response = await axios.post(
-                `${API_URL}/api/admin/containers/${selectedContainer.id}/tracking/tradlinx`,
-                {},
-                { headers: { Authorization: `Bearer ${getToken()}` } }
-            );
-            
-            if (response.data.success) {
-                setSnackbar({ 
-                    open: true, 
-                    message: `✅ ${response.data.message}`, 
-                    severity: 'success' 
-                });
-                // Recargar el historial de tracking
-                await fetchTrackingHistory();
-            } else {
-                setSnackbar({ 
-                    open: true, 
-                    message: response.data.message || 'No se encontró tracking en Tradlinx', 
-                    severity: 'error' 
-                });
-                // Si no hay datos de API, abrir el widget para búsqueda manual
-                if (response.data.simulated || !response.data.events?.length) {
-                    openTradlinxWidget();
-                }
-            }
-        } catch (error: any) {
-            console.error('Error sincronizando Tradlinx:', error);
-            const errorMsg = error.response?.data?.message || error.response?.data?.error || 'Error conectando con Tradlinx';
+            const res = await axios.post(`${API_URL}/api/admin/vizion/subscribe`, {
+                containerId: selectedContainer.id,
+                containerNumber: selectedContainer.container_number,
+                blNumber: selectedContainer.bl_number,
+                carrierCode: selectedContainer.carrier_code || 'WHLC' // Default a Wan Hai
+            }, {
+                headers: { Authorization: `Bearer ${getToken()}` }
+            });
             setSnackbar({ 
                 open: true, 
-                message: errorMsg, 
+                message: `🛰️ Tracking satelital activado: ${res.data.referenceId}`, 
+                severity: 'success' 
+            });
+            // Recargar contenedor para ver el cambio
+            fetchContainers();
+            if (selectedContainer.id) {
+                loadTrackingHistory(selectedContainer.id);
+            }
+        } catch (error: unknown) {
+            const axiosError = error as { response?: { data?: { error?: string } } };
+            setSnackbar({ 
+                open: true, 
+                message: axiosError.response?.data?.error || 'Error al suscribir a Vizion', 
                 severity: 'error' 
             });
-            // Si falla la API, abrir el widget como fallback
-            openTradlinxWidget();
         } finally {
-            setSyncingTradlinx(false);
+            setSubscribingVizion(false);
         }
-    };
-
-    // Abrir widget de Tradlinx Ocean Visibility (búsqueda manual)
-    const openTradlinxWidget = () => {
-        const blNumber = selectedContainer?.bl_number || '';
-        const containerNumber = selectedContainer?.container_number || '';
-        const searchValue = blNumber || containerNumber;
-        
-        // Verificar si ya existe el contenedor
-        let tradlinxDiv = document.getElementById('tradlinx-plugin');
-        
-        if (!tradlinxDiv) {
-            // Crear el contenedor del widget
-            tradlinxDiv = document.createElement("div");
-            tradlinxDiv.setAttribute("id", "tradlinx-plugin");
-            tradlinxDiv.style.cssText = "position:fixed;right:40px;bottom:40px;z-index:99999 !important;";
-            document.body.appendChild(tradlinxDiv);
-        }
-        
-        // Configurar el plugin con el BL pre-llenado
-        (window as any).tradlinxPlugin = {
-            pluginKey: "MWI2MmFlM2MtY2ZhYi0zMzNlLWIwZTctOTczYmRiZGUyODQ4",
-            lang: "en",
-            searchLabel: "BL / Contenedor",
-            defaultSearch: searchValue, // Pre-llenar búsqueda
-        };
-        
-        // Verificar si el script ya está cargado
-        const existingScript = document.querySelector('script[src*="tradlinx-plugin-web"]');
-        if (!existingScript) {
-            // Cargar el script de Tradlinx
-            const script = document.createElement("script");
-            script.type = "module";
-            script.async = true;
-            script.src = "https://static-cdn.tradlinx.com/plugin/tradlinx-plugin-web.js";
-            script.onload = () => {
-                console.log('✅ Tradlinx widget cargado');
-                // Intentar pre-llenar el input después de cargar
-                setTimeout(() => {
-                    const input = document.querySelector('#tradlinx-plugin input') as HTMLInputElement;
-                    if (input && searchValue) {
-                        input.value = searchValue;
-                        input.dispatchEvent(new Event('input', { bubbles: true }));
-                    }
-                    // Abrir el widget
-                    const widgetButton = document.querySelector('#tradlinx-plugin button, #tradlinx-plugin [role="button"]') as HTMLElement;
-                    if (widgetButton) {
-                        widgetButton.click();
-                    }
-                }, 1000);
-            };
-            document.body.appendChild(script);
-        } else {
-            // El script ya existe, pre-llenar y abrir
-            setTimeout(() => {
-                const input = document.querySelector('#tradlinx-plugin input') as HTMLInputElement;
-                if (input && searchValue) {
-                    input.value = searchValue;
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                }
-                const widgetButton = document.querySelector('#tradlinx-plugin button, #tradlinx-plugin [role="button"]') as HTMLElement;
-                if (widgetButton) {
-                    widgetButton.click();
-                }
-            }, 100);
-        }
-        
-        setSnackbar({ 
-            open: true, 
-            message: `🛰️ Widget abierto con BL: ${searchValue}`, 
-            severity: 'success' 
-        });
     };
 
     // Agregar evento manual de tracking
@@ -2614,46 +2531,6 @@ export default function CostingPanelMaritimo() {
                                     </Card>
                                 </Grid>
                             )}
-
-                            {/* Widget de Tradlinx - Tracking Satelital */}
-                            <Grid size={{ xs: 12 }}>
-                                <Card variant="outlined" sx={{ borderColor: '#00BCD4', bgcolor: '#E0F7FA' }}>
-                                    <CardContent>
-                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
-                                            <Box>
-                                                <Typography variant="subtitle1" fontWeight="bold">
-                                                    🛰️ Tracking Satelital (Tradlinx)
-                                                </Typography>
-                                                <Typography variant="body2" color="text.secondary">
-                                                    Sincroniza el tracking desde la API de Tradlinx y guárdalo en el historial
-                                                </Typography>
-                                                <Typography variant="caption" color="primary" sx={{ mt: 0.5, display: 'block' }}>
-                                                    BL: <strong>{selectedContainer.bl_number}</strong> | Contenedor: <strong>{selectedContainer.container_number}</strong>
-                                                </Typography>
-                                            </Box>
-                                            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                                                <Button
-                                                    variant="contained"
-                                                    startIcon={syncingTradlinx ? <CircularProgress size={20} color="inherit" /> : <SatelliteIcon />}
-                                                    onClick={syncTradlinxTracking}
-                                                    disabled={syncingTradlinx}
-                                                    sx={{ bgcolor: '#00BCD4', '&:hover': { bgcolor: '#0097A7' } }}
-                                                >
-                                                    {syncingTradlinx ? 'Sincronizando...' : 'Sincronizar Tradlinx'}
-                                                </Button>
-                                                <Button
-                                                    variant="outlined"
-                                                    size="small"
-                                                    onClick={openTradlinxWidget}
-                                                    sx={{ borderColor: '#00BCD4', color: '#00BCD4' }}
-                                                >
-                                                    Buscar Manual
-                                                </Button>
-                                            </Box>
-                                        </Box>
-                                    </CardContent>
-                                </Card>
-                            </Grid>
 
                             {/* Último estado conocido */}
                             {selectedContainer.last_tracking_event && (
