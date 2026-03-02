@@ -1126,43 +1126,6 @@ export default function CostingPanelMaritimo() {
         }
     };
 
-    // Suscribir contenedor a Vizion tracking
-    const [subscribingVizion, setSubscribingVizion] = useState(false);
-    
-    const subscribeToVizionTracking = async () => {
-        if (!selectedContainer) return;
-        setSubscribingVizion(true);
-        try {
-            const res = await axios.post(`${API_URL}/api/admin/vizion/subscribe`, {
-                containerId: selectedContainer.id,
-                containerNumber: selectedContainer.container_number,
-                blNumber: selectedContainer.bl_number,
-                carrierCode: selectedContainer.carrier_code || 'WHLC' // Default a Wan Hai
-            }, {
-                headers: { Authorization: `Bearer ${getToken()}` }
-            });
-            setSnackbar({ 
-                open: true, 
-                message: `🛰️ Tracking satelital activado: ${res.data.referenceId}`, 
-                severity: 'success' 
-            });
-            // Recargar contenedor para ver el cambio
-            fetchContainers();
-            if (selectedContainer.id) {
-                loadTrackingHistory(selectedContainer.id);
-            }
-        } catch (error: unknown) {
-            const axiosError = error as { response?: { data?: { error?: string } } };
-            setSnackbar({ 
-                open: true, 
-                message: axiosError.response?.data?.error || 'Error al suscribir a Vizion', 
-                severity: 'error' 
-            });
-        } finally {
-            setSubscribingVizion(false);
-        }
-    };
-
     // Agregar evento manual de tracking
     const addManualTrackingEvent = async (eventCode: string, eventDescription: string, location: string) => {
         if (!selectedContainer) return;

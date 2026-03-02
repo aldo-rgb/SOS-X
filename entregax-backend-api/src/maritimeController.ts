@@ -92,7 +92,7 @@ export const getContainerDetail = async (req: AuthRequest, res: Response): Promi
 // Crear contenedor
 export const createContainer = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const { containerNumber, blNumber, eta, notes } = req.body;
+    const { containerNumber, blNumber, eta, notes, routeId } = req.body;
 
     // Obtener tipo de cambio actual y congelarlo
     const fxResult = await pool.query(`
@@ -100,11 +100,22 @@ export const createContainer = async (req: AuthRequest, res: Response): Promise<
     `);
     const exchangeRate = fxResult.rows[0]?.rate || 20.50;
 
+    // Si no viene routeId, asignar la ruta por defecto (CHN-MZN-MXC)
+    let finalRouteId = routeId;
+    if (!finalRouteId) {
+      const defaultRouteResult = await pool.query(`
+        SELECT id FROM maritime_routes 
+        WHERE code = 'CHN-MZN-MXC' AND is_active = TRUE
+        LIMIT 1
+      `);
+      finalRouteId = defaultRouteResult.rows[0]?.id || null;
+    }
+
     const result = await pool.query(`
-      INSERT INTO containers (container_number, bl_number, eta, notes, status, exchange_rate_usd_mxn)
-      VALUES ($1, $2, $3, $4, 'consolidated', $5)
+      INSERT INTO containers (container_number, bl_number, eta, notes, status, exchange_rate_usd_mxn, route_id)
+      VALUES ($1, $2, $3, $4, 'consolidated', $5, $6)
       RETURNING *
-    `, [containerNumber, blNumber, eta, notes, exchangeRate]);
+    `, [containerNumber, blNumber, eta, notes, exchangeRate, finalRouteId]);
 
     // Crear registro de costos vacío
     await pool.query(`
