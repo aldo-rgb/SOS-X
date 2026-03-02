@@ -321,7 +321,7 @@ export default function DhlCostingPage() {
 
       {/* Summary Cards */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <Card sx={{ borderLeft: `4px solid ${DHL_COLOR}` }}>
             <CardContent>
               <Typography variant="subtitle2" color="text.secondary">Costo Standard</Typography>
@@ -330,7 +330,7 @@ export default function DhlCostingPage() {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <Card sx={{ borderLeft: `4px solid ${DHL_YELLOW}` }}>
             <CardContent>
               <Typography variant="subtitle2" color="text.secondary">Costo High Value</Typography>
@@ -339,7 +339,7 @@ export default function DhlCostingPage() {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <Card sx={{ borderLeft: '4px solid #4caf50' }}>
             <CardContent>
               <Typography variant="subtitle2" color="text.secondary">Con Costo Asignado</Typography>
@@ -351,7 +351,7 @@ export default function DhlCostingPage() {
             </CardContent>
           </Card>
         </Grid>
-        <Grid item xs={12} sm={6} md={3}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <Card sx={{ borderLeft: '4px solid #ff9800' }}>
             <CardContent>
               <Typography variant="subtitle2" color="text.secondary">Sin Costo</Typography>
@@ -617,19 +617,19 @@ export default function DhlCostingPage() {
             {stats && (
               <Box sx={{ mt: 2, p: 2, bgcolor: '#f5f5f5', borderRadius: 1 }}>
                 <Grid container spacing={2}>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="body2" color="text.secondary">Total Envíos</Typography>
                     <Typography variant="h6">{stats.total_shipments}</Typography>
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="body2" color="text.secondary">Standard</Typography>
                     <Typography variant="h6">{stats.standard_count}</Typography>
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="body2" color="text.secondary">High Value</Typography>
                     <Typography variant="h6">{stats.high_value_count}</Typography>
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="body2" color="text.secondary">Costo Total</Typography>
                     <Typography variant="h6" color="primary">${parseFloat(stats.total_cost_usd?.toString() || '0').toFixed(2)}</Typography>
                   </Grid>

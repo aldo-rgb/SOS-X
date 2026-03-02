@@ -284,7 +284,6 @@ export default function CostingPanelMaritimo() {
     const [tabValue, setTabValue] = useState(0);
     const [trackingLogs, setTrackingLogs] = useState<TrackingLog[]>([]);
     const [loadingTracking, setLoadingTracking] = useState(false);
-    const [subscribingVizion, setSubscribingVizion] = useState(false);
     const [_uploadingField, setUploadingField] = useState<string | null>(null);
     
     // Estado para pestaña de Utilidades
