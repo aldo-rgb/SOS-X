@@ -755,6 +755,227 @@ async function fetchWanHaiTracking(blNumber: string): Promise<any[]> {
 }
 
 /**
+ * POST /api/admin/containers/:id/tracking/tradlinx
+ * Obtener tracking de Tradlinx API y guardarlo en historial
+ * Este es el endpoint que se llama al hacer clic en "Ver Tracking Tradlinx"
+ */
+export const fetchTradlinxTracking = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { id } = req.params;
+        const apiKey = getApiKey();
+        
+        // Obtener info del contenedor
+        const containerResult = await pool.query(`
+            SELECT container_number, bl_number, tradlinx_reference_id FROM containers WHERE id = $1
+        `, [id]);
+
+        if (containerResult.rows.length === 0) {
+            return res.status(404).json({ success: false, error: 'Contenedor no encontrado' });
+        }
+
+        const { container_number, bl_number, tradlinx_reference_id } = containerResult.rows[0];
+        const searchValue = bl_number || container_number;
+
+        if (!searchValue) {
+            return res.status(400).json({ success: false, error: 'El contenedor no tiene número de BL ni contenedor' });
+        }
+
+        // Si no hay API key, devolver mensaje informativo
+        if (!apiKey) {
+            return res.json({ 
+                success: false, 
+                message: 'API de Tradlinx no configurada. Contacta a Tradlinx para obtener credenciales de API.',
+                simulated: true,
+                events: []
+            });
+        }
+
+        console.log(`🔄 Consultando Tradlinx API para: ${searchValue}`);
+
+        const apiUrl = getApiUrl();
+        let trackingEvents: any[] = [];
+
+        try {
+            // Opción 1: Si ya tenemos reference_id, obtener estado del shipment
+            if (tradlinx_reference_id && !tradlinx_reference_id.startsWith('SIM-')) {
+                const statusResponse = await axios.get(
+                    `${apiUrl}/shipments/${tradlinx_reference_id}`,
+                    {
+                        headers: { 
+                            'Authorization': `Bearer ${apiKey}`,
+                            'X-Client-Id': getClientId()
+                        },
+                        timeout: 15000
+                    }
+                );
+
+                if (statusResponse.data?.events) {
+                    trackingEvents = statusResponse.data.events;
+                } else if (statusResponse.data?.milestones) {
+                    trackingEvents = statusResponse.data.milestones;
+                }
+            }
+
+            // Opción 2: Buscar por BL/Container si no tenemos reference o no encontró eventos
+            if (trackingEvents.length === 0) {
+                const searchResponse = await axios.get(
+                    `${apiUrl}/shipments/search`,
+                    {
+                        params: {
+                            query: searchValue,
+                            type: bl_number ? 'bl' : 'container'
+                        },
+                        headers: { 
+                            'Authorization': `Bearer ${apiKey}`,
+                            'X-Client-Id': getClientId()
+                        },
+                        timeout: 15000
+                    }
+                );
+
+                if (searchResponse.data?.shipments?.length > 0) {
+                    const shipment = searchResponse.data.shipments[0];
+                    trackingEvents = shipment.events || shipment.milestones || [];
+                    
+                    // Guardar el reference_id si lo obtuvimos
+                    if (shipment.id || shipment.reference_id) {
+                        await pool.query(
+                            `UPDATE containers SET tradlinx_reference_id = $1 WHERE id = $2`,
+                            [shipment.id || shipment.reference_id, id]
+                        );
+                    }
+                }
+            }
+
+            // Opción 3: Endpoint de tracking directo
+            if (trackingEvents.length === 0) {
+                const trackResponse = await axios.get(
+                    `${apiUrl}/tracking`,
+                    {
+                        params: {
+                            bl_number: bl_number || undefined,
+                            container_number: container_number || undefined
+                        },
+                        headers: { 
+                            'Authorization': `Bearer ${apiKey}`,
+                            'X-Client-Id': getClientId()
+                        },
+                        timeout: 15000
+                    }
+                );
+
+                trackingEvents = trackResponse.data?.events || trackResponse.data?.tracking || [];
+            }
+
+        } catch (apiError: any) {
+            console.error('❌ Error consultando Tradlinx API:', apiError.response?.data || apiError.message);
+            
+            // Si es error de autenticación o no encontrado
+            if (apiError.response?.status === 401) {
+                return res.status(401).json({ 
+                    success: false, 
+                    error: 'API Key de Tradlinx inválida o expirada',
+                    message: 'Verifica que TRADLINX_API_KEY esté correctamente configurada'
+                });
+            }
+            
+            if (apiError.response?.status === 404) {
+                return res.json({ 
+                    success: false, 
+                    message: `No se encontró tracking para ${searchValue} en Tradlinx. El embarque puede no estar registrado aún.`,
+                    events: []
+                });
+            }
+
+            return res.status(500).json({ 
+                success: false, 
+                error: apiError.response?.data?.message || apiError.message 
+            });
+        }
+
+        if (trackingEvents.length === 0) {
+            return res.json({ 
+                success: false, 
+                message: `No se encontraron eventos de tracking para ${searchValue}`,
+                events: []
+            });
+        }
+
+        console.log(`✅ Tradlinx devolvió ${trackingEvents.length} eventos`);
+
+        // Limpiar eventos anteriores de Tradlinx (no manuales)
+        await pool.query(`
+            DELETE FROM container_tracking_logs 
+            WHERE container_id = $1 AND source = 'tradlinx'
+        `, [id]);
+
+        // Normalizar e insertar eventos
+        const normalizedEvents: any[] = [];
+        
+        for (const event of trackingEvents) {
+            const normalizedEvent = {
+                code: event.event_code || event.milestone_code || event.code || 'TLX',
+                description: event.event_description || event.description || event.status || 'Evento Tradlinx',
+                date: new Date(event.event_timestamp || event.timestamp || event.date || event.actual_time || Date.now()),
+                location: event.location?.name || event.port_name || event.location || '',
+                vessel: event.vessel?.name || event.vessel_name || null,
+                voyage: event.vessel?.voyage || event.voyage_number || null,
+                eta: event.predicted_eta || event.eta || null
+            };
+
+            normalizedEvents.push(normalizedEvent);
+
+            await pool.query(`
+                INSERT INTO container_tracking_logs 
+                (container_id, event_code, event_description, event_date, location, vessel_name, voyage_number, source)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 'tradlinx')
+            `, [
+                id,
+                normalizedEvent.code,
+                normalizedEvent.description,
+                normalizedEvent.date,
+                normalizedEvent.location,
+                normalizedEvent.vessel,
+                normalizedEvent.voyage
+            ]);
+        }
+
+        // Actualizar último evento en el contenedor
+        const lastEvent = normalizedEvents.sort((a, b) => b.date.getTime() - a.date.getTime())[0];
+        
+        // Buscar ETA en los eventos
+        const etaEvent = trackingEvents.find((e: any) => e.predicted_eta || e.eta);
+        const newEta = etaEvent?.predicted_eta || etaEvent?.eta || null;
+        
+        await pool.query(`
+            UPDATE containers 
+            SET last_tracking_event = $1, 
+                last_tracking_date = $2, 
+                last_tracking_location = $3,
+                ${newEta ? 'eta = $5,' : ''}
+                updated_at = NOW()
+            WHERE id = $4
+        `, newEta 
+            ? [lastEvent.description, lastEvent.date, lastEvent.location, id, newEta]
+            : [lastEvent.description, lastEvent.date, lastEvent.location, id]
+        );
+
+        console.log(`✅ Guardados ${normalizedEvents.length} eventos de Tradlinx en historial`);
+
+        res.json({ 
+            success: true, 
+            message: `Se obtuvieron ${normalizedEvents.length} eventos de Tradlinx`,
+            events: normalizedEvents,
+            source: 'tradlinx'
+        });
+
+    } catch (error: any) {
+        console.error('Error obteniendo tracking de Tradlinx:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+/**
  * POST /api/admin/containers/:id/tracking/manual
  * Agregar evento de tracking manualmente
  */

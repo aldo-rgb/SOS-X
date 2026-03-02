@@ -2066,7 +2066,8 @@ import {
     handleVizionWebhook, // Alias para compatibilidad
     getContainerTracking as getContainerTrackingHistory,
     addManualTrackingEvent,
-    syncCarrierTracking
+    syncCarrierTracking,
+    fetchTradlinxTracking // Obtener tracking directamente de la API de Tradlinx
 } from './vizionController';
 
 // ========== WEBHOOKS PÚBLICOS (SIN AUTENTICACIÓN) ==========
@@ -2337,6 +2338,8 @@ app.get('/api/admin/containers/:id/tracking', authenticateToken, requireMinLevel
 app.post('/api/admin/containers/:id/tracking/manual', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), addManualTrackingEvent);
 // Sincronizar tracking desde la naviera (Wan Hai, etc.)
 app.post('/api/admin/containers/:id/tracking/sync-carrier', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), syncCarrierTracking);
+// Obtener tracking directamente de la API de Tradlinx y guardarlo en historial
+app.post('/api/admin/containers/:id/tracking/tradlinx', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), fetchTradlinxTracking);
 
 // Upload manual de documentos marítimos (FCL/LCL) - Archivos van a S3, límite 100MB
 const maritimeUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
