@@ -55,6 +55,10 @@ import {
   Category as CategoryIcon,
   Star as StarIcon,
   LocalShipping as ShippingIcon,
+  Search as SearchIcon,
+  Person as PersonIcon,
+  Route as RouteIcon,
+  Storefront as WholesaleIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -100,6 +104,32 @@ interface CalculationResult {
   breakdown: string;
 }
 
+// Interfaces para FCL por cliente
+interface LegacyClient {
+  id: number;
+  box_id: string;
+  full_name: string;
+  email: string | null;
+  custom_rates: FclClientRate[];
+}
+
+interface FclClientRate {
+  id: number;
+  route_id: number | null;
+  route_code: string | null;
+  custom_price: number | null;
+  currency: 'USD' | 'MXN';
+  is_wholesale: boolean;
+  notes: string | null;
+}
+
+interface MaritimeRoute {
+  id: number;
+  code: string;
+  name: string;
+  fcl_price_usd: number | null;
+}
+
 export default function MaritimePricingEnginePage() {
   const { t: _t } = useTranslation();
   const token = localStorage.getItem('token');
@@ -111,6 +141,23 @@ export default function MaritimePricingEnginePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+
+  // Estado para FCL por cliente
+  const [fclClients, setFclClients] = useState<LegacyClient[]>([]);
+  const [fclRoutes, setFclRoutes] = useState<MaritimeRoute[]>([]);
+  const [fclBasePrice, setFclBasePrice] = useState<number>(27000);
+  const [fclSearch, setFclSearch] = useState('');
+  const [fclLoading, setFclLoading] = useState(false);
+  const [fclPage, setFclPage] = useState(1);
+  const [fclTotal, setFclTotal] = useState(0);
+  const [editingClientRate, setEditingClientRate] = useState<{
+    clientId: number;
+    clientName: string;
+    routeId: number | null;
+    price: string;
+    currency: 'USD' | 'MXN';
+    isWholesale: boolean;
+  } | null>(null);
 
   // Diálogo para nueva tarifa
   const [newTierDialog, setNewTierDialog] = useState(false);
@@ -166,6 +213,90 @@ export default function MaritimePricingEnginePage() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Cargar clientes FCL
+  const fetchFclClients = useCallback(async (search = '', page = 1) => {
+    try {
+      setFclLoading(true);
+      const res = await axios.get(`${API_URL}/api/admin/fcl-rates/clients`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { search, page, limit: 20 }
+      });
+      if (res.data.success) {
+        setFclClients(res.data.clients);
+        setFclRoutes(res.data.routes);
+        setFclBasePrice(res.data.basePrice);
+        setFclTotal(res.data.pagination.total);
+      }
+    } catch (error) {
+      console.error('Error fetching FCL clients:', error);
+      setSnackbar({ open: true, message: 'Error al cargar clientes FCL', severity: 'error' });
+    } finally {
+      setFclLoading(false);
+    }
+  }, [token]);
+
+  // Cargar FCL cuando cambia a esa pestaña
+  useEffect(() => {
+    if (activeTab === 3) {
+      fetchFclClients(fclSearch, fclPage);
+    }
+  }, [activeTab, fclPage]);
+
+  // Buscar clientes FCL con debounce
+  useEffect(() => {
+    if (activeTab === 3) {
+      const timer = setTimeout(() => {
+        setFclPage(1);
+        fetchFclClients(fclSearch, 1);
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [fclSearch, activeTab]);
+
+  // Guardar tarifa FCL de cliente
+  const handleSaveFclClientRate = async () => {
+    if (!editingClientRate) return;
+
+    try {
+      setSaving(true);
+      await axios.post(
+        `${API_URL}/api/admin/fcl-rates/client`,
+        {
+          legacyClientId: editingClientRate.clientId,
+          routeId: editingClientRate.routeId,
+          customPrice: editingClientRate.price ? parseFloat(editingClientRate.price) : null,
+          currency: editingClientRate.currency,
+          isWholesale: editingClientRate.isWholesale
+        },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setSnackbar({ open: true, message: '✅ Tarifa FCL guardada', severity: 'success' });
+      setEditingClientRate(null);
+      fetchFclClients(fclSearch, fclPage);
+    } catch (error) {
+      console.error('Error saving FCL rate:', error);
+      setSnackbar({ open: true, message: 'Error al guardar tarifa', severity: 'error' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Eliminar tarifa FCL de cliente
+  const handleDeleteFclClientRate = async (rateId: number) => {
+    if (!window.confirm('¿Eliminar esta tarifa personalizada?')) return;
+
+    try {
+      await axios.delete(`${API_URL}/api/admin/fcl-rates/client/${rateId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setSnackbar({ open: true, message: 'Tarifa eliminada', severity: 'success' });
+      fetchFclClients(fclSearch, fclPage);
+    } catch (error) {
+      console.error('Error deleting FCL rate:', error);
+      setSnackbar({ open: true, message: 'Error al eliminar', severity: 'error' });
+    }
+  };
 
   // Guardar cambios en tarifas
   const handleSaveTiers = async () => {
@@ -427,6 +558,7 @@ export default function MaritimePricingEnginePage() {
           <Tab label="📊 Tarifas por Categoría" />
           <Tab label="🧮 Calculadora de Costos" />
           <Tab label="⚙️ Categorías" />
+          <Tab label="🚛 Tarifas FCL por Cliente" />
         </Tabs>
       </Paper>
 
@@ -812,6 +944,250 @@ export default function MaritimePricingEnginePage() {
           </Grid>
         </Box>
       )}
+
+      {/* Tab 3: Tarifas FCL por Cliente */}
+      {activeTab === 3 && (
+        <Box>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            🚛 Configura precios FCL especiales por cliente y ruta. El precio base actual es <strong>${fclBasePrice.toLocaleString()} USD</strong> (FCL 40 Pies).
+            <br />
+            <strong>Cliente mayorista</strong>: Envía desde 1 CBM al precio de 20.01 CBM.
+          </Alert>
+
+          {/* Buscador */}
+          <Paper sx={{ p: 2, mb: 3 }}>
+            <TextField
+              fullWidth
+              placeholder="Buscar por código de casillero o nombre..."
+              value={fclSearch}
+              onChange={(e) => setFclSearch(e.target.value)}
+              InputProps={{
+                startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>,
+              }}
+            />
+          </Paper>
+
+          {fclLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+              <CircularProgress sx={{ color: SEA_COLOR }} />
+            </Box>
+          ) : (
+            <>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Mostrando {fclClients.length} de {fclTotal} clientes
+              </Typography>
+
+              <TableContainer component={Paper}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: '#E1F5FE' }}>
+                      <TableCell><strong>Casillero</strong></TableCell>
+                      <TableCell><strong>Cliente</strong></TableCell>
+                      <TableCell><strong>Tarifas Personalizadas</strong></TableCell>
+                      <TableCell align="center"><strong>Acciones</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {fclClients.map(client => (
+                      <TableRow key={client.id} hover>
+                        <TableCell>
+                          <Chip 
+                            label={client.box_id} 
+                            size="small" 
+                            sx={{ fontFamily: 'monospace', fontWeight: 'bold' }} 
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <PersonIcon fontSize="small" color="action" />
+                            <Box>
+                              <Typography variant="body2" fontWeight="bold">{client.full_name}</Typography>
+                              {client.email && (
+                                <Typography variant="caption" color="text.secondary">{client.email}</Typography>
+                              )}
+                            </Box>
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          {client.custom_rates.length === 0 ? (
+                            <Chip label={`$${fclBasePrice.toLocaleString()} USD (Base)`} size="small" variant="outlined" />
+                          ) : (
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                              {client.custom_rates.map(rate => (
+                                <Chip
+                                  key={rate.id}
+                                  label={
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                      {rate.route_code ? (
+                                        <>
+                                          <RouteIcon sx={{ fontSize: 14 }} />
+                                          {rate.route_code}: 
+                                        </>
+                                      ) : 'Global: '}
+                                      ${rate.custom_price?.toLocaleString() || fclBasePrice.toLocaleString()} {rate.currency || 'USD'}
+                                      {rate.is_wholesale && <WholesaleIcon sx={{ fontSize: 14, ml: 0.5, color: '#FF9800' }} />}
+                                    </Box>
+                                  }
+                                  size="small"
+                                  color={rate.currency === 'MXN' ? 'success' : (rate.is_wholesale ? 'warning' : 'primary')}
+                                  onDelete={() => handleDeleteFclClientRate(rate.id)}
+                                />
+                              ))}
+                            </Box>
+                          )}
+                        </TableCell>
+                        <TableCell align="center">
+                          <Tooltip title="Agregar tarifa personalizada">
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => setEditingClientRate({
+                                clientId: client.id,
+                                clientName: client.full_name,
+                                routeId: null,
+                                price: '',
+                                currency: 'USD',
+                                isWholesale: false
+                              })}
+                            >
+                              <AddIcon />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* Paginación simple */}
+              {fclTotal > 20 && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, mt: 2 }}>
+                  <Button
+                    disabled={fclPage === 1}
+                    onClick={() => setFclPage(p => p - 1)}
+                  >
+                    Anterior
+                  </Button>
+                  <Typography sx={{ alignSelf: 'center' }}>
+                    Página {fclPage} de {Math.ceil(fclTotal / 20)}
+                  </Typography>
+                  <Button
+                    disabled={fclPage >= Math.ceil(fclTotal / 20)}
+                    onClick={() => setFclPage(p => p + 1)}
+                  >
+                    Siguiente
+                  </Button>
+                </Box>
+              )}
+            </>
+          )}
+        </Box>
+      )}
+
+      {/* Dialog: Editar Tarifa FCL Cliente */}
+      <Dialog 
+        open={!!editingClientRate} 
+        onClose={() => setEditingClientRate(null)} 
+        maxWidth="sm" 
+        fullWidth
+      >
+        <DialogTitle>
+          Tarifa FCL para: {editingClientRate?.clientName}
+        </DialogTitle>
+        <DialogContent>
+          <Grid container spacing={2} sx={{ mt: 1 }}>
+            <Grid size={{ xs: 12 }}>
+              <FormControl fullWidth>
+                <InputLabel>Ruta (opcional)</InputLabel>
+                <Select
+                  value={editingClientRate?.routeId || ''}
+                  label="Ruta (opcional)"
+                  onChange={(e) => setEditingClientRate(prev => prev ? {
+                    ...prev,
+                    routeId: e.target.value ? Number(e.target.value) : null
+                  } : null)}
+                >
+                  <MenuItem value="">
+                    <em>Global (todas las rutas)</em>
+                  </MenuItem>
+                  {fclRoutes.map(route => (
+                    <MenuItem key={route.id} value={route.id}>
+                      {route.code} - ${route.fcl_price_usd?.toLocaleString() || fclBasePrice.toLocaleString()}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid size={{ xs: 8 }}>
+              <TextField
+                fullWidth
+                label={`Precio FCL (${editingClientRate?.currency || 'USD'})`}
+                type="number"
+                value={editingClientRate?.price || ''}
+                onChange={(e) => setEditingClientRate(prev => prev ? {
+                  ...prev,
+                  price: e.target.value
+                } : null)}
+                placeholder={fclBasePrice.toString()}
+                helperText={`Dejar vacío para usar precio base ($${fclBasePrice.toLocaleString()} USD)`}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                }}
+              />
+            </Grid>
+            <Grid size={{ xs: 4 }}>
+              <FormControl fullWidth>
+                <InputLabel>Moneda</InputLabel>
+                <Select
+                  value={editingClientRate?.currency || 'USD'}
+                  label="Moneda"
+                  onChange={(e) => setEditingClientRate(prev => prev ? {
+                    ...prev,
+                    currency: e.target.value as 'USD' | 'MXN'
+                  } : null)}
+                >
+                  <MenuItem value="USD">🇺🇸 USD</MenuItem>
+                  <MenuItem value="MXN">🇲🇽 MXN</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid size={{ xs: 12 }}>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={editingClientRate?.isWholesale || false}
+                    onChange={(e) => setEditingClientRate(prev => prev ? {
+                      ...prev,
+                      isWholesale: e.target.checked
+                    } : null)}
+                    color="warning"
+                  />
+                }
+                label={
+                  <Box>
+                    <Typography fontWeight="bold">🏪 Cliente Mayorista</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Envía desde 1 CBM al precio de 20.01 CBM
+                    </Typography>
+                  </Box>
+                }
+              />
+            </Grid>
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditingClientRate(null)}>Cancelar</Button>
+          <Button 
+            variant="contained" 
+            onClick={handleSaveFclClientRate}
+            disabled={saving}
+            sx={{ bgcolor: SEA_COLOR }}
+          >
+            {saving ? 'Guardando...' : 'Guardar Tarifa'}
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Dialog: Nueva Tarifa */}
       <Dialog open={newTierDialog} onClose={() => setNewTierDialog(false)} maxWidth="sm" fullWidth>

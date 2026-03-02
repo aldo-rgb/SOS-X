@@ -147,7 +147,7 @@ interface EditableBL {
 export default function InboundEmailsPage() {
     const [drafts, setDrafts] = useState<Draft[]>([]);
     const [whitelist, setWhitelist] = useState<WhitelistEntry[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [tabValue, setTabValue] = useState(0);
     const [statusFilter, setStatusFilter] = useState<'draft' | 'approved' | 'rejected' | 'all'>('draft');
     
@@ -183,6 +183,9 @@ export default function InboundEmailsPage() {
     
     // Re-extract loading
     const [extracting, setExtracting] = useState(false);
+    
+    // Approving state (prevent double click)
+    const [isApproving, setIsApproving] = useState(false);
     
     // FCL files
     const [fclBlFile, setFclBlFile] = useState<File | null>(null);
@@ -231,13 +234,32 @@ export default function InboundEmailsPage() {
 
     const token = localStorage.getItem('token');
 
-    // Cargar datos
+    // Cargar drafts
+    const loadDrafts = async (filter: string) => {
+        setLoading(true);
+        try {
+            const res = await fetch(`${API_URL}/api/admin/maritime/drafts?status=${filter}`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const data = res.ok ? await res.json() : [];
+            setDrafts(Array.isArray(data) ? data : []);
+        } catch {
+            setDrafts([]);
+        }
+        setLoading(false);
+    };
+
+    // Solo cargar drafts cuando cambie el filtro
     useEffect(() => {
-        loadDrafts();
+        loadDrafts(statusFilter);
+    }, [statusFilter]);
+
+    // Cargar otros datos una sola vez
+    useEffect(() => {
         loadWhitelist();
         loadStats();
         loadRoutes();
-    }, [statusFilter]);
+    }, []);
 
     // Cargar rutas marítimas
     const loadRoutes = async () => {
@@ -254,23 +276,6 @@ export default function InboundEmailsPage() {
         }
     };
 
-    const loadDrafts = async () => {
-        try {
-            setLoading(true);
-            const res = await fetch(`${API_URL}/api/admin/maritime/drafts?status=${statusFilter}`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setDrafts(data);
-            }
-        } catch (error) {
-            console.error('Error loading drafts:', error);
-        } finally {
-            setLoading(false);
-        }
-    };
-
     const loadWhitelist = async () => {
         try {
             const res = await fetch(`${API_URL}/api/admin/email/whitelist`, {
@@ -279,8 +284,12 @@ export default function InboundEmailsPage() {
             if (res.ok) {
                 setWhitelist(await res.json());
             }
+            // Silently ignore 403 errors - user may not have permission to view whitelist
         } catch (error) {
-            console.error('Error loading whitelist:', error);
+            // Only log non-permission errors
+            if (!(error instanceof Error && error.message.includes('403'))) {
+                console.error('Error loading whitelist:', error);
+            }
         }
     };
 
@@ -292,8 +301,11 @@ export default function InboundEmailsPage() {
             if (res.ok) {
                 setStats(await res.json());
             }
+            // Silently ignore 403 errors
         } catch (error) {
-            console.error('Error loading stats:', error);
+            if (!(error instanceof Error && error.message.includes('403'))) {
+                console.error('Error loading stats:', error);
+            }
         }
     };
 
@@ -476,6 +488,9 @@ export default function InboundEmailsPage() {
 
     // Aprobar borrador (usa datos editados)
     const handleApprove = async (draft: Draft) => {
+        // Prevenir doble clic
+        if (isApproving) return;
+        
         // Validar campos críticos para LCL/FCL antes de aprobar
         if (draft.document_type === 'LCL' || draft.document_type === 'FCL' || draft.document_type === 'BL') {
             const packages = editableBL?.packages;
@@ -497,6 +512,7 @@ export default function InboundEmailsPage() {
             }
         }
 
+        setIsApproving(true);
         try {
             const savedUser = localStorage.getItem('user');
             const userId = savedUser ? JSON.parse(savedUser).id : null;
@@ -537,6 +553,8 @@ export default function InboundEmailsPage() {
         } catch (error) {
             console.error('Error approving draft:', error);
             setSnackbar({ open: true, message: 'Error al aprobar el borrador', severity: 'error' });
+        } finally {
+            setIsApproving(false);
         }
     };
 
@@ -1517,11 +1535,11 @@ export default function InboundEmailsPage() {
                                             <Button
                                                 variant="contained"
                                                 color="success"
-                                                startIcon={<CheckIcon />}
+                                                startIcon={isApproving ? <CircularProgress size={20} color="inherit" /> : <CheckIcon />}
                                                 onClick={() => handleApprove(selectedDraft)}
-                                                disabled={!canApprove}
+                                                disabled={!canApprove || isApproving}
                                             >
-                                                Aprobar y Registrar
+                                                {isApproving ? 'Procesando...' : 'Aprobar y Registrar'}
                                             </Button>
                                         </span>
                                     </Tooltip>

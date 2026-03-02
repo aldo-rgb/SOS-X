@@ -126,6 +126,13 @@ import {
   getPublicServiceInfo
 } from './serviceInstructionsController';
 import {
+  getFclBasePrice,
+  getFclClientRates,
+  upsertFclClientRate,
+  deleteFclClientRate,
+  calculateEffectiveFclPrice
+} from './fclRatesController';
+import {
   getCurrentExchangeRate,
   updateExchangeRate,
   getExchangeRateHistory,
@@ -1276,7 +1283,7 @@ app.get('/api/admin/dashboard', authenticateToken, requireMinLevel(ROLES.COUNTER
 });
 
 // --- RUTA DE RESUMEN DEL DASHBOARD ---
-app.get('/api/dashboard/summary', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getDashboardSummary);
+app.get('/api/dashboard/summary', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDashboardSummary);
 
 // --- RUTA PARA VERIFICAR PERMISOS ---
 app.get('/api/auth/verify', authenticateToken, (req: AuthRequest, res: Response) => {
@@ -1976,6 +1983,13 @@ app.get('/api/maritime-api/routes', authenticateToken, getMaritimeRoutes);
 app.post('/api/maritime-api/routes', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createMaritimeRoute);
 app.put('/api/maritime-api/routes/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateMaritimeRoute);
 app.delete('/api/maritime-api/routes/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteMaritimeRoute);
+
+// ========== TARIFAS FCL POR CLIENTE/RUTA ==========
+app.get('/api/admin/fcl-rates/base-price', authenticateToken, getFclBasePrice);
+app.get('/api/admin/fcl-rates/clients', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getFclClientRates);
+app.post('/api/admin/fcl-rates/client', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), upsertFclClientRate);
+app.delete('/api/admin/fcl-rates/client/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), deleteFclClientRate);
+app.get('/api/admin/fcl-rates/calculate/:clientId', authenticateToken, calculateEffectiveFclPrice);
 
 // ========== INSTRUCCIONES DE ENTREGA - CLIENTE MÓVIL ==========
 // Endpoints para que los clientes puedan asignar dirección de entrega a sus LOGs marítimos

@@ -266,8 +266,46 @@ const ROLE_HIERARCHY: Record<string, number> = {
     [ROLES.COUNTER_STAFF]: 60,
     [ROLES.WAREHOUSE_OPS]: 40,
     [ROLES.REPARTIDOR]: 35,
-    [ROLES.CLIENT]: 10
+    [ROLES.CLIENT]: 10,
+    // Variantes con mayúsculas (para compatibilidad)
+    'Operaciones': 65,
+    'Super Admin': 100,
+    'Admin': 95,
+    'Director': 90,
+    'Branch Manager': 80,
+    'Customer Service': 70,
+    'Counter Staff': 60,
+    'Warehouse Ops': 40,
+    'Repartidor': 35,
+    'Client': 10
 };
+
+// Función para normalizar roles (manejar inconsistencias)
+function normalizeRoleForHierarchy(role: string): string {
+    const roleMapping: Record<string, string> = {
+        'Operaciones': ROLES.OPERACIONES,
+        'operaciones': ROLES.OPERACIONES,
+        'Super Admin': ROLES.SUPER_ADMIN,
+        'super_admin': ROLES.SUPER_ADMIN,
+        'Admin': ROLES.ADMIN,
+        'admin': ROLES.ADMIN,
+        'Director': ROLES.DIRECTOR,
+        'director': ROLES.DIRECTOR,
+        'Branch Manager': ROLES.BRANCH_MANAGER,
+        'branch_manager': ROLES.BRANCH_MANAGER,
+        'Customer Service': ROLES.CUSTOMER_SERVICE,
+        'customer_service': ROLES.CUSTOMER_SERVICE,
+        'Counter Staff': ROLES.COUNTER_STAFF,
+        'counter_staff': ROLES.COUNTER_STAFF,
+        'Warehouse Ops': ROLES.WAREHOUSE_OPS,
+        'warehouse_ops': ROLES.WAREHOUSE_OPS,
+        'Repartidor': ROLES.REPARTIDOR,
+        'repartidor': ROLES.REPARTIDOR,
+        'Client': ROLES.CLIENT,
+        'client': ROLES.CLIENT
+    };
+    return roleMapping[role] || role;
+}
 
 // Permisos por rol
 export const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -315,7 +353,8 @@ export const requireRole = (...allowedRoles: string[]) => {
             return;
         }
 
-        const userRole = req.user.role;
+        // Normalizar rol del usuario
+        const userRole = normalizeRoleForHierarchy(req.user.role);
 
         // Super admin siempre tiene acceso
         if (userRole === ROLES.SUPER_ADMIN) {
@@ -345,8 +384,13 @@ export const requireMinLevel = (minRole: string) => {
             return;
         }
 
-        const userLevel = ROLE_HIERARCHY[req.user.role] || 0;
+        // Normalizar rol del usuario para manejar inconsistencias de mayúsculas
+        const normalizedUserRole = normalizeRoleForHierarchy(req.user.role);
+        const userLevel = ROLE_HIERARCHY[normalizedUserRole] || ROLE_HIERARCHY[req.user.role] || 0;
         const requiredLevel = ROLE_HIERARCHY[minRole] || 0;
+
+        // DEBUG: Log para verificar niveles
+        console.log(`[AUTH] User: ${req.user.email}, Role: ${req.user.role}, Normalized: ${normalizedUserRole}, UserLevel: ${userLevel}, Required: ${requiredLevel} (${minRole})`);
 
         if (userLevel >= requiredLevel) {
             next();

@@ -29,6 +29,7 @@ import {
     Tooltip,
     Switch,
     FormControlLabel,
+    InputAdornment,
 } from '@mui/material';
 import {
     Add as AddIcon,
@@ -38,6 +39,7 @@ import {
     Email as EmailIcon,
     CheckCircle as CheckCircleIcon,
     Cancel as CancelIcon,
+    AttachMoney as MoneyIcon,
 } from '@mui/icons-material';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -51,6 +53,8 @@ interface MaritimeRoute {
     destination: string;
     estimated_days: number;
     is_active: boolean;
+    fcl_price_usd: number | null;
+    effective_fcl_price: number;
     created_at: string;
     updated_at: string;
 }
@@ -61,6 +65,7 @@ interface RouteDialogData {
     id?: number;
     code: string;
     email: string;
+    fclPriceUsd: string;
     isActive: boolean;
 }
 
@@ -68,12 +73,14 @@ export default function MaritimeRoutesPage() {
     const { t } = useTranslation();
     const [routes, setRoutes] = useState<MaritimeRoute[]>([]);
     const [loading, setLoading] = useState(true);
+    const [basePrice, setBasePrice] = useState<number>(27000);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
     const [dialogData, setDialogData] = useState<RouteDialogData>({
         open: false,
         mode: 'create',
         code: '',
         email: '',
+        fclPriceUsd: '',
         isActive: true,
     });
     const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; route: MaritimeRoute | null }>({
@@ -93,6 +100,9 @@ export default function MaritimeRoutesPage() {
             const data = await res.json();
             if (data.success) {
                 setRoutes(data.routes || []);
+                if (data.basePrice) {
+                    setBasePrice(data.basePrice);
+                }
             }
         } catch (error) {
             console.error('Error cargando rutas:', error);
@@ -113,6 +123,7 @@ export default function MaritimeRoutesPage() {
             mode: 'create',
             code: '',
             email: '',
+            fclPriceUsd: '',
             isActive: true,
         });
     };
@@ -125,6 +136,7 @@ export default function MaritimeRoutesPage() {
             id: route.id,
             code: route.code,
             email: route.email || '',
+            fclPriceUsd: route.fcl_price_usd?.toString() || '',
             isActive: route.is_active,
         });
     };
@@ -149,12 +161,14 @@ export default function MaritimeRoutesPage() {
                     name: dialogData.code.toUpperCase(),
                     code: dialogData.code.toUpperCase(),
                     email: dialogData.email.trim() || null,
+                    fclPriceUsd: dialogData.fclPriceUsd ? parseFloat(dialogData.fclPriceUsd) : null,
                     destination: 'México', // Default
                 }
                 : {
                     code: dialogData.code.toUpperCase(),
                     name: dialogData.code.toUpperCase(),
                     email: dialogData.email.trim() || null,
+                    fclPriceUsd: dialogData.fclPriceUsd ? parseFloat(dialogData.fclPriceUsd) : null,
                     isActive: dialogData.isActive,
                 };
 
@@ -298,6 +312,9 @@ export default function MaritimeRoutesPage() {
                                 <TableCell>
                                     <Typography fontWeight="bold">{t('routes.email')}</Typography>
                                 </TableCell>
+                                <TableCell>
+                                    <Typography fontWeight="bold">Precio FCL (USD)</Typography>
+                                </TableCell>
                                 <TableCell align="center">
                                     <Typography fontWeight="bold">{t('routes.status')}</Typography>
                                 </TableCell>
@@ -309,7 +326,7 @@ export default function MaritimeRoutesPage() {
                         <TableBody>
                             {routes.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
+                                    <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                                         <Typography color="text.secondary">
                                             {t('routes.noRoutes')}
                                         </Typography>
@@ -337,6 +354,20 @@ export default function MaritimeRoutesPage() {
                                                     {t('routes.noEmail')}
                                                 </Typography>
                                             )}
+                                        </TableCell>
+                                        <TableCell>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                <MoneyIcon fontSize="small" sx={{ color: route.fcl_price_usd ? '#2E7D32' : '#9E9E9E' }} />
+                                                <Typography 
+                                                    fontWeight={route.fcl_price_usd ? 'bold' : 'normal'}
+                                                    color={route.fcl_price_usd ? '#2E7D32' : 'text.secondary'}
+                                                >
+                                                    ${route.effective_fcl_price?.toLocaleString() || basePrice.toLocaleString()}
+                                                </Typography>
+                                                {!route.fcl_price_usd && (
+                                                    <Chip label="Base" size="small" variant="outlined" sx={{ ml: 1 }} />
+                                                )}
+                                            </Box>
                                         </TableCell>
                                         <TableCell align="center">
                                             <Chip
@@ -401,6 +432,18 @@ export default function MaritimeRoutesPage() {
                             type="email"
                             placeholder="ejemplo@proveedor.com"
                             helperText={t('routes.emailHelp')}
+                        />
+                        <TextField
+                            label="Precio FCL (USD)"
+                            value={dialogData.fclPriceUsd}
+                            onChange={(e) => setDialogData({ ...dialogData, fclPriceUsd: e.target.value })}
+                            fullWidth
+                            type="number"
+                            placeholder={basePrice.toString()}
+                            helperText={`Dejar vacío para usar tarifa base ($${basePrice.toLocaleString()} USD)`}
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                            }}
                         />
                         {dialogData.mode === 'edit' && (
                             <FormControlLabel

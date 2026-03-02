@@ -387,12 +387,28 @@ function App() {
     }
   };
 
+  // Roles que pueden ver la lista de usuarios
+  const canFetchUsers = currentUser?.role && ['super_admin', 'Super Admin', 'branch_manager', 'Branch Manager', 'admin', 'Admin', 'director', 'Director'].includes(currentUser.role);
+  
+  // Roles que pueden ver el dashboard summary
+  const canFetchDashboard = currentUser?.role && ['super_admin', 'Super Admin', 'admin', 'Admin', 'director', 'Director', 'branch_manager', 'Branch Manager', 'customer_service', 'Customer Service', 'operaciones', 'Operaciones', 'counter_staff', 'Counter Staff', 'warehouse_ops', 'Warehouse Ops'].includes(currentUser.role);
+
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchUsers();
-      fetchDashboardStats();
+    if (isAuthenticated && currentUser) {
+      // Solo cargar usuarios si el rol tiene permisos
+      if (canFetchUsers) {
+        fetchUsers();
+      } else {
+        setLoading(false); // No intentar cargar, marcar como terminado
+      }
+      // Solo cargar dashboard si el rol tiene permisos
+      if (canFetchDashboard) {
+        fetchDashboardStats();
+      } else {
+        setStatsLoading(false);
+      }
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, currentUser?.role]);
 
   // Si no está autenticado, mostrar página de login
   if (!isAuthenticated) {

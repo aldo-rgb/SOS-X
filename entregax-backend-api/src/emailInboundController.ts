@@ -16,7 +16,7 @@ import * as path from 'path';
 // pdfjs-dist para extraer texto de PDFs (moderno, ya instalado)
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 // S3 para almacenamiento de archivos grandes
-import { uploadToS3, isS3Configured } from './s3Service';
+import { uploadToS3, isS3Configured, getSignedUrlForKey } from './s3Service';
 
 // Lazy initialization - only create OpenAI client when API key exists
 let openaiInstance: OpenAI | null = null;
@@ -1579,6 +1579,7 @@ export const handleInboundEmail = async (req: Request, res: Response): Promise<a
 export const getDrafts = async (req: Request, res: Response): Promise<any> => {
   try {
     const { status = 'draft', type } = req.query;
+    console.log('[getDrafts] Fetching drafts with status:', status);
 
     let query = `
       SELECT d.*, 
@@ -1607,6 +1608,7 @@ export const getDrafts = async (req: Request, res: Response): Promise<any> => {
     query += ' ORDER BY d.created_at DESC LIMIT 100';
 
     const result = await pool.query(query, params);
+    console.log('[getDrafts] Found', result.rows.length, 'drafts');
     res.json(result.rows);
   } catch (error) {
     console.error('Error fetching drafts:', error);
@@ -2824,12 +2826,14 @@ export const reExtractDraftData = async (req: Request, res: Response): Promise<a
 /**
  * GET /api/admin/email/draft/:id/pdf/:type
  * Servir PDF de un draft (bl o telex)
- * Chrome tiene límites con data URLs largos, así que servimos el archivo directamente
+ * Soporta tanto URLs de S3 como data URLs legacy (base64)
  */
 export const serveDraftPdf = async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params;
     const type = req.params.type as string;
+    
+    console.log(`[serveDraftPdf] ID: ${id}, Type: ${type}`);
     
     if (!type || !['bl', 'telex'].includes(type)) {
       return res.status(400).json({ error: 'Tipo de documento inválido' });
@@ -2844,16 +2848,63 @@ export const serveDraftPdf = async (req: Request, res: Response): Promise<any> =
     );
 
     if (result.rows.length === 0) {
+      console.log(`[serveDraftPdf] Documento no encontrado: ID ${id}`);
       return res.status(404).json({ error: 'Documento no encontrado' });
     }
 
     const { data_url, filename } = result.rows[0];
+    console.log(`[serveDraftPdf] URL: ${data_url?.substring(0, 80)}..., Filename: ${filename}`);
     
     if (!data_url) {
       return res.status(404).json({ error: 'PDF no disponible' });
     }
 
-    // Parsear data URL: data:application/pdf;base64,XXXX
+    // Si es una URL de S3, generar URL firmada y descargar
+    if (data_url.startsWith('https://') && data_url.includes('s3.') && data_url.includes('amazonaws.com')) {
+      try {
+        console.log('[serveDraftPdf] Detectado como S3, generando URL firmada...');
+        // Extraer la key del URL de S3
+        const urlObj = new URL(data_url);
+        let key = urlObj.pathname.startsWith('/') ? urlObj.pathname.slice(1) : urlObj.pathname;
+        console.log(`[serveDraftPdf] Key extraída: ${key}`);
+        
+        // Generar URL firmada
+        const signedUrl = await getSignedUrlForKey(key, 3600);
+        console.log(`[serveDraftPdf] URL firmada generada: ${signedUrl.substring(0, 80)}...`);
+        
+        // Descargar el archivo usando la URL firmada
+        const axios = require('axios');
+        const response = await axios.get(signedUrl, { responseType: 'arraybuffer' });
+        console.log(`[serveDraftPdf] Descargado desde S3, tamaño: ${response.data.length} bytes`);
+        
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${filename || 'document.pdf'}"`);
+        res.setHeader('Content-Length', response.data.length);
+        return res.send(Buffer.from(response.data));
+      } catch (s3Error: any) {
+        console.error('[serveDraftPdf] Error descargando desde S3:', s3Error.message);
+        console.error('[serveDraftPdf] Stack:', s3Error.stack);
+        return res.status(500).json({ error: 'Error al acceder al archivo', details: s3Error.message });
+      }
+    }
+
+    // Si es otra URL HTTP (no S3), intentar descargar
+    if (data_url.startsWith('http://') || data_url.startsWith('https://')) {
+      try {
+        const axios = require('axios');
+        const response = await axios.get(data_url, { responseType: 'arraybuffer' });
+        
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `inline; filename="${filename || 'document.pdf'}"`);
+        res.setHeader('Content-Length', response.data.length);
+        return res.send(Buffer.from(response.data));
+      } catch (downloadError: any) {
+        console.error('Error descargando PDF:', downloadError.message);
+        return res.status(500).json({ error: 'Error al descargar PDF' });
+      }
+    }
+
+    // Si es data URL legacy (base64): data:application/pdf;base64,XXXX
     const matches = data_url.match(/^data:([^;]+);base64,(.+)$/);
     if (!matches) {
       return res.status(500).json({ error: 'Formato de PDF inválido' });
@@ -2863,7 +2914,6 @@ export const serveDraftPdf = async (req: Request, res: Response): Promise<any> =
     const base64Data = matches[2];
     const buffer = Buffer.from(base64Data, 'base64');
 
-    // Enviar como PDF
     res.setHeader('Content-Type', mimeType);
     res.setHeader('Content-Disposition', `inline; filename="${filename || 'document.pdf'}"`);
     res.setHeader('Content-Length', buffer.length);
