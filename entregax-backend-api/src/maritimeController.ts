@@ -1376,20 +1376,22 @@ export const getContainerProfitBreakdown = async (req: AuthRequest, res: Respons
       let clientName = container.consignee || 'Cliente FCL';
       let priceSource = 'Sin tarifa configurada';
       
-      // Buscar cliente asociado al contenedor (por consignee RFC o client_user_id)
+      // Buscar cliente asociado al contenedor (por consignee o client_user_id)
       let clientId: number | null = container.client_user_id;
       
-      // Si no hay client_user_id, intentar buscar por consignee
+      // Si no hay client_user_id, intentar buscar por consignee en legacy_clients
       if (!clientId && container.consignee) {
+        // Extraer el nombre de la empresa del consignee (antes de la coma o RFC)
+        const companySearch = container.consignee.split(',')[0].trim().split(' RFC')[0].trim();
         const clientSearch = await pool.query(`
-          SELECT id, company_name FROM legacy_clients 
-          WHERE company_name ILIKE $1 OR rfc ILIKE $1
+          SELECT id, full_name FROM legacy_clients 
+          WHERE full_name ILIKE $1
           LIMIT 1
-        `, [`%${container.consignee.split(',')[0].trim()}%`]);
+        `, [`%${companySearch}%`]);
         
         if (clientSearch.rows.length > 0) {
           clientId = clientSearch.rows[0].id;
-          clientName = clientSearch.rows[0].company_name;
+          clientName = clientSearch.rows[0].full_name;
         }
       }
       
