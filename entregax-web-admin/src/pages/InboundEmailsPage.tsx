@@ -221,6 +221,9 @@ export default function InboundEmailsPage() {
     // Stats
     const [stats, setStats] = useState<any>(null);
     
+    // User role for conditional rendering
+    const [userRole, setUserRole] = useState<string>('');
+    
     // Estados para edición de datos extraídos
     const [editableLogs, setEditableLogs] = useState<EditableLog[]>([]);
     const [editableBL, setEditableBL] = useState<EditableBL | null>(null);
@@ -254,6 +257,19 @@ export default function InboundEmailsPage() {
     useEffect(() => {
         loadDrafts(statusFilter);
     }, [statusFilter]);
+
+    // Cargar rol del usuario
+    useEffect(() => {
+        const savedUser = localStorage.getItem('user');
+        if (savedUser) {
+            try {
+                const user = JSON.parse(savedUser);
+                setUserRole(user.role || '');
+            } catch (e) {
+                console.error('Error parsing user:', e);
+            }
+        }
+    }, []);
 
     // Cargar otros datos una sola vez
     useEffect(() => {
@@ -755,9 +771,12 @@ export default function InboundEmailsPage() {
             {/* Tab 0: Borradores */}
             {tabValue === 0 && (
                 <>
-                    {/* Filtros */}
+                    {/* Filtros - Solo super_admin ve todos los filtros */}
                     <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
-                        {['draft', 'approved', 'rejected', 'all'].map(s => (
+                        {(userRole === 'super_admin' 
+                            ? ['draft', 'approved', 'rejected', 'all'] 
+                            : ['draft']
+                        ).map(s => (
                             <Chip
                                 key={s}
                                 label={s === 'draft' ? 'Pendientes' : s === 'approved' ? 'Aprobados' : s === 'rejected' ? 'Rechazados' : 'Todos'}
