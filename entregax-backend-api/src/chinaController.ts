@@ -214,8 +214,11 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
         await client.query(`
             UPDATE china_callback_logs 
             SET success = true 
-            WHERE raw_payload->>'fno' = $1 OR raw_payload->>'FNO' = $1
-            ORDER BY created_at DESC LIMIT 1
+            WHERE id = (
+                SELECT id FROM china_callback_logs 
+                WHERE raw_payload->>'fno' = $1 OR raw_payload->>'FNO' = $1
+                ORDER BY created_at DESC LIMIT 1
+            )
         `, [payload.fno]);
 
         console.log(`  ✅ FNO ${payload.fno}: ${packagesCreated} cajas creadas, ${packagesUpdated} actualizadas`);
