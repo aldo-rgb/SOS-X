@@ -139,7 +139,7 @@ export const createContainer = async (req: AuthRequest, res: Response): Promise<
 export const updateContainer = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { id } = req.params;
-    const { containerNumber, blNumber, eta, status, notes, routeId } = req.body;
+    const { containerNumber, blNumber, eta, status, notes, routeId, week_number, legacy_client_id } = req.body;
 
     const result = await pool.query(`
       UPDATE containers 
@@ -149,10 +149,12 @@ export const updateContainer = async (req: AuthRequest, res: Response): Promise<
           status = COALESCE($4, status),
           notes = COALESCE($5, notes),
           route_id = COALESCE($6, route_id),
+          week_number = COALESCE($7, week_number),
+          legacy_client_id = COALESCE($8, legacy_client_id),
           updated_at = NOW()
-      WHERE id = $7
+      WHERE id = $9
       RETURNING *
-    `, [containerNumber, blNumber, eta, status, notes, routeId, id]);
+    `, [containerNumber, blNumber, eta, status, notes, routeId, week_number, legacy_client_id, id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Contenedor no encontrado' });

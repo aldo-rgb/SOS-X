@@ -256,6 +256,7 @@ export default function CostingPanelMaritimo() {
     const { t, i18n } = useTranslation();
     const [containers, setContainers] = useState<Container[]>([]);
     const [routes, setRoutes] = useState<MaritimeRoute[]>([]);
+    const [legacyClients, setLegacyClients] = useState<{ id: number; box_id: string; full_name: string }[]>([]);
     const [stats, setStats] = useState<MaritimeStats | null>(null);
     const [loading, setLoading] = useState(true);
     const [selectedContainer, setSelectedContainer] = useState<Container | null>(null);
@@ -774,6 +775,18 @@ export default function CostingPanelMaritimo() {
         }
     }, []);
 
+    // Cargar clientes legacy (para selector de cliente FCL)
+    const fetchLegacyClients = useCallback(async () => {
+        try {
+            const res = await axios.get(`${API_URL}/api/legacy/clients`, {
+                headers: { Authorization: `Bearer ${getToken()}` }
+            });
+            setLegacyClients(res.data || []);
+        } catch (error) {
+            console.error('Error fetching legacy clients:', error);
+        }
+    }, []);
+
     // Cargar contenedores
     const fetchContainers = useCallback(async () => {
         try {
@@ -805,7 +818,8 @@ export default function CostingPanelMaritimo() {
     useEffect(() => {
         fetchContainers();
         fetchRoutes();
-    }, [fetchContainers, fetchRoutes]);
+        fetchLegacyClients();
+    }, [fetchContainers, fetchRoutes, fetchLegacyClients]);
 
     // Actualizar ruta del contenedor
     const updateContainerRoute = async (containerId: number, routeId: number | null) => {
@@ -820,6 +834,38 @@ export default function CostingPanelMaritimo() {
         } catch (error) {
             console.error('Error updating route:', error);
             setSnackbar({ open: true, message: t('maritime.errorUpdatingRoute'), severity: 'error' });
+        }
+    };
+
+    // Actualizar week_number del contenedor (para LCL)
+    const updateContainerWeek = async (containerId: number, weekNumber: string) => {
+        try {
+            await axios.put(
+                `${API_URL}/api/maritime/containers/${containerId}`,
+                { week_number: weekNumber || null },
+                { headers: { Authorization: `Bearer ${getToken()}` } }
+            );
+            setSnackbar({ open: true, message: 'Week actualizado', severity: 'success' });
+            fetchContainers();
+        } catch (error) {
+            console.error('Error updating week:', error);
+            setSnackbar({ open: true, message: 'Error al actualizar week', severity: 'error' });
+        }
+    };
+
+    // Actualizar legacy_client_id del contenedor (para FCL)
+    const updateContainerClient = async (containerId: number, legacyClientId: number | null) => {
+        try {
+            await axios.put(
+                `${API_URL}/api/maritime/containers/${containerId}`,
+                { legacy_client_id: legacyClientId },
+                { headers: { Authorization: `Bearer ${getToken()}` } }
+            );
+            setSnackbar({ open: true, message: 'Cliente asignado', severity: 'success' });
+            fetchContainers();
+        } catch (error) {
+            console.error('Error updating client:', error);
+            setSnackbar({ open: true, message: 'Error al asignar cliente', severity: 'error' });
         }
     };
 
@@ -1379,22 +1425,58 @@ export default function CostingPanelMaritimo() {
                                         </Select>
                                     </FormControl>
                                 </TableCell>
-                                <TableCell>
-                                    {/* FCL: mostrar cliente, LCL: mostrar week */}
-                                    {container.client_box_id ? (
-                                        <Chip 
-                                            label={container.client_box_id} 
-                                            size="small" 
-                                            sx={{ bgcolor: '#E3F2FD', color: '#1565C0', fontWeight: 'bold' }}
-                                            title={container.client_name || 'Cliente FCL'}
+                                <TableCell sx={{ minWidth: 140 }}>
+                                    {/* FCL: selector de cliente, LCL: input de week */}
+                                    {container.legacy_client_id || !container.week_number ? (
+                                        // Selector de cliente FCL
+                                        <FormControl size="small" fullWidth>
+                                            <Select
+                                                value={container.legacy_client_id || ''}
+                                                onChange={(e) => updateContainerClient(container.id, e.target.value ? Number(e.target.value) : null)}
+                                                displayEmpty
+                                                sx={{ 
+                                                    bgcolor: container.legacy_client_id ? '#E3F2FD' : '#FFF3E0',
+                                                    '& .MuiSelect-select': { py: 0.5, fontWeight: 'bold', fontSize: '0.8rem' }
+                                                }}
+                                            >
+                                                <MenuItem value="">
+                                                    <em>Sin cliente</em>
+                                                </MenuItem>
+                                                {legacyClients.map((client) => (
+                                                    <MenuItem key={client.id} value={client.id}>
+                                                        {client.box_id} - {client.full_name?.substring(0, 15)}
+                                                    </MenuItem>
+                                                ))}
+                                            </Select>
+                                        </FormControl>
+                                    ) : (
+                                        // Input de Week para LCL
+                                        <TextField
+                                            size="small"
+                                            value={container.week_number || ''}
+                                            onChange={(e) => {
+                                                // Actualizar localmente primero
+                                                setContainers(prev => prev.map(c => 
+                                                    c.id === container.id ? { ...c, week_number: e.target.value } : c
+                                                ));
+                                            }}
+                                            onBlur={(e) => {
+                                                if (e.target.value !== container.week_number) {
+                                                    updateContainerWeek(container.id, e.target.value);
+                                                }
+                                            }}
+                                            placeholder="Week X-X"
+                                            sx={{ 
+                                                '& .MuiInputBase-input': { 
+                                                    py: 0.5, 
+                                                    fontWeight: 'bold', 
+                                                    fontSize: '0.8rem',
+                                                    bgcolor: '#E8F5E9',
+                                                    color: '#2E7D32'
+                                                }
+                                            }}
                                         />
-                                    ) : container.week_number ? (
-                                        <Chip 
-                                            label={container.week_number} 
-                                            size="small" 
-                                            sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 'bold' }}
-                                        />
-                                    ) : '-'}
+                                    )}
                                 </TableCell>
                                 <TableCell>
                                     {container.eta ? new Date(container.eta).toLocaleDateString() : '-'}
