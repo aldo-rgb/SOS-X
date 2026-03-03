@@ -45,6 +45,13 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
     const client = await pool.connect();
     
     try {
+        // LOG COMPLETO del payload recibido para debug
+        console.log("========================================");
+        console.log("📥 CHINA CALLBACK RECIBIDO:");
+        console.log("Headers:", JSON.stringify(req.headers, null, 2));
+        console.log("Body RAW:", JSON.stringify(req.body, null, 2));
+        console.log("========================================");
+        
         const payload: ChinaApiPayload = req.body;
         console.log("📦 Recibiendo FNO:", payload.fno, "- ShippingMark:", payload.shippingMark);
 
