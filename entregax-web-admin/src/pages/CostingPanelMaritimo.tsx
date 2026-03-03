@@ -114,6 +114,10 @@ interface Container {
     carrier?: string;
     goods_description?: string;
     shipment_agent?: string;
+    // Cliente FCL
+    legacy_client_id?: number;
+    client_box_id?: string;
+    client_name?: string;
     // Vizion tracking fields
     vizion_reference_id?: string;
     vizion_subscribed_at?: string;
@@ -1376,7 +1380,15 @@ export default function CostingPanelMaritimo() {
                                     </FormControl>
                                 </TableCell>
                                 <TableCell>
-                                    {container.week_number ? (
+                                    {/* FCL: mostrar cliente, LCL: mostrar week */}
+                                    {container.client_box_id ? (
+                                        <Chip 
+                                            label={container.client_box_id} 
+                                            size="small" 
+                                            sx={{ bgcolor: '#E3F2FD', color: '#1565C0', fontWeight: 'bold' }}
+                                            title={container.client_name || 'Cliente FCL'}
+                                        />
+                                    ) : container.week_number ? (
                                         <Chip 
                                             label={container.week_number} 
                                             size="small" 

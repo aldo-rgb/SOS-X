@@ -22,12 +22,15 @@ export const getContainers = async (req: AuthRequest, res: Response): Promise<an
       SELECT c.*, 
         mr.code as route_code,
         mr.name as route_name,
+        lc.box_id as client_box_id,
+        lc.full_name as client_name,
         (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.container_id = c.id) as shipment_count,
         cc.is_fully_costed,
         cc.calculated_release_cost
       FROM containers c
       LEFT JOIN container_costs cc ON cc.container_id = c.id
       LEFT JOIN maritime_routes mr ON mr.id = c.route_id
+      LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
       WHERE 1=1
     `;
     const params: any[] = [];
