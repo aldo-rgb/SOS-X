@@ -1709,6 +1709,32 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
     }
     
     const clientUserId = draft.matched_user_id;
+    
+    // Para FCL, convertir matched_user_id (legacy_client_id) a user_id real
+    let containerClientUserId: number | null = null;
+    if (clientUserId) {
+      // matched_user_id es un ID de legacy_clients, buscar si tiene usuario vinculado
+      const legacyRes = await pool.query(
+        'SELECT box_id, claimed_by_user_id FROM legacy_clients WHERE id = $1',
+        [clientUserId]
+      );
+      if (legacyRes.rows.length > 0) {
+        const legacy = legacyRes.rows[0];
+        // Si tiene claimed_by_user_id, usar ese; sino buscar por box_id
+        if (legacy.claimed_by_user_id) {
+          containerClientUserId = legacy.claimed_by_user_id;
+        } else if (legacy.box_id) {
+          const userRes = await pool.query(
+            'SELECT id FROM users WHERE box_id = $1',
+            [legacy.box_id]
+          );
+          if (userRes.rows.length > 0) {
+            containerClientUserId = userRes.rows[0].id;
+          }
+        }
+      }
+      console.log(`👤 Cliente FCL: legacy_client_id=${clientUserId} → user_id=${containerClientUserId}`);
+    }
 
     // 2. Crear registro real según tipo
     if (draft.document_type === 'LOG') {
@@ -1784,8 +1810,8 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         (container_number, bl_number, eta, status, notes, consignee, shipper, 
          vessel, pol, pod, route_id, week_number, reference_code,
          vessel_name, voyage_number, port_of_loading, port_of_discharge, so_number,
-         total_weight_kg, total_cbm, total_packages, carrier, laden_on_board, exchange_rate_usd_mxn)
-        VALUES ($1, $2, $3, 'consolidated', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+         total_weight_kg, total_cbm, total_packages, carrier, laden_on_board, exchange_rate_usd_mxn, client_user_id)
+        VALUES ($1, $2, $3, 'consolidated', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
         RETURNING id
       `, [
         containerNumber,
@@ -1811,7 +1837,8 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         finalData.packages ? parseInt(finalData.packages) : null,
         finalData.carrier || null,
         finalData.ladenOnBoard || null,
-        exchangeRate
+        exchangeRate,
+        containerClientUserId  // Cliente FCL asignado desde el draft
       ]);
 
       const containerId = containerRes.rows[0].id;
@@ -2057,6 +2084,47 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
       }
 
       console.log(`✅ LOGs procesados: ${logsUpdated} actualizados, ${logsCreated} pre-creados, ${logsSkipped} omitidos, ${clientsNotified.size} clientes notificados`);
+
+      // ========== ASIGNAR client_user_id AL CONTENEDOR SI TODOS LOS LOGs SON DEL MISMO CLIENTE ==========
+      // Esto es importante para FCL donde un solo cliente tiene todo el contenedor
+      // También aplica para LCL cuando coincidentalmente todos los LOGs son del mismo cliente
+      const uniqueClients = new Set<number>();
+      let singleLegacyClientId: number | null = null;
+      
+      for (const log of logs) {
+        if (log.legacyClientId) {
+          uniqueClients.add(log.legacyClientId);
+          singleLegacyClientId = log.legacyClientId;
+        }
+      }
+      
+      // Si todos los LOGs pertenecen al mismo cliente (FCL típico)
+      if (uniqueClients.size === 1 && singleLegacyClientId) {
+        // Buscar el user_id vinculado a este legacy_client
+        const legacyRes = await pool.query(
+          'SELECT box_id FROM legacy_clients WHERE id = $1',
+          [singleLegacyClientId]
+        );
+        
+        if (legacyRes.rows.length > 0 && legacyRes.rows[0].box_id) {
+          const boxId = legacyRes.rows[0].box_id;
+          const userRes = await pool.query(
+            'SELECT id FROM users WHERE box_id = $1',
+            [boxId]
+          );
+          
+          if (userRes.rows.length > 0) {
+            const clientUserId = userRes.rows[0].id;
+            await pool.query(
+              'UPDATE containers SET client_user_id = $1 WHERE id = $2',
+              [clientUserId, containerId]
+            );
+            console.log(`✅ Contenedor ${containerId} asignado a cliente user_id=${clientUserId} (legacy_client=${singleLegacyClientId}, box_id=${boxId})`);
+          }
+        }
+      } else if (uniqueClients.size > 1) {
+        console.log(`ℹ️ Contenedor ${containerId} tiene ${uniqueClients.size} clientes diferentes - no se asigna client_user_id (LCL compartido)`);
+      }
 
     } else if (draft.document_type === 'BL' || draft.document_type === 'FCL') {
       // ============ FCL: Solo crear contenedor ============

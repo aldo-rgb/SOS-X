@@ -1376,11 +1376,31 @@ export const getContainerProfitBreakdown = async (req: AuthRequest, res: Respons
       let clientName = container.consignee || 'Cliente FCL';
       let priceSource = 'Sin tarifa configurada';
       
-      // Buscar cliente asociado al contenedor (por consignee o client_user_id)
-      let clientId: number | null = container.client_user_id;
+      // Buscar legacy_client_id asociado al usuario del contenedor
+      let legacyClientId: number | null = null;
+      
+      // Si hay client_user_id, buscar su legacy_client_id
+      if (container.client_user_id) {
+        // Buscar el box_id del usuario
+        const userRes = await pool.query(
+          'SELECT box_id FROM users WHERE id = $1',
+          [container.client_user_id]
+        );
+        if (userRes.rows.length > 0 && userRes.rows[0].box_id) {
+          // Buscar el legacy_client con ese box_id
+          const legacyRes = await pool.query(
+            'SELECT id, full_name FROM legacy_clients WHERE box_id = $1',
+            [userRes.rows[0].box_id]
+          );
+          if (legacyRes.rows.length > 0) {
+            legacyClientId = legacyRes.rows[0].id;
+            clientName = legacyRes.rows[0].full_name;
+          }
+        }
+      }
       
       // Si no hay client_user_id, intentar buscar por consignee en legacy_clients
-      if (!clientId && container.consignee) {
+      if (!legacyClientId && container.consignee) {
         // Extraer el nombre de la empresa del consignee (antes de la coma o RFC)
         const companySearch = container.consignee.split(',')[0].trim().split(' RFC')[0].trim();
         const clientSearch = await pool.query(`
@@ -1390,18 +1410,18 @@ export const getContainerProfitBreakdown = async (req: AuthRequest, res: Respons
         `, [`%${companySearch}%`]);
         
         if (clientSearch.rows.length > 0) {
-          clientId = clientSearch.rows[0].id;
+          legacyClientId = clientSearch.rows[0].id;
           clientName = clientSearch.rows[0].full_name;
         }
       }
       
       // Buscar tarifa personalizada del cliente para esta ruta
-      if (clientId && container.route_id) {
+      if (legacyClientId && container.route_id) {
         const clientRateRes = await pool.query(`
           SELECT custom_price_usd, currency, is_wholesale
           FROM fcl_client_rates
           WHERE legacy_client_id = $1 AND route_id = $2
-        `, [clientId, container.route_id]);
+        `, [legacyClientId, container.route_id]);
         
         if (clientRateRes.rows.length > 0) {
           const rate = clientRateRes.rows[0];
