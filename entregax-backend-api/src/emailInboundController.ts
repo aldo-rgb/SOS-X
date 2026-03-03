@@ -209,18 +209,18 @@ const extractClientFromSubject = async (subject: string): Promise<{
 
   // Buscar en legacy_clients
   const result = await pool.query(`
-    SELECT id, codigo_cliente, nombre 
+    SELECT id, box_id, full_name 
     FROM legacy_clients 
-    WHERE UPPER(REPLACE(codigo_cliente, ' ', '')) = $1
+    WHERE UPPER(REPLACE(box_id, ' ', '')) = $1
     LIMIT 1
   `, [rawCode]);
   
   if (result.rows.length > 0) {
-    console.log(`👤 Cliente encontrado: ${result.rows[0].nombre} (${result.rows[0].codigo_cliente})`);
+    console.log(`👤 Cliente encontrado: ${result.rows[0].full_name} (${result.rows[0].box_id})`);
     return { 
-      clientCode: result.rows[0].codigo_cliente, 
+      clientCode: result.rows[0].box_id, 
       clientId: result.rows[0].id,
-      clientName: result.rows[0].nombre
+      clientName: result.rows[0].full_name
     };
   }
 
@@ -1508,6 +1508,13 @@ export const handleInboundEmail = async (req: Request, res: Response): Promise<a
         extractedData.telex_release_pdf = telexPdfUrl;
         extractedData.shipment_type = 'FCL';
 
+        // Extraer cliente del subject del correo (para FCL)
+        const clientInfo = await extractClientFromSubject(body.subject);
+        if (clientInfo.clientCode) {
+          extractedData.client_code = clientInfo.clientCode;
+          extractedData.client_id = clientInfo.clientId;
+        }
+
         // Crear UN solo borrador con todos los documentos
         await pool.query(`
           INSERT INTO maritime_reception_drafts 
@@ -1527,8 +1534,8 @@ export const handleInboundEmail = async (req: Request, res: Response): Promise<a
           telexPdfFilename,
           packingListUrl,
           packingListFilename,
-          null,
-          null,
+          clientInfo.clientCode,  // detected_client_code
+          clientInfo.clientId,    // matched_user_id (legacy_client_id)
           routeId
         ]);
 
@@ -2175,8 +2182,8 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         (container_number, bl_number, eta, status, notes, consignee, shipper, vessel, pol, pod,
          week_number, reference_code, route_id, exchange_rate_usd_mxn,
          vessel_name, voyage_number, port_of_loading, port_of_discharge, so_number,
-         total_weight_kg, total_cbm, total_packages, carrier, laden_on_board)
-        VALUES ($1, $2, $3, 'in_transit', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
+         total_weight_kg, total_cbm, total_packages, carrier, laden_on_board, client_user_id, legacy_client_id)
+        VALUES ($1, $2, $3, 'in_transit', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
         RETURNING id
       `, [
         finalData.containerNumber,
@@ -2202,7 +2209,9 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         finalData.volumeCbm ? parseFloat(finalData.volumeCbm) : null,
         finalData.packages ? parseInt(finalData.packages) : null,
         finalData.carrier || null,
-        finalData.ladenOnBoard || null
+        finalData.ladenOnBoard || null,
+        containerClientUserId,  // user_id del cliente (si tiene cuenta)
+        containerLegacyClientId  // legacy_client_id directo para tarifas FCL
       ]);
 
       // Crear o actualizar costos con los documentos oficiales (BL y TELEX) y datos de peso/volumen

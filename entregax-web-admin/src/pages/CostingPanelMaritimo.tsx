@@ -39,6 +39,7 @@ import {
     InputLabel,
     Select,
     MenuItem,
+    Autocomplete,
 } from '@mui/material';
 import {
     DirectionsBoat as BoatIcon,
@@ -778,12 +779,16 @@ export default function CostingPanelMaritimo() {
     // Cargar clientes legacy (para selector de cliente FCL)
     const fetchLegacyClients = useCallback(async () => {
         try {
-            const res = await axios.get(`${API_URL}/api/legacy/clients`, {
+            const res = await axios.get(`${API_URL}/api/legacy/clients?limit=5000`, {
                 headers: { Authorization: `Bearer ${getToken()}` }
             });
-            setLegacyClients(res.data || []);
+            // La API devuelve { clients: [...], total, page, pages }
+            const clients = res.data.clients || [];
+            console.log('Legacy clients loaded:', clients.length);
+            setLegacyClients(clients);
         } catch (error) {
             console.error('Error fetching legacy clients:', error);
+            setLegacyClients([]);
         }
     }, []);
 
@@ -1425,30 +1430,36 @@ export default function CostingPanelMaritimo() {
                                         </Select>
                                     </FormControl>
                                 </TableCell>
-                                <TableCell sx={{ minWidth: 140 }}>
+                                <TableCell sx={{ minWidth: 120 }}>
                                     {/* FCL: selector de cliente, LCL: input de week */}
                                     {container.legacy_client_id || !container.week_number ? (
-                                        // Selector de cliente FCL
-                                        <FormControl size="small" fullWidth>
-                                            <Select
-                                                value={container.legacy_client_id || ''}
-                                                onChange={(e) => updateContainerClient(container.id, e.target.value ? Number(e.target.value) : null)}
-                                                displayEmpty
-                                                sx={{ 
-                                                    bgcolor: container.legacy_client_id ? '#E3F2FD' : '#FFF3E0',
-                                                    '& .MuiSelect-select': { py: 0.5, fontWeight: 'bold', fontSize: '0.8rem' }
-                                                }}
-                                            >
-                                                <MenuItem value="">
-                                                    <em>Sin cliente</em>
-                                                </MenuItem>
-                                                {legacyClients.map((client) => (
-                                                    <MenuItem key={client.id} value={client.id}>
-                                                        {client.box_id} - {client.full_name?.substring(0, 15)}
-                                                    </MenuItem>
-                                                ))}
-                                            </Select>
-                                        </FormControl>
+                                        // Selector de cliente FCL con búsqueda
+                                        <Autocomplete
+                                            size="small"
+                                            options={legacyClients}
+                                            getOptionLabel={(option) => option?.box_id || ''}
+                                            value={legacyClients.find(c => c.id === container.legacy_client_id) || null}
+                                            onChange={(_, newValue) => updateContainerClient(container.id, newValue?.id || null)}
+                                            filterOptions={(options, { inputValue }) => {
+                                                const search = inputValue.toLowerCase();
+                                                return options.filter(opt => 
+                                                    opt.box_id?.toLowerCase().includes(search)
+                                                ).slice(0, 50);
+                                            }}
+                                            renderInput={(params) => (
+                                                <TextField
+                                                    {...params}
+                                                    placeholder="Cliente..."
+                                                    sx={{ 
+                                                        bgcolor: container.legacy_client_id ? '#E3F2FD' : '#FFF3E0',
+                                                        '& .MuiInputBase-input': { py: 0.5, fontWeight: 'bold', fontSize: '0.8rem' }
+                                                    }}
+                                                />
+                                            )}
+                                            isOptionEqualToValue={(option, value) => option.id === value?.id}
+                                            noOptionsText="No encontrado"
+                                            clearText="Limpiar"
+                                        />
                                     ) : (
                                         // Input de Week para LCL
                                         <TextField
@@ -1501,9 +1512,12 @@ export default function CostingPanelMaritimo() {
                                 </TableCell>
                                 <TableCell align="center">
                                     <Chip 
-                                        label={container.shipment_count || container.total_packages || 0} 
+                                        label={
+                                            // Mostrar total_packages (bultos reales)
+                                            container.total_packages || container.shipment_count || 0
+                                        } 
                                         size="small" 
-                                        color="primary" 
+                                        color="primary"
                                         variant="outlined"
                                     />
                                 </TableCell>
