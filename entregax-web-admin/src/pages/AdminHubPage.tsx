@@ -169,13 +169,9 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
     ],
     mx_cedis: [
         { key: 'costing', status: 'active' },
-        { key: 'dhl_rates', status: 'active' },
         { key: 'inventory', status: 'active' },
-        { key: 'pricing', status: 'pending' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
-        { key: 'customs', status: 'pending' },
-        { key: 'reports', status: 'pending' },
     ],
     mx_national: [
         { key: 'inventory', status: 'active' },
