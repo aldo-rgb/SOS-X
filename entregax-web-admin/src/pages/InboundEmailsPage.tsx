@@ -7,8 +7,6 @@ import { useState, useEffect } from 'react';
 import {
     Box,
     Typography,
-    Card,
-    CardContent,
     Table,
     TableBody,
     TableCell,
@@ -219,7 +217,7 @@ export default function InboundEmailsPage() {
     const [whitelistToDelete, setWhitelistToDelete] = useState<number | null>(null);
 
     // Stats
-    const [stats, setStats] = useState<any>(null);
+    const [_stats, setStats] = useState<any>(null);
     
     // User role for conditional rendering
     const [userRole, setUserRole] = useState<string>('');
