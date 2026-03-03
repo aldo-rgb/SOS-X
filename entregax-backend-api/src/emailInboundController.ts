@@ -2089,13 +2089,22 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
       const referenceCode = finalData.reference_code || null;
       const routeId = finalData.route_id || editedData?.bl?.routeId || draft.route_id || null;
       
+      // Obtener tipo de cambio del servicio MARÍTIMO (con sobreprecio incluido)
+      const fxResult = await pool.query(`
+        SELECT tipo_cambio_final as final_rate
+        FROM exchange_rate_config
+        WHERE servicio = 'maritimo'
+      `);
+      const exchangeRate = parseFloat(fxResult.rows[0]?.final_rate) || 20.50;
+      console.log(`💱 TC Congelado para FCL: $${exchangeRate} (servicio maritimo)`);
+      
       const containerRes = await pool.query(`
         INSERT INTO containers 
         (container_number, bl_number, eta, status, notes, consignee, shipper, vessel, pol, pod,
-         week_number, reference_code, route_id,
+         week_number, reference_code, route_id, exchange_rate_usd_mxn,
          vessel_name, voyage_number, port_of_loading, port_of_discharge, so_number,
          total_weight_kg, total_cbm, total_packages, carrier, laden_on_board)
-        VALUES ($1, $2, $3, 'in_transit', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
+        VALUES ($1, $2, $3, 'in_transit', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
         RETURNING id
       `, [
         finalData.containerNumber,
@@ -2110,6 +2119,7 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         weekNumber,
         referenceCode,
         routeId,
+        exchangeRate,
         // Campos adicionales para el frontend
         finalData.vesselName,
         finalData.voyageNumber,

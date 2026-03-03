@@ -1311,9 +1311,11 @@ export const getContainerProfitBreakdown = async (req: AuthRequest, res: Respons
         cc.debit_note_amount, cc.demurrage_amount, cc.storage_amount,
         cc.maneuvers_amount, cc.custody_amount, cc.transport_amount,
         cc.advance_1_amount, cc.advance_2_amount, cc.advance_3_amount, cc.advance_4_amount,
-        cc.other_amount, cc.calculated_aa_cost, cc.is_fully_costed
+        cc.other_amount, cc.calculated_aa_cost, cc.is_fully_costed,
+        mr.fcl_price_usd as route_fcl_price
       FROM containers c
       LEFT JOIN container_costs cc ON cc.container_id = c.id
+      LEFT JOIN maritime_routes mr ON mr.id = c.route_id
       WHERE c.id = $1
     `, [containerId]);
 
@@ -1358,6 +1360,159 @@ export const getContainerProfitBreakdown = async (req: AuthRequest, res: Respons
       WHERE mo.container_id = $1
       ORDER BY mo.ordersn ASC
     `, [containerId]);
+    
+    // ========== DETECTAR SI ES FCL (sin LOGs) ==========
+    const isFCL = shipmentsRes.rows.length === 0;
+    
+    if (isFCL) {
+      // ========== LÓGICA FCL ==========
+      const totalCbm = parseFloat(container.total_cbm) || 0;
+      const totalKg = parseFloat(container.total_weight_kg) || 0;
+      const totalPackages = parseInt(container.total_packages) || 1;
+      
+      // Buscar tarifa FCL del cliente si existe client_user_id
+      let fclPriceUsd = 0;
+      let fclCurrency = 'USD';
+      let clientName = container.consignee || 'Cliente FCL';
+      let priceSource = 'Sin tarifa configurada';
+      
+      // Buscar cliente asociado al contenedor (por consignee RFC o client_user_id)
+      let clientId: number | null = container.client_user_id;
+      
+      // Si no hay client_user_id, intentar buscar por consignee
+      if (!clientId && container.consignee) {
+        const clientSearch = await pool.query(`
+          SELECT id, company_name FROM legacy_clients 
+          WHERE company_name ILIKE $1 OR rfc ILIKE $1
+          LIMIT 1
+        `, [`%${container.consignee.split(',')[0].trim()}%`]);
+        
+        if (clientSearch.rows.length > 0) {
+          clientId = clientSearch.rows[0].id;
+          clientName = clientSearch.rows[0].company_name;
+        }
+      }
+      
+      // Buscar tarifa personalizada del cliente para esta ruta
+      if (clientId && container.route_id) {
+        const clientRateRes = await pool.query(`
+          SELECT custom_price_usd, currency, is_wholesale
+          FROM fcl_client_rates
+          WHERE legacy_client_id = $1 AND route_id = $2
+        `, [clientId, container.route_id]);
+        
+        if (clientRateRes.rows.length > 0) {
+          const rate = clientRateRes.rows[0];
+          fclPriceUsd = parseFloat(rate.custom_price_usd) || 0;
+          fclCurrency = rate.currency || 'USD';
+          priceSource = rate.is_wholesale 
+            ? `Tarifa Mayorista Cliente (${fclCurrency})` 
+            : `Tarifa Cliente (${fclCurrency})`;
+        }
+      }
+      
+      // Si no hay tarifa de cliente, usar tarifa base de la ruta
+      if (fclPriceUsd === 0 && container.route_fcl_price) {
+        fclPriceUsd = parseFloat(container.route_fcl_price) || 0;
+        fclCurrency = 'USD';
+        priceSource = 'Tarifa Base Ruta (USD)';
+      }
+      
+      // Calcular venta según moneda
+      let totalEstimatedRevenueUsd = 0;
+      let totalEstimatedRevenueMxn = 0;
+      
+      if (fclCurrency === 'USD') {
+        totalEstimatedRevenueUsd = fclPriceUsd;
+        totalEstimatedRevenueMxn = fclPriceUsd * exchangeRate;
+      } else {
+        // Si está en MXN, el precio ya está en pesos
+        totalEstimatedRevenueMxn = fclPriceUsd; // En este caso fclPriceUsd es realmente MXN
+        totalEstimatedRevenueUsd = fclPriceUsd / exchangeRate;
+      }
+      
+      // Calcular costos
+      const debitNote = parseFloat(container.debit_note_amount) || 0;
+      const demurrage = parseFloat(container.demurrage_amount) || 0;
+      const storage = parseFloat(container.storage_amount) || 0;
+      const maneuvers = parseFloat(container.maneuvers_amount) || 0;
+      const custody = parseFloat(container.custody_amount) || 0;
+      const transport = parseFloat(container.transport_amount) || 0;
+      const other = parseFloat(container.other_amount) || 0;
+      const totalCost = debitNote + demurrage + storage + totalAnticiposFromTable + maneuvers + custody + transport + other;
+      
+      // Utilidad
+      const estimatedProfit = totalEstimatedRevenueMxn - totalCost;
+      const profitMargin = totalEstimatedRevenueMxn > 0 ? ((estimatedProfit / totalEstimatedRevenueMxn) * 100) : 0;
+      
+      // Cobranza
+      const collectedAmountUsd = parseFloat(container.collected_amount_usd) || 0;
+      const collectionPercentage = totalEstimatedRevenueUsd > 0 
+        ? Math.min((collectedAmountUsd / totalEstimatedRevenueUsd) * 100, 100) 
+        : 0;
+      
+      // Crear "embarque" virtual para FCL (el contenedor mismo)
+      const fclShipment = {
+        id: container.id,
+        log_number: `FCL-${container.container_number}`,
+        client_name: clientName,
+        box_id: null,
+        box_count: totalPackages,
+        weight_kg: totalKg,
+        volume_cbm: totalCbm,
+        cbm: totalCbm,
+        kg: totalKg,
+        description: container.goods_description || 'Contenedor Completo (FCL)',
+        brand_type: 'FCL',
+        status: container.status,
+        estimated_charge: fclCurrency === 'USD' ? fclPriceUsd : (fclPriceUsd / exchangeRate),
+        charge_type: 'FCL',
+        applied_category: 'Full Container Load',
+        applied_rate: fclPriceUsd,
+        price_breakdown: fclPriceUsd > 0 
+          ? `Tarifa FCL: ${fclCurrency === 'USD' ? '$' : ''}${fclPriceUsd.toFixed(2)} ${fclCurrency}`
+          : 'Sin tarifa configurada'
+      };
+
+      return res.json({
+        container: {
+          id: container.id,
+          container_number: container.container_number,
+          bl_number: container.bl_number,
+          status: container.status,
+          is_fully_costed: container.is_fully_costed,
+          exchange_rate: exchangeRate,
+          is_fcl: true
+        },
+        costs: {
+          naviera: { debit_note: debitNote, demurrage: demurrage, storage: storage },
+          aduana: { customs_aa: totalAnticiposFromTable },
+          logistica: { maneuvers, custody, transport, advances: totalAnticiposFromTable, other },
+          total: totalCost
+        },
+        shipments: [fclShipment],
+        summary: {
+          total_shipments: 1,
+          total_cbm: Math.round(totalCbm * 1000) / 1000,
+          total_kg: Math.round(totalKg * 100) / 100,
+          total_cost_mxn: Math.round(totalCost * 100) / 100,
+          total_estimated_revenue_usd: Math.round(totalEstimatedRevenueUsd * 100) / 100,
+          total_estimated_revenue_mxn: Math.round(totalEstimatedRevenueMxn * 100) / 100,
+          exchange_rate: exchangeRate,
+          estimated_profit_mxn: Math.round(estimatedProfit * 100) / 100,
+          profit_margin_percent: Math.round(profitMargin * 100) / 100,
+          collected_amount_usd: Math.round(collectedAmountUsd * 100) / 100,
+          collection_percentage: Math.round(collectionPercentage * 100) / 100,
+          rate_used: priceSource,
+          pricing_currency: fclCurrency,
+          pricing_note: fclCurrency === 'USD' 
+            ? `Cobros en USD × TC ${exchangeRate} = MXN. Costos en MXN.`
+            : `Cobros en MXN. Costos en MXN.`
+        }
+      });
+    }
+    
+    // ========== LÓGICA LCL (código existente) ==========
 
     // Obtener todas las categorías y tiers para el cálculo
     const categoriesRes = await pool.query(`
