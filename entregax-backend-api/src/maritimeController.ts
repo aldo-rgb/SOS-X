@@ -1377,10 +1377,20 @@ export const getContainerProfitBreakdown = async (req: AuthRequest, res: Respons
       let priceSource = 'Sin tarifa configurada';
       
       // Buscar legacy_client_id asociado al usuario del contenedor
-      let legacyClientId: number | null = null;
+      let legacyClientId: number | null = container.legacy_client_id || null;
       
-      // Si hay client_user_id, buscar su legacy_client_id
-      if (container.client_user_id) {
+      // Si hay legacy_client_id directo, obtener nombre
+      if (legacyClientId) {
+        const legacyRes = await pool.query(
+          'SELECT full_name FROM legacy_clients WHERE id = $1',
+          [legacyClientId]
+        );
+        if (legacyRes.rows.length > 0) {
+          clientName = legacyRes.rows[0].full_name;
+        }
+      }
+      // Si no hay legacy_client_id pero hay client_user_id, buscar su legacy_client
+      else if (container.client_user_id) {
         // Buscar el box_id del usuario
         const userRes = await pool.query(
           'SELECT box_id FROM users WHERE id = $1',
