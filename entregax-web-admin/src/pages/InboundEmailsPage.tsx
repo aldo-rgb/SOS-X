@@ -235,10 +235,11 @@ export default function InboundEmailsPage() {
     const token = localStorage.getItem('token');
 
     // Cargar drafts
-    const loadDrafts = async (filter: string) => {
+    const loadDrafts = async (filter?: string) => {
+        const currentFilter = filter ?? statusFilter;
         setLoading(true);
         try {
-            const res = await fetch(`${API_URL}/api/admin/maritime/drafts?status=${filter}`, {
+            const res = await fetch(`${API_URL}/api/admin/maritime/drafts?status=${currentFilter}`, {
                 headers: { Authorization: `Bearer ${token}` }
             });
             const data = res.ok ? await res.json() : [];

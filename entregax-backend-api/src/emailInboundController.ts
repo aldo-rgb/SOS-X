@@ -2087,14 +2087,15 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
       // Extraer week y reference de los datos extraídos del borrador
       const weekNumber = finalData.week_number || null;
       const referenceCode = finalData.reference_code || null;
+      const routeId = finalData.route_id || editedData?.bl?.routeId || draft.route_id || null;
       
       const containerRes = await pool.query(`
         INSERT INTO containers 
         (container_number, bl_number, eta, status, notes, consignee, shipper, vessel, pol, pod,
-         week_number, reference_code,
+         week_number, reference_code, route_id,
          vessel_name, voyage_number, port_of_loading, port_of_discharge, so_number,
          total_weight_kg, total_cbm, total_packages, carrier, laden_on_board)
-        VALUES ($1, $2, $3, 'in_transit', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+        VALUES ($1, $2, $3, 'in_transit', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)
         RETURNING id
       `, [
         finalData.containerNumber,
@@ -2108,6 +2109,7 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         finalData.portOfDischarge,
         weekNumber,
         referenceCode,
+        routeId,
         // Campos adicionales para el frontend
         finalData.vesselName,
         finalData.voyageNumber,
