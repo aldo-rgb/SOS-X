@@ -43,17 +43,56 @@ interface ChinaPackageData {
 // ============================================
 export const receiveFromChina = async (req: Request, res: Response): Promise<any> => {
     const client = await pool.connect();
+    const sourceIp = req.headers['x-forwarded-for'] || req.socket?.remoteAddress || 'unknown';
+    
+    // SIEMPRE guardar el payload RAW para debug (antes de cualquier procesamiento)
+    try {
+        await client.query(`
+            INSERT INTO china_callback_logs (raw_payload, headers, source_ip, success)
+            VALUES ($1, $2, $3, false)
+        `, [JSON.stringify(req.body), JSON.stringify(req.headers), sourceIp]);
+    } catch (logErr) {
+        console.error('Error guardando log:', logErr);
+    }
     
     try {
         // LOG COMPLETO del payload recibido para debug
         console.log("========================================");
         console.log("📥 CHINA CALLBACK RECIBIDO:");
-        console.log("Headers:", JSON.stringify(req.headers, null, 2));
+        console.log("Source IP:", sourceIp);
         console.log("Body RAW:", JSON.stringify(req.body, null, 2));
         console.log("========================================");
         
-        const payload: ChinaApiPayload = req.body;
+        // Normalizar campos - MoJie puede enviar con diferentes nombres
+        const rawBody = req.body;
+        const payload: ChinaApiPayload = {
+            fno: rawBody.fno || rawBody.FNO || rawBody.Fno || rawBody.fNo || rawBody.order_no || rawBody.orderNo || rawBody.order_id,
+            shippingMark: rawBody.shippingMark || rawBody.ShippingMark || rawBody.shipping_mark || rawBody.mark || rawBody.customer_code || rawBody.customerCode,
+            totalQty: rawBody.totalQty || rawBody.TotalQty || rawBody.total_qty || rawBody.qty || rawBody.quantity || 0,
+            totalWeight: rawBody.totalWeight || rawBody.TotalWeight || rawBody.total_weight || rawBody.weight || 0,
+            totalVolume: rawBody.totalVolume || rawBody.TotalVolume || rawBody.total_volume || rawBody.volume || 0,
+            totalCbm: rawBody.totalCbm || rawBody.TotalCbm || rawBody.total_cbm || rawBody.cbm || 0,
+            // file puede ser string o array - normalizar a array
+            file: Array.isArray(rawBody.file) ? rawBody.file : 
+                  (rawBody.file ? [rawBody.file] : 
+                  (Array.isArray(rawBody.files) ? rawBody.files : 
+                  (rawBody.files ? [rawBody.files] : []))),
+            data: rawBody.data || rawBody.Data || rawBody.items || rawBody.packages || rawBody.boxes || []
+        };
+        
         console.log("📦 Recibiendo FNO:", payload.fno, "- ShippingMark:", payload.shippingMark);
+        console.log("  → Evidencias:", payload.file.length, "archivo(s)");
+        
+        // Validar campos requeridos
+        if (!payload.fno) {
+            console.error("❌ FNO no encontrado en payload. Campos disponibles:", Object.keys(rawBody));
+            return res.status(400).json({ 
+                success: false, 
+                error: 'Campo FNO requerido', 
+                availableFields: Object.keys(rawBody),
+                hint: 'Enviar fno, FNO, order_no u orderNo'
+            });
+        }
 
         await client.query('BEGIN');
 
@@ -170,6 +209,14 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
         }
 
         await client.query('COMMIT');
+        
+        // Marcar log como exitoso
+        await client.query(`
+            UPDATE china_callback_logs 
+            SET success = true 
+            WHERE raw_payload->>'fno' = $1 OR raw_payload->>'FNO' = $1
+            ORDER BY created_at DESC LIMIT 1
+        `, [payload.fno]);
 
         console.log(`  ✅ FNO ${payload.fno}: ${packagesCreated} cajas creadas, ${packagesUpdated} actualizadas`);
 
@@ -188,6 +235,16 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
     } catch (error: any) {
         await client.query('ROLLBACK');
         console.error("❌ Error API China:", error);
+        
+        // Guardar error en log
+        try {
+            await pool.query(`
+                UPDATE china_callback_logs 
+                SET error_message = $1 
+                WHERE id = (SELECT MAX(id) FROM china_callback_logs)
+            `, [error.message]);
+        } catch (e) {}
+        
         res.status(500).json({ 
             success: false, 
             error: 'Error procesando datos de China',
