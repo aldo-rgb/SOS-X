@@ -899,7 +899,7 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
         p.status,
         COUNT(p.id) as total_shipments,
         SUM(p.weight) as total_weight,
-        SUM(COALESCE(p.shipping_cost, 0)) as total_sales_mxn
+        SUM(COALESCE(p.assigned_cost_mxn, 0)) as total_sales_mxn
       FROM packages p
       JOIN users client ON p.user_id = client.id
       LEFT JOIN users advisor ON client.referred_by_id = advisor.id
@@ -916,7 +916,7 @@ export const getSalesReport = async (req: Request, res: Response): Promise<any> 
       SELECT 
         COUNT(DISTINCT p.id) as total_shipments,
         COUNT(DISTINCT p.user_id) as total_clients,
-        SUM(COALESCE(p.shipping_cost, 0)) as total_revenue
+        SUM(COALESCE(p.assigned_cost_mxn, 0)) as total_revenue
       FROM packages p
       JOIN users client ON p.user_id = client.id
       LEFT JOIN users advisor ON client.referred_by_id = advisor.id
@@ -1014,7 +1014,7 @@ export const getCRMDashboard = async (_req: Request, res: Response): Promise<any
     const salesStats = await pool.query(`
       SELECT 
         COUNT(*) as shipments_month,
-        COALESCE(SUM(shipping_cost), 0) as revenue_month
+        COALESCE(SUM(assigned_cost_mxn), 0) as revenue_month
       FROM packages
       WHERE created_at >= DATE_TRUNC('month', NOW())
     `);
@@ -1024,7 +1024,7 @@ export const getCRMDashboard = async (_req: Request, res: Response): Promise<any
       SELECT 
         advisor.full_name,
         COUNT(p.id) as shipments,
-        SUM(COALESCE(p.shipping_cost, 0)) as revenue
+        SUM(COALESCE(p.assigned_cost_mxn, 0)) as revenue
       FROM packages p
       JOIN users client ON p.user_id = client.id
       JOIN users advisor ON client.referred_by_id = advisor.id
