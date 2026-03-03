@@ -746,60 +746,6 @@ export default function InboundEmailsPage() {
                 </Box>
             </Box>
 
-            {/* Stats Cards */}
-            {stats && (
-                <Grid container spacing={2} sx={{ mb: 3 }}>
-                    <Grid size={{ xs: 6, sm: 3 }}>
-                        <Card>
-                            <CardContent sx={{ textAlign: 'center' }}>
-                                <Typography variant="h4" color="primary">
-                                    {stats.summary?.emails_today || 0}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    Correos hoy
-                                </Typography>
-                            </CardContent>
-                        </Card>
-                    </Grid>
-                    <Grid size={{ xs: 6, sm: 3 }}>
-                        <Card sx={{ bgcolor: 'warning.light' }}>
-                            <CardContent sx={{ textAlign: 'center' }}>
-                                <Typography variant="h4" color="warning.dark">
-                                    {stats.summary?.pending_drafts || 0}
-                                </Typography>
-                                <Typography variant="body2">
-                                    Pendientes
-                                </Typography>
-                            </CardContent>
-                        </Card>
-                    </Grid>
-                    <Grid size={{ xs: 6, sm: 3 }}>
-                        <Card sx={{ bgcolor: 'success.light' }}>
-                            <CardContent sx={{ textAlign: 'center' }}>
-                                <Typography variant="h4" color="success.dark">
-                                    {stats.summary?.approved_total || 0}
-                                </Typography>
-                                <Typography variant="body2">
-                                    Aprobados
-                                </Typography>
-                            </CardContent>
-                        </Card>
-                    </Grid>
-                    <Grid size={{ xs: 6, sm: 3 }}>
-                        <Card sx={{ bgcolor: 'error.light' }}>
-                            <CardContent sx={{ textAlign: 'center' }}>
-                                <Typography variant="h4" color="error.dark">
-                                    {stats.summary?.rejected_total || 0}
-                                </Typography>
-                                <Typography variant="body2">
-                                    Rechazados
-                                </Typography>
-                            </CardContent>
-                        </Card>
-                    </Grid>
-                </Grid>
-            )}
-
             {/* Tabs */}
             <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ mb: 2 }}>
                 <Tab label="📥 Borradores" />
