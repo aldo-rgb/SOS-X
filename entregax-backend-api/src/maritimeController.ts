@@ -184,7 +184,7 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
 
     // Obtener todos los usuarios con envíos en este contenedor
     const usersResult = await pool.query(`
-      SELECT DISTINCT ms.user_id, ms.tracking 
+      SELECT DISTINCT ms.user_id, ms.log_number 
       FROM maritime_shipments ms 
       WHERE ms.container_id = $1 AND ms.user_id IS NOT NULL
     `, [id]);
@@ -197,12 +197,12 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
 
     // Enviar notificaciones a todos los usuarios afectados
     const statusMessages: Record<string, string> = {
-      'received_origin': '📦 Tu envío marítimo ha sido recibido en origen.',
+      'received_origin': '📦 Tu envío marítimo ha sido recibido en China.',
       'consolidated': '📦 Tu envío marítimo ha sido consolidado en el contenedor.',
-      'in_transit': '🚢 Tu envío marítimo está en tránsito hacia México.',
+      'in_transit': '🚢 Tu envío marítimo ya zarpó hacia México.',
       'arrived_port': '⚓ Tu envío marítimo ha llegado al puerto en México.',
       'customs_cleared': '🛃 Tu envío marítimo ha sido liberado de aduana.',
-      'received_cedis': '📦 Tu envío marítimo ha llegado a nuestro CEDIS y está listo para despacho.'
+      'received_cedis': '🏭 Tu envío marítimo ha llegado a nuestro CEDIS y está listo para despacho.'
     };
 
     const notificationTypes: Record<string, 'PACKAGE_RECEIVED' | 'PACKAGE_IN_TRANSIT'> = {
@@ -224,7 +224,7 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
           { 
             containerId: id, 
             containerNumber: container?.container_number,
-            tracking: shipment.tracking,
+            logNumber: shipment.log_number,
             status: status,
             service: 'Maritime'
           },

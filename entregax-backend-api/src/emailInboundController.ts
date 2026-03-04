@@ -1815,13 +1815,14 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
       const referenceCode = finalData.reference_code || null;
       
       // 2a. Crear contenedor con datos del BL (ya no usa ON CONFLICT)
+      // LCL se crea directamente en 'in_transit' (ya viene de China navegando)
       const containerRes = await pool.query(`
         INSERT INTO containers 
         (container_number, bl_number, eta, status, notes, consignee, shipper, 
          vessel, pol, pod, route_id, week_number, reference_code,
          vessel_name, voyage_number, port_of_loading, port_of_discharge, so_number,
          total_weight_kg, total_cbm, total_packages, carrier, laden_on_board, exchange_rate_usd_mxn, client_user_id, legacy_client_id)
-        VALUES ($1, $2, $3, 'consolidated', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+        VALUES ($1, $2, $3, 'in_transit', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
         RETURNING id
       `, [
         containerNumber,

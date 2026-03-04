@@ -207,10 +207,10 @@ interface MaritimeStats {
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; labelEn: string; labelZh: string }> = {
-    'received_origin': { label: 'Recibido China', labelEn: 'Received China', labelZh: '中国已收', color: '#9E9E9E' },
+    'received_origin': { label: 'Recibido en China', labelEn: 'Received in China', labelZh: '中国已收', color: '#9E9E9E' },
     'consolidated': { label: 'Consolidado', labelEn: 'Consolidated', labelZh: '已合并', color: '#FF9800' },
-    'in_transit': { label: 'En Tránsito', labelEn: 'In Transit', labelZh: '运输中', color: '#2196F3' },
-    'arrived_port': { label: 'En Puerto', labelEn: 'At Port', labelZh: '已到港', color: '#673AB7' },
+    'in_transit': { label: 'Ya Zarpó', labelEn: 'Departed', labelZh: '已出发', color: '#2196F3' },
+    'arrived_port': { label: 'Arribo a Puerto', labelEn: 'Arrived at Port', labelZh: '已到港', color: '#673AB7' },
     'customs_cleared': { label: 'Liberado', labelEn: 'Customs Cleared', labelZh: '已清关', color: '#4CAF50' },
     'received_cedis': { label: 'En CEDIS', labelEn: 'At CEDIS', labelZh: '已到仓库', color: '#00BCD4' },
 };
@@ -2782,23 +2782,16 @@ export default function CostingPanelMaritimo() {
                                             <Button 
                                                 size="small" 
                                                 variant="outlined"
-                                                onClick={() => addManualTrackingEvent('VD', 'Salida del Puerto Origen', selectedContainer.port_of_loading || '')}
+                                                onClick={() => addManualTrackingEvent('VD', 'Ya Zarpó - Salida del Puerto Origen', selectedContainer.port_of_loading || '')}
                                             >
-                                                🚢 Zarpe
+                                                🚢 Ya Zarpó
                                             </Button>
                                             <Button 
                                                 size="small" 
                                                 variant="outlined"
-                                                onClick={() => addManualTrackingEvent('VA', 'Llegada a Puerto Destino', selectedContainer.port_of_discharge || '')}
+                                                onClick={() => addManualTrackingEvent('VA', 'Arribo a Puerto Destino', selectedContainer.port_of_discharge || '')}
                                             >
-                                                ⚓ Arribo
-                                            </Button>
-                                            <Button 
-                                                size="small" 
-                                                variant="outlined"
-                                                onClick={() => addManualTrackingEvent('DS', 'Descarga del Buque', selectedContainer.port_of_discharge || '')}
-                                            >
-                                                📦 Descarga
+                                                ⚓ Arribo a Puerto
                                             </Button>
                                             <Button 
                                                 size="small" 
@@ -2810,9 +2803,9 @@ export default function CostingPanelMaritimo() {
                                             <Button 
                                                 size="small" 
                                                 variant="outlined"
-                                                onClick={() => addManualTrackingEvent('GT', 'En Camino a CEDIS', 'México')}
+                                                onClick={() => addManualTrackingEvent('GT', 'En CEDIS', 'México')}
                                             >
-                                                🚚 En Tránsito Local
+                                                🏭 En CEDIS
                                             </Button>
                                         </Box>
                                     </CardContent>

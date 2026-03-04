@@ -36,6 +36,11 @@ import {
     FormControlLabel,
     Checkbox,
     Snackbar,
+    Select,
+    MenuItem,
+    FormControl,
+    InputLabel,
+    Tooltip,
 } from '@mui/material';
 import {
     Calculate as CalculateIcon,
@@ -158,6 +163,32 @@ export default function POBoxCostingPage() {
         message: '',
         severity: 'success'
     });
+
+    // ============================================
+    // UTILIDADES (solo admin/super_admin)
+    // ============================================
+    const getUserRole = (): string => {
+        try {
+            const userStr = localStorage.getItem('user');
+            if (userStr) {
+                const user = JSON.parse(userStr);
+                return user.role || '';
+            }
+        } catch {
+            return '';
+        }
+        return '';
+    };
+    const userRole = getUserRole();
+    const normalizedRole = userRole.toLowerCase().replace(/\s+/g, '_');
+    const canViewUtilidades = ['admin', 'super_admin'].includes(normalizedRole);
+
+    // Estados para Utilidades
+    const [utilidadesDateFrom, setUtilidadesDateFrom] = useState<string>('');
+    const [utilidadesDateTo, setUtilidadesDateTo] = useState<string>('');
+    const [utilidadesPaymentFilter, setUtilidadesPaymentFilter] = useState<'all' | 'paid' | 'unpaid'>('all');
+    const [utilidadesPackages, setUtilidadesPackages] = useState<any[]>([]);
+    const [loadingUtilidades, setLoadingUtilidades] = useState(false);
 
     // ============================================
     // FUNCIONES DE CÁLCULO
@@ -317,6 +348,55 @@ export default function POBoxCostingPage() {
         }
     };
 
+    // ============================================
+    // UTILIDADES (solo admin/super_admin)
+    // ============================================
+    const loadUtilidadesData = async () => {
+        if (!canViewUtilidades) return;
+        
+        setLoadingUtilidades(true);
+        try {
+            const params = new URLSearchParams();
+            if (utilidadesDateFrom) params.append('date_from', utilidadesDateFrom);
+            if (utilidadesDateTo) params.append('date_to', utilidadesDateTo);
+            if (utilidadesPaymentFilter !== 'all') params.append('payment_status', utilidadesPaymentFilter);
+            
+            const response = await api.get(`/pobox/costing/utilidades?${params.toString()}`);
+            if (response.data?.packages) {
+                setUtilidadesPackages(response.data.packages);
+            }
+        } catch (error) {
+            console.error('Error cargando utilidades:', error);
+            setSnackbar({
+                open: true,
+                message: '❌ Error al cargar datos de utilidades',
+                severity: 'error'
+            });
+        } finally {
+            setLoadingUtilidades(false);
+        }
+    };
+
+    // Estadísticas de utilidades
+    // COSTO = calculated_cost (lo que nos cobran)
+    // PO BOX = sale_price (lo que cobramos)
+    // UTILIDAD = PO BOX - COSTO
+    const utilidadesStats = {
+        totalCosto: utilidadesPackages.reduce((sum, pkg) => sum + (parseFloat(pkg.calculated_cost) || 0), 0),
+        totalVenta: utilidadesPackages.reduce((sum, pkg) => {
+            const pobox = parseFloat(pkg.sale_price) || 0;
+            const gex = parseFloat(pkg.gex_total) || 0;
+            return sum + pobox + gex;
+        }, 0),
+        totalUtilidad: utilidadesPackages.reduce((sum, pkg) => {
+            const costo = parseFloat(pkg.calculated_cost) || 0;
+            const pobox = parseFloat(pkg.sale_price) || 0;
+            return sum + (pobox - costo);
+        }, 0),
+        totalPobox: utilidadesPackages.reduce((sum, pkg) => sum + (parseFloat(pkg.sale_price) || 0), 0),
+        totalGex: utilidadesPackages.reduce((sum, pkg) => sum + (parseFloat(pkg.gex_total) || 0), 0),
+    };
+
     useEffect(() => {
         loadConfig();
         loadPackages();
@@ -471,6 +551,7 @@ export default function POBoxCostingPage() {
                     <Tab label={t('pobox.costing.calculator', '🧮 Calculadora')} />
                     <Tab label={`📦 Paquetes (${stats.pendingPayment} pendientes)`} />
                     <Tab label={t('pobox.costing.history', '📊 Historial')} />
+                    {canViewUtilidades && <Tab label="💵 Utilidades" />}
                 </Tabs>
             </Paper>
 
@@ -732,8 +813,6 @@ export default function POBoxCostingPage() {
                                 <TableCell sx={{ color: 'white' }} align="center">Largo</TableCell>
                                 <TableCell sx={{ color: 'white' }} align="center">Ancho</TableCell>
                                 <TableCell sx={{ color: 'white' }} align="center">Alto</TableCell>
-                                <TableCell sx={{ color: 'white' }} align="center">Vol. Bruto</TableCell>
-                                <TableCell sx={{ color: 'white' }} align="center">Vol. Ajustado</TableCell>
                                 <TableCell sx={{ color: 'white' }} align="right">Costo</TableCell>
                                 <TableCell sx={{ color: 'white' }} align="center">Pago</TableCell>
                             </TableRow>
@@ -741,13 +820,13 @@ export default function POBoxCostingPage() {
                         <TableBody>
                             {loading ? (
                                 <TableRow>
-                                    <TableCell colSpan={9} align="center" sx={{ py: 5 }}>
+                                    <TableCell colSpan={7} align="center" sx={{ py: 5 }}>
                                         <CircularProgress />
                                     </TableCell>
                                 </TableRow>
                             ) : packages.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={9} align="center" sx={{ py: 5 }}>
+                                    <TableCell colSpan={7} align="center" sx={{ py: 5 }}>
                                         <Typography color="text.secondary">
                                             No hay paquetes POBox para mostrar
                                         </Typography>
@@ -790,16 +869,6 @@ export default function POBoxCostingPage() {
                                         <TableCell align="center">
                                             {pkg.pkg_height ? Number(pkg.pkg_height).toFixed(1) : '-'} cm
                                         </TableCell>
-                                        <TableCell align="center">
-                                            <Typography variant="body2" color="text.secondary">
-                                                {pkg.volume_raw ? pkg.volume_raw.toLocaleString() : '-'} cm³
-                                            </Typography>
-                                        </TableCell>
-                                        <TableCell align="center">
-                                            <Typography variant="body2">
-                                                {pkg.volume_adjusted ? pkg.volume_adjusted.toLocaleString() : '-'} cm³
-                                            </Typography>
-                                        </TableCell>
                                         <TableCell align="right">
                                             <Chip
                                                 label={`$${pkg.calculated_cost ? pkg.calculated_cost.toFixed(2) : '0.00'}`}
@@ -840,6 +909,210 @@ export default function POBoxCostingPage() {
                     </Typography>
                 </Paper>
             </TabPanel>
+
+            {/* Tab: Utilidades (solo admin/super_admin) */}
+            {canViewUtilidades && (
+                <TabPanel value={activeTab} index={3}>
+                    {/* Filtros */}
+                    <Paper sx={{ p: 2, mb: 2 }}>
+                        <Grid container spacing={2} alignItems="center">
+                            <Grid size={{ xs: 12, sm: 3 }}>
+                                <TextField
+                                    fullWidth
+                                    type="date"
+                                    label="Fecha Desde"
+                                    value={utilidadesDateFrom}
+                                    onChange={(e) => setUtilidadesDateFrom(e.target.value)}
+                                    InputLabelProps={{ shrink: true }}
+                                    size="small"
+                                />
+                            </Grid>
+                            <Grid size={{ xs: 12, sm: 3 }}>
+                                <TextField
+                                    fullWidth
+                                    type="date"
+                                    label="Fecha Hasta"
+                                    value={utilidadesDateTo}
+                                    onChange={(e) => setUtilidadesDateTo(e.target.value)}
+                                    InputLabelProps={{ shrink: true }}
+                                    size="small"
+                                />
+                            </Grid>
+                            <Grid size={{ xs: 12, sm: 3 }}>
+                                <FormControl fullWidth size="small">
+                                    <InputLabel>Estado de Pago</InputLabel>
+                                    <Select
+                                        value={utilidadesPaymentFilter}
+                                        label="Estado de Pago"
+                                        onChange={(e) => setUtilidadesPaymentFilter(e.target.value as any)}
+                                    >
+                                        <MenuItem value="all">Todos</MenuItem>
+                                        <MenuItem value="paid">Pagados</MenuItem>
+                                        <MenuItem value="unpaid">Sin Pagar</MenuItem>
+                                    </Select>
+                                </FormControl>
+                            </Grid>
+                            <Grid size={{ xs: 12, sm: 3 }}>
+                                <Button 
+                                    fullWidth 
+                                    variant="contained" 
+                                    onClick={loadUtilidadesData}
+                                    startIcon={<FilterIcon />}
+                                >
+                                    Filtrar
+                                </Button>
+                            </Grid>
+                        </Grid>
+                    </Paper>
+
+                    {/* Cards de Resumen */}
+                    <Grid container spacing={2} sx={{ mb: 3 }}>
+                        <Grid size={{ xs: 12, sm: 4 }}>
+                            <Card sx={{ bgcolor: 'error.light', color: 'error.contrastText' }}>
+                                <CardContent>
+                                    <Typography variant="subtitle2">Total Costo</Typography>
+                                    <Typography variant="h4" fontWeight="bold">
+                                        ${utilidadesStats.totalCosto.toFixed(2)}
+                                    </Typography>
+                                </CardContent>
+                            </Card>
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 4 }}>
+                            <Card sx={{ bgcolor: 'primary.light', color: 'primary.contrastText' }}>
+                                <CardContent>
+                                    <Typography variant="subtitle2">Total Venta</Typography>
+                                    <Typography variant="h4" fontWeight="bold">
+                                        ${utilidadesStats.totalVenta.toFixed(2)}
+                                    </Typography>
+                                </CardContent>
+                            </Card>
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 4 }}>
+                            <Card sx={{ bgcolor: 'success.light', color: 'success.contrastText' }}>
+                                <CardContent>
+                                    <Typography variant="subtitle2">Utilidad Total</Typography>
+                                    <Typography variant="h4" fontWeight="bold">
+                                        ${utilidadesStats.totalUtilidad.toFixed(2)}
+                                    </Typography>
+                                </CardContent>
+                            </Card>
+                        </Grid>
+                    </Grid>
+
+                    {/* Tabla de Utilidades */}
+                    <TableContainer component={Paper}>
+                        <Table size="small">
+                            <TableHead>
+                                <TableRow sx={{ bgcolor: 'primary.main' }}>
+                                    <TableCell sx={{ color: 'white' }}>Guía</TableCell>
+                                    <TableCell sx={{ color: 'white' }}>Cliente</TableCell>
+                                    <TableCell sx={{ color: 'white' }} align="right">Costo</TableCell>
+                                    <TableCell sx={{ color: 'white' }} align="right">PO Box</TableCell>
+                                    <TableCell sx={{ color: 'white' }} align="right">GEX</TableCell>
+                                    <TableCell sx={{ color: 'white' }} align="right">Costo de Venta</TableCell>
+                                    <TableCell sx={{ color: 'white' }} align="right">Utilidad</TableCell>
+                                    <TableCell sx={{ color: 'white' }} align="center">Estado</TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {loadingUtilidades ? (
+                                    <TableRow>
+                                        <TableCell colSpan={8} align="center" sx={{ py: 5 }}>
+                                            <CircularProgress />
+                                        </TableCell>
+                                    </TableRow>
+                                ) : utilidadesPackages.length === 0 ? (
+                                    <TableRow>
+                                        <TableCell colSpan={8} align="center" sx={{ py: 5 }}>
+                                            <Typography color="text.secondary">
+                                                {activeTab === 3 ? 'Presiona "Filtrar" para cargar los datos' : 'No hay datos para mostrar'}
+                                            </Typography>
+                                        </TableCell>
+                                    </TableRow>
+                                ) : (
+                                    utilidadesPackages.map((pkg) => {
+                                        // COSTO = lo que nos cobran (calculated_cost de la fórmula)
+                                        const costo = parseFloat(pkg.calculated_cost) || 0;
+                                        // PO BOX = lo que cobramos al cliente (assigned_cost_mxn)
+                                        const pobox = parseFloat(pkg.sale_price) || 0;
+                                        // GEX = costo adicional de garantía
+                                        const gexTotal = parseFloat(pkg.gex_total) || 0;
+                                        // COSTO DE VENTA = PO BOX + GEX (total que cobra el cliente)
+                                        const costoVenta = pobox + gexTotal;
+                                        // UTILIDAD = lo que cobramos - lo que nos cuesta
+                                        const utilidad = costoVenta - costo - gexTotal;
+                                        
+                                        return (
+                                            <TableRow key={pkg.id} hover>
+                                                <TableCell>
+                                                    <Typography variant="body2" fontWeight="medium">
+                                                        {pkg.tracking}
+                                                    </Typography>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Typography variant="body2">
+                                                        {pkg.client_name || pkg.user_name || '-'}
+                                                    </Typography>
+                                                </TableCell>
+                                                {/* COSTO = lo que nos cobran */}
+                                                <TableCell align="right">
+                                                    <Typography variant="body2" color="error.main" fontWeight="medium">
+                                                        ${costo.toFixed(2)}
+                                                    </Typography>
+                                                </TableCell>
+                                                {/* PO BOX = lo que cobramos */}
+                                                <TableCell align="right">
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        ${pobox.toFixed(2)}
+                                                    </Typography>
+                                                </TableCell>
+                                                {/* Desglose: GEX */}
+                                                <TableCell align="right">
+                                                    <Tooltip title={gexTotal > 0 ? `5% Asegurado: $${parseFloat(pkg.gex_insurance || '0').toFixed(2)} + Fijo: $${parseFloat(pkg.gex_fixed || '0').toFixed(2)}` : 'Sin GEX'}>
+                                                        <Typography variant="body2" color={gexTotal > 0 ? 'info.main' : 'text.disabled'}>
+                                                            ${gexTotal.toFixed(2)}
+                                                        </Typography>
+                                                    </Tooltip>
+                                                </TableCell>
+                                                {/* Costo de Venta */}
+                                                <TableCell align="right">
+                                                    <Typography variant="body2" color="primary.main" fontWeight="medium">
+                                                        ${costoVenta.toFixed(2)}
+                                                    </Typography>
+                                                </TableCell>
+                                                <TableCell align="right">
+                                                    <Chip
+                                                        label={`$${utilidad.toFixed(2)}`}
+                                                        color={utilidad >= 0 ? 'success' : 'error'}
+                                                        size="small"
+                                                    />
+                                                </TableCell>
+                                                <TableCell align="center">
+                                                    {pkg.costing_paid ? (
+                                                        <Chip
+                                                            icon={<CheckCircleIcon />}
+                                                            label="Pagado"
+                                                            color="success"
+                                                            size="small"
+                                                        />
+                                                    ) : (
+                                                        <Chip
+                                                            label="Pendiente"
+                                                            color="warning"
+                                                            size="small"
+                                                            variant="outlined"
+                                                        />
+                                                    )}
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    })
+                                )}
+                            </TableBody>
+                        </Table>
+                    </TableContainer>
+                </TabPanel>
+            )}
 
             {/* Dialog: Configuración */}
             <Dialog open={editConfigOpen} onClose={() => setEditConfigOpen(false)} maxWidth="sm" fullWidth>

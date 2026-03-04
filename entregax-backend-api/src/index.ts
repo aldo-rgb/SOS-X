@@ -115,6 +115,18 @@ import {
   getServiceInvoicingSummary
 } from './invoicingController';
 import {
+  saveOpenpayConfig,
+  getOpenpayConfig,
+  getEmpresasOpenpay,
+  createOpenpayCustomer,
+  getUserClabe,
+  generateClabeBatch,
+  handleOpenpayWebhook as handleOpenpayWebhookMultiEmpresa,
+  getOpenpayPaymentHistory,
+  getOpenpayDashboard,
+  getPaymentApplications
+} from './openpayController';
+import {
   getServiceInstructions,
   getAllServiceInstructions,
   updateServiceInstructions,
@@ -229,7 +241,8 @@ import {
   getCostingPackages,
   updatePackageCost,
   markPackagesAsPaid,
-  getPaymentHistory
+  getPaymentHistory,
+  getUtilidadesData
 } from './poboxRatesController';
 import {
   getCajaChicaStats,
@@ -1414,6 +1427,31 @@ app.post('/api/admin/fiscal/assign-service', authenticateToken, requireMinLevel(
 app.get('/api/admin/invoices', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAllInvoices);
 app.post('/api/admin/invoices/cancel', authenticateToken, requireMinLevel(ROLES.DIRECTOR), cancelInvoice);
 
+// ============================================
+// OPENPAY MULTI-EMPRESA - COBRANZA SPEI AUTOMATIZADA
+// ============================================
+// Configuración por empresa
+app.get('/api/admin/openpay/empresas', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getEmpresasOpenpay);
+app.get('/api/admin/openpay/config/:empresa_id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getOpenpayConfig);
+app.post('/api/admin/openpay/config', authenticateToken, requireMinLevel(ROLES.DIRECTOR), saveOpenpayConfig);
+// Gestión de clientes y CLABEs
+app.post('/api/admin/openpay/create-customer', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), createOpenpayCustomer);
+app.post('/api/admin/openpay/generate-clabe-batch', authenticateToken, requireMinLevel(ROLES.DIRECTOR), generateClabeBatch);
+app.get('/api/admin/openpay/user-clabe/:user_id', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getUserClabe);
+// Reportes y dashboard
+app.get('/api/admin/openpay/payments', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getOpenpayPaymentHistory);
+app.get('/api/admin/openpay/dashboard', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getOpenpayDashboard);
+app.get('/api/admin/openpay/applications/:log_id', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getPaymentApplications);
+// Webhook (público, recibe notificaciones de Openpay por empresa)
+app.post('/webhooks/openpay/:empresa_id', handleOpenpayWebhookMultiEmpresa);
+// Cliente: obtener su CLABE para pagar
+app.get('/api/my-clabe', authenticateToken, async (req: Request, res: Response) => {
+  const userId = (req as any).user?.userId;
+  if (!userId) return res.status(401).json({ error: 'No autorizado' });
+  (req as any).params = { user_id: userId };
+  return getUserClabe(req, res);
+});
+
 // Facturación por servicio
 app.get('/api/admin/service-fiscal/all', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getAllServiceFiscalConfig);
 app.get('/api/admin/service-fiscal/:serviceType', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getServiceFiscalConfig);
@@ -2202,7 +2240,7 @@ app.get('/api/admin/payment-invoices', authenticateToken, requireMinLevel(ROLES.
         COALESCE(SUM(pi.amount) FILTER (WHERE pi.status IN ('pending', 'partial')), 0) as total_pending
       FROM service_companies sc
       LEFT JOIN payment_invoices pi ON sc.service = pi.service
-      GROUP BY sc.service, sc.company_name
+      GROUP BY sc.id, sc.service, sc.company_name
       ORDER BY sc.id
     `);
 
@@ -2214,6 +2252,360 @@ app.get('/api/admin/payment-invoices', authenticateToken, requireMinLevel(ROLES.
   } catch (error) {
     console.error('Error getting payment invoices:', error);
     res.status(500).json({ error: 'Error obteniendo facturas' });
+  }
+});
+
+// ============================================
+// DASHBOARD DE COBRANZA Y FLUJO DE EFECTIVO
+// Unifica ingresos de Caja Chica + SPEI (Openpay)
+// ============================================
+app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { date_from, date_to } = req.query;
+    
+    // Fechas por defecto: hoy y mes actual
+    const today = new Date();
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const startDate = date_from ? new Date(date_from as string) : startOfMonth;
+    const endDate = date_to ? new Date(date_to as string) : today;
+
+    // ============================================
+    // KPIs PRINCIPALES
+    // ============================================
+
+    // 1. Ingresos totales del día (Efectivo + SPEI)
+    const ingresosHoyRes = await pool.query(`
+      SELECT 
+        COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as efectivo_hoy
+      FROM caja_chica_transacciones
+      WHERE DATE(created_at) = CURRENT_DATE
+    `);
+    
+    const speiHoyRes = await pool.query(`
+      SELECT COALESCE(SUM(monto_recibido), 0) as spei_hoy,
+             COALESCE(SUM(monto_neto), 0) as spei_neto_hoy
+      FROM openpay_webhook_logs
+      WHERE DATE(fecha_pago) = CURRENT_DATE
+        AND estatus_procesamiento = 'procesado'
+    `);
+
+    // 2. Ingresos del mes actual
+    const ingresosMesRes = await pool.query(`
+      SELECT 
+        COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as efectivo_mes
+      FROM caja_chica_transacciones
+      WHERE created_at >= $1 AND created_at <= $2
+    `, [startOfMonth, today]);
+
+    const speiMesRes = await pool.query(`
+      SELECT COALESCE(SUM(monto_recibido), 0) as spei_mes,
+             COALESCE(SUM(monto_neto), 0) as spei_neto_mes
+      FROM openpay_webhook_logs
+      WHERE fecha_pago >= $1 AND fecha_pago <= $2
+        AND estatus_procesamiento = 'procesado'
+    `, [startOfMonth, today]);
+
+    // 3. Cartera Vencida Total (saldo pendiente de todas las guías)
+    const carteraRes = await pool.query(`
+      SELECT 
+        COALESCE(SUM(COALESCE(saldo_pendiente, assigned_cost_mxn)), 0) as cartera_total,
+        COUNT(*) as guias_pendientes
+      FROM packages
+      WHERE (payment_status IN ('pending', 'partial') OR payment_status IS NULL)
+        AND assigned_cost_mxn > 0
+        AND saldo_pendiente > 0
+    `);
+
+    // 4. Saldo en caja chica
+    const saldoCajaRes = await pool.query(`
+      SELECT 
+        COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE -monto END), 0) as saldo_caja
+      FROM caja_chica_transacciones
+    `);
+
+    // ============================================
+    // DATOS PARA GRÁFICAS
+    // ============================================
+
+    // Distribución por método de pago (mes actual)
+    const distribucionMetodos = {
+      efectivo: parseFloat(ingresosMesRes.rows[0].efectivo_mes),
+      spei: parseFloat(speiMesRes.rows[0].spei_mes)
+    };
+
+    // Ingresos por servicio
+    const ingresosPorServicioRes = await pool.query(`
+      SELECT 
+        COALESCE(p.service_type, 'otros') as servicio,
+        COUNT(*) as cantidad,
+        COALESCE(SUM(COALESCE(p.monto_pagado, 0)), 0) as monto_total
+      FROM packages p
+      WHERE p.payment_status = 'paid'
+        AND p.updated_at >= $1 AND p.updated_at <= $2
+      GROUP BY p.service_type
+      ORDER BY monto_total DESC
+    `, [startOfMonth, today]);
+
+    // ============================================
+    // TABLA DE CONCILIACIÓN (últimas transacciones)
+    // ============================================
+
+    // Unificar transacciones de efectivo y SPEI
+    const transaccionesUnificadas = await pool.query(`
+      (
+        SELECT 
+          t.id,
+          t.created_at as fecha_hora,
+          u.full_name as cliente,
+          t.monto as monto_bruto,
+          t.monto as monto_neto,
+          0 as comision,
+          'efectivo' as metodo,
+          t.concepto,
+          'Caja Chica' as origen,
+          COALESCE(
+            (SELECT string_agg(tracking_internal, ', ') 
+             FROM payment_applications pa 
+             JOIN packages p ON pa.package_id = p.id 
+             WHERE pa.transaction_id = t.id
+             LIMIT 5), 
+            'N/A'
+          ) as guias_pagadas,
+          'completado' as estatus_conciliacion
+        FROM caja_chica_transacciones t
+        LEFT JOIN users u ON t.cliente_id = u.id
+        WHERE t.tipo = 'ingreso' 
+          AND t.categoria = 'cobro_guias'
+          AND t.created_at >= $1 AND t.created_at <= $2
+      )
+      UNION ALL
+      (
+        SELECT 
+          owl.id,
+          owl.fecha_pago as fecha_hora,
+          u.full_name as cliente,
+          owl.monto_recibido as monto_bruto,
+          owl.monto_neto,
+          owl.monto_recibido - owl.monto_neto as comision,
+          'spei' as metodo,
+          owl.concepto,
+          fe.alias as origen,
+          COALESCE(
+            (SELECT string_agg(p.tracking_internal, ', ') 
+             FROM openpay_payment_applications opa 
+             JOIN packages p ON opa.package_id = p.id 
+             WHERE opa.webhook_log_id = owl.id
+             LIMIT 5),
+            'N/A'
+          ) as guias_pagadas,
+          owl.estatus_procesamiento as estatus_conciliacion
+        FROM openpay_webhook_logs owl
+        LEFT JOIN users u ON owl.user_id = u.id
+        LEFT JOIN fiscal_emitters fe ON owl.empresa_id = fe.id
+        WHERE owl.estatus_procesamiento = 'procesado'
+          AND owl.fecha_pago >= $1 AND owl.fecha_pago <= $2
+      )
+      ORDER BY fecha_hora DESC
+      LIMIT 100
+    `, [startDate, endDate]);
+
+    // Resumen de comisiones del mes (para contabilidad)
+    const comisionesRes = await pool.query(`
+      SELECT 
+        COALESCE(SUM(monto_recibido - monto_neto), 0) as comisiones_mes
+      FROM openpay_webhook_logs
+      WHERE fecha_pago >= $1 AND fecha_pago <= $2
+        AND estatus_procesamiento = 'procesado'
+    `, [startOfMonth, today]);
+
+    // KPIs calculados
+    const efectivoHoy = parseFloat(ingresosHoyRes.rows[0].efectivo_hoy);
+    const speiHoy = parseFloat(speiHoyRes.rows[0].spei_hoy);
+    const speiNetoHoy = parseFloat(speiHoyRes.rows[0].spei_neto_hoy);
+    const efectivoMes = parseFloat(ingresosMesRes.rows[0].efectivo_mes);
+    const speiMes = parseFloat(speiMesRes.rows[0].spei_mes);
+    const speiNetoMes = parseFloat(speiMesRes.rows[0].spei_neto_mes);
+
+    res.json({
+      success: true,
+      fecha_consulta: new Date(),
+      periodo: { desde: startDate, hasta: endDate },
+      
+      // KPIs principales
+      kpis: {
+        ingresos_hoy: efectivoHoy + speiHoy,
+        ingresos_hoy_neto: efectivoHoy + speiNetoHoy,
+        ingresos_mes: efectivoMes + speiMes,
+        ingresos_mes_neto: efectivoMes + speiNetoMes,
+        spei_hoy: speiHoy,
+        spei_hoy_neto: speiNetoHoy,
+        spei_mes: speiMes,
+        spei_mes_neto: speiNetoMes,
+        efectivo_hoy: efectivoHoy,
+        efectivo_mes: efectivoMes,
+        cartera_vencida: parseFloat(carteraRes.rows[0].cartera_total),
+        guias_pendientes: parseInt(carteraRes.rows[0].guias_pendientes),
+        saldo_caja: parseFloat(saldoCajaRes.rows[0].saldo_caja),
+        comisiones_mes: parseFloat(comisionesRes.rows[0].comisiones_mes)
+      },
+      
+      // Distribución para gráfica de pastel
+      distribucion_metodos: distribucionMetodos,
+      porcentajes: {
+        efectivo: distribucionMetodos.efectivo + distribucionMetodos.spei > 0 
+          ? ((distribucionMetodos.efectivo / (distribucionMetodos.efectivo + distribucionMetodos.spei)) * 100).toFixed(1)
+          : 0,
+        spei: distribucionMetodos.efectivo + distribucionMetodos.spei > 0 
+          ? ((distribucionMetodos.spei / (distribucionMetodos.efectivo + distribucionMetodos.spei)) * 100).toFixed(1)
+          : 0
+      },
+      
+      // Ingresos por servicio para gráfica de barras
+      ingresos_por_servicio: ingresosPorServicioRes.rows.map(r => ({
+        servicio: r.servicio,
+        cantidad: parseInt(r.cantidad),
+        monto: parseFloat(r.monto_total)
+      })),
+      
+      // Tabla de conciliación
+      transacciones: transaccionesUnificadas.rows.map(t => ({
+        id: t.id,
+        fecha_hora: t.fecha_hora,
+        cliente: t.cliente || 'Sin cliente',
+        monto_bruto: parseFloat(t.monto_bruto),
+        monto_neto: parseFloat(t.monto_neto),
+        comision: parseFloat(t.comision),
+        metodo: t.metodo,
+        concepto: t.concepto,
+        origen: t.origen,
+        guias_pagadas: t.guias_pagadas,
+        estatus: t.estatus_conciliacion
+      }))
+    });
+  } catch (error) {
+    console.error('Error getting finance dashboard:', error);
+    res.status(500).json({ error: 'Error obteniendo dashboard financiero' });
+  }
+});
+
+// Exportar datos a CSV para contabilidad
+app.get('/api/admin/finance/export', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { date_from, date_to, format = 'csv' } = req.query;
+    
+    const today = new Date();
+    const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const startDate = date_from ? new Date(date_from as string) : startOfMonth;
+    const endDate = date_to ? new Date(date_to as string) : today;
+
+    // Obtener todas las transacciones del período
+    const result = await pool.query(`
+      (
+        SELECT 
+          t.created_at as fecha,
+          u.full_name as cliente,
+          u.box_id,
+          t.monto as monto_bruto,
+          t.monto as monto_neto,
+          0 as comision_openpay,
+          'Efectivo' as metodo_pago,
+          'Caja Chica' as empresa_receptora,
+          t.concepto as concepto,
+          t.admin_name as registrado_por,
+          COALESCE(
+            (SELECT string_agg(p.tracking_internal || ' ($' || pa.monto_aplicado || ')', '; ') 
+             FROM payment_applications pa 
+             JOIN packages p ON pa.package_id = p.id 
+             WHERE pa.transaction_id = t.id), 
+            'Sin desglose'
+          ) as detalle_guias
+        FROM caja_chica_transacciones t
+        LEFT JOIN users u ON t.cliente_id = u.id
+        WHERE t.tipo = 'ingreso' 
+          AND t.categoria = 'cobro_guias'
+          AND t.created_at >= $1 AND t.created_at <= $2
+      )
+      UNION ALL
+      (
+        SELECT 
+          owl.fecha_pago as fecha,
+          u.full_name as cliente,
+          u.box_id,
+          owl.monto_recibido as monto_bruto,
+          owl.monto_neto,
+          owl.monto_recibido - owl.monto_neto as comision_openpay,
+          'Transferencia SPEI' as metodo_pago,
+          fe.alias as empresa_receptora,
+          owl.concepto,
+          'Sistema Automatizado' as registrado_por,
+          COALESCE(
+            (SELECT string_agg(p.tracking_internal || ' ($' || opa.monto_aplicado || ')', '; ') 
+             FROM openpay_payment_applications opa 
+             JOIN packages p ON opa.package_id = p.id 
+             WHERE opa.webhook_log_id = owl.id),
+            'Sin desglose'
+          ) as detalle_guias
+        FROM openpay_webhook_logs owl
+        LEFT JOIN users u ON owl.user_id = u.id
+        LEFT JOIN fiscal_emitters fe ON owl.empresa_id = fe.id
+        WHERE owl.estatus_procesamiento = 'procesado'
+          AND owl.fecha_pago >= $1 AND owl.fecha_pago <= $2
+      )
+      ORDER BY fecha DESC
+    `, [startDate, endDate]);
+
+    if (format === 'json') {
+      return res.json({ success: true, data: result.rows });
+    }
+
+    // Generar CSV
+    const headers = [
+      'Fecha',
+      'Cliente',
+      'Box ID',
+      'Monto Bruto',
+      'Monto Neto',
+      'Comision Openpay',
+      'Metodo Pago',
+      'Empresa Receptora',
+      'Concepto',
+      'Registrado Por',
+      'Detalle Guias'
+    ];
+
+    let csvContent = headers.join(',') + '\n';
+    
+    for (const row of result.rows) {
+      const values = [
+        new Date(row.fecha).toISOString().split('T')[0],
+        `"${(row.cliente || '').replace(/"/g, '""')}"`,
+        row.box_id || '',
+        row.monto_bruto,
+        row.monto_neto,
+        row.comision_openpay,
+        row.metodo_pago,
+        `"${(row.empresa_receptora || '').replace(/"/g, '""')}"`,
+        `"${(row.concepto || '').replace(/"/g, '""')}"`,
+        `"${(row.registrado_por || '').replace(/"/g, '""')}"`,
+        `"${(row.detalle_guias || '').replace(/"/g, '""')}"`
+      ];
+      csvContent += values.join(',') + '\n';
+    }
+
+    // Totales al final
+    const totalBruto = result.rows.reduce((sum, r) => sum + parseFloat(r.monto_bruto), 0);
+    const totalNeto = result.rows.reduce((sum, r) => sum + parseFloat(r.monto_neto), 0);
+    const totalComisiones = result.rows.reduce((sum, r) => sum + parseFloat(r.comision_openpay), 0);
+    
+    csvContent += '\n';
+    csvContent += `TOTALES,,,${totalBruto.toFixed(2)},${totalNeto.toFixed(2)},${totalComisiones.toFixed(2)},,,,\n`;
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename=reporte_cobranza_${startDate.toISOString().split('T')[0]}_a_${endDate.toISOString().split('T')[0]}.csv`);
+    res.send('\uFEFF' + csvContent); // BOM para Excel
+  } catch (error) {
+    console.error('Error exporting finance data:', error);
+    res.status(500).json({ error: 'Error exportando datos' });
   }
 });
 
@@ -2473,6 +2865,7 @@ app.get('/api/pobox/costing/packages', authenticateToken, getCostingPackages);
 app.put('/api/pobox/costing/packages/:id', authenticateToken, requireRole('super_admin'), updatePackageCost);
 app.post('/api/pobox/costing/mark-paid', authenticateToken, requireRole('super_admin'), markPackagesAsPaid);
 app.get('/api/pobox/costing/payment-history', authenticateToken, getPaymentHistory);
+app.get('/api/pobox/costing/utilidades', authenticateToken, requireRole('admin', 'super_admin'), getUtilidadesData);
 
 // ============================================
 // CONFIGURACIÓN TIPO DE CAMBIO

@@ -78,7 +78,21 @@ const calculateVolume = (length?: number, width?: number, height?: number): numb
 };
 
 // ============ CALCULAR COSTO PO BOX USA ============
-const calculatePOBoxCost = async (client: PoolClient, boxes: BoxItem[], gexCost?: number): Promise<{ totalMxn: number; cbm: number }> => {
+interface POBoxCostResult {
+    totalMxn: number;
+    cbm: number;
+    poboxServiceCost: number;     // Costo servicio PO Box
+    gexInsuranceCost: number;     // 5% valor asegurado
+    gexFixedCost: number;         // Cargo fijo GEX
+    gexTotalCost: number;         // Total GEX
+    declaredValueMxn: number;     // Valor declarado en MXN
+}
+
+const calculatePOBoxCost = async (
+    client: PoolClient, 
+    boxes: BoxItem[], 
+    gexData?: { included: boolean; costMxn?: number; insuranceCost?: number; fixedCost?: number; declaredValueMxn?: number }
+): Promise<POBoxCostResult> => {
     try {
         // 1. Calcular CBM total de todas las cajas
         let totalCbm = 0;
@@ -126,16 +140,32 @@ const calculatePOBoxCost = async (client: PoolClient, boxes: BoxItem[], gexCost?
             }
         }
 
-        // 5. Convertir a MXN y agregar costo GEX si aplica
-        const costoVolumenMxn = costoVolumenUsd * tipoCambio;
-        const totalMxn = costoVolumenMxn + (gexCost || 0);
+        // 5. Convertir a MXN - Este es el costo del servicio PO Box
+        const poboxServiceCost = costoVolumenUsd * tipoCambio;
+        
+        // 6. Extraer desglose de GEX
+        const gexInsuranceCost = gexData?.insuranceCost || 0;
+        const gexFixedCost = gexData?.fixedCost || 0;
+        const gexTotalCost = gexData?.costMxn || 0;
+        const declaredValueMxn = gexData?.declaredValueMxn || 0;
+        
+        // 7. Total = PO Box + GEX
+        const totalMxn = poboxServiceCost + gexTotalCost;
 
-        console.log(`💰 Costo PO Box calculado: CBM=${totalCbm.toFixed(4)}, USD=${costoVolumenUsd.toFixed(2)}, MXN=${costoVolumenMxn.toFixed(2)}, +GEX=${gexCost || 0}, Total=${totalMxn.toFixed(2)}`);
+        console.log(`💰 Costo PO Box calculado: CBM=${totalCbm.toFixed(4)}, Servicio=$${poboxServiceCost.toFixed(2)}, GEX=$${gexTotalCost.toFixed(2)} (Seguro:$${gexInsuranceCost.toFixed(2)} + Fijo:$${gexFixedCost.toFixed(2)}), Total=$${totalMxn.toFixed(2)}`);
 
-        return { totalMxn, cbm: totalCbm };
+        return { 
+            totalMxn, 
+            cbm: totalCbm,
+            poboxServiceCost,
+            gexInsuranceCost,
+            gexFixedCost,
+            gexTotalCost,
+            declaredValueMxn
+        };
     } catch (error) {
         console.error('Error calculando costo PO Box:', error);
-        return { totalMxn: 0, cbm: 0 };
+        return { totalMxn: 0, cbm: 0, poboxServiceCost: 0, gexInsuranceCost: 0, gexFixedCost: 0, gexTotalCost: 0, declaredValueMxn: 0 };
     }
 };
 
@@ -167,10 +197,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
             res.status(400).json({ error: 'El Box ID del cliente es requerido' });
             return;
         }
-        if (!description) {
-            res.status(400).json({ error: 'La descripción del paquete es requerida' });
-            return;
-        }
+        // Descripción ya no es obligatoria
         if (!boxes || boxes.length === 0) {
             res.status(400).json({ error: 'Debe agregar al menos una caja' });
             return;
@@ -257,14 +284,31 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
         const shouldAutoProcess = isLastMileShipment || hasDefaultUsaAddress;
         const initialStatus = shouldAutoProcess ? 'processing' : 'received';
 
-        // 💰 Calcular costo para PO Box USA
-        let assignedCostMxn = 0;
-        let singleCbm = 0;
+        // 💰 Calcular costo para PO Box USA con desglose
+        let costResult: POBoxCostResult = { 
+            totalMxn: 0, cbm: 0, poboxServiceCost: 0, 
+            gexInsuranceCost: 0, gexFixedCost: 0, gexTotalCost: 0, declaredValueMxn: 0 
+        };
+        
         if (serviceType === 'POBOX_USA') {
-            const gexCostMxn = gex?.included ? (gex.costMxn || 0) : 0;
-            const costResult = await calculatePOBoxCost(client, boxes as BoxItem[], gexCostMxn);
-            assignedCostMxn = costResult.totalMxn;
-            singleCbm = costResult.cbm;
+            // Calcular desglose de GEX: costMxn = 5% * insuredValueMxn + 625
+            // Entonces: insuranceCost = costMxn - 625, fixedCost = 625
+            const GEX_FIXED = 625;
+            const gexTotalCost = gex?.included ? (gex.costMxn || 0) : 0;
+            const gexInsuranceCost = gex?.included ? Math.max(0, gexTotalCost - GEX_FIXED) : 0;
+            const gexFixedCost = gex?.included ? GEX_FIXED : 0;
+            const declaredValueMxn = gex?.insuredValueMxn || 0;
+            
+            // Preparar datos de GEX con desglose
+            const gexData = gex?.included ? {
+                included: true,
+                costMxn: gexTotalCost,
+                insuranceCost: gexInsuranceCost,
+                fixedCost: gexFixedCost,
+                declaredValueMxn: declaredValueMxn
+            } : undefined;
+            
+            costResult = await calculatePOBoxCost(client, boxes as BoxItem[], gexData);
         }
 
         await client.query('BEGIN');
@@ -294,16 +338,18 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                   is_master, box_number, total_boxes, carrier,
                   destination_country, destination_city, destination_address, destination_zip, destination_phone, destination_contact, image_url,
                   service_type, warehouse_location, has_gex, consolidation_id,
-                  assigned_cost_mxn, single_cbm, saldo_pendiente, long_cm, width_cm, height_cm)
+                  assigned_cost_mxn, single_cbm, saldo_pendiente, long_cm, width_cm, height_cm,
+                  pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false, 1, 1, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
-                         $24, $25, $24, $6, $7, $8) 
+                         $24, $25, $24, $6, $7, $8, $26, $27, $28, $29, $30) 
                  RETURNING *`,
                 [user.id, masterTracking, trackingProvider || null, description, box.weight, 
                  box.length, box.width, box.height, declaredValue || null, notes || null, initialStatus,
                  carrier, destination.country, destination.city, destination.address, 
                  destination.zip || null, destination.phone || null, destination.contact || null, imageUrl || null,
                  serviceType, wLocation, hasGex, consolidationId,
-                 assignedCostMxn, singleCbm]
+                 costResult.totalMxn, costResult.cbm,
+                 costResult.poboxServiceCost, costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn]
             );
             masterPackage = result.rows[0];
             
@@ -323,16 +369,18 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                   declared_value, notes, status, is_master, box_number, total_boxes, carrier,
                   destination_country, destination_city, destination_address, destination_zip, destination_phone, destination_contact, image_url,
                   service_type, warehouse_location, has_gex, consolidation_id,
-                  assigned_cost_mxn, single_cbm, saldo_pendiente)
+                  assigned_cost_mxn, single_cbm, saldo_pendiente,
+                  pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, 0, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                         $22, $23, $22) 
+                         $22, $23, $22, $24, $25, $26, $27, $28) 
                  RETURNING *`,
                 [user.id, masterTracking, trackingProvider || null, description, totalWeight, 
                  declaredValue || null, notes || null, initialStatus, totalBoxes, carrier,
                  destination.country, destination.city, destination.address,
                  destination.zip || null, destination.phone || null, destination.contact || null, imageUrl || null,
                  serviceType, wLocation, hasGex, consolidationId,
-                 assignedCostMxn, singleCbm]
+                 costResult.totalMxn, costResult.cbm,
+                 costResult.poboxServiceCost, costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn]
             );
             masterPackage = masterResult.rows[0];
 

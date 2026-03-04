@@ -369,8 +369,8 @@ export const getCostingPackages = async (req: Request, res: Response): Promise<v
         const result = await pool.query(`
             SELECT 
                 p.id,
-                COALESCE(p.tracking_provider, p.tracking_internal) as tracking,
-                p.tracking_internal,
+                p.tracking_internal as tracking,
+                p.tracking_provider as tracking_origin,
                 COALESCE(p.pkg_length, 0) as pkg_length,
                 COALESCE(p.pkg_width, 0) as pkg_width,
                 COALESCE(p.pkg_height, 0) as pkg_height,
@@ -515,5 +515,113 @@ export const updatePackageCost = async (req: Request, res: Response): Promise<vo
     } catch (error) {
         console.error('Error actualizando costo del paquete:', error);
         res.status(500).json({ error: 'Error al actualizar costo' });
+    }
+};
+
+// Obtener datos de utilidades (Guía, Cliente, Costo, Costo de Venta, Utilidad)
+export const getUtilidadesData = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { date_from, date_to, payment_status } = req.query;
+        
+        // Construir condiciones de filtro
+        let dateFilter = '';
+        const params: any[] = [];
+        let paramIndex = 1;
+        
+        if (date_from) {
+            dateFilter += ` AND (p.received_at >= $${paramIndex} OR p.created_at >= $${paramIndex})`;
+            params.push(date_from);
+            paramIndex++;
+        }
+        if (date_to) {
+            dateFilter += ` AND (p.received_at <= $${paramIndex} OR p.created_at <= $${paramIndex})`;
+            params.push(date_to + ' 23:59:59');
+            paramIndex++;
+        }
+        if (payment_status === 'paid') {
+            dateFilter += ` AND p.costing_paid = TRUE`;
+        } else if (payment_status === 'unpaid') {
+            dateFilter += ` AND (p.costing_paid IS NULL OR p.costing_paid = FALSE)`;
+        }
+
+        // Obtener paquetes con desglose de costos guardado
+        const result = await pool.query(`
+            SELECT 
+                p.id,
+                p.tracking_internal as tracking,
+                p.tracking_provider as tracking_origin,
+                COALESCE(p.assigned_cost_mxn, 0) as assigned_cost,
+                COALESCE(p.pobox_service_cost, 0) as pobox_cost_saved,
+                COALESCE(p.gex_insurance_cost, 0) as gex_insurance,
+                COALESCE(p.gex_fixed_cost, 0) as gex_fixed,
+                COALESCE(p.gex_total_cost, 0) as gex_total,
+                COALESCE(p.declared_value_mxn, 0) as declared_value_mxn,
+                COALESCE(p.declared_value, 0) as declared_value,
+                COALESCE(p.pkg_length, 0) as pkg_length,
+                COALESCE(p.pkg_width, 0) as pkg_width,
+                COALESCE(p.pkg_height, 0) as pkg_height,
+                p.has_gex,
+                p.costing_paid,
+                p.received_at,
+                p.created_at,
+                u.full_name as user_name,
+                u.box_id as client_box_id,
+                COALESCE(u.full_name, 'Sin asignar') as client_name
+            FROM packages p
+            LEFT JOIN users u ON p.user_id = u.id
+            WHERE p.service_type = 'POBOX_USA'
+            ${dateFilter}
+            ORDER BY p.received_at DESC NULLS LAST, p.created_at DESC
+            LIMIT 1000
+        `, params);
+
+        // Obtener configuración de costeo para calcular el costo con la fórmula
+        const configResult = await pool.query(`
+            SELECT * FROM pobox_costing_config WHERE is_active = TRUE LIMIT 1
+        `);
+        
+        const config = configResult.rows[0] || {
+            conversion_factor: 2.45,
+            dimensional_divisor: 10780,
+            base_rate: 75,
+            min_cost: 50
+        };
+
+        // Mapear resultados - calcular costo con la fórmula de la calculadora
+        const packagesWithPrices = result.rows.map((pkg: any) => {
+            const length = parseFloat(pkg.pkg_length) || 0;
+            const width = parseFloat(pkg.pkg_width) || 0;
+            const height = parseFloat(pkg.pkg_height) || 0;
+            
+            // Calcular costo con la fórmula: (L × A × H × factor / divisor) × tarifa
+            const volumeRaw = length * width * height;
+            const volumeAdjusted = volumeRaw * parseFloat(config.conversion_factor);
+            let calculatedCost = (volumeAdjusted / parseFloat(config.dimensional_divisor)) * parseFloat(config.base_rate);
+            calculatedCost = Math.max(calculatedCost, parseFloat(config.min_cost));
+            
+            // Valores guardados
+            const poboxCostSaved = parseFloat(pkg.pobox_cost_saved) || 0;
+            const gexTotal = parseFloat(pkg.gex_total) || 0;
+            const assignedCost = parseFloat(pkg.assigned_cost) || 0;  // Costo de venta
+            
+            return {
+                ...pkg,
+                // Costo calculado (lo que nos cuesta, usando la fórmula de la calculadora)
+                calculated_cost: calculatedCost.toFixed(2),
+                // Desglose guardado
+                pobox_cost: poboxCostSaved.toFixed(2),
+                gex_insurance: parseFloat(pkg.gex_insurance || 0).toFixed(2),
+                gex_fixed: parseFloat(pkg.gex_fixed || 0).toFixed(2),
+                gex_total: gexTotal.toFixed(2),
+                // Costo de venta (assigned_cost_mxn)
+                sale_price: assignedCost.toFixed(2)
+            };
+        });
+
+        console.log(`💵 Utilidades: ${packagesWithPrices.length} paquetes encontrados`);
+        res.json({ packages: packagesWithPrices });
+    } catch (error) {
+        console.error('Error obteniendo datos de utilidades:', error);
+        res.status(500).json({ error: 'Error al obtener datos de utilidades' });
     }
 };

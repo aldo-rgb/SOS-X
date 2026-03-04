@@ -135,12 +135,12 @@ interface ExtractedBlData {
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: 'default' | 'warning' | 'info' | 'success' | 'error' | 'primary' }> = {
-  received_origin: { label: '📦 En Bodega China', color: 'warning' },
+  received_origin: { label: '📦 Recibido en China', color: 'warning' },
   consolidated: { label: '📋 Consolidado', color: 'info' },
-  in_transit: { label: '🚢 En Tránsito', color: 'primary' },
-  arrived_port: { label: '⚓ En Puerto', color: 'info' },
-  customs_cleared: { label: '✅ Despachado', color: 'success' },
-  received_cedis: { label: '🏠 En CEDIS', color: 'success' },
+  in_transit: { label: '🚢 Ya Zarpó', color: 'primary' },
+  arrived_port: { label: '⚓ Arribo a Puerto', color: 'info' },
+  customs_cleared: { label: '✅ Liberado', color: 'success' },
+  received_cedis: { label: '🏭 En CEDIS', color: 'success' },
 };
 
 interface TabPanelProps {

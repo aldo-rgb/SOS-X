@@ -726,12 +726,6 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
         }
       }
     }
-    if (activeStep === 3 && !description) {
-      const msg = i18n.language === 'es' ? '⚠️ Ingresa la descripción del contenido' : '⚠️ Enter content description';
-      setFormError(msg);
-      setSnackbar({ open: true, message: msg, severity: 'error' });
-      return;
-    }
     
     // Validar que se seleccionó paquetería
     if (activeStep === 3 && !carrier) {
@@ -2041,9 +2035,6 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                       placeholder={i18n.language === 'es' ? 'Ej: Ropa, Zapatos, Electrónicos...' : 'E.g.: Clothes, Shoes, Electronics...'}
                       value={description} 
                       onChange={(e) => setDescription(e.target.value)} 
-                      required 
-                      error={formError?.includes('descripción') || formError?.includes('description')}
-                      helperText={!description ? (i18n.language === 'es' ? '* Campo requerido' : '* Required field') : ''}
                       sx={{ mb: 3 }} 
                     />
                     

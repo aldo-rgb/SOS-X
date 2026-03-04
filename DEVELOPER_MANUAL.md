@@ -1,7 +1,7 @@
 # 📚 EntregaX - Manual del Programador
 
-> **Última actualización:** 3 de marzo de 2026  
-> **Versión:** 2.7.0
+> **Última actualización:** 4 de marzo de 2026  
+> **Versión:** 2.8.0
 
 ---
 
@@ -24,16 +24,17 @@
 15. [Sistema de Verificación KYC](#sistema-de-verificación-kyc)
 16. [Sistema de Pagos](#sistema-de-pagos)
 17. [Sistema de Pagos a Proveedores](#sistema-de-pagos-a-proveedores)
-18. [Sistema de Direcciones](#sistema-de-direcciones)
-19. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo)
-20. [Panel Marítimo China](#panel-marítimo-china)
-21. [Integración con OpenAI](#integración-con-openai)
-22. [DHL Monterrey - Costeo](#dhl-monterrey---costeo)
-23. [Tradlinx Ocean Visibility](#tradlinx-ocean-visibility---tracking-de-contenedores) ⭐ NUEVO
-24. [Módulos Implementados](#módulos-implementados)
-25. [Guía de Desarrollo](#guía-de-desarrollo)
-26. [Credenciales de Prueba](#credenciales-de-prueba)
-27. [Changelog](#changelog)
+18. [Openpay Multi-Empresa - Cobranza SPEI](#openpay-multi-empresa---cobranza-spei) ⭐ NUEVO
+19. [Sistema de Direcciones](#sistema-de-direcciones)
+20. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo)
+21. [Panel Marítimo China](#panel-marítimo-china)
+22. [Integración con OpenAI](#integración-con-openai)
+23. [DHL Monterrey - Costeo](#dhl-monterrey---costeo)
+24. [Tradlinx Ocean Visibility](#tradlinx-ocean-visibility---tracking-de-contenedores)
+25. [Módulos Implementados](#módulos-implementados)
+26. [Guía de Desarrollo](#guía-de-desarrollo)
+27. [Credenciales de Prueba](#credenciales-de-prueba)
+28. [Changelog](#changelog)
 
 ---
 
@@ -2049,6 +2050,434 @@ GET /api/supplier/payments?from=2026-01-01&to=2026-02-06
 
 ---
 
+## 🏦 Openpay Multi-Empresa - Cobranza SPEI
+
+### Descripción General
+
+Sistema de **cobranza automatizada por SPEI** utilizando Openpay. Cada empresa emisora (RFC) puede tener su propia cuenta Openpay configurada, permitiendo que los clientes paguen mediante transferencia bancaria a una **CLABE virtual única** asignada por STP (Sistema de Transferencias y Pagos).
+
+### Arquitectura del Sistema
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    OPENPAY MULTI-EMPRESA                            │
+│                   Cobranza SPEI Automatizada                        │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐          │
+│  │  Empresa 1   │    │  Empresa 2   │    │  Empresa N   │          │
+│  │  (RFC AAA)   │    │  (RFC BBB)   │    │  (RFC NNN)   │          │
+│  │  Openpay #1  │    │  Openpay #2  │    │  Openpay #N  │          │
+│  └──────┬───────┘    └──────┬───────┘    └──────┬───────┘          │
+│         │                   │                   │                    │
+│         └───────────────────┼───────────────────┘                    │
+│                             │                                        │
+│                    ┌────────▼────────┐                              │
+│                    │   Cliente con   │                              │
+│                    │  CLABE Virtual  │                              │
+│                    │  (STP Único)    │                              │
+│                    └────────┬────────┘                              │
+│                             │                                        │
+│                    ┌────────▼────────┐                              │
+│                    │   Transferencia │                              │
+│                    │      SPEI       │                              │
+│                    └────────┬────────┘                              │
+│                             │                                        │
+│                    ┌────────▼────────┐                              │
+│                    │    Webhook      │                              │
+│                    │  /webhooks/     │                              │
+│                    │  openpay/:id    │                              │
+│                    └────────┬────────┘                              │
+│                             │                                        │
+│                    ┌────────▼────────┐                              │
+│                    │   Conciliación  │                              │
+│                    │   Automática    │                              │
+│                    │     (FIFO)      │                              │
+│                    └─────────────────┘                              │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### Flujo de Pago SPEI
+
+```
+1. Admin configura Openpay para empresa emisora
+2. Sistema genera CLABE virtual única para cada cliente
+3. Cliente realiza transferencia SPEI a su CLABE
+4. Openpay notifica vía webhook
+5. Motor FIFO aplica pago a guías pendientes
+6. Se actualiza saldo del cliente automáticamente
+```
+
+### Base de Datos
+
+#### Columnas en `fiscal_emitters`
+```sql
+-- Configuración Openpay por empresa
+ALTER TABLE fiscal_emitters ADD COLUMN openpay_merchant_id VARCHAR(50);
+ALTER TABLE fiscal_emitters ADD COLUMN openpay_private_key TEXT;
+ALTER TABLE fiscal_emitters ADD COLUMN openpay_public_key TEXT;
+ALTER TABLE fiscal_emitters ADD COLUMN openpay_production_mode BOOLEAN DEFAULT FALSE;
+ALTER TABLE fiscal_emitters ADD COLUMN openpay_webhook_secret VARCHAR(100);
+ALTER TABLE fiscal_emitters ADD COLUMN openpay_commission_fee DECIMAL(10,2) DEFAULT 10.00;
+ALTER TABLE fiscal_emitters ADD COLUMN openpay_configured BOOLEAN DEFAULT FALSE;
+```
+
+#### Columnas en `users`
+```sql
+-- Relación CLABE-Usuario
+ALTER TABLE users ADD COLUMN openpay_customer_id VARCHAR(50);
+ALTER TABLE users ADD COLUMN virtual_clabe VARCHAR(18);
+ALTER TABLE users ADD COLUMN openpay_empresa_id INTEGER REFERENCES fiscal_emitters(id);
+ALTER TABLE users ADD COLUMN clabe_created_at TIMESTAMP;
+```
+
+#### Tabla `openpay_webhook_logs`
+```sql
+CREATE TABLE openpay_webhook_logs (
+    id SERIAL PRIMARY KEY,
+    transaction_id VARCHAR(100) NOT NULL,
+    empresa_id INTEGER REFERENCES fiscal_emitters(id),
+    user_id INTEGER REFERENCES users(id),
+    clabe_virtual VARCHAR(18),
+    monto_recibido DECIMAL(12,2) NOT NULL,
+    monto_neto DECIMAL(12,2),
+    concepto TEXT,
+    fecha_pago TIMESTAMP NOT NULL,
+    estatus_procesamiento VARCHAR(20) DEFAULT 'pendiente',
+    error_message TEXT,
+    payload_json JSONB NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP
+);
+```
+
+#### Tabla `openpay_payment_applications`
+```sql
+CREATE TABLE openpay_payment_applications (
+    id SERIAL PRIMARY KEY,
+    webhook_log_id INTEGER REFERENCES openpay_webhook_logs(id),
+    user_id INTEGER REFERENCES users(id),
+    package_id INTEGER REFERENCES packages(id),
+    monto_aplicado DECIMAL(12,2) NOT NULL,
+    saldo_anterior DECIMAL(12,2),
+    saldo_nuevo DECIMAL(12,2),
+    tipo_documento VARCHAR(20),
+    documento_referencia VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Endpoints API
+
+#### Configuración por Empresa
+
+```http
+# Listar empresas con estado Openpay
+GET /api/admin/openpay/empresas
+Authorization: Bearer {token}
+
+Response:
+[
+  {
+    "id": 1,
+    "alias": "Empresa Principal",
+    "rfc": "ABC123456XY9",
+    "business_name": "Mi Empresa SA de CV",
+    "openpay_configured": true,
+    "openpay_production_mode": false,
+    "openpay_merchant_id": "mxxxxxxxxx",
+    "clientes_con_clabe": 45
+  }
+]
+
+# Obtener configuración de una empresa
+GET /api/admin/openpay/config/:empresa_id
+Authorization: Bearer {token}
+
+Response:
+{
+  "id": 1,
+  "alias": "Empresa Principal",
+  "rfc": "ABC123456XY9",
+  "openpay_merchant_id": "mxxxxxxxxx",
+  "openpay_public_key": "pk_xxxxx",
+  "openpay_production_mode": false,
+  "openpay_commission_fee": 10.00,
+  "openpay_configured": true,
+  "has_private_key": "********"
+}
+
+# Guardar configuración Openpay
+POST /api/admin/openpay/config
+Authorization: Bearer {token}
+{
+  "empresa_id": 1,
+  "merchant_id": "mxxxxxxxxxxxxxxxxx",
+  "private_key": "sk_xxxxxxxxxxxxxxxx",
+  "public_key": "pk_xxxxxxxxxxxxxxxx",
+  "production_mode": false,
+  "webhook_secret": "opcional",
+  "commission_fee": 10.00
+}
+
+Response:
+{
+  "success": true,
+  "message": "Configuración Openpay guardada para Empresa Principal",
+  "webhook_url": "https://api.entregax.com/webhooks/openpay/1"
+}
+```
+
+#### Gestión de Clientes y CLABEs
+
+```http
+# Crear cliente Openpay y asignar CLABE
+POST /api/admin/openpay/create-customer
+Authorization: Bearer {token}
+{
+  "user_id": 123,
+  "empresa_id": 1
+}
+
+Response:
+{
+  "success": true,
+  "message": "Cliente creado y CLABE asignada",
+  "customer_id": "a1b2c3d4e5f6",
+  "clabe": "646180157000000001",
+  "empresa": "Empresa Principal"
+}
+
+# Generar CLABEs en lote
+POST /api/admin/openpay/generate-clabe-batch
+Authorization: Bearer {token}
+{
+  "empresa_id": 1,
+  "user_ids": [101, 102, 103, 104, 105]
+}
+
+Response:
+{
+  "success": true,
+  "total_procesados": 5,
+  "total_errores": 0,
+  "results": [
+    { "user_id": 101, "clabe": "646180157000000001", "status": "creada" },
+    { "user_id": 102, "clabe": "646180157000000002", "status": "creada" }
+  ],
+  "errors": []
+}
+
+# Obtener CLABE de un usuario
+GET /api/admin/openpay/user-clabe/:user_id
+Authorization: Bearer {token}
+
+Response:
+{
+  "user_id": 123,
+  "nombre": "Juan Pérez",
+  "clabe": "646180157000000001",
+  "banco_destino": "STP (Sistema de Transferencias y Pagos)",
+  "beneficiario": "Mi Empresa SA de CV",
+  "instrucciones": "Realiza tu transferencia SPEI a esta CLABE. El pago se aplicará automáticamente."
+}
+
+# Cliente obtiene su propia CLABE
+GET /api/my-clabe
+Authorization: Bearer {token}
+```
+
+#### Webhook de Openpay
+
+```http
+# Webhook público (recibe notificaciones de Openpay)
+POST /webhooks/openpay/:empresa_id
+
+# Payload de ejemplo (spei.received):
+{
+  "type": "spei.received",
+  "transaction": {
+    "id": "trx_abc123",
+    "amount": 1500.00,
+    "clabe": "646180157000000001",
+    "description": "Pago guía US-2026-0001",
+    "operation_date": "2026-03-04T10:30:00Z"
+  }
+}
+
+Response:
+{
+  "received": true,
+  "processed": true,
+  "cliente": "Juan Pérez",
+  "monto_recibido": 1500.00,
+  "monto_neto": 1490.00,
+  "guias_actualizadas": 2,
+  "saldo_favor": 0
+}
+```
+
+#### Reportes y Dashboard
+
+```http
+# Historial de pagos SPEI
+GET /api/admin/openpay/payments?empresa_id=1&date_from=2026-03-01&status=procesado
+Authorization: Bearer {token}
+
+Response:
+[
+  {
+    "id": 1,
+    "transaction_id": "trx_abc123",
+    "monto_recibido": 1500.00,
+    "monto_neto": 1490.00,
+    "concepto": "Pago guía",
+    "fecha_pago": "2026-03-04T10:30:00Z",
+    "estatus_procesamiento": "procesado",
+    "empresa_alias": "Empresa Principal",
+    "cliente_nombre": "Juan Pérez",
+    "guias_aplicadas": 2
+  }
+]
+
+# Dashboard de cobranza
+GET /api/admin/openpay/dashboard?empresa_id=1
+Authorization: Bearer {token}
+
+Response:
+{
+  "stats": {
+    "total_transacciones": 150,
+    "total_recibido": 125000.00,
+    "total_neto": 123500.00,
+    "procesados": 148,
+    "errores": 2,
+    "pendientes": 0
+  },
+  "ultimos_7_dias": [
+    { "fecha": "2026-03-04", "transacciones": 12, "monto": 8500.00 },
+    { "fecha": "2026-03-03", "transacciones": 18, "monto": 12300.00 }
+  ],
+  "clientes_con_clabe": 245
+}
+
+# Detalle de aplicaciones de un pago
+GET /api/admin/openpay/applications/:log_id
+Authorization: Bearer {token}
+
+Response:
+[
+  {
+    "id": 1,
+    "monto_aplicado": 800.00,
+    "saldo_anterior": 800.00,
+    "saldo_nuevo": 0.00,
+    "tipo_documento": "guia",
+    "documento_referencia": "US-2026-0001",
+    "tracking_internal": "US-2026-0001",
+    "guia_status": "delivered"
+  },
+  {
+    "id": 2,
+    "monto_aplicado": 690.00,
+    "saldo_anterior": 1200.00,
+    "saldo_nuevo": 510.00,
+    "tipo_documento": "guia",
+    "documento_referencia": "US-2026-0002"
+  }
+]
+```
+
+### Motor de Conciliación FIFO
+
+El sistema aplica los pagos recibidos automáticamente a las guías pendientes del cliente usando el método **FIFO** (First In, First Out):
+
+```typescript
+// Lógica de conciliación en openpayController.ts
+
+// 1. Obtener guías pendientes (ordenadas por fecha, más antiguas primero)
+const guiasPendientes = await pool.query(`
+    SELECT id, tracking_internal, saldo_pendiente, created_at
+    FROM packages 
+    WHERE user_id = $1 
+    AND (saldo_pendiente > 0 OR payment_status != 'paid')
+    ORDER BY created_at ASC
+`, [userId]);
+
+// 2. Aplicar pago secuencialmente
+for (const guia of guiasPendientes.rows) {
+    if (saldoDisponible <= 0) break;
+    
+    const montoAplicar = Math.min(saldoDisponible, guia.saldo_pendiente);
+    const nuevoSaldo = guia.saldo_pendiente - montoAplicar;
+    const nuevoStatus = nuevoSaldo <= 0 ? 'paid' : 'partial';
+    
+    // Actualizar guía
+    await pool.query(`
+        UPDATE packages SET 
+            saldo_pendiente = $1,
+            monto_pagado = COALESCE(monto_pagado, 0) + $2,
+            payment_status = $3
+        WHERE id = $4
+    `, [nuevoSaldo, montoAplicar, nuevoStatus, guia.id]);
+    
+    saldoDisponible -= montoAplicar;
+}
+
+// 3. Si queda saldo, se registra como crédito a favor
+```
+
+### Frontend - FiscalPage.tsx
+
+La configuración de Openpay se integra en la página de **Facturación Fiscal** (`/empresas`):
+
+```
+FiscalPage.tsx
+├── Tab "Mis Empresas"
+│   └── Tabla de empresas emisoras
+│       └── Columna "Openpay"
+│           ├── Chip "Configurar" (si no configurado)
+│           └── Chip "Prod" o "Sand" (si configurado)
+│               └── Click → Modal de configuración
+│
+└── Modal Configuración Openpay
+    ├── Merchant ID (requerido)
+    ├── Private Key (requerido)
+    ├── Public Key (opcional)
+    ├── Comisión STP ($8-12 MXN)
+    ├── Toggle Producción/Sandbox
+    └── Botón "Guardar y Verificar"
+```
+
+### Migración
+
+```bash
+# Ejecutar migración de Openpay Multi-Empresa
+cd entregax-backend-api
+psql -d entregax -f migrations/add_openpay_multiempresa.sql
+```
+
+### Seguridad
+
+1. **Claves privadas encriptadas** - Las private keys se almacenan en la BD
+2. **Webhook por empresa** - Cada empresa tiene su propio endpoint de webhook
+3. **Validación de duplicados** - Se verifica `transaction_id` antes de procesar
+4. **Logs completos** - Toda transacción se registra con payload JSON
+5. **Roles requeridos** - Solo DIRECTOR puede configurar Openpay
+
+### Configuración Openpay
+
+Para obtener las credenciales de Openpay:
+
+1. Crear cuenta en [openpay.mx](https://www.openpay.mx)
+2. Activar servicio SPEI (genera CLABEs virtuales)
+3. Obtener Merchant ID, Private Key y Public Key
+4. Configurar webhook apuntando a `/webhooks/openpay/{empresa_id}`
+5. Probar en Sandbox antes de activar Producción
+
+---
+
 ## 📍 Sistema de Direcciones
 
 ### Gestión de Direcciones de Envío
@@ -4055,6 +4484,22 @@ for (const mod of modules.rows) {
   `, [userId, mod.panel_key, mod.module_key]);
 }
 ```
+
+### v2.8.0 (4 Mar 2026) - OPENPAY MULTI-EMPRESA ⭐
+- ✅ **Openpay Multi-Empresa** - Cada RFC tiene su propia cuenta Openpay
+- ✅ **openpayController.ts** - Controlador completo (673 líneas)
+- ✅ **CLABEs Virtuales STP** - Cada cliente recibe CLABE única
+- ✅ **Webhook /webhooks/openpay/:empresa_id** - Recepción de pagos SPEI
+- ✅ **Motor FIFO de Conciliación** - Aplica pagos automáticamente a guías pendientes
+- ✅ **Tabla openpay_webhook_logs** - Registro de transacciones recibidas
+- ✅ **Tabla openpay_payment_applications** - Historial de aplicación de pagos
+- ✅ **Dashboard de Cobranza** - Estadísticas y reportes SPEI
+- ✅ **Generación de CLABEs en lote** - Batch para múltiples clientes
+- ✅ **Validación de credenciales** - Test de conexión al guardar
+- ✅ **Modo Sandbox/Producción** - Toggle por empresa
+- ✅ **Integración en FiscalPage** - Columna Openpay con modal de config
+- ✅ **Migración add_openpay_multiempresa.sql** - Estructura de BD completa
+- ✅ **Vista vw_openpay_payments** - Reporte consolidado de pagos
 
 ### v2.2.0 (6 Feb 2026) - API MJCUSTOMER CHINA TDI AÉREO ⭐
 - ✅ **Integración MJCustomer API** - Conexión con api.mjcustomer.com
