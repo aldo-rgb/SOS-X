@@ -37,7 +37,6 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import VideocamIcon from '@mui/icons-material/Videocam';
 
 // ============ CONSTANTES ============
-const CARRIERS = ['FedEx', 'UPS', 'DHL', 'Estafeta', 'Redpack', 'Paquetexpress', 'JT Express', 'CEDIS MTY', 'Otro'];
 const COUNTRIES_ES = ['México', 'Estados Unidos', 'Canadá', 'Guatemala', 'Colombia', 'España', 'Otro'];
 const COUNTRIES_EN = ['Mexico', 'United States', 'Canada', 'Guatemala', 'Colombia', 'Spain', 'Other'];
 
@@ -262,7 +261,7 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
   // Estado para opción de pago
   const [paymentOption, setPaymentOption] = useState<'now' | 'later' | null>(null);
   
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' });
 
   const wizardSteps = [
     { label: i18n.language === 'es' ? 'Agregar Cajas' : 'Add Boxes', icon: <Inventory2Icon /> },
