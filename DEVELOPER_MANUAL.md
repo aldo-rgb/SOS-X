@@ -1,7 +1,7 @@
 # 📚 EntregaX - Manual del Programador
 
-> **Última actualización:** 2 de marzo de 2026  
-> **Versión:** 2.6.0
+> **Última actualización:** 3 de marzo de 2026  
+> **Versión:** 2.7.0
 
 ---
 
@@ -862,14 +862,34 @@ Flujo de Confirmación:
 // src/services/api.ts
 import axios from 'axios';
 
+// ⚠️ Actualizar con tu IP local (obtener con: ifconfig en0 | grep 'inet ')
 const api = axios.create({
-  baseURL: 'http://192.168.1.126:3001/api',  // Tu IP local
+  baseURL: 'http://192.168.1.107:3001/api',  // Tu IP local + puerto 3001
   timeout: 10000,
   headers: { 'Content-Type': 'application/json' }
 });
 
 export default api;
 ```
+
+### Endpoints Mobile App (con prefijo /api)
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| POST | `/api/auth/login` | Login de usuario |
+| GET | `/api/auth/profile` | Obtener perfil (incluye RFC) |
+| POST | `/api/auth/change-password` | Cambiar contraseña |
+| PUT | `/api/auth/update-profile` | Actualizar perfil (phone, RFC) |
+| POST | `/api/auth/2fa/enable` | Habilitar 2FA |
+| POST | `/api/auth/2fa/disable` | Deshabilitar 2FA |
+| GET | `/api/legacy/verify/:boxId` | Verificar casillero existente |
+| POST | `/api/legacy/verify-name` | Verificar nombre de cliente |
+| POST | `/api/legacy/claim` | Reclamar cuenta (usa `newPassword`) |
+
+### Terminología "Suite" (antes "Casillero")
+La app utiliza "Suite" como término para el número de cliente:
+- `es.json`: "Mi Suite", "Número de Suite"
+- Header en HomeScreen: "🏠 Suite: S4001"
+- MyProfileScreen: Muestra Suite con icono de casa
 
 ### Navegación (React Navigation 7)
 ```typescript
@@ -2733,6 +2753,87 @@ Dos tipos de carga con diferentes formatos de referencia:
 | **FCL** (Full Container Load) | `RUTA / AAA00-0000` | CHN-LZC-MXC / JSM25-0001 |
 | **LCL** (Less than Container Load) | `RUTA / Week 0-0 / AAA00-0000` | CHN-LZC-MXC / Week 8-1 / JSM25-0001 |
 
+### 🆕 Asignación Automática de Clientes FCL (v2.7.0)
+
+Cuando se recibe un email FCL, el sistema extrae automáticamente el cliente del asunto del email.
+
+#### Función `extractClientFromSubject()`
+
+```typescript
+// emailInboundController.ts
+const extractClientFromSubject = async (subject: string): Promise<ClientInfo | null> => {
+  // Patrones comunes: "FCL para S87", "FCL S87 - Cliente", "S87"
+  const patterns = [
+    /(?:FCL|contenedor)\s+(?:para\s+)?([A-Z]\d+)/i,  // FCL para S87
+    /([A-Z]\d{2,5})\s*[-–]/i,                         // S87 -
+    /\b([A-Z]\d{2,5})\b/i                             // Solo S87
+  ];
+
+  for (const pattern of patterns) {
+    const match = subject.match(pattern);
+    if (match) {
+      const boxId = match[1].toUpperCase();
+      
+      // Buscar en legacy_clients
+      const legacyResult = await pool.query(
+        'SELECT id, box_id, full_name FROM legacy_clients WHERE UPPER(box_id) = $1',
+        [boxId]
+      );
+      
+      if (legacyResult.rows.length > 0) {
+        const client = legacyResult.rows[0];
+        return {
+          clientCode: client.box_id,
+          clientId: client.id,
+          source: 'legacy_clients'
+        };
+      }
+      
+      // Buscar en users
+      const userResult = await pool.query(
+        'SELECT id, box_id, full_name FROM users WHERE UPPER(box_id) = $1',
+        [boxId]
+      );
+      
+      if (userResult.rows.length > 0) {
+        const user = userResult.rows[0];
+        return {
+          clientCode: user.box_id,
+          clientId: user.id,
+          source: 'users'
+        };
+      }
+    }
+  }
+  return null;
+};
+```
+
+#### Flujo Automático
+
+```
+Email Entrante (Subject: "FCL S87 - Urban WOD")
+         │
+         ▼
+extractClientFromSubject("FCL S87 - Urban WOD")
+         │
+         ▼
+Busca "S87" en legacy_clients → { id: 123, box_id: "S87" }
+         │
+         ▼
+INSERT INTO containers (... client_user_id, legacy_client_id ...)
+         │
+         ▼
+Container creado con cliente asignado automáticamente
+```
+
+#### Columnas en `containers`
+```sql
+-- Cliente asignado al contenedor
+client_user_id INTEGER REFERENCES users(id),
+legacy_client_id INTEGER REFERENCES legacy_clients(id)
+```
+
 #### Campos de Modal FCL
 ```typescript
 // Estado
@@ -2947,6 +3048,59 @@ Esto enviará las peticiones a `https://sandbox.api.tradlinx.com/v1` en lugar de
 | `container_tracking_logs` | Tabla de logs de tracking |
 | `containers.tradlinx_reference_id` | Reference ID de la suscripción |
 
+### 🆕 Panel de Costeo Marítimo - Mejoras UX (v2.7.0)
+
+#### Autocomplete para Selección de Cliente
+
+El selector de cliente en contenedores FCL ahora usa **Autocomplete** con búsqueda flexible:
+
+```tsx
+// CostingPanelMaritimo.tsx
+<Autocomplete
+  options={legacyClients}
+  getOptionLabel={(option) => option.box_id || ''}
+  isOptionEqualToValue={(opt, val) => opt.id === val?.id}
+  filterOptions={(options, { inputValue }) => {
+    const search = inputValue.toLowerCase();
+    return options.filter(opt =>
+      (opt.box_id || '').toLowerCase().includes(search) ||
+      (opt.full_name || '').toLowerCase().includes(search)
+    );
+  }}
+  renderInput={(params) => (
+    <TextField {...params} label="Cliente" size="small" />
+  )}
+  onChange={(e, val) => handleClientChange(row.id, val?.id)}
+/>
+```
+
+#### Características del Autocomplete:
+- **Búsqueda por box_id**: Escribir "S87" encuentra al cliente
+- **Búsqueda por nombre**: Escribir "Urban" encuentra "Urban WOD"
+- **Visualización limpia**: Solo muestra el box_id (ej: "S87"), no el nombre completo
+- **filterOptions personalizado**: Búsqueda en ambos campos simultáneamente
+
+#### Corrección de Conteo de Paquetes
+
+El panel ahora muestra `total_packages` en lugar de `shipment_count`:
+
+```typescript
+// fetchContainers response mapping
+const containersWithPackageCount = containers.map(c => ({
+  ...c,
+  total_packages: c.total_packages || 0  // Antes usaba shipment_count
+}));
+```
+
+#### fetchLegacyClients Corregido
+
+```typescript
+// CostingPanelMaritimo.tsx - fetchLegacyClients
+const res = await api.get('/api/legacy/clients');
+setLegacyClients(res.data.clients);  // ✅ Correcto: accede a .clients
+// setLegacyClients(res.data);       // ❌ Incorrecto: causa "map is not a function"
+```
+
 ---
 
 ## 📦 Módulos Implementados
@@ -3137,6 +3291,82 @@ curl -s "http://localhost:3001/api/warehouse/stats" \
 ---
 
 ## 📝 Changelog
+
+### v2.7.0 (3 Mar 2026) - MOBILE APP SUITE & FCL CONTAINER IMPROVEMENTS ⭐
+
+#### Mobile App - Cambio de Terminología "Casillero" → "Suite"
+- ✅ **Rebrand completo** - Toda la app ahora usa "Suite" en lugar de "Casillero"
+- ✅ **es.json** - Actualizadas traducciones: "Mi Suite", "Número de Suite", etc.
+- ✅ **LoginScreen.tsx** - Labels actualizados a Suite
+- ✅ **HomeScreen.tsx** - Header muestra "🏠 Suite: {boxId}"
+- ✅ **RegisterScreen.tsx** - Nuevo campo de Suite en registro
+- ✅ **MyProfileScreen.tsx** - Perfil muestra Suite con icono 🏠
+
+#### Mobile App - Conectividad API Corregida
+- ✅ **api.ts** - IP actualizada de `192.168.1.114` a `192.168.1.107:3001`
+- ✅ **ExistingClientScreen.tsx** - Prefijo `/api` agregado a todos los endpoints
+  - `/api/legacy/verify/` - Verificar casillero existente
+  - `/api/legacy/verify-name` - Verificar nombre
+  - `/api/legacy/claim` - Reclamar cuenta (cambio `password` → `newPassword`)
+- ✅ **MyProfileScreen.tsx** - Prefijo `/api` agregado:
+  - `/api/auth/change-password`
+  - `/api/auth/2fa/enable`
+  - `/api/auth/2fa/disable`
+  - `/api/auth/update-profile`
+
+#### Mobile App - RFC Persistencia
+- ✅ **authController.ts** - Login response ahora incluye `rfc: user.rfc || null`
+- ✅ **getProfile query** - Ahora incluye `phone, rfc` en SELECT
+
+#### FCL Container - Asignación Automática de Cliente
+- ✅ **extractClientFromSubject()** - Nueva función que extrae cliente del asunto del email
+- ✅ **Formato soportado** - Detecta patrones como "FCL para S87" o "FCL S87 - Cliente"
+- ✅ **emailInboundController.ts** - FCL draft ahora incluye `clientInfo.clientCode` y `clientInfo.clientId`
+- ✅ **INSERT containers** - Ahora incluye `client_user_id` y `legacy_client_id` automáticamente
+
+#### FCL Container Panel - UX Improvements
+- ✅ **CostingPanelMaritimo.tsx** - Autocomplete para selección de cliente (reemplaza Select)
+- ✅ **filterOptions personalizado** - Búsqueda flexible que encuentra por S87, nombre o ambos
+- ✅ **Visualización simplificada** - Solo muestra box_id (ej: "S87") sin nombre
+- ✅ **Package count fix** - Ahora muestra `total_packages` en lugar de `shipment_count`
+- ✅ **fetchLegacyClients** - Corregido para usar `res.data.clients` en lugar de `res.data`
+
+#### Script de Corrección de Referencias
+- ✅ **fix_reference.js** - Script para corregir referencias en containers y maritime_orders
+- ✅ **Ejemplo** - Cambió "0013" → "JSM26-0013" en todas las tablas relacionadas
+
+#### Archivos Modificados
+```
+entregax-mobile-app/
+├── src/services/api.ts           # IP actualizada
+├── src/i18n/locales/es.json      # Casillero → Suite
+├── src/screens/
+│   ├── LoginScreen.tsx           # Suite terminology
+│   ├── HomeScreen.tsx            # Suite header
+│   ├── RegisterScreen.tsx        # Suite fields
+│   ├── ExistingClientScreen.tsx  # /api prefix + newPassword
+│   ├── MyProfileScreen.tsx       # /api prefix + RFC + Suite
+│   └── ChangePasswordScreen.tsx  # Suite terminology
+
+entregax-backend-api/
+├── src/authController.ts         # RFC in login + getProfile
+├── src/emailInboundController.ts # extractClientFromSubject()
+└── fix_reference.js              # Script de corrección
+
+entregax-web-admin/
+└── src/pages/CostingPanelMaritimo.tsx  # Autocomplete + package count
+```
+
+#### Configuración Local de Desarrollo
+```bash
+# IP del servidor backend local
+API_URL=http://192.168.1.107:3001
+
+# Para obtener tu IP local:
+ifconfig en0 | grep 'inet ' | awk '{print $2}'
+```
+
+---
 
 ### v2.6.0 (2 Mar 2026) - TRADLINX OCEAN VISIBILITY ⭐
 

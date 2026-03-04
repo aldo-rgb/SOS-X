@@ -69,6 +69,8 @@ interface ChinaReceipt {
     client_name: string | null;
     client_box_id: string | null;
     package_count: number;
+    is_registered?: boolean;
+    legacy_name?: string | null;
 }
 
 interface ChinaPackage {
@@ -170,7 +172,7 @@ function ReceiptRow({
                     </Typography>
                 </TableCell>
                 <TableCell>
-                    {receipt.user_id ? (
+                    {receipt.is_registered || receipt.user_id ? (
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <Avatar sx={{ width: 28, height: 28, bgcolor: '#F05A28', fontSize: 12 }}>
                                 {receipt.client_name?.charAt(0) || '?'}
@@ -181,6 +183,20 @@ function ReceiptRow({
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary">
                                     {receipt.shipping_mark}
+                                </Typography>
+                            </Box>
+                        </Box>
+                    ) : receipt.legacy_name ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Avatar sx={{ width: 28, height: 28, bgcolor: '#9E9E9E', fontSize: 12 }}>
+                                {receipt.legacy_name?.charAt(0) || '?'}
+                            </Avatar>
+                            <Box>
+                                <Typography variant="body2" fontWeight={500} color="text.secondary">
+                                    {receipt.legacy_name}
+                                </Typography>
+                                <Typography variant="caption" color="warning.main">
+                                    {receipt.shipping_mark} (Legacy)
                                 </Typography>
                             </Box>
                         </Box>

@@ -97,14 +97,39 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
         await client.query('BEGIN');
 
         // 1. IDENTIFICAR CLIENTE por Shipping Mark
-        // Buscamos si existe un usuario con ese box_id o algún campo de identificación
+        // Primero buscamos en users, luego en legacy_clients
+        let userId = null;
+        let userName = 'Sin asignar';
+        
+        // Buscar en users primero
         const userCheck = await client.query(
-            `SELECT id, full_name FROM users WHERE box_id = $1 OR box_id ILIKE $2`,
-            [payload.shippingMark, `%${payload.shippingMark}%`]
+            `SELECT id, full_name FROM users WHERE UPPER(box_id) = UPPER($1)`,
+            [payload.shippingMark]
         );
         
-        const userId = userCheck.rows.length > 0 ? userCheck.rows[0].id : null;
-        const userName = userCheck.rows.length > 0 ? userCheck.rows[0].full_name : 'Sin asignar';
+        if (userCheck.rows.length > 0) {
+            userId = userCheck.rows[0].id;
+            userName = userCheck.rows[0].full_name;
+        } else {
+            // Buscar en legacy_clients y verificar si está reclamado
+            const legacyCheck = await client.query(
+                `SELECT lc.box_id, lc.full_name, lc.claimed_by_user_id, u.full_name as claimed_name
+                 FROM legacy_clients lc
+                 LEFT JOIN users u ON lc.claimed_by_user_id = u.id
+                 WHERE UPPER(lc.box_id) = UPPER($1)`,
+                [payload.shippingMark]
+            );
+            
+            if (legacyCheck.rows.length > 0) {
+                const legacy = legacyCheck.rows[0];
+                if (legacy.claimed_by_user_id) {
+                    userId = legacy.claimed_by_user_id;
+                    userName = legacy.claimed_name || legacy.full_name;
+                } else {
+                    userName = `${legacy.full_name} (Legacy: ${legacy.box_id})`;
+                }
+            }
+        }
         
         console.log(`  → Cliente identificado: ${userName} (ID: ${userId || 'N/A'})`);
 
@@ -269,11 +294,14 @@ export const getChinaReceipts = async (req: Request, res: Response): Promise<any
         let query = `
             SELECT 
                 cr.*,
-                u.full_name as client_name,
-                u.box_id as client_box_id,
+                COALESCE(u.full_name, lc.full_name, 'Sin asignar') as client_name,
+                COALESCE(u.box_id, lc.box_id) as client_box_id,
+                CASE WHEN u.id IS NOT NULL THEN true ELSE false END as is_registered,
+                lc.full_name as legacy_name,
                 (SELECT COUNT(*) FROM packages WHERE china_receipt_id = cr.id) as package_count
             FROM china_receipts cr
             LEFT JOIN users u ON cr.user_id = u.id
+            LEFT JOIN legacy_clients lc ON UPPER(cr.shipping_mark) = UPPER(lc.box_id)
         `;
         const params: any[] = [];
         
@@ -323,12 +351,26 @@ export const createChinaReceipt = async (req: Request, res: Response): Promise<a
             });
         }
 
-        // Buscar cliente por shipping_mark (box_id)
-        const clientResult = await pool.query(
-            'SELECT id FROM users WHERE box_id ILIKE $1 LIMIT 1',
+        // Buscar cliente por shipping_mark - primero en users, luego en legacy_clients
+        let userId = null;
+        
+        const userResult = await pool.query(
+            'SELECT id FROM users WHERE UPPER(box_id) = UPPER($1) LIMIT 1',
             [shipping_mark]
         );
-        const userId = clientResult.rows.length > 0 ? clientResult.rows[0].id : null;
+        
+        if (userResult.rows.length > 0) {
+            userId = userResult.rows[0].id;
+        } else {
+            // Buscar en legacy_clients si está reclamado
+            const legacyResult = await pool.query(
+                'SELECT claimed_by_user_id FROM legacy_clients WHERE UPPER(box_id) = UPPER($1) AND claimed_by_user_id IS NOT NULL LIMIT 1',
+                [shipping_mark]
+            );
+            if (legacyResult.rows.length > 0) {
+                userId = legacyResult.rows[0].claimed_by_user_id;
+            }
+        }
 
         // Insertar recepción
         const result = await pool.query(`
@@ -364,11 +406,14 @@ export const getChinaReceiptDetail = async (req: Request, res: Response): Promis
         const receiptResult = await pool.query(`
             SELECT 
                 cr.*,
-                u.full_name as client_name,
-                u.email as client_email,
-                u.box_id as client_box_id
+                COALESCE(u.full_name, lc.full_name, 'Sin asignar') as client_name,
+                COALESCE(u.email, lc.email) as client_email,
+                COALESCE(u.box_id, lc.box_id) as client_box_id,
+                lc.full_name as legacy_name,
+                CASE WHEN u.id IS NOT NULL THEN true ELSE false END as is_registered
             FROM china_receipts cr
             LEFT JOIN users u ON cr.user_id = u.id
+            LEFT JOIN legacy_clients lc ON UPPER(cr.shipping_mark) = UPPER(lc.box_id)
             WHERE cr.id = $1
         `, [id]);
 

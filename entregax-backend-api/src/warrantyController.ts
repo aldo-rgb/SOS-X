@@ -78,9 +78,19 @@ export const quoteWarranty = async (req: Request, res: Response): Promise<void> 
             return;
         }
         
-        // Obtener tipo de cambio actual
-        const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
-        const fxRate = parseFloat(fxRes.rows[0]?.rate || '20.50');
+        // Obtener tipo de cambio de la configuración por servicio (GEX)
+        const fxConfigRes = await pool.query(
+            "SELECT tipo_cambio_final, ultimo_tc_api, sobreprecio FROM exchange_rate_config WHERE servicio = 'gex' AND estado = TRUE"
+        );
+        
+        let fxRate: number;
+        if (fxConfigRes.rows.length > 0 && fxConfigRes.rows[0].tipo_cambio_final) {
+            fxRate = parseFloat(fxConfigRes.rows[0].tipo_cambio_final);
+        } else {
+            // Fallback a la tabla exchange_rates si no existe config para GEX
+            const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
+            fxRate = parseFloat(fxRes.rows[0]?.rate || '20.50');
+        }
         
         // Obtener tarifas GEX de la BD
         const gexRates = await getGexRates();
@@ -127,9 +137,19 @@ export const createWarranty = async (req: AuthRequest, res: Response): Promise<v
             return;
         }
         
-        // Obtener tipo de cambio actual
-        const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
-        const fxRate = parseFloat(fxRes.rows[0]?.rate || '20.50');
+        // Obtener tipo de cambio de la configuración por servicio (GEX)
+        const fxConfigRes = await pool.query(
+            "SELECT tipo_cambio_final FROM exchange_rate_config WHERE servicio = 'gex' AND estado = TRUE"
+        );
+        
+        let fxRate: number;
+        if (fxConfigRes.rows.length > 0 && fxConfigRes.rows[0].tipo_cambio_final) {
+            fxRate = parseFloat(fxConfigRes.rows[0].tipo_cambio_final);
+        } else {
+            // Fallback a la tabla exchange_rates si no existe config para GEX
+            const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
+            fxRate = parseFloat(fxRes.rows[0]?.rate || '20.50');
+        }
         
         // Obtener tarifas GEX de la BD
         const gexRates = await getGexRates();

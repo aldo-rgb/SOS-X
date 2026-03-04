@@ -93,7 +93,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
       case 'delivered':
         return { label: 'Entregado', color: '#4CAF50', icon: 'check-circle' };
       default:
-        return { label: status, color: '#999', icon: 'package' };
+        return { label: status, color: '#999999', icon: 'package' };
     }
   };
 
@@ -259,6 +259,83 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
             >
               {address ? 'Modificar Instrucciones' : 'Asignar Dirección'}
             </Button>
+          </Card.Content>
+        </Card>
+
+        {/* Desglose de Costos */}
+        <Card style={styles.costsCard}>
+          <Card.Content>
+            <View style={styles.sectionHeader}>
+              <MaterialCommunityIcons name="currency-usd" size={22} color={SEA_COLOR} />
+              <Text style={styles.sectionTitle}>Desglose de Costos</Text>
+            </View>
+            <Divider style={styles.divider} />
+
+            {/* Costo del servicio marítimo */}
+            {((pkg as any).assigned_cost_mxn ?? 0) > 0 ? (
+              <>
+                <View style={styles.costRow}>
+                  <Text style={styles.costLabel}>🚢 Servicio Marítimo</Text>
+                  <Text style={styles.costValue}>
+                    ${(() => {
+                      const gexRate = 0.05; // 5%
+                      const gexExchange = 18.15;
+                      const gexFixedFee = 625;
+                      const gexCost = pkg.has_gex && pkg.declared_value 
+                        ? (pkg.declared_value * gexRate * gexExchange) + gexFixedFee
+                        : 0;
+                      return (((pkg as any).assigned_cost_mxn || 0) - gexCost).toFixed(2);
+                    })()} MXN
+                  </Text>
+                </View>
+
+                {/* Costo GEX si está contratado - desglosado */}
+                {pkg.has_gex && pkg.declared_value && (
+                  <>
+                    <View style={styles.costRow}>
+                      <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• 5% Valor Asegurado</Text>
+                      <Text style={styles.costValue}>${(pkg.declared_value * 0.05 * 18.15).toFixed(2)} MXN</Text>
+                    </View>
+                    <View style={styles.costRow}>
+                      <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• Cargo Fijo GEX</Text>
+                      <Text style={styles.costValue}>$625.00 MXN</Text>
+                    </View>
+                    <View style={styles.costRow}>
+                      <Text style={[styles.costLabel, { fontWeight: '600' }]}>🛡️ Subtotal Garantía Extendida</Text>
+                      <Text style={[styles.costValue, { color: ORANGE }]}>${((pkg.declared_value * 0.05 * 18.15) + 625).toFixed(2)} MXN</Text>
+                    </View>
+                  </>
+                )}
+
+                {/* Monto ya pagado */}
+                {((pkg as any).monto_pagado ?? 0) > 0 && (
+                  <View style={styles.costRow}>
+                    <Text style={styles.costLabel}>✅ Monto Pagado</Text>
+                    <Text style={[styles.costValue, { color: '#4CAF50' }]}>-${((pkg as any).monto_pagado || 0).toFixed(2)} MXN</Text>
+                  </View>
+                )}
+
+                <Divider style={styles.divider} />
+                <View style={styles.totalRow}>
+                  <Text style={styles.totalLabel}>
+                    {((pkg as any).saldo_pendiente ?? (pkg as any).assigned_cost_mxn ?? 0) > 0 ? 'SALDO PENDIENTE' : 'PAGADO'}
+                  </Text>
+                  <Text style={[
+                    styles.totalValue, 
+                    { color: ((pkg as any).saldo_pendiente ?? (pkg as any).assigned_cost_mxn ?? 0) > 0 ? ORANGE : '#4CAF50' }
+                  ]}>
+                    ${((pkg as any).saldo_pendiente ?? (pkg as any).assigned_cost_mxn ?? 0).toFixed(2)} MXN
+                  </Text>
+                </View>
+              </>
+            ) : (
+              <View style={styles.noCostsContainer}>
+                <MaterialCommunityIcons name="information-outline" size={24} color="#666" />
+                <Text style={styles.noCostsText}>
+                  Los costos se calcularán cuando el embarque sea procesado
+                </Text>
+              </View>
+            )}
           </Card.Content>
         </Card>
 
@@ -461,6 +538,54 @@ const styles = StyleSheet.create({
   },
   editButton: {
     borderRadius: 8,
+  },
+  costsCard: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 16,
+    elevation: 2,
+  },
+  costRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  costLabel: {
+    fontSize: 14,
+    color: '#333',
+  },
+  costValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: BLACK,
+  },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  totalLabel: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: BLACK,
+  },
+  totalValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: ORANGE,
+  },
+  noCostsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  noCostsText: {
+    marginLeft: 12,
+    fontSize: 13,
+    color: '#666',
+    flex: 1,
   },
   gexCard: {
     marginHorizontal: 16,

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   View,
   ScrollView,
@@ -9,6 +9,7 @@ import {
   Platform,
   Dimensions,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import {
   Text,
@@ -33,8 +34,8 @@ const BACKGROUND = '#F4F6F8';
 
 const { width } = Dimensions.get('window');
 
-// Constantes de pricing
-const EXCHANGE_RATE = 20.50;
+// Constantes de pricing (solo fallback)
+const DEFAULT_EXCHANGE_RATE = 17.82;
 const FIXED_FEE = 625;
 const VARIABLE_RATE = 0.05; // 5%
 
@@ -58,6 +59,10 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
   const { package: pkg, user, token } = route.params;
   const signatureRef = useRef<SignatureViewRef>(null);
   
+  // 💱 Estado para tipo de cambio desde API
+  const [exchangeRate, setExchangeRate] = useState<number>(DEFAULT_EXCHANGE_RATE);
+  const [loadingRate, setLoadingRate] = useState<boolean>(true);
+
   // Determinar ruta basada en service_type o warehouse_location
   const getRoute = (): string => {
     if (pkg.service_type === 'POBOX_USA' || pkg.warehouse_location === 'usa_pobox') {
@@ -74,6 +79,41 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
     }
     return 'China → México (Aéreo)';
   };
+
+  // 💱 Obtener tipo de cambio desde API al montar
+  useEffect(() => {
+    const fetchExchangeRate = async () => {
+      try {
+        setLoadingRate(true);
+        // Usar el endpoint de cotización GEX que ya incluye el tipo de cambio
+        const response = await fetch(`${API_URL}/api/gex/quote`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            invoiceValueUsd: 100, // Valor dummy para obtener el tipo de cambio
+          }),
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.exchangeRate) {
+            setExchangeRate(data.exchangeRate);
+            console.log('💱 Tipo de cambio obtenido:', data.exchangeRate);
+          }
+        }
+      } catch (error) {
+        console.error('Error obteniendo tipo de cambio:', error);
+        // Mantener el valor por defecto si falla
+      } finally {
+        setLoadingRate(false);
+      }
+    };
+
+    fetchExchangeRate();
+  }, [token]);
 
   // Estado del paso actual
   const [currentStep, setCurrentStep] = useState<Step>('form');
@@ -92,7 +132,7 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
   // 💰 COTIZACIÓN EN TIEMPO REAL
   const estimatedCost = useMemo(() => {
     const valueUsd = parseFloat(formData.invoiceValue) || 0;
-    const valueMxn = valueUsd * EXCHANGE_RATE;
+    const valueMxn = valueUsd * exchangeRate;
     const variableFee = valueMxn * VARIABLE_RATE;
     const total = variableFee + FIXED_FEE;
 
@@ -103,7 +143,7 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
       fixed: FIXED_FEE,
       total: total
     };
-  }, [formData.invoiceValue]);
+  }, [formData.invoiceValue, exchangeRate]);
   
   // Políticas y firma
   const [acceptedPolicies, setAcceptedPolicies] = useState(false);
@@ -355,7 +395,9 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
           
           <View style={styles.quoteRow}>
             <Text style={styles.quoteLabel}>Tipo de Cambio:</Text>
-            <Text style={styles.quoteValue}>${EXCHANGE_RATE.toFixed(2)} MXN</Text>
+            <Text style={styles.quoteValue}>
+              {loadingRate ? 'Cargando...' : `$${exchangeRate.toFixed(2)} MXN`}
+            </Text>
           </View>
           
           <View style={styles.quoteRow}>

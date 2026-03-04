@@ -115,7 +115,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
 
       Alert.alert(
         '🎉 ¡Bienvenido a EntregaX!',
-        `Tu casillero es: ${userData.boxId}\n\nGuarda este número, lo necesitarás para recibir tus paquetes.`,
+        `Tu suite es: ${userData.boxId}\n\nGuarda este número, lo necesitarás para recibir tus paquetes.`,
         [
           {
             text: 'Continuar',
@@ -156,7 +156,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
         <Text style={styles.logoText}>
           Entrega<Text style={styles.logoX}>X</Text>
         </Text>
-        <Text style={styles.subtitle}>Crea tu casillero gratis</Text>
+        <Text style={styles.subtitle}>Crea tu suite gratis</Text>
       </View>
 
       {/* Formulario */}
@@ -164,7 +164,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
         <ScrollView showsVerticalScrollIndicator={false}>
           <Text style={styles.welcomeText}>Registro</Text>
           <Text style={styles.instructionText}>
-            Completa tus datos para obtener tu casillero
+            Completa tus datos para obtener tu suite
           </Text>
 
           {/* Nombre Completo */}
@@ -334,7 +334,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
             contentStyle={styles.registerButtonContent}
             labelStyle={styles.registerButtonLabel}
           >
-            {loading ? 'Creando cuenta...' : 'Crear mi Casillero'}
+            {loading ? 'Creando cuenta...' : 'Crear mi Suite'}
           </Button>
 
           {/* Link a Login */}

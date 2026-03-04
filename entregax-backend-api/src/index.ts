@@ -35,7 +35,8 @@ import {
   createConsolidation,
   getAdminConsolidations,
   dispatchConsolidation,
-  assignDeliveryInstructions
+  assignDeliveryInstructions,
+  getPackageById
 } from './packageController';
 import {
   createPaymentOrder,
@@ -508,6 +509,7 @@ import {
 import {
   getReadyToDispatch,
   quoteShipment as quoteLastMile,
+  quoteShipmentDirect,
   dispatchShipment,
   getDispatched,
   getCarriers,
@@ -627,7 +629,7 @@ import {
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = parseInt(process.env.PORT || '3001', 10);
 
 // Middlewares
 app.use(cors());
@@ -1310,6 +1312,9 @@ app.get('/api/packages/track/:tracking', authenticateToken, getPackageByTracking
 // Paquetes de un cliente específico (Staff o superior)
 app.get('/api/packages/client/:boxId', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getPackagesByClient);
 
+// Obtener detalle de paquete por ID (usuario dueño o staff+)
+app.get('/api/packages/:id', authenticateToken, getPackageById);
+
 // Obtener etiquetas para imprimir (Bodega o superior)
 app.get('/api/packages/:id/labels', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getPackageLabels);
 
@@ -1539,6 +1544,7 @@ app.get('/api/admin/last-mile/carriers', authenticateToken, requireMinLevel(ROLE
 app.get('/api/admin/last-mile/stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getLastMileStats);
 // Operaciones
 app.post('/api/admin/last-mile/quote', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), quoteLastMile);
+app.post('/api/admin/last-mile/quote-direct', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), quoteShipmentDirect);
 app.post('/api/admin/last-mile/dispatch', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), dispatchShipment);
 app.get('/api/admin/last-mile/reprint/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), reprintLabel);
 
@@ -2600,9 +2606,10 @@ app.get('/api/public/legal/privacy-notice', getPublicPrivacyNotice);
 // Iniciar CRON Jobs para automatización
 import { initCronJobs } from './cronJobs';
 
-// Iniciar servidor
-app.listen(PORT, () => {
+// Iniciar servidor (escuchar en todas las interfaces para acceso desde móvil)
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 EntregaX API corriendo en http://localhost:${PORT}`);
+  console.log(`📱 Acceso móvil: http://192.168.1.107:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔐 Login: POST http://localhost:${PORT}/api/auth/login`);
   console.log(`📝 Registro: POST http://localhost:${PORT}/api/auth/register`);

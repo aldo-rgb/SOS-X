@@ -82,7 +82,7 @@ export default function ExistingClientScreen({ navigation }: ExistingClientScree
 
     setLoading(true);
     try {
-      const response = await api.get(`/legacy/verify/${boxId.toUpperCase()}`);
+      const response = await api.get(`/api/legacy/verify/${boxId.toUpperCase()}`);
       
       if (!response.data.exists) {
         Alert.alert(
@@ -133,7 +133,7 @@ export default function ExistingClientScreen({ navigation }: ExistingClientScree
 
     setLoading(true);
     try {
-      const response = await api.post('/legacy/verify-name', {
+      const response = await api.post('/api/legacy/verify-name', {
         boxId: boxId.toUpperCase(),
         fullName: inputName.trim()
       });
@@ -187,12 +187,12 @@ export default function ExistingClientScreen({ navigation }: ExistingClientScree
 
     setLoading(true);
     try {
-      const response = await api.post('/legacy/claim', {
+      const response = await api.post('/api/legacy/claim', {
         boxId: clientData?.boxId,
         fullName: clientData?.fullName,
         email: editedEmail.trim().toLowerCase(),
         phone: editedPhone.trim(),
-        password
+        newPassword: password
       });
 
       const userData = {

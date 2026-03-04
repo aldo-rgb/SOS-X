@@ -545,13 +545,13 @@ export const startCarteraVencidaCron = () => {
 
 /**
  * CRON JOB: Sincronización con MJCustomer (China Aéreo)
- * Se ejecuta cada 15 minutos
+ * Se ejecuta cada 6 horas
  * - Sincroniza órdenes activas de los últimos 30 días
  * - Actualiza tracking, ETA, ETD
  */
 export const startMJCustomerSyncCron = () => {
-  // Ejecutar cada 15 minutos (en los minutos 0, 15, 30, 45)
-  cron.schedule('*/15 * * * *', async () => {
+  // Ejecutar cada 6 horas (a las 0:00, 6:00, 12:00, 18:00)
+  cron.schedule('0 */6 * * *', async () => {
     console.log('🇨🇳 [CRON] Sincronizando con MJCustomer...');
     try {
       const result = await syncActiveMJCustomerOrders();
@@ -565,7 +565,7 @@ export const startMJCustomerSyncCron = () => {
     }
   });
 
-  console.log('📅 [CRON] Job de MJCustomer (China aéreo) programado cada 15 minutos');
+  console.log('📅 [CRON] Job de MJCustomer (China aéreo) programado cada 6 horas');
 };
 
 /**

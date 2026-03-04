@@ -1,6 +1,6 @@
 // Configuración de la API
 // En desarrollo usar tu IP local, en producción cambiar a la URL del servidor
-export const API_URL = 'http://192.168.1.114:3001'; // IP local detectada
+export const API_URL = 'http://192.168.1.107:3001'; // IP local detectada
 
 // Para obtener tu IP local ejecuta: ipconfig (Windows) o ifconfig (Mac/Linux)
 
@@ -50,6 +50,10 @@ export interface Package {
   gex_folio?: string;
   // ✈️🇨🇳 Shipment type for differentiation
   shipment_type?: 'air' | 'maritime' | 'china_air';
+  // 💰 Costos
+  assigned_cost_mxn?: number;
+  saldo_pendiente?: number;
+  monto_pagado?: number;
 }
 
 // Función para hacer login

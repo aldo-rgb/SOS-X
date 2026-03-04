@@ -128,7 +128,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         <Text style={styles.logoText}>
           Entrega<Text style={styles.logoX}>X</Text>
         </Text>
-        <Text style={styles.subtitle}>Tu casillero inteligente</Text>
+        <Text style={styles.subtitle}>Tu suite inteligente</Text>
       </View>
 
       {/* Formulario */}

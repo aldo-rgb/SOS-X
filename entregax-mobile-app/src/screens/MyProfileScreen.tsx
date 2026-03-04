@@ -78,11 +78,20 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   const refreshVerificationStatus = async () => {
     setRefreshingStatus(true);
     try {
+      console.log('🔄 Refreshing verification status...');
+      console.log('API_URL:', API_URL);
+      console.log('Token:', token?.substring(0, 20) + '...');
+      
       const response = await fetch(`${API_URL}/api/verify/status`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      
+      console.log('Response status:', response.status);
+      
       if (response.ok) {
         const data = await response.json();
+        console.log('Response data:', data);
+        
         setUser((prevUser: any) => ({
           ...prevUser,
           isVerified: data.isVerified,
@@ -95,8 +104,13 @@ export default function MyProfileScreen({ navigation, route }: Props) {
         } else {
           Alert.alert(t('profile.statusUpdated'), t('profile.stillInReview'));
         }
+      } else {
+        const errorData = await response.json();
+        console.log('Error response:', errorData);
+        Alert.alert('Error', errorData.error || 'Error al actualizar');
       }
     } catch (error) {
+      console.log('Fetch error:', error);
       Alert.alert(t('common.error'), t('profile.couldNotUpdate'));
     } finally {
       setRefreshingStatus(false);
@@ -121,7 +135,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
 
     setSaving(true);
     try {
-      const response = await fetch(`${API_URL}/auth/change-password`, {
+      const response = await fetch(`${API_URL}/api/auth/change-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -211,7 +225,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
             text: t('profile.activate'),
             onPress: async () => {
               try {
-                const response = await fetch(`${API_URL}/auth/2fa/enable`, {
+                const response = await fetch(`${API_URL}/api/auth/2fa/enable`, {
                   method: 'POST',
                   headers: { Authorization: `Bearer ${token}` },
                 });
@@ -238,7 +252,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
             style: 'destructive',
             onPress: async () => {
               try {
-                const response = await fetch(`${API_URL}/auth/2fa/disable`, {
+                const response = await fetch(`${API_URL}/api/auth/2fa/disable`, {
                   method: 'POST',
                   headers: { Authorization: `Bearer ${token}` },
                 });
@@ -270,7 +284,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
 
     setSavingEdit(true);
     try {
-      const response = await fetch(`${API_URL}/auth/update-profile`, {
+      const response = await fetch(`${API_URL}/api/auth/update-profile`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -310,7 +324,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
 
     setSavingEdit(true);
     try {
-      const response = await fetch(`${API_URL}/auth/update-profile`, {
+      const response = await fetch(`${API_URL}/api/auth/update-profile`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -434,7 +448,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
               <View style={styles.profileInfo}>
                 <Text style={styles.profileName}>{user.name}</Text>
                 <Text style={styles.profileEmail}>{user.email}</Text>
-                <Text style={styles.profileBoxId}>📦 {t('profile.boxId')}: {user.boxId}</Text>
+                <Text style={styles.profileBoxId}>🏠 {t('profile.boxId')}: {user.boxId}</Text>
               </View>
             </View>
           </Card.Content>
@@ -692,14 +706,14 @@ export default function MyProfileScreen({ navigation, route }: Props) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Editar Código de Referencia</Text>
+              <Text style={styles.modalTitle}>Editar RFC</Text>
               <TouchableOpacity onPress={() => setShowEditRefModal(false)}>
                 <Ionicons name="close" size={24} color={BLACK} />
               </TouchableOpacity>
             </View>
 
             <View style={styles.modalForm}>
-              <Text style={styles.inputLabel}>Código de Referencia</Text>
+              <Text style={styles.inputLabel}></Text>
               <TextInput
                 style={styles.inputFull}
                 placeholder="Ej: MICODIGO123"

@@ -276,7 +276,7 @@ export default function ChangePasswordScreen({ navigation, route }: ChangePasswo
 
         {/* Info del casillero */}
         <View style={styles.boxInfo}>
-          <Text style={styles.boxLabel}>Tu casillero</Text>
+          <Text style={styles.boxLabel}>Tu suite</Text>
           <Text style={styles.boxId}>{user.boxId}</Text>
         </View>
       </ScrollView>

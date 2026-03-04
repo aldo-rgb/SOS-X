@@ -23,6 +23,7 @@ import SupportChatScreen from './src/screens/SupportChatScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
 import DeliveryInstructionsScreen from './src/screens/DeliveryInstructionsScreen';
 import MaritimeDetailScreen from './src/screens/MaritimeDetailScreen';
+import PackageDetailScreen from './src/screens/PackageDetailScreen';
 import MyPaymentsScreen from './src/screens/MyPaymentsScreen';
 import EmployeeOnboardingScreen from './src/screens/EmployeeOnboardingScreen';
 import VehicleInspectionScreen from './src/screens/VehicleInspectionScreen';
@@ -60,6 +61,7 @@ export type RootStackParamList = {
   Notifications: { user: any; token: string };
   DeliveryInstructions: { package: Package; packages?: Package[]; user: any; token: string };
   MaritimeDetail: { package: Package; user: any; token: string };
+  PackageDetail: { package: Package; user: any; token: string };
   MyPayments: { user: any; token: string };
   EmployeeOnboarding: { user: any; token: string };
   // Pantallas del Chofer
@@ -149,6 +151,10 @@ export default function App() {
           <Stack.Screen 
             name="MaritimeDetail" 
             component={MaritimeDetailScreen}
+          />
+          <Stack.Screen 
+            name="PackageDetail" 
+            component={PackageDetailScreen}
           />
           <Stack.Screen 
             name="MyPayments" 

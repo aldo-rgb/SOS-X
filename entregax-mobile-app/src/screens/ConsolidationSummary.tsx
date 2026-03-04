@@ -119,7 +119,7 @@ export default function ConsolidationSummary({ route, navigation }: Consolidatio
       const packageIds = Array.from(selectedTrackings);
 
       // LLAMADA REAL AL BACKEND
-      const response = await fetch(`${API_URL}/consolidations`, {
+      const response = await fetch(`${API_URL}/api/consolidations`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -134,18 +134,27 @@ export default function ConsolidationSummary({ route, navigation }: Consolidatio
       const result = await response.json();
 
       if (response.ok) {
-        Alert.alert(
-          "¡Orden Recibida! 🚀",
-          `Tu solicitud #${result.orderId} ha sido creada. Prepararemos tu envío.`,
-          [{ text: "Entendido", onPress: () => navigation.navigate('Home', { user, token }) }]
-        );
+        // Verificar si ya estaba procesado
+        if (result.alreadyProcessed) {
+          Alert.alert(
+            "📦 Envío Ya Procesado",
+            "Tu envío ya está en camino. No necesitas hacer nada más.",
+            [{ text: "Entendido", onPress: () => navigation.navigate('Home', { user, token }) }]
+          );
+        } else {
+          Alert.alert(
+            "¡Orden Recibida! 🚀",
+            "Tu solicitud ha sido creada. Prepararemos tu envío.",
+            [{ text: "Entendido", onPress: () => navigation.navigate('Home', { user, token }) }]
+          );
+        }
       } else {
         Alert.alert("Error", result.error || "No se pudo procesar");
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error al crear consolidación:', error);
-      Alert.alert("Error de Conexión", "Revisa tu conexión a internet");
+      Alert.alert("Error de Conexión", `Revisa tu conexión a internet.\n${error?.message || ''}`);
     } finally {
       setLoading(false);
     }
@@ -285,11 +294,15 @@ export default function ConsolidationSummary({ route, navigation }: Consolidatio
             <View style={styles.row}>
               <Text style={styles.rowLabelMuted}>Tipo de Servicio:</Text>
               <Text style={styles.rowValueOrange}>
-                {selectedPackages[0]?.service_type === 'POBOX_USA' || selectedPackages[0]?.warehouse_location === 'usa_pobox'
-                  ? 'TRASLADO A MÉXICO' 
-                  : selectedPackages[0]?.service_type === 'SEA_CHN_MX' || selectedPackages[0]?.warehouse_location === 'china_sea'
-                    ? 'MARÍTIMO CHINA → MÉXICO'
-                    : 'AÉREO TODO INCLUIDO'}
+                {selectedPackages[0]?.carrier
+                  ? selectedPackages[0].carrier.toUpperCase() === 'CEDIS MTY'
+                    ? 'ENTREGAX TERRESTRE'
+                    : `ENVÍO VÍA ${selectedPackages[0].carrier.toUpperCase()}`
+                  : selectedPackages[0]?.service_type === 'POBOX_USA' || selectedPackages[0]?.warehouse_location === 'usa_pobox'
+                    ? 'TRASLADO A MÉXICO' 
+                    : selectedPackages[0]?.service_type === 'SEA_CHN_MX' || selectedPackages[0]?.warehouse_location === 'china_sea'
+                      ? 'MARÍTIMO CHINA → MÉXICO'
+                      : 'AÉREO TODO INCLUIDO'}
               </Text>
             </View>
             <Text style={styles.disclaimer}>

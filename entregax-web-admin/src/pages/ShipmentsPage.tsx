@@ -7,7 +7,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, Divider, CircularProgress, Alert,
   MenuItem, Select, FormControl, InputLabel, type SelectChangeEvent, Snackbar, Stepper,
   Step, StepLabel, Card, CardContent, Grid, Fade, Badge, List, ListItem, ListItemText,
-  ListItemSecondaryAction, ListItemIcon,
+  ListItemSecondaryAction, ListItemIcon, Checkbox,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -118,6 +118,33 @@ interface ClientAddress {
   formatted: string;
 }
 
+interface POBoxRatesInfo {
+  tipoCambio: {
+    valor: number;
+    apiRate: number | null;
+    sobreprecio: number;
+    ultimaActualizacion: string | null;
+  };
+  tarifasVolumen: Array<{
+    nivel: number;
+    cbmMin: number;
+    cbmMax: number | null;
+    costoUsd: number;
+    tipoCobro: string;
+    descripcion: string;
+  }>;
+  tarifasExtras: Array<{
+    servicio: string;
+    descripcion: string;
+    costoMxn: number;
+  }>;
+  formula: {
+    cbm: string;
+    cbmMinimo: number;
+    nota: string;
+  };
+}
+
 interface ClientInstructions {
   found: boolean;
   hasInstructions: boolean;
@@ -132,6 +159,7 @@ interface ClientInstructions {
     carrier: string | null;
   };
   defaultAddress?: ClientAddress | null;
+  poboxRatesInfo?: POBoxRatesInfo | null;
 }
 
 interface ShipmentsPageProps {
@@ -220,6 +248,20 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
   const [loadingClient, setLoadingClient] = useState(false);
   const [manualAddress, setManualAddress] = useState(false);
   
+  // Estados para cotización Skydropx
+  const [shippingRates, setShippingRates] = useState<any[]>([]);
+  const [loadingRates, setLoadingRates] = useState(false);
+  const [selectedRate, setSelectedRate] = useState<any | null>(null);
+  const [shipmentId, setShipmentId] = useState<string | null>(null);
+  
+  // Estados para GEX (Garantía Extendida)
+  const [includeGex, setIncludeGex] = useState(false);
+  const [gexQuote, setGexQuote] = useState<{ invoiceValueUsd: number; exchangeRate: number; insuredValueMxn: number; variableFeeMxn: number; fixedFeeMxn: number; totalCostMxn: number } | null>(null);
+  const [loadingGex, setLoadingGex] = useState(false);
+  
+  // Estado para opción de pago
+  const [paymentOption, setPaymentOption] = useState<'now' | 'later' | null>(null);
+  
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
 
   const wizardSteps = [
@@ -274,6 +316,14 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
     setCreatedShipment(null);
     setClientInstructions(null);
     setManualAddress(false);
+    // Limpiar cotizaciones Skydropx
+    setShippingRates([]);
+    setSelectedRate(null);
+    setShipmentId(null);
+    // Limpiar GEX y opción de pago
+    setIncludeGex(false);
+    setGexQuote(null);
+    setPaymentOption(null);
     setWizardOpen(true);
     setTimeout(() => weightInputRef.current?.focus(), 300);
   };
@@ -371,7 +421,19 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
           const serviceLabel = addr.defaultForService 
             ? ` (predeterminada para: ${addr.defaultForService})`
             : ' (predeterminada)';
-          setSnackbar({ open: true, message: `✅ Cliente encontrado con dirección${serviceLabel}`, severity: 'success' });
+          setSnackbar({ open: true, message: `✅ Cliente encontrado con dirección${serviceLabel}. Cotizando paqueterías...`, severity: 'success' });
+          
+          // 🚚 Auto-cotizar con Skydropx usando la dirección predeterminada
+          setTimeout(() => {
+            fetchShippingRatesWithAddress({
+              city: addr.city,
+              address: `${addr.street} ${addr.exteriorNumber || ''}${addr.interiorNumber ? ' Int. ' + addr.interiorNumber : ''}`,
+              zip: addr.zipCode,
+              phone: addr.phone || '',
+              contact: addr.recipientName || '',
+              clientName: response.data.client?.name || 'Cliente'
+            });
+          }, 100);
         } else {
           setManualAddress(true);
           setSnackbar({ open: true, message: '⚠️ Cliente encontrado pero sin dirección predeterminada. Configure el destino.', severity: 'warning' as 'success' | 'error' });
@@ -388,11 +450,194 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
     }
   };
 
+  // ============ COTIZAR CON SKYDROPX ============
+  // Cotizar con dirección específica (para auto-cotización)
+  const fetchShippingRatesWithAddress = async (addr: { city: string; address: string; zip: string; phone: string; contact: string; clientName: string }) => {
+    if (!addr.city || !addr.zip) return;
+    
+    setLoadingRates(true);
+    setShippingRates([]);
+    setSelectedRate(null);
+
+    try {
+      const response = await axios.post(`${API_URL}/admin/last-mile/quote-direct`, {
+        destination_name: addr.contact || addr.clientName,
+        destination_address: addr.address,
+        destination_city: addr.city,
+        destination_state: addr.city,
+        destination_zip: addr.zip,
+        destination_phone: addr.phone,
+        boxes: boxes.length > 0 ? boxes.map(b => ({
+          weight: parseFloat(b.weight) || 1,
+          length: parseFloat(b.length) || 30,
+          width: parseFloat(b.width) || 30,
+          height: parseFloat(b.height) || 10
+        })) : [{ weight: 1, length: 30, width: 30, height: 10 }]
+      }, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+
+      if (response.data.success) {
+        let rates = response.data.rates || [];
+        
+        // 🏙️ Detectar si es zona metropolitana de Monterrey
+        const isMonterreyArea = /^(64|65|66|67)\d{3}$/.test(addr.zip) || 
+          ['monterrey', 'san pedro', 'san pedro garza garcia', 'san pedro garza garcía', 
+           'santa catarina', 'guadalupe', 'apodaca', 'escobedo', 'garcia', 'garcía',
+           'san nicolas', 'san nicolás', 'juarez', 'juárez', 'santiago', 'cadereyta',
+           'general escobedo', 'pesquería', 'pesqueria', 'cienega de flores', 'ciénega de flores',
+           'salinas victoria', 'el carmen'].some(city => 
+            addr.city.toLowerCase().includes(city)
+          );
+        
+        if (isMonterreyArea) {
+          const cedisRate = {
+            rateId: 'cedis-mty-local',
+            provider: 'CEDIS MTY',
+            carrierName: 'CEDIS MTY',
+            serviceName: '🏠 Entrega Local Monterrey',
+            totalPrice: 0,
+            currency: 'MXN',
+            deliveryDays: '1-2 días',
+            isLocal: true
+          };
+          rates = [cedisRate, ...rates];
+        }
+        
+        setShippingRates(rates);
+        setShipmentId(response.data.shipmentId);
+        if (rates.length > 0) {
+          setSnackbar({ open: true, message: `✅ ${rates.length} opciones de paquetería disponibles`, severity: 'success' });
+        }
+      }
+    } catch (error: any) {
+      console.error('Error cotizando:', error);
+    } finally {
+      setLoadingRates(false);
+    }
+  };
+
+  const fetchShippingRates = async () => {
+    if (!destination.city || !destination.zip) {
+      setSnackbar({ open: true, message: '⚠️ Ingresa ciudad y código postal para cotizar', severity: 'error' });
+      return;
+    }
+
+    setLoadingRates(true);
+    setShippingRates([]);
+    setSelectedRate(null);
+
+    try {
+      const response = await axios.post(`${API_URL}/admin/last-mile/quote-direct`, {
+        destination_name: destination.contact || clientInstructions?.client?.name || 'Cliente',
+        destination_address: destination.address,
+        destination_city: destination.city,
+        destination_state: destination.city, // Usar ciudad como estado si no hay
+        destination_zip: destination.zip,
+        destination_phone: destination.phone,
+        boxes: boxes.map(b => ({
+          weight: parseFloat(b.weight) || 1,
+          length: parseFloat(b.length) || 30,
+          width: parseFloat(b.width) || 30,
+          height: parseFloat(b.height) || 10
+        }))
+      }, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+
+      if (response.data.success) {
+        let rates = response.data.rates || [];
+        
+        // 🏙️ Detectar si es zona metropolitana de Monterrey (CPs: 64xxx, 65xxx, 66xxx, 67xxx)
+        const isMonterreyArea = /^(64|65|66|67)\d{3}$/.test(destination.zip) || 
+          ['monterrey', 'san pedro', 'san pedro garza garcia', 'san pedro garza garcía', 
+           'santa catarina', 'guadalupe', 'apodaca', 'escobedo', 'garcia', 'garcía',
+           'san nicolas', 'san nicolás', 'juarez', 'juárez', 'santiago', 'cadereyta',
+           'general escobedo', 'pesquería', 'pesqueria', 'cienega de flores', 'ciénega de flores',
+           'salinas victoria', 'el carmen'].some(city => 
+            destination.city.toLowerCase().includes(city)
+          );
+        
+        if (isMonterreyArea) {
+          // Agregar opción CEDIS MTY como primera opción
+          const cedisRate = {
+            rateId: 'cedis-mty-local',
+            provider: 'CEDIS MTY',
+            carrierName: 'CEDIS MTY',
+            serviceName: '🏠 Entrega Local Monterrey',
+            totalPrice: 0, // Sin costo adicional o costo fijo según política
+            currency: 'MXN',
+            deliveryDays: '1-2 días',
+            isLocal: true
+          };
+          rates = [cedisRate, ...rates];
+        }
+        
+        setShippingRates(rates);
+        setShipmentId(response.data.shipmentId);
+        if (rates.length > 0) {
+          const localMsg = isMonterreyArea ? ' (incluye entrega local)' : '';
+          setSnackbar({ open: true, message: `✅ ${rates.length} opciones de envío encontradas${localMsg}`, severity: 'success' });
+        } else {
+          setSnackbar({ open: true, message: '⚠️ No hay tarifas disponibles para este destino', severity: 'warning' as 'success' | 'error' });
+        }
+      }
+    } catch (error: any) {
+      console.error('Error cotizando:', error);
+      setSnackbar({ open: true, message: error.response?.data?.message || 'Error al cotizar envío', severity: 'error' });
+    } finally {
+      setLoadingRates(false);
+    }
+  };
+
+  const handleSelectRate = (rate: any) => {
+    setSelectedRate(rate);
+    setCarrier(rate.carrierName || rate.provider);
+    setSnackbar({ open: true, message: `🚚 ${rate.carrierName || rate.provider} - $${rate.totalPrice.toFixed(2)} MXN seleccionado`, severity: 'success' });
+  };
+
+  // ============ COTIZAR GEX (GARANTÍA EXTENDIDA) ============
+  const fetchGexQuote = async (valueUsd: number) => {
+    if (!valueUsd || valueUsd <= 0) {
+      setGexQuote(null);
+      return;
+    }
+    
+    setLoadingGex(true);
+    try {
+      const response = await axios.post(`${API_URL}/gex/quote`, {
+        invoiceValueUsd: valueUsd
+      }, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      
+      setGexQuote(response.data);
+    } catch (error) {
+      console.error('Error cotizando GEX:', error);
+      setGexQuote(null);
+    } finally {
+      setLoadingGex(false);
+    }
+  };
+
+  // Auto-cotizar GEX cuando cambia el valor declarado
+  useEffect(() => {
+    if (declaredValue && parseFloat(declaredValue) > 0) {
+      const timer = setTimeout(() => fetchGexQuote(parseFloat(declaredValue)), 500);
+      return () => clearTimeout(timer);
+    } else {
+      setGexQuote(null);
+    }
+  }, [declaredValue]);
+
   const handleCloseWizard = () => {
     setWizardOpen(false);
     setActiveStep(0);
     closeCamera();
     setCreatedShipment(null);
+    // Reset GEX states
+    setIncludeGex(false);
+    setGexQuote(null);
     if (createdShipment) fetchPackages();
   };
 
@@ -403,12 +648,24 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
   };
 
   const handleAddBox = () => {
-    if (!currentBox.weight || parseFloat(currentBox.weight) <= 0) {
+    const weight = parseFloat(currentBox.weight);
+    const length = parseFloat(currentBox.length);
+    const width = parseFloat(currentBox.width);
+    const height = parseFloat(currentBox.height);
+    
+    if (!currentBox.weight || weight <= 0) {
       setFormError(t('errors.enterBoxWeight'));
+      setSnackbar({ open: true, message: '⚠️ El peso debe ser mayor a 0', severity: 'error' });
       return;
     }
     if (!currentBox.length || !currentBox.width || !currentBox.height) {
       setFormError(t('errors.enterAllDimensions'));
+      setSnackbar({ open: true, message: '⚠️ Ingresa todas las dimensiones', severity: 'error' });
+      return;
+    }
+    if (length <= 0 || width <= 0 || height <= 0) {
+      setFormError('Las dimensiones deben ser mayores a 0');
+      setSnackbar({ open: true, message: '⚠️ Las dimensiones deben ser mayores a 0', severity: 'error' });
       return;
     }
     
@@ -433,33 +690,67 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
   const handleNextStep = () => {
     if (activeStep === 0 && boxes.length === 0) {
       setFormError(t('errors.addAtLeastOneBox'));
+      setSnackbar({ open: true, message: t('errors.addAtLeastOneBox'), severity: 'error' });
       return;
     }
     if (activeStep === 1 && !trackingProvider) {
       setFormError(t('errors.scanTracking'));
+      setSnackbar({ open: true, message: t('errors.scanTracking'), severity: 'error' });
       return;
     }
     if (activeStep === 2) {
       // Validar que se haya buscado y encontrado un cliente
       if (!boxId || !clientInstructions?.found) {
-        setFormError(i18n.language === 'es' ? 'Busca y selecciona un cliente válido' : 'Search and select a valid customer');
+        const msg = i18n.language === 'es' ? 'Busca y selecciona un cliente válido' : 'Search and select a valid customer';
+        setFormError(msg);
+        setSnackbar({ open: true, message: msg, severity: 'error' });
         return;
       }
-      // Si el cliente no tiene instrucciones, validar que se llenó el destino
+      // Si el cliente no tiene instrucciones, validar que se llenó el destino y se cotizó
       if (!clientInstructions.hasInstructions || manualAddress) {
-        if (!carrier) {
-          setFormError(t('errors.selectCarrier'));
-          return;
-        }
         if (!destination.country || !destination.city || !destination.address) {
           setFormError(t('errors.completeDestination'));
+          setSnackbar({ open: true, message: t('errors.completeDestination'), severity: 'error' });
+          return;
+        }
+        if (!destination.zip) {
+          const msg = i18n.language === 'es' ? 'Ingresa el código postal para cotizar' : 'Enter zip code to quote';
+          setFormError(msg);
+          setSnackbar({ open: true, message: msg, severity: 'error' });
+          return;
+        }
+        if (!selectedRate) {
+          const msg = i18n.language === 'es' ? 'Cotiza y selecciona una paquetería antes de continuar' : 'Quote and select a carrier before continuing';
+          setFormError(msg);
+          setSnackbar({ open: true, message: msg, severity: 'error' });
           return;
         }
       }
     }
     if (activeStep === 3 && !description) {
-      setFormError(i18n.language === 'es' ? 'Ingresa la descripción del contenido' : 'Enter content description');
+      const msg = i18n.language === 'es' ? '⚠️ Ingresa la descripción del contenido' : '⚠️ Enter content description';
+      setFormError(msg);
+      setSnackbar({ open: true, message: msg, severity: 'error' });
       return;
+    }
+    
+    // Validar que se seleccionó paquetería
+    if (activeStep === 3 && !carrier) {
+      const msg = i18n.language === 'es' ? '⚠️ Selecciona la paquetería de envío' : '⚠️ Select the shipping carrier';
+      setFormError(msg);
+      setSnackbar({ open: true, message: msg, severity: 'error' });
+      return;
+    }
+    
+    // Validar que se seleccionó opción de pago si hay costos de PO Box o GEX
+    if (activeStep === 3) {
+      const hasCosts = (costoPOBox?.totalMxn || 0) + (includeGex && gexQuote ? gexQuote.totalCostMxn : 0) > 0;
+      if (hasCosts && !paymentOption) {
+        const msg = i18n.language === 'es' ? '⚠️ Selecciona una opción de cobro: Pagar Ahora o Cobrar Después' : '⚠️ Select a payment option: Pay Now or Pay Later';
+        setFormError(msg);
+        setSnackbar({ open: true, message: msg, severity: 'error' });
+        return;
+      }
     }
 
     setFormError('');
@@ -505,6 +796,24 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
         notes: notes || undefined,
         imageUrl: packageImage || undefined,
         warehouseLocation: warehouseLocation || undefined, // Ubicación del panel de bodega
+        // Información de cotización Skydropx
+        skydropxQuote: selectedRate ? {
+          shipmentId,
+          rateId: selectedRate.id,
+          provider: selectedRate.provider,
+          serviceName: selectedRate.serviceName,
+          totalPrice: selectedRate.totalPrice,
+          currency: selectedRate.currency || 'MXN',
+          deliveryDays: selectedRate.deliveryDays
+        } : undefined,
+        // 🛡️ Información de GEX (Garantía Extendida)
+        gex: includeGex && gexQuote ? {
+          included: true,
+          invoiceValueUsd: gexQuote.invoiceValueUsd,
+          exchangeRate: gexQuote.exchangeRate,
+          insuredValueMxn: gexQuote.insuredValueMxn,
+          costMxn: gexQuote.totalCostMxn
+        } : undefined
       };
 
       const response = await axios.post(`${API_URL}/packages`, payload, {
@@ -822,6 +1131,53 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
     return sum + vol;
   }, 0);
 
+  // ============ CALCULAR COSTO ESTIMADO PO BOX ============
+  const calcularCostoPOBox = (): { totalUsd: number; totalMxn: number; cbmTotal: number; nivel: number } | null => {
+    if (!clientInstructions?.poboxRatesInfo || boxes.length === 0) return null;
+    
+    const { tipoCambio, tarifasVolumen } = clientInstructions.poboxRatesInfo;
+    
+    // Calcular CBM total de todas las cajas
+    let cbmTotal = boxes.reduce((sum, box) => {
+      const largo = parseFloat(box.length) || 0;
+      const alto = parseFloat(box.height) || 0;
+      const ancho = parseFloat(box.width) || 0;
+      const cbm = (largo * alto * ancho) / 1000000;
+      return sum + cbm;
+    }, 0);
+    
+    // Aplicar mínimo cobrable
+    if (cbmTotal < 0.010) cbmTotal = 0.010;
+    
+    // Encontrar tarifa aplicable
+    let costoUsd = 0;
+    let nivelAplicado = 0;
+    
+    for (const tarifa of tarifasVolumen) {
+      const cbmMax = tarifa.cbmMax ?? Infinity;
+      if (cbmTotal >= tarifa.cbmMin && cbmTotal <= cbmMax) {
+        nivelAplicado = tarifa.nivel;
+        if (tarifa.tipoCobro === 'fijo') {
+          costoUsd = tarifa.costoUsd;
+        } else {
+          costoUsd = cbmTotal * tarifa.costoUsd;
+          // Protección de precio mínimo (costo del nivel anterior)
+          const nivelAnterior = tarifasVolumen.find(t => t.nivel === tarifa.nivel - 1);
+          if (nivelAnterior && costoUsd < nivelAnterior.costoUsd) {
+            costoUsd = nivelAnterior.costoUsd;
+          }
+        }
+        break;
+      }
+    }
+    
+    const totalMxn = costoUsd * tipoCambio.valor;
+    
+    return { totalUsd: costoUsd, totalMxn, cbmTotal, nivel: nivelAplicado };
+  };
+
+  const costoPOBox = calcularCostoPOBox();
+
   return (
     <Box>
       {/* Header */}
@@ -998,24 +1354,27 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                           <TextField inputRef={weightInputRef} fullWidth label={`${t('shipments.weight')} (kg)`} type="number"
                             value={currentBox.weight} onChange={(e) => setCurrentBox(p => ({ ...p, weight: e.target.value }))}
                             InputProps={{ startAdornment: <InputAdornment position="start"><ScaleIcon /></InputAdornment>, endAdornment: <InputAdornment position="end">kg</InputAdornment> }}
-                            inputProps={{ step: 0.01 }} />
+                            inputProps={{ step: 0.01, min: 0.01 }} />
                         </Box>
                         <Button size="small" onClick={handleReadScale} sx={{ mt: 1, color: ORANGE }}>📡 {t('wizard.readScale')}</Button>
                       </Grid>
                       <Grid size={{ xs: 4, sm: 2 }}>
                         <TextField fullWidth label={t('shipments.length')} type="number" value={currentBox.length}
                           onChange={(e) => setCurrentBox(p => ({ ...p, length: e.target.value }))}
-                          InputProps={{ endAdornment: <InputAdornment position="end">cm</InputAdornment> }} />
+                          InputProps={{ endAdornment: <InputAdornment position="end">cm</InputAdornment> }}
+                          inputProps={{ min: 1 }} />
                       </Grid>
                       <Grid size={{ xs: 4, sm: 2 }}>
                         <TextField fullWidth label={t('shipments.width')} type="number" value={currentBox.width}
                           onChange={(e) => setCurrentBox(p => ({ ...p, width: e.target.value }))}
-                          InputProps={{ endAdornment: <InputAdornment position="end">cm</InputAdornment> }} />
+                          InputProps={{ endAdornment: <InputAdornment position="end">cm</InputAdornment> }}
+                          inputProps={{ min: 1 }} />
                       </Grid>
                       <Grid size={{ xs: 4, sm: 2 }}>
                         <TextField fullWidth label={t('shipments.height')} type="number" value={currentBox.height}
                           onChange={(e) => setCurrentBox(p => ({ ...p, height: e.target.value }))}
-                          InputProps={{ endAdornment: <InputAdornment position="end">cm</InputAdornment> }} />
+                          InputProps={{ endAdornment: <InputAdornment position="end">cm</InputAdornment> }}
+                          inputProps={{ min: 1 }} />
                       </Grid>
                       <Grid size={{ xs: 12, sm: 3 }}>
                         <Button fullWidth variant="contained" startIcon={<AddIcon />} onClick={handleAddBox}
@@ -1230,6 +1589,94 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                             {i18n.language === 'es' ? 'No se encontró cliente con ese casillero' : 'No customer found with that box ID'}
                           </Alert>
                         )}
+
+                        {/* 💰 TIPO DE CAMBIO Y COSTO ESTIMADO PO BOX */}
+                        {clientInstructions.found && clientInstructions.poboxRatesInfo && (
+                          <Paper sx={{ p: 2, mb: 2, bgcolor: '#FFF3E0', border: '2px solid #FF9800' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                              <AttachMoneyIcon sx={{ color: '#FF9800' }} />
+                              <Typography variant="h6" fontWeight="bold" sx={{ color: '#E65100' }}>
+                                {i18n.language === 'es' ? 'Tarifas PO Box USA' : 'PO Box USA Rates'}
+                              </Typography>
+                            </Box>
+                            
+                            <Grid container spacing={2}>
+                              {/* Tipo de Cambio */}
+                              <Grid size={4}>
+                                <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'white' }}>
+                                  <Typography variant="body2" color="text.secondary">
+                                    {i18n.language === 'es' ? 'Tipo de Cambio' : 'Exchange Rate'}
+                                  </Typography>
+                                  <Typography variant="h4" fontWeight="bold" sx={{ color: ORANGE }}>
+                                    ${clientInstructions.poboxRatesInfo.tipoCambio.valor.toFixed(2)}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    MXN/USD
+                                  </Typography>
+                                </Paper>
+                              </Grid>
+                              
+                              {/* CBM Calculado */}
+                              <Grid size={4}>
+                                <Paper sx={{ p: 2, textAlign: 'center', bgcolor: 'white' }}>
+                                  <Typography variant="body2" color="text.secondary">
+                                    {i18n.language === 'es' ? 'Volumen (CBM)' : 'Volume (CBM)'}
+                                  </Typography>
+                                  <Typography variant="h4" fontWeight="bold" sx={{ color: '#1976D2' }}>
+                                    {costoPOBox ? costoPOBox.cbmTotal.toFixed(4) : '0.0000'}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    m³ {costoPOBox?.nivel ? `(Nivel ${costoPOBox.nivel})` : ''}
+                                  </Typography>
+                                </Paper>
+                              </Grid>
+                              
+                              {/* Costo Estimado */}
+                              <Grid size={4}>
+                                <Paper sx={{ p: 2, textAlign: 'center', bgcolor: '#E8F5E9' }}>
+                                  <Typography variant="body2" color="text.secondary">
+                                    {i18n.language === 'es' ? 'Costo Estimado' : 'Estimated Cost'}
+                                  </Typography>
+                                  {costoPOBox ? (
+                                    <>
+                                      <Typography variant="h4" fontWeight="bold" sx={{ color: '#2E7D32' }}>
+                                        ${costoPOBox.totalMxn.toFixed(2)}
+                                      </Typography>
+                                      <Typography variant="caption" color="text.secondary">
+                                        MXN (${costoPOBox.totalUsd.toFixed(2)} USD)
+                                      </Typography>
+                                    </>
+                                  ) : (
+                                    <Typography variant="h5" color="text.secondary">
+                                      {i18n.language === 'es' ? 'Agregar cajas' : 'Add boxes'}
+                                    </Typography>
+                                  )}
+                                </Paper>
+                              </Grid>
+                            </Grid>
+
+                            {/* Tabla de Tarifas */}
+                            <Box sx={{ mt: 2 }}>
+                              <Typography variant="body2" fontWeight="bold" gutterBottom>
+                                📋 {i18n.language === 'es' ? 'Tarifas por Volumen:' : 'Volume Rates:'}
+                              </Typography>
+                              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                                {clientInstructions.poboxRatesInfo.tarifasVolumen.map((tarifa, idx) => (
+                                  <Chip 
+                                    key={idx}
+                                    label={tarifa.descripcion}
+                                    size="small"
+                                    sx={{ 
+                                      bgcolor: costoPOBox?.nivel === tarifa.nivel ? '#4CAF50' : 'white',
+                                      color: costoPOBox?.nivel === tarifa.nivel ? 'white' : 'text.primary',
+                                      fontWeight: costoPOBox?.nivel === tarifa.nivel ? 'bold' : 'normal'
+                                    }}
+                                  />
+                                ))}
+                              </Box>
+                            </Box>
+                          </Paper>
+                        )}
                       </Box>
                     )}
 
@@ -1279,6 +1726,88 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                               </Grid>
                             </Grid>
 
+                            {/* 🚚 SELECCIÓN DE PAQUETERÍA SKYDROPX */}
+                            <Divider sx={{ my: 3 }}>
+                              <Chip label="Seleccionar Paquetería" icon={<LocalShippingIcon />} size="small" />
+                            </Divider>
+
+                            {loadingRates ? (
+                              <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                                <CircularProgress />
+                                <Typography sx={{ ml: 2 }}>Cotizando paqueterías...</Typography>
+                              </Box>
+                            ) : shippingRates.length > 0 ? (
+                              <>
+                                {selectedRate && (
+                                  <Paper sx={{ p: 2, mb: 2, bgcolor: '#C8E6C9', border: '2px solid #2E7D32' }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                      <LocalShippingIcon sx={{ color: '#2E7D32', fontSize: 28 }} />
+                                      <Box sx={{ flex: 1 }}>
+                                        <Typography fontWeight="bold">{selectedRate.carrierName || selectedRate.provider}</Typography>
+                                        <Typography variant="body2">{selectedRate.serviceName}</Typography>
+                                      </Box>
+                                      <Typography variant="h6" color="success.dark" fontWeight="bold">
+                                        ${selectedRate.totalPrice.toFixed(2)} MXN
+                                      </Typography>
+                                    </Box>
+                                  </Paper>
+                                )}
+                                <Grid container spacing={1}>
+                                  {shippingRates.slice(0, 8).map((rate: any, idx: number) => (
+                                    <Grid size={{ xs: 12, sm: rate.isLocal ? 12 : 6 }} key={idx}>
+                                      <Paper
+                                        sx={{
+                                          p: rate.isLocal ? 2 : 1.5,
+                                          cursor: 'pointer',
+                                          border: selectedRate?.rateId === rate.rateId 
+                                            ? '2px solid #2E7D32' 
+                                            : rate.isLocal 
+                                              ? '2px solid #F05A28'
+                                              : '1px solid #ddd',
+                                          bgcolor: selectedRate?.rateId === rate.rateId 
+                                            ? '#E8F5E9' 
+                                            : rate.isLocal 
+                                              ? '#FFF3E0'
+                                              : 'white',
+                                          '&:hover': { bgcolor: rate.isLocal ? '#FFE0B2' : '#F5F5F5', borderColor: ORANGE }
+                                        }}
+                                        onClick={() => handleSelectRate(rate)}
+                                      >
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                          {rate.isLocal ? (
+                                            <HomeIcon sx={{ color: '#F05A28', fontSize: 28 }} />
+                                          ) : (
+                                            <LocalShippingIcon sx={{ color: selectedRate?.rateId === rate.rateId ? '#2E7D32' : '#666', fontSize: 20 }} />
+                                          )}
+                                          <Box sx={{ flex: 1 }}>
+                                            <Typography variant={rate.isLocal ? 'subtitle1' : 'body2'} fontWeight="bold">
+                                              {rate.carrierName || rate.provider}
+                                              {rate.isLocal && <Chip label="RECOMENDADO" size="small" color="warning" sx={{ ml: 1, height: 20 }} />}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary">{rate.serviceName}</Typography>
+                                          </Box>
+                                          <Typography variant={rate.isLocal ? 'h6' : 'body2'} fontWeight="bold" color={rate.isLocal ? 'warning.main' : 'primary'}>
+                                            {rate.totalPrice === 0 ? 'GRATIS' : `$${rate.totalPrice.toFixed(2)}`}
+                                          </Typography>
+                                        </Box>
+                                      </Paper>
+                                    </Grid>
+                                  ))}
+                                </Grid>
+                              </>
+                            ) : (
+                              <Box sx={{ textAlign: 'center', py: 2 }}>
+                                <Button
+                                  variant="outlined"
+                                  onClick={fetchShippingRates}
+                                  startIcon={<LocalShippingIcon />}
+                                  sx={{ borderColor: ORANGE, color: ORANGE }}
+                                >
+                                  Cotizar Paqueterías
+                                </Button>
+                              </Box>
+                            )}
+
                             <Button 
                               variant="text" 
                               onClick={() => setManualAddress(true)}
@@ -1295,20 +1824,34 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                               {i18n.language === 'es' ? 'Configurar Destino Manualmente' : 'Configure Destination Manually'}
                             </Typography>
 
-                            {/* Paquetería */}
-                            <FormControl fullWidth sx={{ mb: 3 }}>
-                              <InputLabel>{t('shipments.carrierLabel')} *</InputLabel>
-                              <Select value={carrier} label={`${t('shipments.carrierLabel')} *`} onChange={(e: SelectChangeEvent) => setCarrier(e.target.value)}>
-                                {CARRIERS.map((c) => (
-                                  <MenuItem key={c} value={c}>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                                      <LocalShippingIcon sx={{ color: ORANGE }} />
-                                      <span>{c}</span>
-                                    </Box>
-                                  </MenuItem>
-                                ))}
-                              </Select>
-                            </FormControl>
+                            {/* Info: Seleccionar paquetería después de cotizar */}
+                            {!selectedRate && (
+                              <Alert severity="info" sx={{ mb: 3 }}>
+                                {i18n.language === 'es' 
+                                  ? '💡 Llena la dirección de destino y presiona "Cotizar Envío Nacional" para ver las opciones de paquetería y precios.'
+                                  : '💡 Fill in the destination address and press "Quote National Shipping" to see carrier options and prices.'}
+                              </Alert>
+                            )}
+
+                            {/* Paquetería seleccionada (si hay) */}
+                            {selectedRate && (
+                              <Paper sx={{ p: 2, mb: 3, bgcolor: '#E8F5E9', border: '2px solid #4CAF50' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                  <LocalShippingIcon sx={{ color: '#4CAF50', fontSize: 32 }} />
+                                  <Box sx={{ flex: 1 }}>
+                                    <Typography variant="subtitle1" fontWeight="bold">
+                                      {selectedRate.carrierName || selectedRate.provider}
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                      {selectedRate.serviceName}
+                                    </Typography>
+                                  </Box>
+                                  <Typography variant="h5" color="success.main" fontWeight="bold">
+                                    ${selectedRate.totalPrice.toFixed(2)} MXN
+                                  </Typography>
+                                </Box>
+                              </Paper>
+                            )}
 
                             <Divider sx={{ my: 2 }}><Chip label={t('shipments.destinationAddress')} icon={<PlaceIcon />} size="small" /></Divider>
 
@@ -1348,6 +1891,88 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                                   placeholder={i18n.language === 'es' ? 'Nombre de quien recibe' : 'Recipient name'} />
                               </Grid>
                             </Grid>
+
+                            {/* 🚚 BOTÓN COTIZAR CON SKYDROPX */}
+                            <Box sx={{ mt: 3, display: 'flex', justifyContent: 'center' }}>
+                              <Button
+                                variant="contained"
+                                onClick={fetchShippingRates}
+                                disabled={!destination.city || !destination.zip || loadingRates}
+                                startIcon={loadingRates ? <CircularProgress size={20} color="inherit" /> : <LocalShippingIcon />}
+                                sx={{ 
+                                  px: 4, 
+                                  py: 1.5,
+                                  background: `linear-gradient(135deg, #1976d2 0%, #42a5f5 100%)`,
+                                  '&:hover': { background: `linear-gradient(135deg, #1565c0 0%, #1976d2 100%)` }
+                                }}
+                              >
+                                {loadingRates 
+                                  ? (i18n.language === 'es' ? 'Cotizando...' : 'Quoting...') 
+                                  : (i18n.language === 'es' ? '🚚 Cotizar Envío Nacional' : '🚚 Quote National Shipping')}
+                              </Button>
+                            </Box>
+
+                            {/* 📋 LISTA DE TARIFAS SKYDROPX */}
+                            {shippingRates.length > 0 && (
+                              <Box sx={{ mt: 3 }}>
+                                <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <LocalShippingIcon sx={{ color: '#1976d2' }} />
+                                  {i18n.language === 'es' ? 'Opciones de Envío Disponibles' : 'Available Shipping Options'}
+                                </Typography>
+                                <Grid container spacing={2}>
+                                  {shippingRates.map((rate, index) => (
+                                    <Grid size={{ xs: 12, sm: 6, md: 4 }} key={rate.id || index}>
+                                      <Paper
+                                        onClick={() => handleSelectRate(rate)}
+                                        sx={{
+                                          p: 2,
+                                          cursor: 'pointer',
+                                          border: selectedRate?.id === rate.id ? `3px solid ${ORANGE}` : '1px solid #ddd',
+                                          bgcolor: selectedRate?.id === rate.id ? '#FFF3E0' : 'white',
+                                          transition: 'all 0.2s',
+                                          '&:hover': { 
+                                            boxShadow: 3,
+                                            borderColor: ORANGE
+                                          }
+                                        }}
+                                      >
+                                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                                          <Typography variant="subtitle1" fontWeight="bold" sx={{ textTransform: 'capitalize' }}>
+                                            {rate.carrierName || rate.provider}
+                                          </Typography>
+                                          {selectedRate?.id === rate.id && (
+                                            <CheckCircleIcon sx={{ color: ORANGE }} />
+                                          )}
+                                        </Box>
+                                        <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                                          {rate.serviceName}
+                                        </Typography>
+                                        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                                          <Typography variant="h5" color="primary" fontWeight="bold">
+                                            ${rate.totalPrice.toFixed(2)}
+                                          </Typography>
+                                          <Typography variant="body2" color="text.secondary">MXN</Typography>
+                                        </Box>
+                                        {rate.deliveryDays > 0 && (
+                                          <Chip 
+                                            label={`${rate.deliveryDays} ${rate.deliveryDays === 1 ? 'día' : 'días'}`}
+                                            size="small"
+                                            sx={{ mt: 1 }}
+                                            color="info"
+                                          />
+                                        )}
+                                      </Paper>
+                                    </Grid>
+                                  ))}
+                                </Grid>
+
+                                {selectedRate && (
+                                  <Alert severity="success" sx={{ mt: 2 }}>
+                                    <strong>{i18n.language === 'es' ? 'Seleccionado:' : 'Selected:'}</strong> {selectedRate.carrierName || selectedRate.provider} - ${selectedRate.totalPrice.toFixed(2)} MXN
+                                  </Alert>
+                                )}
+                              </Box>
+                            )}
 
                             {manualAddress && (
                               <Button 
@@ -1406,6 +2031,11 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                     )}
 
                     {/* Descripción del contenido */}
+                    {formError && (
+                      <Alert severity="error" sx={{ mb: 2 }}>
+                        {formError}
+                      </Alert>
+                    )}
                     <TextField 
                       fullWidth 
                       label={t('shipments.contentDescription')} 
@@ -1413,6 +2043,8 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                       value={description} 
                       onChange={(e) => setDescription(e.target.value)} 
                       required 
+                      error={formError?.includes('descripción') || formError?.includes('description')}
+                      helperText={!description ? (i18n.language === 'es' ? '* Campo requerido' : '* Required field') : ''}
                       sx={{ mb: 3 }} 
                     />
                     
@@ -1462,6 +2094,197 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                           </Grid>
                         )}
                       </Grid>
+
+                      {/* 🛡️ SECCIÓN GEX - GARANTÍA EXTENDIDA */}
+                      {declaredValue && parseFloat(declaredValue) > 0 && (
+                        <Paper sx={{ p: 2, mt: 3, bgcolor: includeGex ? '#E8F5E9' : '#FFF8E1', border: `2px solid ${includeGex ? '#4CAF50' : '#FFC107'}` }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography variant="h6">🛡️ Garantía Extendida GEX</Typography>
+                              {loadingGex && <CircularProgress size={20} />}
+                            </Box>
+                            <Chip 
+                              label={includeGex ? '✅ Incluida' : 'Opcional'} 
+                              color={includeGex ? 'success' : 'warning'} 
+                              size="small" 
+                            />
+                          </Box>
+                          
+                          {gexQuote ? (
+                            <>
+                              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                Protege tu envío contra pérdida o daño. En caso de siniestro, se requiere factura original.
+                              </Typography>
+                              
+                              <Grid container spacing={1} sx={{ mb: 2 }}>
+                                <Grid size={6}>
+                                  <Typography variant="caption" color="text.secondary">Valor Asegurado</Typography>
+                                  <Typography fontWeight="bold">${gexQuote.insuredValueMxn.toFixed(2)} MXN</Typography>
+                                </Grid>
+                                <Grid size={6}>
+                                  <Typography variant="caption" color="text.secondary">Tipo de Cambio</Typography>
+                                  <Typography fontWeight="bold">${gexQuote.exchangeRate.toFixed(2)}</Typography>
+                                </Grid>
+                                <Grid size={6}>
+                                  <Typography variant="caption" color="text.secondary">5% Valor Asegurado</Typography>
+                                  <Typography>${gexQuote.variableFeeMxn.toFixed(2)} MXN</Typography>
+                                </Grid>
+                                <Grid size={6}>
+                                  <Typography variant="caption" color="text.secondary">Cargo Fijo GEX</Typography>
+                                  <Typography>${gexQuote.fixedFeeMxn.toFixed(2)} MXN</Typography>
+                                </Grid>
+                              </Grid>
+                              
+                              <Divider sx={{ my: 2 }} />
+                              
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <Checkbox 
+                                    checked={includeGex}
+                                    onChange={(e) => setIncludeGex(e.target.checked)}
+                                    sx={{ color: ORANGE, '&.Mui-checked': { color: '#4CAF50' } }}
+                                  />
+                                  <Typography fontWeight="bold">
+                                    {includeGex ? '✅ GEX Activada' : 'Agregar Protección GEX'}
+                                  </Typography>
+                                </Box>
+                                <Typography variant="h5" color={includeGex ? 'success.main' : 'text.primary'} fontWeight="bold">
+                                  ${gexQuote.totalCostMxn.toFixed(2)} MXN
+                                </Typography>
+                              </Box>
+                            </>
+                          ) : (
+                            <Typography variant="body2" color="text.secondary">
+                              Cotizando protección GEX...
+                            </Typography>
+                          )}
+                        </Paper>
+                      )}
+
+                      {/* RESUMEN TOTAL DE COSTOS - Mostrar cuando hay paquetería O costo PO Box */}
+                      {(selectedRate || costoPOBox) && (
+                        <Paper sx={{ p: 2, mt: 2, bgcolor: '#E3F2FD', border: '2px solid #2196F3' }}>
+                          <Typography variant="h6" gutterBottom>💵 Resumen de Costos</Typography>
+                          <Grid container spacing={1}>
+                            {/* Costo de Envío Nacional (paquetería) */}
+                            {selectedRate && (
+                              <>
+                                <Grid size={8}>
+                                  <Typography>Envío Nacional ({selectedRate.carrierName || carrier})</Typography>
+                                </Grid>
+                                <Grid size={4}>
+                                  <Typography textAlign="right" fontWeight="bold">${selectedRate.totalPrice.toFixed(2)} MXN</Typography>
+                                </Grid>
+                              </>
+                            )}
+                            
+                            {/* Costo de Servicio PO Box USA */}
+                            {costoPOBox && (
+                              <>
+                                <Grid size={8}>
+                                  <Typography>📦 Servicio PO Box USA ({costoPOBox.cbmTotal.toFixed(4)} m³)</Typography>
+                                </Grid>
+                                <Grid size={4}>
+                                  <Typography textAlign="right" fontWeight="bold">${costoPOBox.totalMxn.toFixed(2)} MXN</Typography>
+                                </Grid>
+                              </>
+                            )}
+                            
+                            {/* Costo de Garantía GEX */}
+                            {includeGex && gexQuote && (
+                              <>
+                                <Grid size={8}>
+                                  <Typography>🛡️ Garantía GEX</Typography>
+                                </Grid>
+                                <Grid size={4}>
+                                  <Typography textAlign="right" fontWeight="bold">${gexQuote.totalCostMxn.toFixed(2)} MXN</Typography>
+                                </Grid>
+                              </>
+                            )}
+                            
+                            <Grid size={12}><Divider sx={{ my: 1 }} /></Grid>
+                            
+                            {/* TOTAL A COBRAR */}
+                            <Grid size={8}>
+                              <Typography variant="h6">TOTAL A COBRAR</Typography>
+                            </Grid>
+                            <Grid size={4}>
+                              <Typography variant="h6" textAlign="right" color="primary" fontWeight="bold">
+                                ${(
+                                  (selectedRate?.totalPrice || 0) + 
+                                  (costoPOBox?.totalMxn || 0) + 
+                                  (includeGex && gexQuote ? gexQuote.totalCostMxn : 0)
+                                ).toFixed(2)} MXN
+                              </Typography>
+                            </Grid>
+                          </Grid>
+                          
+                          {/* OPCIONES DE PAGO */}
+                          {((costoPOBox?.totalMxn || 0) + (includeGex && gexQuote ? gexQuote.totalCostMxn : 0)) > 0 && (
+                            <Box sx={{ mt: 3, pt: 2, borderTop: '1px dashed #ccc' }}>
+                              <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                Seleccionar opción de cobro: {!paymentOption && <span style={{ color: '#f44336' }}>*</span>}
+                              </Typography>
+                              <Grid container spacing={2}>
+                                <Grid size={6}>
+                                  <Button
+                                    variant={paymentOption === 'now' ? 'contained' : 'outlined'}
+                                    fullWidth
+                                    size="large"
+                                    onClick={() => {
+                                      setPaymentOption('now');
+                                      // TODO: Navegar a pasarela de pago cuando esté implementada
+                                      setSnackbar({ open: true, message: '💳 Opción "Pagar Ahora" seleccionada. La pasarela de pago aún no está implementada.', severity: 'info' });
+                                    }}
+                                    sx={{ 
+                                      py: 1.5,
+                                      bgcolor: paymentOption === 'now' ? '#4CAF50' : 'transparent',
+                                      borderColor: '#4CAF50',
+                                      color: paymentOption === 'now' ? 'white' : '#4CAF50',
+                                      '&:hover': { bgcolor: paymentOption === 'now' ? '#388E3C' : '#4CAF5010', borderColor: '#4CAF50' }
+                                    }}
+                                    startIcon={<AttachMoneyIcon />}
+                                  >
+                                    💳 Pagar Ahora
+                                  </Button>
+                                </Grid>
+                                <Grid size={6}>
+                                  <Button
+                                    variant={paymentOption === 'later' ? 'contained' : 'outlined'}
+                                    fullWidth
+                                    size="large"
+                                    onClick={() => setPaymentOption('later')}
+                                    sx={{ 
+                                      py: 1.5,
+                                      bgcolor: paymentOption === 'later' ? ORANGE : 'transparent',
+                                      borderColor: ORANGE,
+                                      color: paymentOption === 'later' ? 'white' : ORANGE,
+                                      '&:hover': { bgcolor: paymentOption === 'later' ? '#ff7849' : `${ORANGE}10`, borderColor: ORANGE }
+                                    }}
+                                  >
+                                    📝 Cobrar Después
+                                  </Button>
+                                </Grid>
+                              </Grid>
+                              {paymentOption === 'later' && (
+                                <Alert severity="info" sx={{ mt: 2 }}>
+                                  ✅ Podrás registrar el envío. El cobro quedará pendiente en la cuenta del cliente.
+                                </Alert>
+                              )}
+                              {paymentOption === 'now' && (
+                                <Alert severity="warning" sx={{ mt: 2 }}>
+                                  ⚠️ La pasarela de pago aún no está implementada. Por ahora selecciona "Cobrar Después" para continuar.
+                                </Alert>
+                              )}
+                              {!paymentOption && (
+                                <Typography variant="caption" color="error" sx={{ display: 'block', mt: 1, textAlign: 'center' }}>
+                                  ⚠️ Debes seleccionar una opción de cobro para registrar el envío
+                                </Typography>
+                              )}
+                            </Box>
+                          )}
+                        </Paper>
+                      )}
 
                       {boxes.length > 1 && (
                         <Alert severity="info" sx={{ mt: 2 }} icon={<AccountTreeIcon />}>

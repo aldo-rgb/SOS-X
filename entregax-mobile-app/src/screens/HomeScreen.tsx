@@ -38,7 +38,7 @@ const BLACK = '#111111';
 // Colores de estado
 const STATUS_COLORS: Record<string, string> = {
   // Aéreos (USA)
-  received: '#2196F3',      // Azul - Recibido en casillero
+  received: '#2196F3',      // Azul - Recibido en suite
   in_transit: '#F05A28',    // Naranja - En tránsito
   processing: '#9C27B0',    // Morado - Procesando envío
   shipped: '#00BCD4',       // Cyan - Vuelo confirmado
@@ -72,6 +72,7 @@ type RootStackParamList = {
   Notifications: { user: any; token: string };
   DeliveryInstructions: { package: Package; packages?: Package[]; user: any; token: string };
   MaritimeDetail: { package: Package; user: any; token: string };
+  PackageDetail: { package: Package; user: any; token: string };
   EmployeeOnboarding: { user: any; token: string };
   // Pantallas del Repartidor
   DriverHome: { user: any; token: string };
@@ -158,12 +159,12 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       return dhlLabels[status] || status;
     }
     
-    // Labels para aéreo (USA)
+    // Labels para PO Box USA (terrestre)
     const statusLabels: Record<string, string> = {
       received: t('status.inWarehouse'),
-      in_transit: t('status.inTransit'),
+      in_transit: `🚚 ${t('status.inTransit')}`,
       processing: `📋 ${t('status.processing')}`,
-      shipped: `✈️ ${t('status.shipped')}`,
+      shipped: `🚚 ${t('status.shipped')}`,
       delivered: t('status.delivered'),
       pending: t('status.pending'),
     };
@@ -288,7 +289,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           'usa': 'USA',
           'maritime': 'Marítimos',
           'china_air': 'TDI Aéreo China',
-          'dhl': 'DHL'
+          'dhl': 'MTY'
         };
         Alert.alert(
           '⚠️ No puedes mezclar envíos',
@@ -391,6 +392,15 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       // Si es marítimo, china_air o DHL con instrucciones asignadas, navegar a detalle del embarque
       if ((isMaritime || isChinaAir || isDHL) && hasDeliveryInstructions) {
         navigation.navigate('MaritimeDetail', {
+          package: item,
+          user,
+          token,
+        });
+        return;
+      }
+      // Para paquetes PO Box USA, navegar al detalle
+      if (!isMaritime && !isChinaAir && !isDHL) {
+        navigation.navigate('PackageDetail', {
           package: item,
           user,
           token,
@@ -824,7 +834,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           />
           <View style={styles.userTextContainer}>
             <Text style={styles.greeting}>{t('home.greeting')}, {user.name?.split(' ')[0]}!</Text>
-            <Text style={styles.boxId}>📦 {t('home.mailbox')}: {user.boxId}</Text>
+            <Text style={styles.boxId}>🏠 {t('home.mailbox')}: {user.boxId}</Text>
           </View>
           {/* 🚀 Botón de Solicitar Envío */}
           <TouchableOpacity
@@ -841,7 +851,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               }
             }}
           >
-            <Ionicons name="airplane" size={18} color="white" />
+            <Ionicons name="arrow-forward" size={18} color="white" />
             <Text style={styles.requestShipmentText}>Enviar</Text>
           </TouchableOpacity>
         </View>
@@ -950,7 +960,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           if (serviceFilter === null) return true;
           // Aéreo: TDI China Air
           if (serviceFilter === 'air') return pkg.shipment_type === 'china_air';
-          if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime';
+          // Marítimo: LCL (maritime) + FCL (fcl)
+          if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime' || pkg.shipment_type === 'fcl';
           // DHL: Solo paquetes DHL Monterrey
           if (serviceFilter === 'dhl') return pkg.shipment_type === 'dhl';
           // PO Box: Solo paquetes USA (sin shipment_type o 'air')
@@ -1034,7 +1045,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 onPress={() => setServiceFilter(serviceFilter === 'dhl' ? null : 'dhl')}
               >
                 <Text style={styles.filterIcon}>🚚</Text>
-                <Text style={[styles.filterText, serviceFilter === 'dhl' && styles.filterTextActive]}>DHL</Text>
+                <Text style={[styles.filterText, serviceFilter === 'dhl' && styles.filterTextActive]}>MTY</Text>
               </Pressable>
               <Pressable
                 style={[styles.filterChip, serviceFilter === 'usa' && styles.filterChipActive]}

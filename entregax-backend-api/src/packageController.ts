@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { PoolClient } from 'pg';
 
 // ============ TIPOS ============
 type PackageStatus = 'received' | 'in_transit' | 'customs' | 'ready_pickup' | 'delivered';
@@ -31,6 +32,13 @@ interface CreateShipmentBody {
     notes?: string;
     imageUrl?: string;         // Foto del paquete (base64 o URL)
     warehouseLocation?: string; // Ubicación de bodega (usa_pobox, china_air, etc.)
+    gex?: {                    // Garantía Extendida GEX
+        included: boolean;
+        invoiceValueUsd: number;
+        exchangeRate: number;
+        insuredValueMxn: number;
+        costMxn: number;
+    };
 }
 
 // Lista de paqueterías disponibles
@@ -69,12 +77,77 @@ const calculateVolume = (length?: number, width?: number, height?: number): numb
     return null;
 };
 
+// ============ CALCULAR COSTO PO BOX USA ============
+const calculatePOBoxCost = async (client: PoolClient, boxes: BoxItem[], gexCost?: number): Promise<{ totalMxn: number; cbm: number }> => {
+    try {
+        // 1. Calcular CBM total de todas las cajas
+        let totalCbm = 0;
+        for (const box of boxes) {
+            let boxCbm = (box.length * box.width * box.height) / 1000000; // cm³ a m³
+            if (boxCbm < 0.010) boxCbm = 0.010; // Mínimo cobrable por caja
+            totalCbm += boxCbm;
+        }
+
+        // 2. Obtener tarifas activas
+        const tarifasResult = await client.query(
+            'SELECT * FROM pobox_tarifas_volumen WHERE estado = TRUE ORDER BY nivel ASC'
+        );
+        const tarifas = tarifasResult.rows;
+
+        // 3. Obtener tipo de cambio para PO Box USA
+        const tcResult = await client.query(
+            "SELECT tipo_cambio_final FROM exchange_rate_config WHERE servicio = 'pobox_usa' AND estado = TRUE"
+        );
+        const tipoCambio = tcResult.rows[0]?.tipo_cambio_final || 17.50;
+
+        // 4. Evaluar nivel y calcular costo
+        let costoVolumenUsd = 0;
+
+        for (const tarifa of tarifas) {
+            const cbmMin = parseFloat(tarifa.cbm_min);
+            const cbmMax = tarifa.cbm_max ? parseFloat(tarifa.cbm_max) : Infinity;
+
+            if (totalCbm >= cbmMin && totalCbm <= cbmMax) {
+                if (tarifa.tipo_cobro === 'fijo') {
+                    costoVolumenUsd = parseFloat(tarifa.costo);
+                } else if (tarifa.tipo_cobro === 'por_unidad') {
+                    costoVolumenUsd = totalCbm * parseFloat(tarifa.costo);
+                    
+                    // Protección de precio: no cobrar menos que el nivel anterior
+                    const nivelAnterior = tarifas.find((t: any) => t.nivel === tarifa.nivel - 1);
+                    if (nivelAnterior) {
+                        const costoMinimo = parseFloat(nivelAnterior.costo);
+                        if (costoVolumenUsd < costoMinimo) {
+                            costoVolumenUsd = costoMinimo;
+                        }
+                    }
+                }
+                break;
+            }
+        }
+
+        // 5. Convertir a MXN y agregar costo GEX si aplica
+        const costoVolumenMxn = costoVolumenUsd * tipoCambio;
+        const totalMxn = costoVolumenMxn + (gexCost || 0);
+
+        console.log(`💰 Costo PO Box calculado: CBM=${totalCbm.toFixed(4)}, USD=${costoVolumenUsd.toFixed(2)}, MXN=${costoVolumenMxn.toFixed(2)}, +GEX=${gexCost || 0}, Total=${totalMxn.toFixed(2)}`);
+
+        return { totalMxn, cbm: totalCbm };
+    } catch (error) {
+        console.error('Error calculando costo PO Box:', error);
+        return { totalMxn: 0, cbm: 0 };
+    }
+};
+
 // ============ CREAR ENVÍO (MASTER + HIJAS) ============
 export const createShipment = async (req: Request, res: Response): Promise<void> => {
     const client = await pool.connect();
     
     try {
-        const { boxId, description, boxes, trackingProvider, declaredValue, carrier, destination, notes, imageUrl, warehouseLocation }: CreateShipmentBody = req.body;
+        const { boxId, description, boxes, trackingProvider, declaredValue, carrier, destination, notes, imageUrl, warehouseLocation, gex }: CreateShipmentBody = req.body;
+
+        // 🛡️ GEX - Determinar si incluye garantía
+        const hasGex = gex?.included || false;
 
         // Determinar service_type basado en warehouseLocation
         const getServiceType = (location?: string): string => {
@@ -159,7 +232,54 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
         const totalWeight = boxes.reduce((sum, box) => sum + box.weight, 0);
         const totalVolume = boxes.reduce((sum, box) => sum + (calculateVolume(box.length, box.width, box.height) || 0), 0);
 
+        // 🚚 Determinar si es envío con paquetería de última milla (auto-consolidar)
+        const lastMileCarriers = ['FedEx', 'UPS', 'DHL', 'Estafeta', 'Redpack', 'Paquetexpress', 'JT Express', 'Otro'];
+        const isLastMileShipment = lastMileCarriers.includes(carrier);
+
+        // 📦 Verificar si cliente tiene dirección asignada para USA (auto-procesar)
+        let hasDefaultUsaAddress = false;
+        if (serviceType === 'POBOX_USA') {
+            const addressCheck = await client.query(
+                `SELECT id FROM addresses 
+                 WHERE user_id = $1 
+                 AND default_for_service IS NOT NULL 
+                 AND (default_for_service ILIKE '%usa%' OR default_for_service ILIKE '%all%')
+                 LIMIT 1`,
+                [user.id]
+            );
+            hasDefaultUsaAddress = addressCheck.rows.length > 0;
+            if (hasDefaultUsaAddress) {
+                console.log(`📦 Cliente ${user.box_id} tiene dirección USA asignada - auto-procesando`);
+            }
+        }
+
+        // Si tiene carrier última milla O tiene dirección USA asignada, auto-procesar
+        const shouldAutoProcess = isLastMileShipment || hasDefaultUsaAddress;
+        const initialStatus = shouldAutoProcess ? 'processing' : 'received';
+
+        // 💰 Calcular costo para PO Box USA
+        let assignedCostMxn = 0;
+        let singleCbm = 0;
+        if (serviceType === 'POBOX_USA') {
+            const gexCostMxn = gex?.included ? (gex.costMxn || 0) : 0;
+            const costResult = await calculatePOBoxCost(client, boxes as BoxItem[], gexCostMxn);
+            assignedCostMxn = costResult.totalMxn;
+            singleCbm = costResult.cbm;
+        }
+
         await client.query('BEGIN');
+
+        // 🚚 Si debe auto-procesar, crear consolidación automática
+        let consolidationId: number | null = null;
+        if (shouldAutoProcess) {
+            const consolidationResult = await client.query(
+                `INSERT INTO consolidations (user_id, total_weight, status, created_at) 
+                 VALUES ($1, $2, 'processing', NOW()) RETURNING id`,
+                [user.id, totalWeight]
+            );
+            consolidationId = consolidationResult.rows[0].id;
+            console.log(`📦 Auto-consolidación #${consolidationId} creada para envío ${carrier}`);
+        }
 
         let masterPackage;
         const childPackages = [];
@@ -173,14 +293,17 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                   pkg_length, pkg_width, pkg_height, declared_value, notes, status,
                   is_master, box_number, total_boxes, carrier,
                   destination_country, destination_city, destination_address, destination_zip, destination_phone, destination_contact, image_url,
-                  service_type, warehouse_location)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'received', false, 1, 1, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) 
+                  service_type, warehouse_location, has_gex, consolidation_id,
+                  assigned_cost_mxn, single_cbm, saldo_pendiente, long_cm, width_cm, height_cm)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false, 1, 1, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
+                         $24, $25, $24, $6, $7, $8) 
                  RETURNING *`,
                 [user.id, masterTracking, trackingProvider || null, description, box.weight, 
-                 box.length, box.width, box.height, declaredValue || null, notes || null,
+                 box.length, box.width, box.height, declaredValue || null, notes || null, initialStatus,
                  carrier, destination.country, destination.city, destination.address, 
                  destination.zip || null, destination.phone || null, destination.contact || null, imageUrl || null,
-                 serviceType, wLocation]
+                 serviceType, wLocation, hasGex, consolidationId,
+                 assignedCostMxn, singleCbm]
             );
             masterPackage = result.rows[0];
             
@@ -199,14 +322,17 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                  (user_id, tracking_internal, tracking_provider, description, weight, 
                   declared_value, notes, status, is_master, box_number, total_boxes, carrier,
                   destination_country, destination_city, destination_address, destination_zip, destination_phone, destination_contact, image_url,
-                  service_type, warehouse_location)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, 'received', true, 0, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) 
+                  service_type, warehouse_location, has_gex, consolidation_id,
+                  assigned_cost_mxn, single_cbm, saldo_pendiente)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, 0, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
+                         $22, $23, $22) 
                  RETURNING *`,
                 [user.id, masterTracking, trackingProvider || null, description, totalWeight, 
-                 declaredValue || null, notes || null, totalBoxes, carrier,
+                 declaredValue || null, notes || null, initialStatus, totalBoxes, carrier,
                  destination.country, destination.city, destination.address,
                  destination.zip || null, destination.phone || null, destination.contact || null, imageUrl || null,
-                 serviceType, wLocation]
+                 serviceType, wLocation, hasGex, consolidationId,
+                 assignedCostMxn, singleCbm]
             );
             masterPackage = masterResult.rows[0];
 
@@ -231,13 +357,13 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                       pkg_length, pkg_width, pkg_height, status,
                       is_master, master_id, box_number, total_boxes, carrier,
                       destination_country, destination_city, destination_address,
-                      service_type, warehouse_location)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'received', false, $9, $10, $11, $12, $13, $14, $15, $16, $17) 
+                      service_type, warehouse_location, consolidation_id)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) 
                      RETURNING *`,
                     [user.id, childTracking, trackingProvider || null, description, box.weight, 
-                     box.length, box.width, box.height, masterPackage.id, boxNumber, totalBoxes,
+                     box.length, box.width, box.height, initialStatus, masterPackage.id, boxNumber, totalBoxes,
                      carrier, destination.country, destination.city, destination.address,
-                     serviceType, wLocation]
+                     serviceType, wLocation, consolidationId]
                 );
                 childPackages.push(childResult.rows[0]);
 
@@ -257,7 +383,10 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
         await client.query('COMMIT');
 
         res.status(201).json({
-            message: totalBoxes > 1 ? `📦 Envío con ${totalBoxes} bultos registrado` : '📦 Paquete registrado',
+            message: shouldAutoProcess 
+                ? `📦 Paquete registrado y procesando automáticamente`
+                : (totalBoxes > 1 ? `📦 Envío con ${totalBoxes} bultos registrado` : '📦 Paquete registrado'),
+            autoProcessed: shouldAutoProcess,
             shipment: {
                 master: {
                     id: masterPackage.id, tracking: masterPackage.tracking_internal,
@@ -275,7 +404,8 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                         phone: destination.phone || null,
                         contact: destination.contact || null
                     },
-                    status: 'received', statusLabel: getStatusLabel('received'),
+                    status: initialStatus, statusLabel: getStatusLabel(initialStatus as 'received' | 'in_transit'),
+                    consolidationId: consolidationId,
                     receivedAt: masterPackage.received_at
                 },
                 children: childPackages.map((child, idx) => ({
@@ -543,6 +673,9 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
         `, [userId]);
 
         const airPackages = airResult.rows.map(pkg => {
+            // DEBUG: Log de costos
+            console.log(`📦 [getMyPackages] Package ${pkg.id}: assigned_cost_mxn=${pkg.assigned_cost_mxn}, saldo_pendiente=${pkg.saldo_pendiente}`);
+            
             // Determinar el estado visible para el cliente
             let displayStatus = pkg.status;
             let displayLabel = getStatusLabel(pkg.status);
@@ -584,7 +717,11 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 shipment_type: 'air',
                 // 🛡️ GEX - Garantía Extendida
                 has_gex: pkg.has_gex || false,
-                gex_folio: pkg.gex_folio || null
+                gex_folio: pkg.gex_folio || null,
+                // 💰 Costos
+                assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
+                saldo_pendiente: pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0,
+                monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0
             };
         });
 
@@ -737,8 +874,79 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             };
         });
 
+        // 5. Contenedores FCL (containers) - Full Container Load
+        const fclResult = await pool.query(`
+            SELECT c.*, 
+                   lc.box_id as legacy_box_id,
+                   lc.full_name as client_name
+            FROM containers c
+            LEFT JOIN legacy_clients lc ON c.legacy_client_id = lc.id
+            WHERE c.client_user_id = $1 OR c.legacy_client_id IN (
+                SELECT lc2.id FROM legacy_clients lc2 
+                JOIN users u ON UPPER(u.box_id) = UPPER(lc2.box_id)
+                WHERE u.id = $1
+            )
+            ORDER BY c.created_at DESC
+        `, [userId]);
+
+        const fclPackages = fclResult.rows.map(container => {
+            // Mapear estado del container a estado visual
+            const getFclStatusLabel = (status: string): string => {
+                const labels: Record<string, string> = {
+                    'draft': '📝 Borrador',
+                    'pending': '⏳ Pendiente',
+                    'received_origin': '📦 Recibido Origen',
+                    'in_transit': '🚢 En Tránsito',
+                    'arrived_port': '⚓ Llegó a Puerto',
+                    'customs': '🛃 En Aduana',
+                    'released': '✅ Liberado',
+                    'in_yard': '🏭 En Patio',
+                    'delivered': '✅ Entregado',
+                    'closed': '🔒 Cerrado'
+                };
+                return labels[status] || status;
+            };
+
+            return {
+                id: container.id + 400000, // Offset para evitar colisión de IDs
+                tracking_internal: container.reference_code,
+                tracking_provider: container.bl_number || null,
+                description: `FCL ${container.container_number || 'Sin Contenedor'}`,
+                weight: container.total_weight_kg ? parseFloat(container.total_weight_kg) : null,
+                volume: container.total_cbm ? parseFloat(container.total_cbm) : null,
+                dimensions: null,
+                declared_value: null,
+                status: container.status,
+                statusLabel: getFclStatusLabel(container.status),
+                carrier: container.shipping_line || 'Marítimo FCL',
+                destination_city: 'MTY',
+                destination_country: 'MX',
+                image_url: null,
+                is_master: true,
+                total_boxes: container.total_packages || 1,
+                received_at: container.created_at,
+                delivered_at: container.status === 'delivered' ? container.updated_at : null,
+                created_at: container.created_at,
+                consolidation_id: null,
+                consolidation_status: null,
+                warehouse_location: container.current_location || 'En Tránsito',
+                service_type: 'fcl',
+                shipment_type: 'fcl',
+                // Info específica FCL
+                container_number: container.container_number,
+                bl_number: container.bl_number,
+                vessel_name: container.vessel_name,
+                voyage_number: container.voyage_number,
+                port_of_loading: container.port_of_loading,
+                port_of_discharge: container.port_of_discharge,
+                eta: container.eta,
+                has_gex: false,
+                gex_folio: null
+            };
+        });
+
         // Combinar todos los tipos
-        const allPackages = [...airPackages, ...maritimePackages, ...chinaAirPackages, ...dhlPackages];
+        const allPackages = [...airPackages, ...maritimePackages, ...chinaAirPackages, ...dhlPackages, ...fclPackages];
         
         // Ordenar por fecha de creación
         allPackages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
@@ -849,12 +1057,40 @@ export const createConsolidation = async (req: Request, res: Response): Promise<
             return res.status(400).json({ error: 'No seleccionaste paquetes' });
         }
 
-        // 2. Calcular peso total (Consultamos la BD para que no nos mientan desde la App)
+        // 2. Verificar que los paquetes no tengan ya consolidation_id (ya fueron procesados)
         const packagesCheck = await pool.query(
-            'SELECT SUM(weight) as total FROM packages WHERE id = ANY($1)',
+            'SELECT id, consolidation_id, status, tracking_internal FROM packages WHERE id = ANY($1)',
             [packageIds]
         );
-        const totalWeight = packagesCheck.rows[0].total || 0;
+
+        // Filtrar paquetes que ya tienen consolidación
+        const alreadyConsolidated = packagesCheck.rows.filter(p => p.consolidation_id !== null);
+        if (alreadyConsolidated.length > 0) {
+            // Si TODOS ya tienen consolidación, retornar el ID de la consolidación existente
+            if (alreadyConsolidated.length === packageIds.length) {
+                const existingConsolidationId = alreadyConsolidated[0].consolidation_id;
+                return res.status(200).json({
+                    message: 'Tu envío ya está en proceso',
+                    orderId: existingConsolidationId,
+                    alreadyProcessed: true
+                });
+            }
+        }
+
+        // Calcular peso total solo de paquetes sin consolidar
+        const validPackageIds = packagesCheck.rows
+            .filter(p => p.consolidation_id === null)
+            .map(p => p.id);
+        
+        if (validPackageIds.length === 0) {
+            return res.status(400).json({ error: 'Todos los paquetes seleccionados ya están en proceso' });
+        }
+
+        const weightResult = await pool.query(
+            'SELECT SUM(weight) as total FROM packages WHERE id = ANY($1)',
+            [validPackageIds]
+        );
+        const totalWeight = weightResult.rows[0].total || 0;
 
         // 3. Crear la Consolidación (La "Carpeta" del pedido)
         const consolidationResult = await pool.query(
@@ -868,7 +1104,7 @@ export const createConsolidation = async (req: Request, res: Response): Promise<
             `UPDATE packages 
              SET status = 'in_transit', consolidation_id = $1 
              WHERE id = ANY($2)`,
-            [consolidationId, packageIds]
+            [consolidationId, validPackageIds]
         );
 
         // 5. ¡Éxito!
@@ -1072,6 +1308,147 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
         res.status(500).json({ 
             success: false, 
             error: 'Error al guardar instrucciones de entrega' 
+        });
+    }
+};
+
+// ============ OBTENER DETALLE DE PAQUETE POR ID ============
+export const getPackageById = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { id } = req.params;
+        const user = (req as any).user;
+
+        // Consulta del paquete con todos los detalles
+        const result = await pool.query(`
+            SELECT 
+                p.id,
+                p.tracking_internal,
+                p.tracking_provider,
+                p.description,
+                p.weight,
+                p.dimensions,
+                p.long_cm,
+                p.width_cm,
+                p.height_cm,
+                p.pkg_length,
+                p.pkg_width,
+                p.pkg_height,
+                p.single_cbm,
+                p.declared_value,
+                p.status,
+                p.carrier,
+                p.image_url,
+                p.has_gex,
+                p.gex_folio,
+                p.assigned_cost_mxn,
+                p.saldo_pendiente,
+                p.monto_pagado,
+                p.warehouse_location,
+                p.service_type,
+                p.created_at,
+                p.updated_at,
+                p.user_id,
+                u.box_id,
+                u.full_name as client_name
+            FROM packages p
+            LEFT JOIN users u ON p.user_id = u.id
+            WHERE p.id = $1
+        `, [id]);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ 
+                success: false, 
+                error: 'Paquete no encontrado' 
+            });
+        }
+
+        const pkg = result.rows[0];
+
+        // Verificar que el usuario puede ver este paquete
+        // (es el dueño o es empleado con nivel suficiente)
+        if (user.role_level < 50 && pkg.user_id !== user.id) {
+            return res.status(403).json({ 
+                success: false, 
+                error: 'No tienes permiso para ver este paquete' 
+            });
+        }
+
+        // Construir dimensiones desde columnas individuales si no hay JSON
+        // Prioridad: pkg_length/pkg_width/pkg_height (PO Box) > long_cm/width_cm/height_cm > dimensions JSON
+        let dimensions = pkg.dimensions;
+        if (!dimensions) {
+            // Primero intentar con pkg_length (usado en PO Box)
+            if (pkg.pkg_length && pkg.pkg_width && pkg.pkg_height) {
+                dimensions = {
+                    length: parseFloat(pkg.pkg_length),
+                    width: parseFloat(pkg.pkg_width),
+                    height: parseFloat(pkg.pkg_height)
+                };
+            } 
+            // Luego intentar con long_cm (usado en otros servicios)
+            else if (pkg.long_cm && pkg.width_cm && pkg.height_cm) {
+                dimensions = {
+                    length: parseFloat(pkg.long_cm),
+                    width: parseFloat(pkg.width_cm),
+                    height: parseFloat(pkg.height_cm)
+                };
+            }
+        }
+
+        // Calcular CBM si hay dimensiones
+        let cbm = pkg.single_cbm ? parseFloat(pkg.single_cbm) : 0;
+        if (!cbm && dimensions) {
+            const l = dimensions.length || 0;
+            const w = dimensions.width || 0;
+            const h = dimensions.height || 0;
+            cbm = (l * w * h) / 1000000; // cm³ a m³
+        }
+
+        // 🔍 DEBUG: Log para verificar datos
+        console.log(`📦 getPackageById #${pkg.id}: pkg_length=${pkg.pkg_length}, pkg_width=${pkg.pkg_width}, pkg_height=${pkg.pkg_height}`);
+        console.log(`   dimensions=${JSON.stringify(dimensions)}, cbm=${cbm}, cost=${pkg.assigned_cost_mxn}`);
+
+        // Formatear respuesta
+        const packageDetail = {
+            id: pkg.id,
+            tracking_internal: pkg.tracking_internal,
+            tracking_provider: pkg.tracking_provider,
+            description: pkg.description,
+            weight: pkg.weight ? parseFloat(pkg.weight) : null,
+            dimensions: dimensions,
+            cbm: cbm,
+            declared_value: pkg.declared_value ? parseFloat(pkg.declared_value) : null,
+            status: pkg.status,
+            carrier: pkg.carrier,
+            image_url: pkg.image_url,
+            has_gex: pkg.has_gex || false,
+            gex_folio: pkg.gex_folio,
+            assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
+            saldo_pendiente: pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0,
+            monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
+            warehouse_location: pkg.warehouse_location,
+            service_type: pkg.service_type,
+            created_at: pkg.created_at,
+            updated_at: pkg.updated_at,
+            client: {
+                id: pkg.user_id,
+                box_id: pkg.box_id,
+                name: pkg.client_name
+            }
+        };
+
+        res.json({
+            success: true,
+            package: packageDetail
+        });
+
+    } catch (error: any) {
+        console.error('❌ Error al obtener detalle del paquete:', error);
+        console.error('❌ Stack:', error.stack);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Error al obtener detalle del paquete',
+            details: error.message 
         });
     }
 };

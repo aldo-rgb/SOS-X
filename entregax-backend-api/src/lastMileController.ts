@@ -258,6 +258,128 @@ export const quoteShipment = async (req: Request, res: Response) => {
 };
 
 // =========================================
+// POST /api/admin/last-mile/quote-direct
+// Cotizar envío con dirección directa (desde wizard de recepción)
+// =========================================
+export const quoteShipmentDirect = async (req: Request, res: Response) => {
+  try {
+    const { 
+      destination_name, 
+      destination_address, 
+      destination_city, 
+      destination_state, 
+      destination_zip, 
+      destination_phone, 
+      destination_email,
+      weight, 
+      length, 
+      width, 
+      height,
+      boxes // Array de cajas para calcular dimensiones totales
+    } = req.body;
+
+    // Validar campos requeridos
+    if (!destination_city || !destination_zip) {
+      return res.status(400).json({ 
+        error: 'Faltan datos de destino',
+        message: 'Se requiere al menos ciudad y código postal'
+      });
+    }
+
+    // Calcular peso y dimensiones totales si vienen varias cajas
+    let totalWeight = weight || 1;
+    let maxLength = length || 30;
+    let maxWidth = width || 30;
+    let maxHeight = height || 30;
+
+    if (boxes && Array.isArray(boxes) && boxes.length > 0) {
+      totalWeight = boxes.reduce((sum: number, b: any) => sum + (parseFloat(b.weight) || 1), 0);
+      maxLength = Math.max(...boxes.map((b: any) => parseFloat(b.length) || 30));
+      maxWidth = Math.max(...boxes.map((b: any) => parseFloat(b.width) || 30));
+      // Altura: sumar todas si van apiladas
+      maxHeight = boxes.reduce((sum: number, b: any) => sum + (parseFloat(b.height) || 10), 0);
+    }
+
+    // Crear dirección destino para Skydropx
+    const addressTo = {
+      name: destination_name || 'Cliente',
+      address1: destination_address || 'Sin dirección específica',
+      city: destination_city,
+      province: destination_state || destination_city, // Usar ciudad si no hay estado
+      zip: destination_zip,
+      country: 'MX',
+      phone: destination_phone || '0000000000',
+      email: destination_email || 'cliente@entregax.com'
+    };
+
+    const parcel = {
+      weight: totalWeight,
+      length: maxLength,
+      width: maxWidth,
+      height: maxHeight
+    };
+
+    console.log('[LAST-MILE] Quoting direct:', { addressTo, parcel });
+
+    // Crear shipment en Skydropx para obtener cotizaciones
+    const result = await skydropx.createShipment(addressTo, parcel);
+
+    if (!result.success) {
+      return res.status(400).json({ 
+        error: 'Error al cotizar',
+        message: result.error 
+      });
+    }
+
+    // Obtener carriers activos de la BD
+    const carriersResult = await pool.query(`
+      SELECT code, name, tracking_url_template, logo_url
+      FROM national_carriers WHERE is_active = TRUE
+      ORDER BY priority
+    `);
+    const carriers = carriersResult.rows;
+
+    // Enriquecer rates con info de carriers
+    const enrichedRates = result.rates?.map(rate => {
+      const carrier = carriers.find(c => c.code.toLowerCase() === rate.provider.toLowerCase());
+      return {
+        ...rate,
+        carrierName: carrier?.name || rate.provider,
+        carrierLogo: carrier?.logo_url,
+        trackingUrlTemplate: carrier?.tracking_url_template
+      };
+    }) || [];
+
+    // Ordenar por precio
+    enrichedRates.sort((a, b) => a.totalPrice - b.totalPrice);
+
+    res.json({
+      success: true,
+      shipmentId: result.shipmentId,
+      rates: enrichedRates,
+      destination: {
+        name: addressTo.name,
+        city: addressTo.city,
+        state: addressTo.province,
+        zip: addressTo.zip
+      },
+      parcel: {
+        weight: totalWeight,
+        length: maxLength,
+        width: maxWidth,
+        height: maxHeight,
+        boxCount: boxes?.length || 1
+      },
+      isSandbox: skydropx.isSandbox()
+    });
+
+  } catch (error: any) {
+    console.error('[LAST-MILE] Error quoting direct:', error);
+    res.status(500).json({ error: 'Error al cotizar envío' });
+  }
+};
+
+// =========================================
 // POST /api/admin/last-mile/dispatch
 // Generar guía y despachar
 // =========================================

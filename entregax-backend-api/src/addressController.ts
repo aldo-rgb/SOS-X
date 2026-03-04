@@ -229,7 +229,66 @@ export const getClientInstructions = async (req: Request, res: Response): Promis
             defaultAddress = addresses.find((addr: any) => addr.is_default);
         }
 
-        const hasInstructions = !!(client.default_transport && defaultAddress);
+        // hasInstructions = true si tiene dirección predeterminada
+        // (El transporte/carrier son opcionales, se pueden seleccionar al cotizar)
+        const hasInstructions = !!defaultAddress;
+
+        // ============ OBTENER INFO DE TARIFAS Y TIPO DE CAMBIO PARA PO BOX USA ============
+        let poboxRatesInfo = null;
+        const serviceTypeLower = serviceType?.toString().toLowerCase() || '';
+        
+        if (serviceTypeLower === 'usa' || serviceTypeLower === 'pobox_usa') {
+            try {
+                // Obtener tipo de cambio actual para PO Box USA
+                const exchangeRateResult = await pool.query(
+                    "SELECT tipo_cambio_final, ultimo_tc_api, sobreprecio, ultima_actualizacion FROM exchange_rate_config WHERE servicio = 'pobox_usa' AND estado = TRUE"
+                );
+                
+                // Obtener tarifas de volumen activas
+                const tarifasResult = await pool.query(
+                    'SELECT nivel, cbm_min, cbm_max, costo, tipo_cobro, moneda FROM pobox_tarifas_volumen WHERE estado = TRUE ORDER BY nivel ASC'
+                );
+                
+                // Obtener tarifas extras activas
+                const extrasResult = await pool.query(
+                    'SELECT nombre_servicio, descripcion, costo, moneda FROM pobox_tarifas_extras WHERE estado = TRUE'
+                );
+                
+                const exchangeConfig = exchangeRateResult.rows[0];
+                
+                poboxRatesInfo = {
+                    tipoCambio: {
+                        valor: parseFloat(exchangeConfig?.tipo_cambio_final) || 17.50,
+                        apiRate: parseFloat(exchangeConfig?.ultimo_tc_api) || null,
+                        sobreprecio: parseFloat(exchangeConfig?.sobreprecio) || 0,
+                        ultimaActualizacion: exchangeConfig?.ultima_actualizacion || null
+                    },
+                    tarifasVolumen: tarifasResult.rows.map((t: any) => ({
+                        nivel: t.nivel,
+                        cbmMin: parseFloat(t.cbm_min),
+                        cbmMax: t.cbm_max ? parseFloat(t.cbm_max) : null,
+                        costoUsd: parseFloat(t.costo),
+                        tipoCobro: t.tipo_cobro,
+                        descripcion: t.cbm_max 
+                            ? `${t.cbm_min} - ${t.cbm_max} m³ = $${t.costo} USD ${t.tipo_cobro === 'fijo' ? '(fijo)' : '(por m³)'}`
+                            : `${t.cbm_min}+ m³ = $${t.costo} USD por m³`
+                    })),
+                    tarifasExtras: extrasResult.rows.map((e: any) => ({
+                        servicio: e.nombre_servicio,
+                        descripcion: e.descripcion,
+                        costoMxn: parseFloat(e.costo)
+                    })),
+                    formula: {
+                        cbm: 'CBM = (Largo × Alto × Ancho) / 1,000,000',
+                        cbmMinimo: 0.010,
+                        nota: 'Mínimo cobrable: 0.010 m³'
+                    }
+                };
+            } catch (ratesError) {
+                console.error('Error obteniendo tarifas PO Box:', ratesError);
+                // No fallar si no hay tarifas, solo no incluirlas
+            }
+        }
 
         res.json({
             found: true,
@@ -267,7 +326,9 @@ export const getClientInstructions = async (req: Request, res: Response): Promis
                 reference: defaultAddress.reference,
                 defaultForService: defaultAddress.default_for_service,
                 formatted: `${defaultAddress.street} ${defaultAddress.exterior_number || ''}${defaultAddress.interior_number ? ' Int. ' + defaultAddress.interior_number : ''}, ${defaultAddress.neighborhood || ''}, ${defaultAddress.city}, ${defaultAddress.state} ${defaultAddress.zip_code}`
-            } : null
+            } : null,
+            // Incluir info de tarifas PO Box si aplica
+            poboxRatesInfo
         });
     } catch (error) {
         console.error('Error al obtener instrucciones del cliente:', error);

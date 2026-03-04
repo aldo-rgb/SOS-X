@@ -178,6 +178,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
                 boxId: user.box_id,
                 role: user.role,
                 phone: user.phone,
+                rfc: user.rfc || null,
                 isVerified: user.is_verified || false,
                 verificationStatus: user.verification_status || 'not_started',
                 // 👷 Campo para onboarding de empleados
@@ -411,7 +412,8 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
         
         const userQuery = await pool.query(
             `SELECT id, full_name, email, box_id, role, warehouse_location, created_at,
-                    is_verified, verification_status, is_employee_onboarded, profile_photo_url
+                    is_verified, verification_status, is_employee_onboarded, profile_photo_url,
+                    phone, rfc
              FROM users WHERE id = $1`,
             [userId]
         );
