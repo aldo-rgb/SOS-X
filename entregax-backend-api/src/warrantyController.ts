@@ -591,12 +591,25 @@ export const createWarrantyByUser = async (req: AuthRequest, res: Response): Pro
                 );
                 console.log(`📦 Maritime order ${packageId} actualizada con GEX: ${gexFolio}`);
             } else {
-                // Actualizar packages (USA)
+                // Actualizar packages (USA/PO Box) con todos los datos de GEX
+                // Primero obtener el assigned_cost_mxn actual para calcular nuevo saldo
+                const pkgRes = await pool.query('SELECT assigned_cost_mxn FROM packages WHERE id = $1', [packageId]);
+                const currentAssignedCost = parseFloat(pkgRes.rows[0]?.assigned_cost_mxn || 0);
+                const newSaldoPendiente = currentAssignedCost + totalCost;
+                
                 await pool.query(
-                    'UPDATE packages SET has_gex = true, gex_folio = $1 WHERE id = $2',
-                    [gexFolio, packageId]
+                    `UPDATE packages SET 
+                        has_gex = true, 
+                        gex_folio = $1,
+                        declared_value = $2,
+                        gex_insurance_cost = $3,
+                        gex_fixed_cost = $4,
+                        gex_total_cost = $5,
+                        saldo_pendiente = $6
+                    WHERE id = $7`,
+                    [gexFolio, invoiceValueUSD, variableFee, fixedFee, totalCost, newSaldoPendiente, packageId]
                 );
-                console.log(`📦 Package ${packageId} actualizado con GEX: ${gexFolio}`);
+                console.log(`📦 Package ${packageId} actualizado con GEX: ${gexFolio}, costo: $${totalCost.toFixed(2)} MXN, nuevo saldo: $${newSaldoPendiente.toFixed(2)} MXN`);
             }
         }
         

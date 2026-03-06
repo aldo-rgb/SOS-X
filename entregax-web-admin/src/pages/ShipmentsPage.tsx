@@ -99,6 +99,7 @@ interface BoxItem {
   length: string;
   width: string;
   height: string;
+  trackingCourier?: string; // Guía del proveedor (Amazon, UPS, etc.)
 }
 
 interface ClientAddress {
@@ -157,6 +158,9 @@ interface ClientInstructions {
     transport: string | null;
     carrier: string | null;
   };
+  addresses?: ClientAddress[];
+  usaAssignedAddressCount?: number;
+  totalAddressCount?: number;
   defaultAddress?: ClientAddress | null;
   poboxRatesInfo?: POBoxRatesInfo | null;
 }
@@ -213,7 +217,7 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
   // Wizard state
   const [activeStep, setActiveStep] = useState(0);
   const [boxes, setBoxes] = useState<BoxItem[]>([{ id: 1, weight: '', length: '', width: '', height: '' }]);
-  const [currentBox, setCurrentBox] = useState({ weight: '', length: '', width: '', height: '' });
+  const [currentBox, setCurrentBox] = useState({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
   const [trackingProvider, setTrackingProvider] = useState('');
   const [declaredValue, setDeclaredValue] = useState('');
   const [carrier, setCarrier] = useState('');
@@ -261,11 +265,14 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
   // Estado para opción de pago
   const [paymentOption, setPaymentOption] = useState<'now' | 'later' | null>(null);
   
+  // Estado para dejar paquete en bodega (PO Box sin dirección)
+  const [leaveInWarehouse, setLeaveInWarehouse] = useState(false);
+  
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' });
 
   const wizardSteps = [
     { label: i18n.language === 'es' ? 'Agregar Cajas' : 'Add Boxes', icon: <Inventory2Icon /> },
-    { label: i18n.language === 'es' ? 'Tracking & Valor' : 'Tracking & Value', icon: <QrCodeScannerIcon /> },
+    { label: i18n.language === 'es' ? 'Foto & Valor' : 'Photo & Value', icon: <CameraAltIcon /> },
     { label: i18n.language === 'es' ? 'Destino & Paquetería' : 'Destination & Carrier', icon: <LocalShippingIcon /> },
     { label: i18n.language === 'es' ? 'Confirmar' : 'Confirm', icon: <CheckCircleIcon /> }
   ];
@@ -301,7 +308,7 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
   // ============ WIZARD HANDLERS ============
   const handleOpenWizard = () => {
     setBoxes([]);
-    setCurrentBox({ weight: '', length: '', width: '', height: '' });
+    setCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
     setTrackingProvider('');
     setDeclaredValue('');
     setCarrier('');
@@ -323,6 +330,7 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
     setIncludeGex(false);
     setGexQuote(null);
     setPaymentOption(null);
+    setLeaveInWarehouse(false); // Reset opción dejar en bodega
     setWizardOpen(true);
     setTimeout(() => weightInputRef.current?.focus(), 300);
   };
@@ -435,7 +443,31 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
           }, 100);
         } else {
           setManualAddress(true);
-          setSnackbar({ open: true, message: '⚠️ Cliente encontrado pero sin dirección predeterminada. Configure el destino.', severity: 'warning' as 'success' | 'error' });
+          // Mensaje específico si tiene direcciones pero ninguna asignada a USA
+          const isPOBox = response.data.poboxRatesInfo != null;
+          const hasAddresses = (response.data.totalAddressCount || 0) > 0;
+          const usaCount = response.data.usaAssignedAddressCount || 0;
+          
+          // 📦 Si es PO Box y no tiene dirección, preseleccionar "Dejar en Bodega"
+          if (isPOBox) {
+            setLeaveInWarehouse(true);
+          }
+          
+          if (isPOBox && hasAddresses && usaCount === 0) {
+            setSnackbar({ 
+              open: true, 
+              message: '⚠️ Cliente tiene direcciones pero ninguna asignada al servicio USA. Se dejará en bodega.', 
+              severity: 'warning' as 'success' | 'error' 
+            });
+          } else {
+            setSnackbar({ 
+              open: true, 
+              message: isPOBox 
+                ? '📦 Cliente sin dirección predeterminada. Se dejará en bodega (puede configurar destino manualmente).' 
+                : '⚠️ Cliente encontrado pero sin dirección predeterminada. Configure el destino.', 
+              severity: 'warning' as 'success' | 'error' 
+            });
+          }
         }
       }
     } catch (error: unknown) {
@@ -449,7 +481,7 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
     }
   };
 
-  // ============ COTIZAR CON SKYDROPX ============
+  // ============ COTIZAR OPCIONES DE ENVÍO ============
   // Cotizar con dirección específica (para auto-cotización)
   const fetchShippingRatesWithAddress = async (addr: { city: string; address: string; zip: string; phone: string; contact: string; clientName: string }) => {
     if (!addr.city || !addr.zip) return;
@@ -459,55 +491,51 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
     setSelectedRate(null);
 
     try {
-      const response = await axios.post(`${API_URL}/admin/last-mile/quote-direct`, {
-        destination_name: addr.contact || addr.clientName,
-        destination_address: addr.address,
-        destination_city: addr.city,
-        destination_state: addr.city,
-        destination_zip: addr.zip,
-        destination_phone: addr.phone,
-        boxes: boxes.length > 0 ? boxes.map(b => ({
-          weight: parseFloat(b.weight) || 1,
-          length: parseFloat(b.length) || 30,
-          width: parseFloat(b.width) || 30,
-          height: parseFloat(b.height) || 10
-        })) : [{ weight: 1, length: 30, width: 30, height: 10 }]
-      }, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      // 🏙️ Detectar si es zona metropolitana de Monterrey
+      const isMonterreyArea = /^(64|65|66|67)\d{3}$/.test(addr.zip) || 
+        ['monterrey', 'san pedro', 'san pedro garza garcia', 'san pedro garza garcía', 
+         'santa catarina', 'guadalupe', 'apodaca', 'escobedo', 'garcia', 'garcía',
+         'san nicolas', 'san nicolás', 'juarez', 'juárez', 'santiago', 'cadereyta',
+         'general escobedo', 'pesquería', 'pesqueria', 'cienega de flores', 'ciénega de flores',
+         'salinas victoria', 'el carmen'].some(city => 
+          addr.city.toLowerCase().includes(city)
+        );
+      
+      // Calcular número de cajas
+      const numCajas = boxes.length > 0 ? boxes.length : 1;
+      const precioExpressInterno = 350 * numCajas;
 
-      if (response.data.success) {
-        let rates = response.data.rates || [];
-        
-        // 🏙️ Detectar si es zona metropolitana de Monterrey
-        const isMonterreyArea = /^(64|65|66|67)\d{3}$/.test(addr.zip) || 
-          ['monterrey', 'san pedro', 'san pedro garza garcia', 'san pedro garza garcía', 
-           'santa catarina', 'guadalupe', 'apodaca', 'escobedo', 'garcia', 'garcía',
-           'san nicolas', 'san nicolás', 'juarez', 'juárez', 'santiago', 'cadereyta',
-           'general escobedo', 'pesquería', 'pesqueria', 'cienega de flores', 'ciénega de flores',
-           'salinas victoria', 'el carmen'].some(city => 
-            addr.city.toLowerCase().includes(city)
-          );
-        
-        if (isMonterreyArea) {
-          const cedisRate = {
-            rateId: 'cedis-mty-local',
-            provider: 'CEDIS MTY',
-            carrierName: 'CEDIS MTY',
-            serviceName: '🏠 Entrega Local Monterrey',
-            totalPrice: 0,
-            currency: 'MXN',
-            deliveryDays: '1-2 días',
-            isLocal: true
-          };
-          rates = [cedisRate, ...rates];
-        }
-        
-        setShippingRates(rates);
-        setShipmentId(response.data.shipmentId);
-        if (rates.length > 0) {
-          setSnackbar({ open: true, message: `✅ ${rates.length} opciones de paquetería disponibles`, severity: 'success' });
-        }
+      let rates: any[] = [];
+
+      // CEDIS MTY solo para zona Monterrey
+      if (isMonterreyArea) {
+        rates.push({
+          rateId: 'cedis-mty-local',
+          provider: 'CEDIS MTY',
+          carrierName: 'CEDIS MTY',
+          serviceName: '🏠 Entrega Local Monterrey',
+          totalPrice: 0,
+          currency: 'MXN',
+          deliveryDays: '1-2 días',
+          isLocal: true
+        });
+      }
+
+      // Paquete Express Interno - siempre disponible
+      rates.push({
+        rateId: 'paquete-express-interno',
+        provider: 'Paquete Express',
+        carrierName: 'Paquete Express',
+        serviceName: `📦 Envío Nacional (${numCajas} ${numCajas === 1 ? 'caja' : 'cajas'})`,
+        totalPrice: precioExpressInterno,
+        currency: 'MXN',
+        deliveryDays: '3-5 días',
+        isInternal: true
+      });
+      
+      setShippingRates(rates);
+      if (rates.length > 0) {
+        setSnackbar({ open: true, message: `✅ ${rates.length} opciones de envío disponibles`, severity: 'success' });
       }
     } catch (error: any) {
       console.error('Error cotizando:', error);
@@ -527,63 +555,58 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
     setSelectedRate(null);
 
     try {
-      const response = await axios.post(`${API_URL}/admin/last-mile/quote-direct`, {
-        destination_name: destination.contact || clientInstructions?.client?.name || 'Cliente',
-        destination_address: destination.address,
-        destination_city: destination.city,
-        destination_state: destination.city, // Usar ciudad como estado si no hay
-        destination_zip: destination.zip,
-        destination_phone: destination.phone,
-        boxes: boxes.map(b => ({
-          weight: parseFloat(b.weight) || 1,
-          length: parseFloat(b.length) || 30,
-          width: parseFloat(b.width) || 30,
-          height: parseFloat(b.height) || 10
-        }))
-      }, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      // 🏙️ Detectar si es zona metropolitana de Monterrey (CPs: 64xxx, 65xxx, 66xxx, 67xxx)
+      const isMonterreyArea = /^(64|65|66|67)\d{3}$/.test(destination.zip) || 
+        ['monterrey', 'san pedro', 'san pedro garza garcia', 'san pedro garza garcía', 
+         'santa catarina', 'guadalupe', 'apodaca', 'escobedo', 'garcia', 'garcía',
+         'san nicolas', 'san nicolás', 'juarez', 'juárez', 'santiago', 'cadereyta',
+         'general escobedo', 'pesquería', 'pesqueria', 'cienega de flores', 'ciénega de flores',
+         'salinas victoria', 'el carmen'].some(city => 
+          destination.city.toLowerCase().includes(city)
+        );
+      
+      // Calcular número de cajas
+      const numCajas = boxes.length > 0 ? boxes.length : 1;
+      const precioExpressInterno = 350 * numCajas;
 
-      if (response.data.success) {
-        let rates = response.data.rates || [];
-        
-        // 🏙️ Detectar si es zona metropolitana de Monterrey (CPs: 64xxx, 65xxx, 66xxx, 67xxx)
-        const isMonterreyArea = /^(64|65|66|67)\d{3}$/.test(destination.zip) || 
-          ['monterrey', 'san pedro', 'san pedro garza garcia', 'san pedro garza garcía', 
-           'santa catarina', 'guadalupe', 'apodaca', 'escobedo', 'garcia', 'garcía',
-           'san nicolas', 'san nicolás', 'juarez', 'juárez', 'santiago', 'cadereyta',
-           'general escobedo', 'pesquería', 'pesqueria', 'cienega de flores', 'ciénega de flores',
-           'salinas victoria', 'el carmen'].some(city => 
-            destination.city.toLowerCase().includes(city)
-          );
-        
-        if (isMonterreyArea) {
-          // Agregar opción CEDIS MTY como primera opción
-          const cedisRate = {
-            rateId: 'cedis-mty-local',
-            provider: 'CEDIS MTY',
-            carrierName: 'CEDIS MTY',
-            serviceName: '🏠 Entrega Local Monterrey',
-            totalPrice: 0, // Sin costo adicional o costo fijo según política
-            currency: 'MXN',
-            deliveryDays: '1-2 días',
-            isLocal: true
-          };
-          rates = [cedisRate, ...rates];
-        }
-        
-        setShippingRates(rates);
-        setShipmentId(response.data.shipmentId);
-        if (rates.length > 0) {
-          const localMsg = isMonterreyArea ? ' (incluye entrega local)' : '';
-          setSnackbar({ open: true, message: `✅ ${rates.length} opciones de envío encontradas${localMsg}`, severity: 'success' });
-        } else {
-          setSnackbar({ open: true, message: '⚠️ No hay tarifas disponibles para este destino', severity: 'warning' as 'success' | 'error' });
-        }
+      let rates: any[] = [];
+
+      // CEDIS MTY solo para zona Monterrey
+      if (isMonterreyArea) {
+        rates.push({
+          rateId: 'cedis-mty-local',
+          provider: 'CEDIS MTY',
+          carrierName: 'CEDIS MTY',
+          serviceName: '🏠 Entrega Local Monterrey',
+          totalPrice: 0,
+          currency: 'MXN',
+          deliveryDays: '1-2 días',
+          isLocal: true
+        });
+      }
+
+      // Paquete Express Interno - siempre disponible
+      rates.push({
+        rateId: 'paquete-express-interno',
+        provider: 'Paquete Express',
+        carrierName: 'Paquete Express',
+        serviceName: `📦 Envío Nacional (${numCajas} ${numCajas === 1 ? 'caja' : 'cajas'})`,
+        totalPrice: precioExpressInterno,
+        currency: 'MXN',
+        deliveryDays: '3-5 días',
+        isInternal: true
+      });
+      
+      setShippingRates(rates);
+      if (rates.length > 0) {
+        const localMsg = isMonterreyArea ? ' (incluye entrega local)' : '';
+        setSnackbar({ open: true, message: `✅ ${rates.length} opciones de envío encontradas${localMsg}`, severity: 'success' });
+      } else {
+        setSnackbar({ open: true, message: '⚠️ No hay tarifas disponibles para este destino', severity: 'warning' as 'success' | 'error' });
       }
     } catch (error: any) {
       console.error('Error cotizando:', error);
-      setSnackbar({ open: true, message: error.response?.data?.message || 'Error al cotizar envío', severity: 'error' });
+      setSnackbar({ open: true, message: 'Error al cotizar envío', severity: 'error' });
     } finally {
       setLoadingRates(false);
     }
@@ -674,10 +697,11 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
       weight: currentBox.weight,
       length: currentBox.length,
       width: currentBox.width,
-      height: currentBox.height
+      height: currentBox.height,
+      trackingCourier: currentBox.trackingCourier || ''
     };
     setBoxes(prev => [...prev, newBox]);
-    setCurrentBox({ weight: '', length: '', width: '', height: '' });
+    setCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
     setSnackbar({ open: true, message: `📦 ${t('wizard.boxAdded', { number: boxes.length + 1 })}`, severity: 'success' });
     setTimeout(() => weightInputRef.current?.focus(), 100);
   };
@@ -692,11 +716,7 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
       setSnackbar({ open: true, message: t('errors.addAtLeastOneBox'), severity: 'error' });
       return;
     }
-    if (activeStep === 1 && !trackingProvider) {
-      setFormError(t('errors.scanTracking'));
-      setSnackbar({ open: true, message: t('errors.scanTracking'), severity: 'error' });
-      return;
-    }
+    // Paso 1 (Foto & Valor) - No hay validaciones obligatorias, foto y valor son opcionales
     if (activeStep === 2) {
       // Validar que se haya buscado y encontrado un cliente
       if (!boxId || !clientInstructions?.found) {
@@ -705,21 +725,29 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
         setSnackbar({ open: true, message: msg, severity: 'error' });
         return;
       }
-      // Si el cliente no tiene instrucciones, validar que se llenó el destino y se cotizó
-      if (!clientInstructions.hasInstructions || manualAddress) {
-        if (!destination.country || !destination.city || !destination.address) {
-          setFormError(t('errors.completeDestination'));
-          setSnackbar({ open: true, message: t('errors.completeDestination'), severity: 'error' });
-          return;
+      
+      // Si es PO Box y elige dejar en bodega, no validar dirección ni paquetería
+      const isPOBox = !!clientInstructions.poboxRatesInfo;
+      if (isPOBox && leaveInWarehouse) {
+        // OK - dejar en bodega sin dirección
+      } else {
+        // Si el cliente no tiene instrucciones, validar que se llenó el destino
+        if (!clientInstructions.hasInstructions || manualAddress) {
+          if (!destination.country || !destination.city || !destination.address) {
+            setFormError(t('errors.completeDestination'));
+            setSnackbar({ open: true, message: t('errors.completeDestination'), severity: 'error' });
+            return;
+          }
+          if (!destination.zip) {
+            const msg = i18n.language === 'es' ? 'Ingresa el código postal para cotizar' : 'Enter zip code to quote';
+            setFormError(msg);
+            setSnackbar({ open: true, message: msg, severity: 'error' });
+            return;
+          }
         }
-        if (!destination.zip) {
-          const msg = i18n.language === 'es' ? 'Ingresa el código postal para cotizar' : 'Enter zip code to quote';
-          setFormError(msg);
-          setSnackbar({ open: true, message: msg, severity: 'error' });
-          return;
-        }
+        // SIEMPRE validar que se seleccionó paquetería (con o sin instrucciones previas)
         if (!selectedRate) {
-          const msg = i18n.language === 'es' ? 'Cotiza y selecciona una paquetería antes de continuar' : 'Quote and select a carrier before continuing';
+          const msg = i18n.language === 'es' ? '⚠️ Cotiza y selecciona una paquetería antes de continuar' : '⚠️ Quote and select a carrier before continuing';
           setFormError(msg);
           setSnackbar({ open: true, message: msg, severity: 'error' });
           return;
@@ -727,16 +755,17 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
       }
     }
     
-    // Validar que se seleccionó paquetería
-    if (activeStep === 3 && !carrier) {
+    // Validar que se seleccionó paquetería (excepto si es PO Box dejado en bodega)
+    const isPOBoxInWarehouse = !!clientInstructions?.poboxRatesInfo && leaveInWarehouse;
+    if (activeStep === 3 && !carrier && !isPOBoxInWarehouse) {
       const msg = i18n.language === 'es' ? '⚠️ Selecciona la paquetería de envío' : '⚠️ Select the shipping carrier';
       setFormError(msg);
       setSnackbar({ open: true, message: msg, severity: 'error' });
       return;
     }
     
-    // Validar que se seleccionó opción de pago si hay costos de PO Box o GEX
-    if (activeStep === 3) {
+    // Validar que se seleccionó opción de pago si hay costos de PO Box o GEX (excepto si se deja en bodega sin costos asignados)
+    if (activeStep === 3 && !isPOBoxInWarehouse) {
       const hasCosts = (costoPOBox?.totalMxn || 0) + (includeGex && gexQuote ? gexQuote.totalCostMxn : 0) > 0;
       if (hasCosts && !paymentOption) {
         const msg = i18n.language === 'es' ? '⚠️ Selecciona una opción de cobro: Pagar Ahora o Cobrar Después' : '⚠️ Select a payment option: Pay Now or Pay Later';
@@ -766,6 +795,9 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
     setFormError('');
     
     try {
+      // Si es PO Box y se deja en bodega, no enviar dirección ni cotización
+      const isPOBoxInWarehouse = !!clientInstructions?.poboxRatesInfo && leaveInWarehouse;
+      
       const payload = {
         boxId,
         description,
@@ -773,12 +805,13 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
           weight: parseFloat(b.weight),
           length: parseFloat(b.length),
           width: parseFloat(b.width),
-          height: parseFloat(b.height)
+          height: parseFloat(b.height),
+          trackingCourier: b.trackingCourier || undefined // Guía del proveedor de esta caja
         })),
         trackingProvider: trackingProvider || undefined,
         declaredValue: parseFloat(declaredValue) || undefined,
-        carrier,
-        destination: {
+        carrier: isPOBoxInWarehouse ? undefined : carrier,
+        destination: isPOBoxInWarehouse ? undefined : {
           country: destination.country,
           city: destination.city,
           address: destination.address,
@@ -789,8 +822,9 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
         notes: notes || undefined,
         imageUrl: packageImage || undefined,
         warehouseLocation: warehouseLocation || undefined, // Ubicación del panel de bodega
+        leaveInWarehouse: isPOBoxInWarehouse || undefined, // Indicar que se deja en bodega
         // Información de cotización Skydropx
-        skydropxQuote: selectedRate ? {
+        skydropxQuote: (!isPOBoxInWarehouse && selectedRate) ? {
           shipmentId,
           rateId: selectedRate.id,
           provider: selectedRate.provider,
@@ -1125,48 +1159,60 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
   }, 0);
 
   // ============ CALCULAR COSTO ESTIMADO PO BOX ============
-  const calcularCostoPOBox = (): { totalUsd: number; totalMxn: number; cbmTotal: number; nivel: number } | null => {
+  // Cada caja se cotiza individualmente según su volumen
+  const calcularCostoPOBox = (): { totalUsd: number; totalMxn: number; cbmTotal: number; nivel: number; desglosePorCaja: { cbm: number; costoUsd: number; nivel: number }[] } | null => {
     if (!clientInstructions?.poboxRatesInfo || boxes.length === 0) return null;
     
     const { tipoCambio, tarifasVolumen } = clientInstructions.poboxRatesInfo;
     
-    // Calcular CBM total de todas las cajas
-    let cbmTotal = boxes.reduce((sum, box) => {
+    let totalUsd = 0;
+    let cbmTotal = 0;
+    let nivelMasAlto = 0;
+    const desglosePorCaja: { cbm: number; costoUsd: number; nivel: number }[] = [];
+    
+    // Calcular costo POR CADA CAJA individualmente
+    for (const box of boxes) {
       const largo = parseFloat(box.length) || 0;
       const alto = parseFloat(box.height) || 0;
       const ancho = parseFloat(box.width) || 0;
-      const cbm = (largo * alto * ancho) / 1000000;
-      return sum + cbm;
-    }, 0);
-    
-    // Aplicar mínimo cobrable
-    if (cbmTotal < 0.010) cbmTotal = 0.010;
-    
-    // Encontrar tarifa aplicable
-    let costoUsd = 0;
-    let nivelAplicado = 0;
-    
-    for (const tarifa of tarifasVolumen) {
-      const cbmMax = tarifa.cbmMax ?? Infinity;
-      if (cbmTotal >= tarifa.cbmMin && cbmTotal <= cbmMax) {
-        nivelAplicado = tarifa.nivel;
-        if (tarifa.tipoCobro === 'fijo') {
-          costoUsd = tarifa.costoUsd;
-        } else {
-          costoUsd = cbmTotal * tarifa.costoUsd;
-          // Protección de precio mínimo (costo del nivel anterior)
-          const nivelAnterior = tarifasVolumen.find(t => t.nivel === tarifa.nivel - 1);
-          if (nivelAnterior && costoUsd < nivelAnterior.costoUsd) {
-            costoUsd = nivelAnterior.costoUsd;
+      let cbmCaja = (largo * alto * ancho) / 1000000;
+      
+      // Aplicar mínimo cobrable por caja
+      if (cbmCaja < 0.010) cbmCaja = 0.010;
+      
+      cbmTotal += cbmCaja;
+      
+      // Encontrar tarifa aplicable para ESTA caja
+      let costoUsdCaja = 0;
+      let nivelCaja = 0;
+      
+      for (const tarifa of tarifasVolumen) {
+        const cbmMax = tarifa.cbmMax ?? Infinity;
+        if (cbmCaja >= tarifa.cbmMin && cbmCaja <= cbmMax) {
+          nivelCaja = tarifa.nivel;
+          if (tarifa.tipoCobro === 'fijo') {
+            costoUsdCaja = tarifa.costoUsd;
+          } else {
+            costoUsdCaja = cbmCaja * tarifa.costoUsd;
+            // Protección de precio mínimo
+            const nivelAnterior = tarifasVolumen.find(t => t.nivel === tarifa.nivel - 1);
+            if (nivelAnterior && costoUsdCaja < nivelAnterior.costoUsd) {
+              costoUsdCaja = nivelAnterior.costoUsd;
+            }
           }
+          break;
         }
-        break;
       }
+      
+      totalUsd += costoUsdCaja;
+      if (nivelCaja > nivelMasAlto) nivelMasAlto = nivelCaja;
+      
+      desglosePorCaja.push({ cbm: cbmCaja, costoUsd: costoUsdCaja, nivel: nivelCaja });
     }
     
-    const totalMxn = costoUsd * tipoCambio.valor;
+    const totalMxn = totalUsd * tipoCambio.valor;
     
-    return { totalUsd: costoUsd, totalMxn, cbmTotal, nivel: nivelAplicado };
+    return { totalUsd, totalMxn, cbmTotal, nivel: nivelMasAlto, desglosePorCaja };
   };
 
   const costoPOBox = calcularCostoPOBox();
@@ -1342,6 +1388,21 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                   {/* Formulario de caja actual */}
                   <Card sx={{ p: 2, mb: 2, border: `2px dashed ${ORANGE}` }}>
                     <Grid container spacing={2} alignItems="center">
+                      {/* Guía del Proveedor */}
+                      <Grid size={{ xs: 12, sm: 6 }}>
+                        <TextField 
+                          fullWidth 
+                          label={i18n.language === 'es' ? '📦 Guía del Proveedor (Amazon, UPS, etc.)' : '📦 Supplier Tracking'} 
+                          placeholder={i18n.language === 'es' ? 'Escanea o escribe la guía...' : 'Scan or type tracking...'}
+                          value={currentBox.trackingCourier} 
+                          onChange={(e) => setCurrentBox(p => ({ ...p, trackingCourier: e.target.value.toUpperCase() }))}
+                          InputProps={{ startAdornment: <InputAdornment position="start"><QrCodeScannerIcon /></InputAdornment> }}
+                          helperText={i18n.language === 'es' ? 'Guía individual de esta caja' : 'Individual tracking for this box'}
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 6 }}></Grid>
+                      
+                      {/* Peso */}
                       <Grid size={{ xs: 12, sm: 3 }}>
                         <Box sx={{ display: 'flex', gap: 1 }}>
                           <TextField inputRef={weightInputRef} fullWidth label={`${t('shipments.weight')} (kg)`} type="number"
@@ -1387,7 +1448,20 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                           <ListItem key={box.id} sx={{ bgcolor: idx % 2 === 0 ? 'grey.50' : 'white', borderRadius: 1 }}>
                             <ListItemIcon><Chip label={idx + 1} size="small" sx={{ bgcolor: ORANGE, color: 'white' }} /></ListItemIcon>
                             <ListItemText
-                              primary={`${box.weight} kg — ${box.length} × ${box.width} × ${box.height} cm`}
+                              primary={
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <span>{box.weight} kg — {box.length} × {box.width} × {box.height} cm</span>
+                                  {box.trackingCourier && (
+                                    <Chip 
+                                      size="small" 
+                                      icon={<QrCodeScannerIcon sx={{ fontSize: 14 }} />} 
+                                      label={box.trackingCourier} 
+                                      variant="outlined" 
+                                      sx={{ borderColor: ORANGE, color: ORANGE }}
+                                    />
+                                  )}
+                                </Box>
+                              }
                               secondary={`${t('wizard.volume')}: ${((parseFloat(box.length) * parseFloat(box.width) * parseFloat(box.height)) / 1000).toFixed(2)} L`}
                             />
                             <ListItemSecondaryAction>
@@ -1407,22 +1481,16 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                 </Box>
               )}
 
-              {/* PASO 1: TRACKING, FOTO & VALOR */}
+              {/* PASO 1: FOTO & VALOR */}
               {activeStep === 1 && (
                 <Card sx={{ p: 4 }}>
                   <CardContent>
-                    <Box sx={{ textAlign: 'center', mb: 3 }}>
-                      <QrCodeScannerIcon sx={{ fontSize: 60, color: ORANGE }} />
-                      <Typography variant="h5">{t('shipments.trackingProvider')}</Typography>
-                      <Typography color="text.secondary">{t('wizard.scanBarcode')}</Typography>
-                    </Box>
-                    <TextField inputRef={trackingInputRef} fullWidth label={t('shipments.trackingProvider')} placeholder={i18n.language === 'es' ? 'Escanea o escribe...' : 'Scan or type...'}
-                      value={trackingProvider} onChange={(e) => setTrackingProvider(e.target.value.toUpperCase())}
-                      InputProps={{ startAdornment: <InputAdornment position="start"><QrCodeScannerIcon /></InputAdornment> }}
-                      sx={{ mb: 3 }} autoFocus />
-                    
                     {/* 📸 SECCIÓN DE FOTO */}
-                    <Divider sx={{ my: 3 }}><Chip label={i18n.language === 'es' ? '📸 Foto del Paquete' : '📸 Package Photo'} icon={<CameraAltIcon />} /></Divider>
+                    <Box sx={{ textAlign: 'center', mb: 3 }}>
+                      <CameraAltIcon sx={{ fontSize: 60, color: ORANGE }} />
+                      <Typography variant="h5">{i18n.language === 'es' ? 'Foto y Valor Declarado' : 'Photo & Declared Value'}</Typography>
+                      <Typography color="text.secondary">{i18n.language === 'es' ? 'Opcional: Adjunta evidencia del paquete' : 'Optional: Attach package evidence'}</Typography>
+                    </Box>
                     
                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
                       {packageImage ? (
@@ -1660,14 +1728,41 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                                     label={tarifa.descripcion}
                                     size="small"
                                     sx={{ 
-                                      bgcolor: costoPOBox?.nivel === tarifa.nivel ? '#4CAF50' : 'white',
-                                      color: costoPOBox?.nivel === tarifa.nivel ? 'white' : 'text.primary',
-                                      fontWeight: costoPOBox?.nivel === tarifa.nivel ? 'bold' : 'normal'
+                                      bgcolor: costoPOBox?.desglosePorCaja?.some(c => c.nivel === tarifa.nivel) ? '#4CAF50' : 'white',
+                                      color: costoPOBox?.desglosePorCaja?.some(c => c.nivel === tarifa.nivel) ? 'white' : 'text.primary',
+                                      fontWeight: costoPOBox?.desglosePorCaja?.some(c => c.nivel === tarifa.nivel) ? 'bold' : 'normal'
                                     }}
                                   />
                                 ))}
                               </Box>
                             </Box>
+
+                            {/* Desglose por Caja (cuando hay múltiples) */}
+                            {costoPOBox && boxes.length > 1 && (
+                              <Box sx={{ mt: 2, p: 2, bgcolor: 'white', borderRadius: 1, border: '1px dashed #ccc' }}>
+                                <Typography variant="body2" fontWeight="bold" gutterBottom sx={{ color: ORANGE }}>
+                                  📦 {i18n.language === 'es' ? 'Desglose por Caja (cada caja se cotiza individualmente):' : 'Per-box Breakdown:'}
+                                </Typography>
+                                {costoPOBox.desglosePorCaja.map((caja, idx) => (
+                                  <Box key={idx} sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 0.5, borderBottom: idx < costoPOBox.desglosePorCaja.length - 1 ? '1px solid #eee' : 'none' }}>
+                                    <Typography variant="body2">
+                                      Caja {idx + 1}: {caja.cbm.toFixed(4)} m³ (Nivel {caja.nivel})
+                                    </Typography>
+                                    <Typography variant="body2" fontWeight="bold" sx={{ color: '#2E7D32' }}>
+                                      ${caja.costoUsd.toFixed(2)} USD
+                                    </Typography>
+                                  </Box>
+                                ))}
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pt: 1, mt: 1, borderTop: '2px solid #E65100' }}>
+                                  <Typography variant="body2" fontWeight="bold" sx={{ color: '#E65100' }}>
+                                    TOTAL ({boxes.length} cajas)
+                                  </Typography>
+                                  <Typography variant="body1" fontWeight="bold" sx={{ color: '#2E7D32' }}>
+                                    ${costoPOBox.totalUsd.toFixed(2)} USD = ${costoPOBox.totalMxn.toFixed(2)} MXN
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            )}
                           </Paper>
                         )}
                       </Box>
@@ -1685,23 +1780,28 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                             </Typography>
                             
                             <Grid container spacing={2}>
-                              <Grid size={6}>
-                                <Typography variant="body2" color="text.secondary">{t('shipments.carrierLabel')}</Typography>
-                                <Chip 
-                                  icon={<LocalShippingIcon />} 
-                                  label={clientInstructions.preferences?.carrier || carrier || 'No especificado'} 
-                                  color="primary" 
-                                />
-                              </Grid>
-                              <Grid size={6}>
-                                <Typography variant="body2" color="text.secondary">{i18n.language === 'es' ? 'Método de Envío' : 'Shipping Method'}</Typography>
-                                <Chip 
-                                  label={clientInstructions.preferences?.transport === 'aereo' ? '✈️ Aéreo' : 
-                                         clientInstructions.preferences?.transport === 'maritimo' ? '🚢 Marítimo' : 
-                                         clientInstructions.preferences?.transport || 'Estándar'} 
-                                  color="secondary" 
-                                />
-                              </Grid>
+                              {/* Solo mostrar Paquetería/Método para envíos NO PO Box */}
+                              {!clientInstructions.poboxRatesInfo && (
+                                <>
+                                  <Grid size={6}>
+                                    <Typography variant="body2" color="text.secondary">{t('shipments.carrierLabel')}</Typography>
+                                    <Chip 
+                                      icon={<LocalShippingIcon />} 
+                                      label={clientInstructions.preferences?.carrier || carrier || 'No especificado'} 
+                                      color="primary" 
+                                    />
+                                  </Grid>
+                                  <Grid size={6}>
+                                    <Typography variant="body2" color="text.secondary">{i18n.language === 'es' ? 'Método de Envío' : 'Shipping Method'}</Typography>
+                                    <Chip 
+                                      label={clientInstructions.preferences?.transport === 'aereo' ? '✈️ Aéreo' : 
+                                             clientInstructions.preferences?.transport === 'maritimo' ? '🚢 Marítimo' : 
+                                             clientInstructions.preferences?.transport || 'Estándar'} 
+                                      color="secondary" 
+                                    />
+                                  </Grid>
+                                </>
+                              )}
                               <Grid size={12}>
                                 <Typography variant="body2" color="text.secondary">{t('shipments.destinationAddress')}</Typography>
                                 <Paper sx={{ p: 2, mt: 1, bgcolor: 'white' }}>
@@ -1811,14 +1911,50 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                           </Paper>
                         ) : (
                           // ⚠️ FORMULARIO MANUAL (cliente sin instrucciones o editando)
-                          <Paper sx={{ p: 3, bgcolor: '#FFF8E1', border: '2px solid #FFC107' }}>
+                          <Paper sx={{ p: 3, bgcolor: leaveInWarehouse ? '#E3F2FD' : '#FFF8E1', border: leaveInWarehouse ? '2px solid #1976D2' : '2px solid #FFC107' }}>
                             <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                              <WarningIcon sx={{ color: '#FFC107' }} />
+                              <WarningIcon sx={{ color: leaveInWarehouse ? '#1976D2' : '#FFC107' }} />
                               {i18n.language === 'es' ? 'Configurar Destino Manualmente' : 'Configure Destination Manually'}
                             </Typography>
 
+                            {/* 📦 OPCIÓN: DEJAR EN BODEGA (solo para PO Box) */}
+                            {clientInstructions?.poboxRatesInfo && (
+                              <Paper 
+                                onClick={() => {
+                                  setLeaveInWarehouse(!leaveInWarehouse);
+                                  if (!leaveInWarehouse) {
+                                    setSelectedRate(null);
+                                    setShippingRates([]);
+                                  }
+                                }}
+                                sx={{ 
+                                  p: 2, 
+                                  mb: 3, 
+                                  cursor: 'pointer',
+                                  bgcolor: leaveInWarehouse ? '#1976D2' : 'white',
+                                  border: leaveInWarehouse ? '2px solid #1565C0' : '2px dashed #1976D2',
+                                  '&:hover': { bgcolor: leaveInWarehouse ? '#1565C0' : '#E3F2FD' }
+                                }}
+                              >
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                  <Inventory2Icon sx={{ color: leaveInWarehouse ? 'white' : '#1976D2', fontSize: 32 }} />
+                                  <Box sx={{ flex: 1 }}>
+                                    <Typography variant="subtitle1" fontWeight="bold" color={leaveInWarehouse ? 'white' : '#1976D2'}>
+                                      📦 {i18n.language === 'es' ? 'Dejar en Bodega' : 'Leave in Warehouse'}
+                                    </Typography>
+                                    <Typography variant="body2" color={leaveInWarehouse ? 'rgba(255,255,255,0.8)' : 'text.secondary'}>
+                                      {i18n.language === 'es' 
+                                        ? 'El cliente configurará la dirección y paquetería desde la app'
+                                        : 'Customer will configure address and shipping from the app'}
+                                    </Typography>
+                                  </Box>
+                                  {leaveInWarehouse && <CheckCircleIcon sx={{ color: 'white', fontSize: 28 }} />}
+                                </Box>
+                              </Paper>
+                            )}
+
                             {/* Info: Seleccionar paquetería después de cotizar */}
-                            {!selectedRate && (
+                            {!selectedRate && !leaveInWarehouse && (
                               <Alert severity="info" sx={{ mb: 3 }}>
                                 {i18n.language === 'es' 
                                   ? '💡 Llena la dirección de destino y presiona "Cotizar Envío Nacional" para ver las opciones de paquetería y precios.'
@@ -1827,7 +1963,7 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                             )}
 
                             {/* Paquetería seleccionada (si hay) */}
-                            {selectedRate && (
+                            {selectedRate && !leaveInWarehouse && (
                               <Paper sx={{ p: 2, mb: 3, bgcolor: '#E8F5E9', border: '2px solid #4CAF50' }}>
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                                   <LocalShippingIcon sx={{ color: '#4CAF50', fontSize: 32 }} />
@@ -1846,6 +1982,9 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                               </Paper>
                             )}
 
+                            {/* Solo mostrar formulario si NO está en modo "Dejar en Bodega" */}
+                            {!leaveInWarehouse && (
+                              <>
                             <Divider sx={{ my: 2 }}><Chip label={t('shipments.destinationAddress')} icon={<PlaceIcon />} size="small" /></Divider>
 
                             <Grid container spacing={2}>
@@ -1967,7 +2106,7 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                               </Box>
                             )}
 
-                            {manualAddress && (
+                            {manualAddress && !leaveInWarehouse && (
                               <Button 
                                 variant="text" 
                                 onClick={() => {
@@ -1989,6 +2128,8 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                               >
                                 {i18n.language === 'es' ? '↩️ Volver a usar instrucciones guardadas' : '↩️ Use saved instructions'}
                               </Button>
+                            )}
+                              </>
                             )}
                           </Paper>
                         )}
@@ -2065,11 +2206,15 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                         </Grid>
                         <Grid size={6}>
                           <Typography variant="body2" color="text.secondary">{t('shipments.carrier')}</Typography>
-                          <Typography variant="h6">🚚 {carrier}</Typography>
+                          <Typography variant="h6">
+                            {leaveInWarehouse ? '📦 En Bodega (cliente asignará)' : `🚚 ${carrier || 'No seleccionado'}`}
+                          </Typography>
                         </Grid>
                         <Grid size={6}>
                           <Typography variant="body2" color="text.secondary">{t('shipments.destination')}</Typography>
-                          <Typography variant="h6">📍 {destination.city}</Typography>
+                          <Typography variant="h6">
+                            {leaveInWarehouse ? '⏳ Pendiente (cliente asignará)' : `📍 ${destination.city || 'No definido'}`}
+                          </Typography>
                         </Grid>
                         {trackingProvider && (
                           <Grid size={12}>

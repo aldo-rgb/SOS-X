@@ -25,6 +25,7 @@ import DeliveryInstructionsScreen from './src/screens/DeliveryInstructionsScreen
 import MaritimeDetailScreen from './src/screens/MaritimeDetailScreen';
 import PackageDetailScreen from './src/screens/PackageDetailScreen';
 import MyPaymentsScreen from './src/screens/MyPaymentsScreen';
+import PaymentSummaryScreen from './src/screens/PaymentSummaryScreen';
 import EmployeeOnboardingScreen from './src/screens/EmployeeOnboardingScreen';
 import VehicleInspectionScreen from './src/screens/VehicleInspectionScreen';
 import DriverHomeScreen from './src/screens/DriverHomeScreen';
@@ -63,6 +64,7 @@ export type RootStackParamList = {
   MaritimeDetail: { package: Package; user: any; token: string };
   PackageDetail: { package: Package; user: any; token: string };
   MyPayments: { user: any; token: string };
+  PaymentSummary: { packages: Package[]; user: any; token: string };
   EmployeeOnboarding: { user: any; token: string };
   // Pantallas del Chofer
   VehicleInspection: { user: any; token: string };
@@ -159,6 +161,10 @@ export default function App() {
           <Stack.Screen 
             name="MyPayments" 
             component={MyPaymentsScreen}
+          />
+          <Stack.Screen 
+            name="PaymentSummary" 
+            component={PaymentSummaryScreen}
           />
           <Stack.Screen 
             name="EmployeeOnboarding" 

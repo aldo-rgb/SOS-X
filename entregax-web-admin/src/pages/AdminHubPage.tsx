@@ -64,7 +64,7 @@ import LegacyClientsPage from './LegacyClientsPage';
 // MaritimeRatesPage removido - se usa MaritimePricingEnginePage
 import MaritimePricingEnginePage from './MaritimePricingEnginePage';
 import FinancialManagementPage from './FinancialManagementPage';
-import PaymentInvoicesPage from './PaymentInvoicesPage';
+// import PaymentInvoicesPage from './PaymentInvoicesPage'; // ELIMINADO
 import NationalFreightRatesPage from './NationalFreightRatesPage';
 import LastMilePage from './LastMilePage';
 import DhlRatesPage from './DhlRatesPage';
@@ -223,7 +223,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
     const [showSupplierPayments, setShowSupplierPayments] = useState(false);
     const [showLegacyClients, setShowLegacyClients] = useState(false);
     const [showFinancial, setShowFinancial] = useState(false);
-    const [showPaymentInvoices, setShowPaymentInvoices] = useState(false);
+    // const [showPaymentInvoices, setShowPaymentInvoices] = useState(false); // ELIMINADO
     const [showBranches, setShowBranches] = useState(false);
     const [showHR, setShowHR] = useState(false);
     const [showFleet, setShowFleet] = useState(false);
@@ -478,23 +478,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
         );
     }
 
-    // ============================================
-    // RENDER: Cuentas por Cobrar (Multi-RFC)
-    // ============================================
-    if (showPaymentInvoices) {
-        return (
-            <Box>
-                <Box sx={{ mb: 2 }}>
-                    <Chip
-                        label={t('panels.backToAdmin')}
-                        onClick={() => setShowPaymentInvoices(false)}
-                        sx={{ cursor: 'pointer' }}
-                    />
-                </Box>
-                <PaymentInvoicesPage />
-            </Box>
-        );
-    }
+    // ELIMINADO: Panel de Cuentas por Cobrar
 
     // ============================================
     // RENDER: Configuración de Tipo de Cambio
@@ -1653,60 +1637,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 </Grid>
                 )}
 
-                {/* Tarjeta especial: Cuentas por Cobrar - ÍNDIGO */}
-                {hasPermission('admin_payment_invoices') && (
-                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
-                        <CardActionArea
-                            onClick={() => setShowPaymentInvoices(true)}
-                            sx={{ height: '100%' }}
-                        >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #303F9F 0%, #7986CB 100%)',
-                                    p: 3,
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <ReceiptIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    📋
-                                </Typography>
-                            </Box>
-                            <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
-                                    Cuentas por Cobrar
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                    Facturas de cobro por servicio (Multi-RFC)
-                                </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    Admin / Super Admin
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="Facturas" size="small" sx={{ bgcolor: '#303F9F', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="Multi-RFC" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="SPEI" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
-                            </CardContent>
-                        </CardActionArea>
-                    </Card>
-                </Grid>
-                )}
+                {/* ELIMINADO: Tarjeta de Cuentas por Cobrar */}
 
                 {/* Tarjeta especial: Tipo de Cambio - VERDE ESMERALDA */}
                 {hasPermission('admin_exchange_rates') && (

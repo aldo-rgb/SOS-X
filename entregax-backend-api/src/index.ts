@@ -36,7 +36,8 @@ import {
   getAdminConsolidations,
   dispatchConsolidation,
   assignDeliveryInstructions,
-  getPackageById
+  getPackageById,
+  requestRepack
 } from './packageController';
 import {
   createPaymentOrder,
@@ -112,7 +113,11 @@ import {
   getServiceInvoices,
   createServiceInvoice,
   stampServiceInvoice,
-  getServiceInvoicingSummary
+  getServiceInvoicingSummary,
+  // Configuración de servicios por empresa
+  getServiceCompanyConfig,
+  updateServiceCompanyConfig,
+  getEmitterByServiceType
 } from './invoicingController';
 import {
   saveOpenpayConfig,
@@ -527,7 +532,8 @@ import {
   getDispatched,
   getCarriers,
   getStats as getLastMileStats,
-  reprintLabel
+  reprintLabel,
+  quoteShipping
 } from './lastMileController';
 import {
   getDhlRates,
@@ -637,6 +643,18 @@ import {
   getPublicServiceContract,
   getPublicPrivacyNotice
 } from './legalDocumentsController';
+import {
+  createPoboxPaypalPayment,
+  capturePoboxPaypalPayment,
+  createPoboxOpenpayPayment,
+  createPoboxCashPayment,
+  getPoboxPaymentStatus,
+  confirmPoboxCashPayment,
+  handlePoboxOpenpayWebhook,
+  handlePoboxOpenpayCallback,
+  getPoboxPendingPayments,
+  getPoboxPaymentHistory
+} from './poboxPaymentController';
 
 // Cargar variables de entorno
 dotenv.config();
@@ -1334,6 +1352,9 @@ app.get('/api/packages/:id/labels', authenticateToken, requireMinLevel(ROLES.WAR
 // Actualizar estatus de paquete (Bodega o superior)
 app.patch('/api/packages/:id/status', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updatePackageStatus);
 
+// Solicitar reempaque/consolidación de paquetes (Usuario autenticado)
+app.post('/api/packages/repack', authenticateToken, requestRepack);
+
 // --- RUTAS PARA APP MÓVIL (CLIENTES) ---
 // Mis paquetes (requiere autenticación básica)
 app.get('/api/client/packages/:userId', authenticateToken, getMyPackages);
@@ -1349,6 +1370,18 @@ app.put('/api/admin/consolidations/dispatch', authenticateToken, requireMinLevel
 app.post('/api/payments/create', authenticateToken, createPaymentOrder);
 app.post('/api/payments/capture', authenticateToken, capturePaymentOrder);
 app.get('/api/payments/status/:consolidationId', authenticateToken, getPaymentStatus);
+
+// --- RUTAS DE PAGOS PO BOX (Múltiples métodos) - MULTISUCURSAL ---
+app.post('/api/pobox/payment/create', authenticateToken, createPoboxPaypalPayment);      // PayPal
+app.post('/api/pobox/payment/capture', authenticateToken, capturePoboxPaypalPayment);    // Captura PayPal
+app.post('/api/pobox/payment/openpay/create', authenticateToken, createPoboxOpenpayPayment);  // OpenPay tarjeta
+app.post('/api/pobox/payment/cash/create', authenticateToken, createPoboxCashPayment);   // Efectivo/Transferencia
+app.get('/api/pobox/payment/status/:paymentId', authenticateToken, getPoboxPaymentStatus);
+app.post('/api/pobox/payment/cash/confirm', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), confirmPoboxCashPayment); // Admin confirma pago efectivo
+app.get('/api/pobox/payment/history', authenticateToken, getPoboxPaymentHistory); // Historial del cliente
+app.get('/api/admin/pobox/payments/pending', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getPoboxPendingPayments); // Admin: Pagos pendientes
+app.post('/webhooks/pobox/openpay', handlePoboxOpenpayWebhook); // Webhook OpenPay (sin auth)
+app.get('/webhooks/pobox/openpay/callback', handlePoboxOpenpayCallback); // Callback después de pago (sin auth)
 
 // --- RUTAS DE VERIFICACIÓN KYC ---
 app.post('/api/verify/documents', authenticateToken, uploadVerificationDocuments);
@@ -1426,6 +1459,11 @@ app.put('/api/admin/fiscal/emitters', authenticateToken, requireMinLevel(ROLES.D
 app.post('/api/admin/fiscal/assign-service', authenticateToken, requireMinLevel(ROLES.DIRECTOR), assignEmitterToService);
 app.get('/api/admin/invoices', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAllInvoices);
 app.post('/api/admin/invoices/cancel', authenticateToken, requireMinLevel(ROLES.DIRECTOR), cancelInvoice);
+
+// Admin: Configuración de servicios por empresa (qué empresa cobra cada servicio)
+app.get('/api/admin/fiscal/service-config', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getServiceCompanyConfig);
+app.put('/api/admin/fiscal/service-config/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateServiceCompanyConfig);
+app.get('/api/admin/fiscal/service-emitter/:service_type', authenticateToken, getEmitterByServiceType);
 
 // ============================================
 // OPENPAY MULTI-EMPRESA - COBRANZA SPEI AUTOMATIZADA
@@ -1585,6 +1623,10 @@ app.post('/api/admin/last-mile/quote', authenticateToken, requireMinLevel(ROLES.
 app.post('/api/admin/last-mile/quote-direct', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), quoteShipmentDirect);
 app.post('/api/admin/last-mile/dispatch', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), dispatchShipment);
 app.get('/api/admin/last-mile/reprint/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), reprintLabel);
+
+// Endpoint público para cotizar paquetería (app móvil)
+// Devuelve opciones locales + Skydropx (si está habilitado)
+app.post('/api/shipping/quote', authenticateToken, quoteShipping);
 
 // ========== PANEL DE BODEGA MULTI-SUCURSAL ==========
 // Info del empleado y su sucursal
@@ -2256,12 +2298,12 @@ app.get('/api/admin/payment-invoices', authenticateToken, requireMinLevel(ROLES.
 });
 
 // ============================================
-// DASHBOARD DE COBRANZA Y FLUJO DE EFECTIVO
-// Unifica ingresos de Caja Chica + SPEI (Openpay)
+// DASHBOARD DE COBRANZA Y FLUJO DE EFECTIVO - MULTI-EMPRESA
+// Unifica ingresos de Caja Chica + SPEI (Openpay) por empresa
 // ============================================
 app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: Request, res: Response): Promise<any> => {
   try {
-    const { date_from, date_to } = req.query;
+    const { date_from, date_to, empresa_id } = req.query;
     
     // Fechas por defecto: hoy y mes actual
     const today = new Date();
@@ -2270,10 +2312,28 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
     const endDate = date_to ? new Date(date_to as string) : today;
 
     // ============================================
-    // KPIs PRINCIPALES
+    // EMPRESAS CON OPENPAY CONFIGURADO
+    // ============================================
+    const empresasRes = await pool.query(`
+      SELECT 
+        fe.id,
+        fe.alias,
+        fe.rfc,
+        fe.openpay_merchant_id,
+        fe.openpay_production_mode,
+        COALESCE(scc.service_type, 'general') as servicio_asignado,
+        scc.service_name
+      FROM fiscal_emitters fe
+      LEFT JOIN service_company_config scc ON scc.emitter_id = fe.id
+      WHERE fe.is_active = TRUE AND fe.openpay_configured = TRUE
+      ORDER BY fe.alias
+    `);
+
+    // ============================================
+    // KPIs PRINCIPALES - CONSOLIDADOS Y POR EMPRESA
     // ============================================
 
-    // 1. Ingresos totales del día (Efectivo + SPEI)
+    // 1. Ingresos totales del día (Efectivo + SPEI) - CONSOLIDADO
     const ingresosHoyRes = await pool.query(`
       SELECT 
         COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as efectivo_hoy
@@ -2281,15 +2341,36 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       WHERE DATE(created_at) = CURRENT_DATE
     `);
     
-    const speiHoyRes = await pool.query(`
-      SELECT COALESCE(SUM(monto_recibido), 0) as spei_hoy,
-             COALESCE(SUM(monto_neto), 0) as spei_neto_hoy
+    // SPEI por empresa
+    const speiPorEmpresaRes = await pool.query(`
+      SELECT 
+        empresa_id,
+        COALESCE(SUM(monto_recibido), 0) as spei_bruto,
+        COALESCE(SUM(monto_neto), 0) as spei_neto
       FROM openpay_webhook_logs
       WHERE DATE(fecha_pago) = CURRENT_DATE
         AND estatus_procesamiento = 'procesado'
+      GROUP BY empresa_id
     `);
 
-    // 2. Ingresos del mes actual
+    // 2. Ingresos del mes actual - SPEI por empresa
+    const speiMesPorEmpresaRes = await pool.query(`
+      SELECT 
+        owl.empresa_id,
+        fe.alias as empresa_nombre,
+        fe.rfc,
+        COALESCE(SUM(owl.monto_recibido), 0) as spei_bruto,
+        COALESCE(SUM(owl.monto_neto), 0) as spei_neto,
+        COUNT(*) as total_transacciones
+      FROM openpay_webhook_logs owl
+      LEFT JOIN fiscal_emitters fe ON owl.empresa_id = fe.id
+      WHERE owl.fecha_pago >= $1 AND owl.fecha_pago <= $2
+        AND owl.estatus_procesamiento = 'procesado'
+      GROUP BY owl.empresa_id, fe.alias, fe.rfc
+      ORDER BY spei_bruto DESC
+    `, [startOfMonth, today]);
+
+    // Efectivo del mes
     const ingresosMesRes = await pool.query(`
       SELECT 
         COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as efectivo_mes
@@ -2297,15 +2378,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       WHERE created_at >= $1 AND created_at <= $2
     `, [startOfMonth, today]);
 
-    const speiMesRes = await pool.query(`
-      SELECT COALESCE(SUM(monto_recibido), 0) as spei_mes,
-             COALESCE(SUM(monto_neto), 0) as spei_neto_mes
-      FROM openpay_webhook_logs
-      WHERE fecha_pago >= $1 AND fecha_pago <= $2
-        AND estatus_procesamiento = 'procesado'
-    `, [startOfMonth, today]);
-
-    // 3. Cartera Vencida Total (saldo pendiente de todas las guías)
+    // 3. Cartera Vencida Total
     const carteraRes = await pool.query(`
       SELECT 
         COALESCE(SUM(COALESCE(saldo_pendiente, assigned_cost_mxn)), 0) as cartera_total,
@@ -2313,7 +2386,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       FROM packages
       WHERE (payment_status IN ('pending', 'partial') OR payment_status IS NULL)
         AND assigned_cost_mxn > 0
-        AND saldo_pendiente > 0
+        AND COALESCE(saldo_pendiente, assigned_cost_mxn) > 0
     `);
 
     // 4. Saldo en caja chica
@@ -2324,34 +2397,24 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
     `);
 
     // ============================================
-    // DATOS PARA GRÁFICAS
+    // INGRESOS POR SERVICIO (Multi-empresa)
     // ============================================
-
-    // Distribución por método de pago (mes actual)
-    const distribucionMetodos = {
-      efectivo: parseFloat(ingresosMesRes.rows[0].efectivo_mes),
-      spei: parseFloat(speiMesRes.rows[0].spei_mes)
-    };
-
-    // Ingresos por servicio
     const ingresosPorServicioRes = await pool.query(`
       SELECT 
         COALESCE(p.service_type, 'otros') as servicio,
         COUNT(*) as cantidad,
-        COALESCE(SUM(COALESCE(p.monto_pagado, 0)), 0) as monto_total
+        COALESCE(SUM(p.assigned_cost_mxn), 0) as monto_total
       FROM packages p
       WHERE p.payment_status = 'paid'
         AND p.updated_at >= $1 AND p.updated_at <= $2
       GROUP BY p.service_type
       ORDER BY monto_total DESC
-    `, [startOfMonth, today]);
+    `, [startDate, endDate]);
 
     // ============================================
-    // TABLA DE CONCILIACIÓN (últimas transacciones)
+    // TRANSACCIONES RECIENTES (sin dependencias problemáticas)
     // ============================================
-
-    // Unificar transacciones de efectivo y SPEI
-    const transaccionesUnificadas = await pool.query(`
+    const transaccionesRes = await pool.query(`
       (
         SELECT 
           t.id,
@@ -2363,20 +2426,13 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
           'efectivo' as metodo,
           t.concepto,
           'Caja Chica' as origen,
-          COALESCE(
-            (SELECT string_agg(tracking_internal, ', ') 
-             FROM payment_applications pa 
-             JOIN packages p ON pa.package_id = p.id 
-             WHERE pa.transaction_id = t.id
-             LIMIT 5), 
-            'N/A'
-          ) as guias_pagadas,
-          'completado' as estatus_conciliacion
+          'completado' as estatus
         FROM caja_chica_transacciones t
         LEFT JOIN users u ON t.cliente_id = u.id
         WHERE t.tipo = 'ingreso' 
-          AND t.categoria = 'cobro_guias'
           AND t.created_at >= $1 AND t.created_at <= $2
+        ORDER BY t.created_at DESC
+        LIMIT 50
       )
       UNION ALL
       (
@@ -2389,102 +2445,104 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
           owl.monto_recibido - owl.monto_neto as comision,
           'spei' as metodo,
           owl.concepto,
-          fe.alias as origen,
-          COALESCE(
-            (SELECT string_agg(p.tracking_internal, ', ') 
-             FROM openpay_payment_applications opa 
-             JOIN packages p ON opa.package_id = p.id 
-             WHERE opa.webhook_log_id = owl.id
-             LIMIT 5),
-            'N/A'
-          ) as guias_pagadas,
-          owl.estatus_procesamiento as estatus_conciliacion
+          COALESCE(fe.alias, 'Empresa') as origen,
+          owl.estatus_procesamiento as estatus
         FROM openpay_webhook_logs owl
         LEFT JOIN users u ON owl.user_id = u.id
         LEFT JOIN fiscal_emitters fe ON owl.empresa_id = fe.id
         WHERE owl.estatus_procesamiento = 'procesado'
           AND owl.fecha_pago >= $1 AND owl.fecha_pago <= $2
+        ORDER BY owl.fecha_pago DESC
+        LIMIT 50
       )
       ORDER BY fecha_hora DESC
       LIMIT 100
     `, [startDate, endDate]);
 
-    // Resumen de comisiones del mes (para contabilidad)
-    const comisionesRes = await pool.query(`
-      SELECT 
-        COALESCE(SUM(monto_recibido - monto_neto), 0) as comisiones_mes
-      FROM openpay_webhook_logs
-      WHERE fecha_pago >= $1 AND fecha_pago <= $2
-        AND estatus_procesamiento = 'procesado'
-    `, [startOfMonth, today]);
-
-    // KPIs calculados
-    const efectivoHoy = parseFloat(ingresosHoyRes.rows[0].efectivo_hoy);
-    const speiHoy = parseFloat(speiHoyRes.rows[0].spei_hoy);
-    const speiNetoHoy = parseFloat(speiHoyRes.rows[0].spei_neto_hoy);
-    const efectivoMes = parseFloat(ingresosMesRes.rows[0].efectivo_mes);
-    const speiMes = parseFloat(speiMesRes.rows[0].spei_mes);
-    const speiNetoMes = parseFloat(speiMesRes.rows[0].spei_neto_mes);
+    // Calcular totales consolidados
+    const efectivoHoy = parseFloat(ingresosHoyRes.rows[0].efectivo_hoy) || 0;
+    const speiHoyTotal = speiPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.spei_bruto || 0), 0);
+    const speiNetoHoyTotal = speiPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.spei_neto || 0), 0);
+    const efectivoMes = parseFloat(ingresosMesRes.rows[0].efectivo_mes) || 0;
+    const speiMesTotal = speiMesPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.spei_bruto || 0), 0);
+    const speiNetoMesTotal = speiMesPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.spei_neto || 0), 0);
+    const comisionesMes = speiMesTotal - speiNetoMesTotal;
 
     res.json({
       success: true,
       fecha_consulta: new Date(),
       periodo: { desde: startDate, hasta: endDate },
       
-      // KPIs principales
+      // Empresas con OpenPay configurado
+      empresas: empresasRes.rows,
+      
+      // KPIs principales CONSOLIDADOS
       kpis: {
-        ingresos_hoy: efectivoHoy + speiHoy,
-        ingresos_hoy_neto: efectivoHoy + speiNetoHoy,
-        ingresos_mes: efectivoMes + speiMes,
-        ingresos_mes_neto: efectivoMes + speiNetoMes,
-        spei_hoy: speiHoy,
-        spei_hoy_neto: speiNetoHoy,
-        spei_mes: speiMes,
-        spei_mes_neto: speiNetoMes,
+        ingresos_hoy: efectivoHoy + speiHoyTotal,
+        ingresos_hoy_neto: efectivoHoy + speiNetoHoyTotal,
+        ingresos_mes: efectivoMes + speiMesTotal,
+        ingresos_mes_neto: efectivoMes + speiNetoMesTotal,
+        spei_hoy: speiHoyTotal,
+        spei_hoy_neto: speiNetoHoyTotal,
+        spei_mes: speiMesTotal,
+        spei_mes_neto: speiNetoMesTotal,
         efectivo_hoy: efectivoHoy,
         efectivo_mes: efectivoMes,
-        cartera_vencida: parseFloat(carteraRes.rows[0].cartera_total),
-        guias_pendientes: parseInt(carteraRes.rows[0].guias_pendientes),
-        saldo_caja: parseFloat(saldoCajaRes.rows[0].saldo_caja),
-        comisiones_mes: parseFloat(comisionesRes.rows[0].comisiones_mes)
+        cartera_vencida: parseFloat(carteraRes.rows[0].cartera_total) || 0,
+        guias_pendientes: parseInt(carteraRes.rows[0].guias_pendientes) || 0,
+        saldo_caja: parseFloat(saldoCajaRes.rows[0].saldo_caja) || 0,
+        comisiones_mes: comisionesMes
       },
       
-      // Distribución para gráfica de pastel
-      distribucion_metodos: distribucionMetodos,
-      porcentajes: {
-        efectivo: distribucionMetodos.efectivo + distribucionMetodos.spei > 0 
-          ? ((distribucionMetodos.efectivo / (distribucionMetodos.efectivo + distribucionMetodos.spei)) * 100).toFixed(1)
-          : 0,
-        spei: distribucionMetodos.efectivo + distribucionMetodos.spei > 0 
-          ? ((distribucionMetodos.spei / (distribucionMetodos.efectivo + distribucionMetodos.spei)) * 100).toFixed(1)
-          : 0
-      },
-      
-      // Ingresos por servicio para gráfica de barras
-      ingresos_por_servicio: ingresosPorServicioRes.rows.map(r => ({
-        servicio: r.servicio,
-        cantidad: parseInt(r.cantidad),
-        monto: parseFloat(r.monto_total)
+      // DESGLOSE POR EMPRESA (nuevo)
+      ingresos_por_empresa: speiMesPorEmpresaRes.rows.map((r: any) => ({
+        empresa_id: r.empresa_id,
+        empresa_nombre: r.empresa_nombre || 'Sin asignar',
+        rfc: r.rfc || 'N/A',
+        spei_bruto: parseFloat(r.spei_bruto) || 0,
+        spei_neto: parseFloat(r.spei_neto) || 0,
+        comisiones: parseFloat(r.spei_bruto) - parseFloat(r.spei_neto) || 0,
+        transacciones: parseInt(r.total_transacciones) || 0
       })),
       
-      // Tabla de conciliación
-      transacciones: transaccionesUnificadas.rows.map(t => ({
+      // Distribución para gráfica de pastel
+      distribucion_metodos: {
+        efectivo: efectivoMes,
+        spei: speiMesTotal
+      },
+      porcentajes: {
+        efectivo: efectivoMes + speiMesTotal > 0 
+          ? ((efectivoMes / (efectivoMes + speiMesTotal)) * 100).toFixed(1)
+          : '0',
+        spei: efectivoMes + speiMesTotal > 0 
+          ? ((speiMesTotal / (efectivoMes + speiMesTotal)) * 100).toFixed(1)
+          : '0'
+      },
+      
+      // Ingresos por servicio
+      ingresos_por_servicio: ingresosPorServicioRes.rows.map((r: any) => ({
+        servicio: r.servicio,
+        cantidad: parseInt(r.cantidad) || 0,
+        monto: parseFloat(r.monto_total) || 0
+      })),
+      
+      // Transacciones recientes
+      transacciones: transaccionesRes.rows.map((t: any) => ({
         id: t.id,
         fecha_hora: t.fecha_hora,
         cliente: t.cliente || 'Sin cliente',
-        monto_bruto: parseFloat(t.monto_bruto),
-        monto_neto: parseFloat(t.monto_neto),
-        comision: parseFloat(t.comision),
+        monto_bruto: parseFloat(t.monto_bruto) || 0,
+        monto_neto: parseFloat(t.monto_neto) || 0,
+        comision: parseFloat(t.comision) || 0,
         metodo: t.metodo,
         concepto: t.concepto,
         origen: t.origen,
-        guias_pagadas: t.guias_pagadas,
-        estatus: t.estatus_conciliacion
+        estatus: t.estatus
       }))
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error getting finance dashboard:', error);
-    res.status(500).json({ error: 'Error obteniendo dashboard financiero' });
+    res.status(500).json({ error: 'Error obteniendo dashboard financiero', details: error.message });
   }
 });
 

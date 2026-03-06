@@ -12,6 +12,8 @@ import {
   Image,
   Dimensions,
   ActivityIndicator,
+  TouchableOpacity,
+  Modal,
 } from 'react-native';
 import {
   Appbar,
@@ -26,15 +28,33 @@ import { API_URL, Package } from '../services/api';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111111';
+const PURPLE = '#9C27B0';
 const { width } = Dimensions.get('window');
 
 type RootStackParamList = {
   Home: { user: any; token: string };
   PackageDetail: { package: Package; user: any; token: string };
-  GEXContract: { package: Package; user: any; token: string };
+  GEXContract: { package: Package; user: any; token: string; childPackages?: ChildPackage[] };
 };
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PackageDetail'>;
+
+// Interface para paquetes hijos
+interface ChildPackage {
+  id: number;
+  tracking: string;
+  trackingCourier?: string;
+  boxNumber: number;
+  weight: number;
+  dimensions?: {
+    length: number;
+    width: number;
+    height: number;
+    formatted?: string;
+  };
+  status: string;
+  imageUrl?: string;
+}
 
 interface PackageDetails {
   id: number;
@@ -54,19 +74,75 @@ interface PackageDetails {
   image_url?: string;
   has_gex?: boolean;
   gex_folio?: string;
+  gex_insurance_cost?: number;
+  gex_fixed_cost?: number;
+  gex_total_cost?: number;
+  // Multi-guía
+  is_master?: boolean;
+  total_boxes?: number;
   // Costos
   assigned_cost_mxn?: number;
   saldo_pendiente?: number;
   monto_pagado?: number;
+  pobox_service_cost?: number;
+  pobox_cost_usd?: number;
+  pobox_venta_usd?: number;
+  pobox_tarifa_nivel?: number;
+  registered_exchange_rate?: number;
+  national_shipping_cost?: number;
   // Fechas
   created_at?: string;
   updated_at?: string;
 }
 
+// 💰 Tarifas PO Box por nivel (USD)
+const TARIFAS_POBOX_USD: Record<number, number> = { 1: 39, 2: 79, 3: 750 };
+
 export default function PackageDetailScreen({ navigation, route }: Props) {
   const { package: pkg, user, token } = route.params;
   const [loading, setLoading] = useState(true);
   const [details, setDetails] = useState<PackageDetails | null>(null);
+  const [childPackages, setChildPackages] = useState<ChildPackage[]>([]);
+  const [selectedChildImage, setSelectedChildImage] = useState<string | null>(null);
+  const [showChildren, setShowChildren] = useState(false);
+
+  // 📦 Detectar si es un paquete REPACK (consolidación física = 1 caja)
+  const isRepackPackage = (): boolean => {
+    const tracking = details?.tracking_internal || pkg.tracking_internal || '';
+    return tracking.includes('REPACK') || tracking.startsWith('US-REPACK');
+  };
+
+  // Determinar si es multi-guía
+  const isMultiPackage = (pkg as any).is_master && ((pkg as any).total_boxes || 1) > 1;
+
+  // 💰 Calcular costo PO Box correcto (recalcula para multi-guía/repack)
+  const calcularCostoPOBox = () => {
+    if (!details) return { costoMxn: 0, costoTotal: 0, saldo: 0, totalBoxes: 1, precioUnitarioUsd: 39, tc: 18.09, nivel: 1 };
+    
+    // 🎯 REPACK = 1 caja física (consolidación), Multi-guía normal = N cajas
+    let totalBoxes: number;
+    if (isRepackPackage()) {
+      // REPACK: siempre es 1 caja física, sin importar cuántos paquetes originales
+      totalBoxes = 1;
+    } else {
+      // Multi-guía normal: prioridad childPackages.length > total_boxes > 1
+      totalBoxes = childPackages.length > 0 
+        ? childPackages.length 
+        : (details.total_boxes || (pkg as any).total_boxes || 1);
+    }
+    
+    const tc = details.registered_exchange_rate || 18.09;
+    const nivel = details.pobox_tarifa_nivel || 1;
+    const precioUnitarioUsd = TARIFAS_POBOX_USD[nivel] || 39;
+    const costoPoboxMxn = totalBoxes * precioUnitarioUsd * tc;
+    const gexTotal = (details as any).gex_total_cost || 0;
+    const costoTotal = costoPoboxMxn + (details.national_shipping_cost || 0) + gexTotal;
+    const saldo = costoTotal - (details.monto_pagado || 0);
+    
+    console.log('💰 calcularCostoPOBox:', { isRepack: isRepackPackage(), totalBoxes, tc, nivel, precioUnitarioUsd, costoPoboxMxn, gexTotal, saldo });
+    
+    return { costoMxn: costoPoboxMxn, costoTotal, saldo, totalBoxes, precioUnitarioUsd, tc, nivel };
+  };
 
   useEffect(() => {
     const fetchDetails = async () => {
@@ -94,7 +170,14 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
             assigned_cost_mxn: (pkg as any).assigned_cost_mxn || 0,
             saldo_pendiente: (pkg as any).saldo_pendiente || 0,
             monto_pagado: (pkg as any).monto_pagado || 0,
+            is_master: (pkg as any).is_master,
+            total_boxes: (pkg as any).total_boxes,
           } as any);
+        }
+        
+        // Si es multi-guía, obtener los paquetes hijos
+        if (isMultiPackage) {
+          await fetchChildPackages();
         }
       } catch (error) {
         console.error('Error fetching package details:', error);
@@ -108,16 +191,34 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
         setLoading(false);
       }
     };
+    
+    // Obtener paquetes hijos para multi-guía
+    const fetchChildPackages = async () => {
+      try {
+        const response = await fetch(`${API_URL}/api/packages/track/${pkg.tracking_internal}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.shipment?.children && data.shipment.children.length > 0) {
+            setChildPackages(data.shipment.children);
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching child packages:', error);
+      }
+    };
 
     fetchDetails();
-  }, [pkg.id, token]);
+  }, [pkg.id, token, isMultiPackage]);
 
   const getStatusInfo = (status: string) => {
     switch (status) {
       case 'received':
         return { label: 'En Bodega', color: '#FF9800', icon: 'package-variant' };
       case 'processing':
-        return { label: 'Procesando', color: '#9C27B0', icon: 'cog' };
+        return { label: 'Procesando', color: PURPLE, icon: 'cog' };
       case 'in_transit':
         return { label: 'En Tránsito', color: ORANGE, icon: 'truck-delivery' };
       case 'shipped':
@@ -131,12 +232,22 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
 
   const statusInfo = details ? getStatusInfo(details.status) : { label: '', color: '#999', icon: 'package' };
 
+  // Contratar GEX para master + hijas
   const handleContractGEX = () => {
     navigation.navigate('GEXContract', {
       package: pkg,
       user,
       token,
+      childPackages: childPackages.length > 0 ? childPackages : undefined,
     });
+  };
+
+  // Calcular peso total (master + hijas)
+  const getTotalWeight = () => {
+    if (childPackages.length > 0) {
+      return childPackages.reduce((sum, child) => sum + (child.weight || 0), 0);
+    }
+    return details?.weight || 0;
   };
 
   // Calcular volumen CBM
@@ -203,14 +314,15 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
       </Appbar.Header>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Imagen del paquete */}
-        {details.image_url ? (
+        {/* Imagen del paquete - Solo mostrar para paquetes individuales (no multi/repack) */}
+        {!isMultiPackage && details.image_url && (
           <Image
             source={{ uri: details.image_url }}
             style={styles.packageImage}
             resizeMode="cover"
           />
-        ) : (
+        )}
+        {!isMultiPackage && !details.image_url && (
           <View style={styles.noImageContainer}>
             <MaterialCommunityIcons name="camera-off" size={48} color="#ccc" />
             <Text style={styles.noImageText}>Sin foto disponible</Text>
@@ -222,7 +334,18 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
           <Card.Content>
             <View style={styles.titleRow}>
               <View style={styles.titleInfo}>
-                <Text style={styles.trackingNumber}>{details.tracking_internal}</Text>
+                <View style={styles.trackingRowDetail}>
+                  <Text style={styles.trackingNumber}>{details.tracking_internal}</Text>
+                  {/* Badge de Multi-Guía */}
+                  {isMultiPackage && (
+                    <View style={styles.multiPackageBadge}>
+                      <Ionicons name="layers" size={14} color="#fff" />
+                      <Text style={styles.multiPackageText}>
+                        {(pkg as any).total_boxes || 2} cajas
+                      </Text>
+                    </View>
+                  )}
+                </View>
                 {details.tracking_provider && (
                   <Text style={styles.providerTracking}>
                     Tracking: {details.tracking_provider}
@@ -305,6 +428,103 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
           </Card.Content>
         </Card>
 
+        {/* ============================================ */}
+        {/* SECCIÓN DE GUÍAS HIJAS (MULTI-GUÍA) */}
+        {/* ============================================ */}
+        {isMultiPackage && (
+          <Card style={styles.childrenCard}>
+            <Card.Content>
+              <TouchableOpacity 
+                style={styles.childrenHeader}
+                onPress={() => setShowChildren(!showChildren)}
+              >
+                <View style={styles.childrenTitleRow}>
+                  <Ionicons name="layers" size={22} color={PURPLE} />
+                  <Text style={styles.childrenTitle}>
+                    📦 Guías Incluidas ({(pkg as any).total_boxes || childPackages.length})
+                  </Text>
+                </View>
+                <Ionicons 
+                  name={showChildren ? "chevron-up" : "chevron-down"} 
+                  size={24} 
+                  color={PURPLE} 
+                />
+              </TouchableOpacity>
+              
+              {/* Resumen total */}
+              <View style={styles.childrenSummary}>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Peso Total</Text>
+                  <Text style={styles.summaryValue}>{getTotalWeight().toFixed(1)} kg</Text>
+                </View>
+                <View style={styles.summaryItem}>
+                  <Text style={styles.summaryLabel}>Cajas</Text>
+                  <Text style={styles.summaryValue}>{(pkg as any).total_boxes || childPackages.length}</Text>
+                </View>
+              </View>
+
+              {/* Lista de guías hijas */}
+              {showChildren && childPackages.length > 0 && (
+                <View style={styles.childrenList}>
+                  {childPackages.map((child, index) => (
+                    <View key={child.id} style={styles.childItem}>
+                      <View style={styles.childNumber}>
+                        <Text style={styles.childNumberText}>{child.boxNumber || index + 1}</Text>
+                      </View>
+                      <View style={styles.childInfo}>
+                        <Text style={styles.childTracking}>{child.tracking}</Text>
+                        {child.trackingCourier && (
+                          <Text style={styles.childCourierTracking}>📦 {child.trackingCourier}</Text>
+                        )}
+                        <View style={styles.childStats}>
+                          <Text style={styles.childStat}>⚖️ {child.weight || '--'} kg</Text>
+                          {child.dimensions && (
+                            <Text style={styles.childStat}>
+                              📐 {child.dimensions.formatted || 
+                                `${child.dimensions.length}×${child.dimensions.width}×${child.dimensions.height} cm`}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                      <View style={styles.childActions}>
+                        {/* Miniatura de foto del paquete hijo */}
+                        {child.imageUrl && (
+                          <TouchableOpacity 
+                            style={styles.childPhotoThumbnail}
+                            onPress={() => setSelectedChildImage(child.imageUrl!)}
+                          >
+                            <Image 
+                              source={{ uri: child.imageUrl }} 
+                              style={styles.childThumbnailImage}
+                            />
+                            <View style={styles.childPhotoOverlay}>
+                              <Ionicons name="expand" size={14} color="#fff" />
+                            </View>
+                          </TouchableOpacity>
+                        )}
+                        <View style={[styles.childStatusBadge, { backgroundColor: getStatusInfo(child.status).color + '20' }]}>
+                          <Text style={[styles.childStatusText, { color: getStatusInfo(child.status).color }]}>
+                            {getStatusInfo(child.status).label}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              )}
+              
+              {/* Si no hay hijos cargados pero sabemos que es master */}
+              {showChildren && childPackages.length === 0 && (
+                <View style={styles.childrenLoading}>
+                  <Text style={styles.childrenLoadingText}>
+                    Esta guía contiene {(pkg as any).total_boxes} cajas.
+                  </Text>
+                </View>
+              )}
+            </Card.Content>
+          </Card>
+        )}
+
         {/* Servicios Contratados */}
         <Card style={styles.servicesCard}>
           <Card.Content>
@@ -320,11 +540,25 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                   color={details.has_gex ? "#4CAF50" : "#f44336"} 
                 />
                 <View style={styles.serviceText}>
-                  <Text style={styles.serviceName}>Garantía Extendida GEX</Text>
+                  <Text style={styles.serviceName}>
+                    Garantía Extendida GEX
+                  </Text>
                   {details.has_gex ? (
-                    <Text style={styles.serviceStatus}>✅ Contratada{details.gex_folio ? ` - Folio: ${details.gex_folio}` : ''}</Text>
+                    <Text style={styles.serviceStatus}>
+                      ✅ Contratada{details.gex_folio ? ` - Folio: ${details.gex_folio}` : ''}
+                      {isMultiPackage && (isRepackPackage() 
+                        ? ` • 1 caja con ${(pkg as any).total_boxes} paquetes dentro cubierta por GEX`
+                        : ` • ${(pkg as any).total_boxes} cajas cubiertas`
+                      )}
+                    </Text>
                   ) : (
-                    <Text style={[styles.serviceStatus, { color: '#f44336' }]}>❌ Sin Garantía</Text>
+                    <Text style={[styles.serviceStatus, { color: '#f44336' }]}>
+                      ❌ Sin Garantía
+                      {isMultiPackage && (isRepackPackage()
+                        ? ` • 1 caja con ${(pkg as any).total_boxes} paquetes sin cobertura`
+                        : ` • ${(pkg as any).total_boxes} cajas sin cobertura`
+                      )}
+                    </Text>
                   )}
                 </View>
               </View>
@@ -349,40 +583,54 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
             <Text style={styles.sectionTitle}>💰 Desglose de Costos</Text>
             <Divider style={styles.divider} />
 
-            {/* Costo del servicio PO Box */}
-            {(details.assigned_cost_mxn ?? 0) > 0 && (
-              <View style={styles.costRow}>
-                <Text style={styles.costLabel}>📦 Servicio PO Box</Text>
-                <Text style={styles.costValue}>
-                  ${(() => {
-                    const gexRate = 0.05; // 5%
-                    const gexExchange = 18.15;
-                    const gexFixedFee = 625; // Cuota fija al cliente
-                    const gexCost = details.has_gex && details.declared_value 
-                      ? (details.declared_value * gexRate * gexExchange) + gexFixedFee
-                      : 0;
-                    return ((details.assigned_cost_mxn || 0) - gexCost).toFixed(2);
-                  })()} MXN
-                </Text>
-              </View>
+            {/* Precio de Venta del servicio PO Box con desglose USD y TC */}
+            {(details.pobox_venta_usd ?? details.assigned_cost_mxn ?? 0) > 0 && (
+              <>
+                <View style={styles.costRow}>
+                  <Text style={styles.costLabel}>📦 Servicio PO Box</Text>
+                  <Text style={styles.costValue}>
+                    ${calcularCostoPOBox().costoMxn.toFixed(2)} MXN
+                  </Text>
+                </View>
+                {/* 🎯 DESGLOSE POR CAJA para multi-guía */}
+                <View style={[styles.costRow, { paddingLeft: 16, marginTop: -4 }]}>
+                  <Text style={[styles.costLabel, { fontSize: 12, color: '#666' }]}>
+                    {(() => {
+                      const { totalBoxes, precioUnitarioUsd, tc, nivel } = calcularCostoPOBox();
+                      if (totalBoxes > 1) {
+                        return `💵 ${totalBoxes} cajas × $${precioUnitarioUsd.toFixed(2)} USD × TC $${tc.toFixed(2)} (Nivel ${nivel})`;
+                      }
+                      return `💵 $${precioUnitarioUsd.toFixed(2)} USD × TC $${tc.toFixed(2)} (Nivel ${nivel})`;
+                    })()}
+                  </Text>
+                </View>
+              </>
             )}
 
             {/* Costo GEX si está contratado - desglosado */}
-            {details.has_gex && details.declared_value && (
+            {details.has_gex && (details.gex_total_cost || details.declared_value) && (
               <>
                 <View style={styles.costRow}>
-                  <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• 5% Valor Asegurado</Text>
-                  <Text style={styles.costValue}>${(details.declared_value * 0.05 * 18.15).toFixed(2)} MXN</Text>
+                  <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• 5% Valor Asegurado (${(details.declared_value || 0).toFixed(2)} USD)</Text>
+                  <Text style={styles.costValue}>${(details.gex_insurance_cost || (details.declared_value || 0) * 0.05 * (details.registered_exchange_rate || 18.15)).toFixed(2)} MXN</Text>
                 </View>
                 <View style={styles.costRow}>
                   <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• Cargo Fijo GEX</Text>
-                  <Text style={styles.costValue}>$625.00 MXN</Text>
+                  <Text style={styles.costValue}>${(details.gex_fixed_cost || 625).toFixed(2)} MXN</Text>
                 </View>
                 <View style={styles.costRow}>
                   <Text style={[styles.costLabel, { fontWeight: '600' }]}>🛡️ Subtotal Garantía Extendida</Text>
-                  <Text style={[styles.costValue, { color: ORANGE }]}>${((details.declared_value * 0.05 * 18.15) + 625).toFixed(2)} MXN</Text>
+                  <Text style={[styles.costValue, { color: ORANGE }]}>${(details.gex_total_cost || ((details.declared_value || 0) * 0.05 * (details.registered_exchange_rate || 18.15)) + 625).toFixed(2)} MXN</Text>
                 </View>
               </>
+            )}
+
+            {/* Costo de envío nacional (Estafeta, FedEx, etc.) */}
+            {(details.national_shipping_cost ?? 0) > 0 && (
+              <View style={styles.costRow}>
+                <Text style={styles.costLabel}>🚚 Envío Nacional ({details.carrier})</Text>
+                <Text style={styles.costValue}>${(details.national_shipping_cost || 0).toFixed(2)} MXN</Text>
+              </View>
             )}
 
             {/* Monto ya pagado */}
@@ -463,6 +711,36 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
 
         <View style={{ height: 40 }} />
       </ScrollView>
+
+      {/* Modal para mostrar foto del paquete hijo */}
+      <Modal
+        visible={!!selectedChildImage}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSelectedChildImage(null)}
+      >
+        <TouchableOpacity 
+          style={styles.imageModalOverlay}
+          activeOpacity={1}
+          onPress={() => setSelectedChildImage(null)}
+        >
+          <View style={styles.imageModalContent}>
+            <TouchableOpacity 
+              style={styles.imageModalClose}
+              onPress={() => setSelectedChildImage(null)}
+            >
+              <Ionicons name="close-circle" size={36} color="#fff" />
+            </TouchableOpacity>
+            {selectedChildImage && (
+              <Image
+                source={{ uri: selectedChildImage }}
+                style={styles.imageModalImage}
+                resizeMode="contain"
+              />
+            )}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -523,9 +801,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 8,
+    gap: 8,
   },
   titleInfo: {
     flex: 1,
+    flexShrink: 1,
   },
   trackingNumber: {
     fontSize: 20,
@@ -580,28 +860,37 @@ const styles = StyleSheet.create({
   serviceRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    gap: 8,
   },
   serviceInfo: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     flex: 1,
+    flexShrink: 1,
   },
   serviceText: {
     marginLeft: 12,
+    flex: 1,
+    flexShrink: 1,
   },
   serviceName: {
     fontSize: 14,
     fontWeight: '600',
     color: BLACK,
+    flexWrap: 'wrap',
   },
   serviceStatus: {
     fontSize: 12,
     color: '#4CAF50',
+    flexWrap: 'wrap',
+    marginTop: 2,
   },
   contractButton: {
     backgroundColor: ORANGE,
     borderRadius: 8,
+    flexShrink: 0,
+    minWidth: 90,
   },
   contractButtonLabel: {
     fontSize: 12,
@@ -675,5 +964,210 @@ const styles = StyleSheet.create({
   dateValue: {
     fontSize: 14,
     color: BLACK,
+  },
+  // ============================================
+  // ESTILOS PARA MULTI-GUÍA / GUÍAS HIJAS
+  // ============================================
+  trackingRowDetail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 4,
+  },
+  multiPackageBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: PURPLE,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    gap: 4,
+    flexShrink: 0,
+  },
+  multiPackageText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  childrenCard: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 12,
+    elevation: 2,
+    backgroundColor: '#F3E5F5',
+  },
+  childrenHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 12,
+  },
+  childrenTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  childrenTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: PURPLE,
+  },
+  childrenSummary: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+    gap: 24,
+  },
+  summaryItem: {
+    alignItems: 'center',
+  },
+  summaryLabel: {
+    fontSize: 12,
+    color: '#666',
+  },
+  summaryValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: BLACK,
+  },
+  childrenList: {
+    gap: 8,
+  },
+  childItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: PURPLE,
+  },
+  childNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: PURPLE + '20',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 10,
+  },
+  childNumberText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: PURPLE,
+  },
+  childInfo: {
+    flex: 1,
+  },
+  childTracking: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: BLACK,
+    marginBottom: 2,
+  },
+  childCourierTracking: {
+    fontSize: 11,
+    color: ORANGE,
+    fontFamily: 'monospace',
+    marginBottom: 4,
+  },
+  childStats: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  childStat: {
+    fontSize: 11,
+    color: '#666',
+  },
+  childStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  childStatusText: {
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  childrenLoading: {
+    padding: 16,
+    alignItems: 'center',
+  },
+  childrenLoadingText: {
+    fontSize: 13,
+    color: '#666',
+    textAlign: 'center',
+  },
+  // ============================================
+  // ESTILOS PARA FOTO DE PAQUETES HIJOS
+  // ============================================
+  childActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  childPhotoButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: PURPLE + '15',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: PURPLE + '30',
+  },
+  childPhotoThumbnail: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: PURPLE,
+    position: 'relative',
+  },
+  childThumbnailImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  childPhotoOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderTopLeftRadius: 6,
+    padding: 2,
+  },
+  imageModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageModalContent: {
+    width: '90%',
+    maxHeight: '80%',
+    backgroundColor: '#000',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  imageModalClose: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  imageModalImage: {
+    width: '100%',
+    height: 400,
+    resizeMode: 'contain',
   },
 });

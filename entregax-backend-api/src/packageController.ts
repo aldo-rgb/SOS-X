@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
-import { PoolClient } from 'pg';
+import { PoolClient, Pool } from 'pg';
 
 // ============ TIPOS ============
 type PackageStatus = 'received' | 'in_transit' | 'customs' | 'ready_pickup' | 'delivered';
@@ -10,6 +10,7 @@ interface BoxItem {
     length: number;
     width: number;
     height: number;
+    trackingCourier?: string;  // Guía del proveedor para multi-guía
 }
 
 interface DestinationInfo {
@@ -27,17 +28,27 @@ interface CreateShipmentBody {
     boxes: BoxItem[];
     trackingProvider?: string;
     declaredValue?: number;
-    carrier: string;           // Paquetería de envío (FedEx, UPS, DHL, etc.)
-    destination: DestinationInfo;
+    carrier?: string;           // Paquetería de envío (FedEx, UPS, DHL, etc.) - opcional si leaveInWarehouse
+    destination?: DestinationInfo; // Destino - opcional si leaveInWarehouse
     notes?: string;
     imageUrl?: string;         // Foto del paquete (base64 o URL)
     warehouseLocation?: string; // Ubicación de bodega (usa_pobox, china_air, etc.)
+    leaveInWarehouse?: boolean; // Si true, se deja en bodega sin envío (cliente asignará desde app)
     gex?: {                    // Garantía Extendida GEX
         included: boolean;
         invoiceValueUsd: number;
         exchangeRate: number;
         insuredValueMxn: number;
         costMxn: number;
+    };
+    skydropxQuote?: {          // Cotización de envío nacional (Skydropx)
+        shipmentId?: string;
+        rateId?: string;
+        provider: string;
+        serviceName: string;
+        totalPrice: number;
+        currency: string;
+        deliveryDays?: number;
     };
 }
 
@@ -78,94 +89,167 @@ const calculateVolume = (length?: number, width?: number, height?: number): numb
 };
 
 // ============ CALCULAR COSTO PO BOX USA ============
+// COSTO INTERNO (lo que nos cuesta): Fórmula de pie³
+// PRECIO VENTA (lo que cobra al cliente): Según tarifas pobox_tarifas_volumen
 interface POBoxCostResult {
-    totalMxn: number;
+    totalMxn: number;              // Precio venta + GEX (lo que paga cliente)
     cbm: number;
-    poboxServiceCost: number;     // Costo servicio PO Box
-    gexInsuranceCost: number;     // 5% valor asegurado
-    gexFixedCost: number;         // Cargo fijo GEX
-    gexTotalCost: number;         // Total GEX
-    declaredValueMxn: number;     // Valor declarado en MXN
+    poboxServiceCost: number;      // COSTO INTERNO en MXN
+    poboxCostUsd: number;          // COSTO INTERNO en USD
+    registeredExchangeRate: number; // TC usado al momento del registro
+    gexInsuranceCost: number;      // 5% valor asegurado
+    gexFixedCost: number;          // Cargo fijo GEX
+    gexTotalCost: number;          // Total GEX
+    declaredValueMxn: number;      // Valor declarado en MXN
+    precioVentaUsd?: number;       // PRECIO VENTA USD (según tarifa)
+    precioVentaMxn?: number;       // PRECIO VENTA MXN (según tarifa)
+    nivelTarifa?: number;          // Nivel de tarifa aplicado (1, 2, 3)
+    cantidadCajas?: number;        // Número de cajas
+    desglosePorCaja?: { cbm: number; costoUsd: number; nivel: number }[];  // Desglose por caja
 }
 
 const calculatePOBoxCost = async (
-    client: PoolClient, 
+    client: PoolClient | Pool, 
     boxes: BoxItem[], 
     gexData?: { included: boolean; costMxn?: number; insuranceCost?: number; fixedCost?: number; declaredValueMxn?: number }
 ): Promise<POBoxCostResult> => {
     try {
-        // 1. Calcular CBM total de todas las cajas
-        let totalCbm = 0;
-        for (const box of boxes) {
-            let boxCbm = (box.length * box.width * box.height) / 1000000; // cm³ a m³
-            if (boxCbm < 0.010) boxCbm = 0.010; // Mínimo cobrable por caja
-            totalCbm += boxCbm;
-        }
+        // 1. Obtener configuración de costeo PO Box (COSTO INTERNO)
+        const configResult = await client.query(
+            'SELECT * FROM pobox_costing_config WHERE is_active = TRUE LIMIT 1'
+        );
+        const config = configResult.rows[0] || {
+            dimensional_divisor: 10780,
+            base_rate: 75,
+            min_cost: 10
+        };
+        
+        // 2. Obtener TC CON SOBREPRECIO (tipo_cambio_final = tc_api + sobreprecio)
+        const tcResult = await client.query(
+            "SELECT tipo_cambio_final, ultimo_tc_api, sobreprecio FROM exchange_rate_config WHERE servicio = 'pobox_usa' AND estado = TRUE LIMIT 1"
+        );
+        const tcFinal = parseFloat(tcResult.rows[0]?.tipo_cambio_final) || 17.65;
 
-        // 2. Obtener tarifas activas
+        // 3. Obtener tarifas de venta al cliente (pobox_tarifas_volumen)
         const tarifasResult = await client.query(
-            'SELECT * FROM pobox_tarifas_volumen WHERE estado = TRUE ORDER BY nivel ASC'
+            'SELECT * FROM pobox_tarifas_volumen WHERE estado = TRUE ORDER BY nivel'
         );
         const tarifas = tarifasResult.rows;
 
-        // 3. Obtener tipo de cambio para PO Box USA
-        const tcResult = await client.query(
-            "SELECT tipo_cambio_final FROM exchange_rate_config WHERE servicio = 'pobox_usa' AND estado = TRUE"
-        );
-        const tipoCambio = tcResult.rows[0]?.tipo_cambio_final || 17.50;
-
-        // 4. Evaluar nivel y calcular costo
-        let costoVolumenUsd = 0;
-
-        for (const tarifa of tarifas) {
-            const cbmMin = parseFloat(tarifa.cbm_min);
-            const cbmMax = tarifa.cbm_max ? parseFloat(tarifa.cbm_max) : Infinity;
-
-            if (totalCbm >= cbmMin && totalCbm <= cbmMax) {
-                if (tarifa.tipo_cobro === 'fijo') {
-                    costoVolumenUsd = parseFloat(tarifa.costo);
-                } else if (tarifa.tipo_cobro === 'por_unidad') {
-                    costoVolumenUsd = totalCbm * parseFloat(tarifa.costo);
-                    
-                    // Protección de precio: no cobrar menos que el nivel anterior
-                    const nivelAnterior = tarifas.find((t: any) => t.nivel === tarifa.nivel - 1);
-                    if (nivelAnterior) {
-                        const costoMinimo = parseFloat(nivelAnterior.costo);
-                        if (costoVolumenUsd < costoMinimo) {
-                            costoVolumenUsd = costoMinimo;
+        // 4. 🎯 CALCULAR PRECIO POR CAJA INDIVIDUAL (no CBM combinado)
+        let totalCostUsd = 0;
+        let totalCbm = 0;
+        let totalVentaUsd = 0;
+        let nivelPredominante = 1;
+        const desglosePorCaja: { cbm: number; costoUsd: number; nivel: number }[] = [];
+        
+        for (const box of boxes) {
+            const length_cm = box.length || 0;
+            const width_cm = box.width || 0;
+            const height_cm = box.height || 0;
+            
+            // CBM de esta caja individual
+            const boxCbm = (length_cm * width_cm * height_cm) / 1000000;
+            totalCbm += boxCbm;
+            
+            // CBM mínimo cobrable por caja
+            let cbmParaTarifa = boxCbm;
+            if (cbmParaTarifa < 0.010) cbmParaTarifa = 0.010;
+            
+            // PRECIO DE VENTA para esta caja individual
+            let boxVentaUsd = 0;
+            let boxNivel = 1;
+            
+            for (const tarifa of tarifas) {
+                const cbmMin = parseFloat(tarifa.cbm_min) || 0;
+                const cbmMax = tarifa.cbm_max ? parseFloat(tarifa.cbm_max) : Infinity;
+                
+                if (cbmParaTarifa >= cbmMin && cbmParaTarifa <= cbmMax) {
+                    boxNivel = tarifa.nivel;
+                    if (tarifa.tipo_cobro === 'fijo') {
+                        boxVentaUsd = parseFloat(tarifa.costo);
+                    } else {
+                        // Por unidad (m³)
+                        boxVentaUsd = cbmParaTarifa * parseFloat(tarifa.costo);
+                        // Protección: no cobrar menos que el nivel anterior
+                        const nivelAnterior = tarifas.find((t: any) => t.nivel === tarifa.nivel - 1);
+                        if (nivelAnterior && boxVentaUsd < parseFloat(nivelAnterior.costo)) {
+                            boxVentaUsd = parseFloat(nivelAnterior.costo);
                         }
                     }
+                    break;
                 }
-                break;
             }
+            
+            totalVentaUsd += boxVentaUsd;
+            if (boxNivel > nivelPredominante) nivelPredominante = boxNivel;
+            
+            desglosePorCaja.push({
+                cbm: boxCbm,
+                costoUsd: boxVentaUsd,
+                nivel: boxNivel
+            });
+            
+            // COSTO INTERNO (para cálculo de margen)
+            const length_pulg = length_cm / 2.54;
+            const width_pulg = width_cm / 2.54;
+            const height_pulg = height_cm / 2.54;
+            const volumePulg = length_pulg * width_pulg * height_pulg;
+            const pie3 = volumePulg / parseFloat(config.dimensional_divisor);
+            const boxCostUsd = pie3 * parseFloat(config.base_rate);
+            totalCostUsd += boxCostUsd;
         }
 
-        // 5. Convertir a MXN - Este es el costo del servicio PO Box
-        const poboxServiceCost = costoVolumenUsd * tipoCambio;
+        // 5. COSTO INTERNO: Convertir a MXN
+        let poboxServiceCost = totalCostUsd * tcFinal;
+        const minCost = parseFloat(config.min_cost) || 10;
+        if (poboxServiceCost < minCost) {
+            poboxServiceCost = minCost;
+            totalCostUsd = minCost / tcFinal;
+        }
+
+        // 6. Precio de venta total en MXN
+        const precioVentaMxn = totalVentaUsd * tcFinal;
         
-        // 6. Extraer desglose de GEX
+        // 7. Extraer desglose de GEX
         const gexInsuranceCost = gexData?.insuranceCost || 0;
         const gexFixedCost = gexData?.fixedCost || 0;
         const gexTotalCost = gexData?.costMxn || 0;
         const declaredValueMxn = gexData?.declaredValueMxn || 0;
         
-        // 7. Total = PO Box + GEX
-        const totalMxn = poboxServiceCost + gexTotalCost;
+        // 8. Total a cobrar al cliente = Precio Venta + GEX
+        const totalMxn = precioVentaMxn + gexTotalCost;
 
-        console.log(`💰 Costo PO Box calculado: CBM=${totalCbm.toFixed(4)}, Servicio=$${poboxServiceCost.toFixed(2)}, GEX=$${gexTotalCost.toFixed(2)} (Seguro:$${gexInsuranceCost.toFixed(2)} + Fijo:$${gexFixedCost.toFixed(2)}), Total=$${totalMxn.toFixed(2)}`);
+        console.log(`💰 PO Box: ${boxes.length} cajas, CBM total=${totalCbm.toFixed(4)}`);
+        if (boxes.length > 1) {
+            console.log(`   📦 DESGLOSE POR CAJA:`);
+            desglosePorCaja.forEach((d, i) => console.log(`      Caja ${i+1}: CBM=${d.cbm.toFixed(4)}, USD=$${d.costoUsd.toFixed(2)} (Nivel ${d.nivel})`));
+        }
+        console.log(`   COSTO interno: USD=$${totalCostUsd.toFixed(2)} × TC ${tcFinal} = $${poboxServiceCost.toFixed(2)} MXN`);
+        console.log(`   VENTA cliente: USD=$${totalVentaUsd.toFixed(2)} × TC ${tcFinal} = $${precioVentaMxn.toFixed(2)} MXN`);
+        console.log(`   GEX=$${gexTotalCost.toFixed(2)}, Total=$${totalMxn.toFixed(2)}`);
 
         return { 
-            totalMxn, 
+            totalMxn,  // Precio de venta + GEX
             cbm: totalCbm,
-            poboxServiceCost,
+            poboxServiceCost,  // Costo interno
+            poboxCostUsd: totalCostUsd,  // Costo interno USD
+            registeredExchangeRate: tcFinal,
             gexInsuranceCost,
             gexFixedCost,
             gexTotalCost,
-            declaredValueMxn
+            declaredValueMxn,
+            // Campos para mostrar en app
+            precioVentaUsd: totalVentaUsd,  // SUMA de todas las cajas
+            precioVentaMxn,
+            nivelTarifa: nivelPredominante,  // Nivel más alto aplicado
+            // Nuevo: desglose para la app
+            cantidadCajas: boxes.length,
+            desglosePorCaja
         };
     } catch (error) {
         console.error('Error calculando costo PO Box:', error);
-        return { totalMxn: 0, cbm: 0, poboxServiceCost: 0, gexInsuranceCost: 0, gexFixedCost: 0, gexTotalCost: 0, declaredValueMxn: 0 };
+        return { totalMxn: 0, cbm: 0, poboxServiceCost: 0, poboxCostUsd: 0, registeredExchangeRate: 0, gexInsuranceCost: 0, gexFixedCost: 0, gexTotalCost: 0, declaredValueMxn: 0 };
     }
 };
 
@@ -174,10 +258,13 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
     const client = await pool.connect();
     
     try {
-        const { boxId, description, boxes, trackingProvider, declaredValue, carrier, destination, notes, imageUrl, warehouseLocation, gex }: CreateShipmentBody = req.body;
+        const { boxId, description, boxes, trackingProvider, declaredValue, carrier, destination, notes, imageUrl, warehouseLocation, leaveInWarehouse, gex, skydropxQuote }: CreateShipmentBody = req.body;
 
         // 🛡️ GEX - Determinar si incluye garantía
         const hasGex = gex?.included || false;
+        
+        // 🚚 Costo de envío nacional (Skydropx)
+        const nationalShippingCost = skydropxQuote?.totalPrice || 0;
 
         // Determinar service_type basado en warehouseLocation
         const getServiceType = (location?: string): string => {
@@ -202,13 +289,16 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
             res.status(400).json({ error: 'Debe agregar al menos una caja' });
             return;
         }
-        if (!carrier) {
-            res.status(400).json({ error: 'Selecciona la paquetería de envío' });
-            return;
-        }
-        if (!destination || !destination.country || !destination.city || !destination.address) {
-            res.status(400).json({ error: 'La dirección de destino es requerida (país, ciudad, dirección)' });
-            return;
+        // Carrier y destination solo requeridos si NO se deja en bodega
+        if (!leaveInWarehouse) {
+            if (!carrier) {
+                res.status(400).json({ error: 'Selecciona la paquetería de envío' });
+                return;
+            }
+            if (!destination || !destination.country || !destination.city || !destination.address) {
+                res.status(400).json({ error: 'La dirección de destino es requerida (país, ciudad, dirección)' });
+                return;
+            }
         }
 
         for (let i = 0; i < boxes.length; i++) {
@@ -259,13 +349,21 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
         const totalWeight = boxes.reduce((sum, box) => sum + box.weight, 0);
         const totalVolume = boxes.reduce((sum, box) => sum + (calculateVolume(box.length, box.width, box.height) || 0), 0);
 
+        // 📦 Valores seguros para cuando se deja en bodega (leaveInWarehouse)
+        const safeCarrier = leaveInWarehouse ? 'BODEGA' : (carrier || 'Sin asignar');
+        const safeDestination: DestinationInfo = leaveInWarehouse ? {
+            country: 'México',
+            city: 'En Bodega',
+            address: 'Pendiente de asignar'
+        } : destination!;
+
         // 🚚 Determinar si es envío con paquetería de última milla (auto-consolidar)
         const lastMileCarriers = ['FedEx', 'UPS', 'DHL', 'Estafeta', 'Redpack', 'Paquetexpress', 'JT Express', 'Otro'];
-        const isLastMileShipment = lastMileCarriers.includes(carrier);
+        const isLastMileShipment = !leaveInWarehouse && lastMileCarriers.includes(carrier || '');
 
         // 📦 Verificar si cliente tiene dirección asignada para USA (auto-procesar)
         let hasDefaultUsaAddress = false;
-        if (serviceType === 'POBOX_USA') {
+        if (serviceType === 'POBOX_USA' && !leaveInWarehouse) {
             const addressCheck = await client.query(
                 `SELECT id FROM addresses 
                  WHERE user_id = $1 
@@ -281,12 +379,13 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
         }
 
         // Si tiene carrier última milla O tiene dirección USA asignada, auto-procesar
-        const shouldAutoProcess = isLastMileShipment || hasDefaultUsaAddress;
+        // Si leaveInWarehouse, NO auto-procesar (queda en received para que cliente asigne)
+        const shouldAutoProcess = !leaveInWarehouse && (isLastMileShipment || hasDefaultUsaAddress);
         const initialStatus = shouldAutoProcess ? 'processing' : 'received';
 
         // 💰 Calcular costo para PO Box USA con desglose
         let costResult: POBoxCostResult = { 
-            totalMxn: 0, cbm: 0, poboxServiceCost: 0, 
+            totalMxn: 0, cbm: 0, poboxServiceCost: 0, poboxCostUsd: 0, registeredExchangeRate: 0,
             gexInsuranceCost: 0, gexFixedCost: 0, gexTotalCost: 0, declaredValueMxn: 0 
         };
         
@@ -331,6 +430,8 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
 
         if (totalBoxes === 1) {
             const box = boxes[0] as BoxItem;
+            // Calcular totales incluyendo envío nacional
+            const totalCostMxn = costResult.totalMxn + nationalShippingCost;
             const result = await client.query(
                 `INSERT INTO packages 
                  (user_id, tracking_internal, tracking_provider, description, weight, 
@@ -339,17 +440,19 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                   destination_country, destination_city, destination_address, destination_zip, destination_phone, destination_contact, image_url,
                   service_type, warehouse_location, has_gex, consolidation_id,
                   assigned_cost_mxn, single_cbm, saldo_pendiente, long_cm, width_cm, height_cm,
-                  pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn)
+                  pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn,
+                  registered_exchange_rate, pobox_cost_usd, pobox_tarifa_nivel, pobox_venta_usd, national_shipping_cost)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false, 1, 1, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
-                         $24, $25, $24, $6, $7, $8, $26, $27, $28, $29, $30) 
+                         $24, $25, $24, $6, $7, $8, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35) 
                  RETURNING *`,
-                [user.id, masterTracking, trackingProvider || null, description, box.weight, 
+                [user.id, masterTracking, box.trackingCourier || trackingProvider || null, description, box.weight, 
                  box.length, box.width, box.height, declaredValue || null, notes || null, initialStatus,
-                 carrier, destination.country, destination.city, destination.address, 
-                 destination.zip || null, destination.phone || null, destination.contact || null, imageUrl || null,
+                 safeCarrier, safeDestination.country, safeDestination.city, safeDestination.address, 
+                 safeDestination.zip || null, safeDestination.phone || null, safeDestination.contact || null, imageUrl || null,
                  serviceType, wLocation, hasGex, consolidationId,
-                 costResult.totalMxn, costResult.cbm,
-                 costResult.poboxServiceCost, costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn]
+                 totalCostMxn, costResult.cbm,
+                 costResult.poboxServiceCost, costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn,
+                 costResult.registeredExchangeRate, costResult.poboxCostUsd, costResult.nivelTarifa || null, costResult.precioVentaUsd || null, nationalShippingCost]
             );
             masterPackage = result.rows[0];
             
@@ -358,11 +461,13 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                 isMaster: false, weight: box.weight,
                 dimensions: formatDimensions(box.length, box.width, box.height),
                 clientName: user.full_name, clientBoxId: user.box_id, description,
-                carrier, destination: `${destination.city}, ${destination.country}`,
-                destinationCity: destination.city, destinationCountry: destination.country,
+                carrier: safeCarrier, destination: `${safeDestination.city}, ${safeDestination.country}`,
+                destinationCity: safeDestination.city, destinationCountry: safeDestination.country,
                 receivedAt: new Date().toISOString()
             });
         } else {
+            // Calcular totales incluyendo envío nacional
+            const totalCostMxn = costResult.totalMxn + nationalShippingCost;
             const masterResult = await client.query(
                 `INSERT INTO packages 
                  (user_id, tracking_internal, tracking_provider, description, weight, 
@@ -370,17 +475,19 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                   destination_country, destination_city, destination_address, destination_zip, destination_phone, destination_contact, image_url,
                   service_type, warehouse_location, has_gex, consolidation_id,
                   assigned_cost_mxn, single_cbm, saldo_pendiente,
-                  pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn)
+                  pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn,
+                  registered_exchange_rate, pobox_cost_usd, pobox_tarifa_nivel, pobox_venta_usd, national_shipping_cost)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, 0, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                         $22, $23, $22, $24, $25, $26, $27, $28) 
+                         $22, $23, $22, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33) 
                  RETURNING *`,
                 [user.id, masterTracking, trackingProvider || null, description, totalWeight, 
-                 declaredValue || null, notes || null, initialStatus, totalBoxes, carrier,
-                 destination.country, destination.city, destination.address,
-                 destination.zip || null, destination.phone || null, destination.contact || null, imageUrl || null,
+                 declaredValue || null, notes || null, initialStatus, totalBoxes, safeCarrier,
+                 safeDestination.country, safeDestination.city, safeDestination.address,
+                 safeDestination.zip || null, safeDestination.phone || null, safeDestination.contact || null, imageUrl || null,
                  serviceType, wLocation, hasGex, consolidationId,
-                 costResult.totalMxn, costResult.cbm,
-                 costResult.poboxServiceCost, costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn]
+                 totalCostMxn, costResult.cbm,
+                 costResult.poboxServiceCost, costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn,
+                 costResult.registeredExchangeRate, costResult.poboxCostUsd, costResult.nivelTarifa || null, costResult.precioVentaUsd || null, nationalShippingCost]
             );
             masterPackage = masterResult.rows[0];
 
@@ -389,8 +496,8 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                 isMaster: true, weight: totalWeight, volume: Math.round(totalVolume * 100) / 100,
                 dimensions: `${totalBoxes} bultos`,
                 clientName: user.full_name, clientBoxId: user.box_id, description,
-                carrier, destination: `${destination.city}, ${destination.country}`,
-                destinationCity: destination.city, destinationCountry: destination.country,
+                carrier: safeCarrier, destination: `${safeDestination.city}, ${safeDestination.country}`,
+                destinationCity: safeDestination.city, destinationCountry: safeDestination.country,
                 receivedAt: new Date().toISOString()
             });
 
@@ -408,9 +515,9 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                       service_type, warehouse_location, consolidation_id)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) 
                      RETURNING *`,
-                    [user.id, childTracking, trackingProvider || null, description, box.weight, 
+                    [user.id, childTracking, box.trackingCourier || trackingProvider || null, description, box.weight, 
                      box.length, box.width, box.height, initialStatus, masterPackage.id, boxNumber, totalBoxes,
-                     carrier, destination.country, destination.city, destination.address,
+                     safeCarrier, safeDestination.country, safeDestination.city, safeDestination.address,
                      serviceType, wLocation, consolidationId]
                 );
                 childPackages.push(childResult.rows[0]);
@@ -421,8 +528,8 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                     dimensions: formatDimensions(box.length, box.width, box.height),
                     volume: calculateVolume(box.length, box.width, box.height),
                     clientName: user.full_name, clientBoxId: user.box_id, description,
-                    carrier, destination: `${destination.city}, ${destination.country}`,
-                    destinationCity: destination.city, destinationCountry: destination.country,
+                    carrier: safeCarrier, destination: `${safeDestination.city}, ${safeDestination.country}`,
+                    destinationCity: safeDestination.city, destinationCountry: safeDestination.country,
                     receivedAt: new Date().toISOString()
                 });
             }
@@ -443,14 +550,14 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                     totalVolume: Math.round(totalVolume * 100) / 100,
                     trackingProvider: trackingProvider || null,
                     declaredValue: declaredValue || null,
-                    carrier,
+                    carrier: safeCarrier,
                     destination: {
-                        country: destination.country,
-                        city: destination.city,
-                        address: destination.address,
-                        zip: destination.zip || null,
-                        phone: destination.phone || null,
-                        contact: destination.contact || null
+                        country: safeDestination.country,
+                        city: safeDestination.city,
+                        address: safeDestination.address,
+                        zip: safeDestination.zip || null,
+                        phone: safeDestination.phone || null,
+                        contact: safeDestination.contact || null
                     },
                     status: initialStatus, statusLabel: getStatusLabel(initialStatus as 'received' | 'in_transit'),
                     consolidationId: consolidationId,
@@ -578,16 +685,18 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             success: true,
             shipment: {
                 master: { id: pkg.id, tracking: pkg.tracking_internal, trackingProvider: pkg.tracking_provider,
+                    trackingCourier: pkg.tracking_provider, // Para PO Box, tracking del courier está en tracking_provider
                     description: pkg.description, weight: pkg.weight ? parseFloat(pkg.weight) : null,
                     declaredValue: pkg.declared_value ? parseFloat(pkg.declared_value) : null,
                     isMaster: pkg.is_master, totalBoxes: pkg.total_boxes || 1,
                     status: pkg.status, statusLabel: getStatusLabel(pkg.status),
                     receivedAt: pkg.received_at, deliveredAt: pkg.delivered_at },
                 children: children.map(c => ({ id: c.id, tracking: c.tracking_internal, boxNumber: c.box_number,
+                    trackingCourier: c.tracking_provider, // Tracking del courier (Amazon, USPS, etc)
                     weight: parseFloat(c.weight), dimensions: { length: parseFloat(c.pkg_length),
                         width: parseFloat(c.pkg_width), height: parseFloat(c.pkg_height),
                         formatted: formatDimensions(parseFloat(c.pkg_length), parseFloat(c.pkg_width), parseFloat(c.pkg_height)) },
-                    status: c.status })),
+                    status: c.status, imageUrl: c.image_url || null })),
                 labels,
                 client: { id: pkg.user_id, name: pkg.full_name, email: pkg.email, boxId: pkg.box_id }
             }
@@ -720,6 +829,40 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             ORDER BY p.created_at DESC
         `, [userId]);
 
+        // Cargar paquetes hijos para los masters
+        const masterIds = airResult.rows
+            .filter(p => p.is_master)
+            .map(p => p.id);
+        
+        let childrenByMaster: Record<number, any[]> = {};
+        if (masterIds.length > 0) {
+            const childrenResult = await pool.query(`
+                SELECT * FROM packages WHERE master_id = ANY($1) ORDER BY box_number
+            `, [masterIds]);
+            
+            // Agrupar hijos por master_id
+            childrenResult.rows.forEach(child => {
+                const masterId = child.master_id;
+                if (masterId) {
+                    if (!childrenByMaster[masterId]) {
+                        childrenByMaster[masterId] = [];
+                    }
+                    childrenByMaster[masterId].push({
+                        id: child.id,
+                        tracking_internal: child.tracking_internal,
+                        tracking_courier: child.tracking_provider,
+                        weight: child.weight ? parseFloat(child.weight) : null,
+                        dimensions: child.pkg_length && child.pkg_width && child.pkg_height 
+                            ? `${child.pkg_length}×${child.pkg_width}×${child.pkg_height} cm` 
+                            : null,
+                        box_number: child.box_number,
+                        description: child.description,
+                        imageUrl: child.image_url || null
+                    });
+                }
+            });
+        }
+
         const airPackages = airResult.rows.map(pkg => {
             // DEBUG: Log de costos
             console.log(`📦 [getMyPackages] Package ${pkg.id}: assigned_cost_mxn=${pkg.assigned_cost_mxn}, saldo_pendiente=${pkg.saldo_pendiente}`);
@@ -741,7 +884,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 id: pkg.id,
                 tracking_internal: pkg.tracking_internal,
                 tracking_provider: pkg.tracking_provider,
-                description: pkg.description || 'Sin descripción',
+                description: pkg.description || null,
                 weight: pkg.weight ? parseFloat(pkg.weight) : null,
                 dimensions: pkg.pkg_length && pkg.pkg_width && pkg.pkg_height 
                     ? `${pkg.pkg_length}×${pkg.pkg_width}×${pkg.pkg_height} cm` 
@@ -769,7 +912,9 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 // 💰 Costos
                 assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
                 saldo_pendiente: pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0,
-                monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0
+                monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
+                // 📦 Paquetes hijos (si es master)
+                child_packages: pkg.is_master ? (childrenByMaster[pkg.id] || []) : []
             };
         });
 
@@ -1264,13 +1409,18 @@ export const dispatchConsolidation = async (req: Request, res: Response): Promis
 export const assignDeliveryInstructions = async (req: Request, res: Response) => {
     try {
         const { packageId, packageType } = req.params; // packageType: 'usa' | 'maritime' | 'china_air' | 'dhl'
-        const { deliveryAddressId, deliveryInstructions } = req.body;
+        const { deliveryAddressId, deliveryInstructions, carrier, carrierCost, carrierName } = req.body;
         const userId = (req as any).user.userId;
 
         console.log(`📦 [Instrucciones Entrega] Usuario ${userId} actualizando ${packageType}/${packageId}`);
+        console.log(`   Carrier: ${carrier}, Costo: ${carrierCost}, Nombre: ${carrierName}`);
 
-        // Verificar que la dirección existe y pertenece al usuario
-        if (deliveryAddressId) {
+        // Determinar si es Pick Up en sucursal
+        const isPickup = carrier === 'pickup_hidalgo';
+        const newStatus = isPickup ? 'En Bodega Pick Up' : null; // Si es pickup, cambiar status
+
+        // Verificar que la dirección existe y pertenece al usuario (solo si no es pickup)
+        if (deliveryAddressId && !isPickup) {
             const addressCheck = await pool.query(`
                 SELECT id FROM addresses 
                 WHERE id = $1 AND user_id = $2
@@ -1291,15 +1441,29 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
             case 'usa':
             case 'pobox':
                 // Paquetes USA (tabla packages)
-                result = await pool.query(`
-                    UPDATE packages 
-                    SET assigned_address_id = $1, 
-                        notes = COALESCE($2, notes),
-                        needs_instructions = false,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = $3 AND user_id = $4
-                    RETURNING id, tracking_internal
-                `, [deliveryAddressId, deliveryInstructions, packageId, userId]);
+                if (isPickup) {
+                    // Pick Up en sucursal - cambiar status a "En Bodega Pick Up"
+                    result = await pool.query(`
+                        UPDATE packages 
+                        SET status = 'En Bodega Pick Up',
+                            notes = COALESCE($1, notes),
+                            needs_instructions = false,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = $2 AND user_id = $3
+                        RETURNING id, tracking_internal
+                    `, [deliveryInstructions, packageId, userId]);
+                } else {
+                    // Entrega a domicilio
+                    result = await pool.query(`
+                        UPDATE packages 
+                        SET assigned_address_id = $1, 
+                            notes = COALESCE($2, notes),
+                            needs_instructions = false,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = $3 AND user_id = $4
+                        RETURNING id, tracking_internal
+                    `, [deliveryAddressId, deliveryInstructions, packageId, userId]);
+                }
                 break;
 
             case 'maritime':
@@ -1342,11 +1506,23 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
             });
         }
 
+        // Si es pickup y es un paquete master (tiene hijos), actualizar también los child packages
+        if (isPickup && (packageType === 'usa' || packageType === 'pobox')) {
+            await pool.query(`
+                UPDATE packages 
+                SET status = 'En Bodega Pick Up',
+                    needs_instructions = false,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE master_id = $1
+            `, [packageId]);
+            console.log(`✅ Child packages actualizados a "En Bodega Pick Up"`);
+        }
+
         console.log(`✅ Instrucciones asignadas a ${result.rows[0].tracking_internal}`);
 
         res.json({ 
             success: true, 
-            message: 'Instrucciones de entrega guardadas',
+            message: isPickup ? 'Paquete listo para recoger en sucursal' : 'Instrucciones de entrega guardadas',
             packageId: result.rows[0].id,
             tracking: result.rows[0].tracking_internal
         });
@@ -1396,6 +1572,13 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
                 p.created_at,
                 p.updated_at,
                 p.user_id,
+                p.registered_exchange_rate,
+                p.pobox_tarifa_nivel,
+                p.pobox_venta_usd,
+                p.pobox_service_cost,
+                p.national_shipping_cost,
+                p.is_master,
+                p.total_boxes,
                 u.box_id,
                 u.full_name as client_name
             FROM packages p
@@ -1478,6 +1661,15 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
             service_type: pkg.service_type,
             created_at: pkg.created_at,
             updated_at: pkg.updated_at,
+            // Multi-guía
+            is_master: pkg.is_master || false,
+            total_boxes: pkg.total_boxes || 1,
+            // Nuevos campos PO Box
+            registered_exchange_rate: pkg.registered_exchange_rate ? parseFloat(pkg.registered_exchange_rate) : null,
+            pobox_tarifa_nivel: pkg.pobox_tarifa_nivel || null,
+            pobox_venta_usd: pkg.pobox_venta_usd ? parseFloat(pkg.pobox_venta_usd) : null,
+            pobox_service_cost: pkg.pobox_service_cost ? parseFloat(pkg.pobox_service_cost) : null,
+            national_shipping_cost: pkg.national_shipping_cost ? parseFloat(pkg.national_shipping_cost) : null,
             client: {
                 id: pkg.user_id,
                 box_id: pkg.box_id,
@@ -1506,3 +1698,296 @@ export const createPackage = createShipment;
 export const getPackageByTracking = getShipmentByTracking;
 export const updatePackageStatus = updateShipmentStatus;
 export const getPackageLabels = getShipmentLabels;
+
+// ============================================
+// ENDPOINT: SOLICITAR REEMPAQUE
+// ============================================
+interface RepackRequest {
+    packageIds: number[];
+    repackBox: {
+        length: number;
+        width: number;
+        height: number;
+        volume: number;
+        maxWeight: number;
+        serviceCostUSD: number;
+    };
+    totalWeight: number;
+    totalVolume: number;
+}
+
+export const requestRepack = async (req: Request, res: Response): Promise<void> => {
+    // NOTA: Usar pool directamente en lugar de transacciones que no persisten
+    try {
+        const { packageIds, repackBox, totalWeight, totalVolume } = req.body as RepackRequest;
+        const userId = (req as any).user?.userId || (req as any).userId;
+        
+        console.log(`📦 [REPACK] Solicitud recibida - userId: ${userId}, paquetes: ${packageIds?.join(', ')}`);
+        console.log(`📦 [REPACK] Pool stats: total=${pool.totalCount}, idle=${pool.idleCount}, waiting=${pool.waitingCount}`);
+        
+        // Test de conexión
+        const testConn = await pool.query('SELECT 1 as test');
+        console.log(`📦 [REPACK] Test conexión OK: ${testConn.rows[0]?.test}`);
+        
+        if (!packageIds || packageIds.length < 2) {
+            res.status(400).json({ error: 'Se requieren al menos 2 paquetes para reempacar' });
+            return;
+        }
+        
+        // Validar peso total
+        if (totalWeight > repackBox.maxWeight) {
+            res.status(400).json({ error: `El peso total (${totalWeight.toFixed(1)} kg) excede el límite de ${repackBox.maxWeight} kg` });
+            return;
+        }
+        
+        // Validar volumen total (80% eficiencia)
+        const maxUsableVolume = repackBox.volume * 0.80;
+        if (totalVolume > maxUsableVolume) {
+            res.status(400).json({ error: `El volumen total excede la capacidad útil de la caja de reempaque` });
+            return;
+        }
+        
+        // SIN BEGIN - usar auto-commit
+        
+        // Obtener información de los paquetes a reempacar
+        const packagesResult = await pool.query(`
+            SELECT p.*, u.box_id, u.full_name
+            FROM packages p
+            JOIN users u ON p.user_id = u.id
+            WHERE p.id = ANY($1)
+        `, [packageIds]);
+        
+        if (packagesResult.rows.length !== packageIds.length) {
+            res.status(400).json({ error: 'Uno o más paquetes no existen' });
+            return;
+        }
+        
+        // Verificar que todos los paquetes pertenezcan al mismo usuario
+        const uniqueUsers = new Set(packagesResult.rows.map(p => p.user_id));
+        if (uniqueUsers.size > 1) {
+            res.status(400).json({ error: 'Todos los paquetes deben pertenecer al mismo cliente' });
+            return;
+        }
+        
+        const packages = packagesResult.rows;
+        const firstPkg = packages[0];
+        
+        // Generar tracking para el paquete consolidado
+        const consolidatedTracking = `US-REPACK-${Date.now().toString(36).toUpperCase().slice(-4)}`;
+        
+        // Calcular peso volumétrico de la caja de reempaque
+        const volumetricWeight = repackBox.volume / 5000; // 16 kg para 40x40x50
+        const billedWeight = Math.max(totalWeight, volumetricWeight);
+        
+        // =====================================================
+        // CALCULAR COSTO: Tarifa PO Box (40x40x50) + $10 USD consolidación
+        // =====================================================
+        
+        // 1. Calcular costo del servicio PO Box para la caja de reempaque
+        const repackBoxItem = [{
+            length: repackBox.length,
+            width: repackBox.width,
+            height: repackBox.height,
+            weight: billedWeight
+        }];
+        
+        let poboxCost;
+        try {
+            poboxCost = await calculatePOBoxCost(pool, repackBoxItem as BoxItem[]);
+        } catch (calcError) {
+            console.error('Error calculando costo PO Box:', calcError);
+            poboxCost = { totalMxn: 0, cbm: 0, poboxServiceCost: 0, registeredExchangeRate: 0 };
+        }
+        
+        // 2. Cargo de consolidación ($10 USD)
+        const consolidationCostUsd = repackBox.serviceCostUSD || 10.00;
+        
+        // 3. Obtener tipo de cambio para consolidación
+        let exchangeRate = poboxCost.registeredExchangeRate || 17.50;
+        if (!exchangeRate || exchangeRate === 0) {
+            try {
+                const tcResult = await pool.query(
+                    "SELECT tipo_cambio_final FROM exchange_rate_config WHERE servicio = 'pobox_usa' AND estado = TRUE LIMIT 1"
+                );
+                exchangeRate = parseFloat(tcResult.rows[0]?.tipo_cambio_final) || 17.50;
+            } catch (e) {
+                console.log('Usando TC default para reempaque');
+            }
+        }
+        
+        const consolidationCostMxn = consolidationCostUsd * exchangeRate;
+        
+        // 4. TOTAL = Precio venta PO Box + Consolidación
+        const precioVentaUsd = (poboxCost as any).precioVentaUsd || 0;
+        const precioVentaMxn = (poboxCost as any).precioVentaMxn || (precioVentaUsd * exchangeRate);
+        const totalUsd = precioVentaUsd + consolidationCostUsd;
+        const totalMxn = precioVentaMxn + consolidationCostMxn;
+        
+        console.log(`📦 REEMPAQUE - Cálculo de costos:`);
+        console.log(`   Caja: ${repackBox.length}x${repackBox.width}x${repackBox.height} cm`);
+        console.log(`   Tarifa PO Box: $${precioVentaUsd.toFixed(2)} USD = $${precioVentaMxn.toFixed(2)} MXN`);
+        console.log(`   Consolidación: $${consolidationCostUsd.toFixed(2)} USD = $${consolidationCostMxn.toFixed(2)} MXN`);
+        console.log(`   TOTAL: $${totalUsd.toFixed(2)} USD = $${totalMxn.toFixed(2)} MXN (TC: ${exchangeRate})`);
+        
+        // Crear el paquete padre (caja consolidada) con el costo total
+        console.log('📝 Preparando INSERT para paquete padre...');
+        console.log('   Parámetros:', {
+            tracking: consolidatedTracking,
+            user_id: firstPkg.user_id,
+            weight: billedWeight,
+            dimensions: `${repackBox.length}x${repackBox.width}x${repackBox.height}`,
+            totalMxn: totalMxn.toFixed(2),
+            totalUsd: totalUsd.toFixed(2),
+            exchangeRate: exchangeRate.toFixed(4)
+        });
+        
+        let parentResult;
+        try {
+            // Obtener nivel de tarifa del cálculo de costo PO Box
+            const nivelTarifa = (poboxCost as any).nivelTarifa || 1;
+            
+            parentResult = await pool.query(`
+                INSERT INTO packages (
+                    tracking_internal, tracking_provider, user_id,
+                    description, status, weight, pkg_length, pkg_width, pkg_height,
+                    is_master, total_boxes, service_type, warehouse_location,
+                    assigned_cost_mxn, saldo_pendiente, pobox_venta_usd, pobox_service_cost,
+                    registered_exchange_rate, pobox_tarifa_nivel, notes, created_at
+                ) VALUES (
+                    $1, $2, $3,
+                    $4, 'received', $5, $6, $7, $8,
+                    TRUE, $9, $10, $11,
+                    $12, $12, $13, $14,
+                    $15, $16, $17, CURRENT_TIMESTAMP
+                ) RETURNING id
+            `, [
+                consolidatedTracking,
+                `REPACK-${packages.map(p => p.tracking_internal).join('+')}`,
+                firstPkg.user_id,
+                `Consolidación de ${packages.length} paquetes`,
+                billedWeight,
+                repackBox.length,
+                repackBox.width,
+                repackBox.height,
+                packages.length,
+                'POBOX_USA',
+                'usa_pobox',
+                totalMxn.toFixed(2),  // assigned_cost_mxn = TOTAL
+                totalUsd.toFixed(2),  // pobox_venta_usd
+                (poboxCost.poboxServiceCost || 0).toFixed(2),  // costo interno
+                exchangeRate.toFixed(4),
+                nivelTarifa,  // nivel de tarifa calculado
+                `Consolidación: ${packages.map(p => p.tracking_internal).join(', ')}\nTarifa caja: $${precioVentaUsd.toFixed(2)} USD (Nivel ${nivelTarifa}) + Consolidación: $${consolidationCostUsd.toFixed(2)} USD = $${totalUsd.toFixed(2)} USD`
+            ]);
+            console.log('✅ INSERT ejecutado, resultado:', parentResult.rows);
+        } catch (insertError: any) {
+            console.error('❌ ERROR EN INSERT:', insertError.message);
+            console.error('   Detalle completo:', insertError);
+            throw insertError;
+        }
+        
+        if (!parentResult.rows || parentResult.rows.length === 0) {
+            throw new Error('INSERT no retornó ID del paquete padre');
+        }
+        
+        const parentId = parentResult.rows[0].id;
+        console.log('📦 Paquete padre creado con ID:', parentId);
+        
+        // VERIFICACIÓN INMEDIATA del INSERT
+        const insertCheck = await pool.query('SELECT id, tracking_internal FROM packages WHERE id = $1', [parentId]);
+        console.log('🔍 Verificación INSERT inmediata:', insertCheck.rows);
+        if (insertCheck.rows.length === 0) {
+            console.error('❌❌❌ CRÍTICO: INSERT retornó ID pero el registro NO existe en la DB!');
+        }
+        
+        // Actualizar los paquetes originales: vincular al padre y poner costo en 0
+        console.log('🔄 Actualizando paquetes hijos...');
+        for (let i = 0; i < packages.length; i++) {
+            const pkg = packages[i];
+            
+            try {
+                const updateResult = await pool.query(`
+                    UPDATE packages 
+                    SET 
+                        master_id = $1,
+                        box_number = $2,
+                        assigned_cost_mxn = 0,
+                        saldo_pendiente = 0,
+                        notes = COALESCE(notes, '') || E'\\n' || '📦 Consolidado en ' || $3 || ' (costo transferido al master)'
+                    WHERE id = $4
+                    RETURNING id, master_id, assigned_cost_mxn
+                `, [parentId, i + 1, consolidatedTracking, pkg.id]);
+                console.log(`   ✅ UPDATE paquete ${pkg.id} (${pkg.tracking_internal}):`, updateResult.rows[0]);
+                
+                // Verificación inmediata del UPDATE
+                const updateCheck = await pool.query('SELECT id, master_id FROM packages WHERE id = $1', [pkg.id]);
+                console.log(`   🔍 Verificación UPDATE: master_id=${updateCheck.rows[0]?.master_id}`);
+            } catch (updateError: any) {
+                console.error(`   ❌ ERROR UPDATE paquete ${pkg.id}:`, updateError.message);
+                throw updateError;
+            }
+        }
+        
+        // Registrar en historial de cargos (si existe la tabla)
+        try {
+            await pool.query(`
+                INSERT INTO package_charges (
+                    package_id, user_id, charge_type, description,
+                    amount_usd, exchange_rate, amount_mxn, created_at
+                ) VALUES (
+                    $1, $2, 'consolidation', 'Servicio de Consolidación/Reempaque + Tarifa caja 40x40x50',
+                    $3, $4, $5, CURRENT_TIMESTAMP
+                )
+            `, [parentId, firstPkg.user_id, totalUsd, exchangeRate, totalMxn]);
+        } catch (e) {
+            // Tabla puede no existir, continuar
+            console.log('Tabla package_charges no existe, omitiendo registro');
+        }
+        
+        // SIN COMMIT - auto-commit ya hizo el trabajo
+        console.log(`✅ Operaciones completadas (auto-commit)`);
+        
+        // Verificar que se guardaron los datos
+        const verification = await pool.query('SELECT id, tracking_internal, master_id FROM packages WHERE id = $1 OR master_id = $1', [parentId]);
+        console.log(`📋 Verificación post-operación:`, verification.rows);
+        
+        if (verification.rows.length === 0) {
+            console.error('❌ CRITICAL: Los datos NO se guardaron después del COMMIT!');
+        }
+        
+        console.log(`✅ Reempaque completado: ${consolidatedTracking} - ${packages.length} paquetes -> Cliente: ${firstPkg.box_id}`);
+        console.log(`   Total a pagar: $${totalMxn.toFixed(2)} MXN ($${totalUsd.toFixed(2)} USD)`);
+        
+        res.json({
+            success: true,
+            message: 'Reempaque solicitado exitosamente',
+            repack: {
+                consolidatedTracking,
+                parentId,
+                originalPackages: packages.map(p => p.tracking_internal),
+                totalWeight: billedWeight,
+                dimensions: `${repackBox.length}x${repackBox.width}x${repackBox.height} cm`,
+                costs: {
+                    poboxTarifaUsd: precioVentaUsd,
+                    poboxTarifaMxn: precioVentaMxn,
+                    consolidationUsd: consolidationCostUsd,
+                    consolidationMxn: consolidationCostMxn,
+                    totalUsd,
+                    totalMxn,
+                    exchangeRate
+                }
+            }
+        });
+        
+        // Sin cliente que liberar en auto-commit
+        return;
+        
+    } catch (error: any) {
+        // Sin ROLLBACK necesario en auto-commit
+        console.error('❌ Error en reempaque:', error);
+        res.status(500).json({ 
+            error: 'Error al procesar el reempaque',
+            details: error.message 
+        });
+    }
+};

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, ScrollView, StyleSheet, Alert, TouchableOpacity, LayoutAnimation, Platform, UIManager } from 'react-native';
-import { Text, Button, Card, Divider, Appbar, Checkbox, IconButton } from 'react-native-paper';
+import { Text, Button, Card, Divider, Appbar, Checkbox, IconButton, RadioButton, ActivityIndicator } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { Package, API_URL } from '../services/api';
@@ -8,11 +8,34 @@ import { Package, API_URL } from '../services/api';
 // Colores de marca
 const ORANGE = '#F05A28';
 const BLACK = '#111111';
+const GREEN = '#4CAF50';
+
+// Paqueterías disponibles para envío nacional (hardcodeadas por ahora)
+const CARRIERS_AVAILABLE = [
+  { id: 'entregax_local', name: 'Entregax Local', cost: 0, description: 'Recoger en sucursal (sin costo)', icon: '🚛' },
+  { id: 'paquete_express', name: 'Paquete Express Interno', cost: 350, description: 'Entrega a domicilio en 2-3 días hábiles', icon: '📦' },
+];
+
+interface Address {
+  id: number;
+  alias: string;
+  street: string;
+  exterior_number: string;
+  interior_number?: string;
+  neighborhood: string;
+  city: string;
+  state: string;
+  postal_code: string;
+  is_default: boolean;
+  default_for_service?: string;
+  carrier_config?: { [key: string]: string };
+}
 
 type RootStackParamList = {
   Login: undefined;
   Home: { user: any; token: string };
   ConsolidationSummary: { selectedIds: number[]; packages: Package[]; token: string; user: any };
+  MyAddresses: { user: any; token: string };
 };
 
 type ConsolidationSummaryProps = {
@@ -23,6 +46,7 @@ type ConsolidationSummaryProps = {
 export default function ConsolidationSummary({ route, navigation }: ConsolidationSummaryProps) {
   const { packages, token, user } = route.params;
   const [loading, setLoading] = useState(false);
+  const [loadingAddresses, setLoadingAddresses] = useState(true);
   
   // Estado para manejar la selección de guías
   const [selectedTrackings, setSelectedTrackings] = useState<Set<number>>(new Set(packages.map(p => p.id)));
@@ -30,12 +54,77 @@ export default function ConsolidationSummary({ route, navigation }: Consolidatio
   // Estado para controlar qué paquetes están expandidos (mostrar guías hijas)
   const [expandedPackages, setExpandedPackages] = useState<Set<number>>(new Set());
 
+  // 📦 Estado para paquetería seleccionada
+  const [selectedCarrier, setSelectedCarrier] = useState<string>(CARRIERS_AVAILABLE[0].id);
+  
+  // 📍 Estado para direcciones del usuario
+  const [addresses, setAddresses] = useState<Address[]>([]);
+  const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
+
   // Habilitar LayoutAnimation en Android
   useEffect(() => {
     if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
       UIManager.setLayoutAnimationEnabledExperimental(true);
     }
   }, []);
+
+  // 📍 Cargar direcciones del usuario al montar
+  useEffect(() => {
+    fetchAddresses();
+  }, []);
+
+  const fetchAddresses = async () => {
+    setLoadingAddresses(true);
+    try {
+      const response = await fetch(`${API_URL}/api/addresses?userId=${user.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        const userAddresses = data.addresses || [];
+        setAddresses(userAddresses);
+        
+        // Seleccionar la dirección por defecto si existe
+        const defaultAddress = userAddresses.find((a: Address) => a.is_default);
+        if (defaultAddress) {
+          setSelectedAddressId(defaultAddress.id);
+          // Preseleccionar la paquetería configurada para USA
+          if (defaultAddress.carrier_config?.usa) {
+            const carrierId = defaultAddress.carrier_config.usa;
+            if (CARRIERS_AVAILABLE.some(c => c.id === carrierId)) {
+              setSelectedCarrier(carrierId);
+            }
+          }
+        } else if (userAddresses.length > 0) {
+          setSelectedAddressId(userAddresses[0].id);
+          // Preseleccionar la paquetería configurada para USA
+          if (userAddresses[0].carrier_config?.usa) {
+            const carrierId = userAddresses[0].carrier_config.usa;
+            if (CARRIERS_AVAILABLE.some(c => c.id === carrierId)) {
+              setSelectedCarrier(carrierId);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching addresses:', error);
+    } finally {
+      setLoadingAddresses(false);
+    }
+  };
+
+  // 📦 Función para seleccionar una dirección y precargar su paquetería
+  const selectAddress = (addressId: number) => {
+    setSelectedAddressId(addressId);
+    const address = addresses.find(a => a.id === addressId);
+    if (address?.carrier_config?.usa) {
+      const carrierId = address.carrier_config.usa;
+      if (CARRIERS_AVAILABLE.some(c => c.id === carrierId)) {
+        setSelectedCarrier(carrierId);
+      }
+    }
+  };
 
   // Identificar si hay una guía master (is_master = true o la primera con total_boxes > 1)
   const masterPackage = packages.find(p => p.is_master) || (packages.length > 1 ? packages[0] : null);
@@ -112,6 +201,23 @@ export default function ConsolidationSummary({ route, navigation }: Consolidatio
       return;
     }
     
+    // 📍 Validar que haya una dirección seleccionada
+    if (!selectedAddressId) {
+      Alert.alert(
+        "📍 Dirección Requerida",
+        "Debes seleccionar una dirección de envío para continuar.",
+        [{ text: "Entendido" }]
+      );
+      return;
+    }
+
+    // 📦 Obtener el carrier seleccionado
+    const carrier = CARRIERS_AVAILABLE.find(c => c.id === selectedCarrier);
+    if (!carrier) {
+      Alert.alert("Error", "Selecciona una paquetería");
+      return;
+    }
+    
     setLoading(true);
     
     try {
@@ -128,6 +234,11 @@ export default function ConsolidationSummary({ route, navigation }: Consolidatio
         body: JSON.stringify({
           userId: user.id,
           packageIds: packageIds,
+          // 📦 Incluir paquetería y dirección seleccionada
+          carrierId: selectedCarrier,
+          carrierName: carrier?.name,
+          carrierCost: carrier?.cost,
+          addressId: selectedAddressId,
         }),
       });
 
@@ -279,6 +390,123 @@ export default function ConsolidationSummary({ route, navigation }: Consolidatio
           </Card.Content>
         </Card>
 
+        {/* 📦 SELECCIÓN DE PAQUETERÍA */}
+        <Card style={[styles.card, { marginTop: 16 }]}>
+          <Card.Content>
+            <Text variant="titleMedium" style={styles.sectionTitle}>
+              🚚 Selecciona Paquetería
+            </Text>
+            <Text style={styles.hintText}>
+              Elige cómo quieres recibir tu paquete en México
+            </Text>
+            
+            <RadioButton.Group onValueChange={value => setSelectedCarrier(value)} value={selectedCarrier}>
+              {CARRIERS_AVAILABLE.map((carrier) => (
+                <TouchableOpacity
+                  key={carrier.id}
+                  style={[
+                    styles.carrierOption,
+                    selectedCarrier === carrier.id && styles.carrierOptionSelected
+                  ]}
+                  onPress={() => setSelectedCarrier(carrier.id)}
+                >
+                  <View style={styles.carrierRadio}>
+                    <RadioButton value={carrier.id} color={ORANGE} />
+                  </View>
+                  <View style={styles.carrierInfo}>
+                    <View style={styles.carrierHeader}>
+                      <Text style={styles.carrierIcon}>{carrier.icon}</Text>
+                      <Text style={styles.carrierName}>{carrier.name}</Text>
+                    </View>
+                    <Text style={styles.carrierDescription}>{carrier.description}</Text>
+                  </View>
+                  <View style={styles.carrierCost}>
+                    <Text style={styles.carrierCostValue}>${carrier.cost}</Text>
+                    <Text style={styles.carrierCostLabel}>MXN</Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </RadioButton.Group>
+          </Card.Content>
+        </Card>
+
+        {/* 📍 SELECCIÓN DE DIRECCIÓN */}
+        <Card style={[styles.card, { marginTop: 16 }]}>
+          <Card.Content>
+            <View style={styles.addressHeader}>
+              <Text variant="titleMedium" style={styles.sectionTitle}>
+                📍 Dirección de Entrega
+              </Text>
+              <TouchableOpacity 
+                onPress={() => navigation.navigate('MyAddresses', { user, token })}
+                style={styles.manageAddressButton}
+              >
+                <Text style={styles.manageAddressText}>Gestionar</Text>
+              </TouchableOpacity>
+            </View>
+            
+            {loadingAddresses ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="small" color={ORANGE} />
+                <Text style={styles.loadingText}>Cargando direcciones...</Text>
+              </View>
+            ) : addresses.length === 0 ? (
+              <View style={styles.noAddressContainer}>
+                <Text style={styles.noAddressIcon}>📭</Text>
+                <Text style={styles.noAddressTitle}>Sin direcciones registradas</Text>
+                <Text style={styles.noAddressText}>
+                  Necesitas registrar una dirección para poder recibir tus paquetes
+                </Text>
+                <Button
+                  mode="contained"
+                  onPress={() => navigation.navigate('MyAddresses', { user, token })}
+                  style={styles.addAddressButton}
+                  buttonColor={ORANGE}
+                >
+                  Agregar Dirección
+                </Button>
+              </View>
+            ) : (
+              <RadioButton.Group 
+                onValueChange={value => selectAddress(parseInt(value))} 
+                value={selectedAddressId?.toString() || ''}
+              >
+                {addresses.map((address) => (
+                  <TouchableOpacity
+                    key={address.id}
+                    style={[
+                      styles.addressOption,
+                      selectedAddressId === address.id && styles.addressOptionSelected
+                    ]}
+                    onPress={() => selectAddress(address.id)}
+                  >
+                    <View style={styles.addressRadio}>
+                      <RadioButton value={address.id.toString()} color={ORANGE} />
+                    </View>
+                    <View style={styles.addressInfo}>
+                      <View style={styles.addressAliasRow}>
+                        <Text style={styles.addressAlias}>{address.alias}</Text>
+                        {address.is_default && (
+                          <View style={styles.defaultBadge}>
+                            <Text style={styles.defaultBadgeText}>Predeterminada</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={styles.addressStreet} numberOfLines={2}>
+                        {address.street} #{address.exterior_number}
+                        {address.interior_number ? `, Int. ${address.interior_number}` : ''}
+                      </Text>
+                      <Text style={styles.addressCity}>
+                        {address.neighborhood}, {address.city}, {address.state} CP {address.postal_code}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </RadioButton.Group>
+            )}
+          </Card.Content>
+        </Card>
+
         {/* TARJETA DE TOTALES */}
         <Card style={styles.totalsCard}>
           <Card.Content>
@@ -291,22 +519,25 @@ export default function ConsolidationSummary({ route, navigation }: Consolidatio
               <Text style={styles.rowValue}>{totalWeight} kg</Text>
             </View>
             <Divider style={styles.divider} />
+            
+            {/* Desglose de costos */}
             <View style={styles.row}>
-              <Text style={styles.rowLabelMuted}>Tipo de Servicio:</Text>
+              <Text style={styles.rowLabelMuted}>Envío Nacional:</Text>
               <Text style={styles.rowValueOrange}>
-                {selectedPackages[0]?.carrier
-                  ? selectedPackages[0].carrier.toUpperCase() === 'CEDIS MTY'
-                    ? 'ENTREGAX TERRESTRE'
-                    : `ENVÍO VÍA ${selectedPackages[0].carrier.toUpperCase()}`
-                  : selectedPackages[0]?.service_type === 'POBOX_USA' || selectedPackages[0]?.warehouse_location === 'usa_pobox'
-                    ? 'TRASLADO A MÉXICO' 
-                    : selectedPackages[0]?.service_type === 'SEA_CHN_MX' || selectedPackages[0]?.warehouse_location === 'china_sea'
-                      ? 'MARÍTIMO CHINA → MÉXICO'
-                      : 'AÉREO TODO INCLUIDO'}
+                ${CARRIERS_AVAILABLE.find(c => c.id === selectedCarrier)?.cost || 0} MXN
               </Text>
             </View>
+            
+            <Divider style={styles.divider} />
+            <View style={styles.row}>
+              <Text style={styles.rowLabel}>TOTAL ENVÍO:</Text>
+              <Text style={[styles.rowValue, { fontSize: 18 }]}>
+                ${CARRIERS_AVAILABLE.find(c => c.id === selectedCarrier)?.cost || 0} MXN
+              </Text>
+            </View>
+            
             <Text style={styles.disclaimer}>
-              *El costo final se calculará al procesar el envío.
+              *Este es el costo del envío nacional. El costo del servicio PO Box ya fue calculado al registrar el paquete.
             </Text>
           </Card.Content>
         </Card>
@@ -316,10 +547,10 @@ export default function ConsolidationSummary({ route, navigation }: Consolidatio
           <Card.Content>
             <Text variant="titleSmall" style={{ marginBottom: 8 }}>📋 Información Importante</Text>
             <Text style={styles.infoText}>
-              • Tu envío saldrá en el próximo vuelo disponible
+              • Tu paquete será enviado desde nuestra bodega en USA
             </Text>
             <Text style={styles.infoText}>
-              • Recibirás notificación cuando despegue
+              • Recibirás notificación cuando esté en camino
             </Text>
             <Text style={styles.infoText}>
               • Tiempo estimado de entrega: 3-5 días hábiles
@@ -335,7 +566,7 @@ export default function ConsolidationSummary({ route, navigation }: Consolidatio
           mode="contained" 
           onPress={handleConfirmOrder} 
           loading={loading}
-          disabled={loading}
+          disabled={loading || addresses.length === 0}
           buttonColor={ORANGE}
           contentStyle={styles.buttonContent}
           labelStyle={styles.buttonLabel}
@@ -585,5 +816,158 @@ const styles = StyleSheet.create({
   buttonLabel: {
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  // 📦 Estilos para selección de paquetería
+  carrierOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    marginVertical: 6,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  carrierOptionSelected: {
+    borderColor: ORANGE,
+    backgroundColor: 'rgba(240, 90, 40, 0.05)',
+  },
+  carrierRadio: {
+    marginRight: 4,
+  },
+  carrierInfo: {
+    flex: 1,
+  },
+  carrierHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  carrierIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
+  carrierName: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BLACK,
+  },
+  carrierDescription: {
+    fontSize: 12,
+    color: '#666',
+  },
+  carrierCost: {
+    alignItems: 'flex-end',
+  },
+  carrierCostValue: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: GREEN,
+  },
+  carrierCostLabel: {
+    fontSize: 10,
+    color: '#999',
+  },
+  // 📍 Estilos para selección de dirección
+  addressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 5,
+  },
+  manageAddressButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  manageAddressText: {
+    color: ORANGE,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  loadingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+  },
+  loadingText: {
+    marginLeft: 10,
+    color: '#666',
+  },
+  noAddressContainer: {
+    alignItems: 'center',
+    paddingVertical: 24,
+  },
+  noAddressIcon: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  noAddressTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: BLACK,
+    marginBottom: 8,
+  },
+  noAddressText: {
+    fontSize: 13,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 20,
+  },
+  addAddressButton: {
+    marginTop: 8,
+  },
+  addressOption: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 12,
+    marginVertical: 6,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  addressOptionSelected: {
+    borderColor: ORANGE,
+    backgroundColor: 'rgba(240, 90, 40, 0.05)',
+  },
+  addressRadio: {
+    marginRight: 4,
+    marginTop: -4,
+  },
+  addressInfo: {
+    flex: 1,
+  },
+  addressAliasRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  addressAlias: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: BLACK,
+  },
+  defaultBadge: {
+    backgroundColor: GREEN,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 8,
+  },
+  defaultBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  addressStreet: {
+    fontSize: 13,
+    color: '#444',
+    marginBottom: 2,
+  },
+  addressCity: {
+    fontSize: 12,
+    color: '#666',
   },
 });

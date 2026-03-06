@@ -721,3 +721,119 @@ export const reprintLabel = async (req: Request, res: Response) => {
     res.status(500).json({ error: 'Error al reimprimir etiqueta' });
   }
 };
+
+// =========================================
+// POST /api/shipping/quote
+// Cotizar envío nacional (para app móvil)
+// Integración con Skydropx + opciones locales
+// =========================================
+export const quoteShipping = async (req: Request, res: Response) => {
+  try {
+    const { 
+      zipCode, 
+      city, 
+      state, 
+      weight, 
+      dimensions, // { length, width, height } en CM
+      packageCount = 1
+    } = req.body;
+
+    // Opciones locales siempre disponibles
+    const localOptions = [
+      {
+        id: 'entregax_local',
+        name: 'EntregaX Local',
+        provider: 'entregax',
+        price: 0,
+        currency: 'MXN',
+        estimatedDays: '1-3 días hábiles',
+        isExternal: false,
+        description: 'Entrega con nuestra flotilla propia en tu zona'
+      },
+      {
+        id: 'paquete_express',
+        name: 'Paquete Express Interno',
+        provider: 'entregax',
+        price: 350, // Precio por caja - el frontend calcula el total
+        currency: 'MXN',
+        estimatedDays: '2-4 días hábiles',
+        isExternal: false,
+        description: 'Envío express por paquetería interna'
+      }
+    ];
+
+    // Si hay API de Skydropx configurada, obtener tarifas externas
+    // Se habilita automáticamente si hay API_KEY configurada (sandbox o producción)
+    let externalOptions: any[] = [];
+    const hasSkydropxKey = !!process.env.SKYDROPX_API_KEY;
+    const skydropxEnabled = hasSkydropxKey && (process.env.SKYDROPX_ENABLED === 'true' || process.env.SKYDROPX_SANDBOX === 'true');
+
+    if (skydropxEnabled && zipCode && state) {
+      try {
+        console.log('[SHIPPING-QUOTE] Consultando Skydropx...');
+        
+        const destinationAddress = {
+          name: 'Cliente',
+          address1: city || 'N/A',
+          city: city || 'N/A',
+          province: state,
+          zip: zipCode,
+          country: 'MX',
+          phone: '5500000000',
+          email: 'cliente@entregax.com'
+        };
+
+        const parcelDimensions = {
+          weight: weight || 1,
+          length: dimensions?.length || 30,
+          width: dimensions?.width || 30,
+          height: dimensions?.height || 30
+        };
+
+        const result = await skydropx.createShipment(
+          destinationAddress,
+          parcelDimensions
+        );
+
+        if (result.success && result.rates) {
+          externalOptions = result.rates.map(rate => ({
+            id: `skydropx_${rate.id}`,
+            name: rate.serviceName,
+            provider: rate.provider,
+            price: rate.totalPrice * packageCount,
+            currency: rate.currency,
+            estimatedDays: `${rate.deliveryDays} días hábiles`,
+            isExternal: true,
+            skydropxRateId: rate.id,
+            description: `Envío por ${rate.provider}`
+          }));
+        }
+      } catch (skydropxError: any) {
+        console.error('[SHIPPING-QUOTE] Error Skydropx:', skydropxError.message);
+        // Continuar con opciones locales si falla Skydropx
+      }
+    }
+
+    // Combinar opciones y ordenar por precio
+    const allOptions = [...localOptions, ...externalOptions].sort((a, b) => a.price - b.price);
+
+    res.json({
+      success: true,
+      options: allOptions,
+      meta: {
+        totalOptions: allOptions.length,
+        localOptions: localOptions.length,
+        externalOptions: externalOptions.length,
+        skydropxEnabled,
+        packageCount
+      }
+    });
+
+  } catch (error: any) {
+    console.error('[SHIPPING-QUOTE] Error:', error);
+    res.status(500).json({ 
+      error: 'Error al cotizar envío',
+      details: error.message 
+    });
+  }
+};

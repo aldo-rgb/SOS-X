@@ -1,6 +1,7 @@
 // ============================================
 // DASHBOARD DE COBRANZA Y FLUJO DE EFECTIVO
 // Unifica ingresos de Caja Chica + SPEI (Openpay)
+// SOPORTE MULTI-EMPRESA
 // ============================================
 
 import { useState, useEffect, useCallback } from 'react';
@@ -30,6 +31,8 @@ import {
   FormControl,
   InputLabel,
   Alert,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import {
   TrendingUp,
@@ -40,6 +43,8 @@ import {
   Refresh,
   Receipt,
   ArrowBack,
+  Business,
+  AttachMoney,
 } from '@mui/icons-material';
 import {
   PieChart,
@@ -62,15 +67,23 @@ const BLACK = '#111';
 const GREEN = '#27ae60';
 const YELLOW = '#f39c12';
 const RED = '#e74c3c';
+const INDIGO = '#303F9F';
 
 const SERVICE_LABELS: Record<string, { label: string; color: string }> = {
   china_air: { label: 'Aéreo China', color: '#e74c3c' },
   china_sea: { label: 'Marítimo China', color: '#3498db' },
   usa_pobox: { label: 'PO Box USA', color: '#9b59b6' },
+  POBOX_USA: { label: 'PO Box USA', color: '#9b59b6' },
+  AIR_CHN_MX: { label: 'Aéreo China', color: '#e74c3c' },
+  SEA_CHN_MX: { label: 'Marítimo China', color: '#3498db' },
+  AA_DHL: { label: 'Nacional DHL', color: '#f39c12' },
   mx_cedis: { label: 'DHL CEDIS', color: '#f39c12' },
   mx_national: { label: 'Nacional', color: '#27ae60' },
   otros: { label: 'Otros', color: '#95a5a6' },
 };
+
+// Colores para empresas
+const EMPRESA_COLORS = ['#303F9F', '#9b59b6', '#e74c3c', '#27ae60', '#f39c12', '#3498db'];
 
 interface KPIs {
   ingresos_hoy: number;
@@ -99,7 +112,7 @@ interface Transaccion {
   metodo: string;
   concepto: string;
   origen: string;
-  guias_pagadas: string;
+  guias_pagadas?: string;
   estatus: string;
 }
 
@@ -109,8 +122,30 @@ interface IngresoPorServicio {
   monto: number;
 }
 
+interface IngresoPorEmpresa {
+  empresa_id: number;
+  empresa_nombre: string;
+  rfc: string;
+  spei_bruto: number;
+  spei_neto: number;
+  comisiones: number;
+  transacciones: number;
+}
+
+interface Empresa {
+  id: number;
+  alias: string;
+  rfc: string;
+  openpay_merchant_id: string;
+  openpay_production_mode: boolean;
+  servicio_asignado: string;
+  service_name: string;
+}
+
 interface DashboardData {
   kpis: KPIs;
+  empresas: Empresa[];
+  ingresos_por_empresa: IngresoPorEmpresa[];
   distribucion_metodos: { efectivo: number; spei: number };
   porcentajes: { efectivo: string; spei: string };
   ingresos_por_servicio: IngresoPorServicio[];
@@ -122,6 +157,7 @@ export default function FinanceDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [data, setData] = useState<DashboardData | null>(null);
+  const [tabValue, setTabValue] = useState(0);
   const [dateFrom, setDateFrom] = useState(() => {
     const d = new Date();
     d.setDate(1);
@@ -452,10 +488,198 @@ export default function FinanceDashboardPage() {
       {/* Información de Comisiones */}
       <Alert severity="info" sx={{ mb: 3, borderRadius: 2 }}>
         <strong>💡 Comisiones Openpay del mes:</strong> {formatCurrency(data?.kpis.comisiones_mes || 0)} 
-        &nbsp;• El monto neto es el ingreso real después de descontar comisiones bancarias (${10} fijos por transacción SPEI).
+        &nbsp;• El monto neto es el ingreso real después de descontar comisiones bancarias.
       </Alert>
 
-      {/* Tabla de Conciliación */}
+      {/* TABS: Consolidado / Por Empresa / Transacciones */}
+      <Paper sx={{ borderRadius: 3, mb: 3 }}>
+        <Tabs 
+          value={tabValue} 
+          onChange={(_, v) => setTabValue(v)}
+          sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
+        >
+          <Tab icon={<TrendingUp />} label="Consolidado" />
+          <Tab icon={<Business />} label="Por Empresa" />
+          <Tab icon={<Receipt />} label="Transacciones" />
+        </Tabs>
+      </Paper>
+
+      {/* TAB 0: Vista Consolidada (Transacciones) */}
+      {tabValue === 0 && (
+        <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
+          <Box sx={{ bgcolor: BLACK, px: 3, py: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
+              📋 Resumen Consolidado - Todas las Empresas
+            </Typography>
+          </Box>
+          <Box sx={{ p: 3 }}>
+            {/* Resumen rápido por empresa */}
+            <Grid container spacing={2} sx={{ mb: 3 }}>
+              {(data?.ingresos_por_empresa || []).map((emp, idx) => (
+                <Grid size={{ xs: 12, sm: 6, md: 4 }} key={emp.empresa_id}>
+                  <Card sx={{ 
+                    background: `linear-gradient(135deg, ${EMPRESA_COLORS[idx % EMPRESA_COLORS.length]} 0%, ${EMPRESA_COLORS[(idx + 1) % EMPRESA_COLORS.length]}aa 100%)`,
+                    color: 'white'
+                  }}>
+                    <CardContent>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <Box>
+                          <Typography variant="body2" sx={{ opacity: 0.9 }}>{emp.empresa_nombre}</Typography>
+                          <Typography variant="h5" fontWeight="bold">
+                            {formatCurrency(emp.spei_neto)}
+                          </Typography>
+                          <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                            {emp.transacciones} transacciones • RFC: {emp.rfc}
+                          </Typography>
+                        </Box>
+                        <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
+                          <Business />
+                        </Avatar>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              ))}
+              {(!data?.ingresos_por_empresa || data.ingresos_por_empresa.length === 0) && (
+                <Grid size={{ xs: 12 }}>
+                  <Alert severity="info">No hay ingresos SPEI registrados en este período</Alert>
+                </Grid>
+              )}
+            </Grid>
+          </Box>
+        </Paper>
+      )}
+
+      {/* TAB 1: Detalle por Empresa */}
+      {tabValue === 1 && (
+        <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
+          <Box sx={{ bgcolor: INDIGO, px: 3, py: 2 }}>
+            <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
+              🏢 Ingresos por Empresa (Multi-RFC)
+            </Typography>
+            <Typography variant="body2" sx={{ color: 'white', opacity: 0.8 }}>
+              Desglose de ingresos SPEI por cada empresa con OpenPay configurado
+            </Typography>
+          </Box>
+          
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'grey.100' }}>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Empresa</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>RFC</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 'bold' }}>Ingresos Bruto</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 'bold' }}>Comisiones</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 'bold' }}>Ingresos Neto</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>Transacciones</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {(data?.ingresos_por_empresa || []).map((emp, idx) => (
+                  <TableRow key={emp.empresa_id} hover>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                        <Avatar sx={{ bgcolor: EMPRESA_COLORS[idx % EMPRESA_COLORS.length], width: 40, height: 40 }}>
+                          <Business />
+                        </Avatar>
+                        <Box>
+                          <Typography fontWeight="bold">{emp.empresa_nombre}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {data?.empresas?.find(e => e.id === emp.empresa_id)?.servicio_asignado || 'General'}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Chip label={emp.rfc} size="small" sx={{ fontFamily: 'monospace' }} />
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography fontWeight="bold">{formatCurrency(emp.spei_bruto)}</Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography color="error">{formatCurrency(emp.comisiones)}</Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography fontWeight="bold" color="success.main">
+                        {formatCurrency(emp.spei_neto)}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Chip label={emp.transacciones} color="primary" size="small" />
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {/* Totales */}
+                {(data?.ingresos_por_empresa || []).length > 0 && (
+                  <TableRow sx={{ bgcolor: 'grey.100' }}>
+                    <TableCell colSpan={2}>
+                      <Typography fontWeight="bold">TOTAL</Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography fontWeight="bold">
+                        {formatCurrency((data?.ingresos_por_empresa || []).reduce((s, e) => s + e.spei_bruto, 0))}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography fontWeight="bold" color="error">
+                        {formatCurrency((data?.ingresos_por_empresa || []).reduce((s, e) => s + e.comisiones, 0))}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography fontWeight="bold" color="success.main">
+                        {formatCurrency((data?.ingresos_por_empresa || []).reduce((s, e) => s + e.spei_neto, 0))}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Chip 
+                        label={(data?.ingresos_por_empresa || []).reduce((s, e) => s + e.transacciones, 0)} 
+                        color="primary" 
+                      />
+                    </TableCell>
+                  </TableRow>
+                )}
+                {(!data?.ingresos_por_empresa || data.ingresos_por_empresa.length === 0) && (
+                  <TableRow>
+                    <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                      <Business sx={{ fontSize: 48, color: 'grey.300', mb: 1 }} />
+                      <Typography color="text.secondary">
+                        No hay transacciones SPEI en el período seleccionado
+                      </Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          {/* Empresas Configuradas */}
+          <Box sx={{ p: 3, bgcolor: 'grey.50' }}>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
+              🔧 Empresas con OpenPay Configurado:
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {(data?.empresas || []).map((emp) => (
+                <Chip
+                  key={emp.id}
+                  icon={<Business />}
+                  label={`${emp.alias} (${emp.rfc})`}
+                  variant="outlined"
+                  color={emp.openpay_production_mode ? 'success' : 'warning'}
+                  size="small"
+                />
+              ))}
+              {(!data?.empresas || data.empresas.length === 0) && (
+                <Typography variant="body2" color="text.secondary">
+                  No hay empresas con OpenPay configurado
+                </Typography>
+              )}
+            </Box>
+          </Box>
+        </Paper>
+      )}
+
+      {/* TAB 2: Tabla de Conciliación */}
+      {tabValue === 2 && (
       <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
         <Box sx={{ bgcolor: BLACK, px: 3, py: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
@@ -582,6 +806,7 @@ export default function FinanceDashboardPage() {
           </Table>
         </TableContainer>
       </Paper>
+      )}
     </Box>
   );
 }

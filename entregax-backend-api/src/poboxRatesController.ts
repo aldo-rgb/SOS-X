@@ -383,6 +383,9 @@ export const getCostingPackages = async (req: Request, res: Response): Promise<v
                 p.costing_paid,
                 p.costing_paid_at,
                 p.assigned_cost_mxn,
+                COALESCE(p.pobox_service_cost, 0) as pobox_service_cost,
+                COALESCE(p.pobox_cost_usd, 0) as pobox_cost_usd,
+                COALESCE(p.registered_exchange_rate, 0) as registered_exchange_rate,
                 u.full_name as user_name,
                 u.box_id as client_box_id
             FROM packages p
@@ -552,9 +555,12 @@ export const getUtilidadesData = async (req: Request, res: Response): Promise<vo
                 p.tracking_provider as tracking_origin,
                 COALESCE(p.assigned_cost_mxn, 0) as assigned_cost,
                 COALESCE(p.pobox_service_cost, 0) as pobox_cost_saved,
+                COALESCE(p.pobox_cost_usd, 0) as pobox_cost_usd,
+                COALESCE(p.registered_exchange_rate, 0) as registered_exchange_rate,
                 COALESCE(p.gex_insurance_cost, 0) as gex_insurance,
                 COALESCE(p.gex_fixed_cost, 0) as gex_fixed,
                 COALESCE(p.gex_total_cost, 0) as gex_total,
+                COALESCE(p.national_shipping_cost, 0) as national_shipping,
                 COALESCE(p.declared_value_mxn, 0) as declared_value_mxn,
                 COALESCE(p.declared_value, 0) as declared_value,
                 COALESCE(p.pkg_length, 0) as pkg_length,
@@ -562,6 +568,7 @@ export const getUtilidadesData = async (req: Request, res: Response): Promise<vo
                 COALESCE(p.pkg_height, 0) as pkg_height,
                 p.has_gex,
                 p.costing_paid,
+                p.client_paid,
                 p.received_at,
                 p.created_at,
                 u.full_name as user_name,
@@ -575,51 +582,79 @@ export const getUtilidadesData = async (req: Request, res: Response): Promise<vo
             LIMIT 1000
         `, params);
 
-        // Obtener configuración de costeo para calcular el costo con la fórmula
+        // Obtener configuración de costeo para calcular el costo de paquetes antiguos (sin TC guardado)
         const configResult = await pool.query(`
             SELECT * FROM pobox_costing_config WHERE is_active = TRUE LIMIT 1
         `);
         
+        // Obtener TC actual de la API (para paquetes sin TC guardado)
+        const tcResult = await pool.query(`
+            SELECT ultimo_tc_api FROM exchange_rate_config WHERE servicio = 'pobox_usa' AND estado = TRUE LIMIT 1
+        `);
+        const tcApiActual = parseFloat(tcResult.rows[0]?.ultimo_tc_api) || 17.65;
+        
         const config = configResult.rows[0] || {
-            conversion_factor: 2.45,
+            conversion_factor: 2.54,
             dimensional_divisor: 10780,
             base_rate: 75,
             min_cost: 50
         };
 
-        // Mapear resultados - calcular costo con la fórmula de la calculadora
+        // Mapear resultados - usar costo guardado si existe, sino calcular
         const packagesWithPrices = result.rows.map((pkg: any) => {
-            const length = parseFloat(pkg.pkg_length) || 0;
-            const width = parseFloat(pkg.pkg_width) || 0;
-            const height = parseFloat(pkg.pkg_height) || 0;
+            const length_cm = parseFloat(pkg.pkg_length) || 0;
+            const width_cm = parseFloat(pkg.pkg_width) || 0;
+            const height_cm = parseFloat(pkg.pkg_height) || 0;
             
-            // Calcular costo con la fórmula: (L × A × H × factor / divisor) × tarifa
-            const volumeRaw = length * width * height;
-            const volumeAdjusted = volumeRaw * parseFloat(config.conversion_factor);
-            let calculatedCost = (volumeAdjusted / parseFloat(config.dimensional_divisor)) * parseFloat(config.base_rate);
-            calculatedCost = Math.max(calculatedCost, parseFloat(config.min_cost));
+            // TC guardado o actual
+            const tcUsado = parseFloat(pkg.registered_exchange_rate) || tcApiActual;
+            const poboxCostUsd = parseFloat(pkg.pobox_cost_usd) || 0;
+            let poboxCostMxn = parseFloat(pkg.pobox_cost_saved) || 0;
+            
+            // Si no tiene costo guardado, calcularlo (paquetes antiguos)
+            if (poboxCostMxn === 0 && length_cm > 0 && width_cm > 0 && height_cm > 0) {
+                // Convertir cm a pulgadas (÷ 2.54)
+                const length_pulg = length_cm / 2.54;
+                const width_pulg = width_cm / 2.54;
+                const height_pulg = height_cm / 2.54;
+                
+                // Volumen en pulgadas³
+                const volumeAdjusted = length_pulg * width_pulg * height_pulg;
+                
+                // Pie³ = Volumen pulgadas / Divisor
+                const pie3 = volumeAdjusted / parseFloat(config.dimensional_divisor);
+                
+                // Costo USD = Pie³ × Tarifa Base
+                const costUSD = pie3 * parseFloat(config.base_rate);
+                
+                // Costo MXN = USD × TC actual
+                poboxCostMxn = Math.max(costUSD * tcApiActual, parseFloat(config.min_cost));
+            }
             
             // Valores guardados
-            const poboxCostSaved = parseFloat(pkg.pobox_cost_saved) || 0;
             const gexTotal = parseFloat(pkg.gex_total) || 0;
-            const assignedCost = parseFloat(pkg.assigned_cost) || 0;  // Costo de venta
+            const assignedCost = parseFloat(pkg.assigned_cost) || 0;
             
             return {
                 ...pkg,
-                // Costo calculado (lo que nos cuesta, usando la fórmula de la calculadora)
-                calculated_cost: calculatedCost.toFixed(2),
+                // Costo guardado o calculado
+                calculated_cost: poboxCostMxn.toFixed(2),
+                pobox_cost_usd: poboxCostUsd.toFixed(2),
+                tc_registro: tcUsado.toFixed(4),
                 // Desglose guardado
-                pobox_cost: poboxCostSaved.toFixed(2),
+                pobox_cost: poboxCostMxn.toFixed(2),
                 gex_insurance: parseFloat(pkg.gex_insurance || 0).toFixed(2),
                 gex_fixed: parseFloat(pkg.gex_fixed || 0).toFixed(2),
                 gex_total: gexTotal.toFixed(2),
+                // Envío nacional (paquetería)
+                national_shipping: parseFloat(pkg.national_shipping || 0).toFixed(2),
                 // Costo de venta (assigned_cost_mxn)
                 sale_price: assignedCost.toFixed(2)
             };
         });
 
         console.log(`💵 Utilidades: ${packagesWithPrices.length} paquetes encontrados`);
-        res.json({ packages: packagesWithPrices });
+        res.json({ packages: packagesWithPrices, tcActual: tcApiActual });
     } catch (error) {
         console.error('Error obteniendo datos de utilidades:', error);
         res.status(500).json({ error: 'Error al obtener datos de utilidades' });

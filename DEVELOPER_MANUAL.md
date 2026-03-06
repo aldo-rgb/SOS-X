@@ -1,7 +1,7 @@
 # 📚 EntregaX - Manual del Programador
 
 > **Última actualización:** 4 de marzo de 2026  
-> **Versión:** 2.8.0
+> **Versión:** 2.9.0
 
 ---
 
@@ -20,21 +20,22 @@
 11. [Sistema de Permisos Granulares](#sistema-de-permisos-granulares)
 12. [Sistema de Bodegas Multi-Ubicación](#sistema-de-bodegas-multi-ubicación)
 13. [Motor de Precios](#motor-de-precios)
-14. [Sistema de Facturación Fiscal](#sistema-de-facturación-fiscal)
-15. [Sistema de Verificación KYC](#sistema-de-verificación-kyc)
-16. [Sistema de Pagos](#sistema-de-pagos)
-17. [Sistema de Pagos a Proveedores](#sistema-de-pagos-a-proveedores)
-18. [Openpay Multi-Empresa - Cobranza SPEI](#openpay-multi-empresa---cobranza-spei) ⭐ NUEVO
-19. [Sistema de Direcciones](#sistema-de-direcciones)
-20. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo)
-21. [Panel Marítimo China](#panel-marítimo-china)
-22. [Integración con OpenAI](#integración-con-openai)
-23. [DHL Monterrey - Costeo](#dhl-monterrey---costeo)
-24. [Tradlinx Ocean Visibility](#tradlinx-ocean-visibility---tracking-de-contenedores)
-25. [Módulos Implementados](#módulos-implementados)
-26. [Guía de Desarrollo](#guía-de-desarrollo)
-27. [Credenciales de Prueba](#credenciales-de-prueba)
-28. [Changelog](#changelog)
+14. [Costeo PO Box USA](#costeo-po-box-usa) ⭐ NUEVO
+15. [Sistema de Facturación Fiscal](#sistema-de-facturación-fiscal)
+16. [Sistema de Verificación KYC](#sistema-de-verificación-kyc)
+17. [Sistema de Pagos](#sistema-de-pagos)
+18. [Sistema de Pagos a Proveedores](#sistema-de-pagos-a-proveedores)
+19. [Openpay Multi-Empresa - Cobranza SPEI](#openpay-multi-empresa---cobranza-spei)
+20. [Sistema de Direcciones](#sistema-de-direcciones)
+21. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo)
+22. [Panel Marítimo China](#panel-marítimo-china)
+23. [Integración con OpenAI](#integración-con-openai)
+24. [DHL Monterrey - Costeo](#dhl-monterrey---costeo)
+25. [Tradlinx Ocean Visibility](#tradlinx-ocean-visibility---tracking-de-contenedores)
+26. [Módulos Implementados](#módulos-implementados)
+27. [Guía de Desarrollo](#guía-de-desarrollo)
+28. [Credenciales de Prueba](#credenciales-de-prueba)
+29. [Changelog](#changelog)
 
 ---
 
@@ -1766,6 +1767,157 @@ Response:
 
 ---
 
+## 📦 Costeo PO Box USA
+
+### Fórmula de Costeo
+
+El costeo de paquetes PO Box USA utiliza una fórmula basada en volumen dimensional:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                  FÓRMULA DE COSTEO PO BOX USA                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  PASO 1: Convertir dimensiones de cm a pulgadas                 │
+│  ─────────────────────────────────────────────────              │
+│  L (pulg) = L (cm) ÷ 2.54                                       │
+│  A (pulg) = A (cm) ÷ 2.54                                       │
+│  H (pulg) = H (cm) ÷ 2.54                                       │
+│                                                                  │
+│  PASO 2: Calcular volumen en pulgadas cúbicas                   │
+│  ─────────────────────────────────────────────────              │
+│  Volumen (pulg³) = L × A × H                                    │
+│                                                                  │
+│  PASO 3: Convertir a pies cúbicos                               │
+│  ─────────────────────────────────────────────────              │
+│  Pie³ = Volumen (pulg³) ÷ 10780                                 │
+│                                                                  │
+│  PASO 4: Calcular costo en USD                                  │
+│  ─────────────────────────────────────────────────              │
+│  Costo USD = Pie³ × $75.00                                      │
+│                                                                  │
+│  PASO 5: Convertir a MXN con TC de la API                       │
+│  ─────────────────────────────────────────────────              │
+│  Costo MXN = Costo USD × TC API                                 │
+│                                                                  │
+│  MÍNIMO: $50.00 MXN                                             │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Parámetros de Configuración
+
+| Parámetro | Valor | Descripción |
+|-----------|-------|-------------|
+| `dimensional_divisor` | 10780 | Divisor para convertir pulg³ a pie³ |
+| `base_rate` | $75.00 USD | Tarifa por pie cúbico |
+| `min_cost` | $50.00 MXN | Costo mínimo cobrable |
+
+### Ejemplo de Cálculo
+
+Para un paquete de **40 × 40 × 50 cm** con TC API de **$17.65**:
+
+```
+L = 40 ÷ 2.54 = 15.75 pulg
+A = 40 ÷ 2.54 = 15.75 pulg
+H = 50 ÷ 2.54 = 19.69 pulg
+
+Volumen = 15.75 × 15.75 × 19.69 = 4,884.77 pulg³
+Pie³ = 4,884.77 ÷ 10780 = 0.4531
+
+Costo USD = 0.4531 × $75.00 = $33.98
+Costo MXN = $33.98 × 17.65 = $599.75
+```
+
+### Campos Guardados en Base de Datos
+
+Al registrar una guía PO Box USA, se guardan los siguientes campos:
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `pobox_service_cost` | NUMERIC(10,2) | Costo del servicio en MXN |
+| `pobox_cost_usd` | NUMERIC(10,2) | Costo del servicio en USD |
+| `registered_exchange_rate` | NUMERIC(10,4) | TC usado al momento del registro |
+| `assigned_cost_mxn` | NUMERIC(10,2) | Costo total asignado (PO Box + GEX) |
+
+### Tabla: `pobox_costing_config`
+
+```sql
+CREATE TABLE pobox_costing_config (
+    id SERIAL PRIMARY KEY,
+    conversion_factor NUMERIC(10,4) DEFAULT 2.54,   -- cm a pulgadas
+    dimensional_divisor NUMERIC(10,2) DEFAULT 10780,
+    base_rate NUMERIC(10,2) DEFAULT 75,             -- USD por pie³
+    min_cost NUMERIC(10,2) DEFAULT 50,              -- Mínimo MXN
+    currency VARCHAR(10) DEFAULT 'MXN',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+### Endpoint de Costeo
+
+```http
+GET /api/pobox/costing/packages
+Authorization: Bearer <token>
+
+Response:
+{
+  "packages": [
+    {
+      "id": 123,
+      "tracking": "US-47US7747",
+      "pkg_length": 36.3,
+      "pkg_width": 19.7,
+      "pkg_height": 9.3,
+      "pobox_service_cost": "50.00",
+      "pobox_cost_usd": "2.83",
+      "registered_exchange_rate": "17.6500",
+      "costing_paid": false,
+      "user_name": "ALDO JOSE CAMPOS LOMAS"
+    }
+  ]
+}
+```
+
+### Panel de Administración
+
+El panel de costeo PO Box (`POBoxCostingPage.tsx`) incluye:
+
+1. **Calculadora**: Calcular costo manual ingresando dimensiones
+2. **Paquetes**: Lista de guías pendientes/pagadas con filtros
+3. **Historial**: Registro de pagos realizados
+4. **Utilidades**: Análisis de márgenes (solo admin/super_admin)
+
+### Flujo de Registro
+
+```
+┌─────────────────┐
+│  ShipmentsPage  │  (Bodega USA)
+│  Escanea guía   │
+│  + dimensiones  │
+└────────┬────────┘
+         ▼
+┌─────────────────┐
+│ packageController│
+│ calculatePOBoxCost()
+│  1. Obtener TC API
+│  2. Calcular Pie³
+│  3. USD × TC = MXN
+└────────┬────────┘
+         ▼
+┌─────────────────┐
+│   Base de Datos │
+│  packages:      │
+│  - pobox_service_cost
+│  - pobox_cost_usd
+│  - registered_exchange_rate
+└─────────────────┘
+```
+
+---
+
 ## 🧾 Sistema de Facturación Fiscal
 
 ### Tablas Relacionadas
@@ -2513,6 +2665,257 @@ DELETE /api/addresses/:id
 
 # Establecer como default
 PUT /api/addresses/:id/default
+```
+
+### 🔗 Asignación de Direcciones a Servicios
+
+El sistema permite asignar direcciones específicas para cada tipo de servicio. Esto permite que el cliente tenga diferentes direcciones de entrega según el origen del envío.
+
+#### Tabla `addresses` - Campo `default_for_service`
+
+```sql
+-- El campo default_for_service almacena los servicios asignados separados por coma
+-- Valores posibles: 'usa', 'maritime', 'air', 'all'
+
+ALTER TABLE addresses 
+ADD COLUMN IF NOT EXISTS default_for_service VARCHAR(100);
+
+-- Ejemplos:
+-- 'usa'           → Solo para PO Box USA
+-- 'maritime'      → Solo para envíos marítimos desde China
+-- 'air'           → Solo para envíos aéreos desde China
+-- 'usa,maritime'  → Para USA y Marítimo
+-- 'all'           → Para todos los servicios
+```
+
+#### Flujo de Selección de Dirección
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    FLUJO DE SELECCIÓN DE DIRECCIÓN                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  1. Frontend solicita instrucciones del cliente                              │
+│     GET /api/client/instructions/{boxId}?serviceType=usa                     │
+│                                                                              │
+│  2. Backend busca dirección para el servicio solicitado                      │
+│     ┌────────────────────────────────────────────────────────────────────┐   │
+│     │  SELECT * FROM addresses WHERE user_id = $1                        │   │
+│     │  AND default_for_service ILIKE '%usa%'                             │   │
+│     │  OR default_for_service ILIKE '%all%'                              │   │
+│     └────────────────────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  3. Resultado según servicio:                                                │
+│     ┌──────────────┬────────────────────────────────────────────────────┐   │
+│     │ Servicio     │ Comportamiento                                      │   │
+│     ├──────────────┼────────────────────────────────────────────────────┤   │
+│     │ USA (PO Box) │ SOLO usa direcciones con 'usa' o 'all' asignado.   │   │
+│     │              │ NO hace fallback a is_default general.             │   │
+│     ├──────────────┼────────────────────────────────────────────────────┤   │
+│     │ Marítimo     │ Busca 'maritime' o 'all', si no encuentra          │   │
+│     │              │ usa is_default = true como fallback.               │   │
+│     ├──────────────┼────────────────────────────────────────────────────┤   │
+│     │ Aéreo        │ Busca 'air' o 'all', si no encuentra               │   │
+│     │              │ usa is_default = true como fallback.               │   │
+│     └──────────────┴────────────────────────────────────────────────────┘   │
+│                                                                              │
+│  4. Respuesta incluye:                                                       │
+│     - hasInstructions: true/false (si tiene dirección válida para servicio)  │
+│     - defaultAddress: la dirección encontrada o null                         │
+│     - usaAssignedAddressCount: cantidad de direcciones con 'usa' asignado    │
+│     - totalAddressCount: total de direcciones del cliente                    │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Código Backend - addressController.ts
+
+```typescript
+// getClientInstructions - Lógica de selección de dirección por servicio
+
+const serviceTypeLower = (serviceType?.toString().toLowerCase()) || '';
+const isUSAService = serviceTypeLower === 'usa' || serviceTypeLower === 'pobox_usa';
+
+// Filtrar direcciones que tienen el servicio USA asignado
+const usaAssignedAddresses = addresses.filter((addr: any) => {
+    if (!addr.default_for_service) return false;
+    const services = addr.default_for_service.split(',').map((s: string) => s.trim().toLowerCase());
+    return services.includes('usa') || services.includes('all');
+});
+
+// Buscar dirección predeterminada para el tipo de servicio
+if (serviceType) {
+    defaultAddress = addresses.find((addr: any) => {
+        if (!addr.default_for_service) return false;
+        const services = addr.default_for_service.split(',').map((s: string) => s.trim().toLowerCase());
+        return services.includes(serviceTypeLower) || services.includes('all');
+    });
+}
+
+// Para servicio USA, NO hacer fallback a la default general
+// Para otros servicios, sí hacer fallback
+if (!defaultAddress && !isUSAService) {
+    defaultAddress = addresses.find((addr: any) => addr.is_default);
+}
+
+// hasInstructions = true solo si tiene dirección válida para el servicio
+const hasInstructions = !!defaultAddress;
+```
+
+#### Endpoint de Instrucciones del Cliente
+
+```http
+# Obtener instrucciones del cliente con filtro por servicio
+GET /api/client/instructions/{boxId}?serviceType={service}
+Authorization: Bearer {token}
+
+# Valores de serviceType:
+# - usa / pobox_usa  → PO Box USA
+# - maritime         → Marítimo China
+# - air              → Aéreo China
+# - national         → Envío Nacional
+
+# Respuesta:
+{
+  "found": true,
+  "hasInstructions": true,  // true si tiene dirección asignada al servicio
+  "client": {
+    "id": 123,
+    "name": "Juan Pérez",
+    "email": "juan@ejemplo.com",
+    "boxId": "S1"
+  },
+  "addresses": [
+    {
+      "id": 1,
+      "alias": "Casa",
+      "city": "Monterrey",
+      "isDefault": true,
+      "defaultForService": "maritime,air"  // Servicios asignados
+    },
+    {
+      "id": 2,
+      "alias": "Oficina",
+      "city": "CDMX",
+      "isDefault": false,
+      "defaultForService": "usa"  // Solo para PO Box USA
+    }
+  ],
+  "usaAssignedAddressCount": 1,   // Cantidad con 'usa' asignado
+  "totalAddressCount": 2,          // Total de direcciones
+  "defaultAddress": {              // Dirección para el servicio solicitado
+    "id": 2,
+    "alias": "Oficina",
+    "recipientName": "Juan Pérez",
+    "street": "Av. Insurgentes",
+    ...
+    "defaultForService": "usa"
+  },
+  "poboxRatesInfo": { ... }  // Solo cuando serviceType=usa
+}
+```
+
+#### Opción "Dejar en Bodega" (leaveInWarehouse)
+
+Para el servicio PO Box USA, cuando el cliente NO tiene dirección asignada al servicio, el sistema permite:
+
+1. **Registrar el paquete sin dirección** → El paquete queda en bodega
+2. **Cliente asigna dirección desde app móvil** → Selecciona dirección y servicio de paquetería
+
+```typescript
+// packageController.ts - Soporte para leaveInWarehouse
+
+interface CreateShipmentBody {
+    boxId: string;
+    boxes: BoxItem[];
+    carrier?: string;           // Opcional si leaveInWarehouse = true
+    destination?: DestinationInfo; // Opcional si leaveInWarehouse = true
+    leaveInWarehouse?: boolean; // Si true, se deja en bodega
+    // ...
+}
+
+// Validaciones condicionales
+if (!leaveInWarehouse) {
+    if (!carrier) {
+        return res.status(400).json({ error: 'Selecciona la paquetería de envío' });
+    }
+    if (!destination || !destination.country || !destination.city || !destination.address) {
+        return res.status(400).json({ error: 'La dirección de destino es requerida' });
+    }
+}
+
+// Valores seguros cuando se deja en bodega
+const safeCarrier = leaveInWarehouse ? 'BODEGA' : (carrier || 'Sin asignar');
+const safeDestination: DestinationInfo = leaveInWarehouse ? {
+    country: 'México',
+    city: 'En Bodega',
+    address: 'Pendiente de asignar'
+} : destination!;
+
+// El paquete NO se auto-procesa, queda en estado 'received'
+const shouldAutoProcess = !leaveInWarehouse && (isLastMileShipment || hasDefaultUsaAddress);
+const initialStatus = shouldAutoProcess ? 'processing' : 'received';
+```
+
+#### App Móvil - Asignación de Servicios
+
+```typescript
+// Pantalla "Mis Direcciones" en app móvil
+
+// Servicios disponibles para asignar
+const AVAILABLE_SERVICES = [
+  { key: 'maritime', label: 'Marítimo', icon: '🚢', description: 'Envíos por barco desde China' },
+  { key: 'air', label: 'Aéreo', icon: '✈️', description: 'Envíos express por avión' },
+  { key: 'usa', label: 'USA', icon: '🇺🇸', description: 'Consolidación paquetes USA' },
+];
+
+// Endpoint para actualizar servicios asignados
+PUT /api/addresses/:id/services
+{
+  "services": ["usa", "maritime"]  // Array de servicios
+}
+
+// Backend guarda como string separado por coma
+// default_for_service = "usa,maritime"
+```
+
+#### Reglas de Negocio por Servicio
+
+| Servicio | Sin dirección asignada | Comportamiento |
+|----------|------------------------|----------------|
+| **PO Box USA** | ❌ No usa fallback | Muestra "Dejar en Bodega" como opción. Cliente debe asignar dirección desde app móvil. |
+| **Marítimo** | ✅ Usa is_default | Si no hay 'maritime' asignado, usa la dirección is_default = true |
+| **Aéreo** | ✅ Usa is_default | Si no hay 'air' asignado, usa la dirección is_default = true |
+| **Nacional** | ✅ Usa is_default | Usa la dirección is_default = true |
+
+#### Implementación para Nuevos Servicios
+
+Para agregar soporte de direcciones a un nuevo servicio:
+
+```typescript
+// 1. Agregar el tipo de servicio a la función getServiceTypeFromCarrier
+const getServiceTypeFromCarrier = (carrier: string): string => {
+    const mapping: Record<string, string> = {
+        'POBOX USA': 'usa',
+        'Marítimo China': 'maritime',
+        'Aéreo China': 'air',
+        'Nuevo Servicio': 'nuevo_servicio',  // ← Agregar aquí
+    };
+    return mapping[carrier] || 'default';
+};
+
+// 2. En addressController.ts, decidir si el servicio usa fallback
+const isStrictService = serviceTypeLower === 'usa' || 
+                        serviceTypeLower === 'pobox_usa' ||
+                        serviceTypeLower === 'nuevo_servicio';  // ← Si no debe usar fallback
+
+// 3. En el frontend, agregar el servicio al selector de asignación
+const AVAILABLE_SERVICES = [
+    { key: 'usa', label: 'USA', ... },
+    { key: 'maritime', label: 'Marítimo', ... },
+    { key: 'air', label: 'Aéreo', ... },
+    { key: 'nuevo_servicio', label: 'Nuevo Servicio', ... },  // ← Agregar aquí
+];
 ```
 
 ---
@@ -3720,6 +4123,45 @@ curl -s "http://localhost:3001/api/warehouse/stats" \
 ---
 
 ## 📝 Changelog
+
+### v2.9.0 (4 Mar 2026) - COSTEO PO BOX USA CON TC GUARDADO ⭐
+
+#### Costeo PO Box USA - Precio Congelado al Registro
+- ✅ **Fórmula de costeo** - Implementada correctamente:
+  1. cm → pulgadas (÷ 2.54)
+  2. Volumen (pulg³) = L × A × H
+  3. Pie³ = Volumen ÷ 10780
+  4. USD = Pie³ × $75.00
+  5. MXN = USD × TC API
+  6. Mínimo $50 MXN
+- ✅ **TC guardado** - El tipo de cambio se congela al momento del registro
+- ✅ **Nuevas columnas en `packages`**:
+  - `registered_exchange_rate` NUMERIC(10,4) - TC usado al registro
+  - `pobox_cost_usd` NUMERIC(10,2) - Costo en USD
+- ✅ **packageController.ts** - `calculatePOBoxCost()` ahora retorna TC y costo USD
+- ✅ **poboxRatesController.ts** - Endpoints actualizados para incluir TC guardado
+
+#### Panel de Costeo PO Box
+- ✅ **POBoxCostingPage.tsx** - Nueva columna "TC" en tabla de paquetes
+- ✅ **Costo guardado** - Se muestra el costo calculado al momento del registro
+- ✅ **Retrocompatibilidad** - Paquetes antiguos sin TC guardado usan TC actual
+
+#### Validación de Paquetería en Wizard
+- ✅ **ShipmentsPage.tsx** - Validación de paquetería obligatoria antes de avanzar
+- ✅ **selectedRate** - Ahora se valida siempre, no solo en modo manual
+
+#### Archivos Modificados
+```
+entregax-backend-api/
+├── src/packageController.ts      # calculatePOBoxCost() con TC guardado
+├── src/poboxRatesController.ts   # Endpoints con registered_exchange_rate
+entregax-web-admin/
+├── src/pages/POBoxCostingPage.tsx # Columna TC y costo guardado
+├── src/pages/ShipmentsPage.tsx    # Validación de paquetería
+DEVELOPER_MANUAL.md               # Sección Costeo PO Box USA
+```
+
+---
 
 ### v2.7.0 (3 Mar 2026) - MOBILE APP SUITE & FCL CONTAINER IMPROVEMENTS ⭐
 

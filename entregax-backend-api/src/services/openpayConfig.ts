@@ -1,20 +1,32 @@
 /**
  * Configuración Multi-Cuenta de Openpay
- * Cada servicio (RFC) tiene sus propias credenciales
+ * Cada servicio tiene su propia empresa fiscal con credenciales OpenPay
+ * Estructura: service_company_config -> fiscal_emitters (openpay_*)
  */
 
 import { pool } from '../db';
 
+// Tipos de servicio internos
 export type ServiceType = 'aereo' | 'maritimo' | 'terrestre_nacional' | 'dhl_liberacion' | 'po_box';
+
+// Mapeo de ServiceType a service_type en service_company_config
+const SERVICE_TYPE_MAP: Record<ServiceType, string> = {
+  po_box: 'POBOX_USA',
+  aereo: 'AIR_CHN_MX',
+  maritimo: 'SEA_CHN_MX',
+  terrestre_nacional: 'AA_DHL',
+  dhl_liberacion: 'AA_DHL'
+};
 
 export interface OpenpayCredentials {
   merchantId: string;
   privateKey: string;
   publicKey?: string | undefined;
   isSandbox: boolean;
+  emitterAlias?: string;
 }
 
-// Mapeo de servicios a variables de entorno
+// Mapeo de servicios a variables de entorno (fallback)
 const SERVICE_ENV_MAP: Record<ServiceType, { merchant: string; private: string; public: string }> = {
   aereo: {
     merchant: 'OP_AEREO_MERCHANT',
@@ -45,23 +57,35 @@ const SERVICE_ENV_MAP: Record<ServiceType, { merchant: string; private: string; 
 
 /**
  * Obtiene las credenciales de Openpay para un servicio específico
- * Primero busca en la base de datos, si no hay, busca en variables de entorno
+ * 1. Busca en service_company_config -> fiscal_emitters
+ * 2. Fallback a variables de entorno
  */
 export const getOpenpayCredentials = async (service: ServiceType): Promise<OpenpayCredentials> => {
-  // 1. Intentar obtener de la base de datos
+  // 1. Buscar configuración del servicio y su empresa fiscal
+  const serviceType = SERVICE_TYPE_MAP[service] || service.toUpperCase();
+  
   const dbResult = await pool.query(
-    `SELECT openpay_merchant_id, openpay_private_key, openpay_public_key, is_sandbox 
-     FROM service_companies WHERE service = $1`,
-    [service]
+    `SELECT 
+       fe.openpay_merchant_id,
+       fe.openpay_private_key,
+       fe.openpay_public_key,
+       fe.alias as emitter_alias,
+       COALESCE(fe.is_sandbox, false) as is_sandbox
+     FROM service_company_config scc
+     JOIN fiscal_emitters fe ON scc.emitter_id = fe.id
+     WHERE scc.service_type = $1 AND scc.is_active = TRUE AND fe.is_active = TRUE`,
+    [serviceType]
   );
 
-  if (dbResult.rows.length > 0 && dbResult.rows[0].openpay_merchant_id) {
+  if (dbResult.rows.length > 0 && dbResult.rows[0].openpay_merchant_id && dbResult.rows[0].openpay_private_key) {
     const row = dbResult.rows[0];
+    console.log(`🔑 OpenPay credentials from DB for ${service} -> ${row.emitter_alias}`);
     return {
       merchantId: row.openpay_merchant_id,
       privateKey: row.openpay_private_key,
       publicKey: row.openpay_public_key,
-      isSandbox: row.is_sandbox
+      isSandbox: row.is_sandbox,
+      emitterAlias: row.emitter_alias
     };
   }
 
@@ -76,9 +100,10 @@ export const getOpenpayCredentials = async (service: ServiceType): Promise<Openp
   const publicKey = process.env[envMap.public];
 
   if (!merchantId || !privateKey) {
-    throw new Error(`Credenciales de Openpay no configuradas para servicio: ${service}`);
+    throw new Error(`Credenciales de Openpay no configuradas para servicio: ${service}. Configure en fiscal_emitters o variables de entorno.`);
   }
 
+  console.log(`🔑 OpenPay credentials from ENV for ${service}`);
   return {
     merchantId,
     privateKey,
@@ -88,12 +113,20 @@ export const getOpenpayCredentials = async (service: ServiceType): Promise<Openp
 };
 
 /**
- * Obtiene información de la empresa/servicio
+ * Obtiene información de la empresa/servicio con datos fiscales
  */
 export const getServiceCompanyInfo = async (service: ServiceType) => {
+  const serviceType = SERVICE_TYPE_MAP[service] || service.toUpperCase();
+  
   const result = await pool.query(
-    `SELECT * FROM service_companies WHERE service = $1`,
-    [service]
+    `SELECT 
+       scc.id, scc.service_type, scc.service_name, scc.is_active,
+       fe.alias as company_name, fe.legal_name, fe.rfc,
+       fe.openpay_merchant_id, fe.bank_clabe, fe.bank_name
+     FROM service_company_config scc
+     LEFT JOIN fiscal_emitters fe ON scc.emitter_id = fe.id
+     WHERE scc.service_type = $1`,
+    [serviceType]
   );
   
   if (result.rows.length === 0) {
@@ -104,12 +137,21 @@ export const getServiceCompanyInfo = async (service: ServiceType) => {
 };
 
 /**
- * Lista todos los servicios disponibles
+ * Lista todos los servicios disponibles con sus empresas
  */
 export const getAllServices = async () => {
   const result = await pool.query(
-    `SELECT service, company_name, legal_name, rfc, is_active 
-     FROM service_companies WHERE is_active = TRUE ORDER BY id`
+    `SELECT 
+       scc.service_type as service, 
+       scc.service_name,
+       fe.alias as company_name, 
+       fe.legal_name, 
+       fe.rfc, 
+       scc.is_active
+     FROM service_company_config scc
+     LEFT JOIN fiscal_emitters fe ON scc.emitter_id = fe.id
+     WHERE scc.is_active = TRUE 
+     ORDER BY scc.id`
   );
   return result.rows;
 };

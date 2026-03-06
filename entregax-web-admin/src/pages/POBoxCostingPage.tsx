@@ -64,9 +64,9 @@ import api from '../services/api';
 
 interface CostingConfig {
     id?: number;
-    conversion_factor: number;      // Factor de conversión (2.45)
+    conversion_factor: number;      // Factor de conversión cm→pulg (2.54)
     dimensional_divisor: number;    // Divisor dimensional (10,780)
-    base_rate: number;              // Tarifa base por unidad de volumen (75)
+    base_rate: number;              // Tarifa base USD por pie³ ($75)
     min_cost: number;               // Costo mínimo
     currency: string;               // Moneda (MXN/USD)
     is_active: boolean;
@@ -126,13 +126,14 @@ export default function POBoxCostingPage() {
     const [loading, setLoading] = useState(false);
     const [packages, setPackages] = useState<PackageCosting[]>([]);
     const [config, setConfig] = useState<CostingConfig>({
-        conversion_factor: 2.45,
+        conversion_factor: 2.54,      // cm a pulgadas
         dimensional_divisor: 10780,
-        base_rate: 75,
+        base_rate: 75,                // USD por pie³
         min_cost: 50,
         currency: 'MXN',
         is_active: true,
     });
+    const [tcApi, setTcApi] = useState<number>(17.65);  // TC de API (directo)
     const [editConfigOpen, setEditConfigOpen] = useState(false);
     const [tempConfig, setTempConfig] = useState<CostingConfig>(config);
 
@@ -194,22 +195,33 @@ export default function POBoxCostingPage() {
     // FUNCIONES DE CÁLCULO
     // ============================================
 
-    const calculateCost = (largo: number, ancho: number, alto: number): { volume_raw: number; volume_adjusted: number; cost: number } => {
+    const calculateCost = (largo_cm: number, ancho_cm: number, alto_cm: number): { volume_raw: number; volume_adjusted: number; cost: number; cost_usd: number } => {
         // Volumen bruto en cm³
-        const volume_raw = largo * ancho * alto;
+        const volume_raw = largo_cm * ancho_cm * alto_cm;
         
-        // Volumen ajustado = Volumen × Factor de conversión
-        const volume_adjusted = volume_raw * config.conversion_factor;
+        // Convertir cm a pulgadas (÷ 2.54)
+        const largo_pulg = largo_cm / 2.54;
+        const ancho_pulg = ancho_cm / 2.54;
+        const alto_pulg = alto_cm / 2.54;
         
-        // Costo = (Volumen Ajustado / Divisor) × Tarifa Base
-        let cost = (volume_adjusted / config.dimensional_divisor) * config.base_rate;
+        // Volumen en pulgadas³
+        const volume_adjusted = largo_pulg * ancho_pulg * alto_pulg;
+        
+        // Pie³ = Volumen pulgadas / Divisor
+        const pie3 = volume_adjusted / config.dimensional_divisor;
+        
+        // Costo USD = Pie³ × Tarifa Base
+        let cost_usd = pie3 * config.base_rate;
+        
+        // Costo MXN = USD × TC de API (directo)
+        let cost = cost_usd * tcApi;
         
         // Aplicar mínimo si existe
         if (cost < config.min_cost) {
             cost = config.min_cost;
         }
         
-        return { volume_raw, volume_adjusted, cost };
+        return { volume_raw, volume_adjusted, cost, cost_usd };
     };
 
     const handleManualCalculate = () => {
@@ -238,6 +250,21 @@ export default function POBoxCostingPage() {
         }
     };
 
+    // Cargar TC de la API (directo, sin sobreprecio)
+    const loadTcApi = async () => {
+        try {
+            const response = await api.get('/admin/exchange-rate-config');
+            if (response.data?.configs) {
+                const poboxConfig = response.data.configs.find((c: any) => c.servicio === 'pobox_usa');
+                if (poboxConfig?.ultimo_tc_api) {
+                    setTcApi(parseFloat(poboxConfig.ultimo_tc_api));
+                }
+            }
+        } catch (error) {
+            console.log('Usando TC por defecto');
+        }
+    };
+
     const loadPackages = async () => {
         setLoading(true);
         setSelectedPackages([]); // Limpiar selección al recargar
@@ -251,12 +278,31 @@ export default function POBoxCostingPage() {
             
             const response = await api.get(`/pobox/costing/packages?${params.toString()}`);
             if (response.data?.packages) {
-                // Calcular costos para cada paquete
+                // Usar costo guardado si existe, sino calcular
                 const packagesWithCosts = response.data.packages.map((pkg: any) => {
                     const length = parseFloat(pkg.pkg_length) || 0;
                     const width = parseFloat(pkg.pkg_width) || 0;
                     const height = parseFloat(pkg.pkg_height) || 0;
-                    const { volume_raw, volume_adjusted, cost } = calculateCost(length, width, height);
+                    
+                    // Si tiene costo guardado, usarlo
+                    const savedCost = parseFloat(pkg.pobox_service_cost) || 0;
+                    const savedCostUsd = parseFloat(pkg.pobox_cost_usd) || 0;
+                    const savedTc = parseFloat(pkg.registered_exchange_rate) || 0;
+                    
+                    // Si no tiene costo guardado, calcularlo
+                    let finalCost = savedCost;
+                    let costUsd = savedCostUsd;
+                    let tcUsado = savedTc || tcApi;
+                    
+                    if (savedCost === 0 && length > 0 && width > 0 && height > 0) {
+                        const { cost, cost_usd } = calculateCost(length, width, height);
+                        finalCost = cost;
+                        costUsd = cost_usd;
+                        tcUsado = tcApi; // TC actual si no tiene guardado
+                    }
+                    
+                    const { volume_raw, volume_adjusted } = calculateCost(length, width, height);
+                    
                     return {
                         ...pkg,
                         pkg_length: length,
@@ -264,7 +310,9 @@ export default function POBoxCostingPage() {
                         pkg_height: height,
                         volume_raw,
                         volume_adjusted,
-                        calculated_cost: cost,
+                        calculated_cost: finalCost,
+                        cost_usd: costUsd,
+                        tc_registro: tcUsado,
                     };
                 });
                 setPackages(packagesWithCosts);
@@ -311,7 +359,7 @@ export default function POBoxCostingPage() {
     const getSelectedTotal = () => {
         return packages
             .filter(p => selectedPackages.includes(p.id))
-            .reduce((sum, p) => sum + (p.calculated_cost || 0), 0);
+            .reduce((sum, p) => sum + (parseFloat(String(p.calculated_cost)) || 0), 0);
     };
 
     const handleMarkAsPaid = async () => {
@@ -382,40 +430,52 @@ export default function POBoxCostingPage() {
     // PO BOX = sale_price (lo que cobramos)
     // UTILIDAD = PO BOX - COSTO
     const utilidadesStats = {
-        totalCosto: utilidadesPackages.reduce((sum, pkg) => sum + (parseFloat(pkg.calculated_cost) || 0), 0),
+        totalCosto: utilidadesPackages.reduce((sum, pkg) => sum + (parseFloat(String(pkg.calculated_cost)) || 0), 0),
         totalVenta: utilidadesPackages.reduce((sum, pkg) => {
-            const pobox = parseFloat(pkg.sale_price) || 0;
-            const gex = parseFloat(pkg.gex_total) || 0;
+            const pobox = parseFloat(String(pkg.sale_price)) || 0;
+            const gex = parseFloat(String(pkg.gex_total)) || 0;
             return sum + pobox + gex;
         }, 0),
         totalUtilidad: utilidadesPackages.reduce((sum, pkg) => {
-            const costo = parseFloat(pkg.calculated_cost) || 0;
-            const pobox = parseFloat(pkg.sale_price) || 0;
+            const costo = parseFloat(String(pkg.calculated_cost)) || 0;
+            const pobox = parseFloat(String(pkg.sale_price)) || 0;
             return sum + (pobox - costo);
         }, 0),
-        totalPobox: utilidadesPackages.reduce((sum, pkg) => sum + (parseFloat(pkg.sale_price) || 0), 0),
-        totalGex: utilidadesPackages.reduce((sum, pkg) => sum + (parseFloat(pkg.gex_total) || 0), 0),
+        totalPobox: utilidadesPackages.reduce((sum, pkg) => sum + (parseFloat(String(pkg.sale_price)) || 0), 0),
+        totalGex: utilidadesPackages.reduce((sum, pkg) => sum + (parseFloat(String(pkg.gex_total)) || 0), 0),
     };
 
     useEffect(() => {
         loadConfig();
+        loadTcApi();
         loadPackages();
     }, []);
 
-    // Recalcular cuando cambie config
+    // Agregar columnas calculadas (volumen) pero usar el costo guardado en DB
     useEffect(() => {
         if (packages.length > 0) {
             const recalculated = packages.map((pkg) => {
-                const { volume_raw, volume_adjusted, cost } = calculateCost(
+                const { volume_raw, volume_adjusted } = calculateCost(
                     pkg.pkg_length || 0,
                     pkg.pkg_width || 0,
                     pkg.pkg_height || 0
                 );
-                return { ...pkg, volume_raw, volume_adjusted, calculated_cost: cost };
+                // IMPORTANTE: Usar el costo guardado en DB (pobox_service_cost), NO recalcular
+                // Solo recalcular si no hay costo guardado (compatibilidad hacia atrás)
+                const savedCost = parseFloat(String(pkg.pobox_service_cost)) || 0;
+                const savedTc = parseFloat(String(pkg.registered_exchange_rate)) || 0;
+                
+                return { 
+                    ...pkg, 
+                    volume_raw, 
+                    volume_adjusted, 
+                    calculated_cost: savedCost > 0 ? savedCost : calculateCost(pkg.pkg_length || 0, pkg.pkg_width || 0, pkg.pkg_height || 0).cost,
+                    tc_registro: savedTc > 0 ? savedTc : tcApi
+                };
             });
             setPackages(recalculated);
         }
-    }, [config]);
+    }, [config, tcApi]);
 
     // ============================================
     // ESTADÍSTICAS
@@ -425,9 +485,9 @@ export default function POBoxCostingPage() {
     
     const stats = {
         totalPackages: packages.length,
-        totalCost: packages.reduce((sum, pkg) => sum + (pkg.calculated_cost || 0), 0),
+        totalCost: packages.reduce((sum, pkg) => sum + (parseFloat(String(pkg.calculated_cost)) || 0), 0),
         avgCost: packages.length > 0 
-            ? packages.reduce((sum, pkg) => sum + (pkg.calculated_cost || 0), 0) / packages.length 
+            ? packages.reduce((sum, pkg) => sum + (parseFloat(String(pkg.calculated_cost)) || 0), 0) / packages.length 
             : 0,
         pendingPayment: unpaidPackages.length,
         selectedCount: selectedPackages.length,
@@ -482,10 +542,10 @@ export default function POBoxCostingPage() {
                     {t('pobox.costing.formula', 'Fórmula de Costeo')}:
                 </Typography>
                 <Typography variant="body2" sx={{ fontFamily: 'monospace', mt: 0.5 }}>
-                    Costo = (Volumen Ajustado / {config.dimensional_divisor.toLocaleString()}) × ${config.base_rate}
+                    1. cm → pulgadas (÷ 2.54) → L × A × H (pulg) ÷ {config.dimensional_divisor.toLocaleString()} = Pie³
                 </Typography>
-                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-                    Volumen Ajustado = Largo × Alto × Ancho × {config.conversion_factor}
+                <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                    2. Pie³ × ${config.base_rate} USD × TC API ${tcApi.toFixed(2)} = Costo MXN
                 </Typography>
             </Alert>
 
@@ -512,7 +572,7 @@ export default function POBoxCostingPage() {
                                 <Typography variant="subtitle2">Costo Total</Typography>
                             </Box>
                             <Typography variant="h4" fontWeight="bold">
-                                ${stats.totalCost.toFixed(2)}
+                                ${Number(stats.totalCost).toFixed(2)}
                             </Typography>
                         </CardContent>
                     </Card>
@@ -525,7 +585,7 @@ export default function POBoxCostingPage() {
                                 <Typography variant="subtitle2">Promedio</Typography>
                             </Box>
                             <Typography variant="h4" fontWeight="bold">
-                                ${stats.avgCost.toFixed(2)}
+                                ${Number(stats.avgCost).toFixed(2)}
                             </Typography>
                         </CardContent>
                     </Card>
@@ -788,12 +848,12 @@ export default function POBoxCostingPage() {
                                 startIcon={<PaymentIcon />}
                                 onClick={() => setPaymentDialogOpen(true)}
                             >
-                                Registrar Pago (${stats.selectedTotal.toFixed(2)})
+                                Registrar Pago (${Number(stats.selectedTotal).toFixed(2)})
                             </Button>
                         }
                     >
                         <strong>{selectedPackages.length}</strong> paquetes seleccionados - 
-                        Total: <strong>${stats.selectedTotal.toFixed(2)}</strong>
+                        Total: <strong>${Number(stats.selectedTotal).toFixed(2)}</strong>
                     </Alert>
                 )}
 
@@ -813,6 +873,7 @@ export default function POBoxCostingPage() {
                                 <TableCell sx={{ color: 'white' }} align="center">Largo</TableCell>
                                 <TableCell sx={{ color: 'white' }} align="center">Ancho</TableCell>
                                 <TableCell sx={{ color: 'white' }} align="center">Alto</TableCell>
+                                <TableCell sx={{ color: 'white' }} align="center">TC</TableCell>
                                 <TableCell sx={{ color: 'white' }} align="right">Costo</TableCell>
                                 <TableCell sx={{ color: 'white' }} align="center">Pago</TableCell>
                             </TableRow>
@@ -820,13 +881,13 @@ export default function POBoxCostingPage() {
                         <TableBody>
                             {loading ? (
                                 <TableRow>
-                                    <TableCell colSpan={7} align="center" sx={{ py: 5 }}>
+                                    <TableCell colSpan={8} align="center" sx={{ py: 5 }}>
                                         <CircularProgress />
                                     </TableCell>
                                 </TableRow>
                             ) : packages.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={7} align="center" sx={{ py: 5 }}>
+                                    <TableCell colSpan={8} align="center" sx={{ py: 5 }}>
                                         <Typography color="text.secondary">
                                             No hay paquetes POBox para mostrar
                                         </Typography>
@@ -869,9 +930,14 @@ export default function POBoxCostingPage() {
                                         <TableCell align="center">
                                             {pkg.pkg_height ? Number(pkg.pkg_height).toFixed(1) : '-'} cm
                                         </TableCell>
+                                        <TableCell align="center">
+                                            <Typography variant="body2" color="text.secondary">
+                                                ${pkg.tc_registro ? Number(pkg.tc_registro).toFixed(2) : tcApi.toFixed(2)}
+                                            </Typography>
+                                        </TableCell>
                                         <TableCell align="right">
                                             <Chip
-                                                label={`$${pkg.calculated_cost ? pkg.calculated_cost.toFixed(2) : '0.00'}`}
+                                                label={`$${pkg.calculated_cost ? Number(pkg.calculated_cost).toFixed(2) : '0.00'}`}
                                                 color="success"
                                                 size="small"
                                             />
@@ -972,7 +1038,7 @@ export default function POBoxCostingPage() {
                                 <CardContent>
                                     <Typography variant="subtitle2">Total Costo</Typography>
                                     <Typography variant="h4" fontWeight="bold">
-                                        ${utilidadesStats.totalCosto.toFixed(2)}
+                                        ${Number(utilidadesStats.totalCosto).toFixed(2)}
                                     </Typography>
                                 </CardContent>
                             </Card>
@@ -982,7 +1048,7 @@ export default function POBoxCostingPage() {
                                 <CardContent>
                                     <Typography variant="subtitle2">Total Venta</Typography>
                                     <Typography variant="h4" fontWeight="bold">
-                                        ${utilidadesStats.totalVenta.toFixed(2)}
+                                        ${Number(utilidadesStats.totalVenta).toFixed(2)}
                                     </Typography>
                                 </CardContent>
                             </Card>
@@ -992,7 +1058,7 @@ export default function POBoxCostingPage() {
                                 <CardContent>
                                     <Typography variant="subtitle2">Utilidad Total</Typography>
                                     <Typography variant="h4" fontWeight="bold">
-                                        ${utilidadesStats.totalUtilidad.toFixed(2)}
+                                        ${Number(utilidadesStats.totalUtilidad).toFixed(2)}
                                     </Typography>
                                 </CardContent>
                             </Card>
@@ -1031,16 +1097,20 @@ export default function POBoxCostingPage() {
                                     </TableRow>
                                 ) : (
                                     utilidadesPackages.map((pkg) => {
-                                        // COSTO = lo que nos cobran (calculated_cost de la fórmula)
-                                        const costo = parseFloat(pkg.calculated_cost) || 0;
-                                        // PO BOX = lo que cobramos al cliente (assigned_cost_mxn)
-                                        const pobox = parseFloat(pkg.sale_price) || 0;
+                                        // COSTO = lo que nos cuesta (pobox_service_cost)
+                                        const costo = parseFloat(String(pkg.calculated_cost)) || 0;
                                         // GEX = costo adicional de garantía
-                                        const gexTotal = parseFloat(pkg.gex_total) || 0;
-                                        // COSTO DE VENTA = PO BOX + GEX (total que cobra el cliente)
-                                        const costoVenta = pobox + gexTotal;
-                                        // UTILIDAD = lo que cobramos - lo que nos cuesta
-                                        const utilidad = costoVenta - costo - gexTotal;
+                                        const gexTotal = parseFloat(String(pkg.gex_total)) || 0;
+                                        // Envío nacional (paquetería) - NO se incluye en utilidad
+                                        const envioNacional = parseFloat(String(pkg.national_shipping)) || 0;
+                                        // Total cobrado al cliente (incluye envío)
+                                        const totalCobrado = parseFloat(String(pkg.sale_price)) || 0;
+                                        // COSTO DE VENTA = Total - Envío Nacional (solo PO Box + GEX)
+                                        const costoVenta = totalCobrado - envioNacional;
+                                        // PO BOX = Costo de venta SIN GEX (precio PO Box puro)
+                                        const pobox = costoVenta - gexTotal;
+                                        // UTILIDAD = Costo de venta - Costo (sin contar envío nacional)
+                                        const utilidad = costoVenta - costo;
                                         
                                         return (
                                             <TableRow key={pkg.id} hover>
@@ -1088,19 +1158,18 @@ export default function POBoxCostingPage() {
                                                     />
                                                 </TableCell>
                                                 <TableCell align="center">
-                                                    {pkg.costing_paid ? (
+                                                    {pkg.client_paid ? (
                                                         <Chip
                                                             icon={<CheckCircleIcon />}
-                                                            label="Pagado"
+                                                            label="Cobrado"
                                                             color="success"
                                                             size="small"
                                                         />
                                                     ) : (
                                                         <Chip
-                                                            label="Pendiente"
-                                                            color="warning"
+                                                            label="Por Cobrar"
+                                                            color="error"
                                                             size="small"
-                                                            variant="outlined"
                                                         />
                                                     )}
                                                 </TableCell>
@@ -1123,15 +1192,20 @@ export default function POBoxCostingPage() {
                     </Box>
                 </DialogTitle>
                 <DialogContent dividers>
+                    <Alert severity="info" sx={{ mb: 3 }}>
+                        <Typography variant="body2">
+                            <strong>TC API:</strong> ${tcApi.toFixed(2)} MXN (obtenido de Banxico/ExchangeRate-API)
+                        </Typography>
+                    </Alert>
                     <Grid container spacing={3}>
                         <Grid size={{ xs: 12, sm: 6 }}>
                             <TextField
                                 fullWidth
-                                label={t('pobox.costing.conversionFactor', 'Factor de Conversión')}
+                                label="Factor cm → pulgadas"
                                 type="number"
-                                value={tempConfig.conversion_factor}
-                                onChange={(e) => setTempConfig({ ...tempConfig, conversion_factor: parseFloat(e.target.value) || 0 })}
-                                helperText="Multiplica el volumen bruto (ej: 2.45)"
+                                value={2.54}
+                                helperText="Fijo: dividir cm entre 2.54"
+                                disabled
                             />
                         </Grid>
                         <Grid size={{ xs: 12, sm: 6 }}>
@@ -1141,26 +1215,26 @@ export default function POBoxCostingPage() {
                                 type="number"
                                 value={tempConfig.dimensional_divisor}
                                 onChange={(e) => setTempConfig({ ...tempConfig, dimensional_divisor: parseFloat(e.target.value) || 1 })}
-                                helperText="Divisor del transportista (ej: 10,780)"
+                                helperText="Divisor para calcular pie³ (10,780)"
                             />
                         </Grid>
                         <Grid size={{ xs: 12, sm: 6 }}>
                             <TextField
                                 fullWidth
-                                label={t('pobox.costing.baseRate', 'Tarifa Base')}
+                                label="Tarifa Base (USD/pie³)"
                                 type="number"
                                 value={tempConfig.base_rate}
                                 onChange={(e) => setTempConfig({ ...tempConfig, base_rate: parseFloat(e.target.value) || 0 })}
                                 InputProps={{
                                     startAdornment: <InputAdornment position="start">$</InputAdornment>,
                                 }}
-                                helperText="Tarifa por unidad de volumen (ej: $75)"
+                                helperText="Precio por pie cúbico en USD ($75)"
                             />
                         </Grid>
                         <Grid size={{ xs: 12, sm: 6 }}>
                             <TextField
                                 fullWidth
-                                label={t('pobox.costing.minCost', 'Costo Mínimo')}
+                                label={t('pobox.costing.minCost', 'Costo Mínimo MXN')}
                                 type="number"
                                 value={tempConfig.min_cost}
                                 onChange={(e) => setTempConfig({ ...tempConfig, min_cost: parseFloat(e.target.value) || 0 })}
@@ -1183,9 +1257,15 @@ export default function POBoxCostingPage() {
                         </Grid>
                     </Grid>
 
-                    <Alert severity="info" sx={{ mt: 3 }}>
+                    <Alert severity="success" sx={{ mt: 3 }}>
                         <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-                            Fórmula: Costo = (Vol × {tempConfig.conversion_factor} / {tempConfig.dimensional_divisor.toLocaleString()}) × ${tempConfig.base_rate}
+                            1. (L×A×H cm) ÷ 2.54 = Volumen pulg³
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                            2. Vol pulg³ ÷ {tempConfig.dimensional_divisor.toLocaleString()} = Pie³
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
+                            3. Pie³ × ${tempConfig.base_rate} USD × TC API ${tcApi.toFixed(2)} = MXN
                         </Typography>
                     </Alert>
                 </DialogContent>

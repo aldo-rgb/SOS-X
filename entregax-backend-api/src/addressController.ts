@@ -213,10 +213,18 @@ export const getClientInstructions = async (req: Request, res: Response): Promis
         // 1. Si hay serviceType, buscar dirección con ese servicio
         // 2. Si no, usar la dirección is_default = true
         let defaultAddress = null;
+        const serviceTypeLower = (serviceType?.toString().toLowerCase()) || '';
+        const isUSAService = serviceTypeLower === 'usa' || serviceTypeLower === 'pobox_usa';
+        
+        // Filtrar direcciones que tienen el servicio USA asignado
+        const usaAssignedAddresses = addresses.filter((addr: any) => {
+            if (!addr.default_for_service) return false;
+            const services = addr.default_for_service.split(',').map((s: string) => s.trim().toLowerCase());
+            return services.includes('usa') || services.includes('all');
+        });
         
         if (serviceType) {
             // Buscar dirección predeterminada para el tipo de servicio
-            const serviceTypeLower = serviceType.toString().toLowerCase();
             defaultAddress = addresses.find((addr: any) => {
                 if (!addr.default_for_service) return false;
                 const services = addr.default_for_service.split(',').map((s: string) => s.trim().toLowerCase());
@@ -224,20 +232,20 @@ export const getClientInstructions = async (req: Request, res: Response): Promis
             });
         }
         
-        // Si no encontró para el servicio, usar la default general
-        if (!defaultAddress) {
+        // Para servicio USA, NO hacer fallback a la default general si no hay dirección específica
+        // Para otros servicios, sí hacer fallback
+        if (!defaultAddress && !isUSAService) {
             defaultAddress = addresses.find((addr: any) => addr.is_default);
         }
 
-        // hasInstructions = true si tiene dirección predeterminada
-        // (El transporte/carrier son opcionales, se pueden seleccionar al cotizar)
+        // hasInstructions = true si tiene dirección predeterminada para el servicio solicitado
+        // Para USA: SOLO si tiene dirección con 'usa' asignado
         const hasInstructions = !!defaultAddress;
 
         // ============ OBTENER INFO DE TARIFAS Y TIPO DE CAMBIO PARA PO BOX USA ============
         let poboxRatesInfo = null;
-        const serviceTypeLower = serviceType?.toString().toLowerCase() || '';
         
-        if (serviceTypeLower === 'usa' || serviceTypeLower === 'pobox_usa') {
+        if (isUSAService) {
             try {
                 // Obtener tipo de cambio actual para PO Box USA
                 const exchangeRateResult = await pool.query(
@@ -311,6 +319,9 @@ export const getClientInstructions = async (req: Request, res: Response): Promis
                 isDefault: a.is_default,
                 defaultForService: a.default_for_service
             })),
+            // Conteo de direcciones asignadas al servicio USA
+            usaAssignedAddressCount: usaAssignedAddresses.length,
+            totalAddressCount: addresses.length,
             defaultAddress: defaultAddress ? {
                 id: defaultAddress.id,
                 alias: defaultAddress.alias,
@@ -350,7 +361,7 @@ export const getMyAddresses = async (req: Request, res: Response): Promise<void>
         const result = await pool.query(
             `SELECT id, alias, recipient_name, street, exterior_number, interior_number,
                     neighborhood as colony, city, state, zip_code, phone, reference, is_default, 
-                    default_for_service, created_at
+                    default_for_service, carrier_config, created_at
              FROM addresses 
              WHERE user_id = $1 
              ORDER BY is_default DESC, created_at DESC`,
@@ -547,7 +558,7 @@ export const setMyDefaultForService = async (req: Request, res: Response): Promi
         const authReq = req as AuthRequest;
         const userId = authReq.user?.userId;
         const addressId = req.params.id;
-        const { services } = req.body; // Array: ['maritime', 'air', 'usa'] o null para quitar todos
+        const { services, carrier_config } = req.body; // services: Array ['maritime', 'air', 'usa'], carrier_config: { usa: 'entregax_local', ... }
 
         if (!userId) {
             res.status(401).json({ error: 'No autenticado' });
@@ -589,10 +600,19 @@ export const setMyDefaultForService = async (req: Request, res: Response): Promi
             
             // Guardar los servicios seleccionados en esta dirección (como string separado por comas)
             const serviceString = serviceList.join(',');
-            await pool.query(
-                'UPDATE addresses SET default_for_service = $1 WHERE id = $2 AND user_id = $3',
-                [serviceString, addressId, userId]
-            );
+            
+            // Guardar también la configuración de paquetería si se proporciona
+            if (carrier_config && typeof carrier_config === 'object') {
+                await pool.query(
+                    'UPDATE addresses SET default_for_service = $1, carrier_config = $2 WHERE id = $3 AND user_id = $4',
+                    [serviceString, JSON.stringify(carrier_config), addressId, userId]
+                );
+            } else {
+                await pool.query(
+                    'UPDATE addresses SET default_for_service = $1 WHERE id = $2 AND user_id = $3',
+                    [serviceString, addressId, userId]
+                );
+            }
             
             // Si incluye 'all', también marcar como is_default
             if (serviceList.includes('all')) {

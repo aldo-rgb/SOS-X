@@ -269,6 +269,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       return;
     }
     
+    // Obtener el paquete actual
+    const currentPkg = packages.find(p => p.id === id);
+    
     // Si ya hay paquetes seleccionados, verificar que sean del mismo tipo de envío
     if (selectedIds.length > 0) {
       const firstSelectedPkg = packages.find(p => selectedIds.includes(p.id));
@@ -297,6 +300,25 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           [{ text: 'Entendido', style: 'default' }]
         );
         return;
+      }
+      
+      // 📦 Para PO Box USA: No mezclar paquetes en bodega con procesando
+      if (firstGroup === 'usa') {
+        const firstIsInWarehouse = firstSelectedPkg?.status === 'received' && (firstSelectedPkg?.carrier === 'BODEGA' || !firstSelectedPkg?.carrier);
+        const currentIsInWarehouse = currentPkg?.status === 'received' && (currentPkg?.carrier === 'BODEGA' || !currentPkg?.carrier);
+        const firstIsProcessing = firstSelectedPkg?.status === 'processing';
+        const currentIsProcessing = currentPkg?.status === 'processing';
+        
+        if ((firstIsInWarehouse && currentIsProcessing) || (firstIsProcessing && currentIsInWarehouse)) {
+          Alert.alert(
+            '⚠️ No puedes mezclar estados',
+            firstIsInWarehouse 
+              ? 'Ya tienes paquetes EN BODEGA seleccionados. No puedes mezclar con paquetes PROCESANDO.'
+              : 'Ya tienes paquetes PROCESANDO seleccionados. No puedes mezclar con paquetes EN BODEGA.',
+            [{ text: 'Entendido', style: 'default' }]
+          );
+          return;
+        }
       }
     }
     
@@ -364,8 +386,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     
     // Solo permitimos seleccionar paquetes en bodega (USA) o recibidos en China (marítimo/china_air) o DHL en Cedis Y usuario verificado
     // Para marítimos/china_air/dhl: NO seleccionable si ya tiene instrucciones asignadas
+    // 📦 PO Box USA: seleccionable si está en bodega (received) O procesando (processing)
+    const isPOBoxUSA = !isMaritime && !isChinaAir && !isDHL;
     const isSelectable = isUserVerified && (
-      (!isMaritime && !isChinaAir && !isDHL && item.status === 'received') || 
+      (isPOBoxUSA && ['received', 'processing'].includes(item.status)) || 
       (isMaritime && ['received_china', 'in_transit', 'at_port'].includes(item.status) && !hasDeliveryInstructions) ||
       (isChinaAir && ['received_origin', 'in_transit', 'at_customs'].includes(item.status) && !hasDeliveryInstructions) ||
       (isDHL && ['received_mty'].includes(item.status) && !hasDeliveryInstructions)
@@ -460,10 +484,22 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 {/* Header del paquete */}
                 <View style={styles.cardHeader}>
                   <View style={styles.trackingContainer}>
-                    <Text style={styles.description} numberOfLines={1}>
-                      {item.description || t('home.package')}
-                    </Text>
-                    <Text style={styles.trackingNumber}>TRN: {item.tracking_internal}</Text>
+                    {/* Solo mostrar descripción si existe */}
+                    {item.description ? (
+                      <Text style={styles.description} numberOfLines={1}>
+                        {item.description}
+                      </Text>
+                    ) : null}
+                    <View style={styles.trackingRow}>
+                      <Text style={styles.trackingNumber}>TRN: {item.tracking_internal}</Text>
+                      {/* 📦 Indicador de Multi-Guía */}
+                      {item.is_master && (item.total_boxes || 1) > 1 && (
+                        <View style={styles.multiPackageBadge}>
+                          <Ionicons name="layers" size={12} color="#fff" />
+                          <Text style={styles.multiPackageText}>{item.total_boxes}</Text>
+                        </View>
+                      )}
+                    </View>
                   </View>
                   
                   {/* 🔲 Checkbox para paquetes seleccionables (esquina superior derecha) */}
@@ -964,8 +1000,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime' || pkg.shipment_type === 'fcl';
           // DHL: Solo paquetes DHL Monterrey
           if (serviceFilter === 'dhl') return pkg.shipment_type === 'dhl';
-          // PO Box: Solo paquetes USA (sin shipment_type o 'air')
-          if (serviceFilter === 'usa') return !pkg.shipment_type || pkg.shipment_type === 'air';
+          // PO Box USA: service_type POBOX_USA
+          if (serviceFilter === 'usa') return pkg.service_type === 'POBOX_USA';
           return true;
         })}
         renderItem={renderPackageCard}
@@ -1028,28 +1064,40 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             <View style={styles.serviceFilters}>
               <Pressable
                 style={[styles.filterChip, serviceFilter === 'air' && styles.filterChipActive]}
-                onPress={() => setServiceFilter(serviceFilter === 'air' ? null : 'air')}
+                onPress={() => {
+                  setSelectedIds([]); // Limpiar selección al cambiar filtro
+                  setServiceFilter(serviceFilter === 'air' ? null : 'air');
+                }}
               >
                 <Text style={styles.filterIcon}>✈️</Text>
                 <Text style={[styles.filterText, serviceFilter === 'air' && styles.filterTextActive]}>Aéreo</Text>
               </Pressable>
               <Pressable
                 style={[styles.filterChip, serviceFilter === 'maritime' && styles.filterChipActive]}
-                onPress={() => setServiceFilter(serviceFilter === 'maritime' ? null : 'maritime')}
+                onPress={() => {
+                  setSelectedIds([]); // Limpiar selección al cambiar filtro
+                  setServiceFilter(serviceFilter === 'maritime' ? null : 'maritime');
+                }}
               >
                 <Text style={styles.filterIcon}>🚢</Text>
                 <Text style={[styles.filterText, serviceFilter === 'maritime' && styles.filterTextActive]}>Marítimo</Text>
               </Pressable>
               <Pressable
                 style={[styles.filterChip, serviceFilter === 'dhl' && styles.filterChipActive]}
-                onPress={() => setServiceFilter(serviceFilter === 'dhl' ? null : 'dhl')}
+                onPress={() => {
+                  setSelectedIds([]); // Limpiar selección al cambiar filtro
+                  setServiceFilter(serviceFilter === 'dhl' ? null : 'dhl');
+                }}
               >
                 <Text style={styles.filterIcon}>🚚</Text>
                 <Text style={[styles.filterText, serviceFilter === 'dhl' && styles.filterTextActive]}>MTY</Text>
               </Pressable>
               <Pressable
                 style={[styles.filterChip, serviceFilter === 'usa' && styles.filterChipActive]}
-                onPress={() => setServiceFilter(serviceFilter === 'usa' ? null : 'usa')}
+                onPress={() => {
+                  setSelectedIds([]); // Limpiar selección al cambiar filtro
+                  setServiceFilter(serviceFilter === 'usa' ? null : 'usa');
+                }}
               >
                 <Text style={styles.filterIcon}>📦</Text>
                 <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>PO Box</Text>
@@ -1065,9 +1113,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   const filteredPackages = packages.filter(pkg => {
                     if (serviceFilter === null) return true;
                     if (serviceFilter === 'air') return pkg.shipment_type === 'china_air';
-                    if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime';
+                    if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime' || pkg.shipment_type === 'fcl';
                     if (serviceFilter === 'dhl') return pkg.shipment_type === 'dhl';
-                    if (serviceFilter === 'usa') return !pkg.shipment_type || pkg.shipment_type === 'air';
+                    // PO Box USA: filtrar por service_type
+                    if (serviceFilter === 'usa') return pkg.service_type === 'POBOX_USA';
                     return true;
                   });
                   const filteredIds = filteredPackages.map(p => p.id);
@@ -1077,8 +1126,49 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     // Deseleccionar todos los filtrados
                     setSelectedIds(selectedIds.filter(id => !filteredIds.includes(id)));
                   } else {
-                    // Seleccionar todos los filtrados
-                    setSelectedIds([...new Set([...selectedIds, ...filteredIds])]);
+                    // 📦 Para PO Box USA: Verificar si hay diferentes estados
+                    const isPOBoxFilter = serviceFilter === 'usa';
+                    const poboxPackages = filteredPackages.filter(p => p.service_type === 'POBOX_USA');
+                    const hasWarehouse = poboxPackages.some(p => p.status === 'received');
+                    const hasProcessing = poboxPackages.some(p => p.status === 'processing');
+                    
+                    if (isPOBoxFilter && hasWarehouse && hasProcessing) {
+                      // Hay paquetes en ambos estados, preguntar cuál seleccionar
+                      const warehouseCount = poboxPackages.filter(p => p.status === 'received').length;
+                      const processingCount = poboxPackages.filter(p => p.status === 'processing').length;
+                      
+                      Alert.alert(
+                        '📦 ¿Qué paquetes deseas seleccionar?',
+                        'Tienes paquetes en diferentes estados. Selecciona cuáles quieres procesar:',
+                        [
+                          {
+                            text: `🏠 En Bodega (${warehouseCount})`,
+                            onPress: () => {
+                              const warehouseIds = poboxPackages
+                                .filter(p => p.status === 'received')
+                                .map(p => p.id);
+                              setSelectedIds([...new Set([...selectedIds, ...warehouseIds])]);
+                            }
+                          },
+                          {
+                            text: `⏳ Procesando (${processingCount})`,
+                            onPress: () => {
+                              const processingIds = poboxPackages
+                                .filter(p => p.status === 'processing')
+                                .map(p => p.id);
+                              setSelectedIds([...new Set([...selectedIds, ...processingIds])]);
+                            }
+                          },
+                          {
+                            text: 'Cancelar',
+                            style: 'cancel'
+                          }
+                        ]
+                      );
+                    } else {
+                      // Solo hay un tipo o no es PO Box, seleccionar todos normalmente
+                      setSelectedIds([...new Set([...selectedIds, ...filteredIds])]);
+                    }
                   }
                 }}
               >
@@ -1087,9 +1177,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     const filteredPackages = packages.filter(pkg => {
                       if (serviceFilter === null) return true;
                       if (serviceFilter === 'air') return pkg.shipment_type === 'china_air';
-                      if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime';
+                      if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime' || pkg.shipment_type === 'fcl';
                       if (serviceFilter === 'dhl') return pkg.shipment_type === 'dhl';
-                      if (serviceFilter === 'usa') return !pkg.shipment_type || pkg.shipment_type === 'air';
+                      if (serviceFilter === 'usa') return pkg.service_type === 'POBOX_USA';
                       return true;
                     });
                     const filteredIds = filteredPackages.map(p => p.id);
@@ -1104,9 +1194,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     const filteredPackages = packages.filter(pkg => {
                       if (serviceFilter === null) return true;
                       if (serviceFilter === 'air') return pkg.shipment_type === 'china_air';
-                      if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime';
+                      if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime' || pkg.shipment_type === 'fcl';
                       if (serviceFilter === 'dhl') return pkg.shipment_type === 'dhl';
-                      if (serviceFilter === 'usa') return !pkg.shipment_type || pkg.shipment_type === 'air';
+                      if (serviceFilter === 'usa') return pkg.service_type === 'POBOX_USA';
                       return true;
                     });
                     const filteredIds = filteredPackages.map(p => p.id);
@@ -1122,23 +1212,66 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         showsVerticalScrollIndicator={false}
       />
 
-      {/* 🔥 FAB para ENVIAR - Solo aparece si hay selección */}
+      {/* 🔥 FAB para ENVIAR/PAGAR - Solo aparece si hay selección */}
       {selectedIds.length > 0 && (() => {
         const firstSelectedPkg = packages.find(p => selectedIds.includes(p.id));
         const shipmentType = (firstSelectedPkg as any)?.shipment_type;
         const isMaritimeSelection = shipmentType === 'maritime';
         const isChinaAirSelection = shipmentType === 'china_air';
         const isDHLSelection = shipmentType === 'dhl';
-        const needsInstructions = isMaritimeSelection || isChinaAirSelection || isDHLSelection;
+        
+        // 📦 PO Box USA: Detectar si son paquetes en bodega o procesando
+        const isPOBoxUSA = !shipmentType || shipmentType === 'air';
+        const isProcessingSelection = isPOBoxUSA && firstSelectedPkg?.status === 'processing';
+        const isWarehouseSelection = isPOBoxUSA && firstSelectedPkg?.status === 'received';
+        
+        // 🎯 Paquetes en bodega necesitan instrucciones (dirección de envío)
+        const needsInstructions = isMaritimeSelection || isChinaAirSelection || isDHLSelection || isWarehouseSelection;
+        
+        // Calcular total a pagar para paquetes procesando
+        // 🔧 FIX: Solo filtrar paquetes del mismo tipo de servicio seleccionado
+        const selectedPackages = packages.filter(p => {
+          if (!selectedIds.includes(p.id)) return false;
+          // Si es PO Box USA, solo incluir paquetes POBOX_USA
+          if (isPOBoxUSA) return p.service_type === 'POBOX_USA';
+          // Si es marítimo, solo incluir marítimos
+          if (isMaritimeSelection) return p.shipment_type === 'maritime' || p.shipment_type === 'fcl';
+          // Si es China Air, solo incluir china_air
+          if (isChinaAirSelection) return p.shipment_type === 'china_air';
+          // Si es DHL, solo incluir DHL
+          if (isDHLSelection) return p.shipment_type === 'dhl';
+          return true;
+        });
+        const totalToPay = selectedPackages.reduce((sum, p) => sum + parseFloat(String(p.assigned_cost_mxn || 0)), 0);
+        
         return (
           <FAB
-            icon={needsInstructions ? (isMaritimeSelection ? "ferry" : isChinaAirSelection ? "airplane" : "truck-delivery") : "airplane-takeoff"}
+            icon={needsInstructions 
+              ? (isMaritimeSelection ? "ferry" : isChinaAirSelection ? "airplane" : isDHLSelection ? "truck-delivery" : "package-variant") 
+              : isProcessingSelection 
+                ? "credit-card" 
+                : "airplane-takeoff"}
             label={needsInstructions 
-              ? `Asignar Instrucciones (${selectedIds.length})`
-              : `${t('home.requestConsolidation')} (${selectedIds.length})`}
-            style={styles.fabSend}
+              ? `📋 Asignar Instrucciones (${selectedIds.length})`
+              : isProcessingSelection
+                ? `💳 Pagar $${totalToPay.toFixed(2)} (${selectedIds.length})`
+                : `${t('home.requestConsolidation')} (${selectedIds.length})`}
+            style={[styles.fabSend, isProcessingSelection && { backgroundColor: '#4CAF50' }]}
             color="white"
-            onPress={needsInstructions ? handleMaritimeInstructions : handleConsolidate}
+            onPress={() => {
+              if (needsInstructions) {
+                handleMaritimeInstructions();
+              } else if (isProcessingSelection) {
+                // Navegar a pantalla de pago con resumen
+                navigation.navigate('PaymentSummary', {
+                  packages: selectedPackages,
+                  user,
+                  token,
+                });
+              } else {
+                handleConsolidate();
+              }
+            }}
           />
         );
       })()}
@@ -1370,6 +1503,25 @@ const styles = StyleSheet.create({
   trackingNumber: {
     fontSize: 12,
     color: '#666',
+  },
+  trackingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  multiPackageBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#9C27B0',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    gap: 3,
+  },
+  multiPackageText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#fff',
   },
   statusChip: {
     height: 28,

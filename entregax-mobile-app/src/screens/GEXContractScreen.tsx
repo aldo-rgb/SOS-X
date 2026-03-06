@@ -18,7 +18,6 @@ import {
   Card,
   Divider,
   Appbar,
-  Checkbox,
 } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -39,12 +38,27 @@ const DEFAULT_EXCHANGE_RATE = 17.82;
 const FIXED_FEE = 625;
 const VARIABLE_RATE = 0.05; // 5%
 
+// Tipo para paquetes hijos (multi-guía)
+interface ChildPackage {
+  id: number;
+  tracking: string;
+  boxNumber: number;
+  weight: number;
+  dimensions: {
+    length: number;
+    width: number;
+    height: number;
+  };
+  status: string;
+}
+
 type RootStackParamList = {
   Home: { user: any; token: string };
   GEXContract: { 
     package: Package; 
     user: any; 
     token: string;
+    childPackages?: ChildPackage[];
   };
 };
 
@@ -56,8 +70,20 @@ type GEXContractScreenProps = {
 type Step = 'form' | 'policies' | 'signature' | 'payment' | 'success';
 
 export default function GEXContractScreen({ navigation, route }: GEXContractScreenProps) {
-  const { package: pkg, user, token } = route.params;
+  const { package: pkg, user, token, childPackages = [] } = route.params;
   const signatureRef = useRef<SignatureViewRef>(null);
+  
+  // Determinar si es multi-guía
+  const isMultiPackage = pkg.is_master && childPackages.length > 0;
+  const totalBoxes = isMultiPackage ? childPackages.length : (pkg.total_boxes || 1);
+  
+  // Calcular peso total (master + hijas o solo master)
+  const getTotalWeight = (): number => {
+    if (isMultiPackage && childPackages.length > 0) {
+      return childPackages.reduce((sum, child) => sum + (child.weight || 0), 0);
+    }
+    return pkg.weight || 0;
+  };
   
   // 💱 Estado para tipo de cambio desde API
   const [exchangeRate, setExchangeRate] = useState<number>(DEFAULT_EXCHANGE_RATE);
@@ -123,9 +149,9 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
   const [formData, setFormData] = useState({
     clientName: user.name || user.full_name || '',
     invoiceValue: pkg.declared_value ? String(pkg.declared_value) : '',
-    boxCount: String(pkg.total_boxes || 1),
+    boxCount: String(totalBoxes),
     route: getRoute(),
-    weight: String(pkg.weight || 0),
+    weight: String(getTotalWeight()),
     description: pkg.description || '',
   });
   
@@ -247,6 +273,9 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
           description: formData.description,
           signature: signature,
           paymentOption: paymentOption,
+          // 📦 Multi-guía: incluir IDs de todas las cajas hijas
+          isMultiPackage: isMultiPackage,
+          childPackageIds: isMultiPackage ? childPackages.map(c => c.id) : [],
         }),
       });
       
@@ -283,6 +312,44 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
       <Text style={styles.sectionSubtitle}>
         Completa la información para proteger tu carga.
       </Text>
+
+      {/* 📦 INFORMACIÓN MULTI-GUÍA */}
+      {isMultiPackage && (
+        <Card style={styles.multiPackageCard} mode="elevated">
+          <Card.Content>
+            <View style={styles.multiPackageHeader}>
+              <MaterialCommunityIcons name="package-variant-closed-multiple" size={24} color="#7C3AED" />
+              <Text style={styles.multiPackageTitle}>Embarque Multi-Guía</Text>
+            </View>
+            <Text style={styles.multiPackageInfo}>
+              El seguro cubrirá <Text style={styles.multiPackageBold}>{totalBoxes} cajas</Text> con un solo valor declarado.
+            </Text>
+            
+            {/* Lista de cajas incluidas */}
+            <View style={styles.childPackagesList}>
+              {childPackages.map((child, index) => (
+                <View key={child.id} style={styles.childPackageItem}>
+                  <View style={styles.childPackageNumber}>
+                    <Text style={styles.childPackageNumberText}>{child.boxNumber || index + 1}</Text>
+                  </View>
+                  <View style={styles.childPackageDetails}>
+                    <Text style={styles.childPackageTracking}>{child.tracking}</Text>
+                    <Text style={styles.childPackageWeight}>
+                      {child.weight?.toFixed(2) || '0.00'} kg 
+                      {child.dimensions && ` • ${child.dimensions.length}×${child.dimensions.width}×${child.dimensions.height} cm`}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.multiPackageTotalRow}>
+              <Text style={styles.multiPackageTotalLabel}>Peso Total:</Text>
+              <Text style={styles.multiPackageTotalValue}>{getTotalWeight().toFixed(2)} kg</Text>
+            </View>
+          </Card.Content>
+        </Card>
+      )}
 
       {/* FORMULARIO EN TARJETA */}
       <Card style={styles.formCard} mode="elevated">
@@ -549,12 +616,15 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
             activeOpacity={hasScrolledToEnd ? 0.7 : 1}
             disabled={!hasScrolledToEnd}
           >
-            <Checkbox
-              status={acceptedPolicies ? 'checked' : 'unchecked'}
-              color={hasScrolledToEnd ? BRAND_GREEN : '#ccc'}
-              disabled={!hasScrolledToEnd}
-              onPress={() => hasScrolledToEnd && setAcceptedPolicies(!acceptedPolicies)}
-            />
+            <View style={[
+              styles.customCheckbox,
+              acceptedPolicies && styles.customCheckboxChecked,
+              !hasScrolledToEnd && styles.customCheckboxDisabled
+            ]}>
+              {acceptedPolicies && (
+                <MaterialCommunityIcons name="check" size={18} color="white" />
+              )}
+            </View>
             <Text style={[styles.acceptText, !hasScrolledToEnd && styles.acceptTextDisabled]}>
               He leído y acepto los términos y condiciones de la Garantía Extendida de Tiempo de Entrega en 90 días naturales
             </Text>
@@ -920,6 +990,93 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     marginLeft: 38,
   },
+
+  // 📦 ESTILOS MULTI-GUÍA
+  multiPackageCard: {
+    backgroundColor: '#F3E8FF',
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  multiPackageHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  multiPackageTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#7C3AED',
+    marginLeft: 8,
+  },
+  multiPackageInfo: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 12,
+  },
+  multiPackageBold: {
+    fontWeight: '700',
+    color: '#7C3AED',
+  },
+  childPackagesList: {
+    backgroundColor: 'white',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 12,
+  },
+  childPackageItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  childPackageNumber: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#7C3AED',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  childPackageNumberText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  childPackageDetails: {
+    flex: 1,
+  },
+  childPackageTracking: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  childPackageWeight: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+  multiPackageTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#7C3AED',
+    borderRadius: 8,
+    padding: 12,
+  },
+  multiPackageTotalLabel: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  multiPackageTotalValue: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '700',
+  },
   
   // Formulario
   formCard: {
@@ -1176,6 +1333,24 @@ const styles = StyleSheet.create({
   },
   acceptRowDisabled: {
     backgroundColor: '#f0f0f0',
+  },
+  customCheckbox: {
+    width: 26,
+    height: 26,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: BRAND_GREEN,
+    backgroundColor: 'white',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  customCheckboxChecked: {
+    backgroundColor: BRAND_GREEN,
+    borderColor: BRAND_GREEN,
+  },
+  customCheckboxDisabled: {
+    borderColor: '#ccc',
+    backgroundColor: '#f5f5f5',
   },
   acceptText: {
     flex: 1,

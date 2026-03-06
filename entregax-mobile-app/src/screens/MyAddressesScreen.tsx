@@ -52,7 +52,29 @@ interface Address {
   reference?: string;
   is_default: boolean;
   default_for_service?: string | null; // Ahora es string separado por comas: "maritime,air"
+  // 📦 Configuración de paquetería por servicio
+  carrier_config?: {
+    usa?: string;
+    maritime?: string;
+    air?: string;
+  };
 }
+
+// 🚚 Paqueterías disponibles por tipo de servicio
+const CARRIERS_BY_SERVICE: Record<string, { id: string; name: string; icon: string; cost: number }[]> = {
+  usa: [
+    { id: 'entregax_local', name: 'Entregax Local', icon: '🚛', cost: 0 },
+    { id: 'paquete_express', name: 'Paquete Express Interno', icon: '📦', cost: 350 },
+  ],
+  maritime: [
+    { id: 'entregax_terrestre', name: 'Entregax Terrestre', icon: '🚛', cost: 450 },
+    { id: 'fedex_ground', name: 'FedEx Ground', icon: '📦', cost: 550 },
+  ],
+  air: [
+    { id: 'entregax_express', name: 'Entregax Express', icon: '✈️', cost: 400 },
+    { id: 'dhl_express', name: 'DHL Express', icon: '📦', cost: 600 },
+  ],
+};
 
 export default function MyAddressesScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
@@ -66,6 +88,8 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
   const [selectedAddressForService, setSelectedAddressForService] = useState<Address | null>(null);
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [savingService, setSavingService] = useState(false);
+  // 📦 Estado para paqueterías seleccionadas por servicio
+  const [selectedCarriers, setSelectedCarriers] = useState<Record<string, string>>({});
 
   // Form state
   const [form, setForm] = useState({
@@ -231,17 +255,41 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
       ? address.default_for_service.split(',').filter(s => s.trim())
       : [];
     setSelectedServices(currentServices);
+    // 📦 Cargar las paqueterías configuradas para cada servicio
+    setSelectedCarriers(address.carrier_config || {});
     setShowServiceModal(true);
   };
 
   const toggleService = (service: string) => {
     setSelectedServices(prev => {
       if (prev.includes(service)) {
+        // Al deseleccionar el servicio, quitar también la paquetería
+        setSelectedCarriers(current => {
+          const updated = { ...current };
+          delete updated[service];
+          return updated;
+        });
         return prev.filter(s => s !== service);
       } else {
+        // Al seleccionar, preseleccionar la primera paquetería disponible
+        const carriers = CARRIERS_BY_SERVICE[service];
+        if (carriers && carriers.length > 0) {
+          setSelectedCarriers(current => ({
+            ...current,
+            [service]: carriers[0].id
+          }));
+        }
         return [...prev, service];
       }
     });
+  };
+
+  // 📦 Función para cambiar la paquetería de un servicio
+  const selectCarrierForService = (service: string, carrierId: string) => {
+    setSelectedCarriers(prev => ({
+      ...prev,
+      [service]: carrierId
+    }));
   };
 
   const saveServices = async () => {
@@ -255,12 +303,17 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}` 
         },
-        body: JSON.stringify({ services: selectedServices.length > 0 ? selectedServices : null }),
+        body: JSON.stringify({ 
+          services: selectedServices.length > 0 ? selectedServices : null,
+          // 📦 Incluir configuración de paqueterías
+          carrier_config: Object.keys(selectedCarriers).length > 0 ? selectedCarriers : null
+        }),
       });
       if (response.ok) {
         setShowServiceModal(false);
         setSelectedAddressForService(null);
         setSelectedServices([]);
+        setSelectedCarriers({});
         fetchAddresses();
         Alert.alert(
           '✅ Guardado', 
@@ -274,6 +327,13 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
     } finally {
       setSavingService(false);
     }
+  };
+
+  // 📦 Obtener nombre de la paquetería
+  const getCarrierName = (service: string, carrierId: string): string => {
+    const carriers = CARRIERS_BY_SERVICE[service];
+    const carrier = carriers?.find(c => c.id === carrierId);
+    return carrier ? `${carrier.icon} ${carrier.name}` : carrierId;
   };
 
   const getServiceLabel = (service: string): string => {
@@ -326,13 +386,22 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                     </Text>
                     {getServiceChips(address.default_for_service).length > 0 && (
                       <View style={styles.serviceChipsRow}>
-                        {getServiceChips(address.default_for_service).map((svc) => (
-                          <View key={svc} style={styles.serviceChipSmall}>
-                            <Text style={styles.serviceChipSmallText}>
-                              {svc === 'maritime' ? '🚢 Marítimo' : svc === 'air' ? '✈️ Aéreo' : svc === 'usa' ? '🇺🇸 USA' : '🌐 Todos'}
-                            </Text>
-                          </View>
-                        ))}
+                        {getServiceChips(address.default_for_service).map((svc) => {
+                          const carrierId = address.carrier_config?.[svc];
+                          const carrier = carrierId ? CARRIERS_BY_SERVICE[svc]?.find(c => c.id === carrierId) : null;
+                          return (
+                            <View key={svc} style={styles.serviceChipWithCarrier}>
+                              <Text style={styles.serviceChipSmallText}>
+                                {svc === 'maritime' ? '🚢 Marítimo' : svc === 'air' ? '✈️ Aéreo' : svc === 'usa' ? '🇺🇸 USA' : '🌐 Todos'}
+                              </Text>
+                              {carrier && (
+                                <Text style={styles.carrierChipText}>
+                                  {carrier.icon} {carrier.name}
+                                </Text>
+                              )}
+                            </View>
+                          );
+                        })}
                       </View>
                     )}
                   </View>
@@ -550,13 +619,14 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
               <View style={styles.serviceModalHeaderIcon}>
                 <Ionicons name="location" size={28} color={ORANGE} />
               </View>
-              <Text style={styles.serviceModalTitle}>Asignar a servicios</Text>
+              <Text style={styles.serviceModalTitle}>Configurar servicios</Text>
               <Text style={styles.serviceModalSubtitle}>
-                Selecciona los servicios para los que esta dirección se usará automáticamente
+                Selecciona los servicios y la paquetería preferida para cada uno
               </Text>
             </View>
 
-            <View style={styles.serviceOptionsContainer}>
+            <ScrollView style={styles.serviceOptionsContainer} showsVerticalScrollIndicator={false}>
+              {/* === MARÍTIMO === */}
               <TouchableOpacity 
                 style={[styles.serviceOptionCard, selectedServices.includes('maritime') && styles.serviceOptionCardActive]}
                 onPress={() => toggleService('maritime')}
@@ -574,7 +644,36 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                   )}
                 </View>
               </TouchableOpacity>
+              
+              {/* 📦 Selector de paquetería para Marítimo */}
+              {selectedServices.includes('maritime') && (
+                <View style={styles.carrierSelector}>
+                  <Text style={styles.carrierSelectorLabel}>Paquetería para Marítimo:</Text>
+                  {CARRIERS_BY_SERVICE.maritime.map((carrier) => (
+                    <TouchableOpacity
+                      key={carrier.id}
+                      style={[
+                        styles.carrierOption,
+                        selectedCarriers.maritime === carrier.id && styles.carrierOptionSelected
+                      ]}
+                      onPress={() => selectCarrierForService('maritime', carrier.id)}
+                    >
+                      <Text style={styles.carrierOptionIcon}>{carrier.icon}</Text>
+                      <View style={styles.carrierOptionInfo}>
+                        <Text style={styles.carrierOptionName}>{carrier.name}</Text>
+                        <Text style={styles.carrierOptionCost}>
+                          {carrier.cost === 0 ? 'Sin costo' : `$${carrier.cost} MXN`}
+                        </Text>
+                      </View>
+                      <View style={[styles.radioCircle, selectedCarriers.maritime === carrier.id && styles.radioCircleSelected]}>
+                        {selectedCarriers.maritime === carrier.id && <View style={styles.radioCircleInner} />}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
 
+              {/* === AÉREO === */}
               <TouchableOpacity 
                 style={[styles.serviceOptionCard, selectedServices.includes('air') && styles.serviceOptionCardActive]}
                 onPress={() => toggleService('air')}
@@ -593,6 +692,35 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                 </View>
               </TouchableOpacity>
 
+              {/* 📦 Selector de paquetería para Aéreo */}
+              {selectedServices.includes('air') && (
+                <View style={styles.carrierSelector}>
+                  <Text style={styles.carrierSelectorLabel}>Paquetería para Aéreo:</Text>
+                  {CARRIERS_BY_SERVICE.air.map((carrier) => (
+                    <TouchableOpacity
+                      key={carrier.id}
+                      style={[
+                        styles.carrierOption,
+                        selectedCarriers.air === carrier.id && styles.carrierOptionSelected
+                      ]}
+                      onPress={() => selectCarrierForService('air', carrier.id)}
+                    >
+                      <Text style={styles.carrierOptionIcon}>{carrier.icon}</Text>
+                      <View style={styles.carrierOptionInfo}>
+                        <Text style={styles.carrierOptionName}>{carrier.name}</Text>
+                        <Text style={styles.carrierOptionCost}>
+                          {carrier.cost === 0 ? 'Sin costo' : `$${carrier.cost} MXN`}
+                        </Text>
+                      </View>
+                      <View style={[styles.radioCircle, selectedCarriers.air === carrier.id && styles.radioCircleSelected]}>
+                        {selectedCarriers.air === carrier.id && <View style={styles.radioCircleInner} />}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {/* === USA === */}
               <TouchableOpacity 
                 style={[styles.serviceOptionCard, selectedServices.includes('usa') && styles.serviceOptionCardActive]}
                 onPress={() => toggleService('usa')}
@@ -610,7 +738,35 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                   )}
                 </View>
               </TouchableOpacity>
-            </View>
+
+              {/* 📦 Selector de paquetería para USA */}
+              {selectedServices.includes('usa') && (
+                <View style={styles.carrierSelector}>
+                  <Text style={styles.carrierSelectorLabel}>Paquetería para USA:</Text>
+                  {CARRIERS_BY_SERVICE.usa.map((carrier) => (
+                    <TouchableOpacity
+                      key={carrier.id}
+                      style={[
+                        styles.carrierOption,
+                        selectedCarriers.usa === carrier.id && styles.carrierOptionSelected
+                      ]}
+                      onPress={() => selectCarrierForService('usa', carrier.id)}
+                    >
+                      <Text style={styles.carrierOptionIcon}>{carrier.icon}</Text>
+                      <View style={styles.carrierOptionInfo}>
+                        <Text style={styles.carrierOptionName}>{carrier.name}</Text>
+                        <Text style={styles.carrierOptionCost}>
+                          {carrier.cost === 0 ? 'Sin costo' : `$${carrier.cost} MXN`}
+                        </Text>
+                      </View>
+                      <View style={[styles.radioCircle, selectedCarriers.usa === carrier.id && styles.radioCircleSelected]}>
+                        {selectedCarriers.usa === carrier.id && <View style={styles.radioCircleInner} />}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </ScrollView>
 
             <View style={styles.serviceModalFooter}>
               <TouchableOpacity 
@@ -619,6 +775,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                   setShowServiceModal(false);
                   setSelectedAddressForService(null);
                   setSelectedServices([]);
+                  setSelectedCarriers({});
                 }}
               >
                 <Text style={styles.cancelServiceButtonText}>Cancelar</Text>
@@ -850,10 +1007,22 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginLeft: 4,
   },
+  serviceChipWithCarrier: {
+    backgroundColor: '#E3F2FD',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
+    marginLeft: 4,
+  },
   serviceChipSmallText: {
     color: '#1976D2',
     fontSize: 11,
     fontWeight: '600',
+  },
+  carrierChipText: {
+    color: '#666',
+    fontSize: 9,
+    marginTop: 1,
   },
   serviceModalOverlay: {
     flex: 1,
@@ -981,5 +1150,69 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: '600',
     fontSize: 15,
+  },
+  // 📦 Estilos para selector de paquetería
+  carrierSelector: {
+    marginLeft: 20,
+    marginBottom: 16,
+    paddingLeft: 16,
+    borderLeftWidth: 2,
+    borderLeftColor: ORANGE + '40',
+  },
+  carrierSelectorLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#666',
+    marginBottom: 10,
+  },
+  carrierOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 10,
+    backgroundColor: '#F8F8F8',
+    marginBottom: 8,
+    borderWidth: 1.5,
+    borderColor: 'transparent',
+  },
+  carrierOptionSelected: {
+    borderColor: ORANGE,
+    backgroundColor: ORANGE + '08',
+  },
+  carrierOptionIcon: {
+    fontSize: 20,
+    marginRight: 12,
+  },
+  carrierOptionInfo: {
+    flex: 1,
+  },
+  carrierOptionName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: BLACK,
+  },
+  carrierOptionCost: {
+    fontSize: 12,
+    color: '#4CAF50',
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  radioCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: '#CCC',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  radioCircleSelected: {
+    borderColor: ORANGE,
+  },
+  radioCircleInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: ORANGE,
   },
 });

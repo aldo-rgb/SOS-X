@@ -87,6 +87,10 @@ export default function FiscalPage() {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
   const [tabValue, setTabValue] = useState(0);
   
+  // Configuración de servicios por empresa
+  const [serviceConfig, setServiceConfig] = useState<any[]>([]);
+  const [savingService, setSavingService] = useState<number | null>(null);
+  
   // Modal crear/editar emisor
   const [openModal, setOpenModal] = useState(false);
   const [editingEmitter, setEditingEmitter] = useState<FiscalEmitter | null>(null);
@@ -113,14 +117,16 @@ export default function FiscalPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [emittersRes, invoicesRes] = await Promise.all([
+      const [emittersRes, invoicesRes, serviceConfigRes] = await Promise.all([
         axios.get(`${API_URL}/admin/openpay/empresas`, { headers: { Authorization: `Bearer ${getToken()}` } }).catch(() =>
           axios.get(`${API_URL}/admin/fiscal/emitters`, { headers: { Authorization: `Bearer ${getToken()}` } })
         ),
-        axios.get(`${API_URL}/admin/invoices`, { headers: { Authorization: `Bearer ${getToken()}` } }).catch(() => ({ data: [] }))
+        axios.get(`${API_URL}/admin/invoices`, { headers: { Authorization: `Bearer ${getToken()}` } }).catch(() => ({ data: [] })),
+        axios.get(`${API_URL}/admin/fiscal/service-config`, { headers: { Authorization: `Bearer ${getToken()}` } }).catch(() => ({ data: [] }))
       ]);
       setEmitters(emittersRes.data);
       setInvoices(invoicesRes.data);
+      setServiceConfig(serviceConfigRes.data || []);
     } catch (error) {
       console.error('Error loading data:', error);
       setSnackbar({ open: true, message: 'Error al cargar datos', severity: 'error' });
@@ -132,6 +138,24 @@ export default function FiscalPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Guardar asignación de empresa a servicio
+  const handleSaveServiceConfig = async (serviceId: number, emitterId: number | null) => {
+    setSavingService(serviceId);
+    try {
+      await axios.put(`${API_URL}/admin/fiscal/service-config/${serviceId}`, 
+        { emitter_id: emitterId },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setSnackbar({ open: true, message: '✅ Configuración guardada', severity: 'success' });
+      loadData();
+    } catch (error) {
+      console.error('Error saving service config:', error);
+      setSnackbar({ open: true, message: 'Error al guardar configuración', severity: 'error' });
+    } finally {
+      setSavingService(null);
+    }
+  };
 
   const handleOpenModal = (emitter?: FiscalEmitter) => {
     if (emitter) {
@@ -343,6 +367,7 @@ export default function FiscalPage() {
       <Paper sx={{ mb: 3, borderRadius: 2 }}>
         <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tab icon={<BusinessIcon />} label={i18n.language === 'es' ? 'Mis Empresas' : 'My Companies'} />
+          <Tab icon={<SettingsIcon />} label="Servicios" />
           <Tab icon={<ReceiptLongIcon />} label={i18n.language === 'es' ? 'Facturas' : 'Invoices'} />
         </Tabs>
       </Paper>
@@ -450,8 +475,116 @@ export default function FiscalPage() {
         </Paper>
       )}
 
-      {/* Tab Facturas */}
+      {/* Tab Servicios - Configuración de empresa por servicio */}
       {tabValue === 1 && (
+        <Paper elevation={3} sx={{ borderRadius: 3, overflow: 'hidden' }}>
+          <Box sx={{ bgcolor: BLACK, px: 3, py: 2 }}>
+            <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
+              ⚙️ Configuración de Servicios por Empresa
+            </Typography>
+          </Box>
+
+          <Alert severity="info" sx={{ m: 2 }}>
+            Asigna qué empresa (RFC) cobrará cada tipo de servicio. El sistema enviará las instrucciones de pago correspondientes según el servicio.
+          </Alert>
+
+          <TableContainer>
+            <Table>
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'grey.100' }}>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Servicio</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Código</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }}>Empresa Asignada</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }} align="center">Estado</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold' }} align="center">Acciones</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {serviceConfig.map((service) => (
+                  <TableRow key={service.id} hover>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {service.service_type === 'POBOX_USA' && '📦'}
+                        {service.service_type === 'AIR_CHN_MX' && '✈️'}
+                        {service.service_type === 'SEA_CHN_MX' && '🚢'}
+                        {service.service_type === 'AA_DHL' && '🚚'}
+                        <Typography fontWeight="medium">{service.service_name}</Typography>
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Chip label={service.service_type} size="small" variant="outlined" />
+                    </TableCell>
+                    <TableCell>
+                      <FormControl size="small" sx={{ minWidth: 250 }}>
+                        <Select
+                          value={service.emitter_id || ''}
+                          onChange={(e) => handleSaveServiceConfig(service.id, e.target.value ? Number(e.target.value) : null)}
+                          displayEmpty
+                        >
+                          <MenuItem value="">
+                            <em>Sin asignar</em>
+                          </MenuItem>
+                          {emitters.filter(e => e.is_active).map((emitter) => (
+                            <MenuItem key={emitter.id} value={emitter.id}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <BusinessIcon fontSize="small" />
+                                {emitter.alias || emitter.business_name} ({emitter.rfc})
+                              </Box>
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </TableCell>
+                    <TableCell align="center">
+                      {service.emitter_id ? (
+                        <Chip 
+                          icon={<CheckCircleIcon />} 
+                          label="Configurado" 
+                          color="success" 
+                          size="small" 
+                        />
+                      ) : (
+                        <Chip 
+                          icon={<CancelIcon />} 
+                          label="Sin Asignar" 
+                          color="warning" 
+                          size="small" 
+                          variant="outlined"
+                        />
+                      )}
+                    </TableCell>
+                    <TableCell align="center">
+                      {savingService === service.id ? (
+                        <CircularProgress size={20} />
+                      ) : (
+                        service.emitter_alias && (
+                          <Tooltip title={`Empresa: ${service.emitter_alias}`}>
+                            <Chip 
+                              label={service.emitter_rfc} 
+                              size="small" 
+                              color="primary" 
+                              variant="outlined"
+                            />
+                          </Tooltip>
+                        )
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          <Box sx={{ p: 2, bgcolor: 'grey.50' }}>
+            <Typography variant="caption" color="text.secondary">
+              💡 Las instrucciones de pago (CLABE, transferencia, etc.) se enviarán según la empresa configurada para cada servicio.
+            </Typography>
+          </Box>
+        </Paper>
+      )}
+
+      {/* Tab Facturas */}
+      {tabValue === 2 && (
         <Paper elevation={3} sx={{ borderRadius: 3, overflow: 'hidden' }}>
           <Box sx={{ bgcolor: BLACK, px: 3, py: 2 }}>
             <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>

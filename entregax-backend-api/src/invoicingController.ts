@@ -962,3 +962,97 @@ export const getServiceInvoicingSummary = async (req: Request, res: Response): P
         res.status(500).json({ error: 'Error al obtener resumen' });
     }
 };
+
+// ========== CONFIGURACIÓN DE SERVICIOS POR EMPRESA ==========
+
+// Obtener configuración de servicios
+export const getServiceCompanyConfig = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                scc.id,
+                scc.service_type,
+                scc.service_name,
+                scc.emitter_id,
+                scc.is_active,
+                fe.alias as emitter_alias,
+                fe.rfc as emitter_rfc,
+                fe.business_name as emitter_business_name
+            FROM service_company_config scc
+            LEFT JOIN fiscal_emitters fe ON scc.emitter_id = fe.id
+            ORDER BY scc.id
+        `);
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error getting service company config:', error);
+        res.status(500).json({ error: 'Error al obtener configuración de servicios' });
+    }
+};
+
+// Actualizar configuración de servicio (asignar empresa)
+export const updateServiceCompanyConfig = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { id } = req.params;
+        const { emitter_id, is_active } = req.body;
+
+        const result = await pool.query(`
+            UPDATE service_company_config 
+            SET emitter_id = $1, is_active = $2, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $3
+            RETURNING *
+        `, [emitter_id || null, is_active !== false, id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Configuración no encontrada' });
+        }
+
+        // Obtener datos completos con la empresa
+        const updated = await pool.query(`
+            SELECT 
+                scc.*,
+                fe.alias as emitter_alias,
+                fe.rfc as emitter_rfc,
+                fe.business_name as emitter_business_name
+            FROM service_company_config scc
+            LEFT JOIN fiscal_emitters fe ON scc.emitter_id = fe.id
+            WHERE scc.id = $1
+        `, [id]);
+
+        console.log(`✅ Servicio ${id} actualizado: empresa_id=${emitter_id}`);
+        res.json({ message: 'Configuración actualizada', config: updated.rows[0] });
+    } catch (error) {
+        console.error('Error updating service company config:', error);
+        res.status(500).json({ error: 'Error al actualizar configuración' });
+    }
+};
+
+// Obtener empresa asignada a un tipo de servicio (para instrucciones de pago)
+export const getEmitterByServiceType = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { service_type } = req.params;
+
+        const result = await pool.query(`
+            SELECT 
+                scc.service_type,
+                scc.service_name,
+                fe.id as emitter_id,
+                fe.alias as emitter_alias,
+                fe.rfc as emitter_rfc,
+                fe.business_name,
+                fe.openpay_configured,
+                fe.openpay_production_mode
+            FROM service_company_config scc
+            LEFT JOIN fiscal_emitters fe ON scc.emitter_id = fe.id
+            WHERE scc.service_type = $1 AND scc.is_active = TRUE
+        `, [service_type]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Servicio no configurado' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error getting emitter by service type:', error);
+        res.status(500).json({ error: 'Error al obtener configuración' });
+    }
+};
