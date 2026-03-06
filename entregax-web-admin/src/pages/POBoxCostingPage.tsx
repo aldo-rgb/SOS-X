@@ -89,6 +89,9 @@ interface PackageCosting {
     user_name?: string;
     costing_paid?: boolean;
     costing_paid_at?: string;
+    pobox_service_cost?: number;    // Costo guardado al registrar
+    registered_exchange_rate?: number; // TC guardado al registrar
+    tc_registro?: number;           // Alias para TC (UI)
 }
 
 interface TabPanelProps {

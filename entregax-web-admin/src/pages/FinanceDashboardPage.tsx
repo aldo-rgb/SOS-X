@@ -44,7 +44,6 @@ import {
   Receipt,
   ArrowBack,
   Business,
-  AttachMoney,
 } from '@mui/icons-material';
 import {
   PieChart,

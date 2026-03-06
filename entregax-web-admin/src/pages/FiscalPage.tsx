@@ -8,7 +8,7 @@ import {
   Alert, Snackbar, Tooltip, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions,
   FormControl, InputLabel, Select, MenuItem, Switch, FormControlLabel, Tabs, Tab,
-  Divider, LinearProgress
+  Divider
 } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import BusinessIcon from '@mui/icons-material/Business';
@@ -20,7 +20,6 @@ import DescriptionIcon from '@mui/icons-material/Description';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
-import PaymentsIcon from '@mui/icons-material/Payments';
 import SettingsIcon from '@mui/icons-material/Settings';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
