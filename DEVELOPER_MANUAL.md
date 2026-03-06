@@ -1,7 +1,7 @@
 # 📚 EntregaX - Manual del Programador
 
-> **Última actualización:** 4 de marzo de 2026  
-> **Versión:** 2.9.0
+> **Última actualización:** 5 de marzo de 2026  
+> **Versión:** 2.10.0
 
 ---
 
@@ -20,22 +20,23 @@
 11. [Sistema de Permisos Granulares](#sistema-de-permisos-granulares)
 12. [Sistema de Bodegas Multi-Ubicación](#sistema-de-bodegas-multi-ubicación)
 13. [Motor de Precios](#motor-de-precios)
-14. [Costeo PO Box USA](#costeo-po-box-usa) ⭐ NUEVO
-15. [Sistema de Facturación Fiscal](#sistema-de-facturación-fiscal)
-16. [Sistema de Verificación KYC](#sistema-de-verificación-kyc)
-17. [Sistema de Pagos](#sistema-de-pagos)
-18. [Sistema de Pagos a Proveedores](#sistema-de-pagos-a-proveedores)
-19. [Openpay Multi-Empresa - Cobranza SPEI](#openpay-multi-empresa---cobranza-spei)
-20. [Sistema de Direcciones](#sistema-de-direcciones)
-21. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo)
-22. [Panel Marítimo China](#panel-marítimo-china)
-23. [Integración con OpenAI](#integración-con-openai)
-24. [DHL Monterrey - Costeo](#dhl-monterrey---costeo)
-25. [Tradlinx Ocean Visibility](#tradlinx-ocean-visibility---tracking-de-contenedores)
-26. [Módulos Implementados](#módulos-implementados)
-27. [Guía de Desarrollo](#guía-de-desarrollo)
-28. [Credenciales de Prueba](#credenciales-de-prueba)
-29. [Changelog](#changelog)
+14. [Costeo PO Box USA](#costeo-po-box-usa)
+15. [Garantía Extendida GEX](#garantía-extendida-gex) ⭐ NUEVO
+16. [Sistema de Facturación Fiscal](#sistema-de-facturación-fiscal)
+17. [Sistema de Verificación KYC](#sistema-de-verificación-kyc)
+18. [Sistema de Pagos](#sistema-de-pagos)
+19. [Sistema de Pagos a Proveedores](#sistema-de-pagos-a-proveedores)
+20. [Openpay Multi-Empresa - Cobranza SPEI](#openpay-multi-empresa---cobranza-spei)
+21. [Sistema de Direcciones](#sistema-de-direcciones)
+22. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo)
+23. [Panel Marítimo China](#panel-marítimo-china)
+24. [Integración con OpenAI](#integración-con-openai)
+25. [DHL Monterrey - Costeo](#dhl-monterrey---costeo)
+26. [Tradlinx Ocean Visibility](#tradlinx-ocean-visibility---tracking-de-contenedores)
+27. [Módulos Implementados](#módulos-implementados)
+28. [Guía de Desarrollo](#guía-de-desarrollo)
+29. [Credenciales de Prueba](#credenciales-de-prueba)
+30. [Changelog](#changelog)
 
 ---
 
@@ -1914,6 +1915,240 @@ El panel de costeo PO Box (`POBoxCostingPage.tsx`) incluye:
 │  - pobox_cost_usd
 │  - registered_exchange_rate
 └─────────────────┘
+```
+
+---
+
+## 🛡️ Garantía Extendida GEX
+
+### Descripción General
+
+La Garantía Extendida GEX es un seguro opcional que los clientes pueden contratar para proteger sus envíos contra daños, pérdida o robo durante el tránsito.
+
+### Fórmula de Cálculo GEX
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                   FÓRMULA DE CÁLCULO GEX                        │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  ENTRADA: Valor declarado por el cliente (USD)                  │
+│  ─────────────────────────────────────────────                  │
+│                                                                  │
+│  PASO 1: Convertir a MXN                                        │
+│  ─────────────────────────────────────────────                  │
+│  Valor Asegurado (MXN) = Valor USD × TC API                     │
+│                                                                  │
+│  PASO 2: Calcular prima variable (5%)                           │
+│  ─────────────────────────────────────────────                  │
+│  Prima = Valor Asegurado × 0.05                                 │
+│                                                                  │
+│  PASO 3: Sumar costo fijo de póliza                             │
+│  ─────────────────────────────────────────────                  │
+│  Costo Fijo = $625.00 MXN                                       │
+│                                                                  │
+│  PASO 4: Total GEX                                              │
+│  ─────────────────────────────────────────────                  │
+│  Total GEX = Prima + Costo Fijo                                 │
+│                                                                  │
+│  PASO 5: Nuevo Saldo Pendiente                                  │
+│  ─────────────────────────────────────────────                  │
+│  Saldo = Servicio PO Box + Total GEX                            │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Parámetros de Configuración GEX
+
+| Parámetro | Valor | Descripción |
+|-----------|-------|-------------|
+| `variablePercent` | 5% (0.05) | Porcentaje sobre valor asegurado |
+| `fixedFee` | $625.00 MXN | Costo fijo de la póliza |
+| Tipo de cambio | API en tiempo real | Se obtiene de `exchange_rates` |
+
+### Tabla: `warranties` (Pólizas GEX)
+
+```sql
+CREATE TABLE warranties (
+    id SERIAL PRIMARY KEY,
+    gex_folio VARCHAR(20) NOT NULL,       -- GEX-2026-00001
+    user_id INTEGER REFERENCES users(id),
+    advisor_id INTEGER REFERENCES users(id),
+    box_count INTEGER,
+    volume NUMERIC(10,2),                 -- Peso/volumen
+    invoice_value_usd NUMERIC(10,2),      -- Valor declarado USD
+    route VARCHAR(100),                   -- Ruta (USA→MX, China→MX)
+    description TEXT,
+    signed_contract_url TEXT,             -- Firma digital base64
+    exchange_rate_used NUMERIC(10,4),     -- TC al momento
+    insured_value_mxn NUMERIC(10,2),      -- Valor asegurado MXN
+    variable_fee_mxn NUMERIC(10,2),       -- Prima 5%
+    fixed_fee_mxn NUMERIC(10,2),          -- Costo fijo $625
+    total_cost_mxn NUMERIC(10,2),         -- Total GEX
+    advisor_commission NUMERIC(10,2),     -- Comisión asesor
+    status VARCHAR(20) DEFAULT 'generated', -- generated, pending_payment, active, claimed
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Secuencia para folios GEX
+CREATE SEQUENCE gex_sequence START 1;
+```
+
+### Campos GEX en Tabla `packages`
+
+Cuando se contrata GEX, estos campos se actualizan en `packages`:
+
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `has_gex` | BOOLEAN | Si tiene GEX contratado |
+| `gex_folio` | VARCHAR | Folio de la póliza (GEX-2026-XXXXX) |
+| `declared_value` | NUMERIC(10,2) | Valor declarado en USD |
+| `gex_insurance_cost` | NUMERIC(10,2) | Prima del seguro (5%) en MXN |
+| `gex_fixed_cost` | NUMERIC(10,2) | Costo fijo póliza ($625 MXN) |
+| `gex_total_cost` | NUMERIC(10,2) | Total GEX en MXN |
+| `saldo_pendiente` | NUMERIC(10,2) | Saldo total a cobrar (PO Box + GEX) |
+
+### Endpoints GEX
+
+```http
+# Obtener cotización GEX
+POST /api/gex/quote
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "invoiceValueUsd": 500.00
+}
+
+Response:
+{
+  "invoiceValueUsd": 500.00,
+  "exchangeRate": 18.20,
+  "insuredValueMxn": 9100.00,
+  "variableFeeMxn": 455.00,
+  "fixedFeeMxn": 625.00,
+  "totalCostMxn": 1080.00,
+  "advisorCommission": 625.00
+}
+```
+
+```http
+# Contratar GEX (autoservicio cliente)
+POST /api/gex/warranties/self
+Authorization: Bearer <token>
+Content-Type: application/json
+
+{
+  "packageId": 123,
+  "serviceType": "POBOX_USA",
+  "invoiceValueUSD": 500.00,
+  "boxCount": 1,
+  "route": "USA → México",
+  "weight": 2.5,
+  "description": "Electrónicos varios",
+  "signature": "base64...",      // Firma digital del cliente
+  "paymentOption": "withShipment" // now | withShipment
+}
+
+Response:
+{
+  "success": true,
+  "message": "Garantía Extendida contratada exitosamente",
+  "warranty": {
+    "id": 456,
+    "folio": "GEX-2026-00113",
+    "invoiceValueUSD": 500.00,
+    "insuredValueMXN": 9100.00,
+    "totalCost": 1080.00,
+    "status": "generated",
+    "paymentOption": "withShipment"
+  }
+}
+```
+
+### Flujo de Contratación GEX (Mobile App)
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    FLUJO DE CONTRATACIÓN GEX                    │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  PackageDetailScreen                                            │
+│  └── Botón "Contratar GEX" (si has_gex = false)                │
+│       │                                                          │
+│       ▼                                                          │
+│  GEXContractScreen (4 pasos)                                    │
+│  │                                                               │
+│  ├── Paso 1: FORMULARIO                                         │
+│  │   - Valor de factura (USD)                                   │
+│  │   - Descripción de mercancía                                 │
+│  │   - Calculadora en tiempo real                               │
+│  │                                                               │
+│  ├── Paso 2: POLÍTICAS                                          │
+│  │   - Términos y condiciones GEX                               │
+│  │   - Scroll obligatorio + checkbox                            │
+│  │                                                               │
+│  ├── Paso 3: FIRMA DIGITAL                                      │
+│  │   - Canvas para firma con el dedo                            │
+│  │   - Se guarda como base64                                    │
+│  │                                                               │
+│  └── Paso 4: CONFIRMACIÓN                                       │
+│      - Opción de pago: Ahora / Con embarque                     │
+│      - Resumen final                                            │
+│      │                                                           │
+│      ▼                                                           │
+│  POST /api/gex/warranties/self                                  │
+│  │                                                               │
+│  ▼                                                               │
+│  warrantyController.ts                                          │
+│  └── createWarrantyByUser()                                     │
+│      1. Crear registro en `warranties`                          │
+│      2. Actualizar `packages`:                                  │
+│         - has_gex = true                                        │
+│         - gex_folio, declared_value                             │
+│         - gex_insurance_cost, gex_fixed_cost                    │
+│         - gex_total_cost                                        │
+│         - saldo_pendiente = assigned_cost + gex_total           │
+│      │                                                           │
+│      ▼                                                           │
+│  PackageDetailScreen                                            │
+│  └── Muestra badge "GEX Contratado" ✓                          │
+│  └── SALDO PENDIENTE incluye GEX                                │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Ejemplo Completo de Cálculo
+
+```javascript
+// Datos de entrada
+const invoiceValueUsd = 123.00;  // Valor declarado por cliente
+const exchangeRate = 18.20;      // TC actual
+
+// Cálculos
+const insuredValueMxn = invoiceValueUsd * exchangeRate;  // 2238.60 MXN
+const variableFee = insuredValueMxn * 0.05;              // 111.93 MXN (5%)
+const fixedFee = 625.00;                                  // 625.00 MXN
+const gexTotal = variableFee + fixedFee;                  // 736.93 MXN
+
+// Saldo pendiente (si servicio PO Box = $2,116.53)
+const poboxCost = 2116.53;
+const saldoPendiente = poboxCost + gexTotal;              // 2853.46 MXN
+```
+
+### Archivos Relacionados
+
+```
+entregax-backend-api/
+├── src/warrantyController.ts     # Lógica de contratación GEX
+│   ├── getGexRates()             # Obtener tarifas de BD
+│   ├── createWarrantyByUser()    # Endpoint autoservicio
+│   └── createWarrantyByAdmin()   # Endpoint para admins
+
+entregax-mobile-app/
+├── src/screens/
+│   ├── GEXContractScreen.tsx     # Wizard de contratación (4 pasos)
+│   └── PackageDetailScreen.tsx   # Muestra info GEX + saldo
 ```
 
 ---
@@ -4123,6 +4358,106 @@ curl -s "http://localhost:3001/api/warehouse/stats" \
 ---
 
 ## 📝 Changelog
+
+### v2.10.0 (5 Mar 2026) - GEX AUTO-GUARDADO Y SALDO PENDIENTE ⭐
+
+#### Garantía Extendida GEX - Guardado Automático de Costos
+- ✅ **warrantyController.ts** - Al contratar GEX para paquetes PO Box USA, ahora se guardan automáticamente:
+  - `declared_value` - Valor declarado en USD
+  - `gex_insurance_cost` - Prima del seguro (5% del valor asegurado)
+  - `gex_fixed_cost` - Costo fijo de póliza ($625 MXN)
+  - `gex_total_cost` - Total del GEX (prima + fijo)
+  - `saldo_pendiente` - Actualizado con: Servicio PO Box + GEX Total
+- ✅ **Cálculo automático** - El nuevo saldo_pendiente se calcula al momento de contratar
+- ✅ **Logs mejorados** - Console log detallado con costos y nuevo saldo
+
+#### Mobile App - SALDO PENDIENTE Correcto
+- ✅ **PackageDetailScreen.tsx** - SALDO PENDIENTE ahora usa `details.saldo_pendiente` directamente de BD
+- ✅ **Eliminada recalculación** - Ya no se recalcula en frontend, se confía en el valor guardado
+- ✅ **Fórmula correcta**: `SALDO = Servicio PO Box + Subtotal GEX`
+
+#### Mobile App - Mejoras UI GEX
+- ✅ **Título simplificado** - Removido "(Todos los paquetes)" del título "Garantía Extendida GEX"
+- ✅ **REPACK** - Muestra "1 caja" en lugar del total de cajas originales
+- ✅ **Consistencia** - Texto limpio sin redundancias
+
+#### Flujo de Contratación GEX Corregido
+```
+┌─────────────────────┐
+│  GEXContractScreen  │  Usuario ingresa valor declarado
+│  + Firma digital    │
+└──────────┬──────────┘
+           ▼
+┌─────────────────────┐
+│  POST /api/gex/     │  
+│  warranties/self    │  Backend procesa contratación
+└──────────┬──────────┘
+           ▼
+┌─────────────────────────────────────────────────────────┐
+│  warrantyController.ts - createWarrantyByUser()        │
+│                                                         │
+│  1. Validar datos de entrada                           │
+│  2. Obtener TC actual y tarifas GEX                    │
+│  3. Calcular:                                          │
+│     - insuredValueMxn = invoiceValueUSD × TC           │
+│     - variableFee = insuredValueMxn × 0.05 (5%)        │
+│     - fixedFee = $625 MXN                              │
+│     - totalCost = variableFee + fixedFee               │
+│  4. Crear póliza en tabla `warranties`                 │
+│  5. ⭐ NUEVO: Actualizar tabla `packages`:              │
+│     - declared_value = invoiceValueUSD                 │
+│     - gex_insurance_cost = variableFee                 │
+│     - gex_fixed_cost = fixedFee                        │
+│     - gex_total_cost = totalCost                       │
+│     - saldo_pendiente = assigned_cost_mxn + totalCost  │
+└─────────────────────────────────────────────────────────┘
+           ▼
+┌─────────────────────┐
+│  PackageDetailScreen│  Muestra saldo_pendiente de BD
+│  $X,XXX.XX MXN      │  (ya incluye PO Box + GEX)
+└─────────────────────┘
+```
+
+#### Campos GEX en Tabla `packages`
+| Campo | Tipo | Descripción |
+|-------|------|-------------|
+| `has_gex` | BOOLEAN | Si tiene GEX contratado |
+| `gex_folio` | VARCHAR | Folio de la póliza (GEX-2026-XXXXX) |
+| `declared_value` | NUMERIC(10,2) | Valor declarado en USD |
+| `gex_insurance_cost` | NUMERIC(10,2) | Prima del seguro (5%) en MXN |
+| `gex_fixed_cost` | NUMERIC(10,2) | Costo fijo póliza ($625 MXN) |
+| `gex_total_cost` | NUMERIC(10,2) | Total GEX en MXN |
+| `saldo_pendiente` | NUMERIC(10,2) | Saldo total a cobrar (PO Box + GEX) |
+
+#### Ejemplo de Cálculo GEX
+```
+Valor declarado: $123.00 USD
+TC: 18.20
+
+Valor asegurado MXN = $123 × 18.20 = $2,238.60 MXN
+Prima 5% = $2,238.60 × 0.05 = $111.93 MXN
+Costo fijo = $625.00 MXN
+Total GEX = $111.93 + $625.00 = $736.93 MXN
+
+Servicio PO Box = $2,116.53 MXN
+SALDO PENDIENTE = $2,116.53 + $736.93 = $2,853.46 MXN
+```
+
+#### Archivos Modificados
+```
+entregax-backend-api/
+├── src/warrantyController.ts     # createWarrantyByUser() guarda costos GEX
+
+entregax-mobile-app/
+├── src/screens/PackageDetailScreen.tsx  # Usa saldo_pendiente de BD
+│   - Eliminada recalculación de saldo
+│   - Removido "(Todos los paquetes)" de título GEX
+│   - REPACK muestra "1 caja"
+
+DEVELOPER_MANUAL.md               # Esta actualización
+```
+
+---
 
 ### v2.9.0 (4 Mar 2026) - COSTEO PO BOX USA CON TC GUARDADO ⭐
 
