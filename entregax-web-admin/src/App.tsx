@@ -71,8 +71,6 @@ import AdminHubPage from './pages/AdminHubPage';
 import CajaChicaPage from './pages/CajaChicaPage';
 import TesoreriaSucursalPage from './pages/TesoreriaSucursalPage';
 import WarehouseHubPage from './pages/WarehouseHubPage';
-import HRManagementPage from './pages/HRManagementPage';
-import FleetManagementPage from './pages/FleetManagementPage';
 import SecurityIcon from '@mui/icons-material/Security';
 import DescriptionIcon from '@mui/icons-material/Description';
 import LegalDocumentsPage from './pages/LegalDocumentsPage';

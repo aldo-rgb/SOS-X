@@ -74,7 +74,6 @@ const BLACK = '#111';
 const GREEN = '#27ae60';
 const YELLOW = '#f39c12';
 const RED = '#e74c3c';
-const INDIGO = '#303F9F';
 const PAYPAL_BLUE = '#0070BA';
 
 const SERVICE_LABELS: Record<string, { label: string; color: string }> = {
