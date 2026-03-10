@@ -69,6 +69,20 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
   const [verifying, setVerifying] = useState(false);
   const [showCashInstructions, setShowCashInstructions] = useState(false);
   const [paymentReference, setPaymentReference] = useState<string | null>(null);
+  
+  // Info bancaria y de sucursal del backend
+  const [bankInfo, setBankInfo] = useState<{
+    banco: string;
+    clabe: string;
+    cuenta: string;
+    beneficiario: string;
+  } | null>(null);
+  const [branchInfo, setBranchInfo] = useState<{
+    nombre: string;
+    direccion: string;
+    telefono: string;
+    horario: string;
+  } | null>(null);
 
   // Calcular totales
   const totalMXN = packages.reduce((sum, p) => sum + parseFloat(String(p.assigned_cost_mxn || 0)), 0);
@@ -159,6 +173,10 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
       const packageIds = packages.map(p => p.id);
       const reference = generatePaymentReference();
       
+      // Obtener el branch_id del primer paquete si existe
+      const firstPackage = packages[0] as any;
+      const branchId = firstPackage?.destination_branch_id || firstPackage?.branch_id || null;
+      
       const res = await fetch(`${API_URL}/api/pobox/payment/cash/create`, {
         method: 'POST',
         headers: {
@@ -170,6 +188,7 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
           userId: user.id,
           totalAmount: totalMXN,
           reference,
+          branchId,
         }),
       });
 
@@ -177,6 +196,13 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
 
       if (data.success) {
         setPaymentReference(data.reference || reference);
+        // Guardar info bancaria y de sucursal del backend
+        if (data.bankInfo) {
+          setBankInfo(data.bankInfo);
+        }
+        if (data.branchInfo) {
+          setBranchInfo(data.branchInfo);
+        }
         setShowCashInstructions(true);
       } else {
         Alert.alert('Error', data.error || 'No se pudo generar la orden de pago');
@@ -186,6 +212,19 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
       // Aún así mostrar las instrucciones con referencia generada localmente
       const reference = generatePaymentReference();
       setPaymentReference(reference);
+      // Usar valores por defecto
+      setBankInfo({
+        banco: 'BBVA México',
+        clabe: '012580001234567890',
+        cuenta: '1234567890',
+        beneficiario: 'EntregaX SA de CV'
+      });
+      setBranchInfo({
+        nombre: 'CEDIS Monterrey',
+        direccion: 'Av. Industrial #123, Monterrey, NL',
+        telefono: '81 1234 5678',
+        horario: 'Lunes a Viernes: 9:00 - 18:00, Sábados: 9:00 - 14:00'
+      });
       setShowCashInstructions(true);
     } finally {
       setLoading(false);
@@ -348,9 +387,9 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                 <View style={styles.instructionsSection}>
                   <Text style={styles.instructionsTitle}>💳 Pago por Transferencia/SPEI:</Text>
                   <View style={styles.bankInfo}>
-                    <Text style={styles.bankInfoRow}>Banco: <Text style={styles.bankInfoValue}>BBVA</Text></Text>
-                    <Text style={styles.bankInfoRow}>CLABE: <Text style={styles.bankInfoValue}>012580001234567890</Text></Text>
-                    <Text style={styles.bankInfoRow}>Beneficiario: <Text style={styles.bankInfoValue}>EntregaX SA de CV</Text></Text>
+                    <Text style={styles.bankInfoRow}>Banco: <Text style={styles.bankInfoValue}>{bankInfo?.banco || 'BBVA'}</Text></Text>
+                    <Text style={styles.bankInfoRow}>CLABE: <Text style={styles.bankInfoValue}>{bankInfo?.clabe || '012580001234567890'}</Text></Text>
+                    <Text style={styles.bankInfoRow}>Beneficiario: <Text style={styles.bankInfoValue}>{bankInfo?.beneficiario || 'EntregaX SA de CV'}</Text></Text>
                     <Text style={styles.bankInfoRow}>Referencia: <Text style={styles.bankInfoValue}>{paymentReference}</Text></Text>
                   </View>
                 </View>
@@ -358,12 +397,12 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                 <View style={styles.instructionsSection}>
                   <Text style={styles.instructionsTitle}>🏪 Pago en Sucursal:</Text>
                   <Text style={styles.instructionsText}>
-                    Visita nuestra sucursal en CEDIS Monterrey y menciona tu referencia de pago.
+                    Visita nuestra sucursal en {branchInfo?.nombre || 'CEDIS Monterrey'} y menciona tu referencia de pago.
                   </Text>
                   <Text style={styles.addressText}>
-                    📍 Av. Industrial #123, Monterrey, NL{'\n'}
-                    🕐 Lunes a Viernes: 9:00 - 18:00{'\n'}
-                    🕐 Sábados: 9:00 - 14:00
+                    📍 {branchInfo?.direccion || 'Av. Industrial #123, Monterrey, NL'}{'\n'}
+                    📞 {branchInfo?.telefono || '81 1234 5678'}{'\n'}
+                    🕐 {branchInfo?.horario || 'Lunes a Viernes: 9:00 - 18:00, Sábados: 9:00 - 14:00'}
                   </Text>
                 </View>
 

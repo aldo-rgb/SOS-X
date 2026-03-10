@@ -591,6 +591,7 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
             SELECT p.*, u.id as user_id, u.full_name, u.email, u.box_id
             FROM packages p JOIN users u ON p.user_id = u.id
             WHERE (p.is_master = true OR p.master_id IS NULL)
+            AND (p.shipment_type IS NULL OR p.shipment_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))
         `;
         const params: (string | number)[] = [];
 
@@ -785,7 +786,7 @@ export const getPackagesByClient = async (req: Request, res: Response): Promise<
 // Helper para status label marítimo
 const getMaritimeStatusLabel = (status: string): string => {
     const labels: Record<string, string> = {
-        'received_china': '📦 Recibido en China',
+        'received_china': '📦 Recibido CEDIS GZ CHINA',
         'in_transit': '🚢 En Tránsito Marítimo',
         'at_port': '⚓ En Puerto',
         'customs_mx': '🛃 Aduana México',
@@ -828,6 +829,37 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             WHERE p.user_id = $1 AND (p.is_master = true OR p.master_id IS NULL)
             ORDER BY p.created_at DESC
         `, [userId]);
+
+        // Obtener órdenes de pago pendientes para los paquetes del usuario
+        const pendingPaymentsResult = await pool.query(`
+            SELECT pp.id, pp.package_ids, pp.payment_reference, pp.status, pp.amount, pp.expires_at
+            FROM pobox_payments pp
+            WHERE pp.user_id = $1 
+              AND pp.status IN ('pending', 'pending_payment')
+              AND pp.payment_method = 'cash'
+              AND pp.expires_at > CURRENT_TIMESTAMP
+        `, [userId]);
+
+        // Crear mapa de paquetes con orden de pago
+        const packagePaymentMap: Record<number, { reference: string; amount: number; expires_at: string }> = {};
+        pendingPaymentsResult.rows.forEach(payment => {
+            try {
+                const pkgIds = typeof payment.package_ids === 'string' 
+                    ? JSON.parse(payment.package_ids) 
+                    : payment.package_ids;
+                if (Array.isArray(pkgIds)) {
+                    pkgIds.forEach((pkgId: number) => {
+                        packagePaymentMap[pkgId] = {
+                            reference: payment.payment_reference,
+                            amount: parseFloat(payment.amount),
+                            expires_at: payment.expires_at
+                        };
+                    });
+                }
+            } catch (e) {
+                console.log('Error parsing package_ids:', e);
+            }
+        });
 
         // Cargar paquetes hijos para los masters
         const masterIds = airResult.rows
@@ -913,7 +945,15 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
                 saldo_pendiente: pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0,
                 monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
-                // 📦 Paquetes hijos (si es master)
+                client_paid: pkg.client_paid || false,
+                // 💳 Orden de pago pendiente
+                pending_payment_reference: packagePaymentMap[pkg.id]?.reference || null,
+                pending_payment_amount: packagePaymentMap[pkg.id]?.amount || null,
+                pending_payment_expires: packagePaymentMap[pkg.id]?.expires_at || null,
+                // � Instrucciones de entrega
+                assigned_address_id: pkg.assigned_address_id || null,
+                needs_instructions: pkg.needs_instructions !== false, // default true si no está definido
+                // �📦 Paquetes hijos (si es master)
                 child_packages: pkg.is_master ? (childrenByMaster[pkg.id] || []) : []
             };
         });
@@ -1440,6 +1480,7 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
         switch (packageType) {
             case 'usa':
             case 'pobox':
+            case 'air':  // PO Box USA y REPACK envían shipment_type='air'
                 // Paquetes USA (tabla packages)
                 if (isPickup) {
                     // Pick Up en sucursal - cambiar status a "En Bodega Pick Up"
@@ -1657,6 +1698,7 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
             assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
             saldo_pendiente: pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0,
             monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
+                client_paid: pkg.client_paid || false,
             warehouse_location: pkg.warehouse_location,
             service_type: pkg.service_type,
             created_at: pkg.created_at,

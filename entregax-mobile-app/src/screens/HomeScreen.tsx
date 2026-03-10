@@ -99,6 +99,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const [showLanguageModal, setShowLanguageModal] = useState(false); // 🌐 Modal de idioma
   const [currentLang, setCurrentLang] = useState(getCurrentLanguage());
   const [serviceFilter, setServiceFilter] = useState<'air' | 'maritime' | 'dhl' | 'usa' | null>(null); // 🎯 Filtro de servicio (null = todos)
+  const [expandedBadgeId, setExpandedBadgeId] = useState<number | null>(null); // 🏷️ ID del paquete con badges expandidos
+  
+  // 🔍 Filtro simple: null = todos, true = con instrucciones, false = sin instrucciones
+  const [instructionFilter, setInstructionFilter] = useState<boolean | null>(null);
 
   // 🔐 Verificar si el usuario está verificado
   const isUserVerified = user.isVerified === true;
@@ -118,10 +122,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
   // 📦 Función para obtener el label de status traducido
   const getStatusLabel = (status: string, shipmentType?: string): string => {
-    // Si es marítimo, usar labels específicos
-    if (shipmentType === 'maritime') {
+    // Si es marítimo (maritime o fcl), usar labels específicos
+    if (shipmentType === 'maritime' || shipmentType === 'fcl') {
       const maritimeLabels: Record<string, string> = {
-        received_china: '📦 Recibido en China',
+        received_china: '📦 Recibido CEDIS GZ CHINA',
         in_transit: '🚢 Ya Zarpó',
         at_port: '⚓ En Puerto',
         customs_mx: '🛃 Aduana México',
@@ -170,6 +174,121 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     };
     return statusLabels[status] || status;
   };
+
+  // 🔍 Función para obtener paquetes filtrados por servicio e instrucciones
+  const getFilteredPackages = useCallback(() => {
+    return packages.filter(pkg => {
+      // 1. Filtro por tipo de servicio
+      if (serviceFilter !== null) {
+        if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+        if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
+        if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
+        if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
+      }
+      
+      // 2. Filtro por instrucciones (el más importante)
+      if (instructionFilter !== null) {
+        const hasInstructions = !!(pkg as any).delivery_address_id || !!(pkg as any).assigned_address_id;
+        if (instructionFilter !== hasInstructions) return false;
+      }
+      
+      return true;
+    });
+  }, [packages, serviceFilter, instructionFilter]);
+
+  // 📊 Función para contar paquetes por tipo de instrucciones
+  const getInstructionCounts = useCallback(() => {
+    const filtered = packages.filter(pkg => {
+      if (serviceFilter !== null) {
+        if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+        if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
+        if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
+        if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
+      }
+      return true;
+    });
+    
+    const withInstructions = filtered.filter(pkg => 
+      !!(pkg as any).delivery_address_id || !!(pkg as any).assigned_address_id
+    ).length;
+    const withoutInstructions = filtered.length - withInstructions;
+    
+    return { withInstructions, withoutInstructions, total: filtered.length };
+  }, [packages, serviceFilter]);
+
+  // 🔄 Handler para seleccionar todas
+  const handleSelectAll = useCallback(() => {
+    const counts = getInstructionCounts();
+    const filteredPackages = getFilteredPackages();
+    
+    // Si ya hay un filtro de instrucciones aplicado, seleccionar/deseleccionar ese grupo
+    if (instructionFilter !== null) {
+      const filteredIds = filteredPackages.map(p => p.id);
+      const allSelected = filteredIds.length > 0 && filteredIds.every(id => selectedIds.includes(id));
+      
+      if (allSelected) {
+        setSelectedIds(selectedIds.filter(id => !filteredIds.includes(id)));
+      } else {
+        setSelectedIds([...new Set([...selectedIds, ...filteredIds])]);
+      }
+      return;
+    }
+    
+    // Si no hay filtro, preguntar cuál grupo quiere seleccionar
+    if (counts.withInstructions > 0 && counts.withoutInstructions > 0) {
+      Alert.alert(
+        'Seleccionar paquetes',
+        'No puedes mezclar paquetes con dirección y sin dirección. ¿Cuáles deseas seleccionar?',
+        [
+          {
+            text: `📍 Con Dirección (${counts.withInstructions})`,
+            onPress: () => {
+              setInstructionFilter(true);
+              // Seleccionar paquetes con instrucciones
+              const withInstr = packages.filter(pkg => {
+                if (serviceFilter !== null) {
+                  if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+                  if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
+                  if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
+                  if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
+                }
+                return !!(pkg as any).delivery_address_id || !!(pkg as any).assigned_address_id;
+              });
+              setSelectedIds([...new Set([...selectedIds, ...withInstr.map(p => p.id)])]);
+            }
+          },
+          {
+            text: `❌ Sin Dirección (${counts.withoutInstructions})`,
+            onPress: () => {
+              setInstructionFilter(false);
+              // Seleccionar paquetes sin instrucciones
+              const withoutInstr = packages.filter(pkg => {
+                if (serviceFilter !== null) {
+                  if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+                  if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
+                  if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
+                  if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
+                }
+                return !((pkg as any).delivery_address_id || (pkg as any).assigned_address_id);
+              });
+              setSelectedIds([...new Set([...selectedIds, ...withoutInstr.map(p => p.id)])]);
+            }
+          },
+          { text: 'Cancelar', style: 'cancel' }
+        ]
+      );
+    } else if (counts.withInstructions > 0) {
+      // Solo hay paquetes con instrucciones
+      setInstructionFilter(true);
+      const ids = filteredPackages.map(p => p.id);
+      setSelectedIds([...new Set([...selectedIds, ...ids])]);
+    } else if (counts.withoutInstructions > 0) {
+      // Solo hay paquetes sin instrucciones
+      setInstructionFilter(false);
+      const ids = filteredPackages.map(p => p.id);
+      setSelectedIds([...new Set([...selectedIds, ...ids])]);
+    }
+  }, [packages, serviceFilter, instructionFilter, selectedIds, getInstructionCounts, getFilteredPackages]);
 
   const fetchPackages = useCallback(async () => {
     try {
@@ -272,11 +391,29 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // Obtener el paquete actual
     const currentPkg = packages.find(p => p.id === id);
     
+    // 🔍 Verificar si el paquete actual tiene instrucciones
+    const currentHasInstructions = !!((currentPkg as any)?.delivery_address_id || (currentPkg as any)?.assigned_address_id);
+    
     // Si ya hay paquetes seleccionados, verificar que sean del mismo tipo de envío
     if (selectedIds.length > 0) {
       const firstSelectedPkg = packages.find(p => selectedIds.includes(p.id));
       const firstShipmentType = (firstSelectedPkg as any)?.shipment_type || 'air';
       const currentShipmentType = shipmentType || 'air';
+      
+      // 🔍 Verificar si los paquetes seleccionados tienen instrucciones
+      const firstHasInstructions = !!((firstSelectedPkg as any)?.delivery_address_id || (firstSelectedPkg as any)?.assigned_address_id);
+      
+      // ❌ No permitir mezclar paquetes con y sin instrucciones
+      if (firstHasInstructions !== currentHasInstructions) {
+        Alert.alert(
+          '⚠️ No puedes mezclar',
+          firstHasInstructions 
+            ? 'Ya tienes paquetes CON dirección seleccionados. No puedes agregar paquetes SIN dirección.'
+            : 'Ya tienes paquetes SIN dirección seleccionados. No puedes agregar paquetes CON dirección.',
+          [{ text: 'Entendido', style: 'default' }]
+        );
+        return;
+      }
       
       // Agrupar tipos: USA (air, undefined) vs Maritime vs China Air vs DHL
       const getTypeGroup = (type: string | undefined) => {
@@ -382,7 +519,14 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     const isDHL = item.shipment_type === 'dhl';
     
     // ¿Ya tiene instrucciones de entrega asignadas?
-    const hasDeliveryInstructions = !!(item as any).delivery_address_id;
+    // Para marítimo/china_air/dhl usa delivery_address_id, para PO Box USA usa assigned_address_id
+    const hasDeliveryInstructions = !!(item as any).delivery_address_id || !!(item as any).assigned_address_id;
+    
+    // 💰 ¿El paquete está pagado?
+    const isPaid = (item as any).client_paid === true || parseFloat((item as any).saldo_pendiente || '0') === 0;
+    
+    // 💳 ¿Tiene orden de pago pendiente generada?
+    const hasPendingPaymentOrder = !!(item as any).pending_payment_reference;
     
     // Solo permitimos seleccionar paquetes en bodega (USA) o recibidos en China (marítimo/china_air) o DHL en Cedis Y usuario verificado
     // Para marítimos/china_air/dhl: NO seleccionable si ya tiene instrucciones asignadas
@@ -551,24 +695,71 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     <Text style={[styles.statusBadgeText, { color: statusColor }]}>{statusLabel}</Text>
                   </View>
                   
-                  {/* 🛡️ Badge de Garantía Extendida */}
-                  {item.has_gex && (
-                    <View style={styles.gexBadge}>
-                      <Icon source="shield-check" size={12} color="#10B981" />
-                      <Text style={styles.gexBadgeText}>{t('home.extendedWarranty')}</Text>
+                  {/* 🏷️ Badges compactos (solo íconos) con opción de expandir */}
+                  <View style={styles.compactBadgesContainer}>
+                    {/* Íconos compactos */}
+                    {item.has_gex && (
+                      <View style={styles.iconOnlyBadge}>
+                        <Icon source="shield-check" size={14} color="#10B981" />
+                      </View>
+                    )}
+                    {hasDeliveryInstructions && (
+                      <View style={styles.iconOnlyBadge}>
+                        <Icon source="clipboard-check" size={14} color="#8B5CF6" />
+                      </View>
+                    )}
+                    {/* 💳 Orden de pago pendiente */}
+                    {hasPendingPaymentOrder && !isPaid && (
+                      <View style={styles.iconOnlyBadge}>
+                        <Icon source="cash" size={14} color="#F59E0B" />
+                      </View>
+                    )}
+                    <View style={styles.iconOnlyBadge}>
+                      <Icon source={isPaid ? "check-circle" : "credit-card"} size={14} color={isPaid ? "#10B981" : "#EF4444"} />
                     </View>
-                  )}
-                  
-                  {/* ✅ Badge de Instrucciones Asignadas (Marítimo, China Air y DHL) */}
-                  {(isMaritime || isChinaAir || isDHL) && hasDeliveryInstructions && (
+                    
+                    {/* Botón expandir/colapsar */}
                     <Pressable 
-                      style={styles.deliveryAssignedBadge}
-                      onPress={handleDeliveryInstructions}
+                      style={styles.expandBadgesButton}
+                      onPress={() => setExpandedBadgeId(expandedBadgeId === item.id ? null : item.id)}
                     >
-                      <Icon source="check-circle" size={12} color="#10B981" />
-                      <Text style={styles.deliveryAssignedText}>✓ Instrucciones</Text>
-                      <Icon source="pencil" size={10} color="#10B981" />
+                      <Icon 
+                        source={expandedBadgeId === item.id ? "chevron-up" : "chevron-down"} 
+                        size={16} 
+                        color="#666" 
+                      />
                     </Pressable>
+                  </View>
+                  
+                  {/* 🏷️ Badges expandidos (con texto) */}
+                  {expandedBadgeId === item.id && (
+                    <View style={styles.expandedBadgesContainer}>
+                      {item.has_gex && (
+                        <View style={styles.gexBadge}>
+                          <Icon source="shield-check" size={12} color="#10B981" />
+                          <Text style={styles.gexBadgeText}>{t('home.extendedWarranty')}</Text>
+                        </View>
+                      )}
+                      {hasDeliveryInstructions && (
+                        <View style={styles.deliveryAssignedBadge}>
+                          <Icon source="clipboard-check" size={12} color="#8B5CF6" />
+                          <Text style={styles.deliveryAssignedText}>Instrucciones</Text>
+                        </View>
+                      )}
+                      {/* 💳 Orden de pago pendiente expandido */}
+                      {hasPendingPaymentOrder && !isPaid && (
+                        <View style={styles.pendingPaymentBadge}>
+                          <Icon source="cash" size={12} color="#F59E0B" />
+                          <Text style={styles.pendingPaymentBadgeText}>Orden de Pago</Text>
+                        </View>
+                      )}
+                      <View style={isPaid ? styles.paidBadge : styles.unpaidBadge}>
+                        <Icon source={isPaid ? "check-circle" : "credit-card"} size={12} color={isPaid ? "#10B981" : "#EF4444"} />
+                        <Text style={isPaid ? styles.paidBadgeText : styles.unpaidBadgeText}>
+                          {isPaid ? 'Pagado' : 'Pagar'}
+                        </Text>
+                      </View>
+                    </View>
                   )}
                 </View>
 
@@ -741,7 +932,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         </TouchableOpacity>
       </Modal>
 
-      {/* 📱 Modal de Menú */}
+      {/* �📱 Modal de Menú */}
       <Modal visible={showMenu} animationType="fade" transparent>
         <TouchableOpacity 
           style={styles.menuOverlay} 
@@ -1104,107 +1295,110 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               </Pressable>
             </View>
 
-            {/* ✅ Botón Seleccionar Todas */}
+
+            {/* 🔍 Filtro de Instrucciones - Diseño Moderno */}
             {packages.length > 0 && (
-              <Pressable
-                style={styles.selectAllButton}
-                onPress={() => {
-                  // Obtener los paquetes filtrados actualmente
-                  const filteredPackages = packages.filter(pkg => {
-                    if (serviceFilter === null) return true;
-                    if (serviceFilter === 'air') return pkg.shipment_type === 'china_air';
-                    if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime' || pkg.shipment_type === 'fcl';
-                    if (serviceFilter === 'dhl') return pkg.shipment_type === 'dhl';
-                    // PO Box USA: filtrar por service_type
-                    if (serviceFilter === 'usa') return pkg.service_type === 'POBOX_USA';
-                    return true;
-                  });
-                  const filteredIds = filteredPackages.map(p => p.id);
-                  const allSelected = filteredIds.every(id => selectedIds.includes(id));
-                  
-                  if (allSelected) {
-                    // Deseleccionar todos los filtrados
-                    setSelectedIds(selectedIds.filter(id => !filteredIds.includes(id)));
-                  } else {
-                    // 📦 Para PO Box USA: Verificar si hay diferentes estados
-                    const isPOBoxFilter = serviceFilter === 'usa';
-                    const poboxPackages = filteredPackages.filter(p => p.service_type === 'POBOX_USA');
-                    const hasWarehouse = poboxPackages.some(p => p.status === 'received');
-                    const hasProcessing = poboxPackages.some(p => p.status === 'processing');
-                    
-                    if (isPOBoxFilter && hasWarehouse && hasProcessing) {
-                      // Hay paquetes en ambos estados, preguntar cuál seleccionar
-                      const warehouseCount = poboxPackages.filter(p => p.status === 'received').length;
-                      const processingCount = poboxPackages.filter(p => p.status === 'processing').length;
-                      
-                      Alert.alert(
-                        '📦 ¿Qué paquetes deseas seleccionar?',
-                        'Tienes paquetes en diferentes estados. Selecciona cuáles quieres procesar:',
-                        [
-                          {
-                            text: `🏠 En Bodega (${warehouseCount})`,
-                            onPress: () => {
-                              const warehouseIds = poboxPackages
-                                .filter(p => p.status === 'received')
-                                .map(p => p.id);
-                              setSelectedIds([...new Set([...selectedIds, ...warehouseIds])]);
-                            }
-                          },
-                          {
-                            text: `⏳ Procesando (${processingCount})`,
-                            onPress: () => {
-                              const processingIds = poboxPackages
-                                .filter(p => p.status === 'processing')
-                                .map(p => p.id);
-                              setSelectedIds([...new Set([...selectedIds, ...processingIds])]);
-                            }
-                          },
-                          {
-                            text: 'Cancelar',
-                            style: 'cancel'
-                          }
-                        ]
-                      );
+              <View style={styles.instructionFilterContainer}>
+                <Pressable
+                  style={[
+                    styles.instructionFilterChip,
+                    instructionFilter === false && styles.instructionFilterChipActiveRed
+                  ]}
+                  onPress={() => {
+                    if (instructionFilter === false) {
+                      setInstructionFilter(null);
+                      setSelectedIds([]);
                     } else {
-                      // Solo hay un tipo o no es PO Box, seleccionar todos normalmente
-                      setSelectedIds([...new Set([...selectedIds, ...filteredIds])]);
+                      setInstructionFilter(false);
+                      const withoutInstr = packages.filter(pkg => {
+                        if (serviceFilter !== null) {
+                          if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+                          if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
+                          if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
+                          if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
+                        }
+                        return !((pkg as any).delivery_address_id || (pkg as any).assigned_address_id);
+                      });
+                      setSelectedIds(withoutInstr.map(p => p.id));
                     }
-                  }
-                }}
-              >
-                <Icon 
-                  source={(() => {
-                    const filteredPackages = packages.filter(pkg => {
-                      if (serviceFilter === null) return true;
-                      if (serviceFilter === 'air') return pkg.shipment_type === 'china_air';
-                      if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime' || pkg.shipment_type === 'fcl';
-                      if (serviceFilter === 'dhl') return pkg.shipment_type === 'dhl';
-                      if (serviceFilter === 'usa') return pkg.service_type === 'POBOX_USA';
-                      return true;
-                    });
-                    const filteredIds = filteredPackages.map(p => p.id);
-                    const allSelected = filteredIds.length > 0 && filteredIds.every(id => selectedIds.includes(id));
-                    return allSelected ? "checkbox-marked" : "checkbox-blank-outline";
-                  })()}
-                  size={20}
-                  color={ORANGE}
-                />
-                <Text style={styles.selectAllText}>
-                  {(() => {
-                    const filteredPackages = packages.filter(pkg => {
-                      if (serviceFilter === null) return true;
-                      if (serviceFilter === 'air') return pkg.shipment_type === 'china_air';
-                      if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime' || pkg.shipment_type === 'fcl';
-                      if (serviceFilter === 'dhl') return pkg.shipment_type === 'dhl';
-                      if (serviceFilter === 'usa') return pkg.service_type === 'POBOX_USA';
-                      return true;
-                    });
-                    const filteredIds = filteredPackages.map(p => p.id);
-                    const allSelected = filteredIds.length > 0 && filteredIds.every(id => selectedIds.includes(id));
-                    return allSelected ? "Deseleccionar todas" : "Seleccionar todas";
-                  })()}
-                </Text>
-              </Pressable>
+                  }}
+                >
+                  <Ionicons 
+                    name="close-circle" 
+                    size={18} 
+                    color={instructionFilter === false ? '#FFF' : '#EF4444'} 
+                  />
+                  <Text style={[
+                    styles.instructionFilterText,
+                    instructionFilter === false && styles.instructionFilterTextActive
+                  ]}>
+                    Sin Dirección
+                  </Text>
+                  {instructionFilter === false && (
+                    <Text style={styles.instructionFilterCount}>
+                      {packages.filter(pkg => {
+                        if (serviceFilter !== null) {
+                          if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+                          if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
+                          if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
+                          if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
+                        }
+                        return !((pkg as any).delivery_address_id || (pkg as any).assigned_address_id);
+                      }).length}
+                    </Text>
+                  )}
+                </Pressable>
+                
+                <Pressable
+                  style={[
+                    styles.instructionFilterChip,
+                    instructionFilter === true && styles.instructionFilterChipActiveGreen
+                  ]}
+                  onPress={() => {
+                    if (instructionFilter === true) {
+                      setInstructionFilter(null);
+                      setSelectedIds([]);
+                    } else {
+                      setInstructionFilter(true);
+                      const withInstr = packages.filter(pkg => {
+                        if (serviceFilter !== null) {
+                          if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+                          if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
+                          if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
+                          if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
+                        }
+                        return !!((pkg as any).delivery_address_id || (pkg as any).assigned_address_id);
+                      });
+                      setSelectedIds(withInstr.map(p => p.id));
+                    }
+                  }}
+                >
+                  <Ionicons 
+                    name="checkmark-circle" 
+                    size={18} 
+                    color={instructionFilter === true ? '#FFF' : '#10B981'} 
+                  />
+                  <Text style={[
+                    styles.instructionFilterText,
+                    instructionFilter === true && styles.instructionFilterTextActive
+                  ]}>
+                    Con Dirección
+                  </Text>
+                  {instructionFilter === true && (
+                    <Text style={styles.instructionFilterCount}>
+                      {packages.filter(pkg => {
+                        if (serviceFilter !== null) {
+                          if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+                          if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
+                          if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
+                          if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
+                        }
+                        return !!((pkg as any).delivery_address_id || (pkg as any).assigned_address_id);
+                      }).length}
+                    </Text>
+                  )}
+                </Pressable>
+              </View>
             )}
           </>
         }
@@ -1225,8 +1419,13 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         const isProcessingSelection = isPOBoxUSA && firstSelectedPkg?.status === 'processing';
         const isWarehouseSelection = isPOBoxUSA && firstSelectedPkg?.status === 'received';
         
-        // 🎯 Paquetes en bodega necesitan instrucciones (dirección de envío)
-        const needsInstructions = isMaritimeSelection || isChinaAirSelection || isDHLSelection || isWarehouseSelection;
+        // 🔍 Verificar si TODOS los paquetes seleccionados ya tienen instrucciones
+        const allSelectedHaveInstructions = packages
+          .filter(p => selectedIds.includes(p.id))
+          .every(p => (p as any).delivery_address_id || (p as any).assigned_address_id);
+        
+        // 🎯 Paquetes en bodega necesitan instrucciones (dirección de envío) - SOLO si NO tienen instrucciones
+        const needsInstructions = (isMaritimeSelection || isChinaAirSelection || isDHLSelection || isWarehouseSelection) && !allSelectedHaveInstructions;
         
         // Calcular total a pagar para paquetes procesando
         // 🔧 FIX: Solo filtrar paquetes del mismo tipo de servicio seleccionado
@@ -1244,24 +1443,27 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         });
         const totalToPay = selectedPackages.reduce((sum, p) => sum + parseFloat(String(p.assigned_cost_mxn || 0)), 0);
         
+        // 💰 Paquetes en bodega con instrucciones pueden pagar
+        const canPayFromWarehouse = isWarehouseSelection && allSelectedHaveInstructions;
+        
         return (
           <FAB
             icon={needsInstructions 
               ? (isMaritimeSelection ? "ferry" : isChinaAirSelection ? "airplane" : isDHLSelection ? "truck-delivery" : "package-variant") 
-              : isProcessingSelection 
+              : (isProcessingSelection || canPayFromWarehouse)
                 ? "credit-card" 
                 : "airplane-takeoff"}
             label={needsInstructions 
               ? `📋 Asignar Instrucciones (${selectedIds.length})`
-              : isProcessingSelection
+              : (isProcessingSelection || canPayFromWarehouse)
                 ? `💳 Pagar $${totalToPay.toFixed(2)} (${selectedIds.length})`
                 : `${t('home.requestConsolidation')} (${selectedIds.length})`}
-            style={[styles.fabSend, isProcessingSelection && { backgroundColor: '#4CAF50' }]}
+            style={[styles.fabSend, (isProcessingSelection || canPayFromWarehouse) && { backgroundColor: '#4CAF50' }]}
             color="white"
             onPress={() => {
               if (needsInstructions) {
                 handleMaritimeInstructions();
-              } else if (isProcessingSelection) {
+              } else if (isProcessingSelection || canPayFromWarehouse) {
                 // Navegar a pantalla de pago con resumen
                 navigation.navigate('PaymentSummary', {
                   packages: selectedPackages,
@@ -1330,6 +1532,118 @@ const styles = StyleSheet.create({
   selectAllText: {
     fontSize: 14,
     color: ORANGE,
+    fontWeight: '600',
+  },
+  // 🔍 Filtros de Instrucciones - Diseño Moderno
+  instructionFilterContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 10,
+  },
+  instructionFilterChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    gap: 6,
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  instructionFilterChipActiveRed: {
+    backgroundColor: '#EF4444',
+    borderColor: '#EF4444',
+    shadowOpacity: 0.15,
+  },
+  instructionFilterChipActiveGreen: {
+    backgroundColor: '#10B981',
+    borderColor: '#10B981',
+    shadowOpacity: 0.15,
+  },
+  instructionFilterText: {
+    fontSize: 13,
+    color: '#374151',
+    fontWeight: '600',
+  },
+  instructionFilterTextActive: {
+    color: '#FFF',
+  },
+  instructionFilterCount: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFF',
+    marginLeft: 4,
+  },
+  // Estilos legacy (mantener por compatibilidad)
+  filterSectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#666',
+    marginTop: 15,
+    marginBottom: 10,
+  },
+  filterOptionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  filterOption: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  filterOptionActive: {
+    backgroundColor: ORANGE,
+    borderColor: ORANGE,
+  },
+  filterOptionText: {
+    fontSize: 13,
+    color: '#333',
+  },
+  filterOptionTextActive: {
+    color: 'white',
+    fontWeight: '600',
+  },
+  filterActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
+  clearAllFiltersButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    alignItems: 'center',
+  },
+  clearAllFiltersText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '600',
+  },
+  applyFiltersButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: ORANGE,
+    alignItems: 'center',
+  },
+  applyFiltersText: {
+    fontSize: 14,
+    color: 'white',
     fontWeight: '600',
   },
   loadingContainer: {
@@ -1552,6 +1866,39 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 4,
   },
+  // 🏷️ Badges compactos (solo íconos)
+  compactBadgesContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: 'auto',
+  },
+  iconOnlyBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#f5f5f5',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  expandBadgesButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#e0e0e0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 2,
+  },
+  expandedBadgesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
   // 🛡️ Badge GEX
   gexBadge: {
     flexDirection: 'row',
@@ -1571,7 +1918,7 @@ const styles = StyleSheet.create({
   deliveryAssignedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#10B98120',
+    backgroundColor: '#8B5CF620',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -1580,7 +1927,52 @@ const styles = StyleSheet.create({
   deliveryAssignedText: {
     fontSize: 11,
     fontWeight: 'bold',
+    color: '#8B5CF6',
+  },
+  // � Badge Orden de Pago Pendiente
+  pendingPaymentBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F59E0B20',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  pendingPaymentBadgeText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#F59E0B',
+  },
+  // �💰 Badge Pagado
+  paidBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#10B98120',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  paidBadgeText: {
+    fontSize: 11,
+    fontWeight: 'bold',
     color: '#10B981',
+  },
+  // 💰 Badge No Pagado
+  unpaidBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EF444420',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  unpaidBadgeText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#EF4444',
   },
   infoRow: {
     flexDirection: 'row',

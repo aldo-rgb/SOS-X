@@ -1,7 +1,7 @@
 # 📚 EntregaX - Manual del Programador
 
-> **Última actualización:** 5 de marzo de 2026  
-> **Versión:** 2.10.0
+> **Última actualización:** 6 de marzo de 2026  
+> **Versión:** 2.11.0
 
 ---
 
@@ -21,22 +21,23 @@
 12. [Sistema de Bodegas Multi-Ubicación](#sistema-de-bodegas-multi-ubicación)
 13. [Motor de Precios](#motor-de-precios)
 14. [Costeo PO Box USA](#costeo-po-box-usa)
-15. [Garantía Extendida GEX](#garantía-extendida-gex) ⭐ NUEVO
+15. [Garantía Extendida GEX](#garantía-extendida-gex)
 16. [Sistema de Facturación Fiscal](#sistema-de-facturación-fiscal)
 17. [Sistema de Verificación KYC](#sistema-de-verificación-kyc)
 18. [Sistema de Pagos](#sistema-de-pagos)
 19. [Sistema de Pagos a Proveedores](#sistema-de-pagos-a-proveedores)
 20. [Openpay Multi-Empresa - Cobranza SPEI](#openpay-multi-empresa---cobranza-spei)
-21. [Sistema de Direcciones](#sistema-de-direcciones)
-22. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo)
-23. [Panel Marítimo China](#panel-marítimo-china)
-24. [Integración con OpenAI](#integración-con-openai)
-25. [DHL Monterrey - Costeo](#dhl-monterrey---costeo)
-26. [Tradlinx Ocean Visibility](#tradlinx-ocean-visibility---tracking-de-contenedores)
-27. [Módulos Implementados](#módulos-implementados)
-28. [Guía de Desarrollo](#guía-de-desarrollo)
-29. [Credenciales de Prueba](#credenciales-de-prueba)
-30. [Changelog](#changelog)
+21. [Sistema de Pagos en Sucursal](#sistema-de-pagos-en-sucursal) ⭐ NUEVO
+22. [Sistema de Direcciones](#sistema-de-direcciones)
+23. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo)
+24. [Panel Marítimo China](#panel-marítimo-china)
+25. [Integración con OpenAI](#integración-con-openai)
+26. [DHL Monterrey - Costeo](#dhl-monterrey---costeo)
+27. [Tradlinx Ocean Visibility](#tradlinx-ocean-visibility---tracking-de-contenedores)
+28. [Módulos Implementados](#módulos-implementados)
+29. [Guía de Desarrollo](#guía-de-desarrollo)
+30. [Credenciales de Prueba](#credenciales-de-prueba)
+31. [Changelog](#changelog)
 
 ---
 
@@ -2865,6 +2866,428 @@ Para obtener las credenciales de Openpay:
 
 ---
 
+## 🏪 Sistema de Pagos en Sucursal
+
+### Descripción General
+
+Sistema completo para gestionar **pagos en efectivo en sucursal** y **transferencias SPEI manuales**. Permite configurar cuentas bancarias y PayPal por empresa, registrar pagos pendientes en el dashboard de cobranza, y confirmar pagos cuando el cliente llega a la sucursal con su referencia.
+
+### Arquitectura del Sistema
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    SISTEMA DE PAGOS EN SUCURSAL                              │
+│              Pagos en Efectivo + SPEI Manual + PayPal                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  ┌──────────────┐       ┌──────────────┐       ┌──────────────┐             │
+│  │   Empresa 1  │       │   Empresa 2  │       │   Empresa N  │             │
+│  │   (RFC AAA)  │       │   (RFC BBB)  │       │   (RFC NNN)  │             │
+│  ├──────────────┤       ├──────────────┤       ├──────────────┤             │
+│  │ Banco: BBVA  │       │ Banco: HSBC  │       │ Banco: Banorte│            │
+│  │ CLABE: xxx   │       │ CLABE: yyy   │       │ CLABE: zzz   │             │
+│  │ PayPal: ✅   │       │ PayPal: ❌   │       │ PayPal: ✅   │             │
+│  └──────┬───────┘       └──────┬───────┘       └──────┬───────┘             │
+│         │                      │                      │                      │
+│         └──────────────────────┼──────────────────────┘                      │
+│                                │                                             │
+│                    ┌───────────▼───────────┐                                 │
+│                    │   Cliente en App      │                                 │
+│                    │   Selecciona Pago     │                                 │
+│                    │   en Efectivo/SPEI    │                                 │
+│                    └───────────┬───────────┘                                 │
+│                                │                                             │
+│                    ┌───────────▼───────────┐                                 │
+│                    │ Se genera REFERENCIA  │                                 │
+│                    │ Ej: EF-0054-M7K9X2    │                                 │
+│                    └───────────┬───────────┘                                 │
+│                                │                                             │
+│             ┌──────────────────┴──────────────────┐                          │
+│             │                                     │                          │
+│      ┌──────▼──────┐                      ┌──────▼──────┐                    │
+│      │   App Móvil │                      │  Dashboard  │                    │
+│      │  Muestra:   │                      │  Cobranza   │                    │
+│      │ - Banco     │                      │ Muestra:    │                    │
+│      │ - CLABE     │                      │ - Pendientes│                    │
+│      │ - Referencia│                      │ - Buscador  │                    │
+│      │ - Sucursal  │                      │ - Confirmar │                    │
+│      └─────────────┘                      └──────┬──────┘                    │
+│                                                  │                           │
+│                                   ┌──────────────▼──────────────┐            │
+│                                   │   Admin busca referencia    │            │
+│                                   │   → Confirma pago recibido  │            │
+│                                   │   → Guías marcadas pagadas  │            │
+│                                   └─────────────────────────────┘            │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Flujo Completo
+
+```
+1. Admin configura cuenta bancaria y/o PayPal para cada empresa (en FiscalPage)
+2. Cliente en app móvil selecciona "Pago en Sucursal" o "Transferencia SPEI"
+3. Sistema genera referencia única (EF-XXXX-XXXXX)
+4. App muestra datos bancarios de la empresa asignada al servicio
+5. Se crea registro "pending_payment" en openpay_webhook_logs
+6. Cliente va a sucursal o hace transferencia SPEI
+7. Admin en Dashboard de Cobranza ve la lista de pagos pendientes
+8. Admin busca por referencia cuando el cliente llega
+9. Admin confirma el pago → se actualizan guías como pagadas
+```
+
+### Base de Datos
+
+#### Columnas Bancarias en `fiscal_emitters`
+```sql
+-- Configuración bancaria por empresa
+ALTER TABLE fiscal_emitters ADD COLUMN bank_name VARCHAR(100);
+ALTER TABLE fiscal_emitters ADD COLUMN bank_clabe VARCHAR(18);
+ALTER TABLE fiscal_emitters ADD COLUMN bank_account VARCHAR(20);
+
+-- Configuración PayPal por empresa
+ALTER TABLE fiscal_emitters ADD COLUMN paypal_client_id VARCHAR(255);
+ALTER TABLE fiscal_emitters ADD COLUMN paypal_secret VARCHAR(255);
+ALTER TABLE fiscal_emitters ADD COLUMN paypal_sandbox BOOLEAN DEFAULT TRUE;
+ALTER TABLE fiscal_emitters ADD COLUMN paypal_configured BOOLEAN DEFAULT FALSE;
+```
+
+#### Nueva Columna en `openpay_webhook_logs`
+```sql
+-- Para distinguir método de pago en dashboard
+ALTER TABLE openpay_webhook_logs ADD COLUMN payment_method VARCHAR(30);
+-- Valores: 'card', 'spei', 'cash', 'paypal'
+
+-- Índice para búsqueda de pendientes
+CREATE INDEX idx_openpay_logs_pending 
+    ON openpay_webhook_logs(estatus_procesamiento) 
+    WHERE estatus_procesamiento = 'pending_payment';
+```
+
+### API Endpoints
+
+#### Configuración de Cuenta Bancaria
+```http
+# Obtener configuración bancaria de empresa
+GET /api/admin/empresa/bank/:empresa_id
+Authorization: Bearer {token}
+
+Response:
+{
+  "empresa_id": 1,
+  "bank_name": "BBVA México",
+  "bank_clabe": "012580001234567890",
+  "bank_account": "1234567890"
+}
+
+# Guardar configuración bancaria
+POST /api/admin/empresa/bank
+Authorization: Bearer {token}
+
+Body:
+{
+  "empresa_id": 1,
+  "bank_name": "BBVA México",
+  "bank_clabe": "012580001234567890",
+  "bank_account": "1234567890"
+}
+
+Response:
+{
+  "success": true,
+  "message": "Cuenta bancaria configurada correctamente"
+}
+```
+
+#### Configuración de PayPal
+```http
+# Obtener configuración PayPal de empresa
+GET /api/admin/empresa/paypal/:empresa_id
+Authorization: Bearer {token}
+
+Response:
+{
+  "empresa_id": 1,
+  "paypal_client_id": "AX7...",
+  "paypal_sandbox": true,
+  "paypal_configured": true
+}
+
+# Guardar y verificar credenciales PayPal
+POST /api/admin/empresa/paypal
+Authorization: Bearer {token}
+
+Body:
+{
+  "empresa_id": 1,
+  "paypal_client_id": "AX7...",
+  "paypal_secret": "EKd...",
+  "paypal_sandbox": true
+}
+
+Response:
+{
+  "success": true,
+  "message": "PayPal configurado y verificado",
+  "verified": true
+}
+```
+
+#### Pagos Pendientes en Dashboard
+```http
+# Listar pagos pendientes por confirmar
+GET /api/admin/finance/pending-payments
+Authorization: Bearer {token}
+Query: ?service_type=POBOX_USA&limit=50
+
+Response:
+{
+  "success": true,
+  "count": 3,
+  "pending_payments": [
+    {
+      "id": 123,
+      "referencia": "EF-0054-M7K9X2",
+      "monto": 1250.00,
+      "concepto": "Pago en espera - 2 paquete(s): US-2GRL8044, US-XYZ123",
+      "created_at": "2026-03-06T10:30:00Z",
+      "tipo_servicio": "POBOX_USA",
+      "payment_method": "cash",
+      "cliente": "Juan Pérez García",
+      "cliente_email": "juan@example.com",
+      "telefono": "5551234567",
+      "empresa": "EntregaX SA de CV",
+      "banco": "BBVA México",
+      "clabe": "012580001234567890"
+    }
+  ]
+}
+
+# Buscar pago por referencia
+GET /api/admin/finance/search-payment?ref=EF-0054-M7K9X2
+Authorization: Bearer {token}
+
+Response:
+{
+  "success": true,
+  "source": "openpay_webhook_logs",
+  "payment": {
+    "id": 123,
+    "referencia": "EF-0054-M7K9X2",
+    "monto": 1250.00,
+    "concepto": "Pago en espera - 2 paquetes",
+    "status": "pending_payment",
+    "fecha_pago": "2026-03-06T10:30:00Z",
+    "service_type": "POBOX_USA"
+  },
+  "cliente": {
+    "id": 54,
+    "nombre": "Juan Pérez García",
+    "email": "juan@example.com",
+    "telefono": "5551234567"
+  },
+  "guias": [
+    { "id": 1001, "tracking_internal": "US-2GRL8044", "assigned_cost_mxn": 625.00 },
+    { "id": 1002, "tracking_internal": "US-XYZ123", "assigned_cost_mxn": 625.00 }
+  ],
+  "puede_confirmar": true
+}
+
+# Confirmar pago en efectivo/sucursal
+POST /api/admin/finance/confirm-payment
+Authorization: Bearer {token}
+
+Body:
+{
+  "referencia": "EF-0054-M7K9X2",
+  "metodo_confirmacion": "efectivo",
+  "notas": "Cliente presentó comprobante"
+}
+
+Response:
+{
+  "success": true,
+  "message": "Pago confirmado exitosamente",
+  "referencia": "EF-0054-M7K9X2",
+  "monto": 1250.00,
+  "metodo": "efectivo",
+  "paquetes_actualizados": 2,
+  "confirmado_por": "Admin User"
+}
+```
+
+### Acciones del Confirm-Payment
+
+Cuando se confirma un pago, el sistema ejecuta las siguientes acciones en una transacción:
+
+```typescript
+// 1. Actualizar openpay_webhook_logs como procesado
+UPDATE openpay_webhook_logs SET
+  estatus_procesamiento = 'procesado',
+  processed_at = CURRENT_TIMESTAMP,
+  concepto = concepto || ' | Confirmado por Admin via efectivo'
+WHERE id = $1;
+
+// 2. Actualizar pobox_payments (si existe)
+UPDATE pobox_payments SET
+  status = 'paid',
+  paid_at = CURRENT_TIMESTAMP
+WHERE payment_reference = $1;
+
+// 3. Marcar paquetes como pagados
+UPDATE packages SET
+  client_paid = TRUE,
+  client_paid_at = CURRENT_TIMESTAMP,
+  saldo_pendiente = 0,
+  payment_status = 'paid'
+WHERE id = ANY($1);
+
+// 4. Registrar en caja_chica_transacciones (si es efectivo)
+INSERT INTO caja_chica_transacciones (
+  tipo, monto, concepto, cliente_id, autorizado_por, service_type
+) VALUES (
+  'ingreso', $1, 'Pago efectivo ref: EF-XXX', $2, $3, 'POBOX_USA'
+);
+```
+
+### Frontend - FiscalPage.tsx
+
+#### Configuración Banco/PayPal por Empresa
+
+```
+FiscalPage.tsx
+├── Tab "Mis Empresas"
+│   └── Tabla de empresas emisoras
+│       ├── Columna "Banco"
+│       │   ├── Sin configurar → Chip "Sin Banco"
+│       │   └── Configurado → "BBVA | ****7890" (click para editar)
+│       │
+│       └── Columna "PayPal"
+│           ├── Sin configurar → Chip "Sin PayPal"
+│           ├── Sandbox → Chip amarillo "Sandbox ✓"
+│           └── Producción → Chip verde "PayPal ✓"
+│
+├── Modal Configuración Banco
+│   ├── Nombre del Banco (select)
+│   ├── CLABE Interbancaria (18 dígitos, validación)
+│   ├── Número de Cuenta (auto-calculado últimos 10)
+│   └── Botón "Guardar"
+│
+└── Modal Configuración PayPal
+    ├── Client ID
+    ├── Secret (oculto con *****)
+    ├── Toggle Sandbox/Producción
+    └── Botón "Verificar y Guardar"
+```
+
+### Frontend - FinanceDashboardPage.tsx
+
+#### Sección Pagos Pendientes
+
+```
+FinanceDashboardPage.tsx
+├── KPIs existentes (SPEI Hoy, Efectivo Hoy, etc.)
+│
+├── 🆕 Sección "Pagos Pendientes en Sucursal"
+│   ├── Header naranja con contador
+│   ├── Buscador por referencia
+│   │   └── Input + Botón "Buscar" + Botón "Actualizar"
+│   └── Tabla de pagos pendientes
+│       ├── Referencia (monospace)
+│       ├── Cliente + teléfono
+│       ├── Monto (verde, bold)
+│       ├── Servicio (chip coloreado)
+│       ├── Banco/CLABE
+│       ├── Fecha
+│       └── Acción "Confirmar" (botón verde)
+│
+├── Gráficas de métodos de pago
+│
+└── 🆕 Dialog "Confirmar Pago"
+    ├── Alert de advertencia
+    ├── Detalles del pago:
+    │   ├── Referencia (grande, monospace)
+    │   ├── Cliente + email
+    │   ├── Monto a cobrar (destacado)
+    │   ├── Servicio (chip)
+    │   └── Guías/Concepto
+    ├── Fecha de registro
+    └── Botones: Cancelar | Confirmar Pago Recibido
+```
+
+### Mobile App - PaymentSummaryScreen.tsx
+
+#### Modal de Instrucciones de Pago
+
+Cuando el cliente selecciona "Pago en Sucursal", la app muestra información dinámica de la empresa:
+
+```typescript
+// Estado para info bancaria
+const [bankInfo, setBankInfo] = useState<{
+  banco: string;
+  clabe: string;
+  cuenta: string;
+  beneficiario: string;
+} | null>(null);
+
+const [branchInfo, setBranchInfo] = useState<{
+  nombre: string;
+  direccion: string;
+  telefono: string;
+  horario: string;
+} | null>(null);
+
+// Al crear pago en efectivo, se recibe info del backend
+const data = await res.json();
+if (data.success) {
+  setPaymentReference(data.reference);
+  setBankInfo(data.bankInfo);      // Datos de la empresa configurada
+  setBranchInfo(data.branchInfo);  // Datos de la sucursal
+}
+```
+
+### Migración
+
+```bash
+# Ejecutar migración
+cd entregax-backend-api
+node run_payment_config_migration.js
+
+# Output esperado:
+# 🚀 Ejecutando migración de configuración de pagos...
+# ✅ Migración ejecutada exitosamente
+# 📋 Columnas en fiscal_emitters:
+#    - bank_account (character varying)
+#    - bank_clabe (character varying)
+#    - bank_name (character varying)
+#    - paypal_client_id (character varying)
+#    - paypal_configured (boolean)
+#    - paypal_sandbox (boolean)
+#    - paypal_secret (text)
+# ✅ Columna payment_method existe en openpay_webhook_logs
+```
+
+### Archivos Relacionados
+
+| Archivo | Propósito |
+|---------|-----------|
+| `openpayController.ts` | Funciones saveBankConfig, getBankConfig, savePaypalConfig, getPaypalConfig |
+| `poboxPaymentController.ts` | createPoboxCashPayment - crea registro pendiente con info de empresa |
+| `index.ts` | Endpoints de búsqueda/confirmación de pagos |
+| `FiscalPage.tsx` | UI para configurar banco y PayPal por empresa |
+| `FinanceDashboardPage.tsx` | Sección de pagos pendientes con buscador |
+| `PaymentSummaryScreen.tsx` | Modal de instrucciones con datos dinámicos |
+
+### Seguridad
+
+1. **Roles mínimos** - BRANCH_MANAGER para buscar/confirmar pagos
+2. **DIRECTOR** para configurar banco/PayPal
+3. **Transacciones atómicas** - Toda confirmación en una transacción SQL
+4. **Logs completos** - Se registra quién confirma cada pago
+5. **Validación de referencia** - Búsqueda case-insensitive con ILIKE
+
+---
+
 ## 📍 Sistema de Direcciones
 
 ### Gestión de Direcciones de Envío
@@ -4358,6 +4781,59 @@ curl -s "http://localhost:3001/api/warehouse/stats" \
 ---
 
 ## 📝 Changelog
+
+### v2.11.0 (6 Mar 2026) - SISTEMA DE PAGOS EN SUCURSAL ⭐
+
+#### Sistema de Configuración de Pagos por Empresa
+- ✅ **Cuentas Bancarias por Empresa** - Cada empresa puede tener su propia cuenta bancaria configurada
+  - `bank_name` - Nombre del banco
+  - `bank_clabe` - CLABE interbancaria (18 dígitos con validación)
+  - `bank_account` - Número de cuenta (auto-generado últimos 10 dígitos)
+- ✅ **PayPal por Empresa** - Cada empresa puede tener sus propias credenciales PayPal
+  - `paypal_client_id` - Client ID de PayPal
+  - `paypal_secret` - Secret de PayPal
+  - `paypal_sandbox` - Toggle Sandbox/Producción
+  - `paypal_configured` - Flag de verificación exitosa
+
+#### Dashboard de Cobranza - Pagos Pendientes
+- ✅ **Nueva sección** - "Pagos Pendientes en Sucursal" en FinanceDashboardPage
+- ✅ **Tabla de pendientes** - Lista todos los pagos por confirmar con referencia, cliente, monto
+- ✅ **Buscador por referencia** - Input para buscar rápidamente cuando el cliente llega
+- ✅ **Confirmación de pago** - Dialog con detalles y botón para confirmar
+
+#### Endpoints API Nuevos
+```http
+GET  /api/admin/empresa/bank/:empresa_id     - Obtener config bancaria
+POST /api/admin/empresa/bank                 - Guardar config bancaria
+GET  /api/admin/empresa/paypal/:empresa_id   - Obtener config PayPal
+POST /api/admin/empresa/paypal               - Guardar y verificar PayPal
+GET  /api/admin/finance/pending-payments     - Listar pagos pendientes
+GET  /api/admin/finance/search-payment?ref=  - Buscar por referencia
+POST /api/admin/finance/confirm-payment      - Confirmar pago recibido
+```
+
+#### Flujo de Pago en Efectivo Mejorado
+- ✅ **Registro automático** - Al generar pago en efectivo, se crea registro `pending_payment` en dashboard
+- ✅ **Info bancaria dinámica** - La app móvil ahora muestra los datos bancarios de la empresa configurada
+- ✅ **Sucursal configurable** - Info de sucursal también viene del backend
+
+#### Migración
+```bash
+cd entregax-backend-api
+node run_payment_config_migration.js
+```
+
+#### Archivos Modificados
+| Archivo | Cambios |
+|---------|---------|
+| `openpayController.ts` | +saveBankConfig, +getBankConfig, +savePaypalConfig, +getPaypalConfig |
+| `poboxPaymentController.ts` | createPoboxCashPayment ahora crea registro pendiente |
+| `index.ts` | +endpoints de búsqueda y confirmación de pagos |
+| `FiscalPage.tsx` | +modales para configurar banco y PayPal |
+| `FinanceDashboardPage.tsx` | +sección de pagos pendientes con buscador |
+| `PaymentSummaryScreen.tsx` | +estados para bankInfo/branchInfo dinámicos |
+
+---
 
 ### v2.10.0 (5 Mar 2026) - GEX AUTO-GUARDADO Y SALDO PENDIENTE ⭐
 

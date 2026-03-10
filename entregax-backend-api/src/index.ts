@@ -129,7 +129,12 @@ import {
   handleOpenpayWebhook as handleOpenpayWebhookMultiEmpresa,
   getOpenpayPaymentHistory,
   getOpenpayDashboard,
-  getPaymentApplications
+  getPaymentApplications,
+  saveBankConfig,
+  getBankConfig,
+  savePaypalConfig,
+  getPaypalConfig,
+  getEmpresaFullConfig
 } from './openpayController';
 import {
   getServiceInstructions,
@@ -1328,8 +1333,8 @@ app.get('/api/auth/verify', authenticateToken, (req: AuthRequest, res: Response)
 });
 
 // --- RUTAS DE PAQUETES ---
-// Crear paquete (Bodega o superior)
-app.post('/api/packages', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), createPackage);
+// Crear paquete (Mostrador o superior - para recepción en sucursal)
+app.post('/api/packages', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createPackage);
 
 // Listar todos los paquetes (Staff o superior)
 app.get('/api/packages', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getPackages);
@@ -1413,7 +1418,8 @@ app.delete('/api/payment-methods/:id', authenticateToken, deletePaymentMethod);
 app.put('/api/payment-methods/:id/default', authenticateToken, setDefaultPaymentMethod);
 
 // --- RUTA PARA OBTENER INSTRUCCIONES DEL CLIENTE POR BOX ID (para recepción inteligente) ---
-app.get('/api/client/instructions/:boxId', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getClientInstructions);
+// Nivel COUNTER_STAFF para que personal de mostrador pueda dar de alta paquetes
+app.get('/api/client/instructions/:boxId', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getClientInstructions);
 
 // --- RUTAS DE COMISIONES Y REFERIDOS ---
 // Validar código de referido (público, para registro)
@@ -1472,6 +1478,18 @@ app.get('/api/admin/fiscal/service-emitter/:service_type', authenticateToken, ge
 app.get('/api/admin/openpay/empresas', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getEmpresasOpenpay);
 app.get('/api/admin/openpay/config/:empresa_id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getOpenpayConfig);
 app.post('/api/admin/openpay/config', authenticateToken, requireMinLevel(ROLES.DIRECTOR), saveOpenpayConfig);
+
+// Configuración bancaria por empresa
+app.get('/api/admin/empresa/bank/:empresa_id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getBankConfig);
+app.post('/api/admin/empresa/bank', authenticateToken, requireMinLevel(ROLES.DIRECTOR), saveBankConfig);
+
+// Configuración PayPal por empresa
+app.get('/api/admin/empresa/paypal/:empresa_id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getPaypalConfig);
+app.post('/api/admin/empresa/paypal', authenticateToken, requireMinLevel(ROLES.DIRECTOR), savePaypalConfig);
+
+// Configuración completa de empresa (todos los métodos de pago)
+app.get('/api/admin/empresa/full-config/:empresa_id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getEmpresaFullConfig);
+
 // Gestión de clientes y CLABEs
 app.post('/api/admin/openpay/create-customer', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), createOpenpayCustomer);
 app.post('/api/admin/openpay/generate-clabe-batch', authenticateToken, requireMinLevel(ROLES.DIRECTOR), generateClabeBatch);
@@ -2303,13 +2321,16 @@ app.get('/api/admin/payment-invoices', authenticateToken, requireMinLevel(ROLES.
 // ============================================
 app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: Request, res: Response): Promise<any> => {
   try {
-    const { date_from, date_to, empresa_id } = req.query;
+    const { date_from, date_to, empresa_id, service_type } = req.query;
     
     // Fechas por defecto: hoy y mes actual
     const today = new Date();
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
     const startDate = date_from ? new Date(date_from as string) : startOfMonth;
     const endDate = date_to ? new Date(date_to as string) : today;
+    
+    // Filtro por tipo de servicio (opcional)
+    const serviceFilter = service_type ? service_type as string : null;
 
     // ============================================
     // EMPRESAS CON OPENPAY CONFIGURADO
@@ -2339,7 +2360,8 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as efectivo_hoy
       FROM caja_chica_transacciones
       WHERE DATE(created_at) = CURRENT_DATE
-    `);
+        ${serviceFilter ? "AND service_type = $1" : ""}
+    `, serviceFilter ? [serviceFilter] : []);
     
     // SPEI por empresa
     const speiPorEmpresaRes = await pool.query(`
@@ -2350,10 +2372,24 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       FROM openpay_webhook_logs
       WHERE DATE(fecha_pago) = CURRENT_DATE
         AND estatus_procesamiento = 'procesado'
+        AND (tipo_pago = 'spei' OR tipo_pago IS NULL)
+        ${serviceFilter ? "AND service_type = $1" : ""}
       GROUP BY empresa_id
-    `);
+    `, serviceFilter ? [serviceFilter] : []);
 
-    // 2. Ingresos del mes actual - SPEI por empresa
+    // PayPal del día
+    const paypalHoyRes = await pool.query(`
+      SELECT 
+        COALESCE(SUM(monto_recibido), 0) as paypal_bruto,
+        COALESCE(SUM(monto_neto), 0) as paypal_neto
+      FROM openpay_webhook_logs
+      WHERE DATE(fecha_pago) = CURRENT_DATE
+        AND estatus_procesamiento = 'procesado'
+        AND tipo_pago = 'paypal'
+        ${serviceFilter ? "AND service_type = $1" : ""}
+    `, serviceFilter ? [serviceFilter] : []);
+
+    // 2. Ingresos del mes actual - SPEI por empresa (solo SPEI)
     const speiMesPorEmpresaRes = await pool.query(`
       SELECT 
         owl.empresa_id,
@@ -2366,9 +2402,23 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       LEFT JOIN fiscal_emitters fe ON owl.empresa_id = fe.id
       WHERE owl.fecha_pago >= $1 AND owl.fecha_pago <= $2
         AND owl.estatus_procesamiento = 'procesado'
+        AND (owl.tipo_pago = 'spei' OR owl.tipo_pago IS NULL)
+        ${serviceFilter ? "AND owl.service_type = $3" : ""}
       GROUP BY owl.empresa_id, fe.alias, fe.rfc
       ORDER BY spei_bruto DESC
-    `, [startOfMonth, today]);
+    `, serviceFilter ? [startOfMonth, today, serviceFilter] : [startOfMonth, today]);
+
+    // PayPal del mes
+    const paypalMesRes = await pool.query(`
+      SELECT 
+        COALESCE(SUM(monto_recibido), 0) as paypal_bruto,
+        COALESCE(SUM(monto_neto), 0) as paypal_neto
+      FROM openpay_webhook_logs
+      WHERE fecha_pago >= $1 AND fecha_pago <= $2
+        AND estatus_procesamiento = 'procesado'
+        AND tipo_pago = 'paypal'
+        ${serviceFilter ? "AND service_type = $3" : ""}
+    `, serviceFilter ? [startOfMonth, today, serviceFilter] : [startOfMonth, today]);
 
     // Efectivo del mes
     const ingresosMesRes = await pool.query(`
@@ -2376,9 +2426,10 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as efectivo_mes
       FROM caja_chica_transacciones
       WHERE created_at >= $1 AND created_at <= $2
-    `, [startOfMonth, today]);
+        ${serviceFilter ? "AND service_type = $3" : ""}
+    `, serviceFilter ? [startOfMonth, today, serviceFilter] : [startOfMonth, today]);
 
-    // 3. Cartera Vencida Total
+    // 3. Cartera Vencida Total (filtrada por servicio si aplica)
     const carteraRes = await pool.query(`
       SELECT 
         COALESCE(SUM(COALESCE(saldo_pendiente, assigned_cost_mxn)), 0) as cartera_total,
@@ -2387,14 +2438,16 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       WHERE (payment_status IN ('pending', 'partial') OR payment_status IS NULL)
         AND assigned_cost_mxn > 0
         AND COALESCE(saldo_pendiente, assigned_cost_mxn) > 0
-    `);
+        ${serviceFilter ? "AND service_type = $1" : ""}
+    `, serviceFilter ? [serviceFilter] : []);
 
-    // 4. Saldo en caja chica
+    // 4. Saldo en caja chica (filtrado por servicio si aplica)
     const saldoCajaRes = await pool.query(`
       SELECT 
         COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE -monto END), 0) as saldo_caja
       FROM caja_chica_transacciones
-    `);
+      ${serviceFilter ? "WHERE service_type = $1" : ""}
+    `, serviceFilter ? [serviceFilter] : []);
 
     // ============================================
     // INGRESOS POR SERVICIO (Multi-empresa)
@@ -2407,12 +2460,13 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       FROM packages p
       WHERE p.payment_status = 'paid'
         AND p.updated_at >= $1 AND p.updated_at <= $2
+        ${serviceFilter ? "AND p.service_type = $3" : ""}
       GROUP BY p.service_type
       ORDER BY monto_total DESC
-    `, [startDate, endDate]);
+    `, serviceFilter ? [startDate, endDate, serviceFilter] : [startDate, endDate]);
 
     // ============================================
-    // TRANSACCIONES RECIENTES (sin dependencias problemáticas)
+    // TRANSACCIONES RECIENTES (con filtro de servicio)
     // ============================================
     const transaccionesRes = await pool.query(`
       (
@@ -2425,12 +2479,14 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
           0 as comision,
           'efectivo' as metodo,
           t.concepto,
-          'Caja Chica' as origen,
-          'completado' as estatus
+          'Caja CC' as origen,
+          'completado' as estatus,
+          t.service_type
         FROM caja_chica_transacciones t
         LEFT JOIN users u ON t.cliente_id = u.id
         WHERE t.tipo = 'ingreso' 
           AND t.created_at >= $1 AND t.created_at <= $2
+          ${serviceFilter ? "AND t.service_type = $3" : ""}
         ORDER BY t.created_at DESC
         LIMIT 50
       )
@@ -2443,49 +2499,59 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
           owl.monto_recibido as monto_bruto,
           owl.monto_neto,
           owl.monto_recibido - owl.monto_neto as comision,
-          'spei' as metodo,
+          COALESCE(owl.tipo_pago, 'spei') as metodo,
           owl.concepto,
           COALESCE(fe.alias, 'Empresa') as origen,
-          owl.estatus_procesamiento as estatus
+          owl.estatus_procesamiento as estatus,
+          owl.service_type
         FROM openpay_webhook_logs owl
         LEFT JOIN users u ON owl.user_id = u.id
         LEFT JOIN fiscal_emitters fe ON owl.empresa_id = fe.id
         WHERE owl.estatus_procesamiento = 'procesado'
           AND owl.fecha_pago >= $1 AND owl.fecha_pago <= $2
+          ${serviceFilter ? "AND owl.service_type = $3" : ""}
         ORDER BY owl.fecha_pago DESC
         LIMIT 50
       )
       ORDER BY fecha_hora DESC
       LIMIT 100
-    `, [startDate, endDate]);
+    `, serviceFilter ? [startDate, endDate, serviceFilter] : [startDate, endDate]);
 
     // Calcular totales consolidados
     const efectivoHoy = parseFloat(ingresosHoyRes.rows[0].efectivo_hoy) || 0;
     const speiHoyTotal = speiPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.spei_bruto || 0), 0);
     const speiNetoHoyTotal = speiPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.spei_neto || 0), 0);
+    const paypalHoy = parseFloat(paypalHoyRes.rows[0]?.paypal_bruto || 0);
+    const paypalNetoHoy = parseFloat(paypalHoyRes.rows[0]?.paypal_neto || 0);
     const efectivoMes = parseFloat(ingresosMesRes.rows[0].efectivo_mes) || 0;
     const speiMesTotal = speiMesPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.spei_bruto || 0), 0);
     const speiNetoMesTotal = speiMesPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.spei_neto || 0), 0);
-    const comisionesMes = speiMesTotal - speiNetoMesTotal;
+    const paypalMes = parseFloat(paypalMesRes.rows[0]?.paypal_bruto || 0);
+    const paypalNetoMes = parseFloat(paypalMesRes.rows[0]?.paypal_neto || 0);
+    const comisionesMes = (speiMesTotal - speiNetoMesTotal) + (paypalMes - paypalNetoMes);
+    const totalMes = efectivoMes + speiMesTotal + paypalMes;
 
     res.json({
       success: true,
       fecha_consulta: new Date(),
       periodo: { desde: startDate, hasta: endDate },
+      filtro_servicio: serviceFilter,
       
       // Empresas con OpenPay configurado
       empresas: empresasRes.rows,
       
       // KPIs principales CONSOLIDADOS
       kpis: {
-        ingresos_hoy: efectivoHoy + speiHoyTotal,
-        ingresos_hoy_neto: efectivoHoy + speiNetoHoyTotal,
-        ingresos_mes: efectivoMes + speiMesTotal,
-        ingresos_mes_neto: efectivoMes + speiNetoMesTotal,
+        ingresos_hoy: efectivoHoy + speiHoyTotal + paypalHoy,
+        ingresos_hoy_neto: efectivoHoy + speiNetoHoyTotal + paypalNetoHoy,
+        ingresos_mes: efectivoMes + speiMesTotal + paypalMes,
+        ingresos_mes_neto: efectivoMes + speiNetoMesTotal + paypalNetoMes,
         spei_hoy: speiHoyTotal,
         spei_hoy_neto: speiNetoHoyTotal,
         spei_mes: speiMesTotal,
         spei_mes_neto: speiNetoMesTotal,
+        paypal_hoy: paypalHoy,
+        paypal_mes: paypalMes,
         efectivo_hoy: efectivoHoy,
         efectivo_mes: efectivoMes,
         cartera_vencida: parseFloat(carteraRes.rows[0].cartera_total) || 0,
@@ -2508,14 +2574,18 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       // Distribución para gráfica de pastel
       distribucion_metodos: {
         efectivo: efectivoMes,
-        spei: speiMesTotal
+        spei: speiMesTotal,
+        paypal: paypalMes
       },
       porcentajes: {
-        efectivo: efectivoMes + speiMesTotal > 0 
-          ? ((efectivoMes / (efectivoMes + speiMesTotal)) * 100).toFixed(1)
+        efectivo: totalMes > 0 
+          ? ((efectivoMes / totalMes) * 100).toFixed(1)
           : '0',
-        spei: efectivoMes + speiMesTotal > 0 
-          ? ((speiMesTotal / (efectivoMes + speiMesTotal)) * 100).toFixed(1)
+        spei: totalMes > 0 
+          ? ((speiMesTotal / totalMes) * 100).toFixed(1)
+          : '0',
+        paypal: totalMes > 0 
+          ? ((paypalMes / totalMes) * 100).toFixed(1)
           : '0'
       },
       
@@ -2537,12 +2607,485 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         metodo: t.metodo,
         concepto: t.concepto,
         origen: t.origen,
-        estatus: t.estatus
-      }))
+        estatus: t.estatus,
+        service_type: t.service_type
+      })),
+      
+      // Servicios disponibles para filtrar
+      servicios_disponibles: [
+        { value: 'POBOX_USA', label: 'PO Box USA' },
+        { value: 'AIR_CHN_MX', label: 'Aéreo China' },
+        { value: 'SEA_CHN_MX', label: 'Marítimo China' },
+        { value: 'AA_DHL', label: 'Nacional DHL' }
+      ]
     });
   } catch (error: any) {
     console.error('Error getting finance dashboard:', error);
     res.status(500).json({ error: 'Error obteniendo dashboard financiero', details: error.message });
+  }
+});
+
+// ============================================
+// BUSCAR PAGO PENDIENTE POR REFERENCIA
+// Para cuando el cliente llega con su referencia
+// ============================================
+app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { ref } = req.query;
+    
+    if (!ref) {
+      return res.status(400).json({ error: 'Referencia es requerida' });
+    }
+
+    const refStr = (ref as string).toUpperCase().trim();
+
+    // Buscar en openpay_webhook_logs (pagos pendientes)
+    const paymentLog = await pool.query(`
+      SELECT 
+        owl.id,
+        owl.transaction_id as referencia,
+        owl.user_id,
+        owl.monto_recibido as monto,
+        owl.concepto,
+        owl.fecha_pago,
+        owl.estatus_procesamiento as status,
+        owl.service_type,
+        owl.payload_json,
+        u.full_name as cliente_nombre,
+        u.email as cliente_email,
+        u.phone as cliente_telefono,
+        fe.alias as empresa_alias
+      FROM openpay_webhook_logs owl
+      LEFT JOIN users u ON owl.user_id = u.id
+      LEFT JOIN fiscal_emitters fe ON owl.empresa_id = fe.id
+      WHERE owl.transaction_id ILIKE $1
+      ORDER BY owl.fecha_pago DESC
+      LIMIT 1
+    `, [`%${refStr}%`]);
+
+    if (paymentLog.rows.length === 0) {
+      // Buscar también en pobox_payments
+      const poboxPayment = await pool.query(`
+        SELECT 
+          p.id,
+          p.payment_reference as referencia,
+          p.user_id,
+          p.amount as monto,
+          p.package_ids,
+          p.status,
+          p.expires_at,
+          p.created_at,
+          u.full_name as cliente_nombre,
+          u.email as cliente_email,
+          u.phone as cliente_telefono
+        FROM pobox_payments p
+        LEFT JOIN users u ON p.user_id = u.id
+        WHERE p.payment_reference ILIKE $1
+        ORDER BY p.created_at DESC
+        LIMIT 1
+      `, [`%${refStr}%`]);
+
+      if (poboxPayment.rows.length === 0) {
+        return res.status(404).json({ 
+          error: 'Referencia no encontrada',
+          message: `No se encontró ningún pago con referencia: ${refStr}`
+        });
+      }
+
+      // Obtener guías asociadas
+      const payment = poboxPayment.rows[0];
+      let packageIds = [];
+      try {
+        packageIds = typeof payment.package_ids === 'string' 
+          ? JSON.parse(payment.package_ids) 
+          : payment.package_ids;
+      } catch (e) {}
+
+      let guias: any[] = [];
+      if (packageIds.length > 0) {
+        const guiasRes = await pool.query(
+          `SELECT id, tracking_internal, description, assigned_cost_mxn FROM packages WHERE id = ANY($1)`,
+          [packageIds]
+        );
+        guias = guiasRes.rows;
+      }
+
+      return res.json({
+        success: true,
+        source: 'pobox_payments',
+        payment: {
+          id: payment.id,
+          referencia: payment.referencia,
+          monto: parseFloat(payment.monto) || 0,
+          status: payment.status,
+          expires_at: payment.expires_at,
+          created_at: payment.created_at
+        },
+        cliente: {
+          id: payment.user_id,
+          nombre: payment.cliente_nombre,
+          email: payment.cliente_email,
+          telefono: payment.cliente_telefono
+        },
+        guias: guias,
+        puede_confirmar: payment.status === 'pending_payment'
+      });
+    }
+
+    // Encontrado en openpay_webhook_logs
+    const payment = paymentLog.rows[0];
+    let packageIds = [];
+    let guias: any[] = [];
+    
+    try {
+      const payload = typeof payment.payload_json === 'string' 
+        ? JSON.parse(payment.payload_json) 
+        : payment.payload_json;
+      packageIds = payload?.packageIds || [];
+    } catch (e) {}
+
+    if (packageIds.length > 0) {
+      const guiasRes = await pool.query(
+        `SELECT id, tracking_internal, description, assigned_cost_mxn FROM packages WHERE id = ANY($1)`,
+        [packageIds]
+      );
+      guias = guiasRes.rows;
+    }
+
+    res.json({
+      success: true,
+      source: 'openpay_webhook_logs',
+      payment: {
+        id: payment.id,
+        referencia: payment.referencia,
+        monto: parseFloat(payment.monto) || 0,
+        concepto: payment.concepto,
+        status: payment.status,
+        fecha_pago: payment.fecha_pago,
+        service_type: payment.service_type,
+        empresa: payment.empresa_alias
+      },
+      cliente: {
+        id: payment.user_id,
+        nombre: payment.cliente_nombre,
+        email: payment.cliente_email,
+        telefono: payment.cliente_telefono
+      },
+      guias: guias,
+      puede_confirmar: payment.status === 'pending_payment'
+    });
+
+  } catch (error: any) {
+    console.error('Error searching payment:', error);
+    res.status(500).json({ error: 'Error buscando pago', details: error.message });
+  }
+});
+
+// ============================================
+// CONFIRMAR PAGO EN EFECTIVO/SUCURSAL
+// Cuando el admin recibe el pago del cliente
+// ============================================
+app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { referencia, metodo_confirmacion = 'efectivo', notas } = req.body;
+    const adminId = req.user?.userId;
+    const adminName = req.user?.email?.split('@')[0] || `User ${adminId}`;
+
+    if (!referencia) {
+      return res.status(400).json({ error: 'Referencia es requerida' });
+    }
+
+    const refStr = referencia.toUpperCase().trim();
+
+    // Buscar el pago pendiente
+    const pendingPayment = await pool.query(`
+      SELECT * FROM openpay_webhook_logs 
+      WHERE transaction_id = $1 AND estatus_procesamiento = 'pending_payment'
+    `, [refStr]);
+
+    if (pendingPayment.rows.length === 0) {
+      return res.status(404).json({ 
+        error: 'Pago no encontrado o ya procesado',
+        message: 'Verifica que la referencia sea correcta y el pago esté pendiente'
+      });
+    }
+
+    const payment = pendingPayment.rows[0];
+    let packageIds = [];
+    try {
+      const payload = typeof payment.payload_json === 'string' 
+        ? JSON.parse(payment.payload_json) 
+        : payment.payload_json;
+      packageIds = payload?.packageIds || [];
+    } catch (e) {}
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // 1. Actualizar registro en openpay_webhook_logs como procesado
+      await client.query(`
+        UPDATE openpay_webhook_logs SET
+          estatus_procesamiento = 'procesado',
+          processed_at = CURRENT_TIMESTAMP,
+          concepto = concepto || ' | Confirmado por ' || $2 || ' via ' || $3
+        WHERE id = $1
+      `, [payment.id, adminName || adminId, metodo_confirmacion]);
+
+      // 2. Actualizar pobox_payments si existe
+      await client.query(`
+        UPDATE pobox_payments SET
+          status = 'paid',
+          paid_at = CURRENT_TIMESTAMP
+        WHERE payment_reference = $1
+      `, [refStr]);
+
+      // 3. Marcar los paquetes como pagados
+      if (packageIds.length > 0) {
+        await client.query(`
+          UPDATE packages SET
+            client_paid = TRUE,
+            client_paid_at = CURRENT_TIMESTAMP,
+            saldo_pendiente = 0,
+            payment_status = 'paid'
+          WHERE id = ANY($1)
+        `, [packageIds]);
+      }
+
+      // 4. Registrar en caja_chica_transacciones (si es pago en efectivo)
+      if (metodo_confirmacion === 'efectivo') {
+        await client.query(`
+          INSERT INTO caja_chica_transacciones (
+            tipo, monto, concepto, cliente_id, autorizado_por, 
+            service_type, created_at
+          ) VALUES (
+            'ingreso', $1, $2, $3, $4, $5, CURRENT_TIMESTAMP
+          )
+        `, [
+          payment.monto_recibido,
+          `Pago efectivo ref: ${refStr} - ${packageIds.length} paquete(s)`,
+          payment.user_id,
+          adminId,
+          payment.service_type
+        ]);
+      }
+
+      await client.query('COMMIT');
+
+      console.log(`✅ Pago confirmado: ${refStr} - $${payment.monto_recibido} por ${adminName || adminId}`);
+
+      res.json({
+        success: true,
+        message: 'Pago confirmado exitosamente',
+        referencia: refStr,
+        monto: parseFloat(payment.monto_recibido) || 0,
+        metodo: metodo_confirmacion,
+        paquetes_actualizados: packageIds.length,
+        confirmado_por: adminName || adminId
+      });
+
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+
+  } catch (error: any) {
+    console.error('Error confirming payment:', error);
+    res.status(500).json({ error: 'Error confirmando pago', details: error.message });
+  }
+});
+
+// ============================================
+// LISTAR PAGOS PENDIENTES POR CONFIRMAR
+// ============================================
+app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { service_type, branch_id, limit = 50 } = req.query;
+
+    let whereClause = "WHERE owl.estatus_procesamiento = 'pending_payment'";
+    const params: any[] = [limit];
+    let paramIndex = 2;
+
+    if (branch_id) {
+      whereClause += ` AND owl.branch_id = $${paramIndex++}`;
+      params.push(branch_id);
+    }
+
+    if (service_type) {
+      whereClause += ` AND owl.service_type = $${paramIndex++}`;
+      params.push(service_type);
+    }
+
+    const result = await pool.query(`
+      SELECT 
+        owl.id,
+        owl.transaction_id as referencia,
+        owl.user_id,
+        owl.monto_recibido as monto,
+        owl.concepto,
+        owl.fecha_pago as created_at,
+        owl.service_type as tipo_servicio,
+        owl.payment_method,
+        owl.branch_id,
+        u.full_name as cliente,
+        u.email as cliente_email,
+        u.phone as telefono,
+        fe.alias as empresa,
+        fe.bank_name as banco,
+        fe.bank_clabe as clabe,
+        b.name as sucursal_nombre
+      FROM openpay_webhook_logs owl
+      LEFT JOIN users u ON owl.user_id = u.id
+      LEFT JOIN fiscal_emitters fe ON owl.empresa_id = fe.id
+      LEFT JOIN branches b ON owl.branch_id = b.id
+      ${whereClause}
+      ORDER BY owl.fecha_pago DESC
+      LIMIT $1
+    `, params);
+
+    res.json({
+      success: true,
+      count: result.rows.length,
+      pending_payments: result.rows.map((r: any) => ({
+        id: r.id,
+        referencia: r.referencia,
+        monto: parseFloat(r.monto) || 0,
+        concepto: r.concepto,
+        created_at: r.created_at,
+        tipo_servicio: r.tipo_servicio,
+        payment_method: r.payment_method || 'cash',
+        cliente: r.cliente || 'Cliente desconocido',
+        cliente_email: r.cliente_email,
+        telefono: r.telefono,
+        empresa: r.empresa,
+        banco: r.banco,
+        clabe: r.clabe,
+        branch_id: r.branch_id,
+        sucursal_nombre: r.sucursal_nombre,
+        guias: r.concepto
+      }))
+    });
+
+  } catch (error: any) {
+    console.error('Error getting pending payments:', error);
+    res.status(500).json({ error: 'Error obteniendo pagos pendientes', details: error.message });
+  }
+});
+
+// ============================================
+// OBTENER DETALLES DE GUÍAS POR REFERENCIA DE PAGO
+// ============================================
+app.get('/api/admin/finance/payment-details/:referencia', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { referencia } = req.params;
+
+    // 1. Buscar el pago en pobox_payments
+    const paymentResult = await pool.query(`
+      SELECT 
+        pp.id,
+        pp.user_id,
+        pp.package_ids,
+        pp.amount,
+        pp.currency,
+        pp.payment_method,
+        pp.payment_reference,
+        pp.external_order_id,
+        pp.status,
+        pp.expires_at,
+        pp.created_at,
+        u.full_name as cliente,
+        u.email as cliente_email,
+        u.phone as cliente_telefono
+      FROM pobox_payments pp
+      LEFT JOIN users u ON pp.user_id = u.id
+      WHERE pp.payment_reference = $1
+      LIMIT 1
+    `, [referencia]);
+
+    if (paymentResult.rows.length === 0) {
+      return res.status(404).json({ error: 'Pago no encontrado' });
+    }
+
+    const payment = paymentResult.rows[0];
+    
+    // 2. Parsear package_ids
+    let packageIds: number[] = [];
+    try {
+      packageIds = typeof payment.package_ids === 'string' 
+        ? JSON.parse(payment.package_ids) 
+        : payment.package_ids;
+    } catch (e) {
+      packageIds = [];
+    }
+
+    // 3. Obtener detalles de las guías
+    let guias: any[] = [];
+    if (packageIds.length > 0) {
+      const guiasResult = await pool.query(`
+        SELECT 
+          p.id,
+          p.tracking_number as tracking_interno,
+          p.tracking_provider as tracking_proveedor,
+          p.description as descripcion,
+          p.weight,
+          p.volume,
+          p.assigned_cost_mxn as costo,
+          p.saldo_pendiente,
+          p.monto_pagado,
+          p.client_paid,
+          p.status,
+          p.received_at,
+          p.declared_value
+        FROM packages p
+        WHERE p.id = ANY($1)
+        ORDER BY p.id
+      `, [packageIds]);
+      
+      guias = guiasResult.rows.map(g => ({
+        id: g.id,
+        tracking_interno: g.tracking_interno,
+        tracking_proveedor: g.tracking_proveedor,
+        descripcion: g.descripcion || 'Sin descripción',
+        peso: g.weight ? parseFloat(g.weight) : null,
+        volumen: g.volume ? parseFloat(g.volume) : null,
+        costo: g.costo ? parseFloat(g.costo) : 0,
+        saldo_pendiente: g.saldo_pendiente ? parseFloat(g.saldo_pendiente) : 0,
+        monto_pagado: g.monto_pagado ? parseFloat(g.monto_pagado) : 0,
+        pagado: g.client_paid || false,
+        status: g.status,
+        fecha_recepcion: g.received_at,
+        valor_declarado: g.declared_value ? parseFloat(g.declared_value) : null
+      }));
+    }
+
+    res.json({
+      success: true,
+      payment: {
+        id: payment.id,
+        referencia: payment.payment_reference,
+        monto: parseFloat(payment.amount) || 0,
+        currency: payment.currency,
+        payment_method: payment.payment_method,
+        status: payment.status,
+        expires_at: payment.expires_at,
+        created_at: payment.created_at
+      },
+      cliente: {
+        nombre: payment.cliente || 'Desconocido',
+        email: payment.cliente_email,
+        telefono: payment.cliente_telefono
+      },
+      guias,
+      total_guias: guias.length,
+      total_peso: guias.reduce((sum, g) => sum + (g.peso || 0), 0),
+      total_costo: guias.reduce((sum, g) => sum + (g.costo || 0), 0)
+    });
+
+  } catch (error: any) {
+    console.error('Error getting payment details:', error);
+    res.status(500).json({ error: 'Error obteniendo detalles del pago', details: error.message });
   }
 });
 
@@ -2567,7 +3110,7 @@ app.get('/api/admin/finance/export', authenticateToken, requireMinLevel(ROLES.AD
           t.monto as monto_neto,
           0 as comision_openpay,
           'Efectivo' as metodo_pago,
-          'Caja Chica' as empresa_receptora,
+          'Caja CC' as empresa_receptora,
           t.concepto as concepto,
           t.admin_name as registrado_por,
           COALESCE(
@@ -3000,8 +3543,75 @@ app.get('/api/admin/carousel/stats', authenticateToken, requireRole('super_admin
 app.post('/api/admin/carousel/upload', authenticateToken, requireRole('super_admin'), carouselUpload.single('image'), uploadSlideImage);
 
 // ============================================
-// CAJA CHICA (PETTY CASH)
-// Módulo para gestión de efectivo en sucursal
+// TESORERÍA SUCURSAL (Sistema de Caja Chica por Sucursal)
+// Billeteras, movimientos, categorías y cortes de caja
+// ============================================
+import {
+  getBilleterasSucursal,
+  createBilletera,
+  updateBilletera,
+  getCategoriasFinancieras,
+  createCategoriaFinanciera,
+  getTesoreriaDashboard,
+  getMovimientosFinancieros,
+  registrarMovimiento,
+  registrarTransferencia,
+  abrirCorteCaja,
+  cerrarCorteCaja,
+  getHistorialCortes,
+  auditarCorte,
+} from './tesoreriaSucursalController';
+
+// Dashboard y estadísticas
+app.get('/api/tesoreria/sucursal/:sucursalId/dashboard', authenticateToken, getTesoreriaDashboard);
+
+// Billeteras
+app.get('/api/tesoreria/sucursal/:sucursalId/billeteras', authenticateToken, getBilleterasSucursal);
+app.post('/api/tesoreria/billetera', authenticateToken, createBilletera);
+app.put('/api/tesoreria/billetera/:id', authenticateToken, updateBilletera);
+
+// Categorías financieras
+app.get('/api/tesoreria/categorias', authenticateToken, getCategoriasFinancieras);
+app.post('/api/tesoreria/categorias', authenticateToken, createCategoriaFinanciera);
+
+// Movimientos
+app.get('/api/tesoreria/sucursal/:sucursalId/movimientos', authenticateToken, getMovimientosFinancieros);
+app.post('/api/tesoreria/movimiento', authenticateToken, registrarMovimiento);
+app.post('/api/tesoreria/transferencia', authenticateToken, registrarTransferencia);
+
+// Cortes de caja
+app.get('/api/tesoreria/sucursal/:sucursalId/cortes', authenticateToken, getHistorialCortes);
+app.post('/api/tesoreria/corte/abrir', authenticateToken, abrirCorteCaja);
+app.post('/api/tesoreria/corte/cerrar', authenticateToken, cerrarCorteCaja);
+app.post('/api/tesoreria/corte/auditar', authenticateToken, auditarCorte);
+
+// Upload de evidencias para tesorería
+import { uploadToS3 } from './s3Service';
+const evidenceUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB max
+
+app.post('/api/uploads/evidence', authenticateToken, evidenceUpload.single('file'), async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.file) {
+      res.status(400).json({ message: 'No se proporcionó archivo' });
+      return;
+    }
+    
+    const timestamp = Date.now();
+    const ext = req.file.originalname.split('.').pop() || 'jpg';
+    const key = `tesoreria/evidencias/${timestamp}_${req.user?.userId || 0}.${ext}`;
+    
+    const url = await uploadToS3(req.file.buffer, key, req.file.mimetype);
+    
+    res.json({ url, key });
+  } catch (error) {
+    console.error('Error uploading evidence:', error);
+    res.status(500).json({ message: 'Error al subir evidencia' });
+  }
+});
+
+// ============================================
+// CAJA CC (Control de Cobros a Clientes)
+// Módulo para gestión de pagos de clientes
 // Soporta pagos parciales y multi-guía
 // ============================================
 app.get('/api/caja-chica/stats', authenticateToken, getCajaChicaStats);

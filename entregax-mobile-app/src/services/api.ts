@@ -54,6 +54,10 @@ export interface Package {
   assigned_cost_mxn?: number;
   saldo_pendiente?: number;
   monto_pagado?: number;
+  // 💳 Orden de pago pendiente
+  pending_payment_reference?: string | null;
+  pending_payment_amount?: number | null;
+  pending_payment_expires?: string | null;
 }
 
 // Función para hacer login

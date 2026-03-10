@@ -1619,7 +1619,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                                     Dashboard de Cobranza
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                    Flujo de efectivo: Caja Chica + SPEI (Openpay)
+                                    Flujo de efectivo: Caja CC + SPEI (Openpay)
                                 </Typography>
                                 <Divider sx={{ my: 1 }} />
                                 <Typography variant="caption" color="text.secondary">
@@ -1894,7 +1894,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                             </Box>
                             <CardContent>
                                 <Typography variant="h6" fontWeight="bold" gutterBottom>
-                                    Caja Chica
+                                    Caja CC
                                 </Typography>
                                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                                     Control de efectivo, ingresos, egresos y cortes de caja

@@ -503,7 +503,7 @@ const CajaChicaPage: React.FC = () => {
         <Box>
           <Typography variant="h4" fontWeight="bold" gutterBottom>
             <LocalAtmIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-            Caja Chica
+            Caja CC
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Control de efectivo con pagos parciales y multi-guía

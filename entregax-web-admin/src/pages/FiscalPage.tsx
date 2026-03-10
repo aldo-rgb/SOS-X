@@ -78,6 +78,12 @@ const FISCAL_REGIMES = [
   { code: '626', label: 'Régimen Simplificado de Confianza' },
 ];
 
+// Bancos mexicanos comunes
+const BANCOS_MEXICO = [
+  'BBVA México', 'Banorte', 'Santander', 'HSBC', 'Scotiabank', 'Citibanamex',
+  'Banco Azteca', 'BanCoppel', 'Inbursa', 'Banregio', 'Bajío', 'Afirme', 'STP'
+];
+
 export default function FiscalPage() {
   const { i18n } = useTranslation();
   const [emitters, setEmitters] = useState<FiscalEmitter[]>([]);
@@ -110,6 +116,26 @@ export default function FiscalPage() {
     commission_fee: '10.00'
   });
   const [savingOpenpay, setSavingOpenpay] = useState(false);
+
+  // Modal Cuenta Bancaria
+  const [openBankModal, setOpenBankModal] = useState(false);
+  const [selectedEmpresaBank, setSelectedEmpresaBank] = useState<any>(null);
+  const [bankForm, setBankForm] = useState({
+    bank_name: '',
+    bank_clabe: '',
+    bank_account: ''
+  });
+  const [savingBank, setSavingBank] = useState(false);
+
+  // Modal PayPal
+  const [openPaypalModal, setOpenPaypalModal] = useState(false);
+  const [selectedEmpresaPaypal, setSelectedEmpresaPaypal] = useState<any>(null);
+  const [paypalForm, setPaypalForm] = useState({
+    paypal_client_id: '',
+    paypal_secret: '',
+    paypal_sandbox: true
+  });
+  const [savingPaypal, setSavingPaypal] = useState(false);
 
   const getToken = () => localStorage.getItem('token');
 
@@ -266,6 +292,100 @@ export default function FiscalPage() {
     }
   };
 
+  // ========== FUNCIONES DE BANCO ==========
+  const handleOpenBankModal = async (emitter: any) => {
+    setSelectedEmpresaBank(emitter);
+    try {
+      const res = await axios.get(`${API_URL}/admin/empresa/bank/${emitter.id}`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      if (res.data) {
+        setBankForm({
+          bank_name: res.data.bank_name || '',
+          bank_clabe: res.data.bank_clabe || '',
+          bank_account: res.data.bank_account || ''
+        });
+      }
+    } catch (e) {
+      setBankForm({ bank_name: '', bank_clabe: '', bank_account: '' });
+    }
+    setOpenBankModal(true);
+  };
+
+  const handleSaveBank = async () => {
+    if (!selectedEmpresaBank) return;
+    if (!bankForm.bank_name || !bankForm.bank_clabe) {
+      setSnackbar({ open: true, message: 'Banco y CLABE son requeridos', severity: 'error' });
+      return;
+    }
+    if (!/^\d{18}$/.test(bankForm.bank_clabe)) {
+      setSnackbar({ open: true, message: 'La CLABE debe tener 18 dígitos', severity: 'error' });
+      return;
+    }
+    setSavingBank(true);
+    try {
+      await axios.post(`${API_URL}/admin/empresa/bank`, {
+        empresa_id: selectedEmpresaBank.id,
+        bank_name: bankForm.bank_name,
+        bank_clabe: bankForm.bank_clabe,
+        bank_account: bankForm.bank_account || bankForm.bank_clabe.slice(-10)
+      }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      
+      setSnackbar({ open: true, message: `✅ Cuenta bancaria configurada para ${selectedEmpresaBank.alias}`, severity: 'success' });
+      setOpenBankModal(false);
+      loadData();
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.error || 'Error al guardar cuenta bancaria', severity: 'error' });
+    } finally {
+      setSavingBank(false);
+    }
+  };
+
+  // ========== FUNCIONES DE PAYPAL ==========
+  const handleOpenPaypalModal = async (emitter: any) => {
+    setSelectedEmpresaPaypal(emitter);
+    try {
+      const res = await axios.get(`${API_URL}/admin/empresa/paypal/${emitter.id}`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      if (res.data) {
+        setPaypalForm({
+          paypal_client_id: res.data.paypal_client_id || '',
+          paypal_secret: '',
+          paypal_sandbox: res.data.paypal_sandbox !== false
+        });
+      }
+    } catch (e) {
+      setPaypalForm({ paypal_client_id: '', paypal_secret: '', paypal_sandbox: true });
+    }
+    setOpenPaypalModal(true);
+  };
+
+  const handleSavePaypal = async () => {
+    if (!selectedEmpresaPaypal) return;
+    if (!paypalForm.paypal_client_id || !paypalForm.paypal_secret) {
+      setSnackbar({ open: true, message: 'Client ID y Secret son requeridos', severity: 'error' });
+      return;
+    }
+    setSavingPaypal(true);
+    try {
+      await axios.post(`${API_URL}/admin/empresa/paypal`, {
+        empresa_id: selectedEmpresaPaypal.id,
+        paypal_client_id: paypalForm.paypal_client_id,
+        paypal_secret: paypalForm.paypal_secret,
+        paypal_sandbox: paypalForm.paypal_sandbox
+      }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      
+      setSnackbar({ open: true, message: `✅ PayPal configurado para ${selectedEmpresaPaypal.alias}`, severity: 'success' });
+      setOpenPaypalModal(false);
+      loadData();
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.error || 'Error al configurar PayPal', severity: 'error' });
+    } finally {
+      setSavingPaypal(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
@@ -395,6 +515,8 @@ export default function FiscalPage() {
                   <TableCell sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Régimen' : 'Regime'}</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>C.P.</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Openpay</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>Banco</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>PayPal</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Estado' : 'Status'}</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Acciones' : 'Actions'}</TableCell>
                 </TableRow>
@@ -445,6 +567,56 @@ export default function FiscalPage() {
                         </Tooltip>
                       )}
                     </TableCell>
+                    {/* Banco */}
+                    <TableCell align="center">
+                      {(emitter as any).bank_clabe ? (
+                        <Tooltip title={`${(emitter as any).bank_name}: ${(emitter as any).bank_clabe}`}>
+                          <Chip 
+                            icon={<AccountBalanceIcon />}
+                            label={(emitter as any).bank_name?.slice(0, 8) || 'CLABE'}
+                            color="success"
+                            size="small"
+                            onClick={() => handleOpenBankModal(emitter)}
+                            sx={{ cursor: 'pointer' }}
+                          />
+                        </Tooltip>
+                      ) : (
+                        <Tooltip title="Configurar cuenta bancaria para pagos efectivo/SPEI">
+                          <Chip 
+                            icon={<AccountBalanceIcon />}
+                            label="Configurar"
+                            color="default"
+                            size="small"
+                            onClick={() => handleOpenBankModal(emitter)}
+                            sx={{ cursor: 'pointer' }}
+                          />
+                        </Tooltip>
+                      )}
+                    </TableCell>
+                    {/* PayPal */}
+                    <TableCell align="center">
+                      {(emitter as any).paypal_configured ? (
+                        <Tooltip title={`PayPal configurado (${(emitter as any).paypal_sandbox ? 'Sandbox' : 'Producción'})`}>
+                          <Chip 
+                            label={(emitter as any).paypal_sandbox ? 'Sand' : 'Prod'}
+                            color={(emitter as any).paypal_sandbox ? 'warning' : 'success'}
+                            size="small"
+                            onClick={() => handleOpenPaypalModal(emitter)}
+                            sx={{ cursor: 'pointer', bgcolor: '#003087', color: 'white' }}
+                          />
+                        </Tooltip>
+                      ) : (
+                        <Tooltip title="Configurar PayPal para pagos">
+                          <Chip 
+                            label="Configurar"
+                            color="default"
+                            size="small"
+                            onClick={() => handleOpenPaypalModal(emitter)}
+                            sx={{ cursor: 'pointer' }}
+                          />
+                        </Tooltip>
+                      )}
+                    </TableCell>
                     <TableCell align="center">
                       <Chip 
                         label={emitter.is_active ? (i18n.language === 'es' ? 'Activa' : 'Active') : (i18n.language === 'es' ? 'Inactiva' : 'Inactive')}
@@ -460,7 +632,7 @@ export default function FiscalPage() {
                   </TableRow>
                 )) : (
                   <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                       <BusinessIcon sx={{ fontSize: 48, color: 'grey.300', mb: 1 }} />
                       <Typography color="text.secondary">
                         {i18n.language === 'es' ? 'No hay empresas registradas. Agrega tu primera empresa emisora.' : 'No companies registered. Add your first issuing company.'}
@@ -857,6 +1029,155 @@ export default function FiscalPage() {
               {savingOpenpay ? 'Verificando...' : 'Guardar y Verificar'}
             </Button>
           </Box>
+        </DialogActions>
+      </Dialog>
+
+      {/* ========== Modal Configuración Cuenta Bancaria ========== */}
+      <Dialog open={openBankModal} onClose={() => setOpenBankModal(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#2e7d32', color: 'white', fontWeight: 'bold' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <AccountBalanceIcon /> Cuenta Bancaria - {selectedEmpresaBank?.alias}
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="info" sx={{ mb: 3 }}>
+            <Typography variant="body2">
+              🏦 <strong>Cuenta para pagos en efectivo/SPEI:</strong> Esta cuenta se mostrará al cliente cuando seleccione "Pago en Sucursal" o "Transferencia SPEI".
+            </Typography>
+          </Alert>
+
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <FormControl fullWidth>
+              <InputLabel>Banco</InputLabel>
+              <Select
+                value={bankForm.bank_name}
+                label="Banco"
+                onChange={(e) => setBankForm({ ...bankForm, bank_name: e.target.value })}
+              >
+                {BANCOS_MEXICO.map(banco => (
+                  <MenuItem key={banco} value={banco}>{banco}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <TextField
+              label="CLABE Interbancaria"
+              value={bankForm.bank_clabe}
+              onChange={(e) => setBankForm({ ...bankForm, bank_clabe: e.target.value.replace(/\D/g, '').slice(0, 18) })}
+              inputProps={{ maxLength: 18 }}
+              fullWidth
+              required
+              helperText={`${bankForm.bank_clabe.length}/18 dígitos`}
+              error={bankForm.bank_clabe.length > 0 && bankForm.bank_clabe.length !== 18}
+            />
+            <TextField
+              label="Número de Cuenta (opcional)"
+              value={bankForm.bank_account}
+              onChange={(e) => setBankForm({ ...bankForm, bank_account: e.target.value.replace(/\D/g, '') })}
+              fullWidth
+              helperText="Se extraerá automáticamente de la CLABE si no se proporciona"
+            />
+
+            {selectedEmpresaBank?.bank_clabe && (
+              <Alert severity="success" sx={{ mt: 1 }}>
+                <Typography variant="body2">
+                  ✅ Cuenta bancaria configurada: {selectedEmpresaBank.bank_name} - {selectedEmpresaBank.bank_clabe}
+                </Typography>
+              </Alert>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setOpenBankModal(false)} disabled={savingBank}>Cancelar</Button>
+          <Button 
+            variant="contained" 
+            onClick={handleSaveBank}
+            disabled={savingBank}
+            startIcon={savingBank ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+            sx={{ bgcolor: '#2e7d32' }}
+          >
+            Guardar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ========== Modal Configuración PayPal ========== */}
+      <Dialog open={openPaypalModal} onClose={() => setOpenPaypalModal(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#003087', color: 'white', fontWeight: 'bold' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            💳 PayPal - {selectedEmpresaPaypal?.alias}
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="info" sx={{ mb: 3 }}>
+            <Typography variant="body2">
+              💳 <strong>Pagos con PayPal:</strong> Configura las credenciales de PayPal para aceptar pagos con tarjeta y saldo PayPal desde la app móvil.
+            </Typography>
+          </Alert>
+
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <TextField
+              label="PayPal Client ID"
+              value={paypalForm.paypal_client_id}
+              onChange={(e) => setPaypalForm({ ...paypalForm, paypal_client_id: e.target.value })}
+              placeholder="AYxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+              fullWidth
+              required
+              helperText="Se obtiene desde PayPal Developer Dashboard"
+            />
+            <TextField
+              label="PayPal Secret"
+              value={paypalForm.paypal_secret}
+              onChange={(e) => setPaypalForm({ ...paypalForm, paypal_secret: e.target.value })}
+              type="password"
+              fullWidth
+              required
+              helperText="Clave secreta de la aplicación PayPal"
+            />
+            
+            <Divider sx={{ my: 1 }} />
+            
+            <FormControlLabel
+              control={
+                <Switch 
+                  checked={paypalForm.paypal_sandbox} 
+                  onChange={(e) => setPaypalForm({ ...paypalForm, paypal_sandbox: e.target.checked })}
+                  color="warning"
+                />
+              }
+              label={
+                <Box>
+                  <Typography fontWeight="bold">
+                    {paypalForm.paypal_sandbox ? '🟡 Modo Sandbox (Pruebas)' : '🟢 Modo Producción'}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {paypalForm.paypal_sandbox 
+                      ? 'Ambiente de pruebas sin transacciones reales' 
+                      : 'Transacciones reales con dinero real'}
+                  </Typography>
+                </Box>
+              }
+            />
+
+            {selectedEmpresaPaypal?.paypal_configured && (
+              <Alert severity="success" sx={{ mt: 1 }}>
+                <Typography variant="body2">
+                  ✅ PayPal ya está configurado ({selectedEmpresaPaypal.paypal_sandbox ? 'Sandbox' : 'Producción'})
+                </Typography>
+              </Alert>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setOpenPaypalModal(false)} disabled={savingPaypal}>Cancelar</Button>
+          <Button 
+            variant="contained" 
+            onClick={handleSavePaypal}
+            disabled={savingPaypal}
+            startIcon={savingPaypal ? <CircularProgress size={16} color="inherit" /> : <SaveIcon />}
+            sx={{ bgcolor: '#003087' }}
+          >
+            {savingPaypal ? 'Verificando...' : 'Guardar y Verificar'}
+          </Button>
         </DialogActions>
       </Dialog>
 

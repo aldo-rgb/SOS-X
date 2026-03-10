@@ -83,7 +83,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
   const getStatusInfo = (status: string) => {
     switch (status) {
       case 'received_china':
-        return { label: 'Recibido en China', color: '#FF9800', icon: 'package-variant' };
+        return { label: 'Recibido CEDIS GZ CHINA', color: '#FF9800', icon: 'package-variant' };
       case 'in_transit':
         return { label: 'Ya Zarpó', color: '#E53935', icon: 'ferry' };
       case 'at_port':

@@ -49,6 +49,7 @@ import {
   LocationOn as LocationIcon,
   Wifi as WifiIcon,
   GpsFixed as GpsIcon,
+  Payment as PaymentIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -68,6 +69,8 @@ interface Branch {
   radio_geocerca_metros: number;
   wifi_ssid: string | null;
   wifi_validation_enabled: boolean;
+  // Pagos
+  recibe_pagos: boolean;
 }
 
 interface User {
@@ -114,6 +117,8 @@ export default function BranchManagementPage() {
     radio_geocerca_metros: 100,
     wifi_ssid: '',
     wifi_validation_enabled: false,
+    // Pagos
+    recibe_pagos: true,
   });
   
   // Estados para asignación
@@ -160,6 +165,8 @@ export default function BranchManagementPage() {
         radio_geocerca_metros: branch.radio_geocerca_metros || 100,
         wifi_ssid: branch.wifi_ssid || '',
         wifi_validation_enabled: branch.wifi_validation_enabled || false,
+        // Pagos
+        recibe_pagos: branch.recibe_pagos !== false,
       });
     } else {
       setEditingBranch(null);
@@ -177,6 +184,8 @@ export default function BranchManagementPage() {
         radio_geocerca_metros: 100,
         wifi_ssid: '',
         wifi_validation_enabled: false,
+        // Pagos
+        recibe_pagos: true,
       });
     }
     setOpenBranchDialog(true);
@@ -256,6 +265,26 @@ export default function BranchManagementPage() {
     } catch (err) {
       console.error('Error removing user:', err);
       setSnackbar({ open: true, message: 'Error al remover empleado', severity: 'error' });
+    }
+  };
+
+  // Toggle rápido de recibe_pagos
+  const handleToggleRecibePagos = async (branch: Branch) => {
+    try {
+      await api.put(`/admin/branches/${branch.id}`, {
+        recibe_pagos: !branch.recibe_pagos,
+      });
+      setSnackbar({ 
+        open: true, 
+        message: branch.recibe_pagos 
+          ? `${branch.name}: Pagos desactivados` 
+          : `${branch.name}: Pagos activados`, 
+        severity: 'success' 
+      });
+      loadData();
+    } catch (err) {
+      console.error('Error toggling recibe_pagos:', err);
+      setSnackbar({ open: true, message: 'Error al actualizar configuración de pagos', severity: 'error' });
     }
   };
 
@@ -415,12 +444,22 @@ export default function BranchManagementPage() {
                   </Box>
 
                   <Box mt={2} display="flex" justifyContent="space-between" alignItems="center">
-                    <Chip 
-                      icon={branch.is_active ? <ActiveIcon /> : <InactiveIcon />}
-                      label={branch.is_active ? 'Activa' : 'Inactiva'}
-                      color={branch.is_active ? 'success' : 'default'}
-                      size="small"
-                    />
+                    <Box display="flex" gap={1} alignItems="center">
+                      <Chip 
+                        icon={branch.is_active ? <ActiveIcon /> : <InactiveIcon />}
+                        label={branch.is_active ? 'Activa' : 'Inactiva'}
+                        color={branch.is_active ? 'success' : 'default'}
+                        size="small"
+                      />
+                      <Chip 
+                        icon={<PaymentIcon />}
+                        label={branch.recibe_pagos ? 'Recibe Pagos' : 'Sin Pagos'}
+                        color={branch.recibe_pagos ? 'info' : 'default'}
+                        size="small"
+                        onClick={() => handleToggleRecibePagos(branch)}
+                        sx={{ cursor: 'pointer' }}
+                      />
+                    </Box>
                     <Button 
                       size="small" 
                       startIcon={<AssignIcon />}
@@ -761,6 +800,22 @@ export default function BranchManagementPage() {
                 />
               }
               label="Sucursal Activa"
+            />
+
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={branchForm.recibe_pagos}
+                  onChange={(e) => setBranchForm({ ...branchForm, recibe_pagos: e.target.checked })}
+                  color="info"
+                />
+              }
+              label={
+                <Box display="flex" alignItems="center" gap={1}>
+                  <PaymentIcon fontSize="small" />
+                  Recibe Pagos de Clientes
+                </Box>
+              }
             />
           </Box>
         </DialogContent>

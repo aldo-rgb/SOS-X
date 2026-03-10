@@ -169,11 +169,12 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   
   // Determinar tipo de envío para mostrar ícono correcto
   const shipmentType = (pkg as any).shipment_type;
-  const getShipmentIcon = (): 'boat' | 'airplane' | 'car' => {
+  const getShipmentIcon = (): 'boat' | 'airplane' | 'car' | 'cube' => {
     if (shipmentType === 'maritime') return 'boat';
     if (shipmentType === 'china_air') return 'airplane';
     if (shipmentType === 'dhl') return 'car';
-    return 'boat'; // default
+    if (shipmentType === 'air' || shipmentType === 'usa' || shipmentType === 'pobox') return 'cube'; // PO Box USA = caja
+    return 'cube'; // default = caja
   };
   const shipmentIcon = getShipmentIcon();
   

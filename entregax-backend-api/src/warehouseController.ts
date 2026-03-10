@@ -1157,7 +1157,7 @@ export const getAllBranches = async (_req: Request, res: Response): Promise<void
     try {
         const result = await pool.query(`
             SELECT id, name, code, city, address, phone, allowed_services, is_active, created_at,
-                   latitud, longitud, radio_geocerca_metros, wifi_ssid, wifi_validation_enabled
+                   latitud, longitud, radio_geocerca_metros, wifi_ssid, wifi_validation_enabled, recibe_pagos
             FROM branches
             ORDER BY name
         `);
@@ -1189,14 +1189,17 @@ export const createBranch = async (req: Request, res: Response): Promise<void> =
             return;
         }
 
+        const { recibe_pagos } = req.body;
+        
         const result = await pool.query(`
             INSERT INTO branches (name, code, city, address, phone, allowed_services, is_active,
-                                  latitud, longitud, radio_geocerca_metros, wifi_ssid, wifi_validation_enabled)
-            VALUES ($1, UPPER($2), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                                  latitud, longitud, radio_geocerca_metros, wifi_ssid, wifi_validation_enabled, recibe_pagos)
+            VALUES ($1, UPPER($2), $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING *
         `, [
             name, code, city, address || '', phone || '', allowed_services || [], is_active !== false,
-            latitud || null, longitud || null, radio_geocerca_metros || 100, wifi_ssid || null, wifi_validation_enabled || false
+            latitud || null, longitud || null, radio_geocerca_metros || 100, wifi_ssid || null, wifi_validation_enabled || false,
+            recibe_pagos !== false
         ]);
 
         res.json({ 
@@ -1216,7 +1219,7 @@ export const updateBranch = async (req: Request, res: Response): Promise<void> =
         const { id } = req.params;
         const { 
             name, code, city, address, phone, allowed_services, is_active,
-            latitud, longitud, radio_geocerca_metros, wifi_ssid, wifi_validation_enabled
+            latitud, longitud, radio_geocerca_metros, wifi_ssid, wifi_validation_enabled, recibe_pagos
         } = req.body;
 
         console.log('Updating branch:', id, 'with data:', JSON.stringify(req.body));
@@ -1250,11 +1253,12 @@ export const updateBranch = async (req: Request, res: Response): Promise<void> =
                 longitud = $9,
                 radio_geocerca_metros = COALESCE($10, radio_geocerca_metros),
                 wifi_ssid = $11,
-                wifi_validation_enabled = COALESCE($12, wifi_validation_enabled)
-            WHERE id = $13
+                wifi_validation_enabled = COALESCE($12, wifi_validation_enabled),
+                recibe_pagos = COALESCE($13, recibe_pagos)
+            WHERE id = $14
             RETURNING *
         `, [name, code, city, address, phone, servicesArray, is_active, 
-            latitud || null, longitud || null, radio_geocerca_metros, wifi_ssid || null, wifi_validation_enabled, id]);
+            latitud || null, longitud || null, radio_geocerca_metros, wifi_ssid || null, wifi_validation_enabled, recibe_pagos, id]);
 
         if (result.rows.length === 0) {
             res.status(404).json({ error: 'Sucursal no encontrada' });

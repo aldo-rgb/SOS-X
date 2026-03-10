@@ -129,6 +129,8 @@ export const getEmpresasOpenpay = async (req: Request, res: Response): Promise<a
                 openpay_configured,
                 openpay_production_mode,
                 openpay_merchant_id,
+                bank_name, bank_clabe, bank_account,
+                paypal_configured, paypal_sandbox,
                 (SELECT COUNT(*) FROM users u WHERE u.openpay_empresa_id = fiscal_emitters.id AND u.virtual_clabe IS NOT NULL) as clientes_con_clabe
             FROM fiscal_emitters 
             WHERE is_active = TRUE
@@ -139,6 +141,207 @@ export const getEmpresasOpenpay = async (req: Request, res: Response): Promise<a
     } catch (error) {
         console.error('Error obteniendo empresas Openpay:', error);
         res.status(500).json({ error: 'Error al obtener empresas' });
+    }
+};
+
+// ============================================
+// CONFIGURACIÓN DE CUENTA BANCARIA POR EMPRESA
+// ============================================
+export const saveBankConfig = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { empresa_id, bank_name, bank_clabe, bank_account } = req.body;
+
+        if (!empresa_id || !bank_name || !bank_clabe) {
+            return res.status(400).json({ error: 'empresa_id, bank_name y bank_clabe son requeridos' });
+        }
+
+        // Validar CLABE (18 dígitos)
+        if (!/^\d{18}$/.test(bank_clabe)) {
+            return res.status(400).json({ error: 'La CLABE debe tener exactamente 18 dígitos' });
+        }
+
+        // Verificar que la empresa existe
+        const empresa = await pool.query('SELECT id, alias FROM fiscal_emitters WHERE id = $1', [empresa_id]);
+        if (empresa.rows.length === 0) {
+            return res.status(404).json({ error: 'Empresa no encontrada' });
+        }
+
+        // Guardar configuración bancaria
+        await pool.query(`
+            UPDATE fiscal_emitters SET
+                bank_name = $1,
+                bank_clabe = $2,
+                bank_account = $3
+            WHERE id = $4
+        `, [bank_name, bank_clabe, bank_account || bank_clabe.slice(-10), empresa_id]);
+
+        console.log(`🏦 Configuración bancaria guardada para ${empresa.rows[0].alias}`);
+
+        res.json({ 
+            success: true, 
+            message: `Cuenta bancaria configurada para ${empresa.rows[0].alias}`,
+            bank: {
+                name: bank_name,
+                clabe: bank_clabe,
+                account: bank_account || bank_clabe.slice(-10)
+            }
+        });
+    } catch (error) {
+        console.error('Error guardando config bancaria:', error);
+        res.status(500).json({ error: 'Error al guardar configuración bancaria' });
+    }
+};
+
+// Obtener configuración bancaria de una empresa
+export const getBankConfig = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { empresa_id } = req.params;
+
+        const result = await pool.query(`
+            SELECT 
+                id, alias, bank_name, bank_clabe, bank_account, business_name as legal_name
+            FROM fiscal_emitters 
+            WHERE id = $1
+        `, [empresa_id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Empresa no encontrada' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error obteniendo config bancaria:', error);
+        res.status(500).json({ error: 'Error al obtener configuración bancaria' });
+    }
+};
+
+// ============================================
+// CONFIGURACIÓN DE PAYPAL POR EMPRESA
+// ============================================
+const PAYPAL_API_SANDBOX = 'https://api-m.sandbox.paypal.com';
+const PAYPAL_API_PRODUCTION = 'https://api-m.paypal.com';
+
+export const savePaypalConfig = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { empresa_id, paypal_client_id, paypal_secret, paypal_sandbox } = req.body;
+
+        if (!empresa_id || !paypal_client_id || !paypal_secret) {
+            return res.status(400).json({ error: 'empresa_id, paypal_client_id y paypal_secret son requeridos' });
+        }
+
+        // Verificar que la empresa existe
+        const empresa = await pool.query('SELECT id, alias FROM fiscal_emitters WHERE id = $1', [empresa_id]);
+        if (empresa.rows.length === 0) {
+            return res.status(404).json({ error: 'Empresa no encontrada' });
+        }
+
+        // Probar conexión con PayPal
+        const paypalApi = paypal_sandbox !== false ? PAYPAL_API_SANDBOX : PAYPAL_API_PRODUCTION;
+        try {
+            const auth = Buffer.from(`${paypal_client_id}:${paypal_secret}`).toString('base64');
+            await axios.post(
+                `${paypalApi}/v1/oauth2/token`,
+                'grant_type=client_credentials',
+                {
+                    headers: {
+                        'Authorization': `Basic ${auth}`,
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    }
+                }
+            );
+            console.log(`✅ Conexión PayPal exitosa para empresa ${empresa.rows[0].alias}`);
+        } catch (paypalError: any) {
+            console.error('❌ Error conectando a PayPal:', paypalError.response?.data || paypalError.message);
+            return res.status(400).json({ 
+                error: 'Credenciales de PayPal inválidas', 
+                details: paypalError.response?.data?.error_description || paypalError.message 
+            });
+        }
+
+        // Guardar configuración
+        await pool.query(`
+            UPDATE fiscal_emitters SET
+                paypal_client_id = $1,
+                paypal_secret = $2,
+                paypal_sandbox = $3,
+                paypal_configured = TRUE
+            WHERE id = $4
+        `, [paypal_client_id, paypal_secret, paypal_sandbox !== false, empresa_id]);
+
+        res.json({ 
+            success: true, 
+            message: `PayPal configurado para ${empresa.rows[0].alias}`,
+            mode: paypal_sandbox !== false ? 'sandbox' : 'production'
+        });
+    } catch (error) {
+        console.error('Error guardando config PayPal:', error);
+        res.status(500).json({ error: 'Error al guardar configuración de PayPal' });
+    }
+};
+
+// Obtener configuración PayPal de una empresa (sin claves sensibles)
+export const getPaypalConfig = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { empresa_id } = req.params;
+
+        const result = await pool.query(`
+            SELECT 
+                id, alias,
+                paypal_client_id,
+                paypal_sandbox,
+                paypal_configured,
+                CASE WHEN paypal_secret IS NOT NULL THEN '********' ELSE NULL END as has_secret
+            FROM fiscal_emitters 
+            WHERE id = $1
+        `, [empresa_id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Empresa no encontrada' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error obteniendo config PayPal:', error);
+        res.status(500).json({ error: 'Error al obtener configuración de PayPal' });
+    }
+};
+
+// Obtener configuración completa de empresa (Openpay, Banco, PayPal)
+export const getEmpresaFullConfig = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { empresa_id } = req.params;
+
+        const result = await pool.query(`
+            SELECT 
+                id, alias, rfc, business_name, fiscal_regime, zip_code,
+                -- Openpay
+                openpay_merchant_id,
+                openpay_public_key,
+                openpay_production_mode,
+                openpay_commission_fee,
+                openpay_configured,
+                CASE WHEN openpay_private_key IS NOT NULL THEN TRUE ELSE FALSE END as openpay_has_private_key,
+                -- Banco
+                bank_name,
+                bank_clabe,
+                bank_account,
+                -- PayPal
+                paypal_client_id,
+                paypal_sandbox,
+                paypal_configured,
+                CASE WHEN paypal_secret IS NOT NULL THEN TRUE ELSE FALSE END as paypal_has_secret
+            FROM fiscal_emitters 
+            WHERE id = $1
+        `, [empresa_id]);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Empresa no encontrada' });
+        }
+
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error obteniendo config completa:', error);
+        res.status(500).json({ error: 'Error al obtener configuración' });
     }
 };
 

@@ -378,7 +378,7 @@ const MaritimeApiPage: React.FC<Props> = ({ onBack }) => {
   // Chip de estado con colores
   const getStatusChip = (status: string) => {
     const statusConfig: { [key: string]: { label: string; color: 'default' | 'warning' | 'info' | 'success' | 'primary' | 'error' } } = {
-      'received_china': { label: 'En Bodega China', color: 'warning' },
+      'received_china': { label: 'Recibido CEDIS GZ CHINA', color: 'warning' },
       'in_transit': { label: 'En Tránsito', color: 'info' },
       'in_transit_mx': { label: 'En México', color: 'primary' },
       'customs_mx': { label: 'En Aduana', color: 'warning' },

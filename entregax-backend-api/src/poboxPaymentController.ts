@@ -232,8 +232,8 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
                 await pool.query(`
                     INSERT INTO openpay_webhook_logs (
                         transaction_id, monto_recibido, monto_neto, concepto,
-                        fecha_pago, estatus_procesamiento, user_id, tipo_pago
-                    ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'paypal')
+                        fecha_pago, estatus_procesamiento, user_id, tipo_pago, service_type
+                    ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'paypal', 'POBOX_USA')
                 `, [
                     captureDetails?.id,
                     payment.amount,
@@ -404,10 +404,11 @@ export const createPoboxOpenpayPayment = async (req: Request, res: Response): Pr
 // ============================================
 // 4. CREAR PAGO EN EFECTIVO/TRANSFERENCIA - MULTISUCURSAL
 // Genera referencia para pago en sucursal o SPEI
+// Si ya existe un pago pendiente para los mismos paquetes, devuelve ese
 // ============================================
 export const createPoboxCashPayment = async (req: AuthRequest, res: Response): Promise<any> => {
     try {
-        const { packageIds, userId, totalAmount, currency = 'MXN' } = req.body;
+        const { packageIds, userId, totalAmount, currency = 'MXN', branchId } = req.body;
 
         if (!packageIds || !Array.isArray(packageIds) || packageIds.length === 0) {
             return res.status(400).json({ error: 'packageIds es requerido y debe ser un array' });
@@ -429,24 +430,146 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             return res.status(400).json({ error: 'Algunos paquetes no existen o no pertenecen al usuario' });
         }
 
+        // ✨ NUEVO: Verificar si ya existe un pago pendiente para estos mismos paquetes
+        const sortedPackageIds = [...packageIds].sort((a, b) => a - b);
+        const existingPayment = await pool.query(`
+            SELECT 
+                pp.id, pp.payment_reference, pp.amount, pp.currency, 
+                pp.expires_at, pp.created_at, pp.status
+            FROM pobox_payments pp
+            WHERE pp.user_id = $1 
+              AND pp.status IN ('pending', 'pending_payment')
+              AND pp.payment_method = 'cash'
+              AND pp.package_ids::jsonb @> $2::jsonb
+              AND pp.package_ids::jsonb <@ $2::jsonb
+              AND pp.expires_at > CURRENT_TIMESTAMP
+            ORDER BY pp.created_at DESC
+            LIMIT 1
+        `, [userId, JSON.stringify(sortedPackageIds)]);
+
+        // Si ya existe un pago pendiente válido, devolver ese
+        if (existingPayment.rows.length > 0) {
+            const existingPay = existingPayment.rows[0];
+            console.log(`♻️ Reutilizando pago existente: ${existingPay.payment_reference}`);
+
+            // Obtener información de empresa y sucursal
+            const trackings = packagesCheck.rows.map(p => p.tracking_internal).join(', ');
+            
+            // Obtener info bancaria
+            let companyInfo: any = null;
+            try {
+                const companyResult = await pool.query(
+                    `SELECT 
+                        fe.alias as company_name,
+                        fe.business_name as legal_name,
+                        fe.bank_name,
+                        fe.bank_clabe,
+                        fe.bank_account
+                     FROM service_company_config scc
+                     JOIN fiscal_emitters fe ON scc.emitter_id = fe.id
+                     WHERE scc.service_type = 'POBOX_USA' AND scc.is_active = TRUE`
+                );
+                if (companyResult.rows.length > 0) {
+                    companyInfo = companyResult.rows[0];
+                }
+            } catch (e) {
+                console.log('No se encontró config de empresa para POBOX_USA');
+            }
+
+            if (!companyInfo || !companyInfo.bank_clabe) {
+                companyInfo = {
+                    company_name: 'EntregaX',
+                    legal_name: 'ENTREGAX S.A. DE C.V.',
+                    bank_name: 'BBVA México',
+                    bank_clabe: '012580001234567890',
+                    bank_account: '1234567890'
+                };
+            }
+
+            const bankInfo = {
+                banco: companyInfo.bank_name || 'BBVA México',
+                clabe: companyInfo.bank_clabe || '012580001234567890',
+                cuenta: companyInfo.bank_account || companyInfo.bank_clabe?.slice(-10) || '1234567890',
+                beneficiario: companyInfo.legal_name || 'ENTREGAX S.A. DE C.V.',
+                concepto: existingPay.payment_reference
+            };
+
+            // Obtener info de sucursal
+            let branchInfo;
+            try {
+                const branchResult = await pool.query(
+                    `SELECT name, address, phone, business_hours FROM branches WHERE is_active = TRUE ORDER BY id LIMIT 1`
+                );
+                branchInfo = branchResult.rows[0];
+            } catch (e) {
+                branchInfo = null;
+            }
+
+            if (!branchInfo) {
+                branchInfo = {
+                    name: 'CEDIS Monterrey',
+                    address: 'Av. Industrial #123, Col. Centro, Monterrey, N.L.',
+                    phone: '81 1234 5678',
+                    business_hours: 'Lunes a Viernes 9:00 - 18:00, Sábados 9:00 - 14:00'
+                };
+            }
+
+            return res.json({ 
+                success: true,
+                reused: true, // Indicar que es un pago reutilizado
+                paymentId: existingPay.id,
+                reference: existingPay.payment_reference,
+                amount: parseFloat(existingPay.amount),
+                currency: existingPay.currency,
+                expiresAt: existingPay.expires_at,
+                trackings: trackings,
+                bankInfo: bankInfo,
+                branchInfo: {
+                    nombre: branchInfo.name,
+                    direccion: branchInfo.address,
+                    telefono: branchInfo.phone,
+                    horario: branchInfo.business_hours
+                },
+                instructions: {
+                    transfer: `1. Realiza la transferencia SPEI por $${parseFloat(existingPay.amount).toFixed(2)} ${existingPay.currency}\n2. Usa como concepto: ${existingPay.payment_reference}\n3. Una vez recibido el pago, tus paquetes serán procesados`,
+                    cash: `1. Acude a nuestra sucursal\n2. Proporciona tu referencia: ${existingPay.payment_reference}\n3. Realiza el pago de $${parseFloat(existingPay.amount).toFixed(2)} ${existingPay.currency}\n4. Conserva tu comprobante`
+                }
+            });
+        }
+
+        // No existe pago pendiente, crear uno nuevo
         // Generar referencia única
         const paymentRef = generatePaymentReference('EF');
 
-        // Obtener información de la empresa para el servicio po_box
-        let companyInfo;
+        // Obtener información de la empresa asignada al servicio POBOX_USA
+        let companyInfo: any = null;
+        let empresaId: number | null = null;
         try {
             const companyResult = await pool.query(
-                `SELECT company_name, legal_name, rfc, bank_name, bank_clabe, bank_account 
-                 FROM service_companies WHERE service = 'po_box'`
+                `SELECT 
+                    fe.id as empresa_id,
+                    fe.alias as company_name,
+                    fe.business_name as legal_name,
+                    fe.rfc,
+                    fe.bank_name,
+                    fe.bank_clabe,
+                    fe.bank_account
+                 FROM service_company_config scc
+                 JOIN fiscal_emitters fe ON scc.emitter_id = fe.id
+                 WHERE scc.service_type = 'POBOX_USA' AND scc.is_active = TRUE`
             );
-            companyInfo = companyResult.rows[0];
+            if (companyResult.rows.length > 0) {
+                companyInfo = companyResult.rows[0];
+                empresaId = companyInfo.empresa_id;
+            }
         } catch (e) {
-            companyInfo = null;
+            console.log('No se encontró config de empresa para POBOX_USA');
         }
 
         // Valores por defecto si no hay configuración
-        if (!companyInfo) {
+        if (!companyInfo || !companyInfo.bank_clabe) {
             companyInfo = {
+                empresa_id: null,
                 company_name: 'EntregaX',
                 legal_name: 'ENTREGAX S.A. DE C.V.',
                 bank_name: 'BBVA México',
@@ -470,13 +593,44 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         // Obtener lista de guías para mostrar
         const trackings = packagesCheck.rows.map(p => p.tracking_internal).join(', ');
 
+        // ✨ NUEVO: Crear registro en openpay_webhook_logs como "pending_payment" para el dashboard
+        try {
+            await pool.query(`
+                INSERT INTO openpay_webhook_logs (
+                    transaction_id, empresa_id, user_id, monto_recibido, monto_neto,
+                    concepto, fecha_pago, estatus_procesamiento, service_type, 
+                    payment_method, payload_json, branch_id
+                ) VALUES (
+                    $1, $2, $3, $4, $4,
+                    $5, CURRENT_TIMESTAMP, 'pending_payment', 'POBOX_USA',
+                    'cash', $6, $7
+                )
+            `, [
+                paymentRef, 
+                empresaId, 
+                userId, 
+                totalAmount,
+                `Pago en espera - ${packagesCheck.rows.length} paquete(s): ${trackings}`,
+                JSON.stringify({ 
+                    packageIds, 
+                    payment_id: payment.id,
+                    expires_at: payment.expires_at,
+                    trackings: trackings
+                }),
+                branchId || null
+            ]);
+            console.log(`📝 Registro pendiente creado en dashboard: ${paymentRef}`);
+        } catch (logError) {
+            console.log('Nota: No se pudo crear log en dashboard', logError);
+        }
+
         console.log(`💵 PO Box Pago en efectivo creado: ${paymentRef} - $${totalAmount} ${currency}`);
 
         // Información bancaria para transferencia SPEI
         const bankInfo = {
             banco: companyInfo.bank_name || 'BBVA México',
             clabe: companyInfo.bank_clabe || '012580001234567890',
-            cuenta: companyInfo.bank_account || '1234567890',
+            cuenta: companyInfo.bank_account || companyInfo.bank_clabe?.slice(-10) || '1234567890',
             beneficiario: companyInfo.legal_name || 'ENTREGAX S.A. DE C.V.',
             concepto: paymentRef
         };
@@ -754,8 +908,8 @@ export const handlePoboxOpenpayWebhook = async (req: Request, res: Response): Pr
                     await pool.query(`
                         INSERT INTO openpay_webhook_logs (
                             transaction_id, monto_recibido, monto_neto, concepto,
-                            fecha_pago, estatus_procesamiento, user_id, tipo_pago
-                        ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 'procesado', $5, $6)
+                            fecha_pago, estatus_procesamiento, user_id, tipo_pago, service_type
+                        ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 'procesado', $5, $6, 'POBOX_USA')
                     `, [
                         transactionId,
                         amount,

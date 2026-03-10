@@ -66,8 +66,10 @@ import BuildIcon from '@mui/icons-material/Build';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import HeadsetMicIcon from '@mui/icons-material/HeadsetMic';
 import LocalAtmIcon from '@mui/icons-material/LocalAtm';
+import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import AdminHubPage from './pages/AdminHubPage';
 import CajaChicaPage from './pages/CajaChicaPage';
+import TesoreriaSucursalPage from './pages/TesoreriaSucursalPage';
 import WarehouseHubPage from './pages/WarehouseHubPage';
 import HRManagementPage from './pages/HRManagementPage';
 import FleetManagementPage from './pages/FleetManagementPage';
@@ -184,9 +186,10 @@ const menuItemsConfig: Array<{
       { key: 'panelsAdmin', icon: <BuildIcon /> },         // Herramientas Administrativas
       { key: 'panelsOperations', icon: <InventoryIcon /> }, // Herramientas de Operación
       { key: 'panelsService', icon: <HeadsetMicIcon /> },   // Servicio a Cliente
+      { key: 'tesoreriaSucursal', icon: <AccountBalanceWalletIcon /> }, // Tesorería Sucursal
     ]
   },
-  { key: 'cajaChica', icon: <LocalAtmIcon /> }, // Caja Chica - solo admin/super_admin/director
+  { key: 'cajaChica', icon: <LocalAtmIcon /> }, // Caja CC (Control Cobros) - pagos de clientes
   { key: 'commissions', icon: <MonetizationOnIcon /> },
   { key: 'permissions', icon: <SecurityIcon /> },
   { key: 'legalDocs', icon: <DescriptionIcon /> }, // Documentos Legales - solo super_admin
@@ -299,13 +302,18 @@ function App() {
         return true;
       }
       
-      // admin: Dashboard, Reportes Ventas, Herramientas, Caja Chica
+      // admin: Dashboard, Reportes Ventas, Herramientas (incluye Tesorería), Caja CC
       if (role === 'admin') {
         return ['dashboard', 'salesReport', 'panels', 'cajaChica'].includes(item.key);
       }
       
-      // director: Dashboard, Herramientas, Caja Chica
+      // director: Dashboard, Herramientas (incluye Tesorería), Caja CC
       if (role === 'director') {
+        return ['dashboard', 'panels', 'cajaChica'].includes(item.key);
+      }
+      
+      // finanzas: Dashboard, Herramientas (incluye Tesorería), Caja CC
+      if (role === 'finanzas') {
         return ['dashboard', 'panels', 'cajaChica'].includes(item.key);
       }
       
@@ -697,8 +705,7 @@ function App() {
         case 0: return <AdminHubPage users={users} loading={loading} onRefresh={fetchUsers} panelPermissions={userPanelPermissions} permissionsReady={permissionsLoaded} />; // Administración
         case 1: return <WarehouseHubPage users={users} />; // Operaciones (Bodegas)
         case 2: return <CustomerServiceHubPage users={users} loading={loading} onRefresh={fetchUsers} />; // Servicio a Cliente
-        case 3: return <HRManagementPage />; // Recursos Humanos
-        case 4: return <FleetManagementPage />; // Gestión de Flotilla
+        case 3: return <TesoreriaSucursalPage />; // Tesorería Sucursal
         default: return null;
       }
     }
@@ -715,7 +722,8 @@ function App() {
         }
         return null; // No renderiza nada, debe seleccionar un submenú
       case 'commissions': return <CommissionsPage />; // Comisiones (incluye tipos de servicio)
-      case 'cajaChica': return <CajaChicaPage />; // Caja Chica
+      case 'cajaChica': return <CajaChicaPage />; // Caja CC (Control de Cobros)
+      case 'tesoreriaSucursal': return <TesoreriaSucursalPage />; // Tesorería por Sucursal
       case 'permissions': return <PermissionsPage />; // Matriz de Permisos
       case 'legalDocs': return <LegalDocumentsPage />; // Documentos Legales (Contratos y Aviso Privacidad)
       case 'fiscal': return <FiscalPage />; // Facturación
