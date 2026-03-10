@@ -77,10 +77,12 @@ export const createPoboxPaypalPayment = async (req: Request, res: Response): Pro
         }
 
         // Verificar que los paquetes existen y pertenecen al usuario
+        // Paquetes PO Box USA: shipment_type NULL o 'air', excluir FCL/maritime/china_air/dhl
         const packagesCheck = await pool.query(
-            `SELECT id, tracking_internal, status, service_type 
+            `SELECT id, tracking_internal, status, service_type, shipment_type
              FROM packages 
-             WHERE id = ANY($1) AND user_id = $2 AND service_type = 'POBOX_USA'`,
+             WHERE id = ANY($1) AND user_id = $2 
+             AND (shipment_type IS NULL OR shipment_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))`,
             [packageIds, userId]
         );
 
@@ -292,10 +294,12 @@ export const createPoboxOpenpayPayment = async (req: Request, res: Response): Pr
         }
 
         // Verificar que los paquetes existen y pertenecen al usuario
+        // Paquetes PO Box USA: shipment_type NULL o 'air', excluir FCL/maritime/china_air/dhl
         const packagesCheck = await pool.query(
-            `SELECT id, tracking_internal, status, service_type 
+            `SELECT id, tracking_internal, status, service_type, shipment_type
              FROM packages 
-             WHERE id = ANY($1) AND user_id = $2 AND service_type = 'POBOX_USA'`,
+             WHERE id = ANY($1) AND user_id = $2 
+             AND (shipment_type IS NULL OR shipment_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))`,
             [packageIds, userId]
         );
 
@@ -419,10 +423,12 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         }
 
         // Verificar que los paquetes existen y pertenecen al usuario
+        // Paquetes PO Box USA: shipment_type NULL o 'air', excluir FCL/maritime/china_air/dhl
         const packagesCheck = await pool.query(
-            `SELECT id, tracking_internal, status, service_type, assigned_cost_mxn
+            `SELECT id, tracking_internal, status, service_type, shipment_type, assigned_cost_mxn
              FROM packages 
-             WHERE id = ANY($1) AND user_id = $2 AND service_type = 'POBOX_USA'`,
+             WHERE id = ANY($1) AND user_id = $2 
+             AND (shipment_type IS NULL OR shipment_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))`,
             [packageIds, userId]
         );
 

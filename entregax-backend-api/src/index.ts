@@ -2899,26 +2899,28 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
 
 // ============================================
 // LISTAR PAGOS PENDIENTES POR CONFIRMAR
+// Incluye: openpay_webhook_logs + pobox_payments
 // ============================================
 app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (req: Request, res: Response): Promise<any> => {
   try {
     const { service_type, branch_id, limit = 50 } = req.query;
 
-    let whereClause = "WHERE owl.estatus_procesamiento = 'pending_payment'";
-    const params: any[] = [limit];
-    let paramIndex = 2;
+    // 1. Obtener pagos de openpay_webhook_logs
+    let whereClause1 = "WHERE owl.estatus_procesamiento = 'pending_payment'";
+    const params1: any[] = [];
+    let paramIndex1 = 1;
 
     if (branch_id) {
-      whereClause += ` AND owl.branch_id = $${paramIndex++}`;
-      params.push(branch_id);
+      whereClause1 += ` AND owl.branch_id = $${paramIndex1++}`;
+      params1.push(branch_id);
     }
 
     if (service_type) {
-      whereClause += ` AND owl.service_type = $${paramIndex++}`;
-      params.push(service_type);
+      whereClause1 += ` AND owl.service_type = $${paramIndex1++}`;
+      params1.push(service_type);
     }
 
-    const result = await pool.query(`
+    const webhookResult = await pool.query(`
       SELECT 
         owl.id,
         owl.transaction_id as referencia,
@@ -2935,24 +2937,88 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
         fe.alias as empresa,
         fe.bank_name as banco,
         fe.bank_clabe as clabe,
-        b.name as sucursal_nombre
+        b.name as sucursal_nombre,
+        'webhook' as source
       FROM openpay_webhook_logs owl
       LEFT JOIN users u ON owl.user_id = u.id
       LEFT JOIN fiscal_emitters fe ON owl.empresa_id = fe.id
       LEFT JOIN branches b ON owl.branch_id = b.id
-      ${whereClause}
+      ${whereClause1}
       ORDER BY owl.fecha_pago DESC
-      LIMIT $1
-    `, params);
+    `, params1);
 
-    res.json({
-      success: true,
-      count: result.rows.length,
-      pending_payments: result.rows.map((r: any) => ({
+    // 2. Obtener pagos pendientes de pobox_payments (cash pendiente de confirmar)
+    let whereClause2 = "WHERE pp.status IN ('pending', 'pending_payment') AND pp.payment_method = 'cash'";
+    const params2: any[] = [];
+    let paramIndex2 = 1;
+
+    // Filtrar por servicio si se especifica
+    if (service_type) {
+      whereClause2 += ` AND pp.service_type = $${paramIndex2++}`;
+      params2.push(service_type);
+    }
+
+    const poboxResult = await pool.query(`
+      SELECT 
+        pp.id,
+        pp.payment_reference as referencia,
+        pp.user_id,
+        pp.amount as monto,
+        pp.package_ids,
+        pp.created_at,
+        COALESCE(pp.service_type, 'POBOX_USA') as tipo_servicio,
+        pp.payment_method,
+        u.full_name as cliente,
+        u.email as cliente_email,
+        u.phone as telefono,
+        fe.alias as empresa,
+        fe.bank_name as banco,
+        fe.bank_clabe as clabe,
+        'pobox' as source
+      FROM pobox_payments pp
+      LEFT JOIN users u ON pp.user_id = u.id
+      LEFT JOIN fiscal_emitters fe ON pp.empresa_id = fe.id
+      ${whereClause2}
+      ORDER BY pp.created_at DESC
+    `, params2);
+
+    // Combinar resultados
+    const webhookPayments = webhookResult.rows.map((r: any) => ({
+      id: r.id,
+      referencia: r.referencia,
+      monto: parseFloat(r.monto) || 0,
+      concepto: r.concepto,
+      created_at: r.created_at,
+      tipo_servicio: r.tipo_servicio,
+      payment_method: r.payment_method || 'cash',
+      cliente: r.cliente || 'Cliente desconocido',
+      cliente_email: r.cliente_email,
+      telefono: r.telefono,
+      empresa: r.empresa,
+      banco: r.banco,
+      clabe: r.clabe,
+      branch_id: r.branch_id,
+      sucursal_nombre: r.sucursal_nombre,
+      guias: r.concepto,
+      source: 'webhook'
+    }));
+
+    const poboxPayments = poboxResult.rows.map((r: any) => {
+      let packageCount = 0;
+      try {
+        if (r.package_ids) {
+          const parsed = typeof r.package_ids === 'string' ? JSON.parse(r.package_ids) : r.package_ids;
+          packageCount = Array.isArray(parsed) ? parsed.length : 0;
+        }
+      } catch (e) {
+        packageCount = 0;
+      }
+      
+      return {
         id: r.id,
         referencia: r.referencia,
         monto: parseFloat(r.monto) || 0,
-        concepto: r.concepto,
+        concepto: `Pago PO Box - ${packageCount} paquetes`,
         created_at: r.created_at,
         tipo_servicio: r.tipo_servicio,
         payment_method: r.payment_method || 'cash',
@@ -2962,10 +3028,22 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
         empresa: r.empresa,
         banco: r.banco,
         clabe: r.clabe,
-        branch_id: r.branch_id,
-        sucursal_nombre: r.sucursal_nombre,
-        guias: r.concepto
-      }))
+        branch_id: null,
+        sucursal_nombre: null,
+        guias: r.package_ids,
+        source: 'pobox'
+      };
+    });
+
+    // Unir y ordenar por fecha
+    const allPayments = [...webhookPayments, ...poboxPayments]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(0, Number(limit));
+
+    res.json({
+      success: true,
+      count: allPayments.length,
+      pending_payments: allPayments
     });
 
   } catch (error: any) {
