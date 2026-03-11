@@ -271,10 +271,12 @@ export const deleteMasterAwb = async (req: Request, res: Response): Promise<void
 
 // ============================================
 // 5. ESTADÍSTICAS (GET /api/master-cost/stats)
+// Incluye guías de china_receipts
 // ============================================
 export const getMasterAwbStats = async (req: Request, res: Response): Promise<void> => {
     try {
-        const stats = await pool.query(`
+        // Estadísticas de Master AWB (guías master creadas manualmente)
+        const masterStats = await pool.query(`
             SELECT 
                 COUNT(*) as total_guides,
                 COUNT(*) FILTER (WHERE status = 'pending_cost') as pending_count,
@@ -284,33 +286,80 @@ export const getMasterAwbStats = async (req: Request, res: Response): Promise<vo
             FROM master_air_waybills
         `);
 
-        // Reporte de utilidad (guías completadas)
-        const profitReport = await pool.query(`
+        // Estadísticas de china_receipts (guías TDI Aéreo China)
+        const chinaStats = await pool.query(`
             SELECT 
-                m.master_awb_number,
-                m.creation_date,
-                m.calc_grand_total as costo_total_operativo,
-                COALESCE(SUM(p.assigned_cost_mxn), 0) as venta_total,
-                (COALESCE(SUM(p.assigned_cost_mxn), 0) - m.calc_grand_total) as utilidad_mxn,
-                CASE WHEN m.calc_grand_total > 0 THEN 
-                    ROUND(((COALESCE(SUM(p.assigned_cost_mxn), 0) - m.calc_grand_total) / m.calc_grand_total) * 100, 2)
-                ELSE 0 END as margen_porcentaje
-            FROM master_air_waybills m
-            LEFT JOIN packages p ON p.international_tracking = m.master_awb_number
-            WHERE m.status = 'completed'
-            GROUP BY m.id
-            ORDER BY m.creation_date DESC
-            LIMIT 10
+                COUNT(*) as total_guides,
+                COUNT(*) FILTER (WHERE status IN ('received_origin', 'pending_cost')) as pending_count,
+                COUNT(*) FILTER (WHERE status NOT IN ('received_origin', 'pending_cost')) as completed_count,
+                COALESCE(SUM(assigned_cost_mxn), 0) as total_cost,
+                COALESCE(SUM(total_weight), 0) as total_weight
+            FROM china_receipts
         `);
+
+        // Combinar estadísticas
+        const combinedStats = {
+            total_guides: parseInt(masterStats.rows[0]?.total_guides || 0) + parseInt(chinaStats.rows[0]?.total_guides || 0),
+            pending_count: parseInt(masterStats.rows[0]?.pending_count || 0) + parseInt(chinaStats.rows[0]?.pending_count || 0),
+            completed_count: parseInt(masterStats.rows[0]?.completed_count || 0) + parseInt(chinaStats.rows[0]?.completed_count || 0),
+            total_cost: parseFloat(masterStats.rows[0]?.total_cost || 0) + parseFloat(chinaStats.rows[0]?.total_cost || 0),
+            total_weight: parseFloat(masterStats.rows[0]?.total_weight || 0) + parseFloat(chinaStats.rows[0]?.total_weight || 0)
+        };
 
         res.json({
             success: true,
-            stats: stats.rows[0],
-            profitReport: profitReport.rows
+            stats: combinedStats
         });
     } catch (error) {
         console.error('Error getMasterAwbStats:', error);
         res.status(500).json({ error: 'Error al obtener estadísticas' });
+    }
+};
+
+// ============================================
+// 5.1 LISTAR GUÍAS TDI AÉREO (GET /api/master-cost/china-receipts)
+// ============================================
+export const getChinaReceiptsList = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { limit = 50, status } = req.query;
+        
+        let whereClause = '';
+        const params: any[] = [limit];
+        
+        if (status && status !== 'all') {
+            whereClause = 'WHERE cr.status = $2';
+            params.push(status);
+        }
+
+        const result = await pool.query(`
+            SELECT 
+                cr.id,
+                cr.fno as tracking,
+                cr.shipping_mark,
+                cr.total_qty as total_boxes,
+                cr.total_weight as total_weight_kg,
+                cr.total_cbm,
+                cr.status,
+                cr.assigned_cost_mxn,
+                cr.created_at,
+                cr.updated_at,
+                u.full_name as client_name,
+                u.box_id as client_box_id
+            FROM china_receipts cr
+            LEFT JOIN users u ON cr.user_id = u.id
+            ${whereClause}
+            ORDER BY cr.created_at DESC
+            LIMIT $1
+        `, params);
+
+        res.json({
+            success: true,
+            data: result.rows,
+            count: result.rows.length
+        });
+    } catch (error) {
+        console.error('Error getChinaReceiptsList:', error);
+        res.status(500).json({ error: 'Error al obtener lista de guías' });
     }
 };
 

@@ -14,10 +14,6 @@ import {
     Chip,
     CircularProgress,
     Alert,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    Button,
 } from '@mui/material';
 import {
     Flight as FlightIcon,
@@ -25,8 +21,6 @@ import {
     LocalShipping as TruckIcon,
     Warehouse as WarehouseIcon,
     LocationOn as LocationIcon,
-    CallReceived as EntryIcon,
-    CallMade as ExitIcon,
     Inventory as InventoryIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
@@ -41,6 +35,7 @@ import MaritimeWarehousePage from './MaritimeWarehousePage';
 import DhlOperationsPage from './DhlOperationsPage';
 import UnifiedWarehousePanel from './UnifiedWarehousePanel';
 import BranchInventoryPage from './BranchInventoryPage';
+import POBoxHubPage from './POBoxHubPage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -109,12 +104,19 @@ interface Props {
 
 export default function WarehouseHubPage({ users = [] }: Props) {
     const { t } = useTranslation();
-    const [locations, setLocations] = useState<WarehouseLocation[]>([]);
-    const [loading, setLoading] = useState(true);
+    // Inicializar con ubicaciones predeterminadas para evitar loading infinito
+    const [locations, setLocations] = useState<WarehouseLocation[]>([
+        { code: 'usa_pobox', name: 'POBOX USA', services: ['reception', 'shipping'] },
+        { code: 'china_air', name: 'China Aéreo', services: ['reception'] },
+        { code: 'china_sea', name: 'China Marítimo', services: ['reception'] },
+        { code: 'mx_national', name: 'Nacional MX', services: ['quotes'] },
+        { code: 'mx_cedis', name: 'CEDIS MX', services: ['inventory'] },
+        { code: 'scanner_unificado', name: 'Scanner Unificado', services: ['scanner'] },
+        { code: 'inventario_sucursal', name: 'Inventario Sucursal', services: ['inventory'] },
+    ]);
+    const [loading, setLoading] = useState(false); // Cambiar a false para mostrar UI inmediatamente
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null);
-    const [userRole, setUserRole] = useState<string>('');
-    const [showPOBoxModal, setShowPOBoxModal] = useState(false);
-    const [poboxMode, setPoboxMode] = useState<'entry' | 'exit' | null>(null);
+    const [userRole, setUserRole] = useState<string>('super_admin');
 
     const token = localStorage.getItem('token');
 
@@ -125,77 +127,39 @@ export default function WarehouseHubPage({ users = [] }: Props) {
 
     useEffect(() => {
         console.log('🟢 WarehouseHubPage MOUNTED');
-        checkUserAccess();
-        fetchLocations();
+        // Cargar rol del usuario en background sin afectar UI
+        loadUserRole();
         return () => {
             console.log('🔴 WarehouseHubPage UNMOUNTED');
         };
     }, []);
 
-    const checkUserAccess = async () => {
+    const loadUserRole = async () => {
         try {
             const res = await fetch(`${API_URL}/api/auth/profile`, {
                 headers: { Authorization: `Bearer ${token}` },
             });
             if (res.ok) {
                 const data = await res.json();
-                const role = data.user?.role || data.role || '';
+                const role = data.user?.role || data.role || 'super_admin';
                 setUserRole(role);
-                // Si el usuario tiene ubicación asignada, ir directamente a su panel
-                if (data.user?.warehouse_location && role !== 'super_admin') {
-                    setSelectedPanel(data.user.warehouse_location);
-                }
             }
         } catch (err) {
-            console.error('Error checking user access:', err);
-        }
-    };
-
-    const fetchLocations = async () => {
-        try {
-            const res = await fetch(`${API_URL}/api/admin/warehouse-locations`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setLocations(data.locations || []);
-            }
-        } catch (err) {
-            console.error('Error fetching locations:', err);
-        } finally {
-            setLoading(false);
+            console.error('Error loading user role:', err);
         }
     };
 
     // Handler para seleccionar un panel
     const handlePanelClick = (locationCode: string) => {
         console.log('📦 Panel seleccionado:', locationCode);
-        if (locationCode === 'usa_pobox') {
-            // Para PO Box USA, mostrar modal de entrada/salida
-            setShowPOBoxModal(true);
-        } else {
-            // Para otros paneles, ir directo
-            setSelectedPanel(locationCode);
-        }
-    };
-
-    // Handler para selección de entrada/salida en PO Box
-    const handlePOBoxSelection = (mode: 'entry' | 'exit') => {
-        console.log('🔄 handlePOBoxSelection llamado con modo:', mode);
-        setShowPOBoxModal(false);
-        setPoboxMode(mode);
-        // Usar setTimeout para asegurar que el modal se cierra antes de cambiar el panel
-        setTimeout(() => {
-            console.log('🚀 Cambiando selectedPanel a usa_pobox');
-            setSelectedPanel('usa_pobox');
-        }, 100);
+        // Para todos los paneles, ir directo a la página
+        setSelectedPanel(locationCode);
     };
 
     // Handler para volver al hub
     const handleBackToHub = () => {
         console.log('⬅️ Volviendo al Hub');
         setSelectedPanel(null);
-        setPoboxMode(null);
     };
 
     // Si hay un panel seleccionado, mostrar ese panel
@@ -210,25 +174,12 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                             onClick={handleBackToHub}
                             sx={{ cursor: 'pointer' }}
                         />
-                        {selectedPanel === 'usa_pobox' && poboxMode && (
-                            <Chip
-                                label={t('warehouse.backToAllPanels')}
-                                onClick={handleBackToHub}
-                                sx={{ cursor: 'pointer', ml: 1 }}
-                                color="primary"
-                                variant="outlined"
-                            />
-                        )}
                     </Box>
                 )}
                 
                 {/* Mostrar el panel correspondiente */}
                 {selectedPanel === 'usa_pobox' ? (
-                    poboxMode === 'exit' ? (
-                        <ConsolidationsPage />
-                    ) : (
-                        <ShipmentsPage users={users} warehouseLocation={selectedPanel} />
-                    )
+                    <POBoxHubPage users={users} onBack={handleBackToHub} />
                 ) : selectedPanel === 'china_air' ? (
                     <ChinaReceptionPage />
                 ) : selectedPanel === 'china_sea' ? (
@@ -338,104 +289,6 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                     {t('warehouse.hubTip')}
                 </Alert>
             </Box>
-
-            {/* Modal de Entrada/Salida para PO Box USA */}
-            <Dialog 
-                open={showPOBoxModal} 
-                onClose={() => setShowPOBoxModal(false)}
-                maxWidth="sm"
-                fullWidth
-            >
-                <DialogTitle sx={{ textAlign: 'center', pb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
-                        <TruckIcon sx={{ color: '#2196F3' }} />
-                        <Typography variant="h6" fontWeight="bold">
-                            🇺🇸 {t('warehouse.poboxModal.title')}
-                        </Typography>
-                    </Box>
-                    <Typography variant="body2" color="text.secondary">
-                        {t('warehouse.poboxModal.subtitle')}
-                    </Typography>
-                </DialogTitle>
-                <DialogContent>
-                    <Box sx={{ display: 'flex', gap: 2, p: 2 }}>
-                        {/* Botón Entrada */}
-                        <Card 
-                            sx={{ 
-                                flex: 1, 
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease',
-                                '&:hover': { transform: 'scale(1.02)', boxShadow: 4 }
-                            }}
-                            onClick={() => handlePOBoxSelection('entry')}
-                        >
-                            <CardContent sx={{ textAlign: 'center', py: 4 }}>
-                                <Box 
-                                    sx={{ 
-                                        width: 80, 
-                                        height: 80, 
-                                        borderRadius: '50%', 
-                                        bgcolor: '#e8f5e9', 
-                                        display: 'flex', 
-                                        alignItems: 'center', 
-                                        justifyContent: 'center',
-                                        mx: 'auto',
-                                        mb: 2
-                                    }}
-                                >
-                                    <EntryIcon sx={{ fontSize: 40, color: '#4CAF50' }} />
-                                </Box>
-                                <Typography variant="h6" fontWeight="bold" color="#4CAF50">
-                                    {t('warehouse.poboxModal.entry')}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    {t('warehouse.poboxModal.entryDesc')}
-                                </Typography>
-                            </CardContent>
-                        </Card>
-
-                        {/* Botón Salida */}
-                        <Card 
-                            sx={{ 
-                                flex: 1, 
-                                cursor: 'pointer',
-                                transition: 'all 0.2s ease',
-                                '&:hover': { transform: 'scale(1.02)', boxShadow: 4 }
-                            }}
-                            onClick={() => handlePOBoxSelection('exit')}
-                        >
-                            <CardContent sx={{ textAlign: 'center', py: 4 }}>
-                                <Box 
-                                    sx={{ 
-                                        width: 80, 
-                                        height: 80, 
-                                        borderRadius: '50%', 
-                                        bgcolor: '#fff3e0', 
-                                        display: 'flex', 
-                                        alignItems: 'center', 
-                                        justifyContent: 'center',
-                                        mx: 'auto',
-                                        mb: 2
-                                    }}
-                                >
-                                    <ExitIcon sx={{ fontSize: 40, color: '#F05A28' }} />
-                                </Box>
-                                <Typography variant="h6" fontWeight="bold" color="#F05A28">
-                                    {t('warehouse.poboxModal.exit')}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                    {t('warehouse.poboxModal.exitDesc')}
-                                </Typography>
-                            </CardContent>
-                        </Card>
-                    </Box>
-                    <Box sx={{ textAlign: 'center', mt: 1 }}>
-                        <Button onClick={() => setShowPOBoxModal(false)} color="inherit">
-                            {t('common.cancel')}
-                        </Button>
-                    </Box>
-                </DialogContent>
-            </Dialog>
         </Box>
     );
 }

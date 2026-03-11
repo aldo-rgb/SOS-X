@@ -31,6 +31,41 @@
     "of": "de",
     "moreFilters": "Más filtros (próximamente)"
   },
+  "pobox": {
+    "hub": {
+      "title": "PO Box USA",
+      "subtitle": "Panel de gestión de paquetería PO Box",
+      "backToMenu": "← Volver al menú PO Box",
+      "tip": "Consejo",
+      "tipText": "Usa \"Recibir Paquetería\" para escanear nuevos paquetes, \"Cobrar\" para gestionar pagos pendientes, y \"Cotizar\" para calcular costos antes de recibir.",
+      "options": {
+        "receive": {
+          "title": "Recibir Paquetería",
+          "description": "Recepción en serie - Bodega Hidalgo TX"
+        },
+        "entry": {
+          "title": "Entrada",
+          "description": "Ver paquetes recibidos en bodega"
+        },
+        "inventory": {
+          "title": "Inventario",
+          "description": "Ver todos los paquetes PO Box"
+        },
+        "exit": {
+          "title": "Salida",
+          "description": "Procesar consolidaciones y despachos"
+        },
+        "collect": {
+          "title": "Cobrar",
+          "description": "Gestionar cobros y pagos pendientes"
+        },
+        "quote": {
+          "title": "Cotizar",
+          "description": "Calcular costos y generar cotizaciones"
+        }
+      }
+    }
+  },
   "auth": {
     "login": "Iniciar Sesión",
     "logout": "Cerrar Sesión",
@@ -576,7 +611,8 @@
       "dhl_rates": "Tarifas DHL",
       "dhl_operations": "Operaciones DHL",
       "anticipos": "Control de Anticipos",
-      "pobox_rates": "Tarifas PO Box"
+      "pobox_rates": "Tarifas PO Box",
+      "suppliers": "Costeo Proveedores"
     },
     "moduleFeatures": {
       "clients": {

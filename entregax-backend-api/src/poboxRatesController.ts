@@ -336,7 +336,7 @@ export const saveCostingConfig = async (req: Request, res: Response): Promise<vo
 
 export const getCostingPackages = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { date_from, date_to, status, paid } = req.query;
+        const { date_from, date_to, status, paid, supplier_id } = req.query;
         
         // Construir condiciones de filtro
         let dateFilter = '';
@@ -363,9 +363,20 @@ export const getCostingPackages = async (req: Request, res: Response): Promise<v
         } else if (paid === 'false') {
             dateFilter += ` AND (p.costing_paid IS NULL OR p.costing_paid = FALSE)`;
         }
+        // Filtro por proveedor
+        if (supplier_id) {
+            dateFilter += ` AND p.supplier_id = $${paramIndex}`;
+            params.push(supplier_id);
+            paramIndex++;
+        }
 
         // Solo paquetes PO Box USA (service_type = 'POBOX_USA')
-        // Nota: Las medidas de PO Box se guardan en pkg_length/pkg_width/pkg_height (no long_cm/width_cm/height_cm)
+        // LÓGICA:
+        // 1. REPACK: mostrar (contenedor con medidas propias)
+        // 2. Hijas de REPACK: NO mostrar (ya están dentro del contenedor)
+        // 3. Master con hijas: NO mostrar (se costean las hijas)
+        // 4. Hijas de master normal: mostrar
+        // 5. Individuales sin hijas: mostrar
         const result = await pool.query(`
             SELECT 
                 p.id,
@@ -378,6 +389,7 @@ export const getCostingPackages = async (req: Request, res: Response): Promise<v
                 p.status,
                 p.warehouse_location,
                 p.service_type,
+                p.supplier_id,
                 p.received_at,
                 p.created_at,
                 p.costing_paid,
@@ -387,10 +399,26 @@ export const getCostingPackages = async (req: Request, res: Response): Promise<v
                 COALESCE(p.pobox_cost_usd, 0) as pobox_cost_usd,
                 COALESCE(p.registered_exchange_rate, 0) as registered_exchange_rate,
                 u.full_name as user_name,
-                u.box_id as client_box_id
+                u.box_id as client_box_id,
+                s.name as supplier_name
             FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
+            LEFT JOIN suppliers s ON p.supplier_id = s.id
+            LEFT JOIN packages master ON p.master_id = master.id
             WHERE p.service_type = 'POBOX_USA'
+              AND (
+                -- REPACK: siempre mostrar (son contenedores con medidas)
+                p.tracking_internal LIKE 'US-REPACK-%'
+                OR
+                -- Paquetes hijos de master normal (NO REPACK): mostrar
+                (p.master_id IS NOT NULL AND master.tracking_internal NOT LIKE 'US-REPACK-%')
+                OR
+                -- Paquetes individuales sin master y sin hijas: mostrar
+                (p.master_id IS NULL AND (p.is_master = FALSE OR p.is_master IS NULL))
+                OR
+                -- Masters sin hijas (total_boxes = 1 o NULL y no es REPACK): mostrar
+                (p.is_master = TRUE AND COALESCE(p.total_boxes, 1) <= 1 AND p.tracking_internal NOT LIKE 'US-REPACK-%')
+              )
             ${dateFilter}
             ORDER BY p.received_at DESC NULLS LAST, p.created_at DESC
             LIMIT 500
@@ -524,7 +552,7 @@ export const updatePackageCost = async (req: Request, res: Response): Promise<vo
 // Obtener datos de utilidades (Guía, Cliente, Costo, Costo de Venta, Utilidad)
 export const getUtilidadesData = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { date_from, date_to, payment_status } = req.query;
+        const { date_from, date_to, payment_status, supplier_id } = req.query;
         
         // Construir condiciones de filtro
         let dateFilter = '';
@@ -546,8 +574,15 @@ export const getUtilidadesData = async (req: Request, res: Response): Promise<vo
         } else if (payment_status === 'unpaid') {
             dateFilter += ` AND (p.costing_paid IS NULL OR p.costing_paid = FALSE)`;
         }
+        // Filtro por proveedor
+        if (supplier_id) {
+            dateFilter += ` AND p.supplier_id = $${paramIndex}`;
+            params.push(supplier_id);
+            paramIndex++;
+        }
 
         // Obtener paquetes con desglose de costos guardado
+        // Paquetes PO Box USA: shipment_type NULL o no específico (excluir FCL/maritime/china_air/dhl)
         const result = await pool.query(`
             SELECT 
                 p.id,
@@ -576,7 +611,8 @@ export const getUtilidadesData = async (req: Request, res: Response): Promise<vo
                 COALESCE(u.full_name, 'Sin asignar') as client_name
             FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
-            WHERE p.service_type = 'POBOX_USA'
+            WHERE (p.shipment_type IS NULL OR p.shipment_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))
+            AND (p.is_master = true OR p.master_id IS NULL)
             ${dateFilter}
             ORDER BY p.received_at DESC NULLS LAST, p.created_at DESC
             LIMIT 1000

@@ -60,7 +60,13 @@ type PaymentSummaryScreenProps = {
 };
 
 export default function PaymentSummaryScreen({ route, navigation }: PaymentSummaryScreenProps) {
-  const { packages, user, token } = route.params;
+  const { packages: rawPackages, user, token } = route.params;
+  
+  // 🔧 FIX: Filtrar paquetes que ya están pagados (saldo_pendiente <= 0)
+  const packages = rawPackages.filter(p => {
+    const saldo = parseFloat(String((p as any).saldo_pendiente || p.assigned_cost_mxn || 0));
+    return saldo > 0;
+  });
   
   const [loading, setLoading] = useState(false);
   const [selectedPaymentType, setSelectedPaymentType] = useState<PaymentType>('card');
@@ -84,9 +90,23 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
     horario: string;
   } | null>(null);
 
-  // Calcular totales
-  const totalMXN = packages.reduce((sum, p) => sum + parseFloat(String(p.assigned_cost_mxn || 0)), 0);
+  // 🔧 FIX: Usar saldo_pendiente para calcular el total a pagar
+  const totalMXN = packages.reduce((sum, p) => {
+    const saldo = parseFloat(String((p as any).saldo_pendiente || p.assigned_cost_mxn || 0));
+    return sum + saldo;
+  }, 0);
   const totalWeight = packages.reduce((sum, p) => sum + parseFloat(String(p.weight || 0)), 0);
+
+  // 🚨 Si todos los paquetes ya están pagados, regresar a Home
+  useEffect(() => {
+    if (packages.length === 0) {
+      Alert.alert(
+        'Paquetes Pagados', 
+        'Todos los paquetes seleccionados ya fueron pagados.',
+        [{ text: 'OK', onPress: () => navigation.goBack() }]
+      );
+    }
+  }, [packages.length]);
 
   // Generar referencia de pago
   const generatePaymentReference = () => {
@@ -352,6 +372,30 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                 </View>
               )}
               style={styles.webView}
+              // Configuraciones importantes para evitar crashes en iOS
+              javaScriptEnabled={true}
+              domStorageEnabled={true}
+              scalesPageToFit={true}
+              mixedContentMode="compatibility"
+              allowsInlineMediaPlayback={true}
+              mediaPlaybackRequiresUserAction={false}
+              // Evitar problemas con teclado en iOS
+              keyboardDisplayRequiresUserAction={false}
+              automaticallyAdjustContentInsets={false}
+              contentInsetAdjustmentBehavior="never"
+              bounces={false}
+              scrollEnabled={true}
+              // Permitir input de usuario
+              allowsBackForwardNavigationGestures={false}
+              // Manejo de errores
+              onError={(syntheticEvent) => {
+                const { nativeEvent } = syntheticEvent;
+                console.warn('WebView error:', nativeEvent);
+              }}
+              onHttpError={(syntheticEvent) => {
+                const { nativeEvent } = syntheticEvent;
+                console.warn('WebView HTTP error:', nativeEvent.statusCode);
+              }}
             />
           </SafeAreaView>
         </Modal>
@@ -385,29 +429,24 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                 </View>
 
                 <View style={styles.instructionsSection}>
-                  <Text style={styles.instructionsTitle}>💳 Pago por Transferencia/SPEI:</Text>
+                  <Text style={styles.instructionsTitle}>💵 Depósito en efectivo:</Text>
                   <View style={styles.bankInfo}>
                     <Text style={styles.bankInfoRow}>Banco: <Text style={styles.bankInfoValue}>{bankInfo?.banco || 'BBVA'}</Text></Text>
-                    <Text style={styles.bankInfoRow}>CLABE: <Text style={styles.bankInfoValue}>{bankInfo?.clabe || '012580001234567890'}</Text></Text>
+                    <Text style={styles.bankInfoRow}>Cuenta: <Text style={styles.bankInfoValue}>{bankInfo?.cuenta || '1234567890'}</Text></Text>
                     <Text style={styles.bankInfoRow}>Beneficiario: <Text style={styles.bankInfoValue}>{bankInfo?.beneficiario || 'EntregaX SA de CV'}</Text></Text>
                     <Text style={styles.bankInfoRow}>Referencia: <Text style={styles.bankInfoValue}>{paymentReference}</Text></Text>
                   </View>
                 </View>
 
-                <View style={styles.instructionsSection}>
-                  <Text style={styles.instructionsTitle}>🏪 Pago en Sucursal:</Text>
-                  <Text style={styles.instructionsText}>
-                    Visita nuestra sucursal en {branchInfo?.nombre || 'CEDIS Monterrey'} y menciona tu referencia de pago.
-                  </Text>
-                  <Text style={styles.addressText}>
-                    📍 {branchInfo?.direccion || 'Av. Industrial #123, Monterrey, NL'}{'\n'}
-                    📞 {branchInfo?.telefono || '81 1234 5678'}{'\n'}
-                    🕐 {branchInfo?.horario || 'Lunes a Viernes: 9:00 - 18:00, Sábados: 9:00 - 14:00'}
+                <View style={styles.noticeCard}>
+                  <Text style={styles.noticeIcon}>⚠️</Text>
+                  <Text style={styles.noticeText}>
+                    Favor de realizar depósitos de no más de $90,000 pesos por depósito.
                   </Text>
                 </View>
 
                 <View style={styles.noticeCard}>
-                  <Text style={styles.noticeIcon}>⚠️</Text>
+                  <Text style={styles.noticeIcon}>⏰</Text>
                   <Text style={styles.noticeText}>
                     Tu pedido se procesará una vez confirmado el pago. Tiempo de confirmación: 1-24 hrs.
                   </Text>
@@ -568,7 +607,7 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                   </View>
                   <View style={styles.paymentOptionInfo}>
                     <Text style={styles.paymentOptionLabel}>Pago en Sucursal</Text>
-                    <Text style={styles.paymentOptionSublabel}>Efectivo o transferencia SPEI</Text>
+                    <Text style={styles.paymentOptionSublabel}>Depósito en efectivo</Text>
                   </View>
                 </TouchableOpacity>
               </RadioButton.Group>

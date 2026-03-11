@@ -23,25 +23,54 @@ interface AuthRequest extends Request {
   };
 }
 
-// ============ CONFIGURACIÓN DE PAYPAL ============
-const PAYPAL_CLIENT = process.env.PAYPAL_CLIENT_ID || '';
-const PAYPAL_SECRET = process.env.PAYPAL_SECRET || '';
-const PAYPAL_API = process.env.PAYPAL_API_URL || 'https://api-m.sandbox.paypal.com';
-
 // ============ URLS BASE OPENPAY ============
 const OPENPAY_SANDBOX_URL = 'https://sandbox-api.openpay.mx/v1';
 const OPENPAY_PROD_URL = 'https://api.openpay.mx/v1';
 
-// Obtener Token de PayPal
-const getPayPalToken = async (): Promise<string> => {
-    if (!PAYPAL_CLIENT || !PAYPAL_SECRET) {
-        throw new Error('Credenciales de PayPal no configuradas');
+// ============ CONFIGURACIÓN DE PAYPAL DESDE BD ============
+interface PayPalCredentials {
+    clientId: string;
+    secret: string;
+    isSandbox: boolean;
+    empresaName: string;
+}
+
+// Obtener credenciales de PayPal desde la BD
+const getPaypalCredentials = async (): Promise<PayPalCredentials> => {
+    // Buscar cualquier empresa con PayPal configurado
+    const query = await pool.query(`
+        SELECT id, alias, paypal_client_id, paypal_secret, paypal_sandbox
+        FROM fiscal_emitters
+        WHERE paypal_configured = true
+        AND paypal_client_id IS NOT NULL 
+        AND paypal_client_id != ''
+        LIMIT 1
+    `);
+
+    if (query.rows.length > 0) {
+        const row = query.rows[0];
+        console.log(`🔑 PayPal credentials from DB -> ${row.alias}`);
+        return {
+            clientId: row.paypal_client_id,
+            secret: row.paypal_secret,
+            isSandbox: row.paypal_sandbox !== false,
+            empresaName: row.alias
+        };
     }
+
+    throw new Error('No hay credenciales de PayPal configuradas en ninguna empresa');
+};
+
+// Obtener Token de PayPal usando credenciales de la BD
+const getPayPalToken = async (credentials: PayPalCredentials): Promise<string> => {
+    const apiUrl = credentials.isSandbox 
+        ? 'https://api-m.sandbox.paypal.com'
+        : 'https://api-m.paypal.com';
     
-    const auth = Buffer.from(`${PAYPAL_CLIENT}:${PAYPAL_SECRET}`).toString('base64');
+    const auth = Buffer.from(`${credentials.clientId}:${credentials.secret}`).toString('base64');
     
     const response = await axios.post(
-        `${PAYPAL_API}/v1/oauth2/token`, 
+        `${apiUrl}/v1/oauth2/token`, 
         'grant_type=client_credentials', 
         {
             headers: {
@@ -54,11 +83,12 @@ const getPayPalToken = async (): Promise<string> => {
     return response.data.access_token;
 };
 
-// Generar referencia única para pago
+// Generar referencia única para pago (máximo 8 caracteres alfanuméricos)
 const generatePaymentReference = (prefix: string = 'PB'): string => {
-    const timestamp = Date.now().toString(36).toUpperCase();
-    const random = crypto.randomBytes(3).toString('hex').toUpperCase();
-    return `${prefix}-${timestamp}-${random}`;
+    // Usar últimos 4 dígitos del timestamp + 4 caracteres random = 8 caracteres
+    const timestamp = (Date.now() % 10000).toString().padStart(4, '0');
+    const random = crypto.randomBytes(2).toString('hex').toUpperCase(); // 4 caracteres hex
+    return `${prefix}-${timestamp}${random}`;
 };
 
 // ============================================
@@ -77,12 +107,12 @@ export const createPoboxPaypalPayment = async (req: Request, res: Response): Pro
         }
 
         // Verificar que los paquetes existen y pertenecen al usuario
-        // Paquetes PO Box USA: shipment_type NULL o 'air', excluir FCL/maritime/china_air/dhl
+        // Paquetes PO Box USA: service_type NULL o vacío, excluir FCL/maritime/china_air/dhl
         const packagesCheck = await pool.query(
-            `SELECT id, tracking_internal, status, service_type, shipment_type
+            `SELECT id, tracking_internal, status, service_type
              FROM packages 
              WHERE id = ANY($1) AND user_id = $2 
-             AND (shipment_type IS NULL OR shipment_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))`,
+             AND (service_type IS NULL OR service_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))`,
             [packageIds, userId]
         );
 
@@ -103,12 +133,29 @@ export const createPoboxPaypalPayment = async (req: Request, res: Response): Pro
 
         const paymentId = paymentResult.rows[0].id;
 
+        // Obtener credenciales de PayPal desde la BD
+        let credentials: PayPalCredentials;
+        try {
+            credentials = await getPaypalCredentials();
+        } catch (credError: any) {
+            console.error('Error obteniendo credenciales PayPal:', credError.message);
+            return res.status(500).json({ 
+                error: 'PayPal no configurado para este servicio',
+                details: credError.message 
+            });
+        }
+
         // Obtener token de PayPal
-        const token = await getPayPalToken();
+        const token = await getPayPalToken(credentials);
+        
+        // URL de API según ambiente
+        const paypalApiUrl = credentials.isSandbox 
+            ? 'https://api-m.sandbox.paypal.com'
+            : 'https://api-m.paypal.com';
 
         // Crear orden en PayPal
         const order = await axios.post(
-            `${PAYPAL_API}/v2/checkout/orders`,
+            `${paypalApiUrl}/v2/checkout/orders`,
             {
                 intent: 'CAPTURE',
                 purchase_units: [{
@@ -177,12 +224,29 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
             return res.status(400).json({ error: 'paypalOrderId es requerido' });
         }
 
+        // Obtener credenciales de PayPal desde la BD
+        let credentials: PayPalCredentials;
+        try {
+            credentials = await getPaypalCredentials();
+        } catch (credError: any) {
+            console.error('Error obteniendo credenciales PayPal:', credError.message);
+            return res.status(500).json({ 
+                error: 'PayPal no configurado',
+                details: credError.message 
+            });
+        }
+
         // Obtener token de PayPal
-        const token = await getPayPalToken();
+        const token = await getPayPalToken(credentials);
+        
+        // URL de API según ambiente
+        const paypalApiUrl = credentials.isSandbox 
+            ? 'https://api-m.sandbox.paypal.com'
+            : 'https://api-m.paypal.com';
 
         // Capturar el pago en PayPal
         const capture = await axios.post(
-            `${PAYPAL_API}/v2/checkout/orders/${paypalOrderId}/capture`,
+            `${paypalApiUrl}/v2/checkout/orders/${paypalOrderId}/capture`,
             {},
             {
                 headers: { 
@@ -226,6 +290,7 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
                         monto_pagado = COALESCE(monto_pagado, 0) + $1,
                         saldo_pendiente = 0,
                         costing_paid = TRUE,
+                        client_paid = TRUE,
                         costing_paid_at = CURRENT_TIMESTAMP
                     WHERE id = ANY($2)
                 `, [payment.amount, packageIds]);
@@ -294,12 +359,12 @@ export const createPoboxOpenpayPayment = async (req: Request, res: Response): Pr
         }
 
         // Verificar que los paquetes existen y pertenecen al usuario
-        // Paquetes PO Box USA: shipment_type NULL o 'air', excluir FCL/maritime/china_air/dhl
+        // Paquetes PO Box USA: service_type NULL o vacío, excluir FCL/maritime/china_air/dhl
         const packagesCheck = await pool.query(
-            `SELECT id, tracking_internal, status, service_type, shipment_type
+            `SELECT id, tracking_internal, status, service_type
              FROM packages 
              WHERE id = ANY($1) AND user_id = $2 
-             AND (shipment_type IS NULL OR shipment_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))`,
+             AND (service_type IS NULL OR service_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))`,
             [packageIds, userId]
         );
 
@@ -333,7 +398,8 @@ export const createPoboxOpenpayPayment = async (req: Request, res: Response): Pr
         }
 
         const openpayBaseUrl = credentials.isSandbox ? OPENPAY_SANDBOX_URL : OPENPAY_PROD_URL;
-        const openpayUrl = `${openpayBaseUrl}/${credentials.merchantId}/checkouts`;
+        // Usar API de charges con redirect en lugar de checkouts
+        const openpayUrl = `${openpayBaseUrl}/${credentials.merchantId}/charges`;
 
         // Crear registro de pago en base de datos
         const paymentResult = await pool.query(`
@@ -346,51 +412,61 @@ export const createPoboxOpenpayPayment = async (req: Request, res: Response): Pr
 
         const paymentId = paymentResult.rows[0].id;
 
-        // Crear checkout en OpenPay
+        // Crear cargo con redireccionamiento en OpenPay
         // NOTA: OpenPay no acepta caracteres especiales en description (paréntesis, etc.)
         const packageCount = packageIds.length;
         const cleanDescription = `Pago PO Box USA ${packageCount} ${packageCount === 1 ? 'paquete' : 'paquetes'}`;
         
-        // Formatear fecha de expiración para OpenPay (yyyy-MM-dd HH:mm)
-        const expDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
-        const expirationDate = `${expDate.getFullYear()}-${String(expDate.getMonth() + 1).padStart(2, '0')}-${String(expDate.getDate()).padStart(2, '0')} ${String(expDate.getHours()).padStart(2, '0')}:${String(expDate.getMinutes()).padStart(2, '0')}`;
-        
-        const checkoutData = {
+        // Usar API de charges con confirm: false para redireccionamiento
+        const chargeData = {
+            method: 'card',
             amount: totalAmount,
             currency: currency,
             description: cleanDescription,
             order_id: paymentRef,
+            confirm: false,
+            send_email: false,
             redirect_url: `${process.env.API_URL || 'https://api.entregax.com'}/webhooks/pobox/openpay/callback?paymentId=${paymentId}`,
             customer: {
                 name: user.full_name?.split(' ')[0] || 'Cliente',
                 last_name: user.full_name?.split(' ').slice(1).join(' ') || 'EntregaX',
                 email: user.email || `cliente${userId}@entregax.com`,
                 phone_number: user.phone?.replace(/\D/g, '').slice(-10) || '0000000000'
-            },
-            send_email: false,
-            expiration_date: expirationDate
+            }
         };
 
-        const openpayResponse = await axios.post(openpayUrl, checkoutData, {
+        const openpayResponse = await axios.post(openpayUrl, chargeData, {
             auth: {
                 username: credentials.privateKey,
                 password: ''
             }
         });
 
-        // Actualizar registro con external_order_id
+        // Actualizar registro con external_order_id (transaction id de OpenPay)
         await pool.query(
             'UPDATE pobox_payments SET external_order_id = $1 WHERE id = $2',
             [openpayResponse.data.id, paymentId]
         );
 
-        console.log(`💳 PO Box OpenPay checkout creado: ${openpayResponse.data.id} - $${totalAmount} ${currency}`);
+        // La URL de pago viene en payment_method.url para cargos con redirect
+        const paymentUrl = openpayResponse.data.payment_method?.url;
+        
+        if (!paymentUrl) {
+            console.error('OpenPay no devolvió URL de pago:', openpayResponse.data);
+            return res.status(500).json({ 
+                error: 'OpenPay no devolvió URL de pago',
+                details: 'payment_method.url no encontrado en respuesta'
+            });
+        }
+
+        console.log(`💳 PO Box OpenPay cargo creado: ${openpayResponse.data.id} - $${totalAmount} ${currency}`);
+        console.log(`🔗 Payment URL: ${paymentUrl}`);
 
         res.json({ 
             success: true,
-            approvalUrl: openpayResponse.data.payment_url || openpayResponse.data.checkout_url,
+            approvalUrl: paymentUrl,
             paymentId: paymentId,
-            checkoutId: openpayResponse.data.id,
+            transactionId: openpayResponse.data.id,
             reference: paymentRef,
             amount: totalAmount,
             currency: currency
@@ -399,7 +475,7 @@ export const createPoboxOpenpayPayment = async (req: Request, res: Response): Pr
     } catch (error: any) {
         console.error('Error creando pago OpenPay PO Box:', error.response?.data || error.message);
         res.status(500).json({ 
-            error: 'Error al crear checkout de pago',
+            error: 'Error al crear cargo de pago',
             details: error.response?.data?.description || error.message
         });
     }
@@ -423,12 +499,12 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         }
 
         // Verificar que los paquetes existen y pertenecen al usuario
-        // Paquetes PO Box USA: shipment_type NULL o 'air', excluir FCL/maritime/china_air/dhl
+        // Paquetes PO Box USA: service_type NULL o vacío, excluir FCL/maritime/china_air/dhl
         const packagesCheck = await pool.query(
-            `SELECT id, tracking_internal, status, service_type, shipment_type, assigned_cost_mxn
+            `SELECT id, tracking_internal, status, service_type, assigned_cost_mxn
              FROM packages 
              WHERE id = ANY($1) AND user_id = $2 
-             AND (shipment_type IS NULL OR shipment_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))`,
+             AND (service_type IS NULL OR service_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))`,
             [packageIds, userId]
         );
 

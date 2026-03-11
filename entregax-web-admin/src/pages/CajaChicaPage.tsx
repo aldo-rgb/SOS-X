@@ -38,12 +38,8 @@ import {
   Tooltip,
   Tabs,
   Tab,
-  Autocomplete,
-  Checkbox,
+  Avatar,
   Divider,
-  List,
-  ListItem,
-  ListItemText,
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
 import {
@@ -58,6 +54,10 @@ import {
   LocalAtm as LocalAtmIcon,
   Assignment as AssignmentIcon,
   Close as CloseIcon,
+  Payment as PaymentIcon,
+  LocalShipping as ShippingIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
   Person as PersonIcon,
   CheckCircle as CheckCircleIcon,
   AttachMoney as MoneyIcon,
@@ -128,6 +128,28 @@ interface Corte {
   admin_name: string;
 }
 
+interface ConsolidacionPendiente {
+  id: number;
+  status: string;
+  package_count: number;
+  total_cost_mxn: number;
+  total_cost_usd: number;
+  supplier_name: string;
+  supplier_id: number;
+  created_at: string;
+  packages: Array<{
+    id: number;
+    tracking: string;
+    description: string;
+    weight: number;
+    pobox_service_cost: number;
+    pobox_cost_usd: number;
+    costing_paid: boolean;
+    client_name: string;
+    client_box_id: string;
+  }>;
+}
+
 const CajaChicaPage: React.FC = () => {
   const [stats, setStats] = useState<CajaChicaStats | null>(null);
   const [transacciones, setTransacciones] = useState<Transaccion[]>([]);
@@ -140,6 +162,17 @@ const CajaChicaPage: React.FC = () => {
   const [egresoDialogOpen, setEgresoDialogOpen] = useState(false);
   const [corteDialogOpen, setCorteDialogOpen] = useState(false);
   const [ingresoGeneralDialogOpen, setIngresoGeneralDialogOpen] = useState(false);
+  const [pagoProveedorDialogOpen, setPagoProveedorDialogOpen] = useState(false);
+
+  // Pagos a proveedores
+  const [consolidacionesPendientes, setConsolidacionesPendientes] = useState<ConsolidacionPendiente[]>([]);
+  const [loadingConsolidaciones, setLoadingConsolidaciones] = useState(false);
+  const [expandedConsolidaciones, setExpandedConsolidaciones] = useState<Set<number>>(new Set());
+  const [consolidacionAPagar, setConsolidacionAPagar] = useState<ConsolidacionPendiente | null>(null);
+  const [pagoConsolidacionDialogOpen, setPagoConsolidacionDialogOpen] = useState(false);
+  const [pagoConsolidacionRef, setPagoConsolidacionRef] = useState('');
+  const [pagoConsolidacionNotas, setPagoConsolidacionNotas] = useState('');
+  const [procesandoPagoProveedor, setProcesandoPagoProveedor] = useState(false);
 
   // Búsqueda de cliente
   const [clientesEncontrados, setClientesEncontrados] = useState<Cliente[]>([]);
@@ -155,6 +188,17 @@ const CajaChicaPage: React.FC = () => {
   const [notasPago, setNotasPago] = useState('');
   const [procesandoPago, setProcesandoPago] = useState(false);
   const [previewAsignacion, setPreviewAsignacion] = useState<GuiaPendiente[]>([]);
+
+  // Búsqueda por referencia de pago
+  const [searchRef, setSearchRef] = useState('');
+  const [searchingRef, setSearchingRef] = useState(false);
+  const [searchRefError, setSearchRefError] = useState('');
+  const [refFound, setRefFound] = useState<{
+    referencia: string;
+    monto: number;
+    cliente: { id: number; nombre: string; email: string; box_id: string };
+    guias: Array<{ id: number; tracking: string; monto: number }>;
+  } | null>(null);
 
   // Egreso
   const [egresoForm, setEgresoForm] = useState({
@@ -226,6 +270,79 @@ const CajaChicaPage: React.FC = () => {
     }
   }, []);
 
+  // Cargar consolidaciones pendientes de pago a proveedores
+  const fetchConsolidacionesPendientes = useCallback(async () => {
+    setLoadingConsolidaciones(true);
+    try {
+      const response = await api.get('/suppliers/consolidaciones-pendientes');
+      console.log('📦 Respuesta consolidaciones:', response.data);
+      setConsolidacionesPendientes(response.data.consolidations || []);
+    } catch (error) {
+      console.error('Error fetching consolidaciones pendientes:', error);
+    } finally {
+      setLoadingConsolidaciones(false);
+    }
+  }, []);
+
+  // Toggle expandir consolidación
+  const toggleExpandConsolidacion = (id: number) => {
+    setExpandedConsolidaciones(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  // Iniciar pago de consolidación
+  const handleIniciarPagoConsolidacion = (consolidacion: ConsolidacionPendiente) => {
+    setConsolidacionAPagar(consolidacion);
+    setPagoConsolidacionRef('');
+    setPagoConsolidacionNotas('');
+    setPagoConsolidacionDialogOpen(true);
+  };
+
+  // Confirmar pago de consolidación a proveedor
+  const handlePagarConsolidacion = async () => {
+    if (!consolidacionAPagar) return;
+    
+    setProcesandoPagoProveedor(true);
+    try {
+      const response = await api.post('/caja-chica/pagar-consolidacion', {
+        consolidation_id: consolidacionAPagar.id,
+        monto: Number(consolidacionAPagar.total_cost_mxn),
+        referencia: pagoConsolidacionRef || null,
+        notas: pagoConsolidacionNotas || null
+      });
+      
+      setSnackbar({ 
+        open: true, 
+        message: `✅ Pago de ${formatCurrency(Number(consolidacionAPagar.total_cost_mxn))} registrado - ${response.data.packages_updated} paquetes actualizados`, 
+        severity: 'success' 
+      });
+      
+      // Cerrar diálogos y refrescar
+      setPagoConsolidacionDialogOpen(false);
+      setConsolidacionAPagar(null);
+      fetchConsolidacionesPendientes();
+      loadData(); // Refrescar stats de caja chica
+      
+    } catch (error: unknown) {
+      console.error('Error pagando consolidación:', error);
+      const axiosError = error as { response?: { data?: { error?: string } } };
+      setSnackbar({ 
+        open: true, 
+        message: axiosError.response?.data?.error || 'Error al procesar pago', 
+        severity: 'error' 
+      });
+    } finally {
+      setProcesandoPagoProveedor(false);
+    }
+  };
+
   const loadData = useCallback(async () => {
     setLoading(true);
     await Promise.all([fetchStats(), fetchTransacciones(), fetchCortes()]);
@@ -250,6 +367,56 @@ const CajaChicaPage: React.FC = () => {
       console.error('Error buscando cliente:', error);
     } finally {
       setBuscandoCliente(false);
+    }
+  };
+
+  // Buscar por referencia de pago
+  const handleSearchByRef = async () => {
+    if (!searchRef.trim()) return;
+    setSearchingRef(true);
+    setSearchRefError('');
+    setRefFound(null);
+    try {
+      const response = await api.get('/caja-chica/buscar-referencia', { params: { ref: searchRef.trim() } });
+      if (response.data.found) {
+        setRefFound(response.data);
+        // Pre-cargar el monto a recibir
+        setMontoRecibido(String(response.data.monto));
+      } else {
+        setSearchRefError('No se encontró ningún pago con esa referencia');
+      }
+    } catch (error: unknown) {
+      console.error('Error buscando referencia:', error);
+      const axiosError = error as { response?: { data?: { error?: string } } };
+      setSearchRefError(axiosError.response?.data?.error || 'Error al buscar la referencia');
+    } finally {
+      setSearchingRef(false);
+    }
+  };
+
+  // Confirmar pago encontrado por referencia
+  const handleConfirmRefPayment = async () => {
+    if (!refFound) return;
+    setProcesandoPago(true);
+    try {
+      await api.post('/caja-chica/confirmar-pago-referencia', {
+        referencia: refFound.referencia,
+        monto: parseFloat(montoRecibido),
+        notas: notasPago
+      });
+      setSnackbar({ open: true, message: `✅ Pago de ${formatCurrency(parseFloat(montoRecibido))} registrado correctamente`, severity: 'success' });
+      setPagoDialogOpen(false);
+      setRefFound(null);
+      setSearchRef('');
+      setMontoRecibido('');
+      setNotasPago('');
+      loadData();
+    } catch (error: unknown) {
+      console.error('Error confirmando pago:', error);
+      const axiosError = error as { response?: { data?: { error?: string } } };
+      setSnackbar({ open: true, message: axiosError.response?.data?.error || 'Error al confirmar pago', severity: 'error' });
+    } finally {
+      setProcesandoPago(false);
     }
   };
 
@@ -536,6 +703,17 @@ const CajaChicaPage: React.FC = () => {
             Egreso
           </Button>
           <Button
+            variant="contained"
+            color="warning"
+            startIcon={<PaymentIcon />}
+            onClick={() => {
+              setPagoProveedorDialogOpen(true);
+              fetchConsolidacionesPendientes();
+            }}
+          >
+            Realizar Pago
+          </Button>
+          <Button
             variant="outlined"
             color="info"
             startIcon={<AssignmentIcon />}
@@ -743,8 +921,11 @@ const CajaChicaPage: React.FC = () => {
           setClienteSeleccionado(null);
           setGuiasPendientes([]);
           setMontoRecibido('');
+          setSearchRef('');
+          setRefFound(null);
+          setSearchRefError('');
         }}
-        maxWidth="lg"
+        maxWidth="md"
         fullWidth
       >
         <DialogTitle sx={{ bgcolor: 'primary.main', color: 'white' }}>
@@ -759,264 +940,130 @@ const CajaChicaPage: React.FC = () => {
           </Box>
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
-          {/* Paso 1: Buscar cliente */}
+          {/* Paso 1: Buscar por referencia de pago */}
           <Box sx={{ mb: 3 }}>
             <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-              1. Seleccionar Cliente
+              1. Ingresa la referencia de pago del cliente
             </Typography>
-            <Autocomplete
-              options={clientesEncontrados}
-              getOptionLabel={(option) => `${option.full_name} (${option.box_id})`}
-              loading={buscandoCliente}
-              onInputChange={(_, value) => {
-                handleBuscarCliente(value);
-              }}
-              onChange={(_, value) => handleSeleccionarCliente(value)}
-              value={clienteSeleccionado}
-              renderInput={(params) => (
-                <TextField
-                  {...params}
-                  label="Buscar por nombre, Box ID, email o teléfono"
-                  placeholder="Ej: Juan Pérez, BOX-001, juan@email.com"
-                  InputProps={{
-                    ...params.InputProps,
-                    startAdornment: <SearchIcon sx={{ mr: 1, color: 'action.active' }} />,
-                  }}
-                />
-              )}
-              renderOption={(props, option) => (
-                <li {...props} key={option.id}>
-                  <Box sx={{ width: '100%' }}>
-                    <Box display="flex" justifyContent="space-between">
-                      <Typography fontWeight="bold">{option.full_name}</Typography>
-                      <Chip 
-                        label={`${option.guias_pendientes} guías pendientes`} 
-                        size="small" 
-                        color={option.guias_pendientes > 0 ? 'warning' : 'success'}
-                      />
-                    </Box>
-                    <Typography variant="caption" color="text.secondary">
-                      {option.box_id} • {option.email}
-                    </Typography>
-                    {option.saldo_total_pendiente > 0 && (
-                      <Typography variant="body2" color="error.main" fontWeight="bold">
-                        Saldo pendiente: {formatCurrency(option.saldo_total_pendiente)}
-                      </Typography>
-                    )}
-                  </Box>
-                </li>
-              )}
-            />
+            <Box sx={{ display: 'flex', gap: 2 }}>
+              <TextField
+                fullWidth
+                label="Referencia de Pago"
+                placeholder="Ej: EF-0054-M7K9X2"
+                value={searchRef}
+                onChange={(e) => setSearchRef(e.target.value.toUpperCase())}
+                onKeyPress={(e) => e.key === 'Enter' && handleSearchByRef()}
+                InputProps={{
+                  startAdornment: <SearchIcon sx={{ mr: 1, color: 'action.active' }} />,
+                }}
+                autoFocus
+              />
+              <Button
+                variant="contained"
+                onClick={handleSearchByRef}
+                disabled={searchingRef || !searchRef.trim()}
+                sx={{ minWidth: 120 }}
+              >
+                {searchingRef ? <CircularProgress size={24} /> : 'Buscar'}
+              </Button>
+            </Box>
+            {searchRefError && (
+              <Alert severity="error" sx={{ mt: 2 }}>{searchRefError}</Alert>
+            )}
           </Box>
 
-          {/* Paso 2: Estado de cuenta del cliente */}
-          {clienteSeleccionado && (
+          {/* Paso 2: Mostrar información del pago encontrado */}
+          {refFound && (
             <>
               <Divider sx={{ my: 2 }} />
               <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                2. Estado de Cuenta - {clienteSeleccionado.full_name}
+                2. Información del Pago Encontrado
               </Typography>
               
-              {/* Resumen */}
-              <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
-                <Chip 
-                  label={`Total Facturado: ${formatCurrency(totalesCliente.total_facturado)}`} 
-                  color="default" 
-                />
-                <Chip 
-                  label={`Pagado: ${formatCurrency(totalesCliente.total_pagado)}`} 
-                  color="success" 
-                />
-                <Chip 
-                  label={`Pendiente: ${formatCurrency(totalesCliente.total_pendiente)}`} 
-                  color="error" 
-                />
-              </Box>
+              <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: 'success.50' }}>
+                <Grid container spacing={2} alignItems="center">
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <Avatar sx={{ bgcolor: 'primary.main', width: 56, height: 56 }}>
+                        {refFound.cliente.nombre.charAt(0)}
+                      </Avatar>
+                      <Box>
+                        <Typography variant="h6">{refFound.cliente.nombre}</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {refFound.cliente.box_id} • {refFound.cliente.email}
+                        </Typography>
+                      </Box>
+                    </Box>
+                  </Grid>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <Box sx={{ textAlign: 'right' }}>
+                      <Typography variant="overline" color="text.secondary">Monto a Cobrar</Typography>
+                      <Typography variant="h4" color="success.main" fontWeight="bold">
+                        {formatCurrency(refFound.monto)}
+                      </Typography>
+                      <Chip label={refFound.referencia} color="primary" size="small" sx={{ mt: 1 }} />
+                    </Box>
+                  </Grid>
+                </Grid>
 
-              {/* Tabla de guías */}
-              {cargandoGuias ? (
-                <Box display="flex" justifyContent="center" py={3}>
-                  <CircularProgress />
-                </Box>
-              ) : (
-                <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 300, mb: 2 }}>
-                  <Table stickyHeader size="small">
-                    <TableHead>
-                      <TableRow>
-                        {modoAsignacion === 'manual' && <TableCell padding="checkbox"></TableCell>}
-                        <TableCell>Guía</TableCell>
-                        <TableCell>Destinatario</TableCell>
-                        <TableCell align="right">Total</TableCell>
-                        <TableCell align="right">Pagado</TableCell>
-                        <TableCell align="right">Pendiente</TableCell>
-                        <TableCell>Estado</TableCell>
-                        {modoAsignacion === 'manual' && <TableCell align="right">Aplicar</TableCell>}
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {guiasPendientes.map((guia) => {
-                        const previewGuia = previewAsignacion.find(p => p.id === guia.id);
-                        const montoAAplicar = modoAsignacion === 'automatico' 
-                          ? previewGuia?.monto_a_aplicar || 0
-                          : guia.monto_a_aplicar || 0;
-                        
-                        return (
-                          <TableRow 
-                            key={guia.id} 
-                            sx={{ 
-                              bgcolor: montoAAplicar > 0 ? 'success.lighter' : 'inherit',
-                              '&:hover': { bgcolor: montoAAplicar > 0 ? 'success.light' : 'action.hover' }
-                            }}
-                          >
-                            {modoAsignacion === 'manual' && (
-                              <TableCell padding="checkbox">
-                                <Checkbox
-                                  checked={guia.seleccionada || false}
-                                  onChange={() => toggleSeleccionGuia(guia.id)}
-                                />
-                              </TableCell>
-                            )}
-                            <TableCell>
-                              <Typography variant="body2" fontWeight="bold">{guia.tracking_number}</Typography>
-                              <Typography variant="caption" color="text.secondary">{guia.service_type}</Typography>
-                            </TableCell>
-                            <TableCell>{guia.recipient_name}</TableCell>
-                            <TableCell align="right">{formatCurrency(guia.calculated_price)}</TableCell>
-                            <TableCell align="right" sx={{ color: 'success.main' }}>
-                              {formatCurrency(guia.monto_pagado)}
-                            </TableCell>
-                            <TableCell align="right" sx={{ color: 'error.main', fontWeight: 'bold' }}>
-                              {formatCurrency(guia.saldo_pendiente)}
-                            </TableCell>
-                            <TableCell>{getPaymentStatusChip(guia.payment_status)}</TableCell>
-                            {modoAsignacion === 'manual' && (
-                              <TableCell align="right" sx={{ width: 120 }}>
-                                <TextField
-                                  size="small"
-                                  type="number"
-                                  value={guia.monto_a_aplicar || ''}
-                                  onChange={(e) => updateMontoGuia(guia.id, e.target.value)}
-                                  InputProps={{
-                                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                                  }}
-                                  sx={{ width: 100 }}
-                                  disabled={!guia.seleccionada}
-                                />
-                              </TableCell>
-                            )}
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
-              )}
+                {/* Guías incluidas */}
+                {refFound.guias && refFound.guias.length > 0 && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="subtitle2" gutterBottom>Guías incluidas:</Typography>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {refFound.guias.map((g) => (
+                        <Chip 
+                          key={g.id} 
+                          label={`${g.tracking}: ${formatCurrency(g.monto)}`}
+                          size="small"
+                          variant="outlined"
+                        />
+                      ))}
+                    </Box>
+                  </Box>
+                )}
+              </Paper>
 
-              {/* Paso 3: Ingresar monto */}
-              <Divider sx={{ my: 2 }} />
+              {/* Paso 3: Confirmar monto recibido */}
               <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                3. Efectivo Recibido
+                3. Confirmar Monto Recibido
               </Typography>
-              
               <Grid container spacing={2}>
-                <Grid size={{ xs: 12, md: 4 }}>
+                <Grid size={{ xs: 12, md: 6 }}>
                   <TextField
                     fullWidth
-                    label="Monto en Efectivo"
+                    label="Monto Recibido"
                     type="number"
                     value={montoRecibido}
                     onChange={(e) => setMontoRecibido(e.target.value)}
                     InputProps={{
                       startAdornment: <InputAdornment position="start">$</InputAdornment>,
                     }}
-                    placeholder="70,000"
-                    autoFocus
                   />
                 </Grid>
-                <Grid size={{ xs: 12, md: 4 }}>
-                  <FormControl fullWidth>
-                    <InputLabel>Modo de Asignación</InputLabel>
-                    <Select
-                      value={modoAsignacion}
-                      onChange={(e) => setModoAsignacion(e.target.value as 'automatico' | 'manual')}
-                      label="Modo de Asignación"
-                    >
-                      <MenuItem value="automatico">
-                        🤖 Automático (FIFO) - Paga las más antiguas primero
-                      </MenuItem>
-                      <MenuItem value="manual">
-                        ✍️ Manual - Yo decido a qué guías aplicar
-                      </MenuItem>
-                    </Select>
-                  </FormControl>
-                </Grid>
-                <Grid size={{ xs: 12, md: 4 }}>
+                <Grid size={{ xs: 12, md: 6 }}>
                   <TextField
                     fullWidth
                     label="Notas (opcional)"
                     value={notasPago}
                     onChange={(e) => setNotasPago(e.target.value)}
-                    placeholder="Ej: Pago en efectivo, billete de $1000"
+                    placeholder="Ej: Pago en efectivo"
                   />
                 </Grid>
               </Grid>
-
-              {/* Preview de asignación */}
-              {montoRecibido && parseFloat(montoRecibido) > 0 && (
-                <Box sx={{ mt: 2 }}>
-                  <Alert severity="info" sx={{ mb: 2 }}>
-                    <Typography variant="subtitle2" fontWeight="bold">
-                      Vista previa de la asignación:
-                    </Typography>
-                    {modoAsignacion === 'automatico' ? (
-                      previewAsignacion.length > 0 ? (
-                        <List dense>
-                          {previewAsignacion.map(g => (
-                            <ListItem key={g.id}>
-                              <ListItemText 
-                                primary={`${g.tracking_number}: ${formatCurrency(g.monto_a_aplicar || 0)}`}
-                                secondary={
-                                  (g.monto_a_aplicar || 0) >= parseFloat(String(g.saldo_pendiente))
-                                    ? '✅ Quedará PAGADO'
-                                    : `📝 Quedará con saldo: ${formatCurrency(parseFloat(String(g.saldo_pendiente)) - (g.monto_a_aplicar || 0))}`
-                                }
-                              />
-                            </ListItem>
-                          ))}
-                        </List>
-                      ) : (
-                        <Typography variant="body2">No hay guías pendientes para asignar</Typography>
-                      )
-                    ) : (
-                      <Typography variant="body2">
-                        Total a aplicar: {formatCurrency(sumaAplicacionesManual)} de {formatCurrency(parseFloat(montoRecibido))}
-                        {sumaAplicacionesManual > parseFloat(montoRecibido) && (
-                          <Chip label="⚠️ Excede el monto" color="error" size="small" sx={{ ml: 1 }} />
-                        )}
-                      </Typography>
-                    )}
-                  </Alert>
-                </Box>
-              )}
             </>
           )}
         </DialogContent>
-        <DialogActions sx={{ p: 2, bgcolor: 'grey.50' }}>
+        <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setPagoDialogOpen(false)}>Cancelar</Button>
           <Button
             variant="contained"
-            color="primary"
-            onClick={handleRegistrarPago}
-            disabled={
-              !clienteSeleccionado || 
-              !montoRecibido || 
-              parseFloat(montoRecibido) <= 0 ||
-              procesandoPago ||
-              (modoAsignacion === 'manual' && sumaAplicacionesManual > parseFloat(montoRecibido))
-            }
-            startIcon={procesandoPago ? <CircularProgress size={20} /> : <MoneyIcon />}
+            color="success"
+            onClick={handleConfirmRefPayment}
+            disabled={!refFound || procesandoPago || !montoRecibido}
+            startIcon={procesandoPago ? <CircularProgress size={20} /> : <CheckCircleIcon />}
           >
-            {procesandoPago ? 'Procesando...' : `Registrar Pago de ${montoRecibido ? formatCurrency(parseFloat(montoRecibido)) : '$0'}`}
+            {procesandoPago ? 'Procesando...' : `Registrar Pago de ${formatCurrency(parseFloat(montoRecibido) || 0)}`}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1213,6 +1260,300 @@ const CajaChicaPage: React.FC = () => {
             disabled={!corteForm.saldo_real}
           >
             Realizar Corte
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Diálogo de Pago a Proveedores */}
+      <Dialog
+        open={pagoProveedorDialogOpen}
+        onClose={() => setPagoProveedorDialogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box display="flex" justifyContent="space-between" alignItems="center">
+            <Box display="flex" alignItems="center" gap={1}>
+              <PaymentIcon color="warning" />
+              <Typography variant="h6">Pagos Pendientes a Proveedores</Typography>
+            </Box>
+            <IconButton onClick={() => setPagoProveedorDialogOpen(false)} size="small">
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent dividers>
+          {loadingConsolidaciones ? (
+            <Box display="flex" justifyContent="center" p={4}>
+              <CircularProgress />
+            </Box>
+          ) : consolidacionesPendientes.length === 0 ? (
+            <Alert severity="info">
+              No hay consolidaciones pendientes de pago a proveedores
+            </Alert>
+          ) : (
+            <Box>
+              {/* Resumen total */}
+              <Paper sx={{ p: 2, mb: 3, bgcolor: 'warning.light' }}>
+                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                  Resumen Total
+                </Typography>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 4 }}>
+                    <Typography variant="body2" color="text.secondary">Consolidaciones</Typography>
+                    <Typography variant="h5" fontWeight="bold">{consolidacionesPendientes.length}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 4 }}>
+                    <Typography variant="body2" color="text.secondary">Total USD</Typography>
+                    <Typography variant="h5" fontWeight="bold" color="success.dark">
+                      ${consolidacionesPendientes.reduce((sum, c) => sum + Number(c.total_cost_usd || 0), 0).toFixed(2)}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 4 }}>
+                    <Typography variant="body2" color="text.secondary">Total MXN</Typography>
+                    <Typography variant="h5" fontWeight="bold" color="primary.dark">
+                      {formatCurrency(consolidacionesPendientes.reduce((sum, c) => sum + Number(c.total_cost_mxn || 0), 0))}
+                    </Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+
+              {/* Lista de consolidaciones */}
+              <TableContainer component={Paper}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'grey.100' }}>
+                      <TableCell width={40}></TableCell>
+                      <TableCell><strong>Consolidación</strong></TableCell>
+                      <TableCell><strong>Proveedor</strong></TableCell>
+                      <TableCell align="center"><strong>Paquetes</strong></TableCell>
+                      <TableCell><strong>Estado</strong></TableCell>
+                      <TableCell align="right"><strong>Total USD</strong></TableCell>
+                      <TableCell align="right"><strong>Total MXN</strong></TableCell>
+                      <TableCell align="center"><strong>Acción</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {consolidacionesPendientes.map((consolidacion) => (
+                      <React.Fragment key={consolidacion.id}>
+                        <TableRow 
+                          hover
+                          sx={{ 
+                            '& > td': { borderBottom: expandedConsolidaciones.has(consolidacion.id) ? 'none' : undefined },
+                            cursor: 'pointer'
+                          }}
+                          onClick={() => toggleExpandConsolidacion(consolidacion.id)}
+                        >
+                          <TableCell>
+                            <IconButton size="small">
+                              {expandedConsolidaciones.has(consolidacion.id) ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                            </IconButton>
+                          </TableCell>
+                          <TableCell>
+                            <Box display="flex" alignItems="center" gap={1}>
+                              <ShippingIcon color="primary" fontSize="small" />
+                              <Typography fontWeight="bold">#{consolidacion.id}</Typography>
+                            </Box>
+                            <Typography variant="caption" color="text.secondary">
+                              {new Date(consolidacion.created_at).toLocaleDateString('es-MX')}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography fontWeight="bold">{consolidacion.supplier_name}</Typography>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Chip 
+                              label={consolidacion.package_count} 
+                              size="small" 
+                              color="primary" 
+                              variant="outlined"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Chip 
+                              label={consolidacion.status === 'in_transit' ? 'En Tránsito' : consolidacion.status}
+                              size="small"
+                              color={consolidacion.status === 'in_transit' ? 'info' : 'default'}
+                            />
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography fontWeight="bold" color="success.main">
+                              ${Number(consolidacion.total_cost_usd || 0).toFixed(2)}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography fontWeight="bold" color="primary.main">
+                              {formatCurrency(Number(consolidacion.total_cost_mxn || 0))}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Button
+                              variant="contained"
+                              size="small"
+                              color="warning"
+                              startIcon={<PaymentIcon />}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleIniciarPagoConsolidacion(consolidacion);
+                              }}
+                            >
+                              Pagar
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                        {/* Paquetes expandidos */}
+                        {expandedConsolidaciones.has(consolidacion.id) && (
+                          <TableRow>
+                            <TableCell colSpan={8} sx={{ p: 0, bgcolor: 'grey.50' }}>
+                              <Box sx={{ p: 2 }}>
+                                <Typography variant="subtitle2" gutterBottom>
+                                  Paquetes en esta consolidación:
+                                </Typography>
+                                <Table size="small">
+                                  <TableHead>
+                                    <TableRow>
+                                      <TableCell>Tracking</TableCell>
+                                      <TableCell>Cliente</TableCell>
+                                      <TableCell>Descripción</TableCell>
+                                      <TableCell align="right">Peso (lb)</TableCell>
+                                      <TableCell align="right">USD</TableCell>
+                                      <TableCell align="right">MXN</TableCell>
+                                      <TableCell align="center">Pagado</TableCell>
+                                    </TableRow>
+                                  </TableHead>
+                                  <TableBody>
+                                    {consolidacion.packages?.map((pkg) => (
+                                      <TableRow key={pkg.id}>
+                                        <TableCell>
+                                          <Typography variant="body2" fontFamily="monospace">
+                                            {pkg.tracking}
+                                          </Typography>
+                                        </TableCell>
+                                        <TableCell>
+                                          <Typography variant="body2">{pkg.client_name}</Typography>
+                                          <Typography variant="caption" color="text.secondary">{pkg.client_box_id}</Typography>
+                                        </TableCell>
+                                        <TableCell>
+                                          <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                                            {pkg.description || '-'}
+                                          </Typography>
+                                        </TableCell>
+                                        <TableCell align="right">{Number(pkg.weight || 0).toFixed(2)}</TableCell>
+                                        <TableCell align="right">${Number(pkg.pobox_cost_usd || 0).toFixed(2)}</TableCell>
+                                        <TableCell align="right">{formatCurrency(Number(pkg.pobox_service_cost || 0))}</TableCell>
+                                        <TableCell align="center">
+                                          {pkg.costing_paid ? (
+                                            <CheckCircleIcon color="success" fontSize="small" />
+                                          ) : (
+                                            <Typography variant="caption" color="warning.main">Pendiente</Typography>
+                                          )}
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </Box>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </React.Fragment>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setPagoProveedorDialogOpen(false)}>
+            Cerrar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Diálogo de Confirmación de Pago a Proveedor */}
+      <Dialog
+        open={pagoConsolidacionDialogOpen}
+        onClose={() => !procesandoPagoProveedor && setPagoConsolidacionDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box display="flex" alignItems="center" gap={1}>
+            <PaymentIcon color="warning" />
+            <Typography variant="h6">Confirmar Pago a Proveedor</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent dividers>
+          {consolidacionAPagar && (
+            <Box>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                Se registrará un <strong>egreso</strong> en caja chica y se marcarán los paquetes como <strong>pagados al proveedor</strong>.
+              </Alert>
+              
+              <Paper sx={{ p: 2, mb: 2, bgcolor: 'grey.50' }}>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="body2" color="text.secondary">Consolidación</Typography>
+                    <Typography variant="h6" fontWeight="bold">#{consolidacionAPagar.id}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="body2" color="text.secondary">Proveedor</Typography>
+                    <Typography variant="h6" fontWeight="bold">{consolidacionAPagar.supplier_name}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="body2" color="text.secondary">Paquetes</Typography>
+                    <Typography variant="h6">{consolidacionAPagar.package_count}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="body2" color="text.secondary">Total USD</Typography>
+                    <Typography variant="h6" color="success.main">${Number(consolidacionAPagar.total_cost_usd || 0).toFixed(2)}</Typography>
+                  </Grid>
+                </Grid>
+                <Divider sx={{ my: 2 }} />
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                  <Typography variant="h6">Total a Pagar (MXN):</Typography>
+                  <Typography variant="h4" fontWeight="bold" color="primary.main">
+                    {formatCurrency(Number(consolidacionAPagar.total_cost_mxn || 0))}
+                  </Typography>
+                </Box>
+              </Paper>
+
+              <TextField
+                fullWidth
+                label="Referencia de Pago (opcional)"
+                placeholder="Ej: TRANS-001, CHQ-123"
+                value={pagoConsolidacionRef}
+                onChange={(e) => setPagoConsolidacionRef(e.target.value)}
+                sx={{ mb: 2 }}
+              />
+              
+              <TextField
+                fullWidth
+                label="Notas (opcional)"
+                value={pagoConsolidacionNotas}
+                onChange={(e) => setPagoConsolidacionNotas(e.target.value)}
+                multiline
+                rows={2}
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button 
+            onClick={() => setPagoConsolidacionDialogOpen(false)}
+            disabled={procesandoPagoProveedor}
+          >
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={handlePagarConsolidacion}
+            disabled={procesandoPagoProveedor}
+            startIcon={procesandoPagoProveedor ? <CircularProgress size={20} color="inherit" /> : <PaymentIcon />}
+          >
+            {procesandoPagoProveedor ? 'Procesando...' : 'Confirmar Pago'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -403,7 +403,6 @@ export const registrarMovimiento = async (req: AuthRequest, res: Response): Prom
   
   try {
     const {
-      sucursal_id,
       billetera_id,
       categoria_id,
       tipo_movimiento, // 'ingreso' o 'egreso'
@@ -414,6 +413,9 @@ export const registrarMovimiento = async (req: AuthRequest, res: Response): Prom
       evidencia_url_2,
       evidencia_url_3,
     } = req.body;
+    
+    // Obtener sucursal_id del body o de los params de URL
+    const sucursal_id = req.body.sucursal_id || req.params.sucursalId;
     
     const userId = req.user?.id;
     const userName = req.user?.name;

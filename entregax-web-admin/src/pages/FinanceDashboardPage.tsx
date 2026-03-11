@@ -48,6 +48,7 @@ import {
   Refresh,
   Receipt,
   ArrowBack,
+  Payment,
   Business,
   Search,
   CheckCircle,
@@ -891,11 +892,11 @@ export default function FinanceDashboardPage() {
                         </TableCell>
                         <TableCell align="center">
                           <Chip
-                            icon={tx.metodo === 'spei' ? <AccountBalance /> : <LocalAtm />}
-                            label={tx.metodo === 'spei' ? 'SPEI' : 'Efectivo'}
+                            icon={tx.metodo === 'spei' ? <AccountBalance /> : tx.metodo === 'paypal' ? <Payment /> : <LocalAtm />}
+                            label={tx.metodo === 'spei' ? 'SPEI' : tx.metodo === 'paypal' ? 'PayPal' : 'Efectivo'}
                             size="small"
                             sx={{
-                              bgcolor: tx.metodo === 'spei' ? GREEN : YELLOW,
+                              bgcolor: tx.metodo === 'spei' ? GREEN : tx.metodo === 'paypal' ? PAYPAL_BLUE : YELLOW,
                               color: 'white',
                               fontWeight: 'bold',
                             }}
@@ -1084,11 +1085,11 @@ export default function FinanceDashboardPage() {
                     </TableCell>
                     <TableCell align="center">
                       <Chip
-                        icon={tx.metodo === 'spei' ? <AccountBalance /> : <LocalAtm />}
-                        label={tx.metodo === 'spei' ? 'SPEI' : 'Efectivo'}
+                        icon={tx.metodo === 'spei' ? <AccountBalance /> : tx.metodo === 'paypal' ? <Payment /> : <LocalAtm />}
+                        label={tx.metodo === 'spei' ? 'SPEI' : tx.metodo === 'paypal' ? 'PayPal' : 'Efectivo'}
                         size="small"
                         sx={{
-                          bgcolor: tx.metodo === 'spei' ? GREEN : YELLOW,
+                          bgcolor: tx.metodo === 'spei' ? GREEN : tx.metodo === 'paypal' ? PAYPAL_BLUE : YELLOW,
                           color: 'white',
                           fontWeight: 'bold',
                         }}

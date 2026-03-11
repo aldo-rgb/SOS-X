@@ -39,9 +39,9 @@ interface Consolidation {
   status: string;
   total_weight: string;
   created_at: string;
-  client_name: string;
   box_id: string;
   package_count: string;
+  trackings: string;
 }
 
 export default function ConsolidationsPage() {
@@ -213,11 +213,11 @@ export default function ConsolidationsPage() {
               <TableRow>
                 <TableCell>{i18n.language === 'es' ? 'ID Orden' : 'Order ID'}</TableCell>
                 <TableCell>{i18n.language === 'es' ? 'Cliente' : 'Customer'}</TableCell>
+                <TableCell>{i18n.language === 'es' ? 'Guías US' : 'US Trackings'}</TableCell>
                 <TableCell align="center">{i18n.language === 'es' ? 'Paquetes' : 'Packages'}</TableCell>
                 <TableCell>{i18n.language === 'es' ? 'Peso Total' : 'Total Weight'}</TableCell>
                 <TableCell>{i18n.language === 'es' ? 'Fecha Solicitud' : 'Request Date'}</TableCell>
                 <TableCell>{i18n.language === 'es' ? 'Estatus' : 'Status'}</TableCell>
-                <TableCell>{i18n.language === 'es' ? 'Acciones' : 'Actions'}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -229,9 +229,15 @@ export default function ConsolidationsPage() {
                       <Typography fontWeight={600}>#{order.id}</Typography>
                     </TableCell>
                     <TableCell>
-                      <Typography fontWeight={500}>{order.client_name}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {order.box_id}
+                      <Chip 
+                        label={order.box_id} 
+                        size="small" 
+                        sx={{ fontWeight: 600, bgcolor: '#f5f5f5' }}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontSize: '0.85rem', color: '#1976d2', fontWeight: 500 }}>
+                        {order.trackings || '-'}
                       </Typography>
                     </TableCell>
                     <TableCell align="center">
@@ -263,47 +269,6 @@ export default function ConsolidationsPage() {
                         size="small"
                         sx={{ fontWeight: 700 }}
                       />
-                    </TableCell>
-                    <TableCell>
-                      <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Tooltip title={i18n.language === 'es' ? 'Ver Detalles' : 'View Details'}>
-                          <IconButton size="small" color="primary">
-                            <VisibilityIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        {order.status === 'requested' && (
-                          <Button 
-                            variant="contained" 
-                            size="small" 
-                            startIcon={<FlightTakeoffIcon />}
-                            sx={{ 
-                              bgcolor: '#F05A28', 
-                              '&:hover': { bgcolor: '#D94A20' }
-                            }}
-                            onClick={() => openDispatchDialog(order)}
-                          >
-                            {i18n.language === 'es' ? 'Procesar Salida' : 'Dispatch'}
-                          </Button>
-                        )}
-                        {order.status === 'in_transit' && (
-                          <Chip 
-                            icon={<LocalShippingIcon sx={{ fontSize: 16 }} />}
-                            label={i18n.language === 'es' ? 'EN TRÁNSITO' : 'IN TRANSIT'} 
-                            color="primary" 
-                            size="small"
-                            sx={{ fontWeight: 600 }}
-                          />
-                        )}
-                        {order.status === 'shipped' && (
-                          <Chip 
-                            icon={<CheckCircleIcon sx={{ fontSize: 16 }} />}
-                            label={i18n.language === 'es' ? 'ENTREGADO' : 'DELIVERED'} 
-                            color="success" 
-                            size="small"
-                            sx={{ fontWeight: 600 }}
-                          />
-                        )}
-                      </Box>
                     </TableCell>
                   </TableRow>
                 );

@@ -10,6 +10,7 @@ import {
   Share,
   Clipboard,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +21,7 @@ import {
   PaymentInvoice 
 } from '../services/api';
 import { useTranslation } from 'react-i18next';
+import QRCode from 'react-native-qrcode-svg';
 
 // Types for navigation
 type RootStackParamList = {
@@ -136,9 +138,20 @@ const MyPaymentsScreen = () => {
   };
 
   const handlePayInvoice = async (invoice: PaymentInvoice) => {
+    console.log('handlePayInvoice called:', invoice.invoice_number, 'source:', invoice.source);
     setSelectedInvoice(invoice);
-    setLoadingClabe(true);
     
+    // Si es un paquete (source === 'package'), mostrar modal simple con QR
+    // No necesita llamar a la API de CLABE
+    if (invoice.source === 'package') {
+      console.log('Es paquete, mostrando modal QR');
+      setLoadingClabe(false);
+      setClabeInfo(null);
+      return;
+    }
+    
+    // Para facturas normales, intentar obtener CLABE de Openpay
+    setLoadingClabe(true);
     try {
       const response = await getPaymentClabeApi(token, invoice.service_type, invoice.id);
       if (response.success) {
@@ -147,6 +160,7 @@ const MyPaymentsScreen = () => {
     } catch (error) {
       console.error('Error getting CLABE:', error);
       Alert.alert('Error', 'No se pudo obtener la información de pago');
+      setSelectedInvoice(null);
     } finally {
       setLoadingClabe(false);
     }
@@ -187,9 +201,137 @@ const MyPaymentsScreen = () => {
     return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
   };
 
-  // Modal de pago
+  // Compartir info de pago para paquetes
+  const sharePackagePaymentInfo = async () => {
+    if (!selectedInvoice) return;
+    
+    try {
+      await Share.share({
+        message: `💳 Pago Pendiente EntregaX\n\n` +
+          `📦 Paquete: ${selectedInvoice.invoice_number}\n` +
+          `💰 Monto: ${formatCurrency(selectedInvoice.amount)} MXN\n` +
+          `📝 Concepto: ${selectedInvoice.concept}\n\n` +
+          `Referencia para pago: ${selectedInvoice.invoice_number}\n\n` +
+          `Puede realizar su pago en cualquiera de nuestras sucursales o mediante transferencia SPEI.`,
+      });
+    } catch (error) {
+      console.error('Error sharing:', error);
+    }
+  };
+
+  // Modal de pago para paquetes (con QR)
+  const renderPackagePaymentModal = () => {
+    if (!selectedInvoice || selectedInvoice.source !== 'package') return null;
+
+    const qrData = JSON.stringify({
+      type: 'payment',
+      ref: selectedInvoice.invoice_number,
+      amount: selectedInvoice.amount,
+      packageId: selectedInvoice.reference_id
+    });
+
+    return (
+      <Modal
+        visible={true}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setSelectedInvoice(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <TouchableOpacity 
+              style={styles.closeButton}
+              onPress={() => setSelectedInvoice(null)}
+            >
+              <Ionicons name="close" size={24} color="#666" />
+            </TouchableOpacity>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={[styles.serviceBadge, { backgroundColor: SERVICE_COLORS[selectedInvoice.service_type] || '#9B59B6' }]}>
+                <Ionicons 
+                  name={SERVICE_ICONS[selectedInvoice.service_type] as any || 'mail'} 
+                  size={24} 
+                  color="#FFF" 
+                />
+                <Text style={styles.serviceBadgeText}>
+                  {SERVICE_NAMES[selectedInvoice.service_type] || 'PO Box USA'}
+                </Text>
+              </View>
+
+              <Text style={styles.modalTitle}>Detalles del Pago</Text>
+              
+              <View style={styles.amountBox}>
+                <Text style={styles.amountLabel}>Monto a Pagar</Text>
+                <Text style={styles.amountValue}>
+                  {formatCurrency(selectedInvoice.amount)}
+                </Text>
+                <Text style={styles.amountCurrency}>MXN</Text>
+              </View>
+
+              {/* QR Code */}
+              <View style={styles.qrContainer}>
+                <Text style={styles.qrLabel}>Código QR para Pago en Sucursal</Text>
+                <View style={styles.qrBox}>
+                  <QRCode
+                    value={qrData}
+                    size={180}
+                    color="#333"
+                    backgroundColor="#FFF"
+                  />
+                </View>
+                <Text style={styles.qrHint}>
+                  Presente este código en cualquier sucursal para realizar su pago
+                </Text>
+              </View>
+
+              {/* Referencia */}
+              <View style={styles.clabeContainer}>
+                <Text style={styles.clabeLabel}>Referencia de Pago</Text>
+                <View style={styles.clabeRow}>
+                  <Text style={styles.clabeValue}>{selectedInvoice.invoice_number}</Text>
+                  <TouchableOpacity 
+                    style={styles.copyButton}
+                    onPress={() => copyToClipboard(selectedInvoice.invoice_number)}
+                  >
+                    <Ionicons name="copy" size={20} color="#FF6B00" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Concepto:</Text>
+                <Text style={styles.infoValue}>{selectedInvoice.concept}</Text>
+              </View>
+
+              {selectedInvoice.due_date && (
+                <View style={styles.infoRow}>
+                  <Text style={styles.infoLabel}>Fecha registro:</Text>
+                  <Text style={styles.infoValue}>{formatDate(selectedInvoice.due_date)}</Text>
+                </View>
+              )}
+
+              <View style={styles.instructionsBox}>
+                <Ionicons name="information-circle" size={20} color="#3498DB" />
+                <Text style={styles.instructionsText}>
+                  Puede pagar en sucursal presentando el código QR, o mediante transferencia SPEI. 
+                  Para pagos SPEI, contacte a su asesor para obtener los datos bancarios.
+                </Text>
+              </View>
+
+              <TouchableOpacity style={styles.shareButton} onPress={sharePackagePaymentInfo}>
+                <Ionicons name="share-outline" size={20} color="#FFF" />
+                <Text style={styles.shareButtonText}>Compartir Información</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
+  // Modal de pago para facturas con CLABE (Openpay)
   const renderPaymentModal = () => {
-    if (!selectedInvoice) return null;
+    if (!selectedInvoice || selectedInvoice.source === 'package') return null;
 
     return (
       <View style={styles.modalOverlay}>
@@ -363,7 +505,7 @@ const MyPaymentsScreen = () => {
                       style={styles.payButton}
                       onPress={() => handlePayInvoice(invoice)}
                     >
-                      <Text style={styles.payButtonText}>VER CLABE</Text>
+                      <Text style={styles.payButtonText}>VER DETALLES</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -381,7 +523,10 @@ const MyPaymentsScreen = () => {
         </View>
       </ScrollView>
 
-      {/* Modal de pago */}
+      {/* Modal de pago para paquetes */}
+      {renderPackagePaymentModal()}
+      
+      {/* Modal de pago para facturas con CLABE */}
       {selectedInvoice && renderPaymentModal()}
     </SafeAreaView>
   );
@@ -651,6 +796,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#333',
     fontWeight: '500',
+    flex: 1,
+    textAlign: 'right',
+    marginLeft: 8,
   },
   instructionsBox: {
     flexDirection: 'row',
@@ -691,6 +839,37 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Estilos para QR
+  qrContainer: {
+    alignItems: 'center',
+    marginVertical: 16,
+    paddingVertical: 16,
+    backgroundColor: '#F8F9FA',
+    borderRadius: 12,
+  },
+  qrLabel: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 12,
+    fontWeight: '500',
+  },
+  qrBox: {
+    padding: 16,
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  qrHint: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 12,
+    textAlign: 'center',
+    paddingHorizontal: 20,
   },
 });
 

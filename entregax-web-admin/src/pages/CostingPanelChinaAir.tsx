@@ -95,6 +95,9 @@ interface CalculatedResults {
 
 interface MasterAwbListItem extends MasterAwbData {
     package_count: number;
+    client_name?: string;
+    client_box_id?: string;
+    shipping_mark?: string;
 }
 
 interface ProfitReportItem {
@@ -205,12 +208,29 @@ export default function CostingPanelChinaAir() {
 
     const loadMasterList = useCallback(async () => {
         try {
-            const res = await fetch(`${API_URL}/api/master-cost?limit=50`, {
+            // Cargar guías de china_receipts (TDI Aéreo China)
+            const res = await fetch(`${API_URL}/api/master-cost/china-receipts?limit=50`, {
                 headers: { Authorization: `Bearer ${token}` },
             });
             if (res.ok) {
                 const json = await res.json();
-                setMasterList(json.data);
+                // Mapear datos de china_receipts al formato esperado
+                const mappedData = (json.data || []).map((item: any) => ({
+                    id: item.id,
+                    master_awb_number: item.tracking,
+                    airline: 'TDI Aéreo',
+                    creation_date: item.created_at,
+                    total_boxes: item.total_boxes || 0,
+                    total_weight_kg: item.total_weight_kg || 0,
+                    status: item.status === 'received_origin' ? 'pending_cost' : item.status,
+                    is_fully_costed: item.assigned_cost_mxn > 0,
+                    calc_grand_total: item.assigned_cost_mxn || 0,
+                    package_count: item.total_boxes || 1,
+                    client_name: item.client_name,
+                    client_box_id: item.client_box_id,
+                    shipping_mark: item.shipping_mark
+                }));
+                setMasterList(mappedData);
             }
         } catch (err) {
             console.error('Error loading list:', err);
@@ -812,14 +832,13 @@ export default function CostingPanelChinaAir() {
                             <TableHead>
                                 <TableRow sx={{ bgcolor: 'grey.100' }}>
                                     <TableCell>{t('costing.guideAwb')}</TableCell>
-                                    <TableCell>{t('costing.airline')}</TableCell>
+                                    <TableCell>Cliente</TableCell>
                                     <TableCell>{t('costing.date')}</TableCell>
                                     <TableCell align="right">{t('costing.boxes')}</TableCell>
                                     <TableCell align="right">{t('costing.weight')} (kg)</TableCell>
                                     <TableCell align="right">{t('costing.grandTotal')}</TableCell>
                                     <TableCell align="center">{t('costing.status')}</TableCell>
                                     <TableCell align="center">{t('costing.actions')}</TableCell>
-                                    <TableCell align="center">Acciones</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
@@ -829,20 +848,32 @@ export default function CostingPanelChinaAir() {
                                             <Typography variant="body2" fontWeight="bold">
                                                 {item.master_awb_number}
                                             </Typography>
+                                            {item.shipping_mark && (
+                                                <Typography variant="caption" color="text.secondary">
+                                                    {item.shipping_mark}
+                                                </Typography>
+                                            )}
                                         </TableCell>
-                                        <TableCell>{item.airline || '-'}</TableCell>
-                                        <TableCell>{item.creation_date}</TableCell>
+                                        <TableCell>
+                                            <Typography variant="body2">{item.client_name || '-'}</Typography>
+                                            {item.client_box_id && (
+                                                <Typography variant="caption" color="primary">
+                                                    {item.client_box_id}
+                                                </Typography>
+                                            )}
+                                        </TableCell>
+                                        <TableCell>{item.creation_date ? new Date(item.creation_date).toLocaleDateString() : '-'}</TableCell>
                                         <TableCell align="right">{item.total_boxes}</TableCell>
-                                        <TableCell align="right">{item.total_weight_kg}</TableCell>
+                                        <TableCell align="right">{Number(item.total_weight_kg || 0).toFixed(2)}</TableCell>
                                         <TableCell align="right">
                                             ${Number(item.calc_grand_total || 0).toFixed(2)}
                                         </TableCell>
                                         <TableCell align="center">
                                             <Chip
                                                 size="small"
-                                                icon={item.status === 'completed' ? <CheckIcon /> : <WarningIcon />}
-                                                label={item.status === 'completed' ? t('costing.completed') : t('costing.pending')}
-                                                color={item.status === 'completed' ? 'success' : 'warning'}
+                                                icon={item.is_fully_costed ? <CheckIcon /> : <WarningIcon />}
+                                                label={item.is_fully_costed ? t('costing.completed') : t('costing.pending')}
+                                                color={item.is_fully_costed ? 'success' : 'warning'}
                                                 variant="outlined"
                                             />
                                         </TableCell>

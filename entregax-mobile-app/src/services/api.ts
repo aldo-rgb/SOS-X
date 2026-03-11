@@ -158,7 +158,7 @@ export interface ServiceCompany {
 export interface PaymentInvoice {
   id: number;
   invoice_number: string;
-  service_type: 'aereo' | 'maritimo' | 'terrestre_nacional' | 'dhl_liberacion' | 'po_box';
+  service_type: string;
   company_name: string;
   concept: string;
   description?: string;
@@ -169,6 +169,7 @@ export interface PaymentInvoice {
   reference_id?: number;
   created_at: string;
   paid_at?: string;
+  source?: 'invoice' | 'package';
 }
 
 export interface PendingPaymentsResponse {

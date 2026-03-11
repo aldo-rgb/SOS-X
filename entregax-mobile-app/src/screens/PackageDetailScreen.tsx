@@ -657,14 +657,17 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                 <Divider style={styles.divider} />
                 <View style={styles.totalRow}>
                   <Text style={styles.totalLabel}>
-                    {(details.saldo_pendiente ?? details.assigned_cost_mxn ?? 0) > 0 ? 'SALDO PENDIENTE' : 'PAGADO'}
+                    {(details.saldo_pendiente ?? details.assigned_cost_mxn ?? 0) > 0 ? 'SALDO PENDIENTE' : '✅ PAGADO'}
                   </Text>
-                  <Text style={[
-                    styles.totalValue, 
-                    { color: (details.saldo_pendiente ?? details.assigned_cost_mxn ?? 0) > 0 ? ORANGE : '#4CAF50' }
-                  ]}>
-                    ${(details.saldo_pendiente ?? details.assigned_cost_mxn ?? 0).toFixed(2)} MXN
-                  </Text>
+                  {(details.saldo_pendiente ?? details.assigned_cost_mxn ?? 0) > 0 ? (
+                    <Text style={[styles.totalValue, { color: ORANGE }]}>
+                      ${(details.saldo_pendiente ?? details.assigned_cost_mxn ?? 0).toFixed(2)} MXN
+                    </Text>
+                  ) : (
+                    <Text style={[styles.totalValue, { color: '#4CAF50' }]}>
+                      Completado
+                    </Text>
+                  )}
                 </View>
               </>
             )}

@@ -89,6 +89,7 @@ import HRManagementPage from './HRManagementPage';
 import FleetManagementPage from './FleetManagementPage';
 import CajaChicaPage from './CajaChicaPage';
 import FinanceDashboardPage from './FinanceDashboardPage';
+import SuppliersPage from './SuppliersPage';
 import LocalAtmIcon from '@mui/icons-material/LocalAtm';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 
@@ -135,6 +136,7 @@ const MODULE_ICONS: Record<string, React.ReactElement> = {
     last_mile: <LocalShippingIcon />,
     dhl_rates: <SellIcon />,
     anticipos: <WalletIcon />,
+    suppliers: <BranchIcon />,
 };
 
 const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
@@ -161,12 +163,10 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'reports', status: 'pending' },
     ],
     usa_pobox: [
-        { key: 'costing', status: 'active' },
-        { key: 'inventory', status: 'active' },
         { key: 'pobox_rates', status: 'active' },
+        { key: 'suppliers', status: 'active' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
-        { key: 'verifications', status: 'pending' },
         { key: 'reports', status: 'pending' },
     ],
     mx_cedis: [
@@ -858,6 +858,30 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                         />
                     </Box>
                     <POBoxRatesPage />
+                </Box>
+            );
+        }
+
+        // Panel de Proveedores PO Box USA (suppliers) - solo usa_pobox
+        if (selectedModule === 'suppliers' && selectedService === 'usa_pobox') {
+            return (
+                <Box>
+                    {/* Breadcrumb */}
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    <SuppliersPage />
                 </Box>
             );
         }

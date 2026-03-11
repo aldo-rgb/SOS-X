@@ -37,7 +37,10 @@ import {
   dispatchConsolidation,
   assignDeliveryInstructions,
   getPackageById,
-  requestRepack
+  requestRepack,
+  getOutboundReadyPackages,
+  createOutboundConsolidation,
+  getRepackInstructions
 } from './packageController';
 import {
   createPaymentOrder,
@@ -266,7 +269,10 @@ import {
   getGuiasPendientesCliente,
   registrarPagoCliente,
   getDetalleTransaccion,
-  getHistorialPagosCliente
+  getHistorialPagosCliente,
+  buscarPorReferencia,
+  confirmarPagoReferencia,
+  pagarConsolidacionProveedor
 } from './cajaChicaController';
 import {
   // Exchange Rate Config
@@ -363,7 +369,8 @@ import {
   listMasterAwbs,
   deleteMasterAwb,
   getMasterAwbStats,
-  getProfitReport
+  getProfitReport,
+  getChinaReceiptsList
 } from './masterCostController';
 import {
   verifyWebhook,
@@ -660,6 +667,16 @@ import {
   getPoboxPendingPayments,
   getPoboxPaymentHistory
 } from './poboxPaymentController';
+import {
+  getSuppliers,
+  getSupplierById,
+  createSupplier,
+  updateSupplier,
+  deleteSupplier,
+  getSupplierConsolidations,
+  updateConsolidationStatus,
+  getConsolidacionesPendientes
+} from './supplierController';
 
 // Cargar variables de entorno
 dotenv.config();
@@ -1348,6 +1365,14 @@ app.get('/api/packages/track/:tracking', authenticateToken, getPackageByTracking
 // Paquetes de un cliente específico (Staff o superior)
 app.get('/api/packages/client/:boxId', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getPackagesByClient);
 
+// --- RUTAS PARA SALIDA DE PAQUETES (PO BOX USA) ---
+// IMPORTANTE: Estas rutas deben estar ANTES de /api/packages/:id
+app.get('/api/packages/outbound-ready', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getOutboundReadyPackages);
+app.post('/api/packages/create-outbound', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), createOutboundConsolidation);
+
+// Obtener instrucciones de reempaque pendientes (Staff o superior)
+app.get('/api/packages/repack-instructions', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getRepackInstructions);
+
 // Obtener detalle de paquete por ID (usuario dueño o staff+)
 app.get('/api/packages/:id', authenticateToken, getPackageById);
 
@@ -1931,13 +1956,16 @@ app.post('/api/admin/notifications/broadcast', authenticateToken, requireMinLeve
 
 // ========== COSTEO TDI AÉREO (MASTER AIR WAYBILLS) ==========
 
-// Admin: Estadísticas de guías aéreas
+// Admin: Estadísticas de guías aéreas (incluye china_receipts)
 app.get('/api/master-cost/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getMasterAwbStats);
+
+// Admin: Listar guías de china_receipts (TDI Aéreo China)
+app.get('/api/master-cost/china-receipts', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getChinaReceiptsList);
 
 // Admin: Reporte de utilidad
 app.get('/api/master-cost/profit-report', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getProfitReport);
 
-// Admin: Listar todas las guías
+// Admin: Listar todas las guías master
 app.get('/api/master-cost', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), listMasterAwbs);
 
 // Admin: Buscar/Crear guía específica
@@ -2120,6 +2148,18 @@ app.post('/api/inventory/:serviceType/bulk-movement', authenticateToken, require
 app.get('/api/inventory/:serviceType/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getInventoryStats);
 app.get('/api/inventory/:serviceType/alerts', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getInventoryAlerts);
 app.get('/api/inventory/:serviceType/categories', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getInventoryCategories);
+
+// ============================================================
+// PROVEEDORES (CRUD)
+// ============================================================
+app.get('/api/suppliers', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSuppliers);
+app.get('/api/suppliers/consolidaciones-pendientes', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getConsolidacionesPendientes);
+app.get('/api/suppliers/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSupplierById);
+app.get('/api/suppliers/:id/consolidations', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSupplierConsolidations);
+app.post('/api/suppliers', authenticateToken, requireMinLevel(ROLES.ADMIN), createSupplier);
+app.put('/api/suppliers/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateSupplier);
+app.put('/api/suppliers/consolidations/:consolidationId/status', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateConsolidationStatus);
+app.delete('/api/suppliers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteSupplier);
 
 // ============================================================
 // FACEBOOK MESSENGER WEBHOOK
@@ -2852,21 +2892,45 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
         `, [packageIds]);
       }
 
-      // 4. Registrar en caja_chica_transacciones (si es pago en efectivo)
-      if (metodo_confirmacion === 'efectivo') {
+      // 4. Registrar en movimientos_financieros y actualizar billetera
+      const branchId = 1; // TODO: obtener del usuario cuando esté disponible
+      
+      // Obtener billetera default (efectivo) de la sucursal
+      const billeteraResult = await client.query(`
+        SELECT id, saldo_actual FROM billeteras_sucursal 
+        WHERE sucursal_id = $1 AND is_default = true AND is_active = true
+        LIMIT 1
+      `, [branchId]);
+      
+      if (billeteraResult.rows.length > 0) {
+        const billetera = billeteraResult.rows[0];
+        const saldoAnterior = parseFloat(billetera.saldo_actual) || 0;
+        const nuevoSaldo = saldoAnterior + parseFloat(payment.monto_recibido);
+        
+        // Actualizar saldo de la billetera
         await client.query(`
-          INSERT INTO caja_chica_transacciones (
-            tipo, monto, concepto, cliente_id, autorizado_por, 
-            service_type, created_at
+          UPDATE billeteras_sucursal SET saldo_actual = $1 WHERE id = $2
+        `, [nuevoSaldo, billetera.id]);
+        
+        // Insertar en movimientos_financieros (nuevo sistema)
+        await client.query(`
+          INSERT INTO movimientos_financieros (
+            sucursal_id, billetera_id, tipo_movimiento, monto, 
+            monto_antes, monto_despues, nota_descriptiva, referencia,
+            usuario_id, usuario_nombre, status, created_at
           ) VALUES (
-            'ingreso', $1, $2, $3, $4, $5, CURRENT_TIMESTAMP
+            $1, $2, 'ingreso', $3, $4, $5, $6, $7, $8, $9, 'confirmado', CURRENT_TIMESTAMP
           )
         `, [
+          branchId,
+          billetera.id,
           payment.monto_recibido,
-          `Pago efectivo ref: ${refStr} - ${packageIds.length} paquete(s)`,
-          payment.user_id,
+          saldoAnterior,
+          nuevoSaldo,
+          `Pago ${metodo_confirmacion === 'efectivo' ? 'efectivo' : 'SPEI'} ref: ${refStr} - ${packageIds.length} paquete(s)`,
+          refStr,
           adminId,
-          payment.service_type
+          adminName
         ]);
       }
 
@@ -2894,6 +2958,80 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
   } catch (error: any) {
     console.error('Error confirming payment:', error);
     res.status(500).json({ error: 'Error confirmando pago', details: error.message });
+  }
+});
+
+// ============================================
+// ELIMINAR REFERENCIA DE PAGO PENDIENTE
+// Elimina de openpay_webhook_logs y pobox_payments
+// ============================================
+app.delete('/api/admin/finance/pending-payment/:referencia', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const referencia = req.params.referencia as string;
+    const adminId = req.user?.userId;
+    const adminName = req.user?.email?.split('@')[0] || `User ${adminId}`;
+
+    if (!referencia) {
+      return res.status(400).json({ error: 'Referencia es requerida' });
+    }
+
+    const refStr = referencia.toUpperCase().trim();
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // 1. Eliminar de openpay_webhook_logs
+      const webhookResult = await client.query(`
+        DELETE FROM openpay_webhook_logs 
+        WHERE transaction_id = $1 AND estatus_procesamiento = 'pending_payment'
+        RETURNING id, user_id, monto_recibido
+      `, [refStr]);
+
+      // 2. Eliminar de pobox_payments
+      const poboxResult = await client.query(`
+        DELETE FROM pobox_payments 
+        WHERE payment_reference = $1 AND status IN ('pending', 'pending_payment')
+        RETURNING id, user_id, amount, package_ids
+      `, [refStr]);
+
+      // Verificar si se eliminó algo
+      const webhookDeleted = webhookResult.rowCount || 0;
+      const poboxDeleted = poboxResult.rowCount || 0;
+
+      if (webhookDeleted === 0 && poboxDeleted === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ 
+          error: 'Referencia no encontrada',
+          message: 'No se encontró ningún pago pendiente con esa referencia'
+        });
+      }
+
+      await client.query('COMMIT');
+
+      console.log(`🗑️ Referencia eliminada: ${refStr} por ${adminName} (webhook: ${webhookDeleted}, pobox: ${poboxDeleted})`);
+
+      res.json({
+        success: true,
+        message: 'Referencia eliminada correctamente',
+        referencia: refStr,
+        eliminado_de: {
+          openpay_webhook_logs: webhookDeleted,
+          pobox_payments: poboxDeleted
+        },
+        eliminado_por: adminName
+      });
+
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+
+  } catch (error: any) {
+    console.error('Error deleting payment reference:', error);
+    res.status(500).json({ error: 'Error eliminando referencia', details: error.message });
   }
 });
 
@@ -2950,13 +3088,6 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
     // 2. Obtener pagos pendientes de pobox_payments (cash pendiente de confirmar)
     let whereClause2 = "WHERE pp.status IN ('pending', 'pending_payment') AND pp.payment_method = 'cash'";
     const params2: any[] = [];
-    let paramIndex2 = 1;
-
-    // Filtrar por servicio si se especifica
-    if (service_type) {
-      whereClause2 += ` AND pp.service_type = $${paramIndex2++}`;
-      params2.push(service_type);
-    }
 
     const poboxResult = await pool.query(`
       SELECT 
@@ -2966,18 +3097,14 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
         pp.amount as monto,
         pp.package_ids,
         pp.created_at,
-        COALESCE(pp.service_type, 'POBOX_USA') as tipo_servicio,
+        'POBOX_USA' as tipo_servicio,
         pp.payment_method,
         u.full_name as cliente,
         u.email as cliente_email,
         u.phone as telefono,
-        fe.alias as empresa,
-        fe.bank_name as banco,
-        fe.bank_clabe as clabe,
         'pobox' as source
       FROM pobox_payments pp
       LEFT JOIN users u ON pp.user_id = u.id
-      LEFT JOIN fiscal_emitters fe ON pp.empresa_id = fe.id
       ${whereClause2}
       ORDER BY pp.created_at DESC
     `, params2);
@@ -3025,9 +3152,9 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
         cliente: r.cliente || 'Cliente desconocido',
         cliente_email: r.cliente_email,
         telefono: r.telefono,
-        empresa: r.empresa,
-        banco: r.banco,
-        clabe: r.clabe,
+        empresa: null,
+        banco: null,
+        clabe: null,
         branch_id: null,
         sucursal_nombre: null,
         guias: r.package_ids,
@@ -3104,11 +3231,13 @@ app.get('/api/admin/finance/payment-details/:referencia', authenticateToken, req
       const guiasResult = await pool.query(`
         SELECT 
           p.id,
-          p.tracking_number as tracking_interno,
+          p.tracking_internal as tracking_interno,
           p.tracking_provider as tracking_proveedor,
           p.description as descripcion,
           p.weight,
-          p.volume,
+          p.pkg_length,
+          p.pkg_width,
+          p.pkg_height,
           p.assigned_cost_mxn as costo,
           p.saldo_pendiente,
           p.monto_pagado,
@@ -3121,21 +3250,30 @@ app.get('/api/admin/finance/payment-details/:referencia', authenticateToken, req
         ORDER BY p.id
       `, [packageIds]);
       
-      guias = guiasResult.rows.map(g => ({
-        id: g.id,
-        tracking_interno: g.tracking_interno,
-        tracking_proveedor: g.tracking_proveedor,
-        descripcion: g.descripcion || 'Sin descripción',
-        peso: g.weight ? parseFloat(g.weight) : null,
-        volumen: g.volume ? parseFloat(g.volume) : null,
-        costo: g.costo ? parseFloat(g.costo) : 0,
-        saldo_pendiente: g.saldo_pendiente ? parseFloat(g.saldo_pendiente) : 0,
-        monto_pagado: g.monto_pagado ? parseFloat(g.monto_pagado) : 0,
-        pagado: g.client_paid || false,
-        status: g.status,
-        fecha_recepcion: g.received_at,
-        valor_declarado: g.declared_value ? parseFloat(g.declared_value) : null
-      }));
+      guias = guiasResult.rows.map(g => {
+        // Calcular volumen desde dimensiones
+        const length = g.pkg_length ? parseFloat(g.pkg_length) : 0;
+        const width = g.pkg_width ? parseFloat(g.pkg_width) : 0;
+        const height = g.pkg_height ? parseFloat(g.pkg_height) : 0;
+        const volumen = (length && width && height) ? (length * width * height / 1000000) : null;
+        
+        return {
+          id: g.id,
+          tracking_interno: g.tracking_interno,
+          tracking_proveedor: g.tracking_proveedor,
+          descripcion: g.descripcion || 'Sin descripción',
+          peso: g.weight ? parseFloat(g.weight) : null,
+          volumen: volumen,
+          dimensiones: (length && width && height) ? `${length}×${width}×${height} cm` : null,
+          costo: g.costo ? parseFloat(g.costo) : 0,
+          saldo_pendiente: g.saldo_pendiente ? parseFloat(g.saldo_pendiente) : 0,
+          monto_pagado: g.monto_pagado ? parseFloat(g.monto_pagado) : 0,
+          pagado: g.client_paid || false,
+          status: g.status,
+          fecha_recepcion: g.received_at,
+          valor_declarado: g.declared_value ? parseFloat(g.declared_value) : null
+        };
+      });
     }
 
     res.json({
@@ -3654,6 +3792,7 @@ app.post('/api/tesoreria/categorias', authenticateToken, createCategoriaFinancie
 
 // Movimientos
 app.get('/api/tesoreria/sucursal/:sucursalId/movimientos', authenticateToken, getMovimientosFinancieros);
+app.post('/api/tesoreria/sucursal/:sucursalId/movimientos', authenticateToken, registrarMovimiento);
 app.post('/api/tesoreria/movimiento', authenticateToken, registrarMovimiento);
 app.post('/api/tesoreria/transferencia', authenticateToken, registrarTransferencia);
 
@@ -3694,6 +3833,8 @@ app.post('/api/uploads/evidence', authenticateToken, evidenceUpload.single('file
 // ============================================
 app.get('/api/caja-chica/stats', authenticateToken, getCajaChicaStats);
 app.get('/api/caja-chica/buscar-cliente', authenticateToken, buscarCliente);
+app.get('/api/caja-chica/buscar-referencia', authenticateToken, buscarPorReferencia);
+app.post('/api/caja-chica/confirmar-pago-referencia', authenticateToken, confirmarPagoReferencia);
 app.get('/api/caja-chica/cliente/:clienteId/guias-pendientes', authenticateToken, getGuiasPendientesCliente);
 app.get('/api/caja-chica/cliente/:clienteId/historial-pagos', authenticateToken, getHistorialPagosCliente);
 app.post('/api/caja-chica/pago-cliente', authenticateToken, registrarPagoCliente);
@@ -3704,6 +3845,7 @@ app.get('/api/caja-chica/transacciones/:id', authenticateToken, getDetalleTransa
 app.get('/api/caja-chica/buscar-guia', authenticateToken, buscarGuiaParaCobro);
 app.post('/api/caja-chica/corte', authenticateToken, realizarCorte);
 app.get('/api/caja-chica/cortes', authenticateToken, getCortes);
+app.post('/api/caja-chica/pagar-consolidacion', authenticateToken, pagarConsolidacionProveedor);
 
 // ============================================
 // CUSTOMER SERVICE - CARTERA VENCIDA

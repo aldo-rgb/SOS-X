@@ -531,8 +531,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // Solo permitimos seleccionar paquetes en bodega (USA) o recibidos en China (marítimo/china_air) o DHL en Cedis Y usuario verificado
     // Para marítimos/china_air/dhl: NO seleccionable si ya tiene instrucciones asignadas
     // 📦 PO Box USA: seleccionable si está en bodega (received) O procesando (processing)
+    // ❌ Paquetes ya pagados NO son seleccionables
     const isPOBoxUSA = !isMaritime && !isChinaAir && !isDHL;
-    const isSelectable = isUserVerified && (
+    const isSelectable = isUserVerified && !isPaid && (
       (isPOBoxUSA && ['received', 'processing'].includes(item.status)) || 
       (isMaritime && ['received_china', 'in_transit', 'at_port'].includes(item.status) && !hasDeliveryInstructions) ||
       (isChinaAir && ['received_origin', 'in_transit', 'at_customs'].includes(item.status) && !hasDeliveryInstructions) ||
@@ -1428,9 +1429,12 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         const needsInstructions = (isMaritimeSelection || isChinaAirSelection || isDHLSelection || isWarehouseSelection) && !allSelectedHaveInstructions;
         
         // Calcular total a pagar para paquetes procesando
-        // 🔧 FIX: Solo filtrar paquetes del mismo tipo de servicio seleccionado
+        // 🔧 FIX: Solo filtrar paquetes del mismo tipo de servicio seleccionado Y que no estén pagados
         const selectedPackages = packages.filter(p => {
           if (!selectedIds.includes(p.id)) return false;
+          // 🔧 FIX: Excluir paquetes ya pagados (saldo_pendiente <= 0)
+          const saldo = parseFloat(String((p as any).saldo_pendiente || p.assigned_cost_mxn || 0));
+          if (saldo <= 0) return false;
           // Si es PO Box USA, solo incluir paquetes POBOX_USA
           if (isPOBoxUSA) return p.service_type === 'POBOX_USA';
           // Si es marítimo, solo incluir marítimos
@@ -1441,7 +1445,11 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           if (isDHLSelection) return p.shipment_type === 'dhl';
           return true;
         });
-        const totalToPay = selectedPackages.reduce((sum, p) => sum + parseFloat(String(p.assigned_cost_mxn || 0)), 0);
+        // 🔧 FIX: Usar saldo_pendiente en lugar de assigned_cost_mxn para el total
+        const totalToPay = selectedPackages.reduce((sum, p) => {
+          const saldo = parseFloat(String((p as any).saldo_pendiente || p.assigned_cost_mxn || 0));
+          return sum + saldo;
+        }, 0);
         
         // 💰 Paquetes en bodega con instrucciones pueden pagar
         const canPayFromWarehouse = isWarehouseSelection && allSelectedHaveInstructions;

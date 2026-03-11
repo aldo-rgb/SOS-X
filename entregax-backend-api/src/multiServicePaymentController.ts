@@ -23,11 +23,11 @@ export const getUserPendingPayments = async (req: AuthRequest, res: Response): P
   try {
     const userId = req.user?.userId;
 
-    // Obtener todas las facturas pendientes agrupadas por servicio
-    const result = await pool.query(`
+    // 1. Obtener facturas pendientes de payment_invoices
+    const invoicesResult = await pool.query(`
       SELECT 
         si.id,
-        si.service,
+        si.service as service_type,
         sc.company_name,
         si.invoice_number,
         si.concept,
@@ -39,38 +39,89 @@ export const getUserPendingPayments = async (req: AuthRequest, res: Response): P
         si.reference_type,
         si.reference_id,
         si.due_date,
-        si.created_at
+        si.created_at,
+        'invoice' as source
       FROM payment_invoices si
-      JOIN service_companies sc ON si.service = sc.service
+      LEFT JOIN service_companies sc ON si.service = sc.service
       WHERE si.user_id = $1 
         AND si.status IN ('pending', 'partial')
       ORDER BY si.due_date ASC, si.created_at ASC
     `, [userId]);
 
-    // Agrupar por servicio
+    // 2. Obtener paquetes con saldo pendiente de packages (PO Box, etc)
+    const packagesResult = await pool.query(`
+      SELECT 
+        p.id,
+        p.service_type,
+        'EntregaX' as company_name,
+        p.tracking_internal as invoice_number,
+        CONCAT('Paquete ', p.tracking_internal, ' - ', COALESCE(p.description, '')) as concept,
+        COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, 0) as amount,
+        0 as amount_paid,
+        COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, 0) as balance_due,
+        'MXN' as currency,
+        'pending' as status,
+        'package' as reference_type,
+        p.id as reference_id,
+        p.created_at as due_date,
+        p.created_at,
+        'package' as source
+      FROM packages p
+      WHERE p.user_id = $1 
+        AND (p.payment_status IN ('pending', 'partial') OR p.payment_status IS NULL)
+        AND COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, 0) > 0
+      ORDER BY p.created_at ASC
+    `, [userId]);
+
+    // Combinar ambos resultados
+    const allInvoices = [...invoicesResult.rows, ...packagesResult.rows];
+
+    // Agrupar por tipo de servicio
     const grouped: Record<string, any> = {};
     let totalPending = 0;
 
-    for (const invoice of result.rows) {
-      const service = invoice.service;
-      if (!grouped[service]) {
-        grouped[service] = {
-          service,
-          companyName: invoice.company_name,
+    // Mapeo de service_type a nombres amigables
+    const SERVICE_NAMES: Record<string, string> = {
+      'POBOX_USA': 'PO Box USA',
+      'po_box': 'PO Box USA',
+      'AIR_CHN_MX': 'Aéreo China',
+      'aereo': 'Aéreo',
+      'SEA_CHN_MX': 'Marítimo China',
+      'maritimo': 'Marítimo',
+      'AA_DHL': 'Nacional DHL',
+      'dhl_liberacion': 'DHL Liberación',
+      'terrestre_nacional': 'Terrestre Nacional'
+    };
+
+    for (const invoice of allInvoices) {
+      const serviceKey = invoice.service_type || 'otros';
+      if (!grouped[serviceKey]) {
+        grouped[serviceKey] = {
+          service: serviceKey,
+          serviceName: SERVICE_NAMES[serviceKey] || serviceKey,
+          companyName: invoice.company_name || 'EntregaX',
           invoices: [],
           subtotal: 0
         };
       }
-      grouped[service].invoices.push(invoice);
-      grouped[service].subtotal += parseFloat(invoice.balance_due);
-      totalPending += parseFloat(invoice.balance_due);
+      grouped[serviceKey].invoices.push({
+        ...invoice,
+        balance_due: parseFloat(invoice.balance_due) || 0,
+        amount: parseFloat(invoice.amount) || 0
+      });
+      grouped[serviceKey].subtotal += parseFloat(invoice.balance_due) || 0;
+      totalPending += parseFloat(invoice.balance_due) || 0;
     }
 
     res.json({
       success: true,
       totalPending,
       byService: Object.values(grouped),
-      invoices: result.rows
+      invoices: allInvoices.map(inv => ({
+        ...inv,
+        balance_due: parseFloat(inv.balance_due) || 0,
+        amount: parseFloat(inv.amount) || 0
+      }))
     });
   } catch (error) {
     console.error('Error getting pending payments:', error);

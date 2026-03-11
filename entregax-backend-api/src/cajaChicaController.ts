@@ -527,7 +527,7 @@ export const registrarIngreso = async (req: AuthRequest, res: Response): Promise
 // ============================================
 export const registrarEgreso = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { monto, concepto, categoria, notas } = req.body;
+    const { monto, concepto, categoria, notas, referencia, evidencia_url } = req.body;
     const userId = req.user?.id;
     const userName = req.user?.name;
     
@@ -556,10 +556,10 @@ export const registrarEgreso = async (req: AuthRequest, res: Response): Promise<
     
     const result = await pool.query(`
       INSERT INTO caja_chica_transacciones 
-        (tipo, monto, concepto, categoria, admin_id, admin_name, saldo_despues_movimiento, notas)
-      VALUES ('egreso', $1, $2, $3, $4, $5, $6, $7)
+        (tipo, monto, concepto, categoria, admin_id, admin_name, saldo_despues_movimiento, notas, referencia, evidencia_url)
+      VALUES ('egreso', $1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
-    `, [monto, concepto, categoria || 'otro_egreso', userId, userName, nuevoSaldo, notas]);
+    `, [monto, concepto, categoria || 'otro_egreso', userId, userName, nuevoSaldo, notas, referencia || null, evidencia_url || null]);
     
     res.json({
       success: true,
@@ -859,5 +859,292 @@ export const getHistorialPagosCliente = async (req: AuthRequest, res: Response):
   } catch (error) {
     console.error('Error en getHistorialPagosCliente:', error);
     res.status(500).json({ message: 'Error al obtener historial' });
+  }
+};
+
+// ============================================
+// BUSCAR PAGO POR REFERENCIA
+// ============================================
+export const buscarPorReferencia = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { ref } = req.query;
+    
+    if (!ref || String(ref).trim().length < 3) {
+      res.status(400).json({ error: 'Referencia de pago requerida (mínimo 3 caracteres)' });
+      return;
+    }
+    
+    const referencia = String(ref).trim().toUpperCase();
+    
+    // Buscar en la tabla de pagos pendientes (payment_references o referencias generadas)
+    // Primero buscar en packages que tengan esta referencia de pago asignada
+    const result = await pool.query(`
+      SELECT 
+        p.id,
+        p.tracking_internal as tracking,
+        p.payment_reference as referencia,
+        COALESCE(p.saldo_pendiente, p.assigned_cost_mxn) as monto,
+        p.assigned_cost_mxn as monto_total,
+        p.payment_status,
+        p.user_id,
+        u.full_name as cliente_nombre,
+        u.email as cliente_email,
+        u.box_id as cliente_box_id
+      FROM packages p
+      LEFT JOIN users u ON u.id = p.user_id
+      WHERE p.payment_reference ILIKE $1
+        AND p.assigned_cost_mxn > 0
+        AND (p.payment_status IS NULL OR p.payment_status IN ('pending', 'partial'))
+      ORDER BY p.created_at DESC
+    `, [`%${referencia}%`]);
+    
+    if (result.rows.length === 0) {
+      res.json({ found: false, message: 'No se encontró ningún pago pendiente con esa referencia' });
+      return;
+    }
+    
+    // Agrupar por cliente y referencia
+    const primerPaquete = result.rows[0];
+    const guias = result.rows.map(r => ({
+      id: r.id,
+      tracking: r.tracking,
+      monto: parseFloat(r.monto) || 0
+    }));
+    
+    const montoTotal = guias.reduce((sum, g) => sum + g.monto, 0);
+    
+    res.json({
+      found: true,
+      referencia: primerPaquete.referencia || referencia,
+      monto: montoTotal,
+      cliente: {
+        id: primerPaquete.user_id,
+        nombre: primerPaquete.cliente_nombre,
+        email: primerPaquete.cliente_email,
+        box_id: primerPaquete.cliente_box_id
+      },
+      guias
+    });
+  } catch (error) {
+    console.error('Error en buscarPorReferencia:', error);
+    res.status(500).json({ error: 'Error al buscar por referencia' });
+  }
+};
+
+// ============================================
+// CONFIRMAR PAGO POR REFERENCIA
+// ============================================
+export const confirmarPagoReferencia = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { referencia, monto, notas } = req.body;
+    const adminId = req.user?.id || 0;
+    const adminName = req.user?.name || 'Sistema';
+    
+    if (!referencia || !monto || monto <= 0) {
+      res.status(400).json({ error: 'Referencia y monto son requeridos' });
+      return;
+    }
+    
+    // Buscar los paquetes con esa referencia
+    const packagesResult = await pool.query(`
+      SELECT 
+        p.id,
+        p.tracking_internal,
+        p.user_id,
+        COALESCE(p.saldo_pendiente, p.assigned_cost_mxn) as saldo_pendiente,
+        p.assigned_cost_mxn,
+        u.full_name as cliente_nombre
+      FROM packages p
+      LEFT JOIN users u ON u.id = p.user_id
+      WHERE p.payment_reference ILIKE $1
+        AND p.assigned_cost_mxn > 0
+        AND (p.payment_status IS NULL OR p.payment_status IN ('pending', 'partial'))
+      ORDER BY p.created_at ASC
+    `, [`%${referencia}%`]);
+    
+    if (packagesResult.rows.length === 0) {
+      res.status(404).json({ error: 'No se encontraron paquetes con esa referencia' });
+      return;
+    }
+    
+    const clienteId = packagesResult.rows[0].user_id;
+    const clienteNombre = packagesResult.rows[0].cliente_nombre;
+    
+    // Crear transacción de ingreso
+    const txResult = await pool.query(`
+      INSERT INTO caja_chica_transacciones (
+        tipo, monto, concepto, categoria, cliente_id, admin_id, admin_name, notas
+      ) VALUES (
+        'ingreso', $1, $2, 'pago_cliente', $3, $4, $5, $6
+      ) RETURNING id
+    `, [
+      monto,
+      `Pago Referencia: ${referencia} - Cliente: ${clienteNombre}`,
+      clienteId,
+      adminId,
+      adminName,
+      notas || null
+    ]);
+    
+    const transaccionId = txResult.rows[0].id;
+    
+    // Aplicar pago FIFO a los paquetes
+    let montoRestante = parseFloat(monto);
+    const aplicaciones = [];
+    
+    for (const pkg of packagesResult.rows) {
+      if (montoRestante <= 0) break;
+      
+      const saldoPendiente = parseFloat(pkg.saldo_pendiente) || 0;
+      const montoAAplicar = Math.min(montoRestante, saldoPendiente);
+      
+      if (montoAAplicar > 0) {
+        // Actualizar el paquete
+        const nuevoSaldo = saldoPendiente - montoAAplicar;
+        const montoPagadoActual = parseFloat(pkg.assigned_cost_mxn) - saldoPendiente;
+        const nuevoMontoPagado = montoPagadoActual + montoAAplicar;
+        const nuevoStatus = nuevoSaldo <= 0 ? 'paid' : 'partial';
+        
+        await pool.query(`
+          UPDATE packages SET
+            saldo_pendiente = $1,
+            monto_pagado = $2,
+            payment_status = $3,
+            updated_at = NOW()
+          WHERE id = $4
+        `, [nuevoSaldo, nuevoMontoPagado, nuevoStatus, pkg.id]);
+        
+        // Registrar aplicación
+        await pool.query(`
+          INSERT INTO caja_chica_aplicacion_pagos (transaccion_id, package_id, monto_aplicado)
+          VALUES ($1, $2, $3)
+        `, [transaccionId, pkg.id, montoAAplicar]);
+        
+        aplicaciones.push({
+          tracking: pkg.tracking_internal,
+          monto_aplicado: montoAAplicar,
+          nuevo_status: nuevoStatus
+        });
+        
+        montoRestante -= montoAAplicar;
+      }
+    }
+    
+    res.json({
+      success: true,
+      message: `Pago de $${monto} registrado correctamente`,
+      transaccion_id: transaccionId,
+      aplicaciones,
+      sobrante: montoRestante > 0 ? montoRestante : 0
+    });
+  } catch (error) {
+    console.error('Error en confirmarPagoReferencia:', error);
+    res.status(500).json({ error: 'Error al confirmar pago' });
+  }
+};
+// ============================================
+// PAGAR CONSOLIDACIÓN A PROVEEDOR
+// Marca todos los paquetes de una consolidación como pagados al proveedor
+// ============================================
+export const pagarConsolidacionProveedor = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { consolidation_id, monto, referencia, notas } = req.body;
+    const adminId = req.user?.id || 1; // Default a admin principal si no hay user
+    const adminName = req.user?.name || 'Sistema';
+
+    console.log(`💳 [PAGO PROVEEDOR] Procesando pago - Consolidación #${consolidation_id} - Monto: $${monto} - Admin: ${adminName} (ID: ${adminId})`);
+
+    if (!consolidation_id) {
+      res.status(400).json({ error: 'ID de consolidación requerido' });
+      return;
+    }
+
+    if (!monto || monto <= 0) {
+      res.status(400).json({ error: 'Monto inválido' });
+      return;
+    }
+
+    // Verificar que la consolidación existe y tiene paquetes pendientes de pago
+    const consolidacionResult = await pool.query(`
+      SELECT 
+        c.id,
+        s.id as supplier_id,
+        s.name as supplier_name,
+        COUNT(p.id) as package_count,
+        COALESCE(SUM(p.pobox_service_cost), 0) as total_mxn,
+        COALESCE(SUM(p.pobox_cost_usd), 0) as total_usd
+      FROM consolidations c
+      JOIN packages p ON p.consolidation_id = c.id
+      LEFT JOIN suppliers s ON p.supplier_id = s.id
+      WHERE c.id = $1
+      AND (p.costing_paid IS NULL OR p.costing_paid = FALSE)
+      GROUP BY c.id, s.id, s.name
+    `, [consolidation_id]);
+
+    if (consolidacionResult.rows.length === 0) {
+      res.status(404).json({ error: 'Consolidación no encontrada o ya está pagada' });
+      return;
+    }
+
+    const consolidacion = consolidacionResult.rows[0];
+
+    // Calcular saldo actual antes del movimiento
+    const saldoResult = await pool.query(`
+      SELECT COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE -monto END), 0) as saldo
+      FROM caja_chica_transacciones
+    `);
+    const saldoActual = parseFloat(saldoResult.rows[0].saldo);
+    const nuevoSaldo = saldoActual - parseFloat(monto.toString());
+
+    console.log(`💰 [CAJA] Saldo actual: $${saldoActual}, Monto: $${monto}, Nuevo saldo: $${nuevoSaldo}`);
+
+    // Crear transacción de egreso en caja chica
+    const transaccionResult = await pool.query(`
+      INSERT INTO caja_chica_transacciones 
+        (tipo, monto, concepto, categoria, admin_id, admin_name, saldo_despues_movimiento, notas, referencia)
+      VALUES 
+        ('egreso', $1, $2, 'pago_proveedor', $3, $4, $5, $6, $7)
+      RETURNING id
+    `, [
+      monto,
+      `Pago Proveedor: ${consolidacion.supplier_name || 'N/A'} - Consolidación #${consolidation_id} (${consolidacion.package_count} paquetes)`,
+      adminId,
+      adminName,
+      nuevoSaldo,
+      notas || null,
+      referencia || null
+    ]);
+
+    const transaccionId = transaccionResult.rows[0].id;
+
+    // Marcar todos los paquetes de la consolidación como pagados al proveedor
+    const updateResult = await pool.query(`
+      UPDATE packages 
+      SET 
+        costing_paid = TRUE,
+        costing_paid_at = NOW(),
+        costing_payment_reference = $1,
+        updated_at = NOW()
+      WHERE consolidation_id = $2
+      AND supplier_id = $3
+      AND (costing_paid IS NULL OR costing_paid = FALSE)
+      RETURNING id, tracking_internal
+    `, [referencia || `CAJA-${transaccionId}`, consolidation_id, consolidacion.supplier_id]);
+
+    console.log(`💰 [CAJA] Pago a proveedor: ${consolidacion.supplier_name} - Consolidación #${consolidation_id} - $${monto} MXN - ${updateResult.rows.length} paquetes`);
+
+    res.json({
+      success: true,
+      message: `Pago de $${monto} registrado a proveedor ${consolidacion.supplier_name}`,
+      transaccion_id: transaccionId,
+      consolidation_id: consolidation_id,
+      supplier_name: consolidacion.supplier_name,
+      packages_updated: updateResult.rows.length,
+      packages: updateResult.rows.map(p => p.tracking_internal)
+    });
+
+  } catch (error) {
+    console.error('Error en pagarConsolidacionProveedor:', error);
+    res.status(500).json({ error: 'Error al procesar pago a proveedor' });
   }
 };

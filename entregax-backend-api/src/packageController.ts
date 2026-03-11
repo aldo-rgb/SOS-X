@@ -3,7 +3,7 @@ import { pool } from './db';
 import { PoolClient, Pool } from 'pg';
 
 // ============ TIPOS ============
-type PackageStatus = 'received' | 'in_transit' | 'customs' | 'ready_pickup' | 'delivered';
+type PackageStatus = 'received' | 'in_transit' | 'customs' | 'ready_pickup' | 'delivered' | 'reempacado';
 
 interface BoxItem {
     weight: number;
@@ -69,7 +69,8 @@ const getStatusLabel = (status: PackageStatus): string => {
         in_transit: '🚚 En Tránsito',
         customs: '🛃 En Aduana',
         ready_pickup: '✅ Listo para Recoger',
-        delivered: '🎉 Entregado'
+        delivered: '🎉 Entregado',
+        reempacado: '📦 Reempacado'
     };
     return labels[status] || status;
 };
@@ -584,14 +585,16 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
 
 // ============ LISTAR PAQUETES ============
 export const getPackages = async (req: Request, res: Response): Promise<void> => {
+    console.log('📦 getPackages llamado');
     try {
         const { status, boxId, limit = 50 } = req.query;
 
+        // Solo mostrar paquetes POBOX USA
         let query = `
             SELECT p.*, u.id as user_id, u.full_name, u.email, u.box_id
             FROM packages p JOIN users u ON p.user_id = u.id
             WHERE (p.is_master = true OR p.master_id IS NULL)
-            AND (p.shipment_type IS NULL OR p.shipment_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))
+            AND (p.service_type = 'POBOX_USA' OR p.service_type = 'air' OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%'))
         `;
         const params: (string | number)[] = [];
 
@@ -607,7 +610,9 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
         params.push(Number(limit));
         query += ` ORDER BY p.created_at DESC LIMIT $${params.length}`;
 
+        console.log('📦 Ejecutando query...');
         const result = await pool.query(query, params);
+        console.log('📦 Query completada, filas:', result.rows.length);
 
         const packages = result.rows.map(pkg => ({
             id: pkg.id, tracking: pkg.tracking_internal, trackingProvider: pkg.tracking_provider,
@@ -623,13 +628,16 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
             declaredValue: pkg.declared_value ? parseFloat(pkg.declared_value) : null,
             status: pkg.status, statusLabel: getStatusLabel(pkg.status),
             receivedAt: pkg.received_at, deliveredAt: pkg.delivered_at,
+            consolidationId: pkg.consolidation_id,
+            supplierId: pkg.supplier_id,
             client: { id: pkg.user_id, name: pkg.full_name, email: pkg.email, boxId: pkg.box_id }
         }));
 
         res.json({ success: true, total: packages.length, packages });
-    } catch (error) {
-        console.error('Error:', error);
-        res.status(500).json({ error: 'Error al consultar paquetes' });
+    } catch (error: any) {
+        console.error('❌ Error en getPackages:', error?.message || error);
+        console.error('Stack:', error?.stack);
+        res.status(500).json({ error: 'Error al consultar paquetes', details: error?.message });
     }
 };
 
@@ -714,7 +722,7 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
     try {
         const { id } = req.params;
         const { status, notes } = req.body;
-        const validStatuses: PackageStatus[] = ['received', 'in_transit', 'customs', 'ready_pickup', 'delivered'];
+        const validStatuses: PackageStatus[] = ['received', 'in_transit', 'customs', 'ready_pickup', 'delivered', 'reempacado'];
         
         if (!validStatuses.includes(status)) {
             res.status(400).json({ error: 'Estado inválido', validStatuses });
@@ -1355,20 +1363,18 @@ export const createConsolidation = async (req: Request, res: Response): Promise<
 // ============ ADMIN: Ver todas las consolidaciones (Órdenes de salida) ============
 export const getAdminConsolidations = async (req: Request, res: Response): Promise<any> => {
     try {
-        // JOIN para traer: Datos de consolidación + Nombre del Cliente + Cantidad de Paquetes
+        // JOIN para traer: Datos de consolidación + Box ID + Paquetes del usuario (solo US-)
         const query = `
             SELECT 
                 c.id, 
                 c.status, 
                 c.total_weight, 
                 c.created_at,
-                u.full_name as client_name,
                 u.box_id,
-                COUNT(p.id) as package_count
+                (SELECT COUNT(*) FROM packages p WHERE p.user_id = c.user_id AND p.tracking_internal LIKE 'US-%' AND p.service_type = 'POBOX_USA') as package_count,
+                (SELECT STRING_AGG(p.tracking_internal, ', ') FROM packages p WHERE p.user_id = c.user_id AND p.tracking_internal LIKE 'US-%' AND p.service_type = 'POBOX_USA') as trackings
             FROM consolidations c
             JOIN users u ON c.user_id = u.id
-            LEFT JOIN packages p ON p.consolidation_id = c.id
-            GROUP BY c.id, u.full_name, u.box_id
             ORDER BY c.created_at DESC
         `;
         
@@ -2031,5 +2037,202 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
             error: 'Error al procesar el reempaque',
             details: error.message 
         });
+    }
+};
+
+// ============================================
+// ENDPOINT: OBTENER PAQUETES LISTOS PARA SALIDA (PO BOX USA)
+// ============================================
+export const getOutboundReadyPackages = async (_req: Request, res: Response): Promise<void> => {
+    try {
+        // Paquetes US en bodega listos para salir:
+        // LÓGICA:
+        // 1. REPACK (tracking contiene 'REPACK'): Mostrar la master (es un contenedor de cajas)
+        // 2. Hijas de REPACK: NO mostrar (ya están dentro del contenedor)
+        // 3. Guías master normales con hijas: NO mostrar (mostrar sus hijas en su lugar)
+        // 4. Guías hijas de master normal (-01, -02, etc): Mostrar (son las que se escanean)
+        // 5. Guías individuales sin hijas: Mostrar como están
+        const result = await pool.query(`
+            SELECT 
+                p.id,
+                p.tracking_internal,
+                p.tracking_provider,
+                p.description,
+                p.weight,
+                p.status,
+                p.total_boxes,
+                p.is_master,
+                p.master_id,
+                p.pkg_length,
+                p.pkg_width,
+                p.pkg_height,
+                u.box_id,
+                u.full_name as client_name
+            FROM packages p
+            JOIN users u ON p.user_id = u.id
+            LEFT JOIN packages master ON p.master_id = master.id
+            WHERE p.tracking_internal LIKE 'US-%'
+              AND p.status IN ('received', 'reempacado')
+              AND (
+                -- REPACK: siempre mostrar (son contenedores)
+                p.tracking_internal LIKE 'US-REPACK-%'
+                OR
+                -- Paquetes hijos de master normal (NO REPACK): mostrar
+                (p.master_id IS NOT NULL AND master.tracking_internal NOT LIKE 'US-REPACK-%')
+                OR
+                -- Paquetes individuales sin hijas: mostrar
+                (p.is_master = FALSE AND p.master_id IS NULL)
+                OR
+                -- Masters sin hijas (total_boxes = 1 o NULL): mostrar
+                (p.is_master = TRUE AND COALESCE(p.total_boxes, 1) <= 1 AND p.tracking_internal NOT LIKE 'US-REPACK-%')
+              )
+            ORDER BY p.created_at DESC
+        `);
+        
+        res.json({ packages: result.rows });
+    } catch (error: any) {
+        console.error('❌ Error obteniendo paquetes para salida:', error);
+        res.status(500).json({ error: 'Error al obtener paquetes', details: error.message });
+    }
+};
+
+// ============================================
+// ENDPOINT: CREAR SALIDA (CONSOLIDACIÓN DE PAQUETES US)
+// ============================================
+export const createOutboundConsolidation = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { packageIds, totalWeight, supplierId } = req.body;
+        const operatorId = (req as any).user?.userId || (req as any).userId;
+        
+        if (!packageIds || !Array.isArray(packageIds) || packageIds.length === 0) {
+            res.status(400).json({ error: 'Se requiere al menos un paquete' });
+            return;
+        }
+        
+        if (!supplierId) {
+            res.status(400).json({ error: 'Se requiere seleccionar un proveedor de salida' });
+            return;
+        }
+        
+        console.log(`📦 [OUTBOUND] Creando salida con ${packageIds.length} paquetes - Proveedor: ${supplierId} - Operador: ${operatorId}`);
+        
+        // Generar número de consolidación
+        const timestamp = Date.now().toString(36).toUpperCase();
+        const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+        const consolidationNumber = `OUT-${timestamp}-${random}`;
+        
+        // Crear la consolidación con referencia al proveedor
+        const consolidationResult = await pool.query(`
+            INSERT INTO consolidations (
+                status,
+                total_weight,
+                created_at,
+                updated_at
+            ) VALUES (
+                'in_transit',
+                $1,
+                NOW(),
+                NOW()
+            )
+            RETURNING id
+        `, [totalWeight || 0]);
+        
+        const consolidationId = consolidationResult.rows[0].id;
+        
+        // Actualizar paquetes con el consolidation_id, supplier_id y estado in_transit
+        await pool.query(`
+            UPDATE packages 
+            SET 
+                consolidation_id = $1,
+                supplier_id = $2,
+                status = 'in_transit',
+                dispatched_at = NOW(),
+                updated_at = NOW()
+            WHERE id = ANY($3)
+        `, [consolidationId, supplierId, packageIds]);
+        
+        // Obtener los trackings actualizados
+        const packagesResult = await pool.query(`
+            SELECT tracking_internal, weight, description
+            FROM packages
+            WHERE id = ANY($1)
+        `, [packageIds]);
+        
+        // Obtener nombre del proveedor
+        const supplierResult = await pool.query('SELECT name FROM suppliers WHERE id = $1', [supplierId]);
+        const supplierName = supplierResult.rows[0]?.name || 'Proveedor';
+        
+        console.log(`✅ [OUTBOUND] Consolidación #${consolidationId} creada - ${packageIds.length} paquetes asignados a ${supplierName} (en_transito)`);
+        
+        res.json({
+            success: true,
+            consolidationId,
+            consolidationNumber,
+            supplierId,
+            supplierName,
+            packageCount: packageIds.length,
+            totalWeight,
+            packages: packagesResult.rows
+        });
+        
+    } catch (error: any) {
+        console.error('❌ Error creando salida:', error);
+        res.status(500).json({ 
+            error: 'Error al crear la consolidación',
+            details: error.message
+        });
+    }
+};
+
+// ============================================
+// ENDPOINT: OBTENER INSTRUCCIONES DE REEMPAQUE PENDIENTES
+// ============================================
+export const getRepackInstructions = async (_req: Request, res: Response): Promise<void> => {
+    try {
+        // Obtener paquetes master de reempaque pendientes (solo received, no received_china)
+        const result = await pool.query(`
+            SELECT 
+                p.id,
+                p.tracking_internal,
+                p.tracking_provider,
+                p.description,
+                p.weight,
+                p.status,
+                p.pkg_length,
+                p.pkg_width,
+                p.pkg_height,
+                p.created_at,
+                p.is_master,
+                u.box_id,
+                u.full_name as client_name
+            FROM packages p
+            JOIN users u ON p.user_id = u.id
+            WHERE p.tracking_internal LIKE 'US-REPACK-%'
+              AND p.status = 'received'
+            ORDER BY p.created_at DESC
+        `);
+        
+        // Para cada paquete master, obtener los paquetes hijos
+        const instructionsWithChildren = await Promise.all(result.rows.map(async (row) => {
+            // Buscar paquetes hijos vinculados a este master
+            const childrenResult = await pool.query(`
+                SELECT id, tracking_internal, weight, description, status
+                FROM packages
+                WHERE master_id = $1
+                ORDER BY tracking_internal
+            `, [row.id]);
+            
+            return {
+                ...row,
+                repack_tracking: row.tracking_internal,
+                child_packages: childrenResult.rows,
+                child_trackings: childrenResult.rows.map((c: { tracking_internal: string }) => c.tracking_internal).join(', ')
+            };
+        }));
+        
+        res.json({ instructions: instructionsWithChildren });
+    } catch (error: any) {
+        console.error('❌ Error obteniendo instrucciones de reempaque:', error);
+        res.status(500).json({ error: 'Error al obtener instrucciones', details: error.message });
     }
 };

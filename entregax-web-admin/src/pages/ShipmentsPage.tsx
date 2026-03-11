@@ -64,6 +64,7 @@ interface Package {
   statusLabel: string;
   receivedAt: string;
   deliveredAt?: string;
+  consolidationId?: number;
   client: { id: number; name: string; email: string; boxId: string };
 }
 
@@ -168,6 +169,7 @@ interface ClientInstructions {
 interface ShipmentsPageProps {
   users: User[];
   warehouseLocation?: string; // Panel de bodega seleccionado
+  openWizardOnMount?: boolean; // Abrir wizard automáticamente al montar
 }
 
 const API_URL = 'http://localhost:3001/api';
@@ -196,7 +198,7 @@ const getStatusIcon = (status: PackageStatus): string => {
   return icons[status] || '📦';
 };
 
-export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPageProps) {
+export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMount }: ShipmentsPageProps) {
   const { t, i18n } = useTranslation();
   const COUNTRIES = i18n.language === 'es' ? COUNTRIES_ES : COUNTRIES_EN;
   
@@ -207,7 +209,7 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   
-  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(openWizardOnMount || false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
@@ -1288,10 +1290,10 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                 <TableRow>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Tracking</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>{t('clients.client')}</TableCell>
-                  <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>{t('common.description')}</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>{t('shipments.boxes')}</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>{t('shipments.weight')}</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>{t('common.status')}</TableCell>
+                  <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Consolidación</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>{t('status.received')}</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">{t('common.actions')}</TableCell>
                 </TableRow>
@@ -1317,7 +1319,6 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                         </Box>
                       </Box>
                     </TableCell>
-                    <TableCell><Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>{pkg.description}</Typography></TableCell>
                     <TableCell>
                       <Badge badgeContent={pkg.totalBoxes || 1} color={pkg.isMaster ? 'warning' : 'primary'}><Inventory2Icon /></Badge>
                     </TableCell>
@@ -1325,10 +1326,14 @@ export default function ShipmentsPage({ users, warehouseLocation }: ShipmentsPag
                     <TableCell>
                       <Chip icon={<span>{getStatusIcon(pkg.status)}</span>} label={getStatusLabel(pkg.status)} color={getStatusColor(pkg.status)} size="small" />
                     </TableCell>
+                    <TableCell>
+                      {pkg.consolidationId ? (
+                        <Chip label={`#${pkg.consolidationId}`} size="small" variant="outlined" sx={{ fontWeight: 'bold', borderColor: '#1976d2', color: '#1976d2' }} />
+                      ) : '-'}
+                    </TableCell>
                     <TableCell><Typography variant="body2">{new Date(pkg.receivedAt).toLocaleDateString(i18n.language === 'es' ? 'es-MX' : 'en-US')}</Typography></TableCell>
                     <TableCell align="center">
                       <Tooltip title={t('clients.viewDetails')}><IconButton size="small" onClick={() => { setSelectedPackage(pkg); setDetailsOpen(true); }}><VisibilityIcon fontSize="small" /></IconButton></Tooltip>
-                      <Tooltip title={t('shipments.changeStatus', 'Cambiar estado')}><IconButton size="small" onClick={() => { setSelectedPackage(pkg); setStatusDialogOpen(true); }}><EditIcon fontSize="small" /></IconButton></Tooltip>
                       <Tooltip title={t('shipments.printLabels')}><IconButton size="small" onClick={async () => {
                         try {
                           const response = await axios.get(`${API_URL}/packages/${pkg.id}/labels`, { headers: { Authorization: `Bearer ${getToken()}` } });

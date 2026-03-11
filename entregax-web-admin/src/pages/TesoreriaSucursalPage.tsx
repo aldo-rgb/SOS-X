@@ -57,6 +57,7 @@ import {
   Visibility as ViewIcon,
   PieChart as PieChartIcon,
   Store as StoreIcon,
+  Delete as DeleteIcon,
 } from '@mui/icons-material';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import api from '../services/api';
@@ -192,6 +193,9 @@ const TesoreriaSucursalPage: React.FC = () => {
   const [pagosPendientes, setPagosPendientes] = useState<PagoPendiente[]>([]);
   const [loading, setLoading] = useState(true);
   const [confirmandoPago, setConfirmandoPago] = useState<number | null>(null);
+  const [eliminandoPago, setEliminandoPago] = useState<number | null>(null);
+  const [confirmarEliminarDialogOpen, setConfirmarEliminarDialogOpen] = useState(false);
+  const [pagoAEliminar, setPagoAEliminar] = useState<PagoPendiente | null>(null);
   const [tabValue, setTabValue] = useState(0);
   
   // Estados para diálogos
@@ -344,7 +348,7 @@ const TesoreriaSucursalPage: React.FC = () => {
     try {
       // Confirmar el pago en el sistema
       await api.post('/admin/finance/confirm-payment', {
-        webhook_log_id: pago.id,
+        referencia: pago.referencia,
         notas: `Confirmado en Tesorería - Sucursal ${branches.find(b => b.id === selectedBranch)?.name}`
       });
       
@@ -391,6 +395,30 @@ const TesoreriaSucursalPage: React.FC = () => {
       setDetallesPagoDialogOpen(false);
     } finally {
       setLoadingDetalles(false);
+    }
+  };
+
+  // 🗑️ Eliminar referencia de pago pendiente
+  const handleEliminarPago = (pago: PagoPendiente) => {
+    setPagoAEliminar(pago);
+    setConfirmarEliminarDialogOpen(true);
+  };
+
+  const confirmarEliminarPago = async () => {
+    if (!pagoAEliminar) return;
+    
+    setEliminandoPago(pagoAEliminar.id);
+    try {
+      await api.delete(`/admin/finance/pending-payment/${pagoAEliminar.referencia}`);
+      setSnackbar({ open: true, message: `Referencia ${pagoAEliminar.referencia} eliminada correctamente`, severity: 'success' });
+      setConfirmarEliminarDialogOpen(false);
+      setPagoAEliminar(null);
+      loadPagosPendientes();
+    } catch (err: any) {
+      console.error('Error eliminando pago:', err);
+      setSnackbar({ open: true, message: err.response?.data?.error || 'Error al eliminar referencia', severity: 'error' });
+    } finally {
+      setEliminandoPago(null);
     }
   };
 
@@ -979,6 +1007,15 @@ const TesoreriaSucursalPage: React.FC = () => {
                           >
                             {confirmandoPago === pago.id ? 'Confirmando...' : 'Confirmar'}
                           </Button>
+                          <IconButton
+                            color="error"
+                            size="small"
+                            onClick={() => handleEliminarPago(pago)}
+                            disabled={eliminandoPago === pago.id}
+                            title="Eliminar referencia"
+                          >
+                            {eliminandoPago === pago.id ? <CircularProgress size={20} color="inherit" /> : <DeleteIcon />}
+                          </IconButton>
                         </Box>
                       </TableCell>
                     </TableRow>
@@ -1900,6 +1937,68 @@ const TesoreriaSucursalPage: React.FC = () => {
         <DialogActions>
           <Button onClick={() => { setDetallesPagoDialogOpen(false); setDetallesPago(null); }}>
             Cerrar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog confirmar eliminación de pago */}
+      <Dialog
+        open={confirmarEliminarDialogOpen}
+        onClose={() => { setConfirmarEliminarDialogOpen(false); setPagoAEliminar(null); }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: '#ffebee' }}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <DeleteIcon color="error" />
+            <Typography variant="h6">Eliminar Referencia de Pago</Typography>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          {pagoAEliminar && (
+            <Box>
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                ¿Estás seguro de que deseas eliminar esta referencia de pago?
+                Esta acción no se puede deshacer.
+              </Alert>
+              <Paper sx={{ p: 2, bgcolor: '#f5f5f5' }}>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="subtitle2" color="text.secondary">Referencia</Typography>
+                    <Typography variant="body1" fontWeight="bold" fontFamily="monospace">
+                      {pagoAEliminar.referencia}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <Typography variant="subtitle2" color="text.secondary">Monto</Typography>
+                    <Typography variant="body1" fontWeight="bold" color="success.main">
+                      {formatCurrency(pagoAEliminar.monto)}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 12 }}>
+                    <Typography variant="subtitle2" color="text.secondary">Cliente</Typography>
+                    <Typography variant="body1">{pagoAEliminar.cliente}</Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button 
+            onClick={() => { setConfirmarEliminarDialogOpen(false); setPagoAEliminar(null); }}
+            variant="outlined"
+          >
+            Cancelar
+          </Button>
+          <Button
+            onClick={confirmarEliminarPago}
+            variant="contained"
+            color="error"
+            startIcon={eliminandoPago ? <CircularProgress size={16} color="inherit" /> : <DeleteIcon />}
+            disabled={eliminandoPago !== null}
+          >
+            {eliminandoPago ? 'Eliminando...' : 'Eliminar'}
           </Button>
         </DialogActions>
       </Dialog>

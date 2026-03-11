@@ -31,6 +31,41 @@
     "of": "of",
     "moreFilters": "More filters (coming soon)"
   },
+  "pobox": {
+    "hub": {
+      "title": "PO Box USA",
+      "subtitle": "PO Box Package Management Panel",
+      "backToMenu": "← Back to PO Box menu",
+      "tip": "Tip",
+      "tipText": "Use \"Receive Packages\" to scan new packages, \"Collect\" to manage pending payments, and \"Quote\" to calculate costs before receiving.",
+      "options": {
+        "receive": {
+          "title": "Receive Packages",
+          "description": "Bulk reception - Hidalgo TX Warehouse"
+        },
+        "entry": {
+          "title": "Entry",
+          "description": "View received packages in warehouse"
+        },
+        "inventory": {
+          "title": "Inventory",
+          "description": "View all PO Box packages"
+        },
+        "exit": {
+          "title": "Exit",
+          "description": "Process consolidations and dispatches"
+        },
+        "collect": {
+          "title": "Collect",
+          "description": "Manage payments and pending charges"
+        },
+        "quote": {
+          "title": "Quote",
+          "description": "Calculate costs and generate quotes"
+        }
+      }
+    }
+  },
   "auth": {
     "login": "Login",
     "logout": "Logout",
@@ -572,7 +607,8 @@
       "dhl_rates": "DHL Rates",
       "dhl_operations": "DHL Operations",
       "anticipos": "Advance Control",
-      "pobox_rates": "PO Box Rates"
+      "pobox_rates": "PO Box Rates",
+      "suppliers": "Supplier Costing"
     },
     "moduleFeatures": {
       "clients": {
