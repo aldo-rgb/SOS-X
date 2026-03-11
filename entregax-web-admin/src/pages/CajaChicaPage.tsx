@@ -60,7 +60,6 @@ import {
   ExpandLess as ExpandLessIcon,
   Person as PersonIcon,
   CheckCircle as CheckCircleIcon,
-  AttachMoney as MoneyIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -175,11 +174,8 @@ const CajaChicaPage: React.FC = () => {
   const [procesandoPagoProveedor, setProcesandoPagoProveedor] = useState(false);
 
   // Búsqueda de cliente
-  const [clientesEncontrados, setClientesEncontrados] = useState<Cliente[]>([]);
-  const [buscandoCliente, setBuscandoCliente] = useState(false);
   const [clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null);
   const [guiasPendientes, setGuiasPendientes] = useState<GuiaPendiente[]>([]);
-  const [totalesCliente, setTotalesCliente] = useState({ total_facturado: 0, total_pagado: 0, total_pendiente: 0 });
   const [cargandoGuias, setCargandoGuias] = useState(false);
 
   // Pago
