@@ -399,7 +399,6 @@ const CajaChicaPage: React.FC = () => {
 
   // Cargar guías pendientes de un cliente
   const cargarGuiasPendientes = async (clienteId: number) => {
-    setCargandoGuias(true);
     try {
       const response = await api.get(`/caja-chica/cliente/${clienteId}/guias-pendientes`);
       setGuiasPendientes(response.data.guias.map((g: GuiaPendiente) => ({ 
@@ -407,50 +406,13 @@ const CajaChicaPage: React.FC = () => {
         monto_a_aplicar: 0,
         seleccionada: false 
       })));
-      setTotalesCliente(response.data.totales);
     } catch (error) {
       console.error('Error cargando guías:', error);
       setSnackbar({ open: true, message: 'Error al cargar guías del cliente', severity: 'error' });
-    } finally {
-      setCargandoGuias(false);
     }
   };
 
-  // Calcular preview de asignación FIFO
-  const calcularPreviewFIFO = useCallback((monto: number) => {
-    if (!monto || monto <= 0) {
-      setPreviewAsignacion([]);
-      return;
-    }
 
-    let montoRestante = monto;
-    const preview: GuiaPendiente[] = [];
-
-    for (const guia of guiasPendientes) {
-      if (montoRestante <= 0) break;
-      
-      const saldo = parseFloat(String(guia.saldo_pendiente));
-      const montoAplicar = Math.min(montoRestante, saldo);
-      
-      if (montoAplicar > 0) {
-        preview.push({
-          ...guia,
-          monto_a_aplicar: montoAplicar,
-          seleccionada: true
-        });
-        montoRestante -= montoAplicar;
-      }
-    }
-
-    setPreviewAsignacion(preview);
-  }, [guiasPendientes]);
-
-  // Actualizar preview cuando cambia el monto
-  useEffect(() => {
-    if (modoAsignacion === 'automatico') {
-      calcularPreviewFIFO(parseFloat(montoRecibido) || 0);
-    }
-  }, [montoRecibido, modoAsignacion, calcularPreviewFIFO]);
 
   // Seleccionar cliente
   const handleSeleccionarCliente = (cliente: Cliente | null) => {
@@ -459,7 +421,6 @@ const CajaChicaPage: React.FC = () => {
       cargarGuiasPendientes(cliente.id);
     } else {
       setGuiasPendientes([]);
-      setTotalesCliente({ total_facturado: 0, total_pagado: 0, total_pendiente: 0 });
     }
   };
 
