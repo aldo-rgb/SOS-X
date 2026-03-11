@@ -176,14 +176,12 @@ const CajaChicaPage: React.FC = () => {
   // Búsqueda de cliente
   const [clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null);
   const [guiasPendientes, setGuiasPendientes] = useState<GuiaPendiente[]>([]);
-  const [cargandoGuias, setCargandoGuias] = useState(false);
 
   // Pago
   const [montoRecibido, setMontoRecibido] = useState('');
   const [modoAsignacion, setModoAsignacion] = useState<'automatico' | 'manual'>('automatico');
   const [notasPago, setNotasPago] = useState('');
   const [procesandoPago, setProcesandoPago] = useState(false);
-  const [previewAsignacion, setPreviewAsignacion] = useState<GuiaPendiente[]>([]);
 
   // Búsqueda por referencia de pago
   const [searchRef, setSearchRef] = useState('');
@@ -348,23 +346,6 @@ const CajaChicaPage: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [loadData]);
-
-  // Buscar clientes
-  const handleBuscarCliente = async (query: string) => {
-    if (query.length < 2) {
-      setClientesEncontrados([]);
-      return;
-    }
-    setBuscandoCliente(true);
-    try {
-      const response = await api.get('/caja-chica/buscar-cliente', { params: { q: query } });
-      setClientesEncontrados(response.data);
-    } catch (error) {
-      console.error('Error buscando cliente:', error);
-    } finally {
-      setBuscandoCliente(false);
-    }
-  };
 
   // Buscar por referencia de pago
   const handleSearchByRef = async () => {
