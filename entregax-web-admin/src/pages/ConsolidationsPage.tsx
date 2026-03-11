@@ -102,13 +102,6 @@ export default function ConsolidationsPage() {
     return labels[status] || { text: status.toUpperCase(), color: 'warning' as const };
   };
 
-  // 🚀 Abrir Diálogo de Despacho
-  const _openDispatchDialog = (order: Consolidation) => {
-    setSelectedOrder(order);
-    setMasterTrack('');
-    setDispatchDialogOpen(true);
-  };
-
   // 🚀 Confirmar Despacho
   const handleConfirmDispatch = async () => {
     if (!selectedOrder) return;

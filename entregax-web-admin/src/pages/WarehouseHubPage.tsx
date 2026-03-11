@@ -197,7 +197,7 @@ export default function WarehouseHubPage({ users = [] }: Props) {
         );
     }
 
-    if (loading) {
+    if (_loading) {
         return (
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
                 <CircularProgress />

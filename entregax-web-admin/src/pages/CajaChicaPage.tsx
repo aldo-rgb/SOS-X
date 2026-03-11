@@ -174,12 +174,12 @@ const CajaChicaPage: React.FC = () => {
   const [procesandoPagoProveedor, setProcesandoPagoProveedor] = useState(false);
 
   // Búsqueda de cliente
-  const [clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null);
-  const [guiasPendientes, setGuiasPendientes] = useState<GuiaPendiente[]>([]);
+  const [_clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null);
+  const [_guiasPendientes, setGuiasPendientes] = useState<GuiaPendiente[]>([]);
 
   // Pago
   const [montoRecibido, setMontoRecibido] = useState('');
-  const [modoAsignacion, setModoAsignacion] = useState<'automatico' | 'manual'>('automatico');
+  const [_modoAsignacion, _setModoAsignacion] = useState<'automatico' | 'manual'>('automatico');
   const [notasPago, setNotasPago] = useState('');
   const [procesandoPago, setProcesandoPago] = useState(false);
 
@@ -397,25 +397,6 @@ const CajaChicaPage: React.FC = () => {
     }
   };
 
-  // Cargar guías pendientes de un cliente
-  const cargarGuiasPendientes = async (clienteId: number) => {
-    try {
-      const response = await api.get(`/caja-chica/cliente/${clienteId}/guias-pendientes`);
-      setGuiasPendientes(response.data.guias.map((g: GuiaPendiente) => ({ 
-        ...g, 
-        monto_a_aplicar: 0,
-        seleccionada: false 
-      })));
-    } catch (error) {
-      console.error('Error cargando guías:', error);
-      setSnackbar({ open: true, message: 'Error al cargar guías del cliente', severity: 'error' });
-    }
-  };
-
-
-
-
-
   // Registrar egreso
   const handleRegistrarEgreso = async () => {
     try {
@@ -480,17 +461,6 @@ const CajaChicaPage: React.FC = () => {
       day: '2-digit', month: '2-digit', year: 'numeric',
       hour: '2-digit', minute: '2-digit'
     });
-  };
-
-  const _getPaymentStatusChip = (status: string) => {
-    switch (status) {
-      case 'paid':
-        return <Chip label="PAGADO" color="success" size="small" icon={<CheckCircleIcon />} />;
-      case 'partial':
-        return <Chip label="PARCIAL" color="warning" size="small" />;
-      default:
-        return <Chip label="PENDIENTE" color="error" size="small" />;
-    }
   };
 
   if (loading) {
