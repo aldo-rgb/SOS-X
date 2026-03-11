@@ -26,7 +26,6 @@ import {
 } from '@mui/material';
 import FlightTakeoffIcon from '@mui/icons-material/FlightTakeoff';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import VisibilityIcon from '@mui/icons-material/Visibility';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import WarningIcon from '@mui/icons-material/Warning';
@@ -104,7 +103,7 @@ export default function ConsolidationsPage() {
   };
 
   // 🚀 Abrir Diálogo de Despacho
-  const openDispatchDialog = (order: Consolidation) => {
+  const _openDispatchDialog = (order: Consolidation) => {
     setSelectedOrder(order);
     setMasterTrack('');
     setDispatchDialogOpen(true);
@@ -342,14 +341,6 @@ export default function ConsolidationsPage() {
             mb: 3,
             border: '1px solid rgba(240, 90, 40, 0.1)'
           }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-              <Typography variant="body2" color="text.secondary">
-                {i18n.language === 'es' ? 'Cliente:' : 'Customer:'}
-              </Typography>
-              <Typography variant="body2" fontWeight={600}>
-                {selectedOrder?.client_name}
-              </Typography>
-            </Box>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
               <Typography variant="body2" color="text.secondary">
                 {i18n.language === 'es' ? 'Casillero:' : 'Box ID:'}

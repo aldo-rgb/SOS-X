@@ -414,107 +414,7 @@ const CajaChicaPage: React.FC = () => {
 
 
 
-  // Seleccionar cliente
-  const handleSeleccionarCliente = (cliente: Cliente | null) => {
-    setClienteSeleccionado(cliente);
-    if (cliente) {
-      cargarGuiasPendientes(cliente.id);
-    } else {
-      setGuiasPendientes([]);
-    }
-  };
 
-  // Toggle selección de guía (modo manual)
-  const toggleSeleccionGuia = (guiaId: number) => {
-    setGuiasPendientes(prev => prev.map(g => 
-      g.id === guiaId ? { ...g, seleccionada: !g.seleccionada } : g
-    ));
-  };
-
-  // Actualizar monto a aplicar en guía específica (modo manual)
-  const updateMontoGuia = (guiaId: number, monto: string) => {
-    const montoNum = parseFloat(monto) || 0;
-    setGuiasPendientes(prev => prev.map(g => {
-      if (g.id === guiaId) {
-        // No permitir más del saldo pendiente
-        const maxMonto = parseFloat(String(g.saldo_pendiente));
-        return { 
-          ...g, 
-          monto_a_aplicar: Math.min(montoNum, maxMonto),
-          seleccionada: montoNum > 0
-        };
-      }
-      return g;
-    }));
-  };
-
-  // Calcular suma de aplicaciones manuales
-  const sumaAplicacionesManual = guiasPendientes
-    .filter(g => g.seleccionada && g.monto_a_aplicar && g.monto_a_aplicar > 0)
-    .reduce((sum, g) => sum + (g.monto_a_aplicar || 0), 0);
-
-  // Registrar pago
-  const handleRegistrarPago = async () => {
-    if (!clienteSeleccionado || !montoRecibido) {
-      setSnackbar({ open: true, message: 'Seleccione un cliente e ingrese el monto', severity: 'error' });
-      return;
-    }
-
-    const monto = parseFloat(montoRecibido);
-    if (monto <= 0) {
-      setSnackbar({ open: true, message: 'El monto debe ser mayor a 0', severity: 'error' });
-      return;
-    }
-
-    setProcesandoPago(true);
-    try {
-      const payload: {
-        cliente_id: number;
-        monto_total: number;
-        modo_asignacion: 'automatico' | 'manual';
-        aplicaciones?: Array<{ package_id: number; monto_aplicado: number }>;
-        notas: string;
-      } = {
-        cliente_id: clienteSeleccionado.id,
-        monto_total: monto,
-        modo_asignacion: modoAsignacion,
-        notas: notasPago,
-      };
-
-      if (modoAsignacion === 'manual') {
-        payload.aplicaciones = guiasPendientes
-          .filter(g => g.seleccionada && g.monto_a_aplicar && g.monto_a_aplicar > 0)
-          .map(g => ({
-            package_id: g.id,
-            monto_aplicado: g.monto_a_aplicar || 0
-          }));
-      }
-
-      const response = await api.post('/caja-chica/pago-cliente', payload);
-
-      setSnackbar({
-        open: true,
-        message: `✅ Pago registrado: ${response.data.resumen.guias_pagadas_completo} guías pagadas, ${response.data.resumen.guias_con_abono} con abono parcial`,
-        severity: 'success',
-      });
-
-      // Limpiar y cerrar
-      setPagoDialogOpen(false);
-      setClienteSeleccionado(null);
-      setGuiasPendientes([]);
-      setMontoRecibido('');
-      setNotasPago('');
-      setModoAsignacion('automatico');
-      loadData();
-
-    } catch (error: unknown) {
-      console.error('Error registrando pago:', error);
-      const errorMessage = (error as { response?: { data?: { message?: string } } })?.response?.data?.message || 'Error al registrar pago';
-      setSnackbar({ open: true, message: errorMessage, severity: 'error' });
-    } finally {
-      setProcesandoPago(false);
-    }
-  };
 
   // Registrar egreso
   const handleRegistrarEgreso = async () => {
@@ -582,7 +482,7 @@ const CajaChicaPage: React.FC = () => {
     });
   };
 
-  const getPaymentStatusChip = (status: string) => {
+  const _getPaymentStatusChip = (status: string) => {
     switch (status) {
       case 'paid':
         return <Chip label="PAGADO" color="success" size="small" icon={<CheckCircleIcon />} />;

@@ -26,10 +26,8 @@ import {
 import { useTranslation } from 'react-i18next';
 
 // Importar los paneles específicos
-import ShipmentsPage from './ShipmentsPage';
 import WarehouseReceptionPage from './WarehouseReceptionPage';
 import ChinaReceptionPage from './ChinaReceptionPage';
-import ConsolidationsPage from './ConsolidationsPage';
 import QuotesPage from './QuotesPage';
 import MaritimeWarehousePage from './MaritimeWarehousePage';
 import DhlOperationsPage from './DhlOperationsPage';
@@ -105,7 +103,7 @@ interface Props {
 export default function WarehouseHubPage({ users = [] }: Props) {
     const { t } = useTranslation();
     // Inicializar con ubicaciones predeterminadas para evitar loading infinito
-    const [locations, setLocations] = useState<WarehouseLocation[]>([
+    const [locations, _setLocations] = useState<WarehouseLocation[]>([
         { code: 'usa_pobox', name: 'POBOX USA', services: ['reception', 'shipping'] },
         { code: 'china_air', name: 'China Aéreo', services: ['reception'] },
         { code: 'china_sea', name: 'China Marítimo', services: ['reception'] },
@@ -114,7 +112,7 @@ export default function WarehouseHubPage({ users = [] }: Props) {
         { code: 'scanner_unificado', name: 'Scanner Unificado', services: ['scanner'] },
         { code: 'inventario_sucursal', name: 'Inventario Sucursal', services: ['inventory'] },
     ]);
-    const [loading, setLoading] = useState(false); // Cambiar a false para mostrar UI inmediatamente
+    const [_loading, _setLoading] = useState(false); // Cambiar a false para mostrar UI inmediatamente
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null);
     const [userRole, setUserRole] = useState<string>('super_admin');
 
