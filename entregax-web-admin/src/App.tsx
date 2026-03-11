@@ -74,6 +74,12 @@ import WarehouseHubPage from './pages/WarehouseHubPage';
 import SecurityIcon from '@mui/icons-material/Security';
 import DescriptionIcon from '@mui/icons-material/Description';
 import LegalDocumentsPage from './pages/LegalDocumentsPage';
+// Dashboards específicos por rol
+import DashboardBranchManager from './pages/DashboardBranchManager';
+import DashboardCustomerService from './pages/DashboardCustomerService';
+import DashboardCounterStaff from './pages/DashboardCounterStaff';
+import DashboardOperations from './pages/DashboardOperations';
+import DashboardClient from './pages/DashboardClient';
 
 const drawerWidth = 280;
 
@@ -710,7 +716,33 @@ function App() {
     
     // Renderizar según el key del menú actual
     switch (currentMenuKey) {
-      case 'dashboard': return <Dashboard />;
+      case 'dashboard': 
+        // Dashboard específico según rol del usuario
+        const userRole = currentUser?.role || '';
+        switch (userRole) {
+          case 'branch_manager':
+          case 'Branch Manager':
+            return <DashboardBranchManager />;
+          case 'customer_service':
+          case 'Customer Service':
+            return <DashboardCustomerService />;
+          case 'counter_staff':
+          case 'Counter Staff':
+            return <DashboardCounterStaff />;
+          case 'warehouse_ops':
+          case 'Warehouse Ops':
+          case 'operaciones':
+          case 'Operaciones':
+            return <DashboardOperations />;
+          case 'client':
+          case 'Client':
+          case 'cliente':
+          case 'Cliente':
+            return <DashboardClient />;
+          // super_admin, admin, director, finanzas ven el dashboard general
+          default:
+            return <Dashboard />;
+        }
       case 'salesReport': return <SalesReportPage />; // CRM - Reportes de Ventas
       case 'clients': return <ClientsPage users={users} loading={loading} onRefresh={fetchUsers} currentUser={currentUser} />;
       case 'panels': 
