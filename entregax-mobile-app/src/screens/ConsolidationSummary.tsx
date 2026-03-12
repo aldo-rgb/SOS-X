@@ -521,8 +521,35 @@ export default function ConsolidationSummary({ route, navigation }: Consolidatio
             <Divider style={styles.divider} />
             
             {/* Desglose de costos */}
+            {/* Servicio PO Box */}
             <View style={styles.row}>
-              <Text style={styles.rowLabelMuted}>Envío Nacional:</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowLabelMuted}>📦 Servicio PO Box:</Text>
+                <Text style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+                  💸 {packages.reduce((sum, p) => sum + (parseFloat((p as any).pobox_venta_usd) || 0), 0).toFixed(2)} USD × TC {(parseFloat((packages[0] as any)?.tipo_cambio) || 18.08).toFixed(2)}
+                </Text>
+              </View>
+              <Text style={styles.rowValueOrange}>
+                ${packages.reduce((sum, p) => {
+                  const poboxUsd = parseFloat((p as any).pobox_venta_usd) || 0;
+                  const tc = parseFloat((p as any).tipo_cambio) || 18.08;
+                  return sum + (poboxUsd * tc);
+                }, 0).toFixed(2)} MXN
+              </Text>
+            </View>
+            
+            {/* GEX si aplica */}
+            {packages.some(p => parseFloat((p as any).gex_total_cost) > 0) && (
+              <View style={styles.row}>
+                <Text style={styles.rowLabelMuted}>🛡️ Garantía GEX:</Text>
+                <Text style={styles.rowValueOrange}>
+                  ${packages.reduce((sum, p) => sum + (parseFloat((p as any).gex_total_cost) || 0), 0).toFixed(2)} MXN
+                </Text>
+              </View>
+            )}
+            
+            <View style={styles.row}>
+              <Text style={styles.rowLabelMuted}>🚚 Envío Nacional:</Text>
               <Text style={styles.rowValueOrange}>
                 ${CARRIERS_AVAILABLE.find(c => c.id === selectedCarrier)?.cost || 0} MXN
               </Text>
@@ -530,15 +557,18 @@ export default function ConsolidationSummary({ route, navigation }: Consolidatio
             
             <Divider style={styles.divider} />
             <View style={styles.row}>
-              <Text style={styles.rowLabel}>TOTAL ENVÍO:</Text>
-              <Text style={[styles.rowValue, { fontSize: 18 }]}>
-                ${CARRIERS_AVAILABLE.find(c => c.id === selectedCarrier)?.cost || 0} MXN
+              <Text style={styles.rowLabel}>TOTAL A PAGAR:</Text>
+              <Text style={[styles.rowValue, { fontSize: 18, color: '#FF6B35' }]}>
+                ${(
+                  packages.reduce((sum, p) => {
+                    const poboxUsd = parseFloat((p as any).pobox_venta_usd) || 0;
+                    const tc = parseFloat((p as any).tipo_cambio) || 18.08;
+                    const gex = parseFloat((p as any).gex_total_cost) || 0;
+                    return sum + (poboxUsd * tc) + gex;
+                  }, 0) + (CARRIERS_AVAILABLE.find(c => c.id === selectedCarrier)?.cost || 0)
+                ).toFixed(2)} MXN
               </Text>
             </View>
-            
-            <Text style={styles.disclaimer}>
-              *Este es el costo del envío nacional. El costo del servicio PO Box ya fue calculado al registrar el paquete.
-            </Text>
           </Card.Content>
         </Card>
 

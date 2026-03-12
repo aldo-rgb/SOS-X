@@ -100,10 +100,21 @@ interface Props {
     users?: any[];
 }
 
+// Mapeo de panel_key a location_code
+const PANEL_TO_LOCATION: Record<string, string> = {
+    'ops_usa_pobox': 'usa_pobox',
+    'ops_china_air': 'china_air',
+    'ops_china_sea': 'china_sea',
+    'ops_mx_cedis': 'mx_cedis',
+    'ops_mx_national': 'mx_national',
+    'ops_scanner': 'scanner_unificado',
+    'ops_inventory': 'inventario_sucursal',
+};
+
 export default function WarehouseHubPage({ users = [] }: Props) {
     const { t } = useTranslation();
-    // Inicializar con ubicaciones predeterminadas para evitar loading infinito
-    const [locations, _setLocations] = useState<WarehouseLocation[]>([
+    // Todas las ubicaciones disponibles
+    const ALL_LOCATIONS: WarehouseLocation[] = [
         { code: 'usa_pobox', name: 'POBOX USA', services: ['reception', 'shipping'] },
         { code: 'china_air', name: 'China Aéreo', services: ['reception'] },
         { code: 'china_sea', name: 'China Marítimo', services: ['reception'] },
@@ -111,10 +122,12 @@ export default function WarehouseHubPage({ users = [] }: Props) {
         { code: 'mx_cedis', name: 'CEDIS MX', services: ['inventory'] },
         { code: 'scanner_unificado', name: 'Scanner Unificado', services: ['scanner'] },
         { code: 'inventario_sucursal', name: 'Inventario Sucursal', services: ['inventory'] },
-    ]);
-    const [_loading, _setLoading] = useState(false); // Cambiar a false para mostrar UI inmediatamente
+    ];
+    
+    const [locations, setLocations] = useState<WarehouseLocation[]>([]);
+    const [loading, setLoading] = useState(true);
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null);
-    const [userRole, setUserRole] = useState<string>('super_admin');
+    const [userRole, setUserRole] = useState<string>('');
 
     const token = localStorage.getItem('token');
 
@@ -125,25 +138,72 @@ export default function WarehouseHubPage({ users = [] }: Props) {
 
     useEffect(() => {
         console.log('🟢 WarehouseHubPage MOUNTED');
-        // Cargar rol del usuario en background sin afectar UI
-        loadUserRole();
+        loadUserPermissions();
         return () => {
             console.log('🔴 WarehouseHubPage UNMOUNTED');
         };
     }, []);
 
-    const loadUserRole = async () => {
+    const loadUserPermissions = async () => {
+        setLoading(true);
         try {
-            const res = await fetch(`${API_URL}/api/auth/profile`, {
+            // Cargar perfil del usuario
+            const profileRes = await fetch(`${API_URL}/api/auth/profile`, {
                 headers: { Authorization: `Bearer ${token}` },
             });
-            if (res.ok) {
-                const data = await res.json();
-                const role = data.user?.role || data.role || 'super_admin';
+            
+            let role = '';
+            if (profileRes.ok) {
+                const profileData = await profileRes.json();
+                role = profileData.user?.role || profileData.role || '';
                 setUserRole(role);
             }
+
+            // Si es super_admin, mostrar todos los paneles
+            if (role === 'super_admin') {
+                setLocations(ALL_LOCATIONS);
+                setLoading(false);
+                return;
+            }
+
+            // Cargar permisos del usuario
+            const permissionsRes = await fetch(`${API_URL}/api/panels/me`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+
+            if (permissionsRes.ok) {
+                const permData = await permissionsRes.json();
+                const userPanels = (permData.panels || [])
+                    .filter((p: { can_view: boolean }) => p.can_view)
+                    .map((p: { panel_key: string }) => p.panel_key);
+
+                console.log('📋 Permisos de operaciones del usuario:', userPanels);
+
+                // Filtrar ubicaciones según permisos
+                const allowedLocationCodes = userPanels
+                    .map((panelKey: string) => PANEL_TO_LOCATION[panelKey])
+                    .filter(Boolean);
+
+                const filteredLocations = ALL_LOCATIONS.filter(loc => 
+                    allowedLocationCodes.includes(loc.code)
+                );
+
+                console.log('📍 Ubicaciones permitidas:', filteredLocations.map(l => l.code));
+                setLocations(filteredLocations);
+
+                // Si solo tiene un panel, ir directo a él
+                if (filteredLocations.length === 1) {
+                    setSelectedPanel(filteredLocations[0].code);
+                }
+            } else {
+                // Sin permisos específicos, no mostrar nada
+                setLocations([]);
+            }
         } catch (err) {
-            console.error('Error loading user role:', err);
+            console.error('Error loading user permissions:', err);
+            setLocations([]);
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -197,10 +257,21 @@ export default function WarehouseHubPage({ users = [] }: Props) {
         );
     }
 
-    if (_loading) {
+    if (loading) {
         return (
             <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
                 <CircularProgress />
+            </Box>
+        );
+    }
+
+    // Si no tiene permisos, mostrar mensaje
+    if (locations.length === 0) {
+        return (
+            <Box sx={{ p: 3 }}>
+                <Alert severity="warning">
+                    No tienes permisos asignados para paneles de operaciones. Contacta al administrador.
+                </Alert>
             </Box>
         );
     }

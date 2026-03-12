@@ -149,7 +149,7 @@ const getPackageCBM = (pkg: any): number => {
 
 export default function DeliveryInstructionsScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
-  const { package: pkg, packages: multiplePackages, user, token } = route.params;
+  const { package: pkg, packages: multiplePackages, user, token, isChangingFromPickup } = route.params as any;
   
   // Usar múltiples paquetes si vienen, si no usar el paquete único
   const allPackages = multiplePackages && multiplePackages.length > 0 ? multiplePackages : [pkg];
@@ -213,6 +213,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     name: string;
     logo?: string;
     price: number;
+    currency?: 'MXN' | 'USD'; // Moneda del precio (default MXN)
     estimatedDays: string;
     isExternal: boolean; // true = Skydropx, false = interno
     skydropxCarrierId?: string; // ID del carrier en Skydropx
@@ -229,7 +230,8 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     {
       id: 'pickup_hidalgo',
       name: 'Pick Up: Sucursal Hidalgo TX',
-      price: 0,
+      price: 3,
+      currency: 'USD',
       estimatedDays: 'Recoger en bodega',
       isExternal: false,
     },
@@ -237,6 +239,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
       id: 'paquete_express',
       name: 'Paquete Express Interno',
       price: 350,
+      currency: 'MXN',
       estimatedDays: '2-4 días hábiles',
       isExternal: false,
     },
@@ -290,6 +293,12 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     const carrier = carrierRates.find(c => c.id === selectedCarrier);
     const pricePerBox = carrier?.price || 0;
     return pricePerBox * getTotalBoxes();
+  };
+
+  // Obtener la moneda del carrier seleccionado
+  const getSelectedCarrierCurrency = (): string => {
+    const carrier = carrierRates.find(c => c.id === selectedCarrier);
+    return carrier?.currency || 'MXN';
   };
 
   // Función para obtener tarifas de paquetería (incluye Skydropx si está activo)
@@ -1130,18 +1139,91 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
               <Ionicons name="business" size={48} color={SEA_COLOR} />
               <Text style={styles.pickupTitle}>📍 Sucursal Hidalgo TX</Text>
               <Text style={styles.pickupAddress}>
-                Dirección: 8104 Denny Cir, Hidalgo, TX 78557
+                Dirección: 1860 North International Blvd. Suite 4, Hidalgo, TX
               </Text>
               <Text style={styles.pickupHours}>
                 🕐 Horario: Lunes a Viernes 9:00am - 6:00pm
+              </Text>
+              <Text style={styles.pickupPhone}>
+                📞 Tel: (956) 475-6246
               </Text>
               <Text style={styles.pickupNote}>
                 Tu paquete estará listo para recoger en nuestra sucursal. 
                 Te notificaremos cuando esté disponible.
               </Text>
+              
+              {/* Advertencia de cargo por almacenaje */}
+              <View style={styles.storageWarning}>
+                <View style={styles.storageWarningTextContainer}>
+                  <Text style={styles.storageWarningTitle}>⚠️ Aviso de Almacenaje</Text>
+                  <Text style={styles.storageWarningText}>
+                    Los paquetes que permanezcan en bodega más de 15 días generarán 
+                    un cargo de $3.00 USD diarios.
+                  </Text>
+                </View>
+              </View>
             </View>
           </Card.Content>
         </Card>
+        )}
+
+        {/* Desglose de Costos PO Box - Solo cuando viene de Pick Up */}
+        {isChangingFromPickup && (
+          <Card style={[styles.carrierCard, { marginBottom: 12 }]}>
+            <Card.Content>
+              <Text style={styles.sectionTitle}>💰 Desglose de Costos</Text>
+              <View style={{ marginTop: 12 }}>
+                {allPackages.map((p: any, idx: number) => {
+                  const poboxUsd = parseFloat(p.pobox_venta_usd) || 0;
+                  const tc = parseFloat(p.tipo_cambio) || 18.08;
+                  const poboxMxn = poboxUsd * tc;
+                  const gexCost = parseFloat(p.gex_total_cost) || 0;
+                  
+                  return (
+                    <View key={p.id || idx} style={{ marginBottom: idx < allPackages.length - 1 ? 12 : 0 }}>
+                      {allPackages.length > 1 && (
+                        <Text style={{ fontWeight: '600', marginBottom: 4, color: '#333' }}>
+                          📦 {p.tracking_internal || p.tracking}
+                        </Text>
+                      )}
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ color: '#666', fontSize: 14 }}>📦 Servicio PO Box</Text>
+                          <Text style={{ color: '#999', fontSize: 11 }}>
+                            💸 ${poboxUsd.toFixed(2)} USD × TC ${tc.toFixed(2)}
+                          </Text>
+                        </View>
+                        <Text style={{ fontWeight: '600', color: '#333', fontSize: 14 }}>
+                          ${poboxMxn.toFixed(2)} MXN
+                        </Text>
+                      </View>
+                      {gexCost > 0 && (
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <Text style={{ color: '#666', fontSize: 14 }}>🛡️ Garantía Extendida GEX</Text>
+                          <Text style={{ fontWeight: '600', color: '#333', fontSize: 14 }}>
+                            ${gexCost.toFixed(2)} MXN
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
+                <View style={{ borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 8, marginTop: 8 }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={{ color: '#666', fontSize: 14 }}>📦 Subtotal PO Box:</Text>
+                    <Text style={{ fontWeight: '600', color: ORANGE, fontSize: 14 }}>
+                      ${allPackages.reduce((sum: number, p: any) => {
+                        const poboxUsd = parseFloat(p.pobox_venta_usd) || 0;
+                        const tc = parseFloat(p.tipo_cambio) || 18.08;
+                        const gexCost = parseFloat(p.gex_total_cost) || 0;
+                        return sum + (poboxUsd * tc) + gexCost;
+                      }, 0).toFixed(2)} MXN
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </Card.Content>
+          </Card>
         )}
 
         {/* Selección de Paquetería */}
@@ -1161,7 +1243,15 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
               onValueChange={(value) => setSelectedCarrier(value)}
               value={selectedCarrier}
             >
-              {carrierRates.map((carrier) => {
+              {carrierRates
+                .filter((carrier) => {
+                  // Si viene de cambiar Pick Up, ocultar la opción de Pick Up
+                  if (isChangingFromPickup && carrier.id === 'pickup_hidalgo') {
+                    return false;
+                  }
+                  return true;
+                })
+                .map((carrier) => {
                 return (
                 <TouchableOpacity
                   key={carrier.id}
@@ -1192,7 +1282,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                     ) : (
                       <>
                         <Text style={styles.carrierPrice}>
-                          ${(carrier.price * getTotalBoxes()).toFixed(2)}
+                          ${(carrier.price * getTotalBoxes()).toFixed(2)} {carrier.currency || 'MXN'}
                         </Text>
                         <Text style={styles.carrierPriceDetail}>
                           ${carrier.price} x {getTotalBoxes()} {getTotalBoxes() === 1 ? 'caja' : 'cajas'}
@@ -1207,14 +1297,50 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
 
             {/* Resumen de costo de envío */}
             <View style={styles.carrierSummary}>
-              <View style={styles.carrierSummaryRow}>
-                <Text style={styles.carrierSummaryLabel}>Costo de envío nacional:</Text>
-                <Text style={styles.carrierSummaryValue}>
-                  {getSelectedCarrierCost() === 0 
-                    ? 'GRATIS' 
-                    : `$${getSelectedCarrierCost().toFixed(2)} MXN`}
-                </Text>
-              </View>
+              {isChangingFromPickup && (
+                <>
+                  <View style={styles.carrierSummaryRow}>
+                    <Text style={styles.carrierSummaryLabel}>Servicio PO Box:</Text>
+                    <Text style={[styles.carrierSummaryValue, { color: '#666' }]}>
+                      ${allPackages.reduce((sum: number, p: any) => {
+                        const poboxUsd = parseFloat(p.pobox_venta_usd) || 0;
+                        const tc = parseFloat(p.tipo_cambio) || 18.08;
+                        const gexCost = parseFloat(p.gex_total_cost) || 0;
+                        return sum + (poboxUsd * tc) + gexCost;
+                      }, 0).toFixed(2)} MXN
+                    </Text>
+                  </View>
+                  <View style={styles.carrierSummaryRow}>
+                    <Text style={styles.carrierSummaryLabel}>Envío Nacional:</Text>
+                    <Text style={[styles.carrierSummaryValue, { color: '#666' }]}>
+                      {getSelectedCarrierCost() === 0 
+                        ? 'GRATIS' 
+                        : `$${getSelectedCarrierCost().toFixed(2)} ${getSelectedCarrierCurrency()}`}
+                    </Text>
+                  </View>
+                  <View style={[styles.carrierSummaryRow, { borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 8, marginTop: 4 }]}>
+                    <Text style={[styles.carrierSummaryLabel, { fontWeight: '700', color: '#333' }]}>TOTAL A PAGAR:</Text>
+                    <Text style={[styles.carrierSummaryValue, { fontWeight: '700', color: ORANGE, fontSize: 18 }]}>
+                      ${(allPackages.reduce((sum: number, p: any) => {
+                        const poboxUsd = parseFloat(p.pobox_venta_usd) || 0;
+                        const tc = parseFloat(p.tipo_cambio) || 18.08;
+                        const gexCost = parseFloat(p.gex_total_cost) || 0;
+                        return sum + (poboxUsd * tc) + gexCost;
+                      }, 0) + getSelectedCarrierCost()).toFixed(2)} MXN
+                    </Text>
+                  </View>
+                </>
+              )}
+              {!isChangingFromPickup && (
+                <View style={styles.carrierSummaryRow}>
+                  <Text style={styles.carrierSummaryLabel}>Total:</Text>
+                  <Text style={styles.carrierSummaryValue}>
+                    {getSelectedCarrierCost() === 0 
+                      ? 'GRATIS' 
+                      : `$${getSelectedCarrierCost().toFixed(2)} ${getSelectedCarrierCurrency()}`}
+                  </Text>
+                </View>
+              )}
             </View>
           </Card.Content>
         </Card>
@@ -1821,6 +1947,11 @@ const styles = StyleSheet.create({
   pickupHours: {
     fontSize: 13,
     color: '#666',
+    marginBottom: 4,
+  },
+  pickupPhone: {
+    fontSize: 13,
+    color: '#666',
     marginBottom: 12,
   },
   pickupNote: {
@@ -1828,6 +1959,31 @@ const styles = StyleSheet.create({
     color: '#888',
     textAlign: 'center',
     fontStyle: 'italic',
+    lineHeight: 18,
+  },
+  storageWarning: {
+    flexDirection: 'row',
+    backgroundColor: '#fff4e5',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ed6c02',
+    padding: 12,
+    marginTop: 16,
+    alignItems: 'flex-start',
+  },
+  storageWarningTextContainer: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  storageWarningTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: '#ed6c02',
+    marginBottom: 4,
+  },
+  storageWarningText: {
+    fontSize: 12,
+    color: '#663c00',
     lineHeight: 18,
   },
   addFirstButton: {

@@ -141,7 +141,12 @@ interface Corte {
 // COMPONENTE PRINCIPAL
 // ============================================
 
-const POBoxCajaPage: React.FC = () => {
+interface POBoxCajaPageProps {
+  initialSearchRef?: string | null;
+  onPaymentConfirmed?: () => void;
+}
+
+const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPaymentConfirmed }) => {
   // Estado general
   const [stats, setStats] = useState<CajaStats | null>(null);
   const [transacciones, setTransacciones] = useState<Transaccion[]>([]);
@@ -156,7 +161,7 @@ const POBoxCajaPage: React.FC = () => {
   const [ingresoDialogOpen, setIngresoDialogOpen] = useState(false);
 
   // Búsqueda por referencia
-  const [searchRef, setSearchRef] = useState('');
+  const [searchRef, setSearchRef] = useState(initialSearchRef || '');
   const [searching, setSearching] = useState(false);
   const [searchResult, setSearchResult] = useState<PaymentSearchResult | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -255,6 +260,18 @@ const POBoxCajaPage: React.FC = () => {
     loadData();
   }, [loadData]);
 
+  // Si viene con tracking pre-cargado, abrir el dialog de pago y buscar automáticamente
+  useEffect(() => {
+    if (initialSearchRef && !loading) {
+      setPagoDialogOpen(true);
+      // Buscar automáticamente después de un pequeño delay para que cargue el dialog
+      const timer = setTimeout(() => {
+        handleSearchByRef();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [initialSearchRef, loading]);
+
   // ============================================
   // BÚSQUEDA POR REFERENCIA
   // ============================================
@@ -306,6 +323,11 @@ const POBoxCajaPage: React.FC = () => {
       setConfirmNotes('');
       setPagoDialogOpen(false);
       loadData();
+
+      // Si hay callback, llamarlo (para volver al dashboard)
+      if (onPaymentConfirmed) {
+        setTimeout(() => onPaymentConfirmed(), 500);
+      }
 
     } catch (error: unknown) {
       console.error('Error confirming payment:', error);

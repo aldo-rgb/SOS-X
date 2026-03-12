@@ -217,7 +217,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   
   // Wizard state
   const [activeStep, setActiveStep] = useState(0);
-  const [boxes, setBoxes] = useState<BoxItem[]>([{ id: 1, weight: '', length: '', width: '', height: '' }]);
+  const [boxes, setBoxes] = useState<BoxItem[]>([]);
   const [currentBox, setCurrentBox] = useState({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
   const [trackingProvider, setTrackingProvider] = useState('');
   const [declaredValue, setDeclaredValue] = useState('');
@@ -535,6 +535,29 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       });
       
       setShippingRates(rates);
+      
+      // Auto-seleccionar según preferencia del cliente, o la primera disponible
+      const clientPreferredCarrier = clientInstructions?.preferences?.carrier?.toLowerCase().replace(/[_\s-]/g, '');
+      let selectedRateToUse = null;
+      
+      if (clientPreferredCarrier) {
+        // Buscar la tarifa que coincida con la preferencia del cliente (normalizar quitando espacios, guiones y underscores)
+        selectedRateToUse = rates.find(r => {
+          const providerNorm = r.provider?.toLowerCase().replace(/[_\s-]/g, '') || '';
+          const carrierNorm = r.carrierName?.toLowerCase().replace(/[_\s-]/g, '') || '';
+          return providerNorm.includes(clientPreferredCarrier) || carrierNorm.includes(clientPreferredCarrier);
+        });
+      }
+      
+      // Si no hay preferencia o no se encontró, usar la primera
+      if (!selectedRateToUse && rates.length > 0) {
+        selectedRateToUse = rates[0];
+      }
+      
+      if (selectedRateToUse) {
+        setSelectedRate(selectedRateToUse);
+      }
+      
       if (rates.length > 0) {
         setSnackbar({ open: true, message: `✅ ${rates.length} opciones de envío disponibles`, severity: 'success' });
       }
@@ -599,6 +622,29 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       });
       
       setShippingRates(rates);
+      
+      // Auto-seleccionar según preferencia del cliente, o la primera disponible
+      const clientPreferredCarrier = clientInstructions?.preferences?.carrier?.toLowerCase().replace(/[_\s-]/g, '');
+      let selectedRateToUse = null;
+      
+      if (clientPreferredCarrier) {
+        // Buscar la tarifa que coincida con la preferencia del cliente (normalizar quitando espacios, guiones y underscores)
+        selectedRateToUse = rates.find(r => {
+          const providerNorm = r.provider?.toLowerCase().replace(/[_\s-]/g, '') || '';
+          const carrierNorm = r.carrierName?.toLowerCase().replace(/[_\s-]/g, '') || '';
+          return providerNorm.includes(clientPreferredCarrier) || carrierNorm.includes(clientPreferredCarrier);
+        });
+      }
+      
+      // Si no hay preferencia o no se encontró, usar la primera
+      if (!selectedRateToUse && rates.length > 0) {
+        selectedRateToUse = rates[0];
+      }
+      
+      if (selectedRateToUse) {
+        setSelectedRate(selectedRateToUse);
+      }
+      
       if (rates.length > 0) {
         const localMsg = isMonterreyArea ? ' (incluye entrega local)' : '';
         setSnackbar({ open: true, message: `✅ ${rates.length} opciones de envío encontradas${localMsg}`, severity: 'success' });
@@ -1155,7 +1201,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   void clients; // Available for future use
   const totalWeight = boxes.reduce((sum, b) => sum + (parseFloat(b.weight) || 0), 0);
   const totalVolume = boxes.reduce((sum, b) => {
-    const vol = (parseFloat(b.length) || 0) * (parseFloat(b.width) || 0) * (parseFloat(b.height) || 0) / 1000;
+    const vol = (parseFloat(b.length) || 0) * (parseFloat(b.width) || 0) * (parseFloat(b.height) || 0) / 1000000; // CBM
     return sum + vol;
   }, 0);
 
@@ -1466,7 +1512,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                                   )}
                                 </Box>
                               }
-                              secondary={`${t('wizard.volume')}: ${((parseFloat(box.length) * parseFloat(box.width) * parseFloat(box.height)) / 1000).toFixed(2)} L`}
+                              secondary={`${t('wizard.volume')}: ${((parseFloat(box.length) * parseFloat(box.width) * parseFloat(box.height)) / 1000000).toFixed(4)} CBM`}
                             />
                             <ListItemSecondaryAction>
                               <IconButton edge="end" onClick={() => handleRemoveBox(box.id)}><DeleteIcon color="error" /></IconButton>
@@ -1477,7 +1523,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                       <Divider sx={{ my: 2 }} />
                       <Box sx={{ display: 'flex', justifyContent: 'space-around' }}>
                         <Typography><strong>{t('shipments.totalWeight')}:</strong> {totalWeight.toFixed(2)} kg</Typography>
-                        <Typography><strong>{t('shipments.totalVolume')}:</strong> {totalVolume.toFixed(2)} L</Typography>
+                        <Typography><strong>{t('shipments.totalVolume')}:</strong> {totalVolume.toFixed(4)} CBM</Typography>
                         {boxes.length > 1 && <Chip icon={<AccountTreeIcon />} label={t('wizard.willGenerateMasterChild')} color="warning" />}
                       </Box>
                     </Paper>

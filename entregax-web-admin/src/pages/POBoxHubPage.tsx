@@ -74,6 +74,7 @@ import {
     Person as PersonIcon,
     ArrowForward as ArrowForwardIcon,
     AllInbox as AllInboxIcon,
+    Warning as WarningIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import api from '../services/api';
@@ -169,7 +170,6 @@ const PAQUETERIAS = [
 ];
 
 const ORANGE = '#F05A28';
-const API_URL = 'http://localhost:3001/api';
 
 // Definición de las opciones del menú - ORDEN: Recibir, Entrada, Salida, Cobrar, Cotizar, Reempaque, Inventario
 const POBOX_MENU_OPTIONS = [
@@ -234,11 +234,19 @@ const POBOX_MENU_OPTIONS = [
 interface Props {
     users?: Array<{ id: number; full_name: string; email: string; box_id: string; role: string }>;
     onBack?: () => void;
+    openBulkReceiveOnMount?: boolean; // Abrir wizard de recepción en serie automáticamente
 }
 
-export default function POBoxHubPage({ users = [], onBack }: Props) {
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMount = false }: Props) {
     const { t } = useTranslation();
     const [selectedOption, setSelectedOption] = useState<string | null>(null);
+    
+    // Estados para permisos de módulos
+    const [allowedModules, setAllowedModules] = useState<string[]>([]);
+    const [permissionsLoading, setPermissionsLoading] = useState(true);
+    const [userRole, setUserRole] = useState<string>('');
     
     // Estados para modal de cotización
     const [quoteModalOpen, setQuoteModalOpen] = useState(false);
@@ -253,7 +261,7 @@ export default function POBoxHubPage({ users = [], onBack }: Props) {
     const [loadingTarifas, setLoadingTarifas] = useState(false);
 
     // =========== Estados para modal de RECEPCIÓN EN SERIE ===========
-    const [bulkReceiveOpen, setBulkReceiveOpen] = useState(false);
+    const [bulkReceiveOpen, setBulkReceiveOpen] = useState(openBulkReceiveOnMount);
     const [bulkStep, setBulkStep] = useState(0); // 0 = Cajas, 1 = Foto & Cliente
     const [bulkBoxes, setBulkBoxes] = useState<BoxItem[]>([]);
     const [bulkCurrentBox, setBulkCurrentBox] = useState({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
@@ -278,6 +286,66 @@ export default function POBoxHubPage({ users = [], onBack }: Props) {
     const [inventorySearch, setInventorySearch] = useState('');
     const [inventoryPage, setInventoryPage] = useState(0);
     const [inventoryRowsPerPage, setInventoryRowsPerPage] = useState(10);
+
+    const token = localStorage.getItem('token');
+
+    // Cargar permisos de módulos al montar
+    useEffect(() => {
+        const loadModulePermissions = async () => {
+            setPermissionsLoading(true);
+            try {
+                // Obtener rol del usuario
+                const profileRes = await fetch(`${API_URL}/api/auth/profile`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                
+                let role = '';
+                if (profileRes.ok) {
+                    const profileData = await profileRes.json();
+                    role = profileData.user?.role || profileData.role || '';
+                    setUserRole(role);
+                }
+
+                // Si es super_admin, tiene acceso a todo
+                if (role === 'super_admin') {
+                    setAllowedModules(POBOX_MENU_OPTIONS.map(opt => opt.id));
+                    setPermissionsLoading(false);
+                    return;
+                }
+
+                // Cargar permisos de módulos para ops_usa_pobox
+                const modulesRes = await fetch(`${API_URL}/api/modules/ops_usa_pobox/me`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+
+                if (modulesRes.ok) {
+                    const modulesData = await modulesRes.json();
+                    const allowed = (modulesData.modules || [])
+                        .filter((m: { can_view: boolean }) => m.can_view)
+                        .map((m: { module_key: string }) => m.module_key);
+                    
+                    console.log('📋 Módulos permitidos en PO Box:', allowed);
+                    setAllowedModules(allowed);
+                } else {
+                    // Si no hay endpoint, mostrar todos por defecto
+                    setAllowedModules(POBOX_MENU_OPTIONS.map(opt => opt.id));
+                }
+            } catch (err) {
+                console.error('Error loading module permissions:', err);
+                // En caso de error, mostrar todos
+                setAllowedModules(POBOX_MENU_OPTIONS.map(opt => opt.id));
+            } finally {
+                setPermissionsLoading(false);
+            }
+        };
+
+        loadModulePermissions();
+    }, [token]);
+
+    // Filtrar opciones según permisos
+    const filteredMenuOptions = POBOX_MENU_OPTIONS.filter(opt => 
+        allowedModules.includes(opt.id)
+    );
 
     // Cargar tarifas cuando se abre el modal
     const fetchTarifas = useCallback(async () => {
@@ -422,7 +490,7 @@ export default function POBoxHubPage({ users = [], onBack }: Props) {
         const l = parseFloat(b.length) || 0;
         const w = parseFloat(b.width) || 0;
         const h = parseFloat(b.height) || 0;
-        return sum + (l * w * h / 1000);
+        return sum + (l * w * h / 1000000); // CBM
     }, 0);
 
     // Abrir cámara
@@ -491,18 +559,14 @@ export default function POBoxHubPage({ users = [], onBack }: Props) {
 
     // Guardar paquete y continuar con el siguiente
     const handleSaveBulkPackage = async () => {
-        if (!bulkBoxId) {
-            setBulkError('Ingresa el número de casillero del cliente');
-            return;
-        }
-
+        // boxId ya no es obligatorio - se puede crear sin cliente
         setBulkSubmitting(true);
         setBulkError('');
 
         try {
             const payload = {
-                boxId: bulkBoxId,
-                description: `Paquete recibido en bodega Hidalgo TX`,
+                boxId: bulkBoxId || undefined, // Opcional - puede ser sin cliente
+                description: `Paquete recibido: Hidalgo TX`,
                 boxes: bulkBoxes.map(b => ({
                     weight: parseFloat(b.weight),
                     length: parseFloat(b.length),
@@ -513,11 +577,11 @@ export default function POBoxHubPage({ users = [], onBack }: Props) {
                 imageUrl: bulkImage || undefined,
                 warehouseLocation: 'usa_pobox',
                 leaveInWarehouse: true, // Siempre en bodega Hidalgo TX
-                notes: 'Recibido en bodega Hidalgo TX - Recepción en serie'
+                notes: bulkBoxId ? 'Recibido en bodega Hidalgo TX - Recepción en serie' : 'Paquete sin cliente asignado - Recibido en bodega Hidalgo TX'
             };
 
             const token = localStorage.getItem('token') || '';
-            const response = await axios.post(`${API_URL}/packages`, payload, {
+            const response = await axios.post(`${API_URL}/api/packages`, payload, {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
@@ -525,14 +589,16 @@ export default function POBoxHubPage({ users = [], onBack }: Props) {
             const tracking = response.data.shipment?.labels?.[0]?.tracking || `PKG-${Date.now()}`;
             setPaquetesRegistrados(prev => [...prev, {
                 tracking,
-                boxId: bulkBoxId,
+                boxId: bulkBoxId || 'SIN CLIENTE',
                 peso: bulkTotalWeight,
                 medidas: `${bulkBoxes.length} caja(s)`
             }]);
 
             setSnackbar({ 
                 open: true, 
-                message: `✅ Paquete registrado para casillero ${bulkBoxId}`, 
+                message: bulkBoxId 
+                    ? `✅ Paquete registrado para casillero ${bulkBoxId}` 
+                    : `✅ Paquete registrado sin cliente asignado`, 
                 severity: 'success' 
             });
 
@@ -761,74 +827,112 @@ export default function POBoxHubPage({ users = [], onBack }: Props) {
                 </Box>
             </Box>
 
-            {/* Grid de opciones */}
-            <Grid container spacing={3}>
-                {POBOX_MENU_OPTIONS.map((option) => (
-                    <Grid size={{ xs: 12, sm: 6, md: 4 }} key={option.id}>
-                        <Card
-                            sx={{
-                                height: '100%',
-                                transition: 'all 0.3s ease',
-                                '&:hover': {
-                                    transform: 'translateY(-8px)',
-                                    boxShadow: 6,
-                                },
-                            }}
-                        >
-                            <CardActionArea
-                                onClick={() => handleOptionClick(option.id)}
-                                sx={{ height: '100%' }}
-                            >
-                                <Box
+            {/* Loading de permisos */}
+            {permissionsLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+                    <CircularProgress />
+                </Box>
+            ) : filteredMenuOptions.length === 0 ? (
+                <Alert severity="warning" sx={{ mb: 3 }}>
+                    No tienes permisos para ningún módulo de PO Box. Contacta a tu supervisor.
+                </Alert>
+            ) : (
+                <>
+                    {/* Grid de opciones */}
+                    <Grid container spacing={3}>
+                        {filteredMenuOptions.map((option) => (
+                            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={option.id}>
+                                <Card
                                     sx={{
-                                        background: option.bgGradient,
-                                        p: 3,
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
+                                        height: '100%',
+                                        transition: 'all 0.3s ease',
+                                        '&:hover': {
+                                            transform: 'translateY(-8px)',
+                                            boxShadow: 6,
+                                        },
                                     }}
                                 >
-                                    <Box
-                                        sx={{
-                                            width: 100,
-                                            height: 100,
-                                            borderRadius: '50%',
-                                            bgcolor: 'rgba(255,255,255,0.2)',
-                                            display: 'flex',
-                                            alignItems: 'center',
-                                            justifyContent: 'center',
-                                        }}
+                                    <CardActionArea
+                                        onClick={() => handleOptionClick(option.id)}
+                                        sx={{ height: '100%' }}
                                     >
-                                        <Box sx={{ color: 'white' }}>
-                                            {option.icon}
+                                        <Box
+                                            sx={{
+                                                background: option.bgGradient,
+                                                p: 3,
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                            }}
+                                        >
+                                            <Box
+                                                sx={{
+                                                    width: 100,
+                                                    height: 100,
+                                                    borderRadius: '50%',
+                                                    bgcolor: 'rgba(255,255,255,0.2)',
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                }}
+                                            >
+                                                <Box sx={{ color: 'white' }}>
+                                                    {option.icon}
+                                                </Box>
+                                            </Box>
                                         </Box>
-                                    </Box>
-                                </Box>
-                                <CardContent sx={{ textAlign: 'center' }}>
-                                    <Typography variant="h6" fontWeight="bold" gutterBottom>
-                                        {t(`pobox.hub.options.${option.id}.title`, getDefaultTitle(option.id))}
-                                    </Typography>
-                                    <Typography variant="body2" color="text.secondary">
-                                        {t(`pobox.hub.options.${option.id}.description`, getDefaultDescription(option.id))}
-                                    </Typography>
-                                </CardContent>
-                            </CardActionArea>
-                        </Card>
+                                        <CardContent sx={{ textAlign: 'center' }}>
+                                            <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                                {t(`pobox.hub.options.${option.id}.title`, getDefaultTitle(option.id))}
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                {t(`pobox.hub.options.${option.id}.description`, getDefaultDescription(option.id))}
+                                            </Typography>
+                                        </CardContent>
+                                    </CardActionArea>
+                                </Card>
+                            </Grid>
+                        ))}
                     </Grid>
-                ))}
-            </Grid>
 
-            {/* Estadísticas rápidas */}
-            <Box sx={{ mt: 4 }}>
-                <Paper sx={{ p: 3, bgcolor: '#f5f5f5' }}>
-                    <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                        💡 {t('pobox.hub.tip', 'Consejo')}
-                    </Typography>
-                    <Typography variant="body2">
-                        {t('pobox.hub.tipText', 'Usa "Recibir Paquetería" para escanear nuevos paquetes, "Cobrar" para gestionar pagos pendientes, y "Cotizar" para calcular costos antes de recibir.')}
-                    </Typography>
-                </Paper>
-            </Box>
+                    {/* Advertencia de cargo por almacenaje */}
+                    <Box sx={{ mt: 4 }}>
+                        <Alert 
+                            severity="warning" 
+                            icon={<WarningIcon />}
+                            sx={{ 
+                                borderRadius: 2,
+                                border: '2px solid #ed6c02',
+                                bgcolor: '#fff4e5',
+                                '& .MuiAlert-icon': {
+                                    fontSize: 28
+                                }
+                            }}
+                        >
+                            <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 0.5 }}>
+                                ⚠️ Aviso Importante - Cargo por Almacenaje
+                            </Typography>
+                            <Typography variant="body2">
+                                Los paquetes que permanezcan en bodega <strong>más de 15 días</strong> a partir de su fecha de recepción 
+                                generarán un cargo de <strong>$3.00 USD diarios por caja</strong>. 
+                                Te recomendamos recoger o solicitar el envío de tus paquetes antes de este plazo para evitar cargos adicionales.
+                            </Typography>
+                        </Alert>
+                    </Box>
+
+                    {/* Estadísticas rápidas */}
+                    <Box sx={{ mt: 3 }}>
+                        <Paper sx={{ p: 3, bgcolor: '#f5f5f5' }}>
+                            <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                💡 {t('pobox.hub.tip', 'Consejo')}
+                            </Typography>
+                            <Typography variant="body2">
+                                {t('pobox.hub.tipText', 'Usa "Recibir Paquetería" para escanear nuevos paquetes, "Cobrar" para gestionar pagos pendientes, y "Cotizar" para calcular costos antes de recibir.')}
+                            </Typography>
+                        </Paper>
+                    </Box>
+                </>
+            )}
 
             {/* Modal de Cotización Rápida */}
             <Dialog 
@@ -1241,7 +1345,7 @@ export default function POBoxHubPage({ users = [], onBack }: Props) {
                                                                     )}
                                                                 </Box>
                                                             }
-                                                            secondary={`Volumen: ${((parseFloat(box.length) * parseFloat(box.width) * parseFloat(box.height)) / 1000).toFixed(2)} L`}
+                                                            secondary={`Volumen: ${((parseFloat(box.length) * parseFloat(box.width) * parseFloat(box.height)) / 1000000).toFixed(4)} CBM`}
                                                         />
                                                         <ListItemSecondaryAction>
                                                             <IconButton edge="end" onClick={() => handleRemoveBulkBox(box.id)}>
@@ -1254,7 +1358,7 @@ export default function POBoxHubPage({ users = [], onBack }: Props) {
                                             <Divider sx={{ my: 2 }} />
                                             <Box sx={{ display: 'flex', justifyContent: 'space-around' }}>
                                                 <Typography><strong>Peso Total:</strong> {bulkTotalWeight.toFixed(2)} kg</Typography>
-                                                <Typography><strong>Volumen Total:</strong> {bulkTotalVolume.toFixed(2)} L</Typography>
+                                                <Typography><strong>Volumen Total:</strong> {bulkTotalVolume.toFixed(4)} CBM</Typography>
                                             </Box>
                                         </Paper>
                                     )}
@@ -1371,11 +1475,11 @@ export default function POBoxHubPage({ users = [], onBack }: Props) {
                                             <Card sx={{ p: 2, height: '100%' }}>
                                                 <Typography variant="subtitle2" gutterBottom>
                                                     <PersonIcon sx={{ verticalAlign: 'middle', mr: 1 }} />
-                                                    Número de Casillero del Cliente *
+                                                    Número de Casillero del Cliente (Opcional)
                                                 </Typography>
                                                 <TextField
                                                     fullWidth
-                                                    placeholder="Ej: S-001"
+                                                    placeholder="Ej: S-001 (dejar vacío si no se conoce)"
                                                     value={bulkBoxId}
                                                     onChange={(e) => setBulkBoxId(e.target.value.toUpperCase())}
                                                     InputProps={{
@@ -1383,6 +1487,14 @@ export default function POBoxHubPage({ users = [], onBack }: Props) {
                                                     }}
                                                     sx={{ mb: 2 }}
                                                 />
+                                                
+                                                {!bulkBoxId && (
+                                                    <Alert severity="warning" sx={{ mb: 2 }}>
+                                                        <Typography variant="caption">
+                                                            ⚠️ Sin casillero: El paquete se guardará como "Sin Cliente" y podrá asignarse después
+                                                        </Typography>
+                                                    </Alert>
+                                                )}
                                                 
                                                 <Alert severity="info" sx={{ mb: 2 }}>
                                                     <Typography variant="caption">
@@ -1395,7 +1507,7 @@ export default function POBoxHubPage({ users = [], onBack }: Props) {
                                                     <Typography variant="subtitle2" gutterBottom>📦 Resumen:</Typography>
                                                     <Typography variant="body2">• Cajas: {bulkBoxes.length}</Typography>
                                                     <Typography variant="body2">• Peso total: {bulkTotalWeight.toFixed(2)} kg</Typography>
-                                                    <Typography variant="body2">• Volumen total: {bulkTotalVolume.toFixed(2)} L</Typography>
+                                                    <Typography variant="body2">• Volumen total: {bulkTotalVolume.toFixed(4)} CBM</Typography>
                                                 </Paper>
                                             </Card>
                                         </Grid>
@@ -1432,7 +1544,7 @@ export default function POBoxHubPage({ users = [], onBack }: Props) {
                             <Button
                                 variant="contained"
                                 onClick={handleSaveBulkPackage}
-                                disabled={bulkSubmitting || !bulkBoxId}
+                                disabled={bulkSubmitting}
                                 startIcon={bulkSubmitting ? <CircularProgress size={20} color="inherit" /> : <CheckCircleIcon />}
                                 sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' } }}
                             >

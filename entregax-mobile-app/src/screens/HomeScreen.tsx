@@ -121,7 +121,12 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const employeeVerified = isEmployee && isEmployeeOnboarded && (verificationStatus === 'verified' || isUserVerified);
 
   // 📦 Función para obtener el label de status traducido
-  const getStatusLabel = (status: string, shipmentType?: string): string => {
+  const getStatusLabel = (status: string, shipmentType?: string, receivedBy?: string | null): string => {
+    // Si está entregado y tiene nombre de quien recibió, mostrarlo
+    if (status === 'delivered' && receivedBy) {
+      return `✅ Entregado: ${receivedBy}`;
+    }
+    
     // Si es marítimo (maritime o fcl), usar labels específicos
     if (shipmentType === 'maritime' || shipmentType === 'fcl') {
       const maritimeLabels: Record<string, string> = {
@@ -169,6 +174,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       in_transit: `🚚 ${t('status.inTransit')}`,
       processing: `📋 ${t('status.processing')}`,
       shipped: `🚚 ${t('status.shipped')}`,
+      ready_pickup: '📍 Pick Up',
       delivered: t('status.delivered'),
       pending: t('status.pending'),
     };
@@ -439,12 +445,26 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         return;
       }
       
-      // 📦 Para PO Box USA: No mezclar paquetes en bodega con procesando
+      // 📦 Para PO Box USA: No mezclar paquetes en bodega con procesando, ni con Pick Up
       if (firstGroup === 'usa') {
         const firstIsInWarehouse = firstSelectedPkg?.status === 'received' && (firstSelectedPkg?.carrier === 'BODEGA' || !firstSelectedPkg?.carrier);
         const currentIsInWarehouse = currentPkg?.status === 'received' && (currentPkg?.carrier === 'BODEGA' || !currentPkg?.carrier);
         const firstIsProcessing = firstSelectedPkg?.status === 'processing';
         const currentIsProcessing = currentPkg?.status === 'processing';
+        const firstIsPickup = firstSelectedPkg?.status === 'ready_pickup';
+        const currentIsPickup = currentPkg?.status === 'ready_pickup';
+        
+        // No mezclar Pick Up con otros estados
+        if ((firstIsPickup && !currentIsPickup) || (!firstIsPickup && currentIsPickup)) {
+          Alert.alert(
+            '⚠️ No puedes mezclar estados',
+            firstIsPickup 
+              ? 'Ya tienes paquetes en PICK UP seleccionados. Solo puedes agregar otros paquetes en Pick Up.'
+              : 'Ya tienes paquetes de BODEGA seleccionados. No puedes mezclar con paquetes en Pick Up.',
+            [{ text: 'Entendido', style: 'default' }]
+          );
+          return;
+        }
         
         if ((firstIsInWarehouse && currentIsProcessing) || (firstIsProcessing && currentIsInWarehouse)) {
           Alert.alert(
@@ -506,8 +526,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
   const renderPackageCard = ({ item }: { item: Package }) => {
     const statusColor = STATUS_COLORS[item.status] || '#999';
-    // Usar statusLabel traducido - pasar shipment_type para diferenciar marítimo
-    const statusLabel = getStatusLabel(item.status, item.shipment_type);
+    // Usar statusLabel traducido - pasar shipment_type para diferenciar marítimo y received_by para entregado
+    const statusLabel = getStatusLabel(item.status, item.shipment_type, (item as any).received_by);
     
     // Es paquete marítimo?
     const isMaritime = item.shipment_type === 'maritime';
@@ -533,8 +553,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // 📦 PO Box USA: seleccionable si está en bodega (received) O procesando (processing)
     // ❌ Paquetes ya pagados NO son seleccionables
     const isPOBoxUSA = !isMaritime && !isChinaAir && !isDHL;
+    // 📍 Paquetes en Pick Up pueden ser seleccionados para cambiar método de envío
+    const isPickupPackage = isPOBoxUSA && item.status === 'ready_pickup';
     const isSelectable = isUserVerified && !isPaid && (
-      (isPOBoxUSA && ['received', 'processing'].includes(item.status)) || 
+      (isPOBoxUSA && ['received', 'processing', 'ready_pickup'].includes(item.status)) || 
       (isMaritime && ['received_china', 'in_transit', 'at_port'].includes(item.status) && !hasDeliveryInstructions) ||
       (isChinaAir && ['received_origin', 'in_transit', 'at_customs'].includes(item.status) && !hasDeliveryInstructions) ||
       (isDHL && ['received_mty'].includes(item.status) && !hasDeliveryInstructions)
@@ -1064,12 +1086,30 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             <Text style={styles.greeting}>{t('home.greeting')}, {user.name?.split(' ')[0]}!</Text>
             <Text style={styles.boxId}>🏠 {t('home.mailbox')}: {user.boxId}</Text>
           </View>
-          {/* 🚀 Botón de Solicitar Envío */}
+          {/* 🚀 Botón de Solicitar Envío o Cambiar Método */}
           <TouchableOpacity
-            style={styles.requestShipmentButton}
+            style={[
+              styles.requestShipmentButton,
+              selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup') && { backgroundColor: '#00796B' }
+            ]}
             onPress={() => {
               if (selectedIds.length > 0) {
-                handleConsolidate();
+                // Verificar si son paquetes en Pick Up
+                const selectedPkgs = packages.filter(p => selectedIds.includes(p.id));
+                const hasPickupPackages = selectedPkgs.some(p => p.status === 'ready_pickup');
+                
+                if (hasPickupPackages) {
+                  // Navegar a cambiar método de envío (DeliveryInstructions)
+                  navigation.navigate('DeliveryInstructions', {
+                    package: selectedPkgs[0],
+                    packages: selectedPkgs,
+                    user,
+                    token,
+                    isChangingFromPickup: true,
+                  });
+                } else {
+                  handleConsolidate();
+                }
               } else {
                 Alert.alert(
                   '📦 Solicitar Envío',
@@ -1079,8 +1119,16 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               }
             }}
           >
-            <Ionicons name="arrow-forward" size={18} color="white" />
-            <Text style={styles.requestShipmentText}>Enviar</Text>
+            <Ionicons 
+              name={selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup') ? "swap-horizontal" : "arrow-forward"} 
+              size={18} 
+              color="white" 
+            />
+            <Text style={styles.requestShipmentText}>
+              {selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup') 
+                ? 'Cambiar' 
+                : 'Enviar'}
+            </Text>
           </TouchableOpacity>
         </View>
         <View style={styles.statsContainer}>

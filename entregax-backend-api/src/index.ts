@@ -14,6 +14,7 @@ import {
   requireRole,
   requireMinLevel,
   getDashboardSummary,
+  getCounterStaffDashboard,
   changePassword,
   updateProfile,
   getAdvisors as getAdvisorsList,
@@ -1339,6 +1340,9 @@ app.get('/api/admin/dashboard', authenticateToken, requireMinLevel(ROLES.COUNTER
 
 // --- RUTA DE RESUMEN DEL DASHBOARD ---
 app.get('/api/dashboard/summary', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDashboardSummary);
+
+// --- RUTA DE DASHBOARD COUNTER STAFF (Mostrador) ---
+app.get('/api/dashboard/counter-staff', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getCounterStaffDashboard);
 
 // --- RUTA PARA VERIFICAR PERMISOS ---
 app.get('/api/auth/verify', authenticateToken, (req: AuthRequest, res: Response) => {
@@ -2668,8 +2672,9 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
 // ============================================
 // BUSCAR PAGO PENDIENTE POR REFERENCIA
 // Para cuando el cliente llega con su referencia
+// Permitir acceso a mostrador (counter_staff) para Caja PO Box
 // ============================================
-app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (req: Request, res: Response): Promise<any> => {
+app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: Request, res: Response): Promise<any> => {
   try {
     const { ref } = req.query;
     
@@ -2726,9 +2731,71 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(
       `, [`%${refStr}%`]);
 
       if (poboxPayment.rows.length === 0) {
-        return res.status(404).json({ 
-          error: 'Referencia no encontrada',
-          message: `No se encontró ningún pago con referencia: ${refStr}`
+        // ============================================
+        // BUSCAR TAMBIÉN EN PAQUETES POR TRACKING
+        // Para paquetes Pick Up u otros con saldo pendiente
+        // ============================================
+        const packageResult = await pool.query(`
+          SELECT 
+            p.id,
+            p.tracking_internal,
+            p.description,
+            p.status,
+            p.carrier,
+            p.assigned_cost_mxn,
+            p.saldo_pendiente,
+            p.national_shipping_cost,
+            p.user_id,
+            u.full_name as cliente_nombre,
+            u.email as cliente_email,
+            u.phone as cliente_telefono,
+            u.box_id
+          FROM packages p
+          LEFT JOIN users u ON p.user_id = u.id
+          WHERE p.tracking_internal ILIKE $1
+          ORDER BY p.created_at DESC
+          LIMIT 1
+        `, [`%${refStr}%`]);
+
+        if (packageResult.rows.length === 0) {
+          return res.status(404).json({ 
+            error: 'Referencia no encontrada',
+            message: `No se encontró ningún pago con referencia: ${refStr}`
+          });
+        }
+
+        // Encontrado un paquete directo
+        const pkg = packageResult.rows[0];
+        const montoPendiente = parseFloat(pkg.saldo_pendiente) || parseFloat(pkg.assigned_cost_mxn) || parseFloat(pkg.national_shipping_cost) || 0;
+        const isPickup = pkg.carrier && pkg.carrier.toLowerCase().includes('pick up');
+
+        return res.json({
+          success: true,
+          source: 'package_direct',
+          isPickup: isPickup,
+          payment: {
+            id: null,
+            referencia: pkg.tracking_internal,
+            monto: montoPendiente,
+            status: pkg.status === 'ready_pickup' ? 'pending_payment' : pkg.status,
+            created_at: null
+          },
+          cliente: {
+            id: pkg.user_id,
+            nombre: pkg.cliente_nombre,
+            email: pkg.cliente_email,
+            telefono: pkg.cliente_telefono,
+            box_id: pkg.box_id
+          },
+          guias: [{
+            id: pkg.id,
+            tracking_internal: pkg.tracking_internal,
+            description: pkg.description,
+            assigned_cost_mxn: montoPendiente,
+            carrier: pkg.carrier,
+            status: pkg.status
+          }],
+          puede_confirmar: pkg.status === 'ready_pickup' || montoPendiente > 0
         });
       }
 
@@ -2824,12 +2891,14 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(
 // ============================================
 // CONFIRMAR PAGO EN EFECTIVO/SUCURSAL
 // Cuando el admin recibe el pago del cliente
+// Permitir acceso a mostrador (counter_staff) para Caja PO Box
 // ============================================
-app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), async (req: AuthRequest, res: Response): Promise<any> => {
+app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const { referencia, metodo_confirmacion = 'efectivo', notas } = req.body;
+    const { referencia, metodo_confirmacion = 'efectivo', notas, received_by } = req.body;
     const adminId = req.user?.userId;
     const adminName = req.user?.email?.split('@')[0] || `User ${adminId}`;
+    const receiverName = received_by || null; // Nombre de quien recibe el paquete
 
     if (!referencia) {
       return res.status(400).json({ error: 'Referencia es requerida' });
@@ -2837,19 +2906,178 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
 
     const refStr = referencia.toUpperCase().trim();
 
-    // Buscar el pago pendiente
+    // Buscar el pago pendiente en openpay_webhook_logs
     const pendingPayment = await pool.query(`
       SELECT * FROM openpay_webhook_logs 
       WHERE transaction_id = $1 AND estatus_procesamiento = 'pending_payment'
     `, [refStr]);
 
+    // ============================================
+    // SI NO ESTÁ EN OPENPAY, BUSCAR PAQUETE DIRECTO (Pick Up)
+    // ============================================
     if (pendingPayment.rows.length === 0) {
-      return res.status(404).json({ 
-        error: 'Pago no encontrado o ya procesado',
-        message: 'Verifica que la referencia sea correcta y el pago esté pendiente'
+      // Buscar paquete por tracking (para Pick Up u otros pagos directos)
+      const packageResult = await pool.query(`
+        SELECT 
+          p.id,
+          p.tracking_internal,
+          p.user_id,
+          p.status,
+          p.carrier,
+          p.service_type,
+          p.assigned_cost_mxn,
+          p.saldo_pendiente,
+          p.national_shipping_cost,
+          u.full_name as cliente_nombre
+        FROM packages p
+        LEFT JOIN users u ON p.user_id = u.id
+        WHERE p.tracking_internal ILIKE $1
+        LIMIT 1
+      `, [`%${refStr}%`]);
+
+      if (packageResult.rows.length === 0) {
+        return res.status(404).json({ 
+          error: 'Pago no encontrado o ya procesado',
+          message: 'Verifica que la referencia sea correcta y el pago esté pendiente'
+        });
+      }
+
+      // Procesar pago directo de paquete (Pick Up o entrega en sucursal)
+      const pkg = packageResult.rows[0];
+      console.log('📦 Paquete encontrado:', {
+        tracking: pkg.tracking_internal,
+        status: pkg.status,
+        carrier: pkg.carrier,
+        saldo_pendiente: pkg.saldo_pendiente,
+        assigned_cost_mxn: pkg.assigned_cost_mxn,
+        national_shipping_cost: pkg.national_shipping_cost,
+        user_id: pkg.user_id
       });
+      
+      const montoPendiente = parseFloat(pkg.saldo_pendiente) || parseFloat(pkg.assigned_cost_mxn) || parseFloat(pkg.national_shipping_cost) || 0;
+      console.log('💰 Monto pendiente calculado:', montoPendiente);
+      
+      // Es pickup si: el carrier contiene "pick up" O si el status es "ready_pickup"
+      const isPickup = (pkg.carrier && pkg.carrier.toLowerCase().includes('pick up')) || pkg.status === 'ready_pickup';
+
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // 1. Marcar paquete como pagado Y entregado (siempre si está en ready_pickup o es pickup)
+        const newStatus = isPickup ? 'delivered' : pkg.status;
+        
+        // Actualizar paquete - condicional según si es pickup
+        if (isPickup) {
+          await client.query(`
+            UPDATE packages SET
+              client_paid = TRUE,
+              client_paid_at = CURRENT_TIMESTAMP,
+              saldo_pendiente = 0,
+              payment_status = 'paid',
+              status = $2,
+              delivered_at = CURRENT_TIMESTAMP,
+              received_by = COALESCE($3, received_by)
+            WHERE id = $1
+          `, [pkg.id, newStatus, receiverName]);
+        } else {
+          await client.query(`
+            UPDATE packages SET
+              client_paid = TRUE,
+              client_paid_at = CURRENT_TIMESTAMP,
+              saldo_pendiente = 0,
+              payment_status = 'paid',
+              status = $2
+            WHERE id = $1
+          `, [pkg.id, newStatus]);
+        }
+
+        // 2. Registrar en movimientos_financieros
+        // Para PO Box USA (Hidalgo TX), usar sucursal 6 (Mostrador Hidalgo TX)
+        const isPOBoxUSA = pkg.service_type === 'POBOX_USA' || (pkg.tracking_internal && pkg.tracking_internal.startsWith('US-'));
+        const branchId = isPOBoxUSA ? 6 : 1;
+        const billeteraResult = await client.query(`
+          SELECT id, saldo_actual FROM billeteras_sucursal 
+          WHERE sucursal_id = $1 AND is_default = true AND is_active = true
+          LIMIT 1
+        `, [branchId]);
+        
+        if (billeteraResult.rows.length > 0) {
+          const billetera = billeteraResult.rows[0];
+          const saldoAnterior = parseFloat(billetera.saldo_actual) || 0;
+          const nuevoSaldo = saldoAnterior + montoPendiente;
+          
+          await client.query(`
+            UPDATE billeteras_sucursal SET saldo_actual = $1 WHERE id = $2
+          `, [nuevoSaldo, billetera.id]);
+          
+          await client.query(`
+            INSERT INTO movimientos_financieros (
+              sucursal_id, billetera_id, tipo_movimiento, monto, 
+              monto_antes, monto_despues, nota_descriptiva, referencia,
+              usuario_id, usuario_nombre, status, created_at
+            ) VALUES (
+              $1, $2, 'ingreso', $3, $4, $5, $6, $7, $8, $9, 'confirmado', CURRENT_TIMESTAMP
+            )
+          `, [
+            branchId,
+            billetera.id,
+            montoPendiente,
+            saldoAnterior,
+            nuevoSaldo,
+            `Pago ${metodo_confirmacion} - ${isPickup ? 'Pick Up' : 'PO Box'} ${pkg.tracking_internal} - Cliente: ${pkg.cliente_nombre}`,
+            pkg.tracking_internal,
+            adminId,
+            adminName
+          ]);
+          
+          // También registrar en caja_chica_transacciones para que aparezca en la UI
+          await client.query(`
+            INSERT INTO caja_chica_transacciones (
+              tipo, monto, concepto, cliente_id, admin_id, admin_name, 
+              saldo_despues_movimiento, categoria, notas
+            ) VALUES (
+              'ingreso', $1, $2, $3, $4, $5, $6, 'cobro_guias', $7
+            )
+          `, [
+            montoPendiente,
+            `Pago ${metodo_confirmacion.toUpperCase()} PO Box - Ref: ${pkg.tracking_internal} - Cliente: ${pkg.cliente_nombre}`,
+            pkg.user_id,
+            adminId,
+            adminName,
+            nuevoSaldo,
+            `Pago con ${metodo_confirmacion} en mostrador`
+          ]);
+        }
+
+        await client.query('COMMIT');
+
+        console.log(`✅ Pago Pick Up confirmado: ${pkg.tracking_internal} - $${montoPendiente} MXN por ${adminName || adminId}`);
+
+        return res.json({
+          success: true,
+          message: isPickup ? 'Pago confirmado y paquete entregado' : 'Pago confirmado exitosamente',
+          referencia: pkg.tracking_internal,
+          monto: montoPendiente,
+          metodo: metodo_confirmacion,
+          paquetes_actualizados: 1,
+          confirmado_por: adminName || adminId,
+          status_nuevo: newStatus,
+          isPickup: isPickup
+        });
+
+      } catch (err: any) {
+        await client.query('ROLLBACK');
+        console.error('❌ Error en confirm-payment (pick up flow):', err.message, err.stack);
+        throw err;
+      } finally {
+        client.release();
+      }
     }
 
+    // ============================================
+    // FLUJO ORIGINAL: PAGO DESDE OPENPAY_WEBHOOK_LOGS
+    // ============================================
     const payment = pendingPayment.rows[0];
     let packageIds = [];
     try {
@@ -2958,6 +3186,176 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
   } catch (error: any) {
     console.error('Error confirming payment:', error);
     res.status(500).json({ error: 'Error confirmando pago', details: error.message });
+  }
+});
+
+// ============================================
+// CONFIRMAR PAGO BULK - MÚLTIPLES PAQUETES
+// Para entrega de varios paquetes al mismo cliente
+// ============================================
+app.post('/api/admin/finance/confirm-payment-bulk', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { referencias, metodo_confirmacion = 'tarjeta', notas, received_by, monto_total_usd } = req.body;
+    const adminId = req.user?.userId;
+    const adminName = req.user?.email?.split('@')[0] || `User ${adminId}`;
+    const receiverName = received_by || null;
+
+    if (!referencias || !Array.isArray(referencias) || referencias.length === 0) {
+      return res.status(400).json({ error: 'Se requiere al menos una referencia' });
+    }
+
+    console.log(`📦 Procesando pago bulk de ${referencias.length} paquetes`);
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const processedPackages: string[] = [];
+      let totalMonto = 0;
+      let clienteId: number | null = null;
+      let clienteNombre = '';
+
+      // Procesar cada paquete
+      for (const referencia of referencias) {
+        const refStr = referencia.toUpperCase().trim();
+        
+        // Buscar paquete
+        const packageResult = await client.query(`
+          SELECT 
+            p.id,
+            p.tracking_internal,
+            p.user_id,
+            p.status,
+            p.carrier,
+            p.service_type,
+            p.saldo_pendiente,
+            p.assigned_cost_mxn,
+            p.national_shipping_cost,
+            u.full_name as cliente_nombre
+          FROM packages p
+          LEFT JOIN users u ON p.user_id = u.id
+          WHERE p.tracking_internal ILIKE $1
+          LIMIT 1
+        `, [`%${refStr}%`]);
+
+        if (packageResult.rows.length === 0) {
+          console.log(`⚠️ Paquete no encontrado: ${refStr}`);
+          continue;
+        }
+
+        const pkg = packageResult.rows[0];
+        const montoPaquete = parseFloat(pkg.saldo_pendiente) || parseFloat(pkg.assigned_cost_mxn) || parseFloat(pkg.national_shipping_cost) || 3; // Default $3 USD para PO Box
+        
+        // Guardar datos del cliente
+        if (!clienteId) {
+          clienteId = pkg.user_id;
+          clienteNombre = pkg.cliente_nombre;
+        }
+
+        // Marcar paquete como pagado y entregado
+        await client.query(`
+          UPDATE packages SET
+            client_paid = TRUE,
+            client_paid_at = CURRENT_TIMESTAMP,
+            saldo_pendiente = 0,
+            payment_status = 'paid',
+            status = 'delivered',
+            delivered_at = CURRENT_TIMESTAMP,
+            received_by = COALESCE($2, received_by)
+          WHERE id = $1
+        `, [pkg.id, receiverName]);
+
+        processedPackages.push(pkg.tracking_internal);
+        totalMonto += montoPaquete;
+        console.log(`✅ Paquete procesado: ${pkg.tracking_internal} - $${montoPaquete}`);
+      }
+
+      if (processedPackages.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'No se encontraron paquetes válidos para procesar' });
+      }
+
+      // Registrar en billetera y movimientos financieros
+      const branchId = 6; // Mostrador Hidalgo TX para PO Box USA
+      const billeteraResult = await client.query(`
+        SELECT id, saldo_actual FROM billeteras_sucursal 
+        WHERE sucursal_id = $1 AND is_default = true AND is_active = true
+        LIMIT 1
+      `, [branchId]);
+
+      if (billeteraResult.rows.length > 0) {
+        const billetera = billeteraResult.rows[0];
+        const saldoAnterior = parseFloat(billetera.saldo_actual) || 0;
+        const nuevoSaldo = saldoAnterior + (monto_total_usd || totalMonto);
+
+        await client.query(`
+          UPDATE billeteras_sucursal SET saldo_actual = $1 WHERE id = $2
+        `, [nuevoSaldo, billetera.id]);
+
+        await client.query(`
+          INSERT INTO movimientos_financieros (
+            sucursal_id, billetera_id, tipo_movimiento, monto, 
+            monto_antes, monto_despues, nota_descriptiva, referencia,
+            usuario_id, usuario_nombre, status, created_at
+          ) VALUES (
+            $1, $2, 'ingreso', $3, $4, $5, $6, $7, $8, $9, 'confirmado', CURRENT_TIMESTAMP
+          )
+        `, [
+          branchId,
+          billetera.id,
+          monto_total_usd || totalMonto,
+          saldoAnterior,
+          nuevoSaldo,
+          `Pago ${metodo_confirmacion.toUpperCase()} - ${processedPackages.length} paquetes PO Box - Cliente: ${clienteNombre}`,
+          processedPackages.join(', '),
+          adminId,
+          adminName
+        ]);
+
+        // Registrar en caja_chica_transacciones
+        await client.query(`
+          INSERT INTO caja_chica_transacciones (
+            tipo, monto, concepto, cliente_id, admin_id, admin_name, 
+            saldo_despues_movimiento, categoria, notas
+          ) VALUES (
+            'ingreso', $1, $2, $3, $4, $5, $6, 'cobro_guias', $7
+          )
+        `, [
+          monto_total_usd || totalMonto,
+          `Pago ${metodo_confirmacion.toUpperCase()} PO Box - ${processedPackages.length} paquetes: ${processedPackages.join(', ')} - Cliente: ${clienteNombre}`,
+          clienteId,
+          adminId,
+          adminName,
+          nuevoSaldo,
+          notas || `Pago con ${metodo_confirmacion} en mostrador - Recibido por: ${receiverName}`
+        ]);
+      }
+
+      await client.query('COMMIT');
+
+      console.log(`✅ Pago bulk confirmado: ${processedPackages.length} paquetes - $${monto_total_usd || totalMonto} USD por ${adminName}`);
+
+      res.json({
+        success: true,
+        message: `${processedPackages.length} paquete(s) entregados y pagados exitosamente`,
+        referencias: processedPackages,
+        monto_total: monto_total_usd || totalMonto,
+        metodo: metodo_confirmacion,
+        paquetes_actualizados: processedPackages.length,
+        confirmado_por: adminName
+      });
+
+    } catch (err: any) {
+      await client.query('ROLLBACK');
+      console.error('❌ Error en confirm-payment-bulk:', err.message, err.stack);
+      throw err;
+    } finally {
+      client.release();
+    }
+
+  } catch (error: any) {
+    console.error('Error en pago bulk:', error);
+    res.status(500).json({ error: 'Error confirmando pago bulk', details: error.message });
   }
 });
 

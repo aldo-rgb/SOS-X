@@ -902,3 +902,107 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
     }
 };
 
+// ============ DASHBOARD COUNTER STAFF (Mostrador) ============
+export const getCounterStaffDashboard = async (_req: Request, res: Response): Promise<void> => {
+    try {
+        // Stats de entregas
+        const deliveryStatsResult = await pool.query(`
+            SELECT 
+                COUNT(*) FILTER (WHERE status = 'ready_pickup') as pendientes,
+                COUNT(*) FILTER (WHERE status = 'delivered' AND DATE(delivered_at) = CURRENT_DATE) as realizadas_hoy,
+                COUNT(*) FILTER (WHERE status = 'ready_pickup' AND received_at < NOW() - INTERVAL '4 hours') as en_espera
+            FROM packages
+            WHERE (is_master = true OR master_id IS NULL)
+        `);
+        const deliveryStats = deliveryStatsResult.rows[0];
+
+        // Stats de cobros
+        const cobrosStatsResult = await pool.query(`
+            SELECT 
+                COUNT(*) FILTER (WHERE saldo_pendiente > 0 AND status NOT IN ('delivered')) as pendientes,
+                COUNT(*) FILTER (WHERE DATE(updated_at) = CURRENT_DATE AND saldo_pendiente = 0) as cobrados_hoy,
+                COALESCE(SUM(assigned_cost_mxn) FILTER (WHERE DATE(updated_at) = CURRENT_DATE AND saldo_pendiente = 0), 0) as monto_cobrado
+            FROM packages
+            WHERE (is_master = true OR master_id IS NULL)
+        `);
+        const cobrosStats = cobrosStatsResult.rows[0];
+
+        // Stats de recepciones
+        const recepcionStatsResult = await pool.query(`
+            SELECT 
+                COUNT(*) FILTER (WHERE DATE(received_at) = CURRENT_DATE) as hoy,
+                COUNT(*) FILTER (WHERE status = 'received' AND needs_instructions = true) as por_registrar
+            FROM packages
+            WHERE (is_master = true OR master_id IS NULL)
+        `);
+        const recepcionStats = recepcionStatsResult.rows[0];
+
+        // Paquetes listos para entrega (ready_pickup)
+        const pendingDeliveriesResult = await pool.query(`
+            SELECT 
+                p.id,
+                p.tracking_internal as tracking,
+                u.full_name as cliente,
+                u.box_id,
+                COALESCE(p.saldo_pendiente, 0) as monto,
+                p.carrier,
+                p.total_boxes,
+                CASE 
+                    WHEN p.saldo_pendiente > 0 THEN 'pendiente_pago'
+                    ELSE 'listo'
+                END as status,
+                CASE 
+                    WHEN p.received_at > NOW() - INTERVAL '1 hour' THEN 'hace ' || EXTRACT(MINUTES FROM (NOW() - p.received_at))::int || 'min'
+                    WHEN p.received_at > NOW() - INTERVAL '24 hours' THEN 'hace ' || EXTRACT(HOURS FROM (NOW() - p.received_at))::int || 'h'
+                    ELSE 'ayer'
+                END as llegada
+            FROM packages p
+            JOIN users u ON p.user_id = u.id
+            WHERE p.status = 'ready_pickup'
+            AND (p.is_master = true OR p.master_id IS NULL)
+            ORDER BY p.received_at DESC
+            LIMIT 20
+        `);
+
+        res.json({
+            success: true,
+            stats: {
+                entregas: {
+                    pendientes: parseInt(deliveryStats.pendientes) || 0,
+                    realizadas_hoy: parseInt(deliveryStats.realizadas_hoy) || 0,
+                    en_espera: parseInt(deliveryStats.en_espera) || 0,
+                },
+                cobros: {
+                    pendientes: parseInt(cobrosStats.pendientes) || 0,
+                    cobrados_hoy: parseInt(cobrosStats.cobrados_hoy) || 0,
+                    monto_cobrado: parseFloat(cobrosStats.monto_cobrado) || 0,
+                },
+                recepciones: {
+                    hoy: parseInt(recepcionStats.hoy) || 0,
+                    por_registrar: parseInt(recepcionStats.por_registrar) || 0,
+                },
+            },
+            pendingDeliveries: pendingDeliveriesResult.rows.map(row => {
+                // Determinar si es Pick Up basado en el carrier
+                const isPickup = row.carrier === 'Pick Up Hidalgo TX';
+                const totalBoxes = parseInt(row.total_boxes) || 1;
+                
+                return {
+                    id: row.id,
+                    tracking: row.tracking,
+                    cliente: row.cliente,
+                    box_id: row.box_id,
+                    // Para Pick Up mostrar en USD ($3 por caja), para otros en MXN
+                    monto: isPickup ? (3 * totalBoxes) : (parseFloat(row.monto) || 0),
+                    moneda: isPickup ? 'USD' : 'MXN',
+                    isPickup: isPickup,
+                    status: row.status,
+                    llegada: row.llegada,
+                };
+            }),
+        });
+    } catch (error) {
+        console.error('Error al obtener dashboard counter staff:', error);
+        res.status(500).json({ error: 'Error al obtener dashboard' });
+    }
+};

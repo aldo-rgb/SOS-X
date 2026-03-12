@@ -112,6 +112,17 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
     return tracking.includes('REPACK') || tracking.startsWith('US-REPACK');
   };
 
+  // 🚚 Detectar si es Pick Up (el cliente recoge en sucursal, no paga servicio PO Box)
+  const isPickUpService = (): boolean => {
+    const carrier = details?.carrier || (pkg as any).carrier || '';
+    return carrier.toLowerCase().includes('pick up') || carrier.toLowerCase().includes('pickup');
+  };
+
+  // ✅ Detectar si ya está pagado
+  const isPaid = (): boolean => {
+    return (details?.saldo_pendiente ?? 0) <= 0 && (details?.monto_pagado ?? 0) > 0;
+  };
+
   // Determinar si es multi-guía
   const isMultiPackage = (pkg as any).is_master && ((pkg as any).total_boxes || 1) > 1;
 
@@ -583,66 +594,90 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
             <Text style={styles.sectionTitle}>💰 Desglose de Costos</Text>
             <Divider style={styles.divider} />
 
-            {/* Precio de Venta del servicio PO Box con desglose USD y TC */}
-            {(details.pobox_venta_usd ?? details.assigned_cost_mxn ?? 0) > 0 && (
+            {/* 🚚 Si es Pick Up - mostrar solo el costo de Pick Up, NO servicio PO Box */}
+            {isPickUpService() ? (
               <>
+                {/* Para Pick Up: mostrar costo de envío nacional o el monto pagado */}
                 <View style={styles.costRow}>
-                  <Text style={styles.costLabel}>📦 Servicio PO Box</Text>
+                  <Text style={styles.costLabel}>🚚 Pick Up ({details.carrier})</Text>
                   <Text style={styles.costValue}>
-                    ${calcularCostoPOBox().costoMxn.toFixed(2)} MXN
+                    ${(details.national_shipping_cost || details.monto_pagado || 0).toFixed(2)} MXN
                   </Text>
                 </View>
-                {/* 🎯 DESGLOSE POR CAJA para multi-guía */}
-                <View style={[styles.costRow, { paddingLeft: 16, marginTop: -4 }]}>
-                  <Text style={[styles.costLabel, { fontSize: 12, color: '#666' }]}>
-                    {(() => {
-                      const { totalBoxes, precioUnitarioUsd, tc, nivel } = calcularCostoPOBox();
-                      if (totalBoxes > 1) {
-                        return `💵 ${totalBoxes} cajas × $${precioUnitarioUsd.toFixed(2)} USD × TC $${tc.toFixed(2)} (Nivel ${nivel})`;
-                      }
-                      return `💵 $${precioUnitarioUsd.toFixed(2)} USD × TC $${tc.toFixed(2)} (Nivel ${nivel})`;
-                    })()}
-                  </Text>
-                </View>
+                {/* Si ya está pagado, mostrar confirmación */}
+                {isPaid() && (
+                  <View style={styles.costRow}>
+                    <Text style={[styles.costLabel, { color: '#4CAF50', fontWeight: '600' }]}>✅ Pagado</Text>
+                    <Text style={[styles.costValue, { color: '#4CAF50' }]}>
+                      ${(details.monto_pagado || 0).toFixed(2)} MXN
+                    </Text>
+                  </View>
+                )}
               </>
-            )}
-
-            {/* Costo GEX si está contratado - desglosado */}
-            {details.has_gex && (details.gex_total_cost || details.declared_value) && (
+            ) : (
               <>
-                <View style={styles.costRow}>
-                  <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• 5% Valor Asegurado (${(details.declared_value || 0).toFixed(2)} USD)</Text>
-                  <Text style={styles.costValue}>${(details.gex_insurance_cost || (details.declared_value || 0) * 0.05 * (details.registered_exchange_rate || 18.15)).toFixed(2)} MXN</Text>
-                </View>
-                <View style={styles.costRow}>
-                  <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• Cargo Fijo GEX</Text>
-                  <Text style={styles.costValue}>${(details.gex_fixed_cost || 625).toFixed(2)} MXN</Text>
-                </View>
-                <View style={styles.costRow}>
-                  <Text style={[styles.costLabel, { fontWeight: '600' }]}>🛡️ Subtotal Garantía Extendida</Text>
-                  <Text style={[styles.costValue, { color: ORANGE }]}>${(details.gex_total_cost || ((details.declared_value || 0) * 0.05 * (details.registered_exchange_rate || 18.15)) + 625).toFixed(2)} MXN</Text>
-                </View>
+                {/* Precio de Venta del servicio PO Box con desglose USD y TC (solo si NO es Pick Up) */}
+                {(details.pobox_venta_usd ?? details.assigned_cost_mxn ?? 0) > 0 && (
+                  <>
+                    <View style={styles.costRow}>
+                      <Text style={styles.costLabel}>📦 Servicio PO Box</Text>
+                      <Text style={styles.costValue}>
+                        ${calcularCostoPOBox().costoMxn.toFixed(2)} MXN
+                      </Text>
+                    </View>
+                    {/* 🎯 DESGLOSE POR CAJA para multi-guía */}
+                    <View style={[styles.costRow, { paddingLeft: 16, marginTop: -4 }]}>
+                      <Text style={[styles.costLabel, { fontSize: 12, color: '#666' }]}>
+                        {(() => {
+                          const { totalBoxes, precioUnitarioUsd, tc, nivel } = calcularCostoPOBox();
+                          if (totalBoxes > 1) {
+                            return `💵 ${totalBoxes} cajas × $${precioUnitarioUsd.toFixed(2)} USD × TC $${tc.toFixed(2)} (Nivel ${nivel})`;
+                          }
+                          return `💵 $${precioUnitarioUsd.toFixed(2)} USD × TC $${tc.toFixed(2)} (Nivel ${nivel})`;
+                        })()}
+                      </Text>
+                    </View>
+                  </>
+                )}
+
+                {/* Costo GEX si está contratado - desglosado */}
+                {details.has_gex && (details.gex_total_cost || details.declared_value) && (
+                  <>
+                    <View style={styles.costRow}>
+                      <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• 5% Valor Asegurado (${(details.declared_value || 0).toFixed(2)} USD)</Text>
+                      <Text style={styles.costValue}>${(details.gex_insurance_cost || (details.declared_value || 0) * 0.05 * (details.registered_exchange_rate || 18.15)).toFixed(2)} MXN</Text>
+                    </View>
+                    <View style={styles.costRow}>
+                      <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• Cargo Fijo GEX</Text>
+                      <Text style={styles.costValue}>${(details.gex_fixed_cost || 625).toFixed(2)} MXN</Text>
+                    </View>
+                    <View style={styles.costRow}>
+                      <Text style={[styles.costLabel, { fontWeight: '600' }]}>🛡️ Subtotal Garantía Extendida</Text>
+                      <Text style={[styles.costValue, { color: ORANGE }]}>${(details.gex_total_cost || ((details.declared_value || 0) * 0.05 * (details.registered_exchange_rate || 18.15)) + 625).toFixed(2)} MXN</Text>
+                    </View>
+                  </>
+                )}
+
+                {/* Costo de envío nacional (Estafeta, FedEx, etc.) - solo si NO es Pick Up */}
+                {(details.national_shipping_cost ?? 0) > 0 && (
+                  <View style={styles.costRow}>
+                    <Text style={styles.costLabel}>🚚 Envío Nacional ({details.carrier})</Text>
+                    <Text style={styles.costValue}>${(details.national_shipping_cost || 0).toFixed(2)} MXN</Text>
+                  </View>
+                )}
+
+                {/* Monto ya pagado */}
+                {(details.monto_pagado ?? 0) > 0 && (
+                  <View style={styles.costRow}>
+                    <Text style={styles.costLabel}>✅ Monto Pagado</Text>
+                    <Text style={[styles.costValue, { color: '#4CAF50' }]}>-${(details.monto_pagado || 0).toFixed(2)} MXN</Text>
+                  </View>
+                )}
               </>
             )}
 
-            {/* Costo de envío nacional (Estafeta, FedEx, etc.) */}
-            {(details.national_shipping_cost ?? 0) > 0 && (
-              <View style={styles.costRow}>
-                <Text style={styles.costLabel}>🚚 Envío Nacional ({details.carrier})</Text>
-                <Text style={styles.costValue}>${(details.national_shipping_cost || 0).toFixed(2)} MXN</Text>
-              </View>
-            )}
-
-            {/* Monto ya pagado */}
-            {(details.monto_pagado ?? 0) > 0 && (
-              <View style={styles.costRow}>
-                <Text style={styles.costLabel}>✅ Monto Pagado</Text>
-                <Text style={[styles.costValue, { color: '#4CAF50' }]}>-${(details.monto_pagado || 0).toFixed(2)} MXN</Text>
-              </View>
-            )}
-
-            {/* Si no hay costos aún */}
-            {(details.assigned_cost_mxn ?? 0) === 0 && (
+            {/* Si no hay costos aún (y no es Pick Up pagado) */}
+            {(details.assigned_cost_mxn ?? 0) === 0 && !isPaid() && (
               <View style={styles.noCostsContainer}>
                 <MaterialCommunityIcons name="information-outline" size={24} color="#666" />
                 <Text style={styles.noCostsText}>
@@ -652,20 +687,20 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
             )}
 
             {/* Saldo Pendiente / Total a Pagar */}
-            {(details.assigned_cost_mxn ?? 0) > 0 && (
+            {((details.assigned_cost_mxn ?? 0) > 0 || isPaid()) && (
               <>
                 <Divider style={styles.divider} />
                 <View style={styles.totalRow}>
                   <Text style={styles.totalLabel}>
-                    {(details.saldo_pendiente ?? details.assigned_cost_mxn ?? 0) > 0 ? 'SALDO PENDIENTE' : '✅ PAGADO'}
+                    {isPaid() ? '✅ PAGADO' : 'SALDO PENDIENTE'}
                   </Text>
-                  {(details.saldo_pendiente ?? details.assigned_cost_mxn ?? 0) > 0 ? (
-                    <Text style={[styles.totalValue, { color: ORANGE }]}>
-                      ${(details.saldo_pendiente ?? details.assigned_cost_mxn ?? 0).toFixed(2)} MXN
-                    </Text>
-                  ) : (
+                  {isPaid() ? (
                     <Text style={[styles.totalValue, { color: '#4CAF50' }]}>
                       Completado
+                    </Text>
+                  ) : (
+                    <Text style={[styles.totalValue, { color: ORANGE }]}>
+                      ${(details.saldo_pendiente ?? details.assigned_cost_mxn ?? 0).toFixed(2)} MXN
                     </Text>
                   )}
                 </View>

@@ -201,7 +201,7 @@ export const getClientInstructions = async (req: Request, res: Response): Promis
         const addressResult = await pool.query(`
             SELECT id, alias, recipient_name, street, exterior_number, interior_number,
                    neighborhood, city, state, zip_code, phone, reference, is_default, 
-                   default_for_service
+                   default_for_service, carrier_config
             FROM addresses 
             WHERE user_id = $1 
             ORDER BY is_default DESC, id ASC
@@ -309,7 +309,10 @@ export const getClientInstructions = async (req: Request, res: Response): Promis
             },
             preferences: {
                 transport: client.default_transport || null,
-                carrier: client.default_carrier || null
+                // Usar carrier de la dirección predeterminada si existe, sino del usuario
+                carrier: defaultAddress?.carrier_config?.[serviceTypeLower] || 
+                         defaultAddress?.carrier_config?.usa || 
+                         client.default_carrier || null
             },
             addresses: addresses.map((a: any) => ({
                 id: a.id,

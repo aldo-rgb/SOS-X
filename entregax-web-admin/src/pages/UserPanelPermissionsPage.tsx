@@ -573,8 +573,8 @@ export default function UserPanelPermissionsPage() {
                               />
                             </TableCell>
                             <TableCell align="center">
-                              {/* Botón para configurar módulos solo si el panel tiene módulos */}
-                              {panel.panel_key.startsWith('admin_') && (
+                              {/* Botón para configurar módulos para paneles de admin y operations */}
+                              {(panel.panel_key.startsWith('admin_') || panel.panel_key.startsWith('ops_')) && (
                                 <Tooltip title="Configurar permisos de módulos">
                                   <IconButton
                                     size="small"

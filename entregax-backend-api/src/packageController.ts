@@ -281,10 +281,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
         const serviceType = getServiceType(warehouseLocation);
         const wLocation = warehouseLocation || 'china_air';
 
-        if (!boxId) {
-            res.status(400).json({ error: 'El Box ID del cliente es requerido' });
-            return;
-        }
+        // boxId ya no es obligatorio - se puede crear sin cliente
         // Descripción ya no es obligatoria
         if (!boxes || boxes.length === 0) {
             res.status(400).json({ error: 'Debe agregar al menos una caja' });
@@ -314,36 +311,41 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
             }
         }
 
-        const userQuery = await client.query(
-            'SELECT id, full_name, email, box_id, is_verified, verification_status FROM users WHERE box_id = $1',
-            [(boxId as string).toUpperCase()]
-        );
+        // Buscar usuario solo si se proporciona boxId
+        let user: { id: number | null; full_name: string; email: string; box_id: string; is_verified: boolean; verification_status: string } | null = null;
+        
+        if (boxId && boxId.trim()) {
+            const userQuery = await client.query(
+                'SELECT id, full_name, email, box_id, is_verified, verification_status FROM users WHERE box_id = $1',
+                [(boxId as string).toUpperCase()]
+            );
 
-        if (userQuery.rows.length === 0) {
-            res.status(404).json({ 
-                error: 'Box ID no encontrado',
-                message: `No existe cliente con casillero ${boxId}.`
-            });
-            return;
-        }
+            if (userQuery.rows.length === 0) {
+                res.status(404).json({ 
+                    error: 'Box ID no encontrado',
+                    message: `No existe cliente con casillero ${boxId}.`
+                });
+                return;
+            }
 
-        const user = userQuery.rows[0];
+            user = userQuery.rows[0];
 
-        // Validar que el usuario esté verificado para poder documentar paquetes
-        if (!user.is_verified) {
-            const statusMessage = user.verification_status === 'pending_review' 
-                ? 'El perfil del cliente está en revisión. No puede recibir paquetes hasta que sea aprobado.'
-                : user.verification_status === 'rejected'
-                    ? 'El perfil del cliente fue rechazado. Debe completar la verificación nuevamente.'
-                    : 'El cliente no ha completado su verificación de identidad.';
-            
-            res.status(403).json({ 
-                error: 'Cliente no verificado',
-                message: statusMessage,
-                verificationStatus: user.verification_status || 'not_started',
-                requiresVerification: true
-            });
-            return;
+            // Validar que el usuario esté verificado para poder documentar paquetes
+            if (user && !user.is_verified) {
+                const statusMessage = user.verification_status === 'pending_review' 
+                    ? 'El perfil del cliente está en revisión. No puede recibir paquetes hasta que sea aprobado.'
+                    : user.verification_status === 'rejected'
+                        ? 'El perfil del cliente fue rechazado. Debe completar la verificación nuevamente.'
+                        : 'El cliente no ha completado su verificación de identidad.';
+                
+                res.status(403).json({ 
+                    error: 'Cliente no verificado',
+                    message: statusMessage,
+                    verificationStatus: user.verification_status || 'not_started',
+                    requiresVerification: true
+                });
+                return;
+            }
         }
         const masterTracking = generateTracking();
         const totalBoxes = boxes.length;
@@ -364,7 +366,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
 
         // 📦 Verificar si cliente tiene dirección asignada para USA (auto-procesar)
         let hasDefaultUsaAddress = false;
-        if (serviceType === 'POBOX_USA' && !leaveInWarehouse) {
+        if (user && serviceType === 'POBOX_USA' && !leaveInWarehouse) {
             const addressCheck = await client.query(
                 `SELECT id FROM addresses 
                  WHERE user_id = $1 
@@ -381,7 +383,8 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
 
         // Si tiene carrier última milla O tiene dirección USA asignada, auto-procesar
         // Si leaveInWarehouse, NO auto-procesar (queda en received para que cliente asigne)
-        const shouldAutoProcess = !leaveInWarehouse && (isLastMileShipment || hasDefaultUsaAddress);
+        // Si no hay usuario, queda en 'received' para asignar después
+        const shouldAutoProcess = user && !leaveInWarehouse && (isLastMileShipment || hasDefaultUsaAddress);
         const initialStatus = shouldAutoProcess ? 'processing' : 'received';
 
         // 💰 Calcular costo para PO Box USA con desglose
@@ -413,17 +416,9 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
 
         await client.query('BEGIN');
 
-        // 🚚 Si debe auto-procesar, crear consolidación automática
+        // � El consolidation_id se asigna SOLO cuando se crea la salida, no al recibir
+        // Los paquetes en 'processing' están listos para salida pero sin consolidación aún
         let consolidationId: number | null = null;
-        if (shouldAutoProcess) {
-            const consolidationResult = await client.query(
-                `INSERT INTO consolidations (user_id, total_weight, status, created_at) 
-                 VALUES ($1, $2, 'processing', NOW()) RETURNING id`,
-                [user.id, totalWeight]
-            );
-            consolidationId = consolidationResult.rows[0].id;
-            console.log(`📦 Auto-consolidación #${consolidationId} creada para envío ${carrier}`);
-        }
 
         let masterPackage;
         const childPackages = [];
@@ -446,7 +441,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false, 1, 1, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
                          $24, $25, $24, $6, $7, $8, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35) 
                  RETURNING *`,
-                [user.id, masterTracking, box.trackingCourier || trackingProvider || null, description, box.weight, 
+                [user?.id || null, masterTracking, box.trackingCourier || trackingProvider || null, description, box.weight, 
                  box.length, box.width, box.height, declaredValue || null, notes || null, initialStatus,
                  safeCarrier, safeDestination.country, safeDestination.city, safeDestination.address, 
                  safeDestination.zip || null, safeDestination.phone || null, safeDestination.contact || null, imageUrl || null,
@@ -461,7 +456,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                 boxNumber: 1, totalBoxes: 1, tracking: masterTracking, labelCode: masterTracking,
                 isMaster: false, weight: box.weight,
                 dimensions: formatDimensions(box.length, box.width, box.height),
-                clientName: user.full_name, clientBoxId: user.box_id, description,
+                clientName: user?.full_name || 'SIN CLIENTE', clientBoxId: user?.box_id || 'PENDIENTE', description,
                 carrier: safeCarrier, destination: `${safeDestination.city}, ${safeDestination.country}`,
                 destinationCity: safeDestination.city, destinationCountry: safeDestination.country,
                 receivedAt: new Date().toISOString()
@@ -481,7 +476,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, 0, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
                          $22, $23, $22, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33) 
                  RETURNING *`,
-                [user.id, masterTracking, trackingProvider || null, description, totalWeight, 
+                [user?.id || null, masterTracking, trackingProvider || null, description, totalWeight, 
                  declaredValue || null, notes || null, initialStatus, totalBoxes, safeCarrier,
                  safeDestination.country, safeDestination.city, safeDestination.address,
                  safeDestination.zip || null, safeDestination.phone || null, safeDestination.contact || null, imageUrl || null,
@@ -496,7 +491,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                 boxNumber: 0, totalBoxes, tracking: masterTracking, labelCode: masterTracking,
                 isMaster: true, weight: totalWeight, volume: Math.round(totalVolume * 100) / 100,
                 dimensions: `${totalBoxes} bultos`,
-                clientName: user.full_name, clientBoxId: user.box_id, description,
+                clientName: user?.full_name || 'SIN CLIENTE', clientBoxId: user?.box_id || 'PENDIENTE', description,
                 carrier: safeCarrier, destination: `${safeDestination.city}, ${safeDestination.country}`,
                 destinationCity: safeDestination.city, destinationCountry: safeDestination.country,
                 receivedAt: new Date().toISOString()
@@ -516,7 +511,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                       service_type, warehouse_location, consolidation_id)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) 
                      RETURNING *`,
-                    [user.id, childTracking, box.trackingCourier || trackingProvider || null, description, box.weight, 
+                    [user?.id || null, childTracking, box.trackingCourier || trackingProvider || null, description, box.weight, 
                      box.length, box.width, box.height, initialStatus, masterPackage.id, boxNumber, totalBoxes,
                      safeCarrier, safeDestination.country, safeDestination.city, safeDestination.address,
                      serviceType, wLocation, consolidationId]
@@ -528,7 +523,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                     masterTracking, isMaster: false, weight: box.weight,
                     dimensions: formatDimensions(box.length, box.width, box.height),
                     volume: calculateVolume(box.length, box.width, box.height),
-                    clientName: user.full_name, clientBoxId: user.box_id, description,
+                    clientName: user?.full_name || 'SIN CLIENTE', clientBoxId: user?.box_id || 'PENDIENTE', description,
                     carrier: safeCarrier, destination: `${safeDestination.city}, ${safeDestination.country}`,
                     destinationCity: safeDestination.city, destinationCountry: safeDestination.country,
                     receivedAt: new Date().toISOString()
@@ -571,7 +566,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                 })),
                 labels: allLabels
             },
-            client: { id: user.id, name: user.full_name, email: user.email, boxId: user.box_id }
+            client: user ? { id: user.id, name: user.full_name, email: user.email, boxId: user.box_id } : null
         });
 
     } catch (error) {
@@ -587,12 +582,12 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
 export const getPackages = async (req: Request, res: Response): Promise<void> => {
     console.log('📦 getPackages llamado');
     try {
-        const { status, boxId, limit = 50 } = req.query;
+        const { status, boxId, limit = 50, sinCliente } = req.query;
 
-        // Solo mostrar paquetes POBOX USA
+        // Solo mostrar paquetes POBOX USA - usar LEFT JOIN para incluir paquetes sin cliente
         let query = `
             SELECT p.*, u.id as user_id, u.full_name, u.email, u.box_id
-            FROM packages p JOIN users u ON p.user_id = u.id
+            FROM packages p LEFT JOIN users u ON p.user_id = u.id
             WHERE (p.is_master = true OR p.master_id IS NULL)
             AND (p.service_type = 'POBOX_USA' OR p.service_type = 'air' OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%'))
         `;
@@ -605,6 +600,10 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
         if (boxId) {
             params.push((boxId as string).toUpperCase());
             query += ` AND u.box_id = $${params.length}`;
+        }
+        // Filtrar solo paquetes sin cliente
+        if (sinCliente === 'true') {
+            query += ` AND p.user_id IS NULL`;
         }
 
         params.push(Number(limit));
@@ -630,7 +629,7 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
             receivedAt: pkg.received_at, deliveredAt: pkg.delivered_at,
             consolidationId: pkg.consolidation_id,
             supplierId: pkg.supplier_id,
-            client: { id: pkg.user_id, name: pkg.full_name, email: pkg.email, boxId: pkg.box_id }
+            client: pkg.user_id ? { id: pkg.user_id, name: pkg.full_name, email: pkg.email, boxId: pkg.box_id } : null
         }));
 
         res.json({ success: true, total: packages.length, packages });
@@ -649,7 +648,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
 
         const result = await pool.query(`
             SELECT p.*, u.full_name, u.email, u.box_id
-            FROM packages p JOIN users u ON p.user_id = u.id
+            FROM packages p LEFT JOIN users u ON p.user_id = u.id
             WHERE p.tracking_internal = $1 OR p.tracking_provider = $1
         `, [tracking.toUpperCase()]);
 
@@ -667,7 +666,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         if (pkg.is_master) {
             labels.push({ boxNumber: 0, totalBoxes: pkg.total_boxes, tracking: pkg.tracking_internal, 
                 labelCode: pkg.tracking_internal, isMaster: true, weight: parseFloat(pkg.weight),
-                clientName: pkg.full_name, clientBoxId: pkg.box_id, description: pkg.description,
+                clientName: pkg.full_name || 'SIN CLIENTE', clientBoxId: pkg.box_id || 'PENDIENTE', description: pkg.description,
                 destinationCity: pkg.destination_city, destinationCountry: pkg.destination_country,
                 carrier: pkg.carrier, receivedAt: pkg.received_at });
             
@@ -677,7 +676,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     masterTracking: pkg.tracking_internal, isMaster: false,
                     weight: parseFloat(child.weight),
                     dimensions: formatDimensions(parseFloat(child.pkg_length), parseFloat(child.pkg_width), parseFloat(child.pkg_height)),
-                    clientName: pkg.full_name, clientBoxId: pkg.box_id, description: child.description,
+                    clientName: pkg.full_name || 'SIN CLIENTE', clientBoxId: pkg.box_id || 'PENDIENTE', description: child.description,
                     destinationCity: pkg.destination_city, destinationCountry: pkg.destination_country,
                     carrier: pkg.carrier, receivedAt: pkg.received_at });
             }
@@ -685,7 +684,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             labels.push({ boxNumber: 1, totalBoxes: 1, tracking: pkg.tracking_internal,
                 labelCode: pkg.tracking_internal, isMaster: false, weight: parseFloat(pkg.weight),
                 dimensions: formatDimensions(parseFloat(pkg.pkg_length), parseFloat(pkg.pkg_width), parseFloat(pkg.pkg_height)),
-                clientName: pkg.full_name, clientBoxId: pkg.box_id, description: pkg.description,
+                clientName: pkg.full_name || 'SIN CLIENTE', clientBoxId: pkg.box_id || 'PENDIENTE', description: pkg.description,
                 destinationCity: pkg.destination_city, destinationCountry: pkg.destination_country,
                 carrier: pkg.carrier, receivedAt: pkg.received_at });
         }
@@ -707,7 +706,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         formatted: formatDimensions(parseFloat(c.pkg_length), parseFloat(c.pkg_width), parseFloat(c.pkg_height)) },
                     status: c.status, imageUrl: c.image_url || null })),
                 labels,
-                client: { id: pkg.user_id, name: pkg.full_name, email: pkg.email, boxId: pkg.box_id }
+                client: pkg.user_id ? { id: pkg.user_id, name: pkg.full_name, email: pkg.email, boxId: pkg.box_id } : null
             }
         });
     } catch (error) {
@@ -958,10 +957,12 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 pending_payment_reference: packagePaymentMap[pkg.id]?.reference || null,
                 pending_payment_amount: packagePaymentMap[pkg.id]?.amount || null,
                 pending_payment_expires: packagePaymentMap[pkg.id]?.expires_at || null,
-                // � Instrucciones de entrega
+                // 📦 Instrucciones de entrega
                 assigned_address_id: pkg.assigned_address_id || null,
                 needs_instructions: pkg.needs_instructions !== false, // default true si no está definido
-                // �📦 Paquetes hijos (si es master)
+                // 📝 Información de entrega
+                received_by: pkg.received_by || null, // Nombre de quien recibió el paquete
+                // 📦📦 Paquetes hijos (si es master)
                 child_packages: pkg.is_master ? (childrenByMaster[pkg.id] || []) : []
             };
         });
@@ -1457,16 +1458,19 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
         const { packageId, packageType } = req.params; // packageType: 'usa' | 'maritime' | 'china_air' | 'dhl'
         const { deliveryAddressId, deliveryInstructions, carrier, carrierCost, carrierName } = req.body;
         const userId = (req as any).user.userId;
+        const userRole = (req as any).user.role;
 
-        console.log(`📦 [Instrucciones Entrega] Usuario ${userId} actualizando ${packageType}/${packageId}`);
+        console.log(`📦 [Instrucciones Entrega] Usuario ${userId} (${userRole}) actualizando ${packageType}/${packageId}`);
         console.log(`   Carrier: ${carrier}, Costo: ${carrierCost}, Nombre: ${carrierName}`);
 
         // Determinar si es Pick Up en sucursal
         const isPickup = carrier === 'pickup_hidalgo';
-        const newStatus = isPickup ? 'En Bodega Pick Up' : null; // Si es pickup, cambiar status
 
-        // Verificar que la dirección existe y pertenece al usuario (solo si no es pickup)
-        if (deliveryAddressId && !isPickup) {
+        // Verificar si es admin/operador para permitir actualizar paquetes de otros usuarios
+        const isAdmin = ['admin', 'superadmin', 'ops_mx', 'ops_usa', 'ops_usa_pobox'].includes(userRole);
+
+        // Verificar que la dirección existe y pertenece al usuario (solo si no es pickup y no es admin)
+        if (deliveryAddressId && !isPickup && !isAdmin) {
             const addressCheck = await pool.query(`
                 SELECT id FROM addresses 
                 WHERE id = $1 AND user_id = $2
@@ -1481,35 +1485,105 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
         }
 
         let result;
+        // Query para verificar dueño del paquete o permitir si es admin
+        const ownerCondition = isAdmin ? '' : ` AND user_id = ${userId}`;
 
         // Según el tipo, actualizar la tabla correspondiente
         switch (packageType) {
             case 'usa':
             case 'pobox':
             case 'air':  // PO Box USA y REPACK envían shipment_type='air'
+                // Obtener TC actual (necesario para pickup y para cambio desde pickup)
+                const tcResult = await pool.query(
+                    "SELECT tipo_cambio_final FROM exchange_rate_config WHERE servicio = 'pobox_usa' AND estado = TRUE LIMIT 1"
+                );
+                const tc = parseFloat(tcResult.rows[0]?.tipo_cambio_final) || 18.00;
+                
                 // Paquetes USA (tabla packages)
                 if (isPickup) {
-                    // Pick Up en sucursal - cambiar status a "En Bodega Pick Up"
+                    
+                    // Obtener datos actuales del paquete para recalcular
+                    const pkgData = await pool.query(`
+                        SELECT total_boxes, pobox_venta_usd, gex_total_cost, national_shipping_cost
+                        FROM packages WHERE id = $1
+                    `, [packageId]);
+                    
+                    const pkg = pkgData.rows[0];
+                    const totalBoxes = pkg?.total_boxes || 1;
+                    
+                    // Para Pick Up: SOLO cobrar $3 USD por caja (sin PO Box, sin GEX, sin envío nacional)
+                    const pickupFeeUsd = 3 * totalBoxes;
+                    const pickupFeeMxn = pickupFeeUsd * tc;
+                    
+                    // El costo total es SOLO el cargo de pickup
+                    const newTotalMxn = pickupFeeMxn;
+                    
+                    console.log(`📦 [Pick Up] Recalculando costos para paquete ${packageId}:`);
+                    console.log(`   Pick Up Fee: ${totalBoxes} cajas × $3 USD × TC $${tc} = $${pickupFeeMxn.toFixed(2)} MXN`);
+                    console.log(`   TOTAL A COBRAR: $${newTotalMxn.toFixed(2)} MXN (solo pickup, sin PO Box)`);
+                    
+                    // Pick Up en sucursal - cambiar status, carrier, y recalcular costos
                     result = await pool.query(`
                         UPDATE packages 
-                        SET status = 'En Bodega Pick Up',
-                            notes = COALESCE($1, notes),
+                        SET status = 'ready_pickup',
+                            carrier = 'Pick Up Hidalgo TX',
+                            national_shipping_cost = $1,
+                            assigned_cost_mxn = $2,
+                            saldo_pendiente = $2,
+                            notes = COALESCE($3, notes),
                             needs_instructions = false,
                             updated_at = CURRENT_TIMESTAMP
-                        WHERE id = $2 AND user_id = $3
+                        WHERE id = $4${ownerCondition}
                         RETURNING id, tracking_internal
-                    `, [deliveryInstructions, packageId, userId]);
+                    `, [pickupFeeMxn, newTotalMxn, deliveryInstructions, packageId]);
                 } else {
-                    // Entrega a domicilio
-                    result = await pool.query(`
-                        UPDATE packages 
-                        SET assigned_address_id = $1, 
-                            notes = COALESCE($2, notes),
-                            needs_instructions = false,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE id = $3 AND user_id = $4
-                        RETURNING id, tracking_internal
-                    `, [deliveryAddressId, deliveryInstructions, packageId, userId]);
+                    // Entrega a domicilio - verificar si viene de Pick Up para recalcular costos
+                    const currentPkg = await pool.query(
+                        'SELECT status, pobox_venta_usd, gex_total_cost FROM packages WHERE id = $1',
+                        [packageId]
+                    );
+                    const wasPickup = currentPkg.rows[0]?.status === 'ready_pickup';
+                    
+                    if (wasPickup) {
+                        // Viene de Pick Up, recalcular costos con PO Box + carrier
+                        const poboxVentaUsd = parseFloat(currentPkg.rows[0]?.pobox_venta_usd) || 0;
+                        const gexCost = parseFloat(currentPkg.rows[0]?.gex_total_cost) || 0;
+                        const poboxMxn = poboxVentaUsd * tc;
+                        const shippingCostMxn = parseFloat(carrierCost) || 0;
+                        const newTotalMxn = poboxMxn + gexCost + shippingCostMxn;
+                        
+                        console.log(`📦 [Cambio de Pick Up] Recalculando costos para paquete ${packageId}:`);
+                        console.log(`   PO Box: $${poboxVentaUsd} USD = $${poboxMxn.toFixed(2)} MXN`);
+                        console.log(`   GEX: $${gexCost.toFixed(2)} MXN`);
+                        console.log(`   Envío Nacional: $${shippingCostMxn.toFixed(2)} MXN`);
+                        console.log(`   NUEVO TOTAL: $${newTotalMxn.toFixed(2)} MXN`);
+                        
+                        result = await pool.query(`
+                            UPDATE packages 
+                            SET assigned_address_id = $1, 
+                                status = 'received',
+                                carrier = $2,
+                                national_shipping_cost = $3,
+                                assigned_cost_mxn = $4,
+                                saldo_pendiente = $4,
+                                notes = COALESCE($5, notes),
+                                needs_instructions = false,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = $6${ownerCondition}
+                            RETURNING id, tracking_internal
+                        `, [deliveryAddressId, carrierName || carrier, shippingCostMxn, newTotalMxn, deliveryInstructions, packageId]);
+                    } else {
+                        // Asignación normal de dirección
+                        result = await pool.query(`
+                            UPDATE packages 
+                            SET assigned_address_id = $1, 
+                                notes = COALESCE($2, notes),
+                                needs_instructions = false,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE id = $3${ownerCondition}
+                            RETURNING id, tracking_internal
+                        `, [deliveryAddressId, deliveryInstructions, packageId]);
+                    }
                 }
                 break;
 
@@ -1520,9 +1594,9 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                     SET delivery_address_id = $1, 
                         delivery_instructions = $2,
                         updated_at = CURRENT_TIMESTAMP
-                    WHERE id = $3 AND user_id = $4
+                    WHERE id = $3${ownerCondition}
                     RETURNING id, ordersn as tracking_internal
-                `, [deliveryAddressId, deliveryInstructions, packageId, userId]);
+                `, [deliveryAddressId, deliveryInstructions, packageId]);
                 break;
 
             case 'china_air':
@@ -1534,9 +1608,9 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                         notes = COALESCE($2, notes),
                         needs_instructions = false,
                         updated_at = CURRENT_TIMESTAMP
-                    WHERE id = $3 AND user_id = $4
+                    WHERE id = $3${ownerCondition}
                     RETURNING id, tracking_internal
-                `, [deliveryAddressId, deliveryInstructions, packageId, userId]);
+                `, [deliveryAddressId, deliveryInstructions, packageId]);
                 break;
 
             default:
@@ -1547,22 +1621,57 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
         }
 
         if (result.rowCount === 0) {
-            return res.status(404).json({ 
-                success: false, 
-                error: 'Paquete no encontrado o no tienes permiso para modificarlo' 
-            });
+            // Verificar si el paquete existe para dar mejor mensaje de error
+            let existsQuery;
+            if (packageType === 'maritime') {
+                existsQuery = await pool.query('SELECT id, user_id FROM maritime_orders WHERE id = $1', [packageId]);
+            } else {
+                existsQuery = await pool.query('SELECT id, user_id FROM packages WHERE id = $1', [packageId]);
+            }
+            
+            if (existsQuery.rows.length === 0) {
+                console.log(`❌ Paquete ${packageId} no existe en la base de datos`);
+                return res.status(404).json({ 
+                    success: false, 
+                    error: `Paquete #${packageId} no encontrado` 
+                });
+            } else {
+                console.log(`❌ Usuario ${userId} no tiene permiso para paquete ${packageId} (dueño: ${existsQuery.rows[0].user_id})`);
+                return res.status(403).json({ 
+                    success: false, 
+                    error: 'No tienes permiso para modificar este paquete' 
+                });
+            }
         }
 
         // Si es pickup y es un paquete master (tiene hijos), actualizar también los child packages
-        if (isPickup && (packageType === 'usa' || packageType === 'pobox')) {
+        if (isPickup && (packageType === 'usa' || packageType === 'pobox' || packageType === 'air')) {
             await pool.query(`
                 UPDATE packages 
-                SET status = 'En Bodega Pick Up',
+                SET status = 'ready_pickup',
+                    carrier = 'Pick Up Hidalgo TX',
                     needs_instructions = false,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE master_id = $1
             `, [packageId]);
-            console.log(`✅ Child packages actualizados a "En Bodega Pick Up"`);
+            console.log(`✅ Child packages actualizados a "ready_pickup" con carrier "Pick Up Hidalgo TX"`);
+        }
+        
+        // Si viene de pickup y se cambió a otro método, actualizar child packages también
+        if (!isPickup && (packageType === 'usa' || packageType === 'pobox' || packageType === 'air')) {
+            // Verificar si hay child packages que estaban en ready_pickup
+            const childUpdate = await pool.query(`
+                UPDATE packages 
+                SET status = 'received',
+                    carrier = NULL,
+                    needs_instructions = false,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE master_id = $1 AND status = 'ready_pickup'
+                RETURNING id
+            `, [packageId]);
+            if (childUpdate.rowCount && childUpdate.rowCount > 0) {
+                console.log(`✅ ${childUpdate.rowCount} child packages cambiados de "ready_pickup" a "received"`);
+            }
         }
 
         console.log(`✅ Instrucciones asignadas a ${result.rows[0].tracking_internal}`);

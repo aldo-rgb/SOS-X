@@ -296,6 +296,23 @@ function App() {
     loadMenuPermissions();
   }, [isAuthenticated, isSuperAdmin]);
 
+  // Función para verificar si el usuario tiene permisos en una categoría
+  const hasPermissionInCategory = (category: string): boolean => {
+    if (isSuperAdmin) return true;
+    
+    const categoryPrefixes: Record<string, string[]> = {
+      'panelsAdmin': ['admin_'],
+      'panelsOperations': ['ops_'],
+      'panelsService': ['cs_'],
+      'tesoreriaSucursal': ['tesoreria_', 'finanzas_'],
+    };
+    
+    const prefixes = categoryPrefixes[category] || [];
+    return Object.keys(userPanelPermissions).some(key => 
+      prefixes.some(prefix => key.startsWith(prefix))
+    );
+  };
+
   // Menu items with translated text - filtrado por rol
   const menuItems = menuItemsConfig
     .filter(item => {
@@ -325,16 +342,31 @@ function App() {
       return ['dashboard', 'panels'].includes(item.key);
     })
     .map(item => {
-      // NO filtrar subItems aquí - dejar que cada página interna filtre sus propios permisos
-      // Esto evita problemas de sincronización con el estado de permisos
+      // Filtrar subItems según permisos del usuario
+      let filteredSubItems = item.subItems;
+      
+      if (item.subItems && !isSuperAdmin && permissionsLoaded) {
+        filteredSubItems = item.subItems.filter(sub => {
+          // Verificar si tiene permisos en esa categoría
+          return hasPermissionInCategory(sub.key);
+        });
+      }
+      
       return {
         ...item,
         text: t(`menu.${item.key}`),
-        subItems: item.subItems?.map(sub => ({
+        subItems: filteredSubItems?.map(sub => ({
           ...sub,
           text: t(`menu.${sub.key}`)
         }))
       };
+    })
+    // Ocultar el menú "Herramientas" si no tiene subItems disponibles
+    .filter(item => {
+      if (item.key === 'panels' && item.subItems && item.subItems.length === 0) {
+        return false;
+      }
+      return true;
     });
 
   // Toggle language
@@ -705,11 +737,12 @@ function App() {
     
     // Si hay un submenú seleccionado y estamos en panels
     if (selectedSubIndex !== null && currentMenuKey === 'panels') {
-      switch (selectedSubIndex) {
-        case 0: return <AdminHubPage users={users} loading={loading} onRefresh={fetchUsers} panelPermissions={userPanelPermissions} permissionsReady={permissionsLoaded} />; // Administración
-        case 1: return <WarehouseHubPage users={users} />; // Operaciones (Bodegas)
-        case 2: return <CustomerServiceHubPage users={users} loading={loading} onRefresh={fetchUsers} />; // Servicio a Cliente
-        case 3: return <TesoreriaSucursalPage />; // Tesorería Sucursal
+      const currentSubKey = menuItems[selectedIndex]?.subItems?.[selectedSubIndex]?.key;
+      switch (currentSubKey) {
+        case 'panelsAdmin': return <AdminHubPage users={users} loading={loading} onRefresh={fetchUsers} panelPermissions={userPanelPermissions} permissionsReady={permissionsLoaded} />; // Administración
+        case 'panelsOperations': return <WarehouseHubPage users={users} />; // Operaciones (Bodegas)
+        case 'panelsService': return <CustomerServiceHubPage users={users} loading={loading} onRefresh={fetchUsers} />; // Servicio a Cliente
+        case 'tesoreriaSucursal': return <TesoreriaSucursalPage />; // Tesorería Sucursal
         default: return null;
       }
     }
