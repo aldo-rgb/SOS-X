@@ -246,7 +246,6 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     // Estados para permisos de módulos
     const [allowedModules, setAllowedModules] = useState<string[]>([]);
     const [permissionsLoading, setPermissionsLoading] = useState(true);
-    const [userRole, setUserRole] = useState<string>('');
     
     // Estados para modal de cotización
     const [quoteModalOpen, setQuoteModalOpen] = useState(false);
@@ -303,7 +302,6 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                 if (profileRes.ok) {
                     const profileData = await profileRes.json();
                     role = profileData.user?.role || profileData.role || '';
-                    setUserRole(role);
                 }
 
                 // Si es super_admin, tiene acceso a todo
