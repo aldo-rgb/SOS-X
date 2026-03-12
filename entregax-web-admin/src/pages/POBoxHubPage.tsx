@@ -74,7 +74,6 @@ import {
     Person as PersonIcon,
     ArrowForward as ArrowForwardIcon,
     AllInbox as AllInboxIcon,
-    Warning as WarningIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import api from '../services/api';
@@ -892,31 +891,6 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                             </Grid>
                         ))}
                     </Grid>
-
-                    {/* Advertencia de cargo por almacenaje */}
-                    <Box sx={{ mt: 4 }}>
-                        <Alert 
-                            severity="warning" 
-                            icon={<WarningIcon />}
-                            sx={{ 
-                                borderRadius: 2,
-                                border: '2px solid #ed6c02',
-                                bgcolor: '#fff4e5',
-                                '& .MuiAlert-icon': {
-                                    fontSize: 28
-                                }
-                            }}
-                        >
-                            <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 0.5 }}>
-                                ⚠️ Aviso Importante - Cargo por Almacenaje
-                            </Typography>
-                            <Typography variant="body2">
-                                Los paquetes que permanezcan en bodega <strong>más de 15 días</strong> a partir de su fecha de recepción 
-                                generarán un cargo de <strong>$3.00 USD diarios por caja</strong>. 
-                                Te recomendamos recoger o solicitar el envío de tus paquetes antes de este plazo para evitar cargos adicionales.
-                            </Typography>
-                        </Alert>
-                    </Box>
 
                     {/* Estadísticas rápidas */}
                     <Box sx={{ mt: 3 }}>
