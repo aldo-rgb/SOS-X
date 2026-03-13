@@ -68,11 +68,24 @@ import api from '../services/api';
 // ============================================
 
 interface CajaStats {
+  // Stats combinados (legacy)
   saldo_actual: number;
   ingresos_hoy: number;
   egresos_hoy: number;
   cantidad_transacciones_hoy: number;
   ultimo_corte: string | null;
+  // Stats USD
+  saldo_usd: number;
+  ingresos_hoy_usd: number;
+  egresos_hoy_usd: number;
+  transacciones_hoy_usd: number;
+  ultimo_corte_usd: string | null;
+  // Stats MXN
+  saldo_mxn: number;
+  ingresos_hoy_mxn: number;
+  egresos_hoy_mxn: number;
+  transacciones_hoy_mxn: number;
+  ultimo_corte_mxn: string | null;
 }
 
 interface PaymentSearchResult {
@@ -118,6 +131,7 @@ interface Transaccion {
   admin_name: string;
   evidencia_url?: string;
   referencia?: string;
+  currency?: 'MXN' | 'USD';
   aplicaciones: Array<{
     package_id: number;
     monto_aplicado: number;
@@ -135,6 +149,7 @@ interface Corte {
   saldo_final_entregado: number;
   diferencia: number;
   admin_name: string;
+  currency?: string;
 }
 
 // ============================================
@@ -169,6 +184,8 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
   // Confirmación de pago
   const [confirming, setConfirming] = useState(false);
   const [confirmNotes, setConfirmNotes] = useState('');
+  const [paymentCurrency, setPaymentCurrency] = useState<'MXN' | 'USD'>('MXN'); // Moneda de pago
+  const [exchangeRate, setExchangeRate] = useState<number>(18.5); // Tipo de cambio actual
 
   // Egreso con evidencia
   const [egresoForm, setEgresoForm] = useState({
@@ -177,6 +194,7 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
     categoria: 'gastos_operativos',
     referencia: '',
     notas: '',
+    currency: 'MXN' as 'MXN' | 'USD',
   });
   const [evidenciaFile, setEvidenciaFile] = useState<File | null>(null);
   const [evidenciaPreview, setEvidenciaPreview] = useState<string | null>(null);
@@ -188,11 +206,13 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
     concepto: '',
     categoria: 'otro_ingreso',
     notas: '',
+    currency: 'MXN' as 'MXN' | 'USD',
   });
 
   // Corte
   const [corteForm, setCorteForm] = useState({
-    saldo_real: '',
+    saldo_usd: '',
+    saldo_mxn: '',
     notas: '',
   });
 
@@ -250,11 +270,22 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
     }
   }, []);
 
+  const fetchExchangeRate = useCallback(async () => {
+    try {
+      const response = await api.get('/exchange-rate');
+      if (response.data?.rate) {
+        setExchangeRate(response.data.rate);
+      }
+    } catch (error) {
+      console.error('Error fetching exchange rate:', error);
+    }
+  }, []);
+
   const loadData = useCallback(async () => {
     setLoading(true);
-    await Promise.all([fetchStats(), fetchTransacciones(), fetchCortes()]);
+    await Promise.all([fetchStats(), fetchTransacciones(), fetchCortes(), fetchExchangeRate()]);
     setLoading(false);
-  }, [fetchStats, fetchTransacciones, fetchCortes]);
+  }, [fetchStats, fetchTransacciones, fetchCortes, fetchExchangeRate]);
 
   useEffect(() => {
     loadData();
@@ -305,10 +336,18 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
 
     setConfirming(true);
     try {
+      // El monto viene en MXN, si paga en USD calculamos el equivalente
+      const montoRecibido = paymentCurrency === 'MXN' 
+        ? searchResult.payment.monto 
+        : searchResult.payment.monto / exchangeRate;
+
       await api.post('/admin/finance/confirm-payment', {
         referencia: searchResult.payment.referencia,
         metodo_confirmacion: 'efectivo',
-        notas: confirmNotes
+        notas: confirmNotes,
+        moneda_recibida: paymentCurrency, // MXN o USD
+        monto_recibido: montoRecibido,
+        tipo_cambio: exchangeRate
       });
 
       setSnackbar({
@@ -397,11 +436,12 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
         notas: egresoForm.notas || null,
         referencia: egresoForm.referencia || null,
         evidencia_url: evidenciaUrl,
+        currency: egresoForm.currency,
       });
 
-      setSnackbar({ open: true, message: 'Egreso registrado correctamente', severity: 'success' });
+      setSnackbar({ open: true, message: `Egreso en ${egresoForm.currency} registrado correctamente`, severity: 'success' });
       setEgresoDialogOpen(false);
-      setEgresoForm({ monto: '', concepto: '', categoria: 'gastos_operativos', referencia: '', notas: '' });
+      setEgresoForm({ monto: '', concepto: '', categoria: 'gastos_operativos', referencia: '', notas: '', currency: 'MXN' });
       handleRemoveEvidence();
       loadData();
 
@@ -424,10 +464,11 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
         concepto: ingresoForm.concepto,
         categoria: ingresoForm.categoria,
         notas: ingresoForm.notas || null,
+        currency: ingresoForm.currency,
       });
-      setSnackbar({ open: true, message: 'Ingreso registrado correctamente', severity: 'success' });
+      setSnackbar({ open: true, message: `Ingreso en ${ingresoForm.currency} registrado correctamente`, severity: 'success' });
       setIngresoDialogOpen(false);
-      setIngresoForm({ monto: '', concepto: '', categoria: 'otro_ingreso', notas: '' });
+      setIngresoForm({ monto: '', concepto: '', categoria: 'otro_ingreso', notas: '', currency: 'MXN' });
       loadData();
     } catch (error: unknown) {
       const axiosError = error as { response?: { data?: { message?: string } } };
@@ -437,18 +478,36 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
   };
 
   // ============================================
-  // REALIZAR CORTE
+  // REALIZAR CORTE (CIEGO - USD Y MXN SEPARADOS)
   // ============================================
 
   const handleRealizarCorte = async () => {
     try {
-      await api.post('/caja-chica/corte', {
-        saldo_real: parseFloat(corteForm.saldo_real),
+      const response = await api.post('/caja-chica/corte', {
+        saldo_usd: corteForm.saldo_usd ? parseFloat(corteForm.saldo_usd) : null,
+        saldo_mxn: corteForm.saldo_mxn ? parseFloat(corteForm.saldo_mxn) : null,
         notas: corteForm.notas || null,
       });
-      setSnackbar({ open: true, message: 'Corte de caja realizado correctamente', severity: 'success' });
+      
+      // Construir mensaje con resultado del corte
+      let mensaje = 'Corte de caja realizado.\n';
+      const resultados = response.data.resultados || [];
+      
+      resultados.forEach((r: { currency: string; diferencia: number; saldo_esperado: number; saldo_contado: number }) => {
+        const diff = r.diferencia;
+        const diffStr = r.currency === 'USD' ? formatUSD(Math.abs(diff)) : formatCurrency(Math.abs(diff));
+        if (diff === 0) {
+          mensaje += `${r.currency}: Sin diferencia ✓\n`;
+        } else if (diff > 0) {
+          mensaje += `${r.currency}: Sobrante de ${diffStr}\n`;
+        } else {
+          mensaje += `${r.currency}: Faltante de ${diffStr}\n`;
+        }
+      });
+      
+      setSnackbar({ open: true, message: mensaje, severity: 'success' });
       setCorteDialogOpen(false);
-      setCorteForm({ saldo_real: '', notas: '' });
+      setCorteForm({ saldo_usd: '', saldo_mxn: '', notas: '' });
       loadData();
     } catch (error: unknown) {
       const axiosError = error as { response?: { data?: { message?: string } } };
@@ -463,6 +522,10 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(amount);
+  };
+
+  const formatUSD = (amount: number) => {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
   };
 
   const formatDate = (dateStr: string) => {
@@ -534,49 +597,95 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
         </Box>
       </Box>
 
-      {/* Stats Cards */}
-      <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+      {/* Stats Cards - USD */}
+      <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>
+        💵 Caja en Dólares (USD)
+      </Typography>
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid size={{ xs: 6, sm: 3 }}>
+          <Card sx={{ bgcolor: '#1565c0', color: 'white' }}>
+            <CardContent sx={{ py: 1.5 }}>
+              <Typography variant="caption">Saldo USD</Typography>
+              <Typography variant="h5" fontWeight="bold">
+                {formatUSD(stats?.saldo_usd || 0)}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 6, sm: 3 }}>
+          <Card sx={{ bgcolor: '#2e7d32', color: 'white' }}>
+            <CardContent sx={{ py: 1.5 }}>
+              <Typography variant="caption">Ingresos USD Hoy</Typography>
+              <Typography variant="h5" fontWeight="bold">
+                {formatUSD(stats?.ingresos_hoy_usd || 0)}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 6, sm: 3 }}>
+          <Card sx={{ bgcolor: '#c62828', color: 'white' }}>
+            <CardContent sx={{ py: 1.5 }}>
+              <Typography variant="caption">Egresos USD Hoy</Typography>
+              <Typography variant="h5" fontWeight="bold">
+                {formatUSD(stats?.egresos_hoy_usd || 0)}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+        <Grid size={{ xs: 6, sm: 3 }}>
+          <Card sx={{ bgcolor: '#424242', color: 'white' }}>
+            <CardContent sx={{ py: 1.5 }}>
+              <Typography variant="caption">Trans. USD Hoy</Typography>
+              <Typography variant="h5" fontWeight="bold">
+                {stats?.transacciones_hoy_usd || 0}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* Stats Cards - MXN */}
+      <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>
+        🇲🇽 Caja en Pesos (MXN)
+      </Typography>
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid size={{ xs: 6, sm: 3 }}>
           <Card sx={{ bgcolor: '#ff5722', color: 'white' }}>
-            <CardContent>
-              <Typography variant="overline">Saldo Actual</Typography>
-              <Typography variant="h4" fontWeight="bold">
-                {formatCurrency(stats?.saldo_actual || 0)}
+            <CardContent sx={{ py: 1.5 }}>
+              <Typography variant="caption">Saldo MXN</Typography>
+              <Typography variant="h5" fontWeight="bold">
+                {formatCurrency(stats?.saldo_mxn || 0)}
               </Typography>
-              <AccountBalanceIcon sx={{ position: 'absolute', right: 16, top: 16, opacity: 0.3, fontSize: 48 }} />
             </CardContent>
           </Card>
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 6, sm: 3 }}>
           <Card sx={{ bgcolor: '#4caf50', color: 'white' }}>
-            <CardContent>
-              <Typography variant="overline">Ingresos Hoy</Typography>
-              <Typography variant="h4" fontWeight="bold">
-                {formatCurrency(stats?.ingresos_hoy || 0)}
+            <CardContent sx={{ py: 1.5 }}>
+              <Typography variant="caption">Ingresos MXN Hoy</Typography>
+              <Typography variant="h5" fontWeight="bold">
+                {formatCurrency(stats?.ingresos_hoy_mxn || 0)}
               </Typography>
-              <TrendingUpIcon sx={{ position: 'absolute', right: 16, top: 16, opacity: 0.3, fontSize: 48 }} />
             </CardContent>
           </Card>
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 6, sm: 3 }}>
           <Card sx={{ bgcolor: '#f44336', color: 'white' }}>
-            <CardContent>
-              <Typography variant="overline">Egresos Hoy</Typography>
-              <Typography variant="h4" fontWeight="bold">
-                {formatCurrency(stats?.egresos_hoy || 0)}
+            <CardContent sx={{ py: 1.5 }}>
+              <Typography variant="caption">Egresos MXN Hoy</Typography>
+              <Typography variant="h5" fontWeight="bold">
+                {formatCurrency(stats?.egresos_hoy_mxn || 0)}
               </Typography>
-              <TrendingDownIcon sx={{ position: 'absolute', right: 16, top: 16, opacity: 0.3, fontSize: 48 }} />
             </CardContent>
           </Card>
         </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 6, sm: 3 }}>
           <Card sx={{ bgcolor: '#2196f3', color: 'white' }}>
-            <CardContent>
-              <Typography variant="overline">Transacciones Hoy</Typography>
-              <Typography variant="h4" fontWeight="bold">
-                {stats?.cantidad_transacciones_hoy || 0}
+            <CardContent sx={{ py: 1.5 }}>
+              <Typography variant="caption">Trans. MXN Hoy</Typography>
+              <Typography variant="h5" fontWeight="bold">
+                {stats?.transacciones_hoy_mxn || 0}
               </Typography>
-              <ReceiptIcon sx={{ position: 'absolute', right: 16, top: 16, opacity: 0.3, fontSize: 48 }} />
             </CardContent>
           </Card>
         </Grid>
@@ -617,25 +726,42 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
                     />
                   </TableCell>
                   <TableCell>
-                    <Typography
-                      fontWeight="bold"
-                      color={t.tipo === 'ingreso' ? 'success.main' : 'error.main'}
-                    >
-                      {t.tipo === 'ingreso' ? '+' : '-'}{formatCurrency(t.monto)}
-                    </Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Typography
+                        fontWeight="bold"
+                        color={t.tipo === 'ingreso' ? 'success.main' : 'error.main'}
+                      >
+                        {t.tipo === 'ingreso' ? '+' : '-'}{t.currency === 'USD' ? formatUSD(t.monto) : formatCurrency(t.monto)}
+                      </Typography>
+                      <Chip 
+                        label={t.currency === 'USD' ? 'USD' : 'MXN'} 
+                        size="small" 
+                        sx={{ height: 18, fontSize: '0.65rem' }} 
+                        color={t.currency === 'USD' ? 'primary' : 'warning'} 
+                      />
+                    </Box>
                   </TableCell>
                   <TableCell>{t.concepto}</TableCell>
                   <TableCell>
-                    {t.cliente_nombre ? (
-                      <Box>
-                        <Typography variant="body2">{t.cliente_nombre}</Typography>
-                        <Typography variant="caption" color="text.secondary">{t.cliente_box_id}</Typography>
-                      </Box>
+                    {t.cliente_box_id ? (
+                      <Typography variant="body2">{t.cliente_box_id}</Typography>
                     ) : '-'}
                   </TableCell>
                   <TableCell>
                     {t.referencia ? (
                       <Chip label={t.referencia} size="small" variant="outlined" />
+                    ) : t.aplicaciones && t.aplicaciones.length > 0 ? (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {t.aplicaciones.map((ap, idx) => (
+                          <Chip 
+                            key={idx} 
+                            label={ap.tracking_number} 
+                            size="small" 
+                            variant="outlined" 
+                            color="info"
+                          />
+                        ))}
+                      </Box>
                     ) : '-'}
                   </TableCell>
                   <TableCell>{t.admin_name}</TableCell>
@@ -661,37 +787,49 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
             <TableHead>
               <TableRow sx={{ bgcolor: 'grey.100' }}>
                 <TableCell>Fecha</TableCell>
+                <TableCell>Moneda</TableCell>
                 <TableCell align="right">Saldo Inicial</TableCell>
                 <TableCell align="right">Ingresos</TableCell>
                 <TableCell align="right">Egresos</TableCell>
                 <TableCell align="right">Saldo Sistema</TableCell>
-                <TableCell align="right">Saldo Entregado</TableCell>
+                <TableCell align="right">Saldo Contado</TableCell>
                 <TableCell align="right">Diferencia</TableCell>
                 <TableCell>Responsable</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {cortes.map((c) => (
-                <TableRow key={c.id}>
-                  <TableCell>{formatDate(c.fecha_corte)}</TableCell>
-                  <TableCell align="right">{formatCurrency(c.saldo_inicial)}</TableCell>
-                  <TableCell align="right" sx={{ color: 'success.main' }}>+{formatCurrency(c.total_ingresos)}</TableCell>
-                  <TableCell align="right" sx={{ color: 'error.main' }}>-{formatCurrency(c.total_egresos)}</TableCell>
-                  <TableCell align="right">{formatCurrency(c.saldo_final_sistema)}</TableCell>
-                  <TableCell align="right">{formatCurrency(c.saldo_final_entregado)}</TableCell>
-                  <TableCell align="right">
-                    <Chip
-                      label={formatCurrency(c.diferencia)}
-                      color={c.diferencia === 0 ? 'success' : 'error'}
-                      size="small"
-                    />
-                  </TableCell>
-                  <TableCell>{c.admin_name}</TableCell>
-                </TableRow>
-              ))}
+              {cortes.map((c) => {
+                const currency = c.currency || 'USD';
+                const fmt = currency === 'USD' ? formatUSD : formatCurrency;
+                return (
+                  <TableRow key={c.id}>
+                    <TableCell>{formatDate(c.fecha_corte)}</TableCell>
+                    <TableCell>
+                      <Chip 
+                        label={currency} 
+                        size="small" 
+                        color={currency === 'USD' ? 'primary' : 'warning'}
+                      />
+                    </TableCell>
+                    <TableCell align="right">{fmt(c.saldo_inicial)}</TableCell>
+                    <TableCell align="right" sx={{ color: 'success.main' }}>+{fmt(c.total_ingresos)}</TableCell>
+                    <TableCell align="right" sx={{ color: 'error.main' }}>-{fmt(c.total_egresos)}</TableCell>
+                    <TableCell align="right">{fmt(c.saldo_final_sistema)}</TableCell>
+                    <TableCell align="right">{fmt(c.saldo_final_entregado)}</TableCell>
+                    <TableCell align="right">
+                      <Chip
+                        label={`${c.diferencia >= 0 ? '+' : ''}${fmt(c.diferencia)}`}
+                        color={c.diferencia === 0 ? 'success' : c.diferencia > 0 ? 'info' : 'error'}
+                        size="small"
+                      />
+                    </TableCell>
+                    <TableCell>{c.admin_name}</TableCell>
+                  </TableRow>
+                );
+              })}
               {cortes.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">No hay cortes registrados</Typography>
                   </TableCell>
                 </TableRow>
@@ -784,7 +922,7 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
                           Monto a Cobrar
                         </Typography>
                         <Typography variant="h4" color="success.main" fontWeight="bold">
-                          {formatCurrency(searchResult.payment.monto)}
+                          {formatUSD(searchResult.payment.monto)}
                         </Typography>
                         <Chip
                           label={searchResult.payment.referencia}
@@ -809,7 +947,7 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
                               secondary={guia.description}
                             />
                             <Typography variant="body2" color="text.secondary">
-                              {formatCurrency(guia.assigned_cost_mxn || 0)}
+                              {formatUSD(guia.assigned_cost_mxn || 0)}
                             </Typography>
                           </ListItem>
                         ))}
@@ -829,6 +967,52 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
                       </Alert>
                     )}
                   </Box>
+
+                  {/* Selección de moneda de pago */}
+                  {searchResult.puede_confirmar && (
+                    <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 2 }}>
+                      <Typography variant="subtitle2" gutterBottom fontWeight="bold">
+                        💵 ¿En qué moneda te pagó el cliente?
+                      </Typography>
+                      <Grid container spacing={2} sx={{ mt: 1 }}>
+                        <Grid size={{ xs: 6 }}>
+                          <Button
+                            variant={paymentCurrency === 'USD' ? 'contained' : 'outlined'}
+                            color={paymentCurrency === 'USD' ? 'success' : 'inherit'}
+                            fullWidth
+                            onClick={() => setPaymentCurrency('USD')}
+                            sx={{ py: 2 }}
+                          >
+                            <Box sx={{ textAlign: 'center' }}>
+                              <Typography variant="h6">USD</Typography>
+                              <Typography variant="body2" fontWeight="bold">
+                                {formatUSD(searchResult.payment.monto / exchangeRate)}
+                              </Typography>
+                            </Box>
+                          </Button>
+                        </Grid>
+                        <Grid size={{ xs: 6 }}>
+                          <Button
+                            variant={paymentCurrency === 'MXN' ? 'contained' : 'outlined'}
+                            color={paymentCurrency === 'MXN' ? 'success' : 'inherit'}
+                            fullWidth
+                            onClick={() => setPaymentCurrency('MXN')}
+                            sx={{ py: 2 }}
+                          >
+                            <Box sx={{ textAlign: 'center' }}>
+                              <Typography variant="h6">MXN</Typography>
+                              <Typography variant="body2" fontWeight="bold">
+                                {formatCurrency(searchResult.payment.monto)}
+                              </Typography>
+                            </Box>
+                          </Button>
+                        </Grid>
+                      </Grid>
+                      <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                        Tipo de cambio actual: 1 USD = ${exchangeRate.toFixed(2)} MXN
+                      </Typography>
+                    </Box>
+                  )}
                 </CardContent>
               </Card>
 
@@ -854,6 +1038,7 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
             setSearchResult(null);
             setSearchError(null);
             setConfirmNotes('');
+            setPaymentCurrency('MXN');
           }}>
             Cancelar
           </Button>
@@ -865,7 +1050,7 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
               disabled={confirming}
               startIcon={confirming ? <CircularProgress size={20} /> : <CheckCircleIcon />}
             >
-              {confirming ? 'Confirmando...' : `Confirmar Pago de ${formatCurrency(searchResult.payment.monto)}`}
+              {confirming ? 'Confirmando...' : `Confirmar Pago de ${paymentCurrency === 'MXN' ? formatCurrency(searchResult.payment.monto) : formatUSD(searchResult.payment.monto / exchangeRate)}`}
             </Button>
           )}
         </DialogActions>
@@ -881,6 +1066,30 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
           <Grid container spacing={2} sx={{ mt: 1 }}>
+            {/* Selector de Moneda */}
+            <Grid size={{ xs: 12 }}>
+              <Typography variant="subtitle2" gutterBottom fontWeight="bold">
+                💵 ¿De qué caja sale el dinero?
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  variant={egresoForm.currency === 'USD' ? 'contained' : 'outlined'}
+                  color={egresoForm.currency === 'USD' ? 'primary' : 'inherit'}
+                  onClick={() => setEgresoForm({ ...egresoForm, currency: 'USD' })}
+                  sx={{ flex: 1 }}
+                >
+                  💵 USD (Dólares)
+                </Button>
+                <Button
+                  variant={egresoForm.currency === 'MXN' ? 'contained' : 'outlined'}
+                  color={egresoForm.currency === 'MXN' ? 'warning' : 'inherit'}
+                  onClick={() => setEgresoForm({ ...egresoForm, currency: 'MXN' })}
+                  sx={{ flex: 1 }}
+                >
+                  🇲🇽 MXN (Pesos)
+                </Button>
+              </Box>
+            </Grid>
             <Grid size={{ xs: 12 }}>
               <TextField
                 fullWidth
@@ -888,7 +1097,10 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
                 type="number"
                 value={egresoForm.monto}
                 onChange={(e) => setEgresoForm({ ...egresoForm, monto: e.target.value })}
-                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                InputProps={{ 
+                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                  endAdornment: <InputAdornment position="end">{egresoForm.currency}</InputAdornment>
+                }}
                 required
               />
             </Grid>
@@ -974,7 +1186,7 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
           <Button onClick={() => {
             setEgresoDialogOpen(false);
             handleRemoveEvidence();
-            setEgresoForm({ monto: '', concepto: '', categoria: 'gastos_operativos', referencia: '', notas: '' });
+            setEgresoForm({ monto: '', concepto: '', categoria: 'gastos_operativos', referencia: '', notas: '', currency: 'MXN' });
           }}>
             Cancelar
           </Button>
@@ -984,7 +1196,7 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
             onClick={handleRegistrarEgreso}
             disabled={!egresoForm.monto || !egresoForm.concepto || !evidenciaFile}
           >
-            Registrar Gasto
+            Registrar Gasto en {egresoForm.currency}
           </Button>
         </DialogActions>
       </Dialog>
@@ -999,6 +1211,30 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
           <Grid container spacing={2} sx={{ mt: 1 }}>
+            {/* Selector de Moneda */}
+            <Grid size={{ xs: 12 }}>
+              <Typography variant="subtitle2" gutterBottom fontWeight="bold">
+                💵 ¿En qué moneda es el ingreso?
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1 }}>
+                <Button
+                  variant={ingresoForm.currency === 'USD' ? 'contained' : 'outlined'}
+                  color={ingresoForm.currency === 'USD' ? 'primary' : 'inherit'}
+                  onClick={() => setIngresoForm({ ...ingresoForm, currency: 'USD' })}
+                  sx={{ flex: 1 }}
+                >
+                  💵 USD (Dólares)
+                </Button>
+                <Button
+                  variant={ingresoForm.currency === 'MXN' ? 'contained' : 'outlined'}
+                  color={ingresoForm.currency === 'MXN' ? 'warning' : 'inherit'}
+                  onClick={() => setIngresoForm({ ...ingresoForm, currency: 'MXN' })}
+                  sx={{ flex: 1 }}
+                >
+                  🇲🇽 MXN (Pesos)
+                </Button>
+              </Box>
+            </Grid>
             <Grid size={{ xs: 12 }}>
               <TextField
                 fullWidth
@@ -1006,7 +1242,10 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
                 type="number"
                 value={ingresoForm.monto}
                 onChange={(e) => setIngresoForm({ ...ingresoForm, monto: e.target.value })}
-                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                InputProps={{ 
+                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                  endAdornment: <InputAdornment position="end">{ingresoForm.currency}</InputAdornment>
+                }}
                 required
               />
             </Grid>
@@ -1053,37 +1292,62 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
             onClick={handleRegistrarIngreso}
             disabled={!ingresoForm.monto || !ingresoForm.concepto}
           >
-            Registrar Ingreso
+            Registrar Ingreso en {ingresoForm.currency}
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* ============================================ */}
-      {/* DIALOG: CORTE DE CAJA */}
+      {/* DIALOG: CORTE DE CAJA (CIEGO) */}
       {/* ============================================ */}
       <Dialog open={corteDialogOpen} onClose={() => setCorteDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ bgcolor: 'info.main', color: 'white' }}>
           <AssignmentIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
-          Realizar Corte de Caja
+          Corte de Caja - Cierre del Día
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            Saldo actual del sistema: <strong>{formatCurrency(stats?.saldo_actual || 0)}</strong>
+          <Alert severity="warning" sx={{ mb: 3 }}>
+            <strong>Corte Ciego:</strong> Cuenta el efectivo físico en cada moneda y registra los totales.
           </Alert>
-          <Grid container spacing={2} sx={{ mt: 1 }}>
+          <Grid container spacing={2}>
+            {/* USD */}
             <Grid size={{ xs: 12 }}>
+              <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
+                💵 Efectivo en Dólares (USD)
+              </Typography>
               <TextField
                 fullWidth
-                label="Saldo Real Contado"
+                label="Total USD contado"
                 type="number"
-                value={corteForm.saldo_real}
-                onChange={(e) => setCorteForm({ ...corteForm, saldo_real: e.target.value })}
-                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                required
-                helperText="Cuenta el efectivo y registra el total"
+                value={corteForm.saldo_usd}
+                onChange={(e) => setCorteForm({ ...corteForm, saldo_usd: e.target.value })}
+                InputProps={{ 
+                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                  endAdornment: <InputAdornment position="end">USD</InputAdornment>
+                }}
+                placeholder="0.00"
+              />
+            </Grid>
+            {/* MXN */}
+            <Grid size={{ xs: 12 }}>
+              <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
+                🇲🇽 Efectivo en Pesos (MXN)
+              </Typography>
+              <TextField
+                fullWidth
+                label="Total MXN contado"
+                type="number"
+                value={corteForm.saldo_mxn}
+                onChange={(e) => setCorteForm({ ...corteForm, saldo_mxn: e.target.value })}
+                InputProps={{ 
+                  startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                  endAdornment: <InputAdornment position="end">MXN</InputAdornment>
+                }}
+                placeholder="0.00"
               />
             </Grid>
             <Grid size={{ xs: 12 }}>
+              <Divider sx={{ my: 1 }} />
               <TextField
                 fullWidth
                 label="Notas del corte (opcional)"
@@ -1091,6 +1355,7 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
                 onChange={(e) => setCorteForm({ ...corteForm, notas: e.target.value })}
                 multiline
                 rows={2}
+                placeholder="Observaciones del cierre..."
               />
             </Grid>
           </Grid>
@@ -1101,9 +1366,9 @@ const POBoxCajaPage: React.FC<POBoxCajaPageProps> = ({ initialSearchRef, onPayme
             variant="contained"
             color="info"
             onClick={handleRealizarCorte}
-            disabled={!corteForm.saldo_real}
+            disabled={!corteForm.saldo_usd && !corteForm.saldo_mxn}
           >
-            Realizar Corte
+            Cerrar Día
           </Button>
         </DialogActions>
       </Dialog>

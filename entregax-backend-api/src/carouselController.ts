@@ -73,6 +73,27 @@ export const getActiveSlides = async (req: Request, res: Response) => {
       ORDER BY priority ASC
     `, [now]);
 
+    // Generar URLs firmadas para imágenes de S3
+    const { getSignedUrlForKey, extractKeyFromUrl } = await import('./s3Service');
+    
+    const slidesWithSignedUrls = await Promise.all(
+      result.rows.map(async (slide: any) => {
+        if (slide.imageType === 'image' && slide.imageUrl && slide.imageUrl.includes('s3.')) {
+          try {
+            const key = extractKeyFromUrl(slide.imageUrl);
+            if (key) {
+              // URL firmada válida por 24 horas
+              const signedUrl = await getSignedUrlForKey(key, 86400);
+              return { ...slide, imageUrl: signedUrl };
+            }
+          } catch (e) {
+            console.error('Error generando URL firmada:', e);
+          }
+        }
+        return slide;
+      })
+    );
+
     // Registrar vistas (de forma asíncrona, no bloqueante)
     if (result.rows.length > 0) {
       const slideKeys = result.rows.map((s: { id: string }) => s.id);
@@ -85,7 +106,7 @@ export const getActiveSlides = async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      slides: result.rows
+      slides: slidesWithSignedUrls
     });
   } catch (error) {
     console.error('❌ Error obteniendo slides:', error);

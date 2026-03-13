@@ -70,16 +70,24 @@ export default function VerificationsPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    const token = getToken();
+    if (!token) {
+      setSnackbar({ open: true, message: 'No hay sesión activa', severity: 'error' });
+      setLoading(false);
+      return;
+    }
     try {
+      console.log('[Verifications] Loading data...');
       const [pendingRes, statsRes] = await Promise.all([
-        axios.get(`${API_URL}/admin/verifications/pending`, { headers: { Authorization: `Bearer ${getToken()}` } }),
-        axios.get(`${API_URL}/admin/verifications/stats`, { headers: { Authorization: `Bearer ${getToken()}` } })
+        axios.get(`${API_URL}/admin/verifications/pending`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_URL}/admin/verifications/stats`, { headers: { Authorization: `Bearer ${token}` } })
       ]);
+      console.log('[Verifications] Data loaded:', { pending: pendingRes.data.length, stats: statsRes.data });
       setPendingUsers(pendingRes.data);
       setStats(statsRes.data);
-    } catch (error) {
-      console.error('Error loading data:', error);
-      setSnackbar({ open: true, message: 'Error al cargar datos', severity: 'error' });
+    } catch (error: any) {
+      console.error('Error loading data:', error?.response?.data || error.message);
+      setSnackbar({ open: true, message: `Error al cargar datos: ${error?.response?.data?.error || error.message}`, severity: 'error' });
     } finally {
       setLoading(false);
     }

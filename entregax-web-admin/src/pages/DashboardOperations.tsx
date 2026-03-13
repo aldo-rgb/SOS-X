@@ -22,6 +22,7 @@ import {
   TableHead,
   TableRow,
   Button,
+  Alert,
 } from '@mui/material';
 import {
   Inventory as InventoryIcon,
@@ -178,6 +179,40 @@ export default function DashboardOperations() {
 
   return (
     <Box sx={{ p: 3 }}>
+      {/* 🚧 Banner de Construcción */}
+      <Alert 
+        severity="warning" 
+        icon={<span style={{ fontSize: 24 }}>🚧</span>}
+        sx={{ 
+          mb: 3, 
+          borderRadius: 2,
+          bgcolor: '#FFF3E0',
+          border: '2px dashed #FF9800',
+          '& .MuiAlert-message': { width: '100%' }
+        }}
+      >
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+          <Box>
+            <Typography variant="subtitle1" fontWeight="bold" color="#E65100">
+              ⚠️ Página en Construcción
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Los datos mostrados son <strong>imágenes de demostración</strong>. Las funcionalidades reales están siendo desarrolladas.
+            </Typography>
+          </Box>
+          <Chip 
+            label="DEMO" 
+            size="small" 
+            sx={{ 
+              bgcolor: '#FF9800', 
+              color: 'white', 
+              fontWeight: 'bold',
+              animation: 'pulse 2s infinite'
+            }} 
+          />
+        </Box>
+      </Alert>
+
       {/* Header */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" fontWeight={700}>

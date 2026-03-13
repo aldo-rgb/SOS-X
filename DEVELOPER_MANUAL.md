@@ -1,7 +1,7 @@
 # 📚 EntregaX - Manual del Programador
 
-> **Última actualización:** 6 de marzo de 2026  
-> **Versión:** 2.11.0
+> **Última actualización:** 13 de marzo de 2026  
+> **Versión:** 2.13.0
 
 ---
 
@@ -27,17 +27,20 @@
 18. [Sistema de Pagos](#sistema-de-pagos)
 19. [Sistema de Pagos a Proveedores](#sistema-de-pagos-a-proveedores)
 20. [Openpay Multi-Empresa - Cobranza SPEI](#openpay-multi-empresa---cobranza-spei)
-21. [Sistema de Pagos en Sucursal](#sistema-de-pagos-en-sucursal) ⭐ NUEVO
-22. [Sistema de Direcciones](#sistema-de-direcciones)
-23. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo)
-24. [Panel Marítimo China](#panel-marítimo-china)
-25. [Integración con OpenAI](#integración-con-openai)
-26. [DHL Monterrey - Costeo](#dhl-monterrey---costeo)
-27. [Tradlinx Ocean Visibility](#tradlinx-ocean-visibility---tracking-de-contenedores)
-28. [Módulos Implementados](#módulos-implementados)
-29. [Guía de Desarrollo](#guía-de-desarrollo)
-30. [Credenciales de Prueba](#credenciales-de-prueba)
-31. [Changelog](#changelog)
+21. [Sistema de Pagos en Sucursal](#sistema-de-pagos-en-sucursal)
+22. [Caja Chica Multi-Moneda USD/MXN](#caja-chica-multi-moneda-usdmxn)
+23. [Guía de Servicios Mobile (ServicesGuide)](#guía-de-servicios-mobile-servicesguide)
+24. [Asignación de Asesor a Clientes](#asignación-de-asesor-a-clientes) ⭐ NUEVO
+25. [Sistema de Direcciones](#sistema-de-direcciones)
+26. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo)
+27. [Panel Marítimo China](#panel-marítimo-china)
+28. [Integración con OpenAI](#integración-con-openai)
+29. [DHL Monterrey - Costeo](#dhl-monterrey---costeo)
+30. [Tradlinx Ocean Visibility](#tradlinx-ocean-visibility---tracking-de-contenedores)
+31. [Módulos Implementados](#módulos-implementados)
+32. [Guía de Desarrollo](#guía-de-desarrollo)
+33. [Credenciales de Prueba](#credenciales-de-prueba)
+34. [Changelog](#changelog)
 
 ---
 
@@ -813,18 +816,197 @@ function MyComponent() {
 
 ---
 
-## � Mobile App (Expo + React Native)
+## 📱 Mobile App (Expo + React Native)
 
 ### Estructura de Pantallas
 ```
 src/
 ├── screens/
-│   ├── LoginScreen.tsx      # Pantalla de login
-│   ├── HomeScreen.tsx       # Lista de paquetes + selección
-│   └── ConsolidationSummary.tsx  # Resumen antes de enviar
+│   ├── LoginScreen.tsx           # Pantalla de login
+│   ├── HomeScreen.tsx            # Lista de paquetes + selección
+│   ├── EmployeeHomeScreen.tsx    # ⭐ Dashboard de empleados PO Box
+│   ├── ConsolidationSummary.tsx  # Resumen antes de enviar
+│   ├── ServicesGuideScreen.tsx   # Guía de servicios (marketing)
+│   ├── PackageDetailScreen.tsx   # Detalle de paquete
+│   ├── GEXContractScreen.tsx     # Contratación de garantía
+│   ├── MyAddressesScreen.tsx     # Direcciones del cliente
+│   ├── MyProfileScreen.tsx       # Perfil del usuario
+│   │
+│   │ # ⭐ NUEVAS PANTALLAS PO BOX USA (Marzo 2026)
+│   ├── POBoxReceiveScreen.tsx    # Wizard: Recibir paquetería en serie
+│   ├── POBoxEntryScreen.tsx      # Wizard: Entrada de paquetes
+│   ├── POBoxExitScreen.tsx       # Wizard: Nueva salida de paquetes
+│   ├── POBoxCollectScreen.tsx    # Wizard: Cobrar / Recibir pagos
+│   ├── POBoxQuoteScreen.tsx      # Wizard: Cotizar envío
+│   └── POBoxRepackScreen.tsx     # Wizard: Procesar reempaque
 ├── services/
 │   └── api.ts               # Configuración Axios + baseURL
 └── App.tsx                  # NavigationContainer
+
+```
+
+### ⭐ Pantallas PO Box USA - Wizards de Operaciones
+
+#### POBoxReceiveScreen.tsx - Recibir Paquetería en Serie
+```
+Wizard de 2 pasos para recepción masiva:
+├── Paso 1: Agregar Cajas
+│   ├── Guía del proveedor (Amazon, UPS, etc.)
+│   ├── Escaneo de código de barras con cámara
+│   ├── Peso (kg)
+│   ├── Medidas (largo, ancho, alto en cm)
+│   └── Genera guía individual automática (US-XXXX)
+├── Paso 2: Foto & Cliente
+│   ├── Captura de foto de evidencia
+│   ├── Búsqueda de cliente por Box ID
+│   └── Asignación masiva de paquetes
+└── Features:
+    ├── Escáner de códigos de barras (expo-camera)
+    ├── Vibración al escanear
+    ├── Agregar múltiples cajas en serie
+    └── POST /api/packages por cada caja
+```
+
+#### POBoxEntryScreen.tsx - Entrada de Paquetes
+```
+Wizard de 3 pasos para entrada de envíos:
+├── Paso 1: Buscar Envío
+│   ├── Búsqueda por tracking individual
+│   ├── Búsqueda por ID de consolidación
+│   ├── Búsqueda por guía master
+│   ├── Escaneo de código de barras
+│   └── Multi-selección de paquetes
+├── Paso 2: Verificar Contenido
+│   ├── Resumen de paquetes seleccionados
+│   └── Peso total calculado
+├── Paso 3: Confirmar Entrada
+│   ├── Asignación de ubicación en bodega
+│   └── Observaciones opcionales
+└── Features:
+    ├── Escáner de códigos de barras
+    ├── Seleccionar todos / Limpiar
+    └── PUT /api/packages/bulk-update
+```
+
+#### POBoxExitScreen.tsx - Nueva Salida de Paquetes
+```
+Wizard de 3 pasos para crear salidas:
+├── Paso 1: Seleccionar Paquetes
+│   ├── Lista de paquetes en bodega
+│   ├── Búsqueda y escaneo de guías
+│   └── Multi-selección con peso total
+├── Paso 2: Datos de Envío
+│   ├── Método: Consolidado o Individual
+│   ├── Paquetería (DHL, FedEx, UPS, etc.)
+│   ├── Guía master
+│   └── Destino
+├── Paso 3: Confirmar Salida
+│   ├── Resumen de paquetes
+│   ├── Guías incluidas
+│   └── Observaciones
+└── Features:
+    ├── Escáner de códigos de barras
+    ├── 6 paqueterías disponibles
+    └── POST /api/shipments/outbound
+```
+
+#### POBoxCollectScreen.tsx - Cobrar / Recibir Pagos
+```
+Wizard de 3 pasos para cobros:
+├── Paso 1: Buscar por Referencia
+│   ├── Búsqueda por guía
+│   ├── Búsqueda por Box ID
+│   ├── Búsqueda por nombre de cliente
+│   └── Escaneo de código de barras
+├── Paso 2: Detalles de Cobro
+│   ├── Información del paquete
+│   ├── Desglose de costos
+│   ├── Selección de método de pago
+│   │   ├── Efectivo
+│   │   ├── Tarjeta
+│   │   ├── Transferencia
+│   │   └── Zelle
+│   └── Monto y referencia
+├── Paso 3: Confirmar Pago
+│   ├── Resumen completo
+│   └── Registro de cobro
+└── Features:
+    ├── Escáner de códigos de barras
+    ├── Header color verde (#4CAF50)
+    └── POST /api/payments
+```
+
+#### POBoxQuoteScreen.tsx - Cotizar Envío
+```
+Wizard de 3 pasos para cotizaciones:
+├── Paso 1: Datos del Paquete
+│   ├── Peso (kg)
+│   ├── Medidas (largo, ancho, alto en cm)
+│   └── Cálculo automático de peso volumétrico
+├── Paso 2: Destino
+│   ├── País de destino (México, USA, etc.)
+│   ├── Estado
+│   └── Ciudad
+├── Paso 3: Cotizaciones
+│   ├── Comparativa de paqueterías
+│   ├── Precio por carrier
+│   └── Tiempo estimado de entrega
+└── Features:
+    ├── Header color azul (#2196F3)
+    ├── Fórmula volumétrico: (L×A×H)/5000
+    └── POST /api/quotes
+```
+
+#### POBoxRepackScreen.tsx - Procesar Reempaque
+```
+Wizard de 3 pasos para consolidación de paquetes:
+├── Paso 1: Escanear Guías
+│   ├── Escaneo de múltiples paquetes
+│   ├── Lista de paquetes a consolidar
+│   └── Peso total original
+├── Paso 2: Nuevo Paquete
+│   ├── Nueva guía (opcional, se genera automática RP-XXXX)
+│   ├── Peso del nuevo paquete
+│   ├── Medidas del nuevo paquete
+│   └── Foto del paquete consolidado
+├── Paso 3: Confirmar Reempaque
+│   ├── Visual de consolidación (cajas → 1 caja)
+│   ├── Resumen de guías contenidas
+│   └── Procesado por usuario
+└── Features:
+    ├── Escáner de códigos de barras
+    ├── Header color púrpura (#9C27B0)
+    ├── Mínimo 2 paquetes para consolidar
+    └── POST /api/repack
+```
+
+### Escáner de Códigos de Barras
+Todas las pantallas POBox incluyen escáner integrado usando `expo-camera`:
+```typescript
+// Importación
+import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
+
+// Hook de permisos
+const [permission, requestPermission] = useCameraPermissions();
+
+// Configuración del escáner
+<CameraView
+  style={styles.camera}
+  facing="back"
+  barcodeScannerSettings={{
+    barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 
+                   'code93', 'upc_a', 'upc_e', 'itf14', 
+                   'codabar', 'datamatrix', 'pdf417'],
+  }}
+  onBarcodeScanned={handleBarCodeScanned}
+/>
+
+// Manejador con vibración
+const handleBarCodeScanned = (result: BarcodeScanningResult) => {
+  Vibration.vibrate(100);
+  setSearchQuery(result.data.trim());
+  setShowScanner(false);
+};
 ```
 
 ### LoginScreen.tsx
@@ -3288,7 +3470,480 @@ node run_payment_config_migration.js
 
 ---
 
-## 📍 Sistema de Direcciones
+## � Caja Chica Multi-Moneda USD/MXN
+
+### Descripción
+
+El sistema de Caja Chica del módulo PO Box ahora soporta operaciones en **dos monedas**: USD (Dólares) y MXN (Pesos Mexicanos). Esto permite registrar pagos de clientes, ingresos y egresos en la moneda correspondiente, con cortes de caja separados por moneda.
+
+### Estructura de la Base de Datos
+
+```sql
+-- Columna agregada a caja_chica_transacciones
+ALTER TABLE caja_chica_transacciones 
+ADD COLUMN currency VARCHAR(3) DEFAULT 'MXN';
+
+-- Columnas agregadas a caja_chica_cortes
+ALTER TABLE caja_chica_cortes 
+ADD COLUMN efectivo_final_usd DECIMAL(12,2) DEFAULT 0,
+ADD COLUMN efectivo_sistema_usd DECIMAL(12,2) DEFAULT 0,
+ADD COLUMN diferencia_usd DECIMAL(12,2) DEFAULT 0;
+```
+
+### Endpoints API
+
+```http
+# Obtener resumen de caja (incluye totales por moneda)
+GET /api/admin/pobox/caja-chica
+Authorization: Bearer {token}
+
+Response:
+{
+  "saldoInicial": 5000,
+  "totalIngresos": 1500,
+  "totalEgresos": 200,
+  "efectivoActual": 6300,
+  "efectivoActualUsd": 45,  // ⭐ NUEVO
+  "transacciones": [...],
+  "corteActivo": {...}
+}
+
+# Registrar pago de cliente (con moneda)
+POST /api/admin/pobox/caja-chica/pago
+{
+  "packageId": 123,
+  "monto": 15,
+  "currency": "USD",  // ⭐ NUEVO: "USD" o "MXN"
+  "metodoPago": "efectivo"
+}
+
+# Registrar ingreso manual (con moneda)
+POST /api/admin/pobox/caja-chica/ingreso
+{
+  "monto": 100,
+  "currency": "MXN",  // ⭐ NUEVO
+  "concepto": "Cambio de billetes"
+}
+
+# Registrar egreso (con moneda)
+POST /api/admin/pobox/caja-chica/egreso
+{
+  "monto": 50,
+  "currency": "USD",  // ⭐ NUEVO
+  "concepto": "Compra de suministros"
+}
+
+# Realizar corte ciego (dual currency)
+POST /api/admin/pobox/caja-chica/corte
+{
+  "efectivoContado": 6300,      // MXN contado
+  "efectivoContadoUsd": 45,     // ⭐ NUEVO: USD contado
+  "observaciones": "Cuadre correcto"
+}
+```
+
+### Flujo de Corte Ciego Dual
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    CORTE DE CAJA CIEGO                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                             │
+│  💵 PESOS MEXICANOS (MXN)        💵 DÓLARES (USD)          │
+│  ┌───────────────────────┐       ┌───────────────────────┐ │
+│  │ Efectivo Contado:     │       │ Efectivo Contado:     │ │
+│  │ $_________ MXN        │       │ $_________ USD        │ │
+│  └───────────────────────┘       └───────────────────────┘ │
+│                                                             │
+│  📝 Observaciones:                                          │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │                                                       │  │
+│  └──────────────────────────────────────────────────────┘  │
+│                                                             │
+│            [❌ Cancelar]     [✅ Realizar Corte]            │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Historial de Cortes con Moneda
+
+| Fecha | Cajero | Sistema MXN | Contado MXN | Dif MXN | Sistema USD | Contado USD | Dif USD |
+|-------|--------|-------------|-------------|---------|-------------|-------------|---------|
+| 12/03 | María  | $6,300.00   | $6,300.00   | $0.00   | $45.00      | $45.00      | $0.00   |
+| 11/03 | Pedro  | $5,000.00   | $4,980.00   | -$20.00 | $30.00      | $30.00      | $0.00   |
+
+### Archivos Modificados
+
+| Archivo | Cambios |
+|---------|---------|
+| `cajaChicaController.ts` | +currency en pagos, ingresos, egresos; +efectivoActualUsd en resumen |
+| `POBoxCajaChicaPage.tsx` | +selector moneda en diálogos; +campos USD en corte; +columnas USD en historial |
+| `add_caja_chica_currency.sql` | Migración para agregar columnas de currency |
+
+### Migración
+
+```bash
+cd entregax-backend-api
+node run_currency_migration.js
+```
+
+---
+
+## 📱 Guía de Servicios Mobile (ServicesGuide)
+
+### Descripción
+
+La **ServicesGuideScreen** es una pantalla de marketing premium diseñada para actuar como un "vendedor en línea". Muestra los 4 servicios de envío disponibles con tutoriales detallados, direcciones personalizadas y llamadas a la acción para incentivar el uso de cada servicio.
+
+### Propósito
+
+- **Marketing subliminal**: Presentar beneficios de cada servicio para conversión
+- **Facilitar envíos**: Direcciones copy-ready con un clic
+- **Educar al cliente**: Tutoriales de empaque y envío por servicio
+- **Experiencia premium**: Animaciones, gradientes y diseño profesional
+
+### Navegación
+
+```
+HomeScreen (Botón "Enviar")
+        │
+        ├── Sin paquetes seleccionados → ServicesGuide
+        │                                    │
+        │                                    ├── 4 tarjetas de servicio
+        │                                    ├── Tutoriales expandibles
+        │                                    ├── Copiar dirección
+        │                                    └── Compartir por WhatsApp
+        │
+        └── Con paquetes seleccionados → Consolidación/Cambio método
+```
+
+### Servicios Configurados
+
+| ID | Servicio | Ícono | Tiempo | Ideal Para | Chips |
+|----|----------|-------|--------|------------|-------|
+| `china_air` | TDI Aéreo China | ✈️ | 7-12 días | Electrónicos, moda | Popular |
+| `china_sea` | Marítimo China | 🚢 | 35-45 días | Muebles, volumen | Más económico |
+| `mx_cedis` | DHL Monterrey | 📦 | 24-48 hrs | Mercancía MX | Más rápido |
+| `usa_pobox` | PO Box USA | 📬 | 5-7 días | Compras online USA | Favorito |
+
+### Dirección Personalizada
+
+La dirección incluye automáticamente el nombre y suite del cliente:
+
+```
+📍 Dirección de Envío:
+Room 603 Hongxing Bldg, No.10 Changxing Street
+Tianhe District, Guangzhou GD 510630
+
+👤 Destinatario:
+Juan Pérez - S4001
+
+📞 Contacto:
+Srta. Feng (+13068841004)
+```
+
+### Backend - Endpoint de Información
+
+```http
+GET /api/services/:serviceType/info
+Authorization: Bearer {token}
+
+# Ejemplo: GET /api/services/china_air/info
+
+Response:
+{
+  "service": {
+    "service_type": "china_air",
+    "service_name": "TDI Aéreo China",
+    "packaging_instructions": "Empaque seguro con doble capa...",
+    "shipping_instructions": "Escriba claramente su nombre y suite...",
+    "notes": "Tiempo estimado: 7-12 días laborales"
+  },
+  "addresses": [
+    {
+      "alias": "Guangzhou TDI",
+      "address_line1": "Room 603 Hongxing Bldg",
+      "address_line2": "No.10 Changxing Street, Tianhe District",
+      "city": "Guangzhou",
+      "state": "GD",
+      "zip_code": "510630",
+      "country": "China",
+      "contact_name": "Srta. Feng",
+      "contact_phone": "+13068841004"
+    }
+  ]
+}
+```
+
+### Tablas de Base de Datos
+
+```sql
+-- Instrucciones por servicio
+CREATE TABLE service_instructions (
+  id SERIAL PRIMARY KEY,
+  service_type VARCHAR(50) UNIQUE NOT NULL,
+  service_name VARCHAR(100),
+  packaging_instructions TEXT,
+  shipping_instructions TEXT,
+  notes TEXT,
+  is_active BOOLEAN DEFAULT TRUE
+);
+
+-- Direcciones de bodega por servicio
+CREATE TABLE service_warehouse_addresses (
+  id SERIAL PRIMARY KEY,
+  service_type VARCHAR(50) NOT NULL,
+  alias VARCHAR(100),
+  address_line1 VARCHAR(255),
+  address_line2 VARCHAR(255),
+  city VARCHAR(100),
+  state VARCHAR(50),
+  zip_code VARCHAR(20),
+  country VARCHAR(50),
+  contact_name VARCHAR(100),
+  contact_phone VARCHAR(50),
+  is_primary BOOLEAN DEFAULT FALSE,
+  is_active BOOLEAN DEFAULT TRUE
+);
+```
+
+### Funcionalidades del UI
+
+1. **Tarjetas Animadas**: Expansión suave con Animated API
+2. **Gradientes**: LinearGradient de expo-linear-gradient
+3. **Chips de Marketing**: Destacan "Popular", "Más económico", etc.
+4. **Copy-Ready**: Clipboard nativo de React Native
+5. **Compartir**: Share API para WhatsApp/SMS
+6. **Beneficios**: Lista de ventajas por servicio
+7. **Loading States**: ActivityIndicator durante carga de datos
+
+### Estructura del Archivo
+
+```typescript
+// src/screens/ServicesGuideScreen.tsx (966 líneas)
+
+interface ServiceCard {
+  id: string;           // china_air, china_sea, mx_cedis, usa_pobox
+  name: string;         // Nombre display
+  icon: string;         // Ionicons name
+  color: string;        // Color del gradiente
+  description: string;  // Descripción corta
+  benefits: string[];   // Lista de beneficios
+  timeframe: string;    // Tiempo estimado
+  idealFor: string;     // Caso de uso ideal
+  chips: string[];      // Tags de marketing
+}
+
+// Servicios definidos
+const SERVICES: ServiceCard[] = [
+  { id: 'china_air', name: 'TDI Aéreo China', ... },
+  { id: 'china_sea', name: 'Marítimo China', ... },
+  { id: 'mx_cedis', name: 'DHL Monterrey', ... },
+  { id: 'usa_pobox', name: 'PO Box USA', ... }
+];
+```
+
+### Archivos Relacionados
+
+| Archivo | Descripción |
+|---------|-------------|
+| `ServicesGuideScreen.tsx` | Pantalla principal (966 líneas) |
+| `HomeScreen.tsx` | Navegación desde botón "Enviar" |
+| `App.tsx` | Configuración de ruta Stack.Screen |
+| `serviceInstructionsController.ts` | Backend para GET /api/services/:type/info |
+
+---
+
+## � Asignación de Asesor a Clientes
+
+Sistema para asignar y gestionar asesores comerciales a los clientes desde el panel administrativo.
+
+### Base de Datos
+
+```sql
+-- Columna agregada a tabla users
+ALTER TABLE users 
+ADD COLUMN IF NOT EXISTS advisor_id INTEGER REFERENCES users(id) ON DELETE SET NULL;
+
+-- Índice para búsquedas
+CREATE INDEX IF NOT EXISTS idx_users_advisor_id ON users(advisor_id);
+```
+
+### Endpoints API
+
+#### GET /api/admin/advisors
+Lista todos los asesores disponibles (roles: advisor, sub_advisor).
+
+```json
+// Response
+[
+  {
+    "id": 20,
+    "full_name": "Aldo Campos",
+    "email": "aldocampos@entregax.com",
+    "referral_code": "ALDO123",
+    "role": "advisor",
+    "referral_count": 15
+  }
+]
+```
+
+#### GET /api/users
+Incluye información del asesor asignado a cada usuario.
+
+```json
+// Response
+{
+  "total": 70,
+  "users": [
+    {
+      "id": 54,
+      "full_name": "Cliente Ejemplo",
+      "email": "cliente@email.com",
+      "box_id": "S54",
+      "role": "client",
+      "advisor_id": 20,
+      "advisor_name": "Aldo Campos"
+    }
+  ]
+}
+```
+
+#### PUT /api/admin/users/:id
+Actualiza datos del usuario incluyendo asesor asignado.
+
+```json
+// Request
+{
+  "full_name": "Nombre Cliente",
+  "email": "cliente@email.com",
+  "role": "client",
+  "advisor_id": 20  // null para quitar asesor
+}
+
+// Response
+{
+  "success": true,
+  "message": "Usuario actualizado correctamente",
+  "user": { ... }
+}
+```
+
+### Frontend Web Admin (ClientsPage.tsx)
+
+```typescript
+// Interface actualizada
+interface User {
+  id: number;
+  full_name: string;
+  email: string;
+  box_id: string;
+  role: string;
+  created_at?: string;
+  advisor_id?: number | null;
+  advisor_name?: string;
+}
+
+interface Advisor {
+  id: number;
+  full_name: string;
+  email: string;
+}
+
+// Estado para asesores
+const [advisors, setAdvisors] = useState<Advisor[]>([]);
+const [loadingAdvisors, setLoadingAdvisors] = useState(false);
+
+// Cargar asesores al abrir modal de edición
+const loadAdvisors = async () => {
+  const response = await axios.get(`${API_URL}/api/admin/advisors`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  setAdvisors(response.data);
+};
+```
+
+### Modal de Edición de Cliente
+
+El modal "Editar Cliente" incluye:
+- Nombre Completo
+- Correo Electrónico  
+- Rol
+- Casillero (solo lectura)
+- **Asesor Asignado** (dropdown con lista de asesores)
+- Gestión de Contraseña (solo super_admin)
+
+```tsx
+{/* Selector de Asesor */}
+<FormControl fullWidth>
+  <InputLabel>Asesor Asignado</InputLabel>
+  <Select
+    value={editForm.advisor_id || ''}
+    label="Asesor Asignado"
+    onChange={(e) => setEditForm({ 
+      ...editForm, 
+      advisor_id: e.target.value ? Number(e.target.value) : null 
+    })}
+  >
+    <MenuItem value="">
+      <em>Sin asesor asignado</em>
+    </MenuItem>
+    {advisors.map((advisor) => (
+      <MenuItem key={advisor.id} value={advisor.id}>
+        {advisor.full_name}
+      </MenuItem>
+    ))}
+  </Select>
+</FormControl>
+```
+
+### Backend (authController.ts)
+
+```typescript
+// getAllUsers - Incluye advisor_id y nombre del asesor
+export const getAllUsers = async (_req: Request, res: Response): Promise<void> => {
+  const result = await pool.query(`
+    SELECT u.id, u.full_name, u.email, u.box_id, u.role, u.created_at, u.advisor_id,
+           a.full_name as advisor_name
+    FROM users u
+    LEFT JOIN users a ON u.advisor_id = a.id
+    ORDER BY u.created_at DESC
+  `);
+  res.json({ total: result.rows.length, users: result.rows });
+};
+
+// updateUser - Actualiza advisor_id
+export const updateUser = async (req: Request, res: Response): Promise<void> => {
+  const { id } = req.params;
+  const { full_name, email, role, box_id, phone, advisor_id } = req.body;
+  
+  // ... validaciones ...
+  
+  if (advisor_id !== undefined) {
+    updates.push(`advisor_id = $${paramCount++}`);
+    values.push(advisor_id || null);
+  }
+  // ... resto del update ...
+};
+```
+
+### Permisos
+
+| Endpoint | Nivel Mínimo |
+|----------|--------------|
+| GET /api/admin/advisors | ADMIN |
+| PUT /api/admin/users/:id | ADMIN |
+
+### Archivos Modificados
+
+| Archivo | Cambios |
+|---------|---------|
+| `authController.ts` | getAllUsers incluye advisor_id/name, updateUser acepta advisor_id |
+| `index.ts` | Ruta /api/admin/advisors con nivel ADMIN |
+| `ClientsPage.tsx` | Dropdown de asesor en modal de edición |
+
+---
+
+## �📍 Sistema de Direcciones
 
 ### Gestión de Direcciones de Envío
 
@@ -4782,6 +5437,54 @@ curl -s "http://localhost:3001/api/warehouse/stats" \
 
 ## 📝 Changelog
 
+### v2.12.0 (12 Mar 2026) - CAJA CHICA MULTI-MONEDA & GUÍA DE SERVICIOS ⭐
+
+#### Caja Chica Multi-Moneda USD/MXN
+- ✅ **Soporte dual USD/MXN** - Todas las transacciones ahora especifican moneda
+- ✅ **Selector de moneda** - Dropdown en pagos, ingresos y egresos
+- ✅ **Corte ciego separado** - Campos independientes para USD y MXN
+- ✅ **Historial con moneda** - Tabla de cortes muestra totales por moneda
+- ✅ **Migración automática** - `add_caja_chica_currency.sql` agrega columna currency
+
+#### Mobile App - Guía de Servicios (ServicesGuideScreen)
+- ✅ **Nueva pantalla marketing** - Muestra los 4 servicios de envío como vendedor en línea
+- ✅ **Tarjetas expandibles** - Cada servicio con gradiente, beneficios y tutorial
+- ✅ **Dirección personalizada** - Integra nombre + suite del cliente (copy-ready)
+- ✅ **Copiar con un clic** - Clipboard nativo para pegar en tiendas online
+- ✅ **Compartir por WhatsApp** - Opción de compartir dirección formateada
+- ✅ **Chips de marketing** - "Más económico", "Más rápido", "Popular"
+- ✅ **Datos desde API** - GET /api/services/:serviceType/info
+
+#### Servicios Configurados
+| Servicio | Origen | Tiempo | Dirección |
+|----------|--------|--------|----------|
+| ✈️ TDI Aéreo | Guangzhou, China | 7-12 días | Room 603 Hongxing Bldg |
+| 🚢 Marítimo | Guangzhou Nansha | 35-45 días | Sankie Guo warehouse |
+| 📦 DHL MTY | Monterrey, NL | 24-48 hrs | MM del Llano 1142 Ote |
+| 📬 PO Box | Hidalgo, TX USA | 5-7 días | 1860 N International Blvd |
+
+#### HomeScreen - Botón Enviar
+- ✅ **Sin paquetes** → Navega a ServicesGuide (guía de marketing)
+- ✅ **Con paquetes** → Procede a consolidación/cambio método
+- ✅ **Tipo actualizado** - RootStackParamList incluye ServicesGuide
+
+#### Archivos Creados/Modificados
+| Archivo | Cambios |
+|---------|--------|
+| `ServicesGuideScreen.tsx` | Nueva pantalla (966 líneas) |
+| `HomeScreen.tsx` | +navegación a ServicesGuide, +tipo en RootStackParamList |
+| `App.tsx` | +import, +tipo, +Stack.Screen para ServicesGuide |
+| `cajaChicaController.ts` | +soporte currency USD/MXN en todas las operaciones |
+| `POBoxCajaChicaPage.tsx` | +selector moneda, +corte ciego dual, +historial moneda |
+
+#### Migración Caja Chica
+```bash
+cd entregax-backend-api
+node run_currency_migration.js
+```
+
+---
+
 ### v2.11.0 (6 Mar 2026) - SISTEMA DE PAGOS EN SUCURSAL ⭐
 
 #### Sistema de Configuración de Pagos por Empresa
@@ -5738,6 +6441,15 @@ for (const mod of modules.rows) {
 }
 ```
 
+### v2.12.0 (12 Mar 2026) - ASIGNACIÓN DE ASESORES ⭐
+- ✅ **Asignación de Asesor a Clientes** - Dropdown en modal de edición
+- ✅ **Columna users.advisor_id** - FK a tabla users para relación asesor-cliente
+- ✅ **GET /api/admin/advisors** - Lista todos los asesores disponibles
+- ✅ **GET /api/users con advisor_name** - Incluye nombre del asesor asignado
+- ✅ **PUT /api/admin/users/:id** - Acepta advisor_id para actualizar
+- ✅ **ClientsPage.tsx** - Selector de asesor en modal de edición
+- ✅ **Botón GEX Naranja** - Color #F05A28 consistente con branding
+
 ### v2.8.0 (4 Mar 2026) - OPENPAY MULTI-EMPRESA ⭐
 - ✅ **Openpay Multi-Empresa** - Cada RFC tiene su propia cuenta Openpay
 - ✅ **openpayController.ts** - Controlador completo (673 líneas)
@@ -5753,6 +6465,34 @@ for (const mod of modules.rows) {
 - ✅ **Integración en FiscalPage** - Columna Openpay con modal de config
 - ✅ **Migración add_openpay_multiempresa.sql** - Estructura de BD completa
 - ✅ **Vista vw_openpay_payments** - Reporte consolidado de pagos
+
+### v2.13.0 (13 Mar 2026) - PANTALLAS PO BOX USA MOBILE APP ⭐
+
+#### Mobile App - Nuevas Pantallas PO Box
+- ✅ **POBoxReceiveScreen.tsx** - Wizard de recibir paquetería en serie (2 pasos)
+- ✅ **POBoxEntryScreen.tsx** - Wizard de entrada de paquetes (3 pasos)
+- ✅ **POBoxExitScreen.tsx** - Wizard de nueva salida de paquetes (3 pasos)
+- ✅ **POBoxCollectScreen.tsx** - Wizard de cobrar/recibir pagos (3 pasos)
+- ✅ **POBoxQuoteScreen.tsx** - Wizard de cotizar envío (3 pasos)
+- ✅ **POBoxRepackScreen.tsx** - Wizard de procesar reempaque (3 pasos)
+
+#### Mobile App - Escáner de Códigos de Barras
+- ✅ **Integración expo-camera** - CameraView con BarcodeScanningResult
+- ✅ **Escáner en todas las pantallas** - Botón dedicado junto a campos de búsqueda
+- ✅ **Soporte multi-formato** - QR, EAN-13, EAN-8, Code128, Code39, UPC-A, etc.
+- ✅ **Vibración al escanear** - Feedback háptico al detectar código
+- ✅ **Modal de cámara** - Pantalla completa con marco visual de escaneo
+- ✅ **Búsqueda automática** - Al escanear busca/agrega automáticamente
+
+#### Mobile App - EmployeeHomeScreen
+- ✅ **Dashboard de empleados** - Módulos según permisos de usuario
+- ✅ **Integración con API de permisos** - GET /api/modules/ops_usa_pobox/me
+- ✅ **Navegación a pantallas reales** - Ya no muestra alertas "próximamente"
+- ✅ **Colores por módulo** - Naranja, verde, azul, púrpura según función
+
+#### Backend - Login Fix
+- ✅ **Límite de profilePhotoUrl** - Si > 10KB se excluye del response
+- ✅ **Fix localStorage overflow** - Previene error en web admin
 
 ### v2.2.0 (6 Feb 2026) - API MJCUSTOMER CHINA TDI AÉREO ⭐
 - ✅ **Integración MJCustomer API** - Conexión con api.mjcustomer.com

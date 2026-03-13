@@ -20,42 +20,91 @@ interface AuthRequest extends Request {
 
 // ============================================
 // OBTENER ESTADÍSTICAS DE CAJA CHICA
+// Ahora con soporte multi-moneda (USD/MXN)
 // ============================================
 export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    // Saldo actual (suma de ingresos - suma de egresos)
-    const saldoResult = await pool.query(`
+    // Estadísticas por moneda (USD)
+    const saldoUSDResult = await pool.query(`
       SELECT 
         COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as total_ingresos,
         COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0) as total_egresos
       FROM caja_chica_transacciones
+      WHERE COALESCE(currency, 'USD') = 'USD'
     `);
     
-    const { total_ingresos, total_egresos } = saldoResult.rows[0];
-    const saldo_actual = parseFloat(total_ingresos) - parseFloat(total_egresos);
+    const saldoUSD = parseFloat(saldoUSDResult.rows[0].total_ingresos) - parseFloat(saldoUSDResult.rows[0].total_egresos);
     
-    // Transacciones del día
-    const hoyResult = await pool.query(`
+    // Estadísticas por moneda (MXN)
+    const saldoMXNResult = await pool.query(`
+      SELECT 
+        COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as total_ingresos,
+        COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0) as total_egresos
+      FROM caja_chica_transacciones
+      WHERE currency = 'MXN'
+    `);
+    
+    const saldoMXN = parseFloat(saldoMXNResult.rows[0].total_ingresos) - parseFloat(saldoMXNResult.rows[0].total_egresos);
+    
+    // Transacciones del día por moneda (USD)
+    const hoyUSDResult = await pool.query(`
       SELECT 
         COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as ingresos_hoy,
         COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0) as egresos_hoy,
         COUNT(*) as cantidad_transacciones_hoy
       FROM caja_chica_transacciones
       WHERE DATE(created_at) = CURRENT_DATE
+        AND COALESCE(currency, 'USD') = 'USD'
     `);
     
-    // Último corte
-    const corteResult = await pool.query(`
+    // Transacciones del día por moneda (MXN)
+    const hoyMXNResult = await pool.query(`
+      SELECT 
+        COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as ingresos_hoy,
+        COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0) as egresos_hoy,
+        COUNT(*) as cantidad_transacciones_hoy
+      FROM caja_chica_transacciones
+      WHERE DATE(created_at) = CURRENT_DATE
+        AND currency = 'MXN'
+    `);
+    
+    // Último corte por moneda
+    const corteUSDResult = await pool.query(`
       SELECT fecha_corte FROM caja_chica_cortes 
+      WHERE COALESCE(currency, 'USD') = 'USD'
       ORDER BY fecha_corte DESC LIMIT 1
     `);
     
+    const corteMXNResult = await pool.query(`
+      SELECT fecha_corte FROM caja_chica_cortes 
+      WHERE currency = 'MXN'
+      ORDER BY fecha_corte DESC LIMIT 1
+    `);
+    
+    // Legacy: también devolver totales combinados para compatibilidad
+    const saldo_actual = saldoUSD; // Por defecto USD para PO Box
+    
     res.json({
+      // Stats USD
+      saldo_usd: saldoUSD,
+      ingresos_hoy_usd: parseFloat(hoyUSDResult.rows[0].ingresos_hoy),
+      egresos_hoy_usd: parseFloat(hoyUSDResult.rows[0].egresos_hoy),
+      transacciones_hoy_usd: parseInt(hoyUSDResult.rows[0].cantidad_transacciones_hoy),
+      ultimo_corte_usd: corteUSDResult.rows[0]?.fecha_corte || null,
+      
+      // Stats MXN
+      saldo_mxn: saldoMXN,
+      ingresos_hoy_mxn: parseFloat(hoyMXNResult.rows[0].ingresos_hoy),
+      egresos_hoy_mxn: parseFloat(hoyMXNResult.rows[0].egresos_hoy),
+      transacciones_hoy_mxn: parseInt(hoyMXNResult.rows[0].cantidad_transacciones_hoy),
+      ultimo_corte_mxn: corteMXNResult.rows[0]?.fecha_corte || null,
+      
+      // Legacy fields (para compatibilidad)
       saldo_actual,
-      ingresos_hoy: parseFloat(hoyResult.rows[0].ingresos_hoy),
-      egresos_hoy: parseFloat(hoyResult.rows[0].egresos_hoy),
-      cantidad_transacciones_hoy: parseInt(hoyResult.rows[0].cantidad_transacciones_hoy),
-      ultimo_corte: corteResult.rows[0]?.fecha_corte || null,
+      ingresos_hoy: parseFloat(hoyUSDResult.rows[0].ingresos_hoy),
+      egresos_hoy: parseFloat(hoyUSDResult.rows[0].egresos_hoy),
+      cantidad_transacciones_hoy: parseInt(hoyUSDResult.rows[0].cantidad_transacciones_hoy) + parseInt(hoyMXNResult.rows[0].cantidad_transacciones_hoy),
+      ultimo_corte: corteUSDResult.rows[0]?.fecha_corte || null,
     });
   } catch (error) {
     console.error('Error en getCajaChicaStats:', error);
@@ -488,7 +537,7 @@ export const registrarPagoCliente = async (req: AuthRequest, res: Response): Pro
 // ============================================
 export const registrarIngreso = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { monto, concepto, categoria, notas } = req.body;
+    const { monto, concepto, categoria, notas, currency = 'MXN' } = req.body;
     const userId = req.user?.id;
     const userName = req.user?.name;
     
@@ -497,23 +546,24 @@ export const registrarIngreso = async (req: AuthRequest, res: Response): Promise
       return;
     }
     
-    // Calcular saldo después del movimiento
+    // Calcular saldo después del movimiento (por moneda)
     const saldoResult = await pool.query(`
       SELECT COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE -monto END), 0) as saldo
       FROM caja_chica_transacciones
-    `);
+      WHERE COALESCE(currency, 'MXN') = $1
+    `, [currency]);
     const nuevoSaldo = parseFloat(saldoResult.rows[0].saldo) + parseFloat(monto);
     
     const result = await pool.query(`
       INSERT INTO caja_chica_transacciones 
-        (tipo, monto, concepto, categoria, admin_id, admin_name, saldo_despues_movimiento, notas)
-      VALUES ('ingreso', $1, $2, $3, $4, $5, $6, $7)
+        (tipo, monto, concepto, categoria, admin_id, admin_name, saldo_despues_movimiento, notas, currency)
+      VALUES ('ingreso', $1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
-    `, [monto, concepto, categoria || 'otro_ingreso', userId, userName, nuevoSaldo, notas]);
+    `, [monto, concepto, categoria || 'otro_ingreso', userId, userName, nuevoSaldo, notas, currency]);
     
     res.json({
       success: true,
-      message: 'Ingreso registrado',
+      message: `Ingreso en ${currency} registrado`,
       transaccion: result.rows[0]
     });
   } catch (error) {
@@ -527,7 +577,7 @@ export const registrarIngreso = async (req: AuthRequest, res: Response): Promise
 // ============================================
 export const registrarEgreso = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { monto, concepto, categoria, notas, referencia, evidencia_url } = req.body;
+    const { monto, concepto, categoria, notas, referencia, evidencia_url, currency = 'MXN' } = req.body;
     const userId = req.user?.id;
     const userName = req.user?.name;
     
@@ -536,16 +586,17 @@ export const registrarEgreso = async (req: AuthRequest, res: Response): Promise<
       return;
     }
     
-    // Verificar que hay saldo suficiente
+    // Verificar que hay saldo suficiente en la moneda correspondiente
     const saldoResult = await pool.query(`
       SELECT COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE -monto END), 0) as saldo
       FROM caja_chica_transacciones
-    `);
+      WHERE COALESCE(currency, 'MXN') = $1
+    `, [currency]);
     const saldoActual = parseFloat(saldoResult.rows[0].saldo);
     
     if (saldoActual < parseFloat(monto)) {
       res.status(400).json({ 
-        message: 'Saldo insuficiente en caja',
+        message: `Saldo insuficiente en caja ${currency}`,
         saldo_actual: saldoActual,
         monto_solicitado: monto
       });
@@ -556,14 +607,14 @@ export const registrarEgreso = async (req: AuthRequest, res: Response): Promise<
     
     const result = await pool.query(`
       INSERT INTO caja_chica_transacciones 
-        (tipo, monto, concepto, categoria, admin_id, admin_name, saldo_despues_movimiento, notas, referencia, evidencia_url)
-      VALUES ('egreso', $1, $2, $3, $4, $5, $6, $7, $8, $9)
+        (tipo, monto, concepto, categoria, admin_id, admin_name, saldo_despues_movimiento, notas, referencia, evidencia_url, currency)
+      VALUES ('egreso', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *
-    `, [monto, concepto, categoria || 'otro_egreso', userId, userName, nuevoSaldo, notas, referencia || null, evidencia_url || null]);
+    `, [monto, concepto, categoria || 'otro_egreso', userId, userName, nuevoSaldo, notas, referencia || null, evidencia_url || null, currency]);
     
     res.json({
       success: true,
-      message: 'Egreso registrado',
+      message: `Egreso en ${currency} registrado`,
       transaccion: result.rows[0]
     });
   } catch (error) {
@@ -686,79 +737,127 @@ export const getDetalleTransaccion = async (req: AuthRequest, res: Response): Pr
 };
 
 // ============================================
-// REALIZAR CORTE DE CAJA
+// REALIZAR CORTE DE CAJA (CIEGO - USD Y MXN SEPARADOS)
 // ============================================
 export const realizarCorte = async (req: AuthRequest, res: Response): Promise<void> => {
   const client = await pool.connect();
   
   try {
-    const { saldo_real, notas } = req.body;
+    const { saldo_usd, saldo_mxn, notas } = req.body;
     const userId = req.user?.id;
     const userName = req.user?.name;
     
-    if (saldo_real === undefined || saldo_real === null) {
-      res.status(400).json({ message: 'El saldo real es requerido' });
+    if ((saldo_usd === undefined || saldo_usd === null) && (saldo_mxn === undefined || saldo_mxn === null)) {
+      res.status(400).json({ message: 'Debe ingresar al menos un saldo (USD o MXN)' });
       return;
     }
     
     await client.query('BEGIN');
     
-    // Obtener último corte
-    const ultimoCorteResult = await client.query(`
-      SELECT fecha_corte, saldo_final_sistema 
-      FROM caja_chica_cortes 
-      ORDER BY fecha_corte DESC LIMIT 1
-    `);
+    const resultados: any[] = [];
     
-    const saldoInicial = ultimoCorteResult.rows[0]?.saldo_final_sistema || 0;
-    const fechaUltimoCorte = ultimoCorteResult.rows[0]?.fecha_corte || '1970-01-01';
+    // ============ CORTE USD ============
+    if (saldo_usd !== undefined && saldo_usd !== null) {
+      // Obtener último corte USD
+      const ultimoCorteUSD = await client.query(`
+        SELECT fecha_corte, saldo_final_sistema 
+        FROM caja_chica_cortes 
+        WHERE COALESCE(currency, 'USD') = 'USD'
+        ORDER BY fecha_corte DESC LIMIT 1
+      `);
+      
+      const saldoInicialUSD = ultimoCorteUSD.rows[0]?.saldo_final_sistema || 0;
+      const fechaUltimoCorteUSD = ultimoCorteUSD.rows[0]?.fecha_corte || '1970-01-01';
+      
+      // Calcular movimientos USD desde el último corte
+      const movimientosUSD = await client.query(`
+        SELECT 
+          COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as total_ingresos,
+          COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0) as total_egresos
+        FROM caja_chica_transacciones
+        WHERE created_at > $1 AND COALESCE(currency, 'USD') = 'USD'
+      `, [fechaUltimoCorteUSD]);
+      
+      const ingresosUSD = parseFloat(movimientosUSD.rows[0].total_ingresos);
+      const egresosUSD = parseFloat(movimientosUSD.rows[0].total_egresos);
+      const saldoSistemaUSD = parseFloat(saldoInicialUSD) + ingresosUSD - egresosUSD;
+      const diferenciaUSD = parseFloat(saldo_usd) - saldoSistemaUSD;
+      
+      // Insertar corte USD
+      const corteUSD = await client.query(`
+        INSERT INTO caja_chica_cortes 
+          (saldo_inicial, total_ingresos, total_egresos, saldo_final_sistema, 
+           saldo_final_entregado, diferencia, admin_id, admin_name, notas, currency)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'USD')
+        RETURNING *
+      `, [saldoInicialUSD, ingresosUSD, egresosUSD, saldoSistemaUSD, saldo_usd, diferenciaUSD, userId, userName, notas]);
+      
+      resultados.push({
+        currency: 'USD',
+        saldo_inicial: parseFloat(saldoInicialUSD),
+        total_ingresos: ingresosUSD,
+        total_egresos: egresosUSD,
+        saldo_esperado: saldoSistemaUSD,
+        saldo_contado: parseFloat(saldo_usd),
+        diferencia: diferenciaUSD,
+        corte: corteUSD.rows[0]
+      });
+    }
     
-    // Calcular movimientos desde el último corte
-    const movimientosResult = await client.query(`
-      SELECT 
-        COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as total_ingresos,
-        COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0) as total_egresos
-      FROM caja_chica_transacciones
-      WHERE created_at > $1
-    `, [fechaUltimoCorte]);
-    
-    const { total_ingresos, total_egresos } = movimientosResult.rows[0];
-    const saldoFinalSistema = parseFloat(saldoInicial) + parseFloat(total_ingresos) - parseFloat(total_egresos);
-    const diferencia = parseFloat(saldo_real) - saldoFinalSistema;
-    
-    // Insertar corte
-    const corteResult = await client.query(`
-      INSERT INTO caja_chica_cortes 
-        (saldo_inicial, total_ingresos, total_egresos, saldo_final_sistema, 
-         saldo_final_entregado, diferencia, admin_id, admin_name, notas)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING *
-    `, [
-      saldoInicial,
-      total_ingresos,
-      total_egresos,
-      saldoFinalSistema,
-      saldo_real,
-      diferencia,
-      userId,
-      userName,
-      notas
-    ]);
+    // ============ CORTE MXN ============
+    if (saldo_mxn !== undefined && saldo_mxn !== null) {
+      // Obtener último corte MXN
+      const ultimoCorteMXN = await client.query(`
+        SELECT fecha_corte, saldo_final_sistema 
+        FROM caja_chica_cortes 
+        WHERE currency = 'MXN'
+        ORDER BY fecha_corte DESC LIMIT 1
+      `);
+      
+      const saldoInicialMXN = ultimoCorteMXN.rows[0]?.saldo_final_sistema || 0;
+      const fechaUltimoCorteMXN = ultimoCorteMXN.rows[0]?.fecha_corte || '1970-01-01';
+      
+      // Calcular movimientos MXN desde el último corte
+      const movimientosMXN = await client.query(`
+        SELECT 
+          COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as total_ingresos,
+          COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0) as total_egresos
+        FROM caja_chica_transacciones
+        WHERE created_at > $1 AND currency = 'MXN'
+      `, [fechaUltimoCorteMXN]);
+      
+      const ingresosMXN = parseFloat(movimientosMXN.rows[0].total_ingresos);
+      const egresosMXN = parseFloat(movimientosMXN.rows[0].total_egresos);
+      const saldoSistemaMXN = parseFloat(saldoInicialMXN) + ingresosMXN - egresosMXN;
+      const diferenciaMXN = parseFloat(saldo_mxn) - saldoSistemaMXN;
+      
+      // Insertar corte MXN
+      const corteMXN = await client.query(`
+        INSERT INTO caja_chica_cortes 
+          (saldo_inicial, total_ingresos, total_egresos, saldo_final_sistema, 
+           saldo_final_entregado, diferencia, admin_id, admin_name, notas, currency)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'MXN')
+        RETURNING *
+      `, [saldoInicialMXN, ingresosMXN, egresosMXN, saldoSistemaMXN, saldo_mxn, diferenciaMXN, userId, userName, notas]);
+      
+      resultados.push({
+        currency: 'MXN',
+        saldo_inicial: parseFloat(saldoInicialMXN),
+        total_ingresos: ingresosMXN,
+        total_egresos: egresosMXN,
+        saldo_esperado: saldoSistemaMXN,
+        saldo_contado: parseFloat(saldo_mxn),
+        diferencia: diferenciaMXN,
+        corte: corteMXN.rows[0]
+      });
+    }
     
     await client.query('COMMIT');
     
     res.json({
       success: true,
       message: 'Corte de caja realizado',
-      corte: corteResult.rows[0],
-      resumen: {
-        saldo_inicial: parseFloat(saldoInicial),
-        total_ingresos: parseFloat(total_ingresos),
-        total_egresos: parseFloat(total_egresos),
-        saldo_esperado: saldoFinalSistema,
-        saldo_real: parseFloat(saldo_real),
-        diferencia: diferencia
-      }
+      resultados
     });
   } catch (error) {
     await client.query('ROLLBACK');
@@ -953,7 +1052,8 @@ export const confirmarPagoReferencia = async (req: AuthRequest, res: Response): 
         p.user_id,
         COALESCE(p.saldo_pendiente, p.assigned_cost_mxn) as saldo_pendiente,
         p.assigned_cost_mxn,
-        u.full_name as cliente_nombre
+        u.full_name as cliente_nombre,
+        u.box_id as cliente_box_id
       FROM packages p
       LEFT JOIN users u ON u.id = p.user_id
       WHERE p.payment_reference ILIKE $1
@@ -968,7 +1068,7 @@ export const confirmarPagoReferencia = async (req: AuthRequest, res: Response): 
     }
     
     const clienteId = packagesResult.rows[0].user_id;
-    const clienteNombre = packagesResult.rows[0].cliente_nombre;
+    const clienteBoxId = packagesResult.rows[0].cliente_box_id || '';
     
     // Crear transacción de ingreso
     const txResult = await pool.query(`
@@ -979,7 +1079,7 @@ export const confirmarPagoReferencia = async (req: AuthRequest, res: Response): 
       ) RETURNING id
     `, [
       monto,
-      `Pago Referencia: ${referencia} - Cliente: ${clienteNombre}`,
+      `Pago Referencia: ${referencia}`,
       clienteId,
       adminId,
       adminName,

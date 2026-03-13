@@ -241,8 +241,10 @@ export default function CarouselSlidesPage() {
 
       if (response.ok) {
         const data = await response.json();
-        // Construir URL completa para la imagen
-        const fullUrl = `${API_URL}${data.image_url}`;
+        // Si la URL ya es absoluta (S3), usarla directamente; sino agregar API_URL
+        const fullUrl = data.image_url.startsWith('http') 
+          ? data.image_url 
+          : `${API_URL}${data.image_url}`;
         setEditingSlide({ 
           ...editingSlide, 
           image_url: fullUrl,

@@ -3,6 +3,7 @@ import { pool } from './db';
 import axios from 'axios';
 import crypto from 'crypto';
 import { getOpenpayCredentials, ServiceType } from './services/openpayConfig';
+import { createInvoice } from './fiscalController';
 
 // ============================================
 // POBOX PAYMENT CONTROLLER - MULTISUCURSAL
@@ -96,7 +97,7 @@ const generatePaymentReference = (prefix: string = 'PB'): string => {
 // ============================================
 export const createPoboxPaypalPayment = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { packageIds, userId, totalAmount, currency = 'USD' } = req.body;
+        const { packageIds, userId, totalAmount, currency = 'USD', requireInvoice, fiscalData } = req.body;
 
         if (!packageIds || !Array.isArray(packageIds) || packageIds.length === 0) {
             return res.status(400).json({ error: 'packageIds es requerido y debe ser un array' });
@@ -104,6 +105,34 @@ export const createPoboxPaypalPayment = async (req: Request, res: Response): Pro
 
         if (!totalAmount || totalAmount <= 0) {
             return res.status(400).json({ error: 'totalAmount es requerido y debe ser mayor a 0' });
+        }
+
+        // Si requiere factura, validar datos fiscales
+        if (requireInvoice) {
+            if (!fiscalData || !fiscalData.razon_social || !fiscalData.rfc || !fiscalData.codigo_postal || !fiscalData.regimen_fiscal) {
+                return res.status(400).json({ 
+                    error: 'Datos fiscales incompletos',
+                    message: 'Para solicitar factura, debes proporcionar: razón social, RFC, código postal y régimen fiscal'
+                });
+            }
+            
+            // Guardar/actualizar datos fiscales del usuario
+            await pool.query(`
+                UPDATE users SET
+                    fiscal_razon_social = $1,
+                    fiscal_rfc = $2,
+                    fiscal_codigo_postal = $3,
+                    fiscal_regimen_fiscal = $4,
+                    fiscal_uso_cfdi = $5
+                WHERE id = $6
+            `, [
+                fiscalData.razon_social,
+                fiscalData.rfc.toUpperCase(),
+                fiscalData.codigo_postal,
+                fiscalData.regimen_fiscal,
+                fiscalData.uso_cfdi || 'G03',
+                userId
+            ]);
         }
 
         // Verificar que los paquetes existen y pertenecen al usuario
@@ -126,10 +155,10 @@ export const createPoboxPaypalPayment = async (req: Request, res: Response): Pro
         const paymentResult = await pool.query(`
             INSERT INTO pobox_payments (
                 user_id, package_ids, amount, currency, payment_method, 
-                payment_reference, status, created_at
-            ) VALUES ($1, $2, $3, $4, 'paypal', $5, 'pending', CURRENT_TIMESTAMP)
+                payment_reference, status, requiere_factura, created_at
+            ) VALUES ($1, $2, $3, $4, 'paypal', $5, 'pending', $6, CURRENT_TIMESTAMP)
             RETURNING id
-        `, [userId, JSON.stringify(packageIds), totalAmount, currency, paymentRef]);
+        `, [userId, JSON.stringify(packageIds), totalAmount, currency, paymentRef, requireInvoice || false]);
 
         const paymentId = paymentResult.rows[0].id;
 
@@ -261,9 +290,9 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
         if (capture.data.status === 'COMPLETED') {
             const captureDetails = capture.data.purchase_units[0]?.payments?.captures[0];
 
-            // Obtener el pago de la BD
+            // Obtener el pago de la BD incluyendo requiere_factura
             const paymentResult = await pool.query(
-                'SELECT id, user_id, package_ids, amount FROM pobox_payments WHERE external_order_id = $1',
+                'SELECT id, user_id, package_ids, amount, requiere_factura FROM pobox_payments WHERE external_order_id = $1',
                 [paypalOrderId]
             );
 
@@ -309,6 +338,49 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
                 ]);
 
                 console.log(`✅ Paquetes ${packageIds.join(', ')} marcados como pagados`);
+
+                // 🧾 FACTURACIÓN AUTOMÁTICA si requiere_factura = true
+                if (payment.requiere_factura) {
+                    console.log(`🧾 Generando factura automática para pago PayPal ${payment.id}...`);
+                    try {
+                        const invoiceResult = await createInvoice({
+                            paymentId: captureDetails?.id || paypalOrderId,
+                            paymentType: 'paypal',
+                            userId: payment.user_id,
+                            amount: parseFloat(payment.amount),
+                            currency: 'USD',
+                            paymentMethod: 'paypal',
+                            description: `Servicio PO Box USA - ${packageIds.length} paquete(s)`,
+                            packageIds: packageIds,
+                            serviceType: 'po_box'
+                        });
+
+                        if (invoiceResult.success) {
+                            // Actualizar el registro de pago con datos de factura
+                            await pool.query(`
+                                UPDATE pobox_payments SET
+                                    facturada = TRUE,
+                                    factura_uuid = $1,
+                                    factura_created_at = CURRENT_TIMESTAMP
+                                WHERE id = $2
+                            `, [invoiceResult.uuid, payment.id]);
+                            
+                            console.log(`✅ Factura generada: ${invoiceResult.uuid}`);
+                        } else {
+                            // Guardar error para reintento posterior
+                            await pool.query(`
+                                UPDATE pobox_payments SET factura_error = $1 WHERE id = $2
+                            `, [invoiceResult.error, payment.id]);
+                            
+                            console.error(`❌ Error generando factura: ${invoiceResult.error}`);
+                        }
+                    } catch (invoiceError: any) {
+                        console.error(`❌ Excepción generando factura:`, invoiceError.message);
+                        await pool.query(`
+                            UPDATE pobox_payments SET factura_error = $1 WHERE id = $2
+                        `, [invoiceError.message, payment.id]);
+                    }
+                }
             }
 
             res.json({ 
@@ -348,7 +420,7 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
 // ============================================
 export const createPoboxOpenpayPayment = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { packageIds, userId, totalAmount, currency = 'MXN' } = req.body;
+        const { packageIds, userId, totalAmount, currency = 'MXN', requireInvoice, fiscalData } = req.body;
 
         if (!packageIds || !Array.isArray(packageIds) || packageIds.length === 0) {
             return res.status(400).json({ error: 'packageIds es requerido y debe ser un array' });
@@ -356,6 +428,34 @@ export const createPoboxOpenpayPayment = async (req: Request, res: Response): Pr
 
         if (!totalAmount || totalAmount <= 0) {
             return res.status(400).json({ error: 'totalAmount es requerido y debe ser mayor a 0' });
+        }
+
+        // Si requiere factura, validar datos fiscales
+        if (requireInvoice) {
+            if (!fiscalData || !fiscalData.razon_social || !fiscalData.rfc || !fiscalData.codigo_postal || !fiscalData.regimen_fiscal) {
+                return res.status(400).json({ 
+                    error: 'Datos fiscales incompletos',
+                    message: 'Para solicitar factura, debes proporcionar: razón social, RFC, código postal y régimen fiscal'
+                });
+            }
+            
+            // Guardar/actualizar datos fiscales del usuario
+            await pool.query(`
+                UPDATE users SET
+                    fiscal_razon_social = $1,
+                    fiscal_rfc = $2,
+                    fiscal_codigo_postal = $3,
+                    fiscal_regimen_fiscal = $4,
+                    fiscal_uso_cfdi = $5
+                WHERE id = $6
+            `, [
+                fiscalData.razon_social,
+                fiscalData.rfc.toUpperCase(),
+                fiscalData.codigo_postal,
+                fiscalData.regimen_fiscal,
+                fiscalData.uso_cfdi || 'G03',
+                userId
+            ]);
         }
 
         // Verificar que los paquetes existen y pertenecen al usuario
@@ -405,10 +505,10 @@ export const createPoboxOpenpayPayment = async (req: Request, res: Response): Pr
         const paymentResult = await pool.query(`
             INSERT INTO pobox_payments (
                 user_id, package_ids, amount, currency, payment_method, 
-                payment_reference, status, created_at
-            ) VALUES ($1, $2, $3, $4, 'openpay_card', $5, 'pending', CURRENT_TIMESTAMP)
+                payment_reference, status, requiere_factura, created_at
+            ) VALUES ($1, $2, $3, $4, 'openpay_card', $5, 'pending', $6, CURRENT_TIMESTAMP)
             RETURNING id
-        `, [userId, JSON.stringify(packageIds), totalAmount, currency, paymentRef]);
+        `, [userId, JSON.stringify(packageIds), totalAmount, currency, paymentRef, requireInvoice || false]);
 
         const paymentId = paymentResult.rows[0].id;
 
@@ -936,6 +1036,7 @@ export const confirmPoboxCashPayment = async (req: AuthRequest, res: Response): 
 // 7. WEBHOOK OPENPAY PARA POBOX - MULTISUCURSAL
 // Procesa notificaciones de pago de tarjeta y SPEI
 // Registra en openpay_webhook_logs para el dashboard
+// Genera factura automática si requiere_factura = true
 // ============================================
 export const handlePoboxOpenpayWebhook = async (req: Request, res: Response): Promise<any> => {
     try {
@@ -953,9 +1054,9 @@ export const handlePoboxOpenpayWebhook = async (req: Request, res: Response): Pr
             const montoNeto = amount * (1 - comisionRate);
 
             if (orderId) {
-                // Buscar el pago por referencia
+                // Buscar el pago por referencia incluyendo campo requiere_factura
                 const paymentResult = await pool.query(
-                    'SELECT id, user_id, package_ids, amount FROM pobox_payments WHERE payment_reference = $1',
+                    'SELECT id, user_id, package_ids, amount, requiere_factura FROM pobox_payments WHERE payment_reference = $1',
                     [orderId]
                 );
 
@@ -1002,6 +1103,51 @@ export const handlePoboxOpenpayWebhook = async (req: Request, res: Response): Pr
                     ]);
 
                     console.log(`✅ Pago OpenPay ${orderId} completado vía webhook - $${amount} MXN`);
+
+                    // 🧾 FACTURACIÓN AUTOMÁTICA si requiere_factura = true
+                    if (payment.requiere_factura) {
+                        console.log(`🧾 Generando factura automática para pago ${payment.id}...`);
+                        try {
+                            const invoiceResult = await createInvoice({
+                                paymentId: transactionId,
+                                paymentType: 'openpay',
+                                userId: payment.user_id,
+                                amount: amount,
+                                currency: 'MXN',
+                                paymentMethod: event.type === 'spei.received' ? 'spei' : 'card',
+                                description: `Servicio PO Box USA - ${packageIds.length} paquete(s)`,
+                                packageIds: packageIds,
+                                serviceType: 'po_box'
+                            });
+
+                            if (invoiceResult.success) {
+                                // Actualizar el registro de pago con datos de factura
+                                await pool.query(`
+                                    UPDATE pobox_payments SET
+                                        facturada = TRUE,
+                                        factura_uuid = $1,
+                                        factura_created_at = CURRENT_TIMESTAMP
+                                    WHERE id = $2
+                                `, [invoiceResult.uuid, payment.id]);
+                                
+                                console.log(`✅ Factura generada: ${invoiceResult.uuid}`);
+                            } else {
+                                // Guardar error para reintento posterior
+                                await pool.query(`
+                                    UPDATE pobox_payments SET
+                                        factura_error = $1
+                                    WHERE id = $2
+                                `, [invoiceResult.error, payment.id]);
+                                
+                                console.error(`❌ Error generando factura: ${invoiceResult.error}`);
+                            }
+                        } catch (invoiceError: any) {
+                            console.error(`❌ Excepción generando factura:`, invoiceError.message);
+                            await pool.query(`
+                                UPDATE pobox_payments SET factura_error = $1 WHERE id = $2
+                            `, [invoiceError.message, payment.id]);
+                        }
+                    }
                 }
             }
         }

@@ -173,6 +173,9 @@ export default function OpportunityCarousel({
   };
 
   const renderOpportunityCard = (opportunity: Opportunity, index: number) => {
+    const [imageError, setImageError] = useState(false);
+    const hasImage = opportunity.imageType === 'image' && opportunity.imageUrl && !imageError;
+
     return (
       <Pressable
         key={opportunity.id}
@@ -183,42 +186,56 @@ export default function OpportunityCarousel({
         ]}
       >
         <View style={styles.card}>
-          {/* Background con gradiente */}
-          <LinearGradient
-            colors={(opportunity.gradientColors || [ORANGE_DARK, ORANGE]) as [string, string, ...string[]]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.cardBackground}
-          >
-            {/* Badge */}
-            {opportunity.badge && (
-              <View style={[styles.badge, { backgroundColor: opportunity.badgeColor || ORANGE }]}>
-                <Text style={styles.badgeText}>{opportunity.badge}</Text>
-              </View>
-            )}
+          {/* Si tiene imagen, mostrar SOLO la imagen (ya incluye textos y botones) */}
+          {hasImage ? (
+            <Image
+              source={{ uri: opportunity.imageUrl }}
+              style={styles.backgroundImage}
+              resizeMode="cover"
+              onError={() => setImageError(true)}
+            />
+          ) : (
+            <>
+              {/* Gradiente como fondo */}
+              <LinearGradient
+                colors={(opportunity.gradientColors || [ORANGE_DARK, ORANGE]) as [string, string, ...string[]]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.backgroundImage}
+              />
+              
+              {/* Overlay oscuro para legibilidad */}
+              <LinearGradient
+                colors={['transparent', 'rgba(0,0,0,0.7)']}
+                style={styles.cardOverlay}
+              />
 
-            {/* Contenido */}
-            <View style={styles.cardContent}>
-              {/* Textos */}
-              <View style={styles.textContainer}>
-                <Text style={styles.title} numberOfLines={2}>
+              {/* Badge */}
+              {opportunity.badge && (
+                <View style={[styles.badge, { backgroundColor: opportunity.badgeColor || ORANGE }]}>
+                  <Text style={styles.badgeText}>{opportunity.badge}</Text>
+                </View>
+              )}
+
+              {/* Contenido superpuesto - solo para gradientes */}
+              <View style={styles.cardContent}>
+                <Text style={styles.cardTitle} numberOfLines={2}>
                   {opportunity.title}
                 </Text>
-                <Text style={styles.subtitle} numberOfLines={2}>
+                <Text style={styles.cardSubtitle} numberOfLines={2}>
                   {opportunity.subtitle}
                 </Text>
+                
+                {/* Botón CTA */}
+                <View style={styles.ctaRow}>
+                  <View style={styles.ctaButtonWhite}>
+                    <Text style={styles.ctaButtonText}>{opportunity.ctaText}</Text>
+                    <Ionicons name="arrow-forward" size={16} color={ORANGE} />
+                  </View>
+                </View>
               </View>
-
-              {/* CTA Button */}
-              <Pressable 
-                style={styles.ctaButton}
-                onPress={() => handlePress(opportunity)}
-              >
-                <Text style={styles.ctaText}>{opportunity.ctaText}</Text>
-                <Ionicons name="arrow-forward" size={16} color={ORANGE} />
-              </Pressable>
-            </View>
-          </LinearGradient>
+            </>
+          )}
         </View>
       </Pressable>
     );
@@ -311,91 +328,82 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
+    backgroundColor: '#333',
   },
-  cardBackground: {
-    flex: 1,
-    padding: 20,
-    justifyContent: 'flex-end',
-  },
-  decorativeCircle1: {
+  backgroundImage: {
     position: 'absolute',
-    top: -30,
-    right: -30,
-    width: 150,
-    height: 150,
-    borderRadius: 75,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
   },
-  decorativeCircle2: {
+  cardOverlay: {
     position: 'absolute',
-    bottom: -50,
-    left: -50,
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-  },
-  backgroundIconContainer: {
-    position: 'absolute',
-    right: 10,
-    top: 10,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   badge: {
     position: 'absolute',
-    top: 10,
+    top: 12,
     left: 12,
     paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingVertical: 5,
     borderRadius: 12,
+    zIndex: 10,
   },
   badgeText: {
     color: 'white',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
   },
   cardContent: {
-    flex: 1,
-    justifyContent: 'flex-end',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
   },
-  iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  textContainer: {
-    marginBottom: 8,
-  },
-  title: {
-    fontSize: 16,
+  cardTitle: {
+    fontSize: 18,
     fontWeight: '800',
     color: 'white',
     marginBottom: 4,
-    textShadowColor: 'rgba(0,0,0,0.3)',
+    textShadowColor: 'rgba(0,0,0,0.8)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 4,
   },
-  subtitle: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.9)',
-    lineHeight: 16,
+  cardSubtitle: {
+    fontSize: 13,
+    color: 'rgba(255,255,255,0.95)',
+    marginBottom: 12,
+    textShadowColor: 'rgba(0,0,0,0.8)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
   },
-  ctaButton: {
+  ctaRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  ctaButtonWhite: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
     backgroundColor: 'white',
-    paddingVertical: 8,
-    paddingHorizontal: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
     borderRadius: 20,
-    alignSelf: 'flex-start',
     gap: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
-  ctaText: {
-    fontSize: 12,
+  ctaButtonText: {
+    fontSize: 13,
     fontWeight: '700',
     color: ORANGE,
   },

@@ -53,6 +53,14 @@ interface User {
   box_id: string;
   role: string;
   created_at?: string;
+  advisor_id?: number | null;
+  advisor_name?: string;
+}
+
+interface Advisor {
+  id: number;
+  full_name: string;
+  email: string;
 }
 
 interface ClientsPageProps {
@@ -112,7 +120,9 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [editForm, setEditForm] = useState({ full_name: '', email: '', role: '', box_id: '' });
+  const [editForm, setEditForm] = useState({ full_name: '', email: '', role: '', box_id: '', advisor_id: null as number | null });
+  const [advisors, setAdvisors] = useState<Advisor[]>([]);
+  const [loadingAdvisors, setLoadingAdvisors] = useState(false);
   
   // Estado para crear nuevo usuario
   const [createOpen, setCreateOpen] = useState(false);
@@ -171,6 +181,23 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
     setDetailsOpen(true);
   };
 
+  // Cargar lista de asesores
+  const loadAdvisors = async () => {
+    setLoadingAdvisors(true);
+    try {
+      const token = localStorage.getItem('token');
+      const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+      const response = await axios.get(`${API_URL}/api/admin/advisors`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setAdvisors(response.data);
+    } catch (error) {
+      console.error('Error cargando asesores:', error);
+    } finally {
+      setLoadingAdvisors(false);
+    }
+  };
+
   // Editar usuario
   const handleEdit = (user: User) => {
     setSelectedUser(user);
@@ -179,7 +206,9 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
       email: user.email,
       role: user.role,
       box_id: user.box_id,
+      advisor_id: user.advisor_id || null,
     });
+    loadAdvisors();
     setEditOpen(true);
   };
 
@@ -231,6 +260,7 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
           email: editForm.email,
           role: editForm.role,
           box_id: editForm.box_id,
+          advisor_id: editForm.advisor_id,
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -731,6 +761,26 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                 helperText="El casillero no puede ser modificado"
               />
             )}
+            
+            {/* Selector de Asesor */}
+            <FormControl fullWidth>
+              <InputLabel>Asesor Asignado</InputLabel>
+              <Select
+                value={editForm.advisor_id || ''}
+                label="Asesor Asignado"
+                onChange={(e) => setEditForm({ ...editForm, advisor_id: e.target.value ? Number(e.target.value) : null })}
+                disabled={loadingAdvisors}
+              >
+                <MenuItem value="">
+                  <em>Sin asesor asignado</em>
+                </MenuItem>
+                {advisors.map((advisor) => (
+                  <MenuItem key={advisor.id} value={advisor.id}>
+                    {advisor.full_name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             
             {/* Sección de Contraseña - Solo visible para super_admin */}
             {isSuperAdmin && (

@@ -71,6 +71,70 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   const [confirmPin, setConfirmPin] = useState('');
   const [savingPin, setSavingPin] = useState(false);
   const [hasSupervisorPin, setHasSupervisorPin] = useState(user.has_supervisor_pin || false);
+
+  // 🧾 Estados para datos fiscales
+  const [showFiscalModal, setShowFiscalModal] = useState(false);
+  const [fiscalLoading, setFiscalLoading] = useState(false);
+  const [savingFiscal, setSavingFiscal] = useState(false);
+  const [fiscalData, setFiscalData] = useState({
+    razon_social: '',
+    rfc: '',
+    codigo_postal: '',
+    regimen_fiscal: '',
+    uso_cfdi: 'G03'
+  });
+  
+  // Catálogos SAT con valores por defecto
+  const [regimenesFiscales, setRegimenesFiscales] = useState<Array<{ clave: string; descripcion: string }>>([
+    { clave: '601', descripcion: 'General de Ley Personas Morales' },
+    { clave: '603', descripcion: 'Personas Morales con Fines no Lucrativos' },
+    { clave: '605', descripcion: 'Sueldos y Salarios e Ingresos Asimilados a Salarios' },
+    { clave: '606', descripcion: 'Arrendamiento' },
+    { clave: '607', descripcion: 'Régimen de Enajenación o Adquisición de Bienes' },
+    { clave: '608', descripcion: 'Demás ingresos' },
+    { clave: '610', descripcion: 'Residentes en el Extranjero sin Establecimiento Permanente en México' },
+    { clave: '611', descripcion: 'Ingresos por Dividendos (socios y accionistas)' },
+    { clave: '612', descripcion: 'Personas Físicas con Actividades Empresariales y Profesionales' },
+    { clave: '614', descripcion: 'Ingresos por intereses' },
+    { clave: '615', descripcion: 'Régimen de los ingresos por obtención de premios' },
+    { clave: '616', descripcion: 'Sin obligaciones fiscales' },
+    { clave: '620', descripcion: 'Sociedades Cooperativas de Producción que optan por diferir sus ingresos' },
+    { clave: '621', descripcion: 'Incorporación Fiscal' },
+    { clave: '622', descripcion: 'Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras' },
+    { clave: '623', descripcion: 'Opcional para Grupos de Sociedades' },
+    { clave: '624', descripcion: 'Coordinados' },
+    { clave: '625', descripcion: 'Régimen de las Actividades Empresariales con ingresos a través de Plataformas Tecnológicas' },
+    { clave: '626', descripcion: 'Régimen Simplificado de Confianza' },
+  ]);
+  const [usosCFDI, setUsosCFDI] = useState<Array<{ clave: string; descripcion: string }>>([
+    { clave: 'G01', descripcion: 'Adquisición de mercancías' },
+    { clave: 'G02', descripcion: 'Devoluciones, descuentos o bonificaciones' },
+    { clave: 'G03', descripcion: 'Gastos en general' },
+    { clave: 'I01', descripcion: 'Construcciones' },
+    { clave: 'I02', descripcion: 'Mobiliario y equipo de oficina por inversiones' },
+    { clave: 'I03', descripcion: 'Equipo de transporte' },
+    { clave: 'I04', descripcion: 'Equipo de cómputo y accesorios' },
+    { clave: 'I05', descripcion: 'Dados, troqueles, moldes, matrices y herramental' },
+    { clave: 'I06', descripcion: 'Comunicaciones telefónicas' },
+    { clave: 'I07', descripcion: 'Comunicaciones satelitales' },
+    { clave: 'I08', descripcion: 'Otra maquinaria y equipo' },
+    { clave: 'D01', descripcion: 'Honorarios médicos, dentales y gastos hospitalarios' },
+    { clave: 'D02', descripcion: 'Gastos médicos por incapacidad o discapacidad' },
+    { clave: 'D03', descripcion: 'Gastos funerales' },
+    { clave: 'D04', descripcion: 'Donativos' },
+    { clave: 'D05', descripcion: 'Intereses reales efectivamente pagados por créditos hipotecarios' },
+    { clave: 'D06', descripcion: 'Aportaciones voluntarias al SAR' },
+    { clave: 'D07', descripcion: 'Primas por seguros de gastos médicos' },
+    { clave: 'D08', descripcion: 'Gastos de transportación escolar obligatoria' },
+    { clave: 'D09', descripcion: 'Depósitos en cuentas para el ahorro, primas de pensiones' },
+    { clave: 'D10', descripcion: 'Pagos por servicios educativos (colegiaturas)' },
+    { clave: 'P01', descripcion: 'Por definir' },
+    { clave: 'S01', descripcion: 'Sin efectos fiscales' },
+    { clave: 'CP01', descripcion: 'Pagos' },
+    { clave: 'CN01', descripcion: 'Nómina' },
+  ]);
+  const [showRegimenPicker, setShowRegimenPicker] = useState(false);
+  const [showUsoCFDIPicker, setShowUsoCFDIPicker] = useState(false);
   
   // Verificar si el usuario puede tener PIN de supervisor
   const canHaveSupervisorPin = SUPERVISOR_ROLES.includes(user.role);
@@ -211,6 +275,103 @@ export default function MyProfileScreen({ navigation, route }: Props) {
     } finally {
       setSavingPin(false);
     }
+  };
+
+  // 🧾 Cargar datos fiscales del usuario
+  const loadFiscalData = async () => {
+    setFiscalLoading(true);
+    try {
+      const [fiscalRes, regimenesRes, usosRes] = await Promise.all([
+        fetch(`${API_URL}/api/fiscal/data`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        fetch(`${API_URL}/api/fiscal/catalogos/regimenes`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        fetch(`${API_URL}/api/fiscal/catalogos/usos-cfdi`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      ]);
+
+      if (fiscalRes.ok) {
+        const data = await fiscalRes.json();
+        if (data.success) {
+          setFiscalData(data.fiscal);
+        }
+      }
+
+      if (regimenesRes.ok) {
+        const data = await regimenesRes.json();
+        setRegimenesFiscales(data.regimenes || []);
+      }
+
+      if (usosRes.ok) {
+        const data = await usosRes.json();
+        setUsosCFDI(data.usos || []);
+      }
+    } catch (error) {
+      console.error('Error loading fiscal data:', error);
+    } finally {
+      setFiscalLoading(false);
+    }
+  };
+
+  // 🧾 Guardar datos fiscales
+  const handleSaveFiscalData = async () => {
+    if (!fiscalData.razon_social || !fiscalData.rfc || !fiscalData.codigo_postal || !fiscalData.regimen_fiscal) {
+      Alert.alert('Error', 'Por favor completa todos los campos obligatorios');
+      return;
+    }
+
+    // Validar RFC
+    const rfcUpper = fiscalData.rfc.toUpperCase().trim();
+    if (rfcUpper.length !== 12 && rfcUpper.length !== 13) {
+      Alert.alert('Error', 'El RFC debe tener 12 caracteres (persona moral) o 13 caracteres (persona física)');
+      return;
+    }
+
+    // Validar código postal
+    if (!/^\d{5}$/.test(fiscalData.codigo_postal)) {
+      Alert.alert('Error', 'El código postal debe tener 5 dígitos');
+      return;
+    }
+
+    setSavingFiscal(true);
+    try {
+      const response = await fetch(`${API_URL}/api/fiscal/data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(fiscalData),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        Alert.alert('✅ Éxito', 'Datos fiscales guardados correctamente');
+        setShowFiscalModal(false);
+      } else {
+        Alert.alert('Error', data.error || 'No se pudieron guardar los datos');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Error de conexión');
+    } finally {
+      setSavingFiscal(false);
+    }
+  };
+
+  // Obtener nombre del régimen fiscal seleccionado
+  const getRegimenNombre = () => {
+    const regimen = regimenesFiscales.find(r => r.clave === fiscalData.regimen_fiscal);
+    return regimen ? `${regimen.clave} - ${regimen.descripcion}` : 'Seleccionar régimen';
+  };
+
+  // Obtener nombre del uso CFDI seleccionado
+  const getUsoCFDINombre = () => {
+    const uso = usosCFDI.find(u => u.clave === fiscalData.uso_cfdi);
+    return uso ? `${uso.clave} - ${uso.descripcion}` : 'G03 - Gastos en general';
   };
 
   const handleToggle2FA = async (value: boolean) => {
@@ -615,24 +776,30 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                 <Ionicons name="pencil" size={16} color={ORANGE} style={{ marginLeft: 8 }} />
               </View>
             </TouchableOpacity>
-            
-            <Divider style={styles.divider} />
-            
-            {/* RFC - Editable */}
+          </Card.Content>
+        </Card>
+
+        {/* 🧾 Datos Fiscales */}
+        <Text style={styles.sectionTitle}>🧾 Datos Fiscales</Text>
+        <Card style={styles.card}>
+          <Card.Content>
             <TouchableOpacity 
-              style={styles.infoRow}
+              style={styles.menuItem}
               onPress={() => {
-                setEditRef(user.rfc || '');
-                setShowEditRefModal(true);
+                loadFiscalData();
+                setShowFiscalModal(true);
               }}
             >
-              <Text style={styles.infoLabel}>{t('profile.rfc')}</Text>
-              <View style={styles.editableValue}>
-                <Text style={styles.infoValue}>
-                  {user.rfc || t('profile.noCode')}
+              <Ionicons name="receipt-outline" size={24} color={ORANGE} />
+              <View style={styles.menuItemContent}>
+                <Text style={styles.menuItemTitle}>Configurar Datos de Facturación</Text>
+                <Text style={styles.menuItemSubtitle}>
+                  {fiscalData.rfc 
+                    ? `RFC: ${fiscalData.rfc}` 
+                    : 'Agrega tus datos para solicitar facturas'}
                 </Text>
-                <Ionicons name="pencil" size={16} color={ORANGE} style={{ marginLeft: 8 }} />
               </View>
+              <Ionicons name="chevron-forward" size={20} color="#999" />
             </TouchableOpacity>
           </Card.Content>
         </Card>
@@ -737,6 +904,176 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                 )}
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 🧾 Modal Datos Fiscales */}
+      <Modal visible={showFiscalModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '90%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>🧾 Datos Fiscales</Text>
+              <TouchableOpacity onPress={() => setShowFiscalModal(false)}>
+                <Ionicons name="close" size={24} color={BLACK} />
+              </TouchableOpacity>
+            </View>
+
+            {fiscalLoading ? (
+              <View style={{ padding: 40, alignItems: 'center' }}>
+                <ActivityIndicator size="large" color={ORANGE} />
+                <Text style={{ marginTop: 12, color: '#666' }}>Cargando datos...</Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.modalForm}>
+                <Text style={styles.inputLabel}>Razón Social *</Text>
+                <TextInput
+                  style={styles.inputFull}
+                  placeholder="Nombre o razón social para facturar"
+                  value={fiscalData.razon_social}
+                  onChangeText={(text) => setFiscalData({ ...fiscalData, razon_social: text })}
+                  autoCapitalize="characters"
+                />
+
+                <Text style={styles.inputLabel}>RFC *</Text>
+                <TextInput
+                  style={styles.inputFull}
+                  placeholder="12 o 13 caracteres"
+                  value={fiscalData.rfc}
+                  onChangeText={(text) => setFiscalData({ ...fiscalData, rfc: text.toUpperCase() })}
+                  autoCapitalize="characters"
+                  maxLength={13}
+                />
+
+                <Text style={styles.inputLabel}>Código Postal Fiscal *</Text>
+                <TextInput
+                  style={styles.inputFull}
+                  placeholder="5 dígitos"
+                  value={fiscalData.codigo_postal}
+                  onChangeText={(text) => setFiscalData({ ...fiscalData, codigo_postal: text.replace(/\D/g, '') })}
+                  keyboardType="number-pad"
+                  maxLength={5}
+                />
+
+                <Text style={styles.inputLabel}>Régimen Fiscal *</Text>
+                <TouchableOpacity
+                  style={styles.pickerButton}
+                  onPress={() => {
+                    setShowFiscalModal(false);
+                    setTimeout(() => setShowRegimenPicker(true), 300);
+                  }}
+                >
+                  <Text style={fiscalData.regimen_fiscal ? styles.pickerText : styles.pickerPlaceholder}>
+                    {getRegimenNombre()}
+                  </Text>
+                  <Ionicons name="chevron-down" size={20} color="#666" />
+                </TouchableOpacity>
+
+                <Text style={styles.inputLabel}>Uso CFDI</Text>
+                <TouchableOpacity
+                  style={styles.pickerButton}
+                  onPress={() => {
+                    setShowFiscalModal(false);
+                    setTimeout(() => setShowUsoCFDIPicker(true), 300);
+                  }}
+                >
+                  <Text style={styles.pickerText}>
+                    {getUsoCFDINombre()}
+                  </Text>
+                  <Ionicons name="chevron-down" size={20} color="#666" />
+                </TouchableOpacity>
+
+                <Text style={[styles.helperText, { marginTop: 12 }]}>
+                  * Campos obligatorios para solicitar facturas
+                </Text>
+
+                <TouchableOpacity
+                  style={[styles.saveButton, { marginTop: 20, marginBottom: 30 }, savingFiscal && styles.saveButtonDisabled]}
+                  onPress={handleSaveFiscalData}
+                  disabled={savingFiscal}
+                >
+                  {savingFiscal ? (
+                    <ActivityIndicator color="white" />
+                  ) : (
+                    <Text style={styles.saveButtonText}>Guardar Datos Fiscales</Text>
+                  )}
+                </TouchableOpacity>
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Selector de Régimen Fiscal */}
+      <Modal visible={showRegimenPicker} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '70%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Régimen Fiscal</Text>
+              <TouchableOpacity onPress={() => {
+                setShowRegimenPicker(false);
+                setTimeout(() => setShowFiscalModal(true), 300);
+              }}>
+                <Ionicons name="close" size={24} color={BLACK} />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={regimenesFiscales}
+              keyExtractor={(item) => item.clave}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.pickerItem,
+                    fiscalData.regimen_fiscal === item.clave && styles.pickerItemSelected
+                  ]}
+                  onPress={() => {
+                    setFiscalData({ ...fiscalData, regimen_fiscal: item.clave });
+                    setShowRegimenPicker(false);
+                    setTimeout(() => setShowFiscalModal(true), 300);
+                  }}
+                >
+                  <Text style={styles.pickerItemCode}>{item.clave}</Text>
+                  <Text style={styles.pickerItemDesc}>{item.descripcion}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Selector de Uso CFDI */}
+      <Modal visible={showUsoCFDIPicker} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { maxHeight: '70%' }]}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Uso CFDI</Text>
+              <TouchableOpacity onPress={() => {
+                setShowUsoCFDIPicker(false);
+                setTimeout(() => setShowFiscalModal(true), 300);
+              }}>
+                <Ionicons name="close" size={24} color={BLACK} />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={usosCFDI}
+              keyExtractor={(item) => item.clave}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.pickerItem,
+                    fiscalData.uso_cfdi === item.clave && styles.pickerItemSelected
+                  ]}
+                  onPress={() => {
+                    setFiscalData({ ...fiscalData, uso_cfdi: item.clave });
+                    setShowUsoCFDIPicker(false);
+                    setTimeout(() => setShowFiscalModal(true), 300);
+                  }}
+                >
+                  <Text style={styles.pickerItemCode}>{item.clave}</Text>
+                  <Text style={styles.pickerItemDesc}>{item.descripcion}</Text>
+                </TouchableOpacity>
+              )}
+            />
           </View>
         </View>
       </Modal>
@@ -1186,6 +1523,44 @@ const styles = StyleSheet.create({
   },
   advisorCardClients: {
     fontSize: 12,
+    color: '#666',
+  },
+  // 🧾 Estilos para datos fiscales
+  pickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 14,
+    marginBottom: 12,
+  },
+  pickerText: {
+    fontSize: 14,
+    color: BLACK,
+    flex: 1,
+  },
+  pickerPlaceholder: {
+    fontSize: 14,
+    color: '#999',
+    flex: 1,
+  },
+  pickerItem: {
+    padding: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  pickerItemSelected: {
+    backgroundColor: '#FFF3E0',
+  },
+  pickerItemCode: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: ORANGE,
+    marginBottom: 4,
+  },
+  pickerItemDesc: {
+    fontSize: 13,
     color: '#666',
   },
 });

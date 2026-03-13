@@ -36,6 +36,17 @@ import EmployeeHomeScreen from './src/screens/EmployeeHomeScreen';
 import AttendanceCheckerScreen from './src/screens/AttendanceCheckerScreen';
 import WarehouseScannerScreen from './src/screens/WarehouseScannerScreen';
 import FirmaAbandonoScreen from './src/screens/FirmaAbandonoScreen';
+import ServicesGuideScreen from './src/screens/ServicesGuideScreen';
+import SaldoFavorScreen from './src/screens/SaldoFavorScreen';
+import ReferidosScreen from './src/screens/ReferidosScreen';
+// PO Box Screens
+import POBoxReceiveScreen from './src/screens/POBoxReceiveScreen';
+import POBoxEntryScreen from './src/screens/POBoxEntryScreen';
+import POBoxExitScreen from './src/screens/POBoxExitScreen';
+import POBoxCollectScreen from './src/screens/POBoxCollectScreen';
+import POBoxQuoteScreen from './src/screens/POBoxQuoteScreen';
+import POBoxRepackScreen from './src/screens/POBoxRepackScreen';
+
 import { Package } from './src/services/api';
 import { EMPLOYEE_ROLES } from './src/constants/roles';
 
@@ -78,6 +89,18 @@ export type RootStackParamList = {
   WarehouseScanner: { user: any; token: string };
   // Firma de Abandono
   FirmaAbandono: { user: any; token: string; abandonoToken: string };
+  // Guía de Servicios
+  ServicesGuide: { user: any; token: string };
+  // Saldo a Favor y Referidos
+  SaldoFavor: { user: any; token: string };
+  Referidos: { user: any; token: string };
+  // PO Box Screens
+  POBoxReceive: { user: any; token: string };
+  POBoxEntry: { user: any; token: string };
+  POBoxExit: { user: any; token: string };
+  POBoxCollect: { user: any; token: string };
+  POBoxQuote: { user: any; token: string };
+  POBoxRepack: { user: any; token: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -206,6 +229,38 @@ export default function App() {
             name="FirmaAbandono" 
             component={FirmaAbandonoScreen}
           />
+          {/* Guía de Servicios de Envío */}
+          <Stack.Screen 
+            name="ServicesGuide" 
+            component={ServicesGuideScreen}
+          />
+          {/* Saldo a Favor (Billetera Digital) */}
+          <Stack.Screen 
+            name="SaldoFavor" 
+            component={SaldoFavorScreen}
+            options={{
+              headerShown: true,
+              headerTitle: 'Saldo a Favor',
+              headerTintColor: '#0097A7',
+            }}
+          />
+          {/* Sistema de Referidos */}
+          <Stack.Screen 
+            name="Referidos" 
+            component={ReferidosScreen}
+            options={{
+              headerShown: true,
+              headerTitle: 'Invita y Gana',
+              headerTintColor: '#F05A28',
+            }}
+          />
+          {/* PO Box Screens */}
+          <Stack.Screen name="POBoxReceive" component={POBoxReceiveScreen} />
+          <Stack.Screen name="POBoxEntry" component={POBoxEntryScreen} />
+          <Stack.Screen name="POBoxExit" component={POBoxExitScreen} />
+          <Stack.Screen name="POBoxCollect" component={POBoxCollectScreen} />
+          <Stack.Screen name="POBoxQuote" component={POBoxQuoteScreen} />
+          <Stack.Screen name="POBoxRepack" component={POBoxRepackScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </PaperProvider>

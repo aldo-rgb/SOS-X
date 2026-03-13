@@ -265,3 +265,48 @@ export const getPaymentHistoryApi = async (token: string): Promise<{
 
   return response.json();
 };
+
+// 🎠 Get carousel slides
+export interface CarouselSlide {
+  // El backend puede devolver con camelCase o snake_case
+  id: string;
+  slide_key?: string;
+  type?: string;
+  slide_type?: string;
+  title: string;
+  subtitle: string;
+  ctaText?: string;
+  cta_text?: string;
+  ctaAction?: string;
+  cta_action?: string;
+  badge?: string;
+  badgeColor?: string;
+  badge_color?: string;
+  imageType?: 'gradient' | 'image' | 'icon';
+  image_type?: 'gradient' | 'image' | 'icon';
+  imageUrl?: string;
+  image_url?: string;
+  iconName?: string;
+  icon_name?: string;
+  gradientColors?: string[];
+  gradient_colors?: string[];
+  iconBgColor?: string;
+  icon_bg_color?: string;
+  priority: number;
+  isActive?: boolean;
+  is_active?: boolean;
+}
+
+export const getCarouselSlidesApi = async (): Promise<{
+  success: boolean;
+  slides: CarouselSlide[];
+}> => {
+  const response = await fetch(`${API_URL}/api/carousel/slides`);
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Error al obtener slides del carrusel');
+  }
+
+  return response.json();
+};

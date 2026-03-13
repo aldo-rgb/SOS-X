@@ -18,6 +18,9 @@ import {
   Modal,
   TouchableOpacity,
   Clipboard,
+  TextInput,
+  FlatList,
+  Switch,
 } from 'react-native';
 import {
   Text,
@@ -76,6 +79,23 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
   const [showCashInstructions, setShowCashInstructions] = useState(false);
   const [paymentReference, setPaymentReference] = useState<string | null>(null);
   
+  // 🧾 Estados para facturación
+  const [requireInvoice, setRequireInvoice] = useState(false);
+  const [showInvoiceForm, setShowInvoiceForm] = useState(false);
+  const [fiscalDataLoaded, setFiscalDataLoaded] = useState(false);
+  const [hasSavedFiscalData, setHasSavedFiscalData] = useState(false);
+  const [fiscalForm, setFiscalForm] = useState({
+    razon_social: '',
+    rfc: '',
+    codigo_postal: '',
+    regimen_fiscal: '',
+    uso_cfdi: 'G03'
+  });
+  const [regimenesFiscales, setRegimenesFiscales] = useState<Array<{ clave: string; descripcion: string }>>([]);
+  const [usosCFDI, setUsosCFDI] = useState<Array<{ clave: string; descripcion: string }>>([]);
+  const [showRegimenPicker, setShowRegimenPicker] = useState(false);
+  const [showUsoCFDIPicker, setShowUsoCFDIPicker] = useState(false);
+  
   // Info bancaria y de sucursal del backend
   const [bankInfo, setBankInfo] = useState<{
     banco: string;
@@ -108,6 +128,55 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
     }
   }, [packages.length]);
 
+  // 🧾 Cargar datos fiscales y catálogos al montar
+  useEffect(() => {
+    loadFiscalData();
+    loadCatalogos();
+  }, []);
+
+  const loadFiscalData = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/fiscal/data`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.hasCompleteData) {
+          setFiscalForm(data.fiscal);
+          setHasSavedFiscalData(true);
+        }
+        setFiscalDataLoaded(true);
+      }
+    } catch (error) {
+      console.error('Error loading fiscal data:', error);
+    }
+  };
+
+  const loadCatalogos = async () => {
+    try {
+      const [regimenesRes, usosRes] = await Promise.all([
+        fetch(`${API_URL}/api/fiscal/catalogos/regimenes`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        fetch(`${API_URL}/api/fiscal/catalogos/usos-cfdi`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      ]);
+
+      if (regimenesRes.ok) {
+        const data = await regimenesRes.json();
+        setRegimenesFiscales(data.regimenes || []);
+      }
+
+      if (usosRes.ok) {
+        const data = await usosRes.json();
+        setUsosCFDI(data.usos || []);
+      }
+    } catch (error) {
+      console.error('Error loading catalogos:', error);
+    }
+  };
+
   // Generar referencia de pago
   const generatePaymentReference = () => {
     const timestamp = Date.now().toString(36).toUpperCase();
@@ -133,6 +202,9 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
           totalAmount: totalMXN,
           customerEmail: user.email,
           customerName: user.full_name,
+          // 🧾 Datos de facturación
+          requireInvoice: requireInvoice,
+          fiscalData: requireInvoice ? fiscalForm : null,
         }),
       });
 
@@ -167,6 +239,9 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
           packageIds,
           userId: user.id,
           totalAmount: totalMXN,
+          // 🧾 Datos de facturación
+          requireInvoice: requireInvoice,
+          fiscalData: requireInvoice ? fiscalForm : null,
         }),
       });
 
@@ -335,6 +410,21 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
 
   // Iniciar pago según el tipo seleccionado
   const handlePayment = () => {
+    // Validar que si requiere factura, tenga datos fiscales completos
+    if (requireInvoice && selectedPaymentType !== 'cash') {
+      if (!fiscalForm.razon_social || !fiscalForm.rfc || !fiscalForm.codigo_postal || !fiscalForm.regimen_fiscal) {
+        Alert.alert(
+          'Datos Fiscales Incompletos',
+          'Para generar factura, debes completar todos tus datos fiscales.',
+          [
+            { text: 'Completar Datos', onPress: () => setShowInvoiceForm(true) },
+            { text: 'Continuar sin Factura', onPress: () => setRequireInvoice(false) }
+          ]
+        );
+        return;
+      }
+    }
+
     switch (selectedPaymentType) {
       case 'card':
         startCardPayment();
@@ -345,6 +435,37 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
       case 'cash':
         startCashPayment();
         break;
+    }
+  };
+
+  // Guardar datos fiscales
+  const saveFiscalData = async () => {
+    if (!fiscalForm.razon_social || !fiscalForm.rfc || !fiscalForm.codigo_postal || !fiscalForm.regimen_fiscal) {
+      Alert.alert('Error', 'Todos los campos marcados son obligatorios');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/api/fiscal/data`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`
+        },
+        body: JSON.stringify(fiscalForm)
+      });
+
+      if (res.ok) {
+        setHasSavedFiscalData(true);
+        setShowInvoiceForm(false);
+        Alert.alert('✅', 'Datos fiscales guardados correctamente');
+      } else {
+        const error = await res.json();
+        Alert.alert('Error', error.message || 'No se pudieron guardar los datos');
+      }
+    } catch (error) {
+      console.error('Error saving fiscal data:', error);
+      Alert.alert('Error', 'No se pudo conectar con el servidor');
     }
   };
 
@@ -468,6 +589,182 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
           </View>
         </Modal>
       )}
+
+      {/* 🧾 Modal de Datos Fiscales */}
+      <Modal visible={showInvoiceForm} animationType="slide" transparent>
+        <View style={styles.fiscalModalOverlay}>
+          <View style={styles.fiscalModalContent}>
+            <View style={styles.fiscalModalHeader}>
+              <Text style={styles.fiscalModalTitle}>🧾 Datos Fiscales</Text>
+              <IconButton 
+                icon="close" 
+                size={24} 
+                onPress={() => setShowInvoiceForm(false)} 
+              />
+            </View>
+
+            <ScrollView style={styles.fiscalModalBody}>
+              <Text style={styles.fiscalFormNote}>
+                Estos datos se usarán para generar tu factura CFDI 4.0
+              </Text>
+
+              {/* Razón Social */}
+              <View style={styles.fiscalInputGroup}>
+                <Text style={styles.fiscalInputLabel}>Razón Social *</Text>
+                <TextInput
+                  style={styles.fiscalInput}
+                  value={fiscalForm.razon_social}
+                  onChangeText={(text) => setFiscalForm({ ...fiscalForm, razon_social: text })}
+                  placeholder="Nombre o Razón Social (sin SA de CV)"
+                  autoCapitalize="characters"
+                />
+              </View>
+
+              {/* RFC */}
+              <View style={styles.fiscalInputGroup}>
+                <Text style={styles.fiscalInputLabel}>RFC *</Text>
+                <TextInput
+                  style={styles.fiscalInput}
+                  value={fiscalForm.rfc}
+                  onChangeText={(text) => setFiscalForm({ ...fiscalForm, rfc: text.toUpperCase() })}
+                  placeholder="RFC con homoclave"
+                  autoCapitalize="characters"
+                  maxLength={13}
+                />
+              </View>
+
+              {/* Código Postal Fiscal */}
+              <View style={styles.fiscalInputGroup}>
+                <Text style={styles.fiscalInputLabel}>Código Postal Fiscal *</Text>
+                <TextInput
+                  style={styles.fiscalInput}
+                  value={fiscalForm.codigo_postal}
+                  onChangeText={(text) => setFiscalForm({ ...fiscalForm, codigo_postal: text })}
+                  placeholder="5 dígitos"
+                  keyboardType="numeric"
+                  maxLength={5}
+                />
+              </View>
+
+              {/* Régimen Fiscal */}
+              <View style={styles.fiscalInputGroup}>
+                <Text style={styles.fiscalInputLabel}>Régimen Fiscal *</Text>
+                <TouchableOpacity 
+                  style={styles.fiscalPicker}
+                  onPress={() => setShowRegimenPicker(true)}
+                >
+                  <Text style={fiscalForm.regimen_fiscal ? styles.fiscalPickerText : styles.fiscalPickerPlaceholder}>
+                    {fiscalForm.regimen_fiscal 
+                      ? regimenesFiscales.find(r => r.clave === fiscalForm.regimen_fiscal)?.descripcion || fiscalForm.regimen_fiscal
+                      : 'Selecciona régimen fiscal'}
+                  </Text>
+                  <Text>▼</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Uso CFDI */}
+              <View style={styles.fiscalInputGroup}>
+                <Text style={styles.fiscalInputLabel}>Uso CFDI</Text>
+                <TouchableOpacity 
+                  style={styles.fiscalPicker}
+                  onPress={() => setShowUsoCFDIPicker(true)}
+                >
+                  <Text style={styles.fiscalPickerText}>
+                    {usosCFDI.find(u => u.clave === fiscalForm.uso_cfdi)?.descripcion || 'G03 - Gastos en general'}
+                  </Text>
+                  <Text>▼</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.fiscalNotice}>
+                <Text style={styles.fiscalNoticeText}>
+                  ⚠️ Asegúrate de que tus datos coincidan exactamente con tu Constancia de Situación Fiscal del SAT.
+                </Text>
+              </View>
+            </ScrollView>
+
+            <View style={styles.fiscalModalButtons}>
+              <Button
+                mode="outlined"
+                onPress={() => setShowInvoiceForm(false)}
+                style={styles.fiscalCancelButton}
+              >
+                Cancelar
+              </Button>
+              <Button
+                mode="contained"
+                onPress={saveFiscalData}
+                style={styles.fiscalSaveButton}
+                buttonColor={GREEN}
+              >
+                Guardar
+              </Button>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Selector de Régimen Fiscal */}
+      <Modal visible={showRegimenPicker} animationType="slide" transparent>
+        <View style={styles.pickerModalOverlay}>
+          <View style={styles.pickerModalContent}>
+            <View style={styles.pickerModalHeader}>
+              <Text style={styles.pickerModalTitle}>Selecciona Régimen Fiscal</Text>
+              <IconButton icon="close" size={24} onPress={() => setShowRegimenPicker(false)} />
+            </View>
+            <FlatList
+              data={regimenesFiscales}
+              keyExtractor={(item) => item.clave}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.pickerItem,
+                    fiscalForm.regimen_fiscal === item.clave && styles.pickerItemSelected
+                  ]}
+                  onPress={() => {
+                    setFiscalForm({ ...fiscalForm, regimen_fiscal: item.clave });
+                    setShowRegimenPicker(false);
+                  }}
+                >
+                  <Text style={styles.pickerItemCode}>{item.clave}</Text>
+                  <Text style={styles.pickerItemText}>{item.descripcion}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Selector de Uso CFDI */}
+      <Modal visible={showUsoCFDIPicker} animationType="slide" transparent>
+        <View style={styles.pickerModalOverlay}>
+          <View style={styles.pickerModalContent}>
+            <View style={styles.pickerModalHeader}>
+              <Text style={styles.pickerModalTitle}>Selecciona Uso CFDI</Text>
+              <IconButton icon="close" size={24} onPress={() => setShowUsoCFDIPicker(false)} />
+            </View>
+            <FlatList
+              data={usosCFDI}
+              keyExtractor={(item) => item.clave}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.pickerItem,
+                    fiscalForm.uso_cfdi === item.clave && styles.pickerItemSelected
+                  ]}
+                  onPress={() => {
+                    setFiscalForm({ ...fiscalForm, uso_cfdi: item.clave });
+                    setShowUsoCFDIPicker(false);
+                  }}
+                >
+                  <Text style={styles.pickerItemCode}>{item.clave}</Text>
+                  <Text style={styles.pickerItemText}>{item.descripcion}</Text>
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </View>
+      </Modal>
 
       {/* Contenido Principal */}
       {!approvalUrl && !showCashInstructions && (
@@ -613,6 +910,82 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
               </RadioButton.Group>
             </Card.Content>
           </Card>
+
+          {/* 🧾 OPCIÓN DE FACTURA (Solo para tarjeta y PayPal) */}
+          {selectedPaymentType !== 'cash' && (
+            <Card style={styles.card}>
+              <Card.Content>
+                <View style={styles.invoiceHeader}>
+                  <View style={styles.invoiceTitleRow}>
+                    <Text style={styles.invoiceIcon}>🧾</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.invoiceTitle}>¿Requiero Factura?</Text>
+                      <Text style={styles.invoiceSubtitle}>
+                        {requireInvoice 
+                          ? 'Se generará CFDI 4.0 al confirmar el pago'
+                          : 'No se podrá facturar después'}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={requireInvoice}
+                      onValueChange={(value) => {
+                        setRequireInvoice(value);
+                        if (value && !hasSavedFiscalData) {
+                          setShowInvoiceForm(true);
+                        }
+                      }}
+                      trackColor={{ false: '#ddd', true: GREEN + '80' }}
+                      thumbColor={requireInvoice ? GREEN : '#f4f3f4'}
+                    />
+                  </View>
+                </View>
+
+                {requireInvoice && (
+                  <>
+                    <Divider style={styles.divider} />
+                    
+                    {/* Si tiene datos guardados, mostrarlos */}
+                    {hasSavedFiscalData ? (
+                      <View style={styles.savedFiscalData}>
+                        <View style={styles.fiscalDataRow}>
+                          <Text style={styles.fiscalDataLabel}>Razón Social:</Text>
+                          <Text style={styles.fiscalDataValue}>{fiscalForm.razon_social}</Text>
+                        </View>
+                        <View style={styles.fiscalDataRow}>
+                          <Text style={styles.fiscalDataLabel}>RFC:</Text>
+                          <Text style={styles.fiscalDataValue}>{fiscalForm.rfc}</Text>
+                        </View>
+                        <View style={styles.fiscalDataRow}>
+                          <Text style={styles.fiscalDataLabel}>C.P. Fiscal:</Text>
+                          <Text style={styles.fiscalDataValue}>{fiscalForm.codigo_postal}</Text>
+                        </View>
+                        <TouchableOpacity 
+                          onPress={() => setShowInvoiceForm(true)}
+                          style={styles.editFiscalButton}
+                        >
+                          <Text style={styles.editFiscalText}>✏️ Editar datos fiscales</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <TouchableOpacity 
+                        onPress={() => setShowInvoiceForm(true)}
+                        style={styles.addFiscalButton}
+                      >
+                        <Text style={styles.addFiscalIcon}>➕</Text>
+                        <Text style={styles.addFiscalText}>Agregar datos fiscales</Text>
+                      </TouchableOpacity>
+                    )}
+                    
+                    <View style={styles.invoiceNotice}>
+                      <Text style={styles.invoiceNoticeText}>
+                        ⚠️ Una vez realizado el pago, no podrás solicitar factura.
+                      </Text>
+                    </View>
+                  </>
+                )}
+              </Card.Content>
+            </Card>
+          )}
 
           {/* Botón de Pago */}
           <View style={styles.paymentSection}>
@@ -1029,5 +1402,231 @@ const styles = StyleSheet.create({
     margin: 16,
     marginTop: 8,
     borderRadius: 12,
+  },
+  // ============ ESTILOS FACTURACIÓN ============
+  invoiceHeader: {
+    marginBottom: 8,
+  },
+  invoiceTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  invoiceIcon: {
+    fontSize: 28,
+    marginRight: 12,
+  },
+  invoiceTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#111',
+  },
+  invoiceSubtitle: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  savedFiscalData: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    padding: 12,
+  },
+  fiscalDataRow: {
+    flexDirection: 'row',
+    marginBottom: 4,
+  },
+  fiscalDataLabel: {
+    fontSize: 13,
+    color: '#666',
+    width: 100,
+  },
+  fiscalDataValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#111',
+    flex: 1,
+  },
+  editFiscalButton: {
+    marginTop: 8,
+    alignItems: 'center',
+  },
+  editFiscalText: {
+    fontSize: 14,
+    color: ORANGE,
+    fontWeight: '600',
+  },
+  addFiscalButton: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderStyle: 'dashed',
+  },
+  addFiscalIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
+  addFiscalText: {
+    fontSize: 14,
+    color: '#666',
+    fontWeight: '500',
+  },
+  invoiceNotice: {
+    backgroundColor: '#FFF3CD',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 12,
+  },
+  invoiceNoticeText: {
+    fontSize: 12,
+    color: '#856404',
+  },
+  // Modal de datos fiscales
+  fiscalModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  fiscalModalContent: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '90%',
+  },
+  fiscalModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  fiscalModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#111',
+  },
+  fiscalModalBody: {
+    padding: 16,
+  },
+  fiscalFormNote: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  fiscalInputGroup: {
+    marginBottom: 16,
+  },
+  fiscalInputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 6,
+  },
+  fiscalInput: {
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+  },
+  fiscalPicker: {
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+    borderRadius: 8,
+    padding: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  fiscalPickerText: {
+    fontSize: 14,
+    color: '#111',
+    flex: 1,
+  },
+  fiscalPickerPlaceholder: {
+    fontSize: 14,
+    color: '#999',
+    flex: 1,
+  },
+  fiscalNotice: {
+    backgroundColor: '#E3F2FD',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  fiscalNoticeText: {
+    fontSize: 12,
+    color: '#1565C0',
+  },
+  fiscalModalButtons: {
+    flexDirection: 'row',
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+  },
+  fiscalCancelButton: {
+    flex: 1,
+    marginRight: 8,
+    borderRadius: 8,
+  },
+  fiscalSaveButton: {
+    flex: 1,
+    marginLeft: 8,
+    borderRadius: 8,
+  },
+  // Picker Modal
+  pickerModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  pickerModalContent: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '70%',
+  },
+  pickerModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  pickerModalTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#111',
+  },
+  pickerItem: {
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  pickerItemSelected: {
+    backgroundColor: GREEN + '10',
+  },
+  pickerItemCode: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: ORANGE,
+    width: 50,
+    marginRight: 12,
+  },
+  pickerItemText: {
+    fontSize: 14,
+    color: '#333',
+    flex: 1,
   },
 });

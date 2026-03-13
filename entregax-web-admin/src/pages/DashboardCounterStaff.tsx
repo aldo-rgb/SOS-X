@@ -170,7 +170,7 @@ export default function DashboardCounterStaff() {
 
   const quickActions = [
     { icon: <ScannerIcon sx={{ fontSize: 48 }} />, title: 'Escanear Entrega', color: '#4CAF50', action: 'scan' },
-    { icon: <CashIcon sx={{ fontSize: 48 }} />, title: 'Cobrar Paquete', color: '#2196F3', action: 'collect' },
+    { icon: <ShippingIcon sx={{ fontSize: 48 }} />, title: 'Salida', color: '#2196F3', action: 'exit' },
     { icon: <InventoryIcon sx={{ fontSize: 48 }} />, title: 'Recepción', color: '#FF9800', action: 'receive' },
     { icon: <PrintIcon sx={{ fontSize: 48 }} />, title: 'Imprimir Etiqueta', color: '#9C27B0', action: 'print' },
   ];
@@ -179,12 +179,12 @@ export default function DashboardCounterStaff() {
   const handleQuickAction = (action: string) => {
     switch (action) {
       case 'scan':
+        // Abrir modal de entrega para escanear guías
+        handleOpenDeliveryModalEmpty();
+        break;
+      case 'exit':
         // Abrir página de Salidas (OutboundControlPage)
         setActiveView('exit');
-        break;
-      case 'collect':
-        // Abrir página de Cobrar (POBoxCajaPage)
-        setActiveView('collect');
         break;
       case 'receive':
         // Abrir modal preguntando Usuario o Paquetería
@@ -210,25 +210,22 @@ export default function DashboardCounterStaff() {
   };
 
   // ============ FLUJO DE ENTREGA PICK UP ============
-  // Abrir modal de entrega
-  const handleOpenDeliveryModal = (delivery: PendingDelivery) => {
-    setSelectedPackages([delivery]); // Iniciar con el paquete seleccionado
-    setScanTrackingInput(delivery.tracking);
+  // Abrir modal de entrega vacío (para escanear guías)
+  const handleOpenDeliveryModalEmpty = () => {
+    setSelectedPackages([]); // Iniciar vacío
+    setScanTrackingInput('');
     setDeliveryStep('scan');
     setDeliveryModalOpen(true);
   };
 
-  // Verificar guía escaneada y agregar a la lista
-  const handleVerifyScan = () => {
-    if (!receiverName.trim()) {
-      showNotification('Debes ingresar el nombre de quien recibe el paquete', 'warning');
+  // Continuar al pago
+  const handleContinueToPayment = () => {
+    if (selectedPackages.length === 0) {
+      showNotification('Debes agregar al menos un paquete', 'warning');
       return;
     }
-    
-    // Verificar que la guía escaneada coincida con algún paquete en la lista
-    const matchingPackage = selectedPackages.find(p => p.tracking === scanTrackingInput.trim());
-    if (!matchingPackage) {
-      showNotification('La guía escaneada no coincide con ningún paquete en la lista', 'warning');
+    if (!receiverName.trim()) {
+      showNotification('Debes ingresar el nombre de quien recibe el paquete', 'warning');
       return;
     }
     
@@ -639,7 +636,7 @@ export default function DashboardCounterStaff() {
       <Paper sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography variant="h6" fontWeight="bold">
-            📦 Paquetes Listos para Entrega
+            📦 PickUp Listos para Entrega
           </Typography>
           <Chip label={`${pendingDeliveries.length} en espera`} color="primary" />
         </Box>
@@ -655,22 +652,12 @@ export default function DashboardCounterStaff() {
                 }}
                 secondaryAction={
                   <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
-                    {delivery.monto > 0 && (
-                      <Chip 
-                        label={`$${delivery.monto.toLocaleString()} ${(delivery as any).moneda || 'MXN'}`} 
-                        color={(delivery as any).isPickup ? 'success' : 'warning'}
-                        size="small"
-                        icon={<MoneyIcon />}
-                      />
-                    )}
-                    <Button 
-                      variant="contained" 
-                      size="small" 
+                    <Chip 
+                      label={`$${delivery.monto} USD`} 
                       color="success"
-                      onClick={() => handleOpenDeliveryModal(delivery)}
-                    >
-                      Entregar
-                    </Button>
+                      size="small"
+                      icon={<MoneyIcon />}
+                    />
                   </Box>
                 }
               >
@@ -750,16 +737,14 @@ export default function DashboardCounterStaff() {
                       </Box>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Chip label={`$${pkg.monto || 3} USD`} color="success" size="small" />
-                        {selectedPackages.length > 1 && (
-                          <Button 
-                            size="small" 
-                            color="error" 
-                            onClick={() => handleRemovePackage(pkg.tracking)}
-                            sx={{ minWidth: 'auto', p: 0.5 }}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </Button>
-                        )}
+                        <Button 
+                          size="small" 
+                          color="error" 
+                          onClick={() => handleRemovePackage(pkg.tracking)}
+                          sx={{ minWidth: 'auto', p: 0.5 }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </Button>
                       </Box>
                     </Box>
                   ))}
@@ -773,14 +758,15 @@ export default function DashboardCounterStaff() {
                 </Paper>
               )}
               
-              {/* Campo para agregar más guías */}
+              {/* Campo para agregar guías */}
               <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
                 <TextField
                   fullWidth
-                  label="Agregar otra guía"
+                  label="Escanear guía"
                   value={scanTrackingInput}
                   onChange={(e) => setScanTrackingInput(e.target.value.toUpperCase())}
-                  placeholder="Escanear o escribir guía..."
+                  placeholder="Escanear o escribir número de guía..."
+                  autoFocus
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
@@ -921,7 +907,7 @@ export default function DashboardCounterStaff() {
             <Button 
               variant="contained" 
               color="success"
-              onClick={handleVerifyScan}
+              onClick={handleContinueToPayment}
               disabled={selectedPackages.length === 0 || !receiverName.trim()}
             >
               Continuar al Pago ({selectedPackages.length} paquete{selectedPackages.length > 1 ? 's' : ''})

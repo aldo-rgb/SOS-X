@@ -288,6 +288,14 @@ import {
   resolveExchangeRateAlert
 } from './exchangeRateController';
 import {
+  getFiscalData,
+  updateFiscalData,
+  getRegimenesFiscales,
+  getUsosCFDI,
+  getFacturasUsuario,
+  retryPendingInvoice
+} from './fiscalController';
+import {
   getExchangeRate,
   updateExchangeRate as updateGexExchangeRate,
   quoteWarranty,
@@ -511,6 +519,21 @@ import {
   updateClientCredit,
   runCreditCollectionEngine
 } from './financeController';
+import {
+  getBalance as getWalletBalance,
+  getSummary as getWalletSummary,
+  getTransactions as getWalletTransactions,
+  applyToPayment,
+  getMyReferralCode as getReferralCode,
+  validateCode as validateReferralCodeNew,
+  registerReferral,
+  getMyReferrals,
+  getMyReferrer,
+  getSettings as getReferralSettings,
+  adminDeposit,
+  adminWithdraw,
+  getTopReferrers
+} from './walletController';
 import {
   getUserPendingPayments,
   getPaymentClabe,
@@ -1389,6 +1412,107 @@ app.patch('/api/packages/:id/status', authenticateToken, requireMinLevel(ROLES.W
 // Solicitar reempaque/consolidación de paquetes (Usuario autenticado)
 app.post('/api/packages/repack', authenticateToken, requestRepack);
 
+// 🔍 Rastreo de paquete por tracking
+app.get('/api/packages/track/:tracking', authenticateToken, async (req: Request, res: Response) => {
+    try {
+        const tracking = req.params.tracking as string;
+        const userId = (req as any).user?.userId;
+        
+        if (!tracking || tracking.length < 3) {
+            return res.status(400).json({ error: 'Tracking inválido' });
+        }
+        
+        const searchTerm = tracking.toUpperCase();
+        
+        // Buscar en packages (PO Box USA)
+        let result = await pool.query(`
+            SELECT p.*, u.full_name, u.box_id
+            FROM packages p
+            JOIN users u ON p.user_id = u.id
+            WHERE (UPPER(p.tracking_internal) = $1 OR UPPER(p.tracking_provider) = $1)
+              AND p.user_id = $2
+        `, [searchTerm, userId]);
+        
+        if (result.rows.length > 0) {
+            const pkg = result.rows[0];
+            return res.json({
+                id: pkg.id,
+                tracking_internal: pkg.tracking_internal,
+                tracking_provider: pkg.tracking_provider,
+                description: pkg.description || null,
+                weight: pkg.weight ? parseFloat(pkg.weight) : null,
+                dimensions: pkg.pkg_length && pkg.pkg_width && pkg.pkg_height 
+                    ? `${pkg.pkg_length}×${pkg.pkg_width}×${pkg.pkg_height} cm` : null,
+                status: pkg.status,
+                carrier: pkg.carrier,
+                received_at: pkg.received_at,
+                delivered_at: pkg.delivered_at,
+                created_at: pkg.created_at,
+                shipment_type: 'air',
+                received_by: pkg.received_by || null,
+            });
+        }
+        
+        // Buscar en maritime_orders
+        result = await pool.query(`
+            SELECT mo.* FROM maritime_orders mo
+            WHERE (UPPER(mo.ordersn) = $1 OR UPPER(mo.bl_number) = $1 OR UPPER(mo.ship_number) = $1)
+              AND mo.user_id = $2
+        `, [searchTerm, userId]);
+        
+        if (result.rows.length > 0) {
+            const pkg = result.rows[0];
+            return res.json({
+                id: pkg.id + 100000,
+                tracking_internal: pkg.ordersn,
+                tracking_provider: pkg.ship_number || pkg.bl_number,
+                description: pkg.goods_name || 'Envío Marítimo',
+                weight: pkg.weight ? parseFloat(pkg.weight) : null,
+                volume: pkg.volume ? parseFloat(pkg.volume) : null,
+                status: pkg.status,
+                carrier: 'Marítimo China',
+                received_at: pkg.status === 'received_china' ? pkg.created_at : null,
+                delivered_at: pkg.status === 'delivered' ? pkg.updated_at : null,
+                created_at: pkg.created_at,
+                shipment_type: 'maritime',
+                received_by: null,
+            });
+        }
+        
+        // Buscar en china_receipts (TDI Aéreo)
+        result = await pool.query(`
+            SELECT cr.*, u.full_name FROM china_receipts cr
+            JOIN users u ON cr.user_id = u.id
+            WHERE (UPPER(cr.ordersn) = $1 OR UPPER(cr.awb_number) = $1)
+              AND cr.user_id = $2
+        `, [searchTerm, userId]);
+        
+        if (result.rows.length > 0) {
+            const pkg = result.rows[0];
+            return res.json({
+                id: pkg.id + 200000,
+                tracking_internal: pkg.ordersn,
+                tracking_provider: pkg.awb_number,
+                description: pkg.goods_name || 'Envío Aéreo China',
+                weight: pkg.weight ? parseFloat(pkg.weight) : null,
+                status: pkg.status,
+                carrier: 'TDI Aéreo China',
+                received_at: pkg.created_at,
+                delivered_at: pkg.status === 'delivered' ? pkg.updated_at : null,
+                created_at: pkg.created_at,
+                shipment_type: 'china_air',
+                received_by: null,
+            });
+        }
+        
+        return res.status(404).json({ error: 'Paquete no encontrado' });
+        
+    } catch (error) {
+        console.error('Error en rastreo:', error);
+        return res.status(500).json({ error: 'Error al buscar paquete' });
+    }
+});
+
 // --- RUTAS PARA APP MÓVIL (CLIENTES) ---
 // Mis paquetes (requiere autenticación básica)
 app.get('/api/client/packages/:userId', authenticateToken, getMyPackages);
@@ -1474,7 +1598,7 @@ app.get('/api/admin/logistics-services', authenticateToken, requireMinLevel(ROLE
 app.put('/api/admin/logistics-services/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateLogisticsService);
 
 // --- RUTAS DE ASESORES (Gestión de Jerarquía) ---
-app.get('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAdvisors);
+app.get('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.ADMIN), getAdvisors);
 app.post('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createAdvisor);
 
 // --- RUTAS DE VERIFICACIÓN (Usuario) ---
@@ -2269,6 +2393,47 @@ app.get('/api/admin/finance/clients', authenticateToken, requireMinLevel(ROLES.A
 // Admin: Actualizar línea de crédito de un cliente específico
 app.put('/api/admin/finance/clients/:clientId/credit', authenticateToken, requireMinLevel(ROLES.ADMIN), updateClientCredit);
 
+// ========== BILLETERA DIGITAL Y SISTEMA DE REFERIDOS ==========
+
+// Billetera: Obtener saldo (disponible y pendiente)
+app.get('/api/billetera/saldo', authenticateToken, getWalletBalance);
+
+// Billetera: Obtener resumen con últimas transacciones
+app.get('/api/billetera/resumen', authenticateToken, getWalletSummary);
+
+// Billetera: Obtener historial de transacciones
+app.get('/api/billetera/transacciones', authenticateToken, getWalletTransactions);
+
+// Billetera: Aplicar saldo a un pago
+app.post('/api/billetera/aplicar', authenticateToken, applyToPayment);
+
+// Referidos: Obtener mi código de referido
+app.get('/api/referidos/mi-codigo', authenticateToken, getReferralCode);
+
+// Referidos: Validar un código (público para registro)
+app.get('/api/referidos/validar/:code', validateReferralCodeNew);
+
+// Referidos: Registrar código de referido (después del registro)
+app.post('/api/referidos/registrar', authenticateToken, registerReferral);
+
+// Referidos: Obtener mis referidos
+app.get('/api/referidos/mis-referidos', authenticateToken, getMyReferrals);
+
+// Referidos: Obtener mi referidor
+app.get('/api/referidos/mi-referidor', authenticateToken, getMyReferrer);
+
+// Referidos: Configuración pública del programa
+app.get('/api/referidos/configuracion', getReferralSettings);
+
+// Admin: Depositar saldo manualmente
+app.post('/api/admin/billetera/depositar', authenticateToken, requireMinLevel(ROLES.ADMIN), adminDeposit);
+
+// Admin: Retirar saldo manualmente
+app.post('/api/admin/billetera/retirar', authenticateToken, requireMinLevel(ROLES.ADMIN), adminWithdraw);
+
+// Admin: Top referidores
+app.get('/api/admin/referidos/top', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getTopReferrers);
+
 // ========== PAGOS MULTI-SERVICIO (Múltiples RFCs/Empresas) ==========
 // Cliente: Ver pagos pendientes por servicio
 app.get('/api/payments/pending', authenticateToken, getUserPendingPayments);
@@ -2895,7 +3060,7 @@ app.get('/api/admin/finance/search-payment', authenticateToken, requireMinLevel(
 // ============================================
 app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const { referencia, metodo_confirmacion = 'efectivo', notas, received_by } = req.body;
+    const { referencia, metodo_confirmacion = 'efectivo', notas, received_by, moneda_recibida = 'MXN', monto_recibido, tipo_cambio } = req.body;
     const adminId = req.user?.userId;
     const adminName = req.user?.email?.split('@')[0] || `User ${adminId}`;
     const receiverName = received_by || null; // Nombre de quien recibe el paquete
@@ -2905,6 +3070,7 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
     }
 
     const refStr = referencia.toUpperCase().trim();
+    const currency = moneda_recibida === 'USD' ? 'USD' : 'MXN'; // Default MXN
 
     // Buscar el pago pendiente en openpay_webhook_logs
     const pendingPayment = await pool.query(`
@@ -2928,7 +3094,8 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
           p.assigned_cost_mxn,
           p.saldo_pendiente,
           p.national_shipping_cost,
-          u.full_name as cliente_nombre
+          u.full_name as cliente_nombre,
+          u.box_id as cliente_box_id
         FROM packages p
         LEFT JOIN users u ON p.user_id = u.id
         WHERE p.tracking_internal ILIKE $1
@@ -3025,28 +3192,35 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
             montoPendiente,
             saldoAnterior,
             nuevoSaldo,
-            `Pago ${metodo_confirmacion} - ${isPickup ? 'Pick Up' : 'PO Box'} ${pkg.tracking_internal} - Cliente: ${pkg.cliente_nombre}`,
+            `Pago ${metodo_confirmacion.toUpperCase()} - ${isPickup ? 'Pick Up' : 'PO Box'} - 1 paquete`,
             pkg.tracking_internal,
             adminId,
             adminName
           ]);
           
           // También registrar en caja_chica_transacciones para que aparezca en la UI
+          // Si el pago es en USD, usar el monto_recibido, si es MXN usar montoPendiente
+          const montoParaCaja = currency === 'USD' && monto_recibido ? monto_recibido : montoPendiente;
+          
           await client.query(`
             INSERT INTO caja_chica_transacciones (
               tipo, monto, concepto, cliente_id, admin_id, admin_name, 
-              saldo_despues_movimiento, categoria, notas
+              saldo_despues_movimiento, categoria, notas, currency, referencia
             ) VALUES (
-              'ingreso', $1, $2, $3, $4, $5, $6, 'cobro_guias', $7
+              'ingreso', $1, $2, $3, $4, $5, $6, 'cobro_guias', $7, $8, $9
             )
           `, [
-            montoPendiente,
-            `Pago ${metodo_confirmacion.toUpperCase()} PO Box - Ref: ${pkg.tracking_internal} - Cliente: ${pkg.cliente_nombre}`,
+            montoParaCaja,
+            `Pago ${metodo_confirmacion.toUpperCase()} PO Box - 1 paquete`,
             pkg.user_id,
             adminId,
             adminName,
             nuevoSaldo,
-            `Pago con ${metodo_confirmacion} en mostrador`
+            currency === 'USD' 
+              ? `Pago en USD (TC: ${tipo_cambio || 'N/A'})` 
+              : `Pago con ${metodo_confirmacion} en mostrador`,
+            currency,
+            pkg.tracking_internal // Guardar la referencia/tracking
           ]);
         }
 
@@ -3195,10 +3369,11 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
 // ============================================
 app.post('/api/admin/finance/confirm-payment-bulk', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const { referencias, metodo_confirmacion = 'tarjeta', notas, received_by, monto_total_usd } = req.body;
+    const { referencias, metodo_confirmacion = 'tarjeta', notas, received_by, monto_total_usd, moneda_recibida = 'MXN', tipo_cambio } = req.body;
     const adminId = req.user?.userId;
     const adminName = req.user?.email?.split('@')[0] || `User ${adminId}`;
     const receiverName = received_by || null;
+    const currency = moneda_recibida === 'USD' ? 'USD' : 'MXN';
 
     if (!referencias || !Array.isArray(referencias) || referencias.length === 0) {
       return res.status(400).json({ error: 'Se requiere al menos una referencia' });
@@ -3213,7 +3388,7 @@ app.post('/api/admin/finance/confirm-payment-bulk', authenticateToken, requireMi
       const processedPackages: string[] = [];
       let totalMonto = 0;
       let clienteId: number | null = null;
-      let clienteNombre = '';
+      let clienteBoxId = '';
 
       // Procesar cada paquete
       for (const referencia of referencias) {
@@ -3231,7 +3406,8 @@ app.post('/api/admin/finance/confirm-payment-bulk', authenticateToken, requireMi
             p.saldo_pendiente,
             p.assigned_cost_mxn,
             p.national_shipping_cost,
-            u.full_name as cliente_nombre
+            u.full_name as cliente_nombre,
+            u.box_id as cliente_box_id
           FROM packages p
           LEFT JOIN users u ON p.user_id = u.id
           WHERE p.tracking_internal ILIKE $1
@@ -3249,7 +3425,7 @@ app.post('/api/admin/finance/confirm-payment-bulk', authenticateToken, requireMi
         // Guardar datos del cliente
         if (!clienteId) {
           clienteId = pkg.user_id;
-          clienteNombre = pkg.cliente_nombre;
+          clienteBoxId = pkg.cliente_box_id || '';
         }
 
         // Marcar paquete como pagado y entregado
@@ -3306,7 +3482,7 @@ app.post('/api/admin/finance/confirm-payment-bulk', authenticateToken, requireMi
           monto_total_usd || totalMonto,
           saldoAnterior,
           nuevoSaldo,
-          `Pago ${metodo_confirmacion.toUpperCase()} - ${processedPackages.length} paquetes PO Box - Cliente: ${clienteNombre}`,
+          `Pago ${metodo_confirmacion.toUpperCase()} PO Box - ${processedPackages.length} paquete(s)`,
           processedPackages.join(', '),
           adminId,
           adminName
@@ -3316,18 +3492,22 @@ app.post('/api/admin/finance/confirm-payment-bulk', authenticateToken, requireMi
         await client.query(`
           INSERT INTO caja_chica_transacciones (
             tipo, monto, concepto, cliente_id, admin_id, admin_name, 
-            saldo_despues_movimiento, categoria, notas
+            saldo_despues_movimiento, categoria, notas, currency, referencia
           ) VALUES (
-            'ingreso', $1, $2, $3, $4, $5, $6, 'cobro_guias', $7
+            'ingreso', $1, $2, $3, $4, $5, $6, 'cobro_guias', $7, $8, $9
           )
         `, [
           monto_total_usd || totalMonto,
-          `Pago ${metodo_confirmacion.toUpperCase()} PO Box - ${processedPackages.length} paquetes: ${processedPackages.join(', ')} - Cliente: ${clienteNombre}`,
+          `Pago ${metodo_confirmacion.toUpperCase()} PO Box - ${processedPackages.length} paquete(s)`,
           clienteId,
           adminId,
           adminName,
           nuevoSaldo,
-          notas || `Pago con ${metodo_confirmacion} en mostrador - Recibido por: ${receiverName}`
+          currency === 'USD' 
+            ? `Pago en USD (TC: ${tipo_cambio || 'N/A'}) - Recibido por: ${receiverName}`
+            : (notas || `Pago con ${metodo_confirmacion} en mostrador - Recibido por: ${receiverName}`),
+          currency,
+          processedPackages.join(', ') // Guardar los tracking como referencia
         ]);
       }
 
@@ -4244,6 +4424,17 @@ app.get('/api/caja-chica/buscar-guia', authenticateToken, buscarGuiaParaCobro);
 app.post('/api/caja-chica/corte', authenticateToken, realizarCorte);
 app.get('/api/caja-chica/cortes', authenticateToken, getCortes);
 app.post('/api/caja-chica/pagar-consolidacion', authenticateToken, pagarConsolidacionProveedor);
+
+// ============================================
+// DATOS FISCALES Y FACTURACIÓN CFDI 4.0
+// Para emisión de facturas electrónicas con Facturapi
+// ============================================
+app.get('/api/fiscal/data', authenticateToken, getFiscalData);
+app.post('/api/fiscal/data', authenticateToken, updateFiscalData);
+app.get('/api/fiscal/catalogos/regimenes', authenticateToken, getRegimenesFiscales);
+app.get('/api/fiscal/catalogos/usos-cfdi', authenticateToken, getUsosCFDI);
+app.get('/api/fiscal/facturas', authenticateToken, getFacturasUsuario);
+app.post('/api/fiscal/retry-invoice', authenticateToken, retryPendingInvoice);
 
 // ============================================
 // CUSTOMER SERVICE - CARTERA VENCIDA

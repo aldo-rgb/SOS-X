@@ -10,6 +10,7 @@ import {
   Modal,
   TouchableOpacity,
   Image,
+  TextInput,
 } from 'react-native';
 import {
   Text,
@@ -25,7 +26,7 @@ import {
 } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
-import { getMyPackagesApi, Package } from '../services/api';
+import { getMyPackagesApi, Package, getCarouselSlidesApi, API_URL } from '../services/api';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { changeLanguage, getCurrentLanguage } from '../i18n';
@@ -74,6 +75,7 @@ type RootStackParamList = {
   MaritimeDetail: { package: Package; user: any; token: string };
   PackageDetail: { package: Package; user: any; token: string };
   EmployeeOnboarding: { user: any; token: string };
+  ServicesGuide: { user: any; token: string };
   // Pantallas del Repartidor
   DriverHome: { user: any; token: string };
   LoadingVan: { user: any; token: string };
@@ -104,7 +106,21 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   // 🔍 Filtro simple: null = todos, true = con instrucciones, false = sin instrucciones
   const [instructionFilter, setInstructionFilter] = useState<boolean | null>(null);
 
-  // 🔐 Verificar si el usuario está verificado
+  // 🎠 Estado para slides del carrusel desde el backend
+  const [carouselSlides, setCarouselSlides] = useState<Opportunity[]>([]);
+
+  // 📜 Estado para modal de historial
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyPackages, setHistoryPackages] = useState<Package[]>([]);
+
+  // � Estado para modal de rastreo
+  const [showTrackingModal, setShowTrackingModal] = useState(false);
+  const [trackingSearch, setTrackingSearch] = useState('');
+  const [trackedPackage, setTrackedPackage] = useState<Package | null>(null);
+  const [trackingLoading, setTrackingLoading] = useState(false);
+  const [trackingError, setTrackingError] = useState('');
+
+  // �🔐 Verificar si el usuario está verificado
   const isUserVerified = user.isVerified === true;
   const verificationStatus = user.verificationStatus || 'not_started';
   const isPendingReview = verificationStatus === 'pending_review';
@@ -308,7 +324,52 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     }
   }, [user.id, token]);
 
-  // 🔄 Función para actualizar datos del usuario desde el servidor
+  // 🎠 Cargar slides del carrusel desde el backend
+  const fetchCarouselSlides = useCallback(async () => {
+    try {
+      const response = await getCarouselSlidesApi();
+      if (response.success && response.slides) {
+        // Mapear los slides del backend al formato de Opportunity
+        const mappedSlides: Opportunity[] = response.slides.map((slide) => ({
+          id: slide.id || slide.slide_key,
+          type: slide.type || slide.slide_type || 'internal',
+          title: slide.title,
+          subtitle: slide.subtitle,
+          ctaText: slide.ctaText || slide.cta_text,
+          ctaAction: slide.ctaAction || slide.cta_action,
+          badge: slide.badge,
+          badgeColor: slide.badgeColor || slide.badge_color,
+          imageType: slide.imageType || slide.image_type,
+          imageUrl: slide.imageUrl || slide.image_url,
+          iconName: slide.iconName || slide.icon_name,
+          gradientColors: slide.gradientColors || slide.gradient_colors,
+          iconBgColor: slide.iconBgColor || slide.icon_bg_color,
+          priority: slide.priority,
+          isActive: slide.isActive !== undefined ? slide.isActive : slide.is_active,
+        }));
+        setCarouselSlides(mappedSlides);
+      }
+    } catch (error) {
+      console.error('Error fetching carousel slides:', error);
+    }
+  }, []);
+
+  // � Función para cargar historial de paquetes (entregados y pagados)
+  const loadHistoryPackages = useCallback(() => {
+    const delivered = packages.filter(pkg => {
+      // Solo paquetes entregados
+      if (pkg.status !== 'delivered') return false;
+      // Solo paquetes pagados (saldo_pendiente = 0 o client_paid = true)
+      const isPaid = (pkg as any).client_paid === true || 
+                     ((pkg as any).saldo_pendiente !== undefined && (pkg as any).saldo_pendiente <= 0) ||
+                     ((pkg as any).assigned_cost_mxn === 0);
+      return isPaid;
+    });
+    setHistoryPackages(delivered);
+    setShowHistoryModal(true);
+  }, [packages]);
+
+  // �🔄 Función para actualizar datos del usuario desde el servidor
   const refreshUserData = useCallback(async () => {
     try {
       const response = await fetch(`http://192.168.1.114:3001/api/auth/profile`, {
@@ -330,7 +391,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
   useEffect(() => {
     fetchPackages();
-  }, [fetchPackages]);
+    fetchCarouselSlides(); // Cargar slides del carrusel
+  }, [fetchPackages, fetchCarouselSlides]);
 
   // 🔄 Refrescar al volver a la pantalla (después de contratar GEX o completar onboarding)
   useFocusEffect(
@@ -868,8 +930,17 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     );
   }
 
+  // 📜 Filtrar paquetes activos (excluir entregados Y pagados - esos van a Historial)
+  const activePackages = packages.filter(pkg => {
+    const isDelivered = pkg.status === 'delivered';
+    const isPaid = (pkg as any).client_paid === true || 
+                   ((pkg as any).saldo_pendiente !== undefined && (pkg as any).saldo_pendiente <= 0) ||
+                   ((pkg as any).assigned_cost_mxn === 0);
+    return !(isDelivered && isPaid);
+  });
+
   // Contar paquetes en bodega (seleccionables)
-  const packagesInWarehouse = packages.filter(p => p.status === 'received').length;
+  const packagesInWarehouse = activePackages.filter(p => p.status === 'received').length;
 
   // Bandera del idioma actual
   const getLanguageFlag = (lang: string) => {
@@ -1014,6 +1085,18 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               <Text style={styles.menuItemText}>Mis Cuentas por Pagar</Text>
               <Ionicons name="chevron-forward" size={20} color="#ccc" />
             </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => {
+                setShowMenu(false);
+                navigation.navigate('SaldoFavor' as any, { user, token });
+              }}
+            >
+              <Ionicons name="gift-outline" size={24} color="#F05A28" />
+              <Text style={styles.menuItemText}>Saldo a Favor</Text>
+              <Ionicons name="chevron-forward" size={20} color="#ccc" />
+            </TouchableOpacity>
             </>
             )}
 
@@ -1074,6 +1157,287 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         </TouchableOpacity>
       </Modal>
 
+      {/* 📜 Modal de Historial */}
+      <Modal visible={showHistoryModal} animationType="slide" transparent>
+        <View style={styles.historyModalOverlay}>
+          <View style={styles.historyModalContainer}>
+            <View style={styles.historyModalHeader}>
+              <Text style={styles.historyModalTitle}>📜 Historial de Envíos</Text>
+              <TouchableOpacity onPress={() => setShowHistoryModal(false)}>
+                <Ionicons name="close-circle" size={28} color="#666" />
+              </TouchableOpacity>
+            </View>
+            
+            {historyPackages.length === 0 ? (
+              <View style={styles.historyEmptyContainer}>
+                <Ionicons name="time-outline" size={60} color="#ccc" />
+                <Text style={styles.historyEmptyText}>No hay envíos completados</Text>
+                <Text style={styles.historyEmptySubtext}>
+                  Aquí aparecerán tus paquetes entregados y pagados
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                data={historyPackages}
+                keyExtractor={(item) => item.id.toString()}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={{ paddingBottom: 20 }}
+                renderItem={({ item }) => (
+                  <View style={styles.historyCard}>
+                    <View style={styles.historyCardHeader}>
+                      <View style={styles.historyTrackingBadge}>
+                        <Text style={styles.historyTrackingText}>
+                          {item.tracking_internal || item.tracking_provider || 'Sin tracking'}
+                        </Text>
+                      </View>
+                      <View style={styles.historyDeliveredBadge}>
+                        <Ionicons name="checkmark-circle" size={14} color="#10B981" />
+                        <Text style={styles.historyDeliveredText}>Entregado</Text>
+                      </View>
+                    </View>
+                    
+                    <Text style={styles.historyDescription} numberOfLines={1}>
+                      {item.description || 'Sin descripción'}
+                    </Text>
+                    
+                    <View style={styles.historyDetailsRow}>
+                      {item.delivered_at && (
+                        <View style={styles.historyDetailItem}>
+                          <Ionicons name="calendar-outline" size={14} color="#666" />
+                          <Text style={styles.historyDetailText}>
+                            {new Date(item.delivered_at).toLocaleDateString('es-MX', {
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric'
+                            })}
+                          </Text>
+                        </View>
+                      )}
+                      {item.weight && (
+                        <View style={styles.historyDetailItem}>
+                          <Ionicons name="scale-outline" size={14} color="#666" />
+                          <Text style={styles.historyDetailText}>{item.weight} lbs</Text>
+                        </View>
+                      )}
+                    </View>
+                    
+                    {(item as any).received_by && (
+                      <View style={styles.historyReceivedBy}>
+                        <Ionicons name="person-outline" size={12} color="#888" />
+                        <Text style={styles.historyReceivedByText}>
+                          Recibió: {(item as any).received_by}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* 🔍 Modal de Rastreo */}
+      <Modal visible={showTrackingModal} animationType="slide" transparent>
+        <View style={styles.trackingModalOverlay}>
+          <View style={styles.trackingModalContainer}>
+            <View style={styles.trackingModalHeader}>
+              <Text style={styles.trackingModalTitle}>🔍 Rastrear Paquete</Text>
+              <TouchableOpacity onPress={() => setShowTrackingModal(false)}>
+                <Ionicons name="close-circle" size={28} color="#666" />
+              </TouchableOpacity>
+            </View>
+            
+            {/* Input de búsqueda */}
+            <View style={styles.trackingSearchContainer}>
+              <View style={styles.trackingInputWrapper}>
+                <Ionicons name="barcode-outline" size={20} color="#666" style={{ marginRight: 10 }} />
+                <TextInput
+                  style={styles.trackingInput}
+                  placeholder="Número de guía o tracking"
+                  value={trackingSearch}
+                  onChangeText={setTrackingSearch}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                />
+                {trackingSearch.length > 0 && (
+                  <TouchableOpacity onPress={() => setTrackingSearch('')}>
+                    <Ionicons name="close-circle" size={20} color="#ccc" />
+                  </TouchableOpacity>
+                )}
+              </View>
+              <TouchableOpacity
+                style={[
+                  styles.trackingSearchButton,
+                  trackingSearch.length < 3 && styles.trackingSearchButtonDisabled
+                ]}
+                disabled={trackingSearch.length < 3 || trackingLoading}
+                onPress={async () => {
+                  setTrackingLoading(true);
+                  setTrackingError('');
+                  setTrackedPackage(null);
+                  
+                  try {
+                    // Buscar en paquetes locales primero
+                    const searchTerm = trackingSearch.trim().toUpperCase();
+                    const found = packages.find(pkg => 
+                      (pkg.tracking_internal?.toUpperCase() === searchTerm) ||
+                      (pkg.tracking_provider?.toUpperCase() === searchTerm) ||
+                      ((pkg as any).tracking_courier?.toUpperCase() === searchTerm)
+                    );
+                    
+                    if (found) {
+                      setTrackedPackage(found);
+                    } else {
+                      // Buscar en API (historial)
+                      const response = await fetch(
+                        `${API_URL}/api/packages/track/${searchTerm}`,
+                        { headers: { Authorization: `Bearer ${token}` } }
+                      );
+                      
+                      if (response.ok) {
+                        const data = await response.json();
+                        setTrackedPackage(data);
+                      } else {
+                        setTrackingError('No se encontró ningún paquete con ese número de guía');
+                      }
+                    }
+                  } catch (error) {
+                    setTrackingError('Error al buscar. Intenta de nuevo.');
+                  } finally {
+                    setTrackingLoading(false);
+                  }
+                }}
+              >
+                {trackingLoading ? (
+                  <ActivityIndicator size="small" color="#FFF" />
+                ) : (
+                  <Ionicons name="search" size={20} color="#FFF" />
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Error */}
+            {trackingError ? (
+              <View style={styles.trackingErrorContainer}>
+                <Ionicons name="alert-circle" size={40} color="#EF4444" />
+                <Text style={styles.trackingErrorText}>{trackingError}</Text>
+              </View>
+            ) : null}
+
+            {/* Resultado del rastreo */}
+            {trackedPackage && (
+              <View style={styles.trackedPackageCard}>
+                <View style={styles.trackedPackageHeader}>
+                  <View>
+                    <Text style={styles.trackedPackageTracking}>
+                      {trackedPackage.tracking_internal || trackedPackage.tracking_provider}
+                    </Text>
+                    <Text style={styles.trackedPackageDescription} numberOfLines={1}>
+                      {trackedPackage.description || 'Sin descripción'}
+                    </Text>
+                  </View>
+                  <View style={[
+                    styles.trackedStatusBadge,
+                    trackedPackage.status === 'delivered' && styles.trackedStatusDelivered,
+                    trackedPackage.status === 'in_transit' && styles.trackedStatusTransit,
+                    (trackedPackage.status === 'received' || trackedPackage.status === 'received_origin') && styles.trackedStatusWarehouse,
+                  ]}>
+                    <Text style={styles.trackedStatusText}>
+                      {getStatusLabel(trackedPackage.status, trackedPackage.shipment_type)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.trackedPackageDivider} />
+
+                {/* Timeline de eventos */}
+                <View style={styles.trackedTimeline}>
+                  {trackedPackage.status === 'delivered' && (
+                    <View style={styles.timelineItem}>
+                      <View style={[styles.timelineDot, styles.timelineDotGreen]} />
+                      <View style={styles.timelineContent}>
+                        <Text style={styles.timelineTitle}>✅ Entregado</Text>
+                        {trackedPackage.delivered_at && (
+                          <Text style={styles.timelineDate}>
+                            {new Date(trackedPackage.delivered_at).toLocaleDateString('es-MX', {
+                              day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                            })}
+                          </Text>
+                        )}
+                        {(trackedPackage as any).received_by && (
+                          <Text style={styles.timelineSubtext}>Recibió: {(trackedPackage as any).received_by}</Text>
+                        )}
+                      </View>
+                    </View>
+                  )}
+
+                  {(trackedPackage.status === 'in_transit' || trackedPackage.status === 'delivered') && (
+                    <View style={styles.timelineItem}>
+                      <View style={[styles.timelineDot, trackedPackage.status === 'in_transit' ? styles.timelineDotBlue : styles.timelineDotGray]} />
+                      <View style={styles.timelineContent}>
+                        <Text style={styles.timelineTitle}>🚚 En tránsito</Text>
+                      </View>
+                    </View>
+                  )}
+
+                  <View style={styles.timelineItem}>
+                    <View style={[styles.timelineDot, 
+                      (trackedPackage.status === 'received' || trackedPackage.status === 'received_origin') 
+                        ? styles.timelineDotOrange 
+                        : styles.timelineDotGray
+                    ]} />
+                    <View style={styles.timelineContent}>
+                      <Text style={styles.timelineTitle}>📦 Recibido en bodega</Text>
+                      {trackedPackage.received_at && (
+                        <Text style={styles.timelineDate}>
+                          {new Date(trackedPackage.received_at).toLocaleDateString('es-MX', {
+                            day: '2-digit', month: 'short', year: 'numeric'
+                          })}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                </View>
+
+                {/* Detalles adicionales */}
+                <View style={styles.trackedDetailsGrid}>
+                  {trackedPackage.weight && (
+                    <View style={styles.trackedDetailItem}>
+                      <Ionicons name="scale-outline" size={16} color="#666" />
+                      <Text style={styles.trackedDetailText}>{trackedPackage.weight} lbs</Text>
+                    </View>
+                  )}
+                  {trackedPackage.dimensions && (
+                    <View style={styles.trackedDetailItem}>
+                      <Ionicons name="cube-outline" size={16} color="#666" />
+                      <Text style={styles.trackedDetailText}>{trackedPackage.dimensions}</Text>
+                    </View>
+                  )}
+                  {trackedPackage.carrier && (
+                    <View style={styles.trackedDetailItem}>
+                      <Ionicons name="airplane-outline" size={16} color="#666" />
+                      <Text style={styles.trackedDetailText}>{trackedPackage.carrier}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            )}
+
+            {/* Estado inicial */}
+            {!trackedPackage && !trackingError && !trackingLoading && (
+              <View style={styles.trackingEmptyState}>
+                <Ionicons name="qr-code-outline" size={60} color="#ddd" />
+                <Text style={styles.trackingEmptyText}>Ingresa el número de guía</Text>
+                <Text style={styles.trackingEmptySubtext}>
+                  Puedes buscar por tracking interno o de paquetería
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* Header con información del usuario */}
       <Surface style={styles.userHeader}>
         <View style={styles.userInfo}>
@@ -1111,11 +1475,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   handleConsolidate();
                 }
               } else {
-                Alert.alert(
-                  '📦 Solicitar Envío',
-                  'Selecciona uno o más paquetes de tu bodega para solicitar su envío.',
-                  [{ text: 'Entendido', style: 'default' }]
-                );
+                // Navegar a la guía de servicios (pantalla de marketing con direcciones)
+                navigation.navigate('ServicesGuide', { user, token });
               }
             }}
           >
@@ -1131,16 +1492,113 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             </Text>
           </TouchableOpacity>
         </View>
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{packages.length}</Text>
-            <Text style={styles.statLabel}>{t('home.packages')}</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            <Text style={styles.statNumber}>{packagesInWarehouse}</Text>
-            <Text style={styles.statLabel}>{t('home.inWarehouse')}</Text>
-          </View>
+        
+        {/* 🔍 Botones de Acción - Rastreo, Instrucciones, Historial */}
+        <View style={styles.headerActionButtons}>
+          {/* 🔍 Rastreo */}
+          <Pressable
+            style={styles.headerActionButton}
+            onPress={() => {
+              setTrackingSearch('');
+              setTrackedPackage(null);
+              setTrackingError('');
+              setShowTrackingModal(true);
+            }}
+          >
+            <View style={styles.headerActionIcon}>
+              <Ionicons name="search" size={20} color="#374151" />
+            </View>
+            <Text style={styles.headerActionLabel}>Rastreo</Text>
+          </Pressable>
+
+          {/* ❌ Sin Instrucciones */}
+          <Pressable
+            style={styles.headerActionButton}
+            onPress={() => {
+              if (instructionFilter === false) {
+                setInstructionFilter(null);
+                setSelectedIds([]);
+              } else {
+                if (serviceFilter === null) {
+                  Alert.alert(
+                    '📦 Selecciona un servicio',
+                    'Primero selecciona un tipo de servicio para filtrar.',
+                    [{ text: 'OK' }]
+                  );
+                  return;
+                }
+                setInstructionFilter(false);
+                const withoutInstr = packages.filter(pkg => {
+                  if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+                  if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
+                  if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
+                  if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
+                  return !((pkg as any).delivery_address_id || (pkg as any).assigned_address_id);
+                });
+                setSelectedIds(withoutInstr.map(p => p.id));
+              }
+            }}
+          >
+            <View style={[
+              styles.headerActionIcon,
+              instructionFilter === false && styles.headerActionIconActive
+            ]}>
+              <Ionicons name="close" size={20} color={instructionFilter === false ? '#FFF' : '#374151'} />
+            </View>
+            <Text style={[styles.headerActionLabel, instructionFilter === false && styles.headerActionLabelActive]}>
+              Sin Instrucciones
+            </Text>
+          </Pressable>
+
+          {/* ✅ Con Instrucciones */}
+          <Pressable
+            style={styles.headerActionButton}
+            onPress={() => {
+              if (instructionFilter === true) {
+                setInstructionFilter(null);
+                setSelectedIds([]);
+              } else {
+                if (serviceFilter === null) {
+                  Alert.alert(
+                    '📦 Selecciona un servicio',
+                    'Primero selecciona un tipo de servicio para filtrar.',
+                    [{ text: 'OK' }]
+                  );
+                  return;
+                }
+                setInstructionFilter(true);
+                const withInstr = packages.filter(pkg => {
+                  if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+                  if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
+                  if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
+                  if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
+                  return !!((pkg as any).delivery_address_id || (pkg as any).assigned_address_id);
+                });
+                setSelectedIds(withInstr.map(p => p.id));
+              }
+            }}
+          >
+            <View style={[
+              styles.headerActionIcon,
+              instructionFilter === true && styles.headerActionIconActive
+            ]}>
+              <Ionicons name="checkmark" size={20} color={instructionFilter === true ? '#FFF' : '#374151'} />
+            </View>
+            <Text style={[styles.headerActionLabel, instructionFilter === true && styles.headerActionLabelActive]}>
+              Con Instrucciones
+            </Text>
+          </Pressable>
+
+          {/* 📜 Historial */}
+          <Pressable
+            style={styles.headerActionButton}
+            onPress={loadHistoryPackages}
+          >
+            <View style={styles.headerActionIcon}>
+              <Ionicons name="time" size={20} color="#374151" />
+            </View>
+            <Text style={styles.headerActionLabel}>Historial</Text>
+          </Pressable>
         </View>
       </Surface>
 
@@ -1233,6 +1691,14 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       {/* Lista de paquetes con Carrusel y Filtros en el Header */}
       <FlatList
         data={packages.filter(pkg => {
+          // 📜 Excluir paquetes entregados Y pagados (esos van solo en Historial)
+          const isDelivered = pkg.status === 'delivered';
+          const isPaid = (pkg as any).client_paid === true || 
+                         ((pkg as any).saldo_pendiente !== undefined && (pkg as any).saldo_pendiente <= 0) ||
+                         ((pkg as any).assigned_cost_mxn === 0);
+          if (isDelivered && isPaid) return false;
+          
+          // Filtro por tipo de servicio
           if (serviceFilter === null) return true;
           // Aéreo: TDI China Air
           if (serviceFilter === 'air') return pkg.shipment_type === 'china_air';
@@ -1260,6 +1726,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             {/* 🎯 OPPORTUNITY CAROUSEL - "El Punto Caliente" - Solo para clientes */}
             {!isEmployee && (
               <OpportunityCarousel 
+                customOpportunities={carouselSlides.length > 0 ? carouselSlides : undefined}
                 onOpportunityPress={(opportunity) => {
                   // Manejar navegación basada en ctaAction
                   const action = opportunity.ctaAction;
@@ -1305,7 +1772,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               <Pressable
                 style={[styles.filterChip, serviceFilter === 'air' && styles.filterChipActive]}
                 onPress={() => {
-                  setSelectedIds([]); // Limpiar selección al cambiar filtro
+                  setSelectedIds([]);
                   setServiceFilter(serviceFilter === 'air' ? null : 'air');
                 }}
               >
@@ -1315,7 +1782,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               <Pressable
                 style={[styles.filterChip, serviceFilter === 'maritime' && styles.filterChipActive]}
                 onPress={() => {
-                  setSelectedIds([]); // Limpiar selección al cambiar filtro
+                  setSelectedIds([]);
                   setServiceFilter(serviceFilter === 'maritime' ? null : 'maritime');
                 }}
               >
@@ -1325,7 +1792,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               <Pressable
                 style={[styles.filterChip, serviceFilter === 'dhl' && styles.filterChipActive]}
                 onPress={() => {
-                  setSelectedIds([]); // Limpiar selección al cambiar filtro
+                  setSelectedIds([]);
                   setServiceFilter(serviceFilter === 'dhl' ? null : 'dhl');
                 }}
               >
@@ -1335,7 +1802,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               <Pressable
                 style={[styles.filterChip, serviceFilter === 'usa' && styles.filterChipActive]}
                 onPress={() => {
-                  setSelectedIds([]); // Limpiar selección al cambiar filtro
+                  setSelectedIds([]);
                   setServiceFilter(serviceFilter === 'usa' ? null : 'usa');
                 }}
               >
@@ -1343,112 +1810,6 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>PO Box</Text>
               </Pressable>
             </View>
-
-
-            {/* 🔍 Filtro de Instrucciones - Diseño Moderno */}
-            {packages.length > 0 && (
-              <View style={styles.instructionFilterContainer}>
-                <Pressable
-                  style={[
-                    styles.instructionFilterChip,
-                    instructionFilter === false && styles.instructionFilterChipActiveRed
-                  ]}
-                  onPress={() => {
-                    if (instructionFilter === false) {
-                      setInstructionFilter(null);
-                      setSelectedIds([]);
-                    } else {
-                      setInstructionFilter(false);
-                      const withoutInstr = packages.filter(pkg => {
-                        if (serviceFilter !== null) {
-                          if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
-                          if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
-                          if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
-                          if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
-                        }
-                        return !((pkg as any).delivery_address_id || (pkg as any).assigned_address_id);
-                      });
-                      setSelectedIds(withoutInstr.map(p => p.id));
-                    }
-                  }}
-                >
-                  <Ionicons 
-                    name="close-circle" 
-                    size={18} 
-                    color={instructionFilter === false ? '#FFF' : '#EF4444'} 
-                  />
-                  <Text style={[
-                    styles.instructionFilterText,
-                    instructionFilter === false && styles.instructionFilterTextActive
-                  ]}>
-                    Sin Dirección
-                  </Text>
-                  {instructionFilter === false && (
-                    <Text style={styles.instructionFilterCount}>
-                      {packages.filter(pkg => {
-                        if (serviceFilter !== null) {
-                          if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
-                          if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
-                          if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
-                          if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
-                        }
-                        return !((pkg as any).delivery_address_id || (pkg as any).assigned_address_id);
-                      }).length}
-                    </Text>
-                  )}
-                </Pressable>
-                
-                <Pressable
-                  style={[
-                    styles.instructionFilterChip,
-                    instructionFilter === true && styles.instructionFilterChipActiveGreen
-                  ]}
-                  onPress={() => {
-                    if (instructionFilter === true) {
-                      setInstructionFilter(null);
-                      setSelectedIds([]);
-                    } else {
-                      setInstructionFilter(true);
-                      const withInstr = packages.filter(pkg => {
-                        if (serviceFilter !== null) {
-                          if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
-                          if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
-                          if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
-                          if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
-                        }
-                        return !!((pkg as any).delivery_address_id || (pkg as any).assigned_address_id);
-                      });
-                      setSelectedIds(withInstr.map(p => p.id));
-                    }
-                  }}
-                >
-                  <Ionicons 
-                    name="checkmark-circle" 
-                    size={18} 
-                    color={instructionFilter === true ? '#FFF' : '#10B981'} 
-                  />
-                  <Text style={[
-                    styles.instructionFilterText,
-                    instructionFilter === true && styles.instructionFilterTextActive
-                  ]}>
-                    Con Dirección
-                  </Text>
-                  {instructionFilter === true && (
-                    <Text style={styles.instructionFilterCount}>
-                      {packages.filter(pkg => {
-                        if (serviceFilter !== null) {
-                          if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
-                          if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
-                          if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
-                          if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
-                        }
-                        return !!((pkg as any).delivery_address_id || (pkg as any).assigned_address_id);
-                      }).length}
-                    </Text>
-                  )}
-                </Pressable>
-              </View>
-            )}
           </>
         }
         ListEmptyComponent={renderEmptyList}
@@ -1590,7 +1951,73 @@ const styles = StyleSheet.create({
     color: ORANGE,
     fontWeight: '600',
   },
-  // 🔍 Filtros de Instrucciones - Diseño Moderno
+  // 🔍 Botones de Acción - Diseño Circular (Blanco/Negro/Naranja)
+  actionButtonsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginBottom: 4,
+  },
+  actionButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionButtonActive: {
+    // Se aplica al icono, no al contenedor
+  },
+  actionButtonIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+    backgroundColor: '#FFF',
+    borderWidth: 2,
+    borderColor: '#E5E7EB',
+    position: 'relative',
+  },
+  actionButtonIconActive: {
+    backgroundColor: ORANGE,
+    borderColor: ORANGE,
+  },
+  actionButtonLabel: {
+    fontSize: 11,
+    color: '#6B7280',
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  actionButtonLabelActive: {
+    color: ORANGE,
+    fontWeight: '700',
+  },
+  actionButtonBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: ORANGE,
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FFF',
+  },
+  actionButtonBadgeActive: {
+    backgroundColor: '#FFF',
+    borderColor: ORANGE,
+  },
+  actionButtonBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#FFF',
+  },
+  actionButtonBadgeTextActive: {
+    color: ORANGE,
+  },
+  // 📜 Estilos legacy para filtros (mantener por compatibilidad)
   instructionFilterContainer: {
     flexDirection: 'row',
     paddingHorizontal: 16,
@@ -1638,6 +2065,357 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FFF',
     marginLeft: 4,
+  },
+  // 📜 Estilos para botón de Historial
+  historyChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF2FF',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    gap: 6,
+    borderWidth: 1.5,
+    borderColor: '#C7D2FE',
+  },
+  historyChipText: {
+    fontSize: 13,
+    color: '#6366F1',
+    fontWeight: '600',
+  },
+  // 📜 Estilos para Modal de Historial
+  historyModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  historyModalContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '80%',
+    paddingBottom: 20,
+  },
+  historyModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  historyModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+  },
+  historyEmptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  historyEmptyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+    marginTop: 16,
+  },
+  historyEmptySubtext: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8,
+    textAlign: 'center',
+    paddingHorizontal: 40,
+  },
+  historyCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    backgroundColor: '#FAFAFA',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  historyCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  historyTrackingBadge: {
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  historyTrackingText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#374151',
+  },
+  historyDeliveredBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#D1FAE5',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    gap: 4,
+  },
+  historyDeliveredText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#10B981',
+  },
+  historyDescription: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 8,
+  },
+  historyDetailsRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  historyDetailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  historyDetailText: {
+    fontSize: 12,
+    color: '#666',
+  },
+  historyReceivedBy: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  historyReceivedByText: {
+    fontSize: 11,
+    color: '#888',
+    fontStyle: 'italic',
+  },
+  // 🔍 Estilos para botón de Rastreo
+  trackingChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E0F2FE',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    gap: 6,
+    borderWidth: 1.5,
+    borderColor: '#7DD3FC',
+  },
+  trackingChipText: {
+    fontSize: 13,
+    color: '#0EA5E9',
+    fontWeight: '600',
+  },
+  // 🔍 Estilos para Modal de Rastreo
+  trackingModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  trackingModalContainer: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '85%',
+    paddingBottom: 30,
+  },
+  trackingModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  trackingModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#333',
+  },
+  trackingSearchContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 10,
+  },
+  trackingInputWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  trackingInput: {
+    flex: 1,
+    fontSize: 15,
+    paddingVertical: 12,
+    color: '#333',
+  },
+  trackingSearchButton: {
+    backgroundColor: '#0EA5E9',
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  trackingSearchButtonDisabled: {
+    backgroundColor: '#CBD5E1',
+  },
+  trackingErrorContainer: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  trackingErrorText: {
+    fontSize: 14,
+    color: '#EF4444',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  trackingEmptyState: {
+    alignItems: 'center',
+    paddingVertical: 50,
+  },
+  trackingEmptyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#666',
+    marginTop: 16,
+  },
+  trackingEmptySubtext: {
+    fontSize: 13,
+    color: '#999',
+    marginTop: 6,
+    textAlign: 'center',
+  },
+  trackedPackageCard: {
+    marginHorizontal: 16,
+    backgroundColor: '#FAFAFA',
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  trackedPackageHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  trackedPackageTracking: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#333',
+  },
+  trackedPackageDescription: {
+    fontSize: 13,
+    color: '#666',
+    marginTop: 4,
+    maxWidth: 180,
+  },
+  trackedStatusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#F3F4F6',
+  },
+  trackedStatusDelivered: {
+    backgroundColor: '#D1FAE5',
+  },
+  trackedStatusTransit: {
+    backgroundColor: '#DBEAFE',
+  },
+  trackedStatusWarehouse: {
+    backgroundColor: '#FEF3C7',
+  },
+  trackedStatusText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#333',
+  },
+  trackedPackageDivider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+    marginVertical: 16,
+  },
+  trackedTimeline: {
+    paddingLeft: 8,
+  },
+  timelineItem: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  timelineDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 12,
+    marginTop: 4,
+  },
+  timelineDotGreen: {
+    backgroundColor: '#10B981',
+  },
+  timelineDotBlue: {
+    backgroundColor: '#3B82F6',
+  },
+  timelineDotOrange: {
+    backgroundColor: ORANGE,
+  },
+  timelineDotGray: {
+    backgroundColor: '#D1D5DB',
+  },
+  timelineContent: {
+    flex: 1,
+  },
+  timelineTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+  },
+  timelineDate: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
+  },
+  timelineSubtext: {
+    fontSize: 12,
+    color: '#888',
+    fontStyle: 'italic',
+    marginTop: 2,
+  },
+  trackedDetailsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
+    marginTop: 8,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+  trackedDetailItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  trackedDetailText: {
+    fontSize: 13,
+    color: '#666',
   },
   // Estilos legacy (mantener por compatibilidad)
   filterSectionTitle: {
@@ -1765,6 +2543,70 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  // 🎯 Estilos para filtros en el header
+  headerServiceFilters: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 12,
+    paddingHorizontal: 4,
+  },
+  headerFilterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#f5f5f5',
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  headerFilterChipActive: {
+    backgroundColor: '#FFF3E0',
+    borderColor: ORANGE,
+  },
+  headerFilterText: {
+    fontSize: 12,
+    color: '#666',
+    marginLeft: 4,
+  },
+  headerFilterTextActive: {
+    color: ORANGE,
+    fontWeight: '600',
+  },
+  // 🔍 Estilos para botones de acción en el header
+  headerActionButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  headerActionButton: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  headerActionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f5f5f5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerActionIconActive: {
+    backgroundColor: ORANGE,
+  },
+  headerActionLabel: {
+    fontSize: 10,
+    color: '#666',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  headerActionLabelActive: {
+    color: ORANGE,
+    fontWeight: '600',
   },
   statsContainer: {
     flexDirection: 'row',
@@ -2078,7 +2920,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#10B981', // Verde esmeralda - Protegido
+    backgroundColor: '#F05A28', // Naranja EntregaX - Protegido
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 6,
@@ -2089,7 +2931,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EF4444', // Rojo - Sin protección
+    backgroundColor: '#C1272D', // Rojo EntregaX - Sin protección
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 6,

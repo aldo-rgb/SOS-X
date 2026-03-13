@@ -26,7 +26,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Appbar, Avatar, Divider, Icon } from 'react-native-paper';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { api } from '../services/api';
+import { api, API_URL } from '../services/api';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111111';
@@ -42,6 +42,8 @@ interface ModuleCard {
   roles: string[];
   requiresOnboarding: boolean;
   badge?: number;
+  moduleKey?: string; // Key para permisos de PO Box
+  hideIfPOBox?: boolean; // Ocultar si tiene permisos PO Box
 }
 
 // Definición de módulos por rol
@@ -103,7 +105,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     requiresOnboarding: true,
   },
   
-  // === BODEGA (warehouse_ops) ===
+  // === BODEGA (warehouse_ops) - Legacy ===
   {
     id: 'warehouse_scanner',
     title: 'Escáner de Bodega',
@@ -114,9 +116,10 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     screen: 'WarehouseScanner',
     roles: ['repartidor', 'warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
+    hideIfPOBox: true, // Ocultar si tiene permisos PO Box (usa Entrada/Salida)
   },
   {
-    id: 'inventory',
+    id: 'warehouse_inventory',
     title: 'Inventario CEDIS',
     subtitle: 'Ver paquetes en bodega',
     icon: 'file-tray-stacked-outline',
@@ -125,9 +128,95 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     screen: 'WarehouseInventory',
     roles: ['warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
+    hideIfPOBox: true, // Usar módulo 'inventory' de PO Box
   },
   
-  // === MOSTRADOR (counter_staff) ===
+  // === MOSTRADOR (counter_staff) - Módulos PO Box ===
+  {
+    id: 'receive',
+    title: 'Recibir Paquetería',
+    subtitle: 'Recepción en serie - Bodega',
+    icon: 'cube-outline',
+    iconFamily: 'ionicons',
+    color: '#4CAF50',
+    screen: 'POBoxReceive',
+    roles: ['counter_staff', 'warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
+    requiresOnboarding: true,
+    moduleKey: 'receive',
+  },
+  {
+    id: 'entry',
+    title: 'Entrada',
+    subtitle: 'Ver paquetes recibidos en bodega',
+    icon: 'enter-outline',
+    iconFamily: 'ionicons',
+    color: '#2196F3',
+    screen: 'POBoxEntry',
+    roles: ['counter_staff', 'warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
+    requiresOnboarding: true,
+    moduleKey: 'entry',
+  },
+  {
+    id: 'exit',
+    title: 'Salida',
+    subtitle: 'Procesar consolidaciones y despachos',
+    icon: 'exit-outline',
+    iconFamily: 'ionicons',
+    color: '#FF9800',
+    screen: 'POBoxExit',
+    roles: ['counter_staff', 'warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
+    requiresOnboarding: true,
+    moduleKey: 'exit',
+  },
+  {
+    id: 'collect',
+    title: 'Cobrar',
+    subtitle: 'Gestionar cobros y pagos pendientes',
+    icon: 'cash-outline',
+    iconFamily: 'ionicons',
+    color: '#9C27B0',
+    screen: 'POBoxCollect',
+    roles: ['counter_staff', 'branch_manager', 'admin', 'super_admin'],
+    requiresOnboarding: true,
+    moduleKey: 'collect',
+  },
+  {
+    id: 'quote',
+    title: 'Cotizar',
+    subtitle: 'Calcular costos y generar cotizaciones',
+    icon: 'calculator-outline',
+    iconFamily: 'ionicons',
+    color: '#00BCD4',
+    screen: 'POBoxQuote',
+    roles: ['counter_staff', 'warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
+    requiresOnboarding: true,
+    moduleKey: 'quote',
+  },
+  {
+    id: 'repack',
+    title: 'Reempaque',
+    subtitle: 'Consolidar múltiples paquetes en una caja',
+    icon: 'albums-outline',
+    iconFamily: 'ionicons',
+    color: '#E91E63',
+    screen: 'POBoxRepack',
+    roles: ['counter_staff', 'warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
+    requiresOnboarding: true,
+    moduleKey: 'repack',
+  },
+  {
+    id: 'inventory',
+    title: 'Inventario',
+    subtitle: 'Ver paquetes en bodega',
+    icon: 'file-tray-stacked-outline',
+    iconFamily: 'ionicons',
+    color: '#607D8B',
+    screen: 'POBoxInventory',
+    roles: ['counter_staff', 'warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
+    requiresOnboarding: true,
+    moduleKey: 'inventory',
+  },
+  // Legacy counter modules (mantener compatibilidad)
   {
     id: 'counter_pickup',
     title: 'Entrega en Mostrador',
@@ -138,6 +227,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     screen: 'CounterPickup',
     roles: ['counter_staff', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
+    hideIfPOBox: true, // Ocultar si tiene permisos PO Box
   },
   {
     id: 'counter_reception',
@@ -149,6 +239,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     screen: 'CounterReception',
     roles: ['counter_staff', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
+    hideIfPOBox: true, // Ocultar si tiene permisos PO Box
   },
   
   // === SERVICIO A CLIENTE ===
@@ -171,8 +262,9 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#795548',
     screen: 'ClientLookup',
-    roles: ['customer_service', 'counter_staff', 'branch_manager', 'admin', 'super_admin', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor'],
+    roles: ['customer_service', 'branch_manager', 'admin', 'super_admin', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor'],
     requiresOnboarding: false,
+    hideIfPOBox: true, // El personal de mostrador usa los módulos PO Box
   },
   
   // === GERENTE DE SUCURSAL ===
@@ -281,18 +373,72 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [stats, setStats] = useState<any>(null);
+  const [poboxPermissions, setPOBoxPermissions] = useState<string[]>([]);
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
 
-  // Filtrar módulos según el rol del usuario
-  const availableModules = EMPLOYEE_MODULES.filter(module => 
-    module.roles.includes(user.role)
-  );
+  // Cargar permisos de módulos PO Box desde el API
+  const loadModulePermissions = useCallback(async () => {
+    try {
+      // Si es super_admin, tiene acceso a todo
+      if (user.role === 'super_admin') {
+        setPOBoxPermissions(['receive', 'entry', 'exit', 'collect', 'quote', 'repack', 'inventory']);
+        setPermissionsLoaded(true);
+        return;
+      }
+
+      const response = await fetch(`${API_URL}/api/modules/ops_usa_pobox/me`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const allowed = (data.modules || [])
+          .filter((m: { can_view: boolean }) => m.can_view)
+          .map((m: { module_key: string }) => m.module_key);
+        
+        console.log('📋 Permisos de operaciones del usuario:', allowed);
+        console.log('📍 Ubicaciones permitidas:', data.locations || []);
+        setPOBoxPermissions(allowed);
+      }
+    } catch (error) {
+      console.error('Error cargando permisos de módulos:', error);
+      // En caso de error, no mostrar módulos PO Box específicos
+      setPOBoxPermissions([]);
+    } finally {
+      setPermissionsLoaded(true);
+    }
+  }, [token, user.role]);
+
+  useEffect(() => {
+    loadModulePermissions();
+  }, [loadModulePermissions]);
+
+  // Filtrar módulos según el rol del usuario Y permisos de PO Box
+  const availableModules = EMPLOYEE_MODULES.filter(module => {
+    // Primero verificar si el rol tiene acceso
+    if (!module.roles.includes(user.role)) {
+      return false;
+    }
+    
+    // Si el módulo tiene moduleKey (es un módulo PO Box), verificar permiso específico
+    if (module.moduleKey) {
+      return poboxPermissions.includes(module.moduleKey);
+    }
+    
+    // Si tiene hideIfPOBox y el usuario tiene permisos PO Box, ocultar
+    if (module.hideIfPOBox && poboxPermissions.length > 0) {
+      return false;
+    }
+    
+    return true;
+  });
 
   const isOnboarded = user.isEmployeeOnboarded === true;
 
   // Refrescar datos del usuario
   const refreshUserData = useCallback(async () => {
     try {
-      const response = await fetch(`http://192.168.1.114:3001/api/auth/profile`, {
+      const response = await fetch(`${API_URL}/api/auth/profile`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (response.ok) {
@@ -354,6 +500,17 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
           { text: 'Cancelar', style: 'cancel' },
           { text: 'Completar Alta', onPress: () => navigation.navigate('EmployeeOnboarding', { user, token }) }
         ]
+      );
+      return;
+    }
+    
+    // Pantallas que aún no están implementadas
+    const notImplementedScreens = ['POBoxInventory', 'CounterPickup', 'CounterReception', 'SupportTickets', 'ClientLookup', 'BranchDashboard', 'TeamManagement', 'Dispatch', 'ShiftReport', 'WarehouseInventory'];
+    if (notImplementedScreens.includes(module.screen)) {
+      Alert.alert(
+        `📱 ${module.title}`,
+        `Este módulo estará disponible próximamente.\n\nPuedes usar el Panel Web para acceder a esta función.`,
+        [{ text: 'Entendido', style: 'default' }]
       );
       return;
     }
@@ -498,7 +655,14 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
         {/* Módulos Disponibles */}
         <View style={styles.modulesSection}>
           <Text style={styles.sectionTitle}>📱 Mis Módulos</Text>
-          {availableModules.length === 0 ? (
+          {!permissionsLoaded ? (
+            <View style={styles.noModules}>
+              <Ionicons name="sync-outline" size={48} color={ORANGE} />
+              <Text style={styles.noModulesText}>
+                Cargando módulos...
+              </Text>
+            </View>
+          ) : availableModules.length === 0 ? (
             <View style={styles.noModules}>
               <Ionicons name="construct-outline" size={48} color="#ccc" />
               <Text style={styles.noModulesText}>

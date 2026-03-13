@@ -76,15 +76,33 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
             return;
         }
 
-        // 2. Buscar si existe un asesor (código de referido)
-        let advisorId: number | null = null;
+        // 2. Buscar código de referido y determinar si es asesor o amigo
+        let advisorId: number | null = null;  // Para asesores comerciales
+        let referidoPorId: number | null = null;  // Para amigos (sistema $500)
+        let referrerInfo: { id: number; role: string; name: string } | null = null;
+        
         if (referralCodeInput) {
-            const advisorCheck = await pool.query(
-                'SELECT id FROM users WHERE referral_code = $1',
+            const referrerCheck = await pool.query(
+                'SELECT id, role, full_name FROM users WHERE referral_code = $1',
                 [referralCodeInput.toUpperCase()]
             );
-            if (advisorCheck.rows.length > 0) {
-                advisorId = advisorCheck.rows[0].id;
+            if (referrerCheck.rows.length > 0) {
+                referrerInfo = {
+                    id: referrerCheck.rows[0].id,
+                    role: referrerCheck.rows[0].role,
+                    name: referrerCheck.rows[0].full_name
+                };
+                
+                // Si es asesor → asignar como advisor_id
+                if (['advisor', 'sub_advisor'].includes(referrerInfo.role)) {
+                    advisorId = referrerInfo.id;
+                    console.log(`[REGISTRO] Cliente referido por ASESOR: ${referrerInfo.name} (ID: ${referrerInfo.id})`);
+                } 
+                // Si es cliente → activar sistema de referidos ($500)
+                else if (referrerInfo.role === 'client') {
+                    referidoPorId = referrerInfo.id;
+                    console.log(`[REGISTRO] Cliente referido por AMIGO: ${referrerInfo.name} (ID: ${referrerInfo.id})`);
+                }
             }
         }
 
@@ -98,19 +116,33 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
         // 5. Generar código de referido propio para el nuevo usuario
         const myReferralCode = generateReferralCode(fullName);
 
-        // 6. Insertar en la Base de Datos con referido
+        // 6. Insertar en la Base de Datos con asesor y/o referido
         const newUserQuery = await pool.query(
-            `INSERT INTO users (full_name, email, password, box_id, must_change_password, phone, referral_code, referred_by_id) 
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-            [fullName, email, hashedPassword, newBoxId, mustChangePassword, phone || null, myReferralCode, advisorId]
+            `INSERT INTO users (full_name, email, password, box_id, must_change_password, phone, referral_code, referred_by_id, advisor_id) 
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+            [fullName, email, hashedPassword, newBoxId, mustChangePassword, phone || null, myReferralCode, referidoPorId, advisorId]
         );
 
         const savedUser = newUserQuery.rows[0];
 
-        // 7. Generar token JWT
+        // 7. Si fue referido por un AMIGO, registrar en tabla referidos para sistema de $500
+        if (referidoPorId) {
+            try {
+                await pool.query(`
+                    INSERT INTO referidos (referidor_id, referido_id, status)
+                    VALUES ($1, $2, 'pendiente')
+                    ON CONFLICT (referidor_id, referido_id) DO NOTHING
+                `, [referidoPorId, savedUser.id]);
+                console.log(`[REFERIDOS] Registrado: ${referrerInfo?.name} refirió a ${fullName}`);
+            } catch (refError) {
+                console.error('[REFERIDOS] Error al registrar referido:', refError);
+            }
+        }
+
+        // 8. Generar token JWT
         const token = generateToken(savedUser.id, savedUser.email, savedUser.role);
 
-        // 8. Responder al cliente (App/Web)
+        // 9. Responder al cliente (App/Web)
         res.status(201).json({
             message: '¡Usuario registrado exitosamente!',
             user: {
@@ -120,7 +152,8 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
                 boxId: savedUser.box_id,
                 role: savedUser.role,
                 referralCode: savedUser.referral_code,
-                referredBy: advisorId ? true : false
+                referredBy: referidoPorId ? true : false,
+                hasAdvisor: advisorId ? true : false
             },
             token // El usuario ya puede usar la app inmediatamente
         });
@@ -183,8 +216,11 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
                 verificationStatus: user.verification_status || 'not_started',
                 // 👷 Campo para onboarding de empleados
                 isEmployeeOnboarded: user.is_employee_onboarded || false,
-                // 📸 Foto de perfil del empleado
-                profilePhotoUrl: user.profile_photo_url || null,
+                // 📸 Foto de perfil del empleado (limitada para no sobrecargar localStorage)
+                // Si es base64 muy grande, solo enviamos los primeros 1000 chars como indicador
+                profilePhotoUrl: user.profile_photo_url && user.profile_photo_url.length > 10000 
+                    ? null // No enviar fotos base64 muy grandes en login
+                    : (user.profile_photo_url || null),
                 // Campos financieros para mostrar en App
                 walletBalance: parseFloat(user.wallet_balance) || 0,
                 virtualClabe: user.virtual_clabe || null,
@@ -433,9 +469,13 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
 // Endpoint para ver todos los usuarios (solo para desarrollo)
 export const getAllUsers = async (_req: Request, res: Response): Promise<void> => {
     try {
-        const result = await pool.query(
-            'SELECT id, full_name, email, box_id, role, created_at FROM users ORDER BY created_at DESC'
-        );
+        const result = await pool.query(`
+            SELECT u.id, u.full_name, u.email, u.box_id, u.role, u.created_at, u.advisor_id,
+                   a.full_name as advisor_name
+            FROM users u
+            LEFT JOIN users a ON u.advisor_id = a.id
+            ORDER BY u.created_at DESC
+        `);
         
         res.json({
             total: result.rows.length,
@@ -827,7 +867,7 @@ export const assignAdvisor = async (req: Request, res: Response): Promise<void> 
 export const updateUser = async (req: Request, res: Response): Promise<void> => {
     try {
         const { id } = req.params;
-        const { full_name, email, role, box_id, phone } = req.body;
+        const { full_name, email, role, box_id, phone, advisor_id } = req.body;
 
         if (!id) {
             res.status(400).json({ error: 'ID de usuario requerido' });
@@ -872,6 +912,11 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
         if (phone !== undefined) {
             updates.push(`phone = $${paramCount++}`);
             values.push(phone);
+        }
+        // Actualizar advisor_id (puede ser null para quitar el asesor)
+        if (advisor_id !== undefined) {
+            updates.push(`advisor_id = $${paramCount++}`);
+            values.push(advisor_id || null);
         }
 
         if (updates.length === 0) {

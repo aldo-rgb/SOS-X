@@ -334,26 +334,37 @@ export const approveVerification = async (req: Request, res: Response): Promise<
             return;
         }
 
+        // Verificar si es empleado para también marcar onboarding completo
+        const userCheck = await pool.query('SELECT role FROM users WHERE id = $1', [userId]);
+        const userRole = userCheck.rows[0]?.role;
+        const employeeRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager'];
+        const isEmployee = employeeRoles.includes(userRole);
+
         await pool.query(`
             UPDATE users 
             SET verification_status = 'verified',
                 is_verified = TRUE,
+                is_employee_onboarded = CASE WHEN $3 THEN TRUE ELSE is_employee_onboarded END,
                 verification_reviewed_by = $1,
                 verification_reviewed_at = NOW()
             WHERE id = $2
-        `, [adminId, userId]);
+        `, [adminId, userId, isEmployee]);
 
         // Enviar notificación al usuario
+        const notificationMessage = isEmployee 
+            ? '¡Felicidades! Tu alta como empleado ha sido aprobada. Ya puedes acceder a tus módulos de trabajo.'
+            : '¡Felicidades! Tu cuenta ha sido verificada exitosamente. Ya puedes disfrutar de todos los beneficios de EntregaX.';
+        
         await createNotification(
             parseInt(String(userId)),
             'VERIFICATION_APPROVED',
-            '¡Felicidades! Tu cuenta ha sido verificada exitosamente. Ya puedes disfrutar de todos los beneficios de EntregaX.',
-            { verifiedAt: new Date().toISOString() }
+            notificationMessage,
+            { verifiedAt: new Date().toISOString(), isEmployee }
         );
 
         res.json({ 
             success: true, 
-            message: '✅ Usuario verificado manualmente' 
+            message: isEmployee ? '✅ Empleado verificado y habilitado' : '✅ Usuario verificado manualmente' 
         });
     } catch (error) {
         console.error('Error aprobando verificación:', error);

@@ -269,14 +269,14 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
           {/* Código de Referido (Opcional) */}
           <View style={styles.referralSection}>
             <Text style={styles.referralTitle}>
-              💼 ¿Tienes un Asesor?
+              ¿Tienes un código de referido?
             </Text>
             <Text style={styles.referralSubtitle}>
-              Si alguien te recomendó EntregaX, ingresa su código
+              Si un amigo o asesor te recomendó, ingresa su código
             </Text>
 
             <TextInput
-              label="Código de Asesor (Opcional)"
+              label="Código de Referido (Opcional)"
               value={referralCode}
               onChangeText={(text) => {
                 setReferralCode(text.toUpperCase());
@@ -287,8 +287,8 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
                 }
               }}
               mode="outlined"
-              placeholder="Ej: ALDO-4921"
-              left={<TextInput.Icon icon="ticket-percent" />}
+              placeholder="Ej: JUAN458"
+              left={<TextInput.Icon icon="account-group-outline" />}
               right={
                 validatingCode ? (
                   <TextInput.Icon icon="loading" />
