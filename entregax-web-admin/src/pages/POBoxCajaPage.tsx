@@ -48,7 +48,6 @@ import {
   Remove as RemoveIcon,
   Search as SearchIcon,
   Receipt as ReceiptIcon,
-  AccountBalance as AccountBalanceIcon,
   TrendingUp as TrendingUpIcon,
   TrendingDown as TrendingDownIcon,
   History as HistoryIcon,
