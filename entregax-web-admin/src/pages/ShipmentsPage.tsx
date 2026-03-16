@@ -171,7 +171,7 @@ interface ShipmentsPageProps {
   openWizardOnMount?: boolean; // Abrir wizard automáticamente al montar
 }
 
-const API_URL = 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const ORANGE = '#F05A28';
 const BLACK = '#111111';
 

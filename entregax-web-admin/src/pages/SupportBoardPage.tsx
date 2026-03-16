@@ -43,7 +43,7 @@ import {
 
 const ORANGE = '#F05A28';
 const BLACK = '#111';
-const API_URL = 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 
 interface SupportTicket {
   id: number;
