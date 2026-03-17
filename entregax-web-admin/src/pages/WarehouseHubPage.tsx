@@ -113,11 +113,11 @@ const PANEL_TO_LOCATION: Record<string, string> = {
 
 export default function WarehouseHubPage({ users = [] }: Props) {
     const { t } = useTranslation();
-    // Todas las ubicaciones disponibles
+    // Todas las ubicaciones disponibles (orden: TDI Aéreo, Marítimo, PO Box)
     const ALL_LOCATIONS: WarehouseLocation[] = [
-        { code: 'usa_pobox', name: 'POBOX USA', services: ['reception', 'shipping'] },
         { code: 'china_air', name: 'China Aéreo', services: ['reception'] },
         { code: 'china_sea', name: 'China Marítimo', services: ['reception'] },
+        { code: 'usa_pobox', name: 'POBOX USA', services: ['reception', 'shipping'] },
         { code: 'mx_national', name: 'Nacional MX', services: ['quotes'] },
         { code: 'mx_cedis', name: 'CEDIS MX', services: ['inventory'] },
         { code: 'scanner_unificado', name: 'Scanner Unificado', services: ['scanner'] },

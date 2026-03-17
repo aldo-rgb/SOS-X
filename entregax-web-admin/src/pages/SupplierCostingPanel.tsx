@@ -28,7 +28,6 @@ import {
     DialogActions,
     Tabs,
     Tab,
-    Checkbox,
     Snackbar,
     FormControl,
     InputLabel,
@@ -184,11 +183,34 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
     const normalizedRole = userRole.toLowerCase().replace(/\s+/g, '_');
     const canViewUtilidades = ['admin', 'super_admin'].includes(normalizedRole);
 
-    const [utilidadesDateFrom, setUtilidadesDateFrom] = useState<string>('');
-    const [utilidadesDateTo, setUtilidadesDateTo] = useState<string>('');
+    // Fechas por defecto: últimos 30 días
+    const getDefaultDateFrom = () => {
+        const date = new Date();
+        date.setDate(date.getDate() - 30);
+        return date.toISOString().split('T')[0];
+    };
+    const getDefaultDateTo = () => new Date().toISOString().split('T')[0];
+
+    const [utilidadesDateFrom, setUtilidadesDateFrom] = useState<string>(getDefaultDateFrom());
+    const [utilidadesDateTo, setUtilidadesDateTo] = useState<string>(getDefaultDateTo());
     const [utilidadesPaymentFilter, setUtilidadesPaymentFilter] = useState<'all' | 'paid' | 'unpaid'>('all');
     const [utilidadesPackages, setUtilidadesPackages] = useState<PackageCosting[]>([]);
     const [loadingUtilidades, setLoadingUtilidades] = useState(false);
+
+    // Historial de pagos
+    interface PaymentHistoryItem {
+        id: number;
+        package_ids: number[];
+        total_cost: number;
+        payment_reference: string;
+        paid_by_name: string;
+        paid_at: string;
+        package_count: number;
+    }
+    const [paymentHistory, setPaymentHistory] = useState<PaymentHistoryItem[]>([]);
+    const [loadingHistory, setLoadingHistory] = useState(false);
+    const [historyDateFrom, setHistoryDateFrom] = useState<string>('');
+    const [historyDateTo, setHistoryDateTo] = useState<string>('');
 
     // Consolidaciones
     const [consolidations, setConsolidations] = useState<Consolidation[]>([]);
@@ -206,6 +228,29 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
         { value: 'ready_pickup', label: 'Listo para Recoger', icon: '✅', color: '#4caf50' },
         { value: 'delivered', label: 'Entregado', icon: '🎉', color: '#8bc34a' },
     ];
+
+    // Cargar historial de pagos
+    const loadPaymentHistory = useCallback(async () => {
+        console.log('📜 Cargando historial para supplier:', supplier.id);
+        setLoadingHistory(true);
+        try {
+            const params = new URLSearchParams();
+            params.append('supplier_id', String(supplier.id));
+            if (historyDateFrom) params.append('date_from', historyDateFrom);
+            if (historyDateTo) params.append('date_to', historyDateTo);
+            
+            console.log('📜 URL:', `/pobox/costing/payment-history?${params.toString()}`);
+            const response = await api.get(`/pobox/costing/payment-history?${params.toString()}`);
+            console.log('📜 Response:', response.data);
+            if (response.data?.history) {
+                setPaymentHistory(response.data.history);
+            }
+        } catch (error) {
+            console.error('Error cargando historial:', error);
+        } finally {
+            setLoadingHistory(false);
+        }
+    }, [supplier.id, historyDateFrom, historyDateTo]);
 
     // Cálculo
     const calculateCost = useCallback((largo_cm: number, ancho_cm: number, alto_cm: number) => {
@@ -281,16 +326,8 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
         }
     }, [supplier.id, dateFrom, dateTo, showPaidFilter, tcApi, calculateCost]);
 
-    // Selección y pago
-    const handleSelectPackage = (pkgId: number) => {
-        setSelectedPackages(prev => prev.includes(pkgId) ? prev.filter(id => id !== pkgId) : [...prev, pkgId]);
-    };
-
-    const handleSelectAll = () => {
-        const pkgs = packages || [];
-        const unpaidPkgs = pkgs.filter(p => !p.costing_paid);
-        setSelectedPackages(selectedPackages.length === unpaidPkgs.length ? [] : unpaidPkgs.map(p => p.id));
-    };
+    // Funciones de pago manual removidas - Ahora se paga via Caja Chica
+    // handleSelectPackage, handleSelectAll se eliminaron
 
     const getSelectedTotal = () => {
         const pkgs = packages || [];
@@ -386,6 +423,7 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
 
     useEffect(() => { loadConfig(); loadTcApi(); }, []);
     useEffect(() => { loadPackages(); }, [loadPackages]);
+    useEffect(() => { if (activeTab === 1) loadPaymentHistory(); }, [activeTab, loadPaymentHistory]);
     useEffect(() => { if (activeTab === 2 && canViewUtilidades) loadUtilidades(); }, [activeTab, canViewUtilidades, loadUtilidades]);
     useEffect(() => { if (activeTab === 3) loadConsolidations(); }, [activeTab, loadConsolidations]);
 
@@ -518,19 +556,7 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                     </Grid>
                 </Paper>
 
-                {/* Barra de acciones */}
-                {selectedPackages.length > 0 && (
-                    <Paper sx={{ p: 2, mb: 2, bgcolor: 'warning.light' }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Typography fontWeight="bold">
-                                {selectedPackages.length} paquete(s) - Total: ${Number(getSelectedTotal()).toFixed(2)} MXN
-                            </Typography>
-                            <Button variant="contained" color="success" startIcon={<PaymentIcon />} onClick={() => setPaymentDialogOpen(true)}>
-                                Marcar como Pagado
-                            </Button>
-                        </Box>
-                    </Paper>
-                )}
+
 
                 {/* Tabla */}
                 <TableContainer component={Paper}>
@@ -545,11 +571,6 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                         <Table size="small">
                             <TableHead>
                                 <TableRow sx={{ bgcolor: 'grey.100' }}>
-                                    <TableCell padding="checkbox">
-                                        <Checkbox checked={selectedPackages.length === packages.filter(p => !p.costing_paid).length && packages.filter(p => !p.costing_paid).length > 0}
-                                            indeterminate={selectedPackages.length > 0 && selectedPackages.length < packages.filter(p => !p.costing_paid).length}
-                                            onChange={handleSelectAll} />
-                                    </TableCell>
                                     <TableCell><strong>Tracking</strong></TableCell>
                                     <TableCell align="center"><strong>Dimensiones</strong></TableCell>
                                     <TableCell align="right"><strong>Pie³</strong></TableCell>
@@ -562,9 +583,6 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                             <TableBody>
                                 {packages.map((pkg) => (
                                     <TableRow key={pkg.id} hover sx={{ bgcolor: pkg.costing_paid ? 'success.50' : 'inherit' }}>
-                                        <TableCell padding="checkbox">
-                                            <Checkbox checked={selectedPackages.includes(pkg.id)} onChange={() => handleSelectPackage(pkg.id)} disabled={pkg.costing_paid} />
-                                        </TableCell>
                                         <TableCell>
                                             <Typography variant="body2" fontWeight="medium">{pkg.tracking}</Typography>
                                             {pkg.user_name && <Typography variant="caption" color="text.secondary">{pkg.user_name}</Typography>}
@@ -622,15 +640,139 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
 
             {/* Tab 1: Historial */}
             <TabPanel value={activeTab} index={1}>
-                <Paper sx={{ p: 3, textAlign: 'center' }}>
-                    <HistoryIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
-                    <Typography variant="h6" color="text.secondary">
-                        📊 Historial de costeos - Próximamente
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                        Aquí podrás ver el historial de todos los pagos realizados al proveedor {supplier.name}
-                    </Typography>
+                {/* Filtros */}
+                <Paper sx={{ p: 2, mb: 2 }}>
+                    <Grid container spacing={2} alignItems="center">
+                        <Grid size={{ xs: 12, sm: 3 }}>
+                            <TextField 
+                                label="Fecha Desde" 
+                                type="date" 
+                                fullWidth 
+                                size="small" 
+                                value={historyDateFrom}
+                                onChange={(e) => setHistoryDateFrom(e.target.value)} 
+                                InputLabelProps={{ shrink: true }} 
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 3 }}>
+                            <TextField 
+                                label="Fecha Hasta" 
+                                type="date" 
+                                fullWidth 
+                                size="small" 
+                                value={historyDateTo}
+                                onChange={(e) => setHistoryDateTo(e.target.value)} 
+                                InputLabelProps={{ shrink: true }} 
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 3 }}>
+                            <Button 
+                                variant="contained" 
+                                fullWidth 
+                                startIcon={<FilterIcon />} 
+                                onClick={loadPaymentHistory}
+                            >
+                                Filtrar
+                            </Button>
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 3 }}>
+                            <Button 
+                                variant="outlined" 
+                                fullWidth 
+                                startIcon={<RefreshIcon />} 
+                                onClick={() => {
+                                    setHistoryDateFrom('');
+                                    setHistoryDateTo('');
+                                    loadPaymentHistory();
+                                }}
+                            >
+                                Limpiar
+                            </Button>
+                        </Grid>
+                    </Grid>
                 </Paper>
+
+                {/* Resumen */}
+                <Paper sx={{ p: 2, mb: 2, bgcolor: '#f5f5f5' }}>
+                    <Grid container spacing={2}>
+                        <Grid size={{ xs: 6, sm: 4 }}>
+                            <Typography variant="body2" color="text.secondary">Total Pagos</Typography>
+                            <Typography variant="h5" fontWeight="bold">{paymentHistory.length}</Typography>
+                        </Grid>
+                        <Grid size={{ xs: 6, sm: 4 }}>
+                            <Typography variant="body2" color="text.secondary">Total Paquetes</Typography>
+                            <Typography variant="h5" fontWeight="bold">
+                                {paymentHistory.reduce((sum, p) => sum + (p.package_count || 0), 0)}
+                            </Typography>
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 4 }}>
+                            <Typography variant="body2" color="text.secondary">Total Pagado MXN</Typography>
+                            <Typography variant="h5" fontWeight="bold" color="success.main">
+                                ${paymentHistory.reduce((sum, p) => sum + Number(p.total_cost || 0), 0).toFixed(2)}
+                            </Typography>
+                        </Grid>
+                    </Grid>
+                </Paper>
+
+                {/* Tabla de historial */}
+                <TableContainer component={Paper}>
+                    {loadingHistory ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+                            <CircularProgress />
+                        </Box>
+                    ) : paymentHistory.length === 0 ? (
+                        <Box sx={{ p: 4, textAlign: 'center' }}>
+                            <HistoryIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
+                            <Typography color="text.secondary">No hay pagos registrados para este proveedor</Typography>
+                        </Box>
+                    ) : (
+                        <Table>
+                            <TableHead>
+                                <TableRow sx={{ bgcolor: '#f5f5f5' }}>
+                                    <TableCell><strong>Fecha</strong></TableCell>
+                                    <TableCell align="center"><strong>Paquetes</strong></TableCell>
+                                    <TableCell align="right"><strong>Total MXN</strong></TableCell>
+                                    <TableCell><strong>Referencia</strong></TableCell>
+                                    <TableCell><strong>Pagado Por</strong></TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {paymentHistory.map((payment) => (
+                                    <TableRow key={payment.id} hover>
+                                        <TableCell>
+                                            {new Date(payment.paid_at).toLocaleDateString('es-MX', {
+                                                day: '2-digit',
+                                                month: 'short',
+                                                year: 'numeric',
+                                                hour: '2-digit',
+                                                minute: '2-digit'
+                                            })}
+                                        </TableCell>
+                                        <TableCell align="center">
+                                            <Chip 
+                                                label={`${payment.package_count} paquetes`} 
+                                                size="small" 
+                                                color="primary" 
+                                                variant="outlined" 
+                                            />
+                                        </TableCell>
+                                        <TableCell align="right">
+                                            <Typography fontWeight="bold" color="success.main">
+                                                ${Number(payment.total_cost || 0).toFixed(2)}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell>
+                                            {payment.payment_reference || '-'}
+                                        </TableCell>
+                                        <TableCell>
+                                            {payment.paid_by_name || 'Sistema'}
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    )}
+                </TableContainer>
             </TabPanel>
 
             {/* Tab 2: Utilidades (solo admin/super_admin) */}

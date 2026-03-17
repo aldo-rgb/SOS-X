@@ -435,7 +435,7 @@ export const getCostingPackages = async (req: Request, res: Response): Promise<v
 // Marcar paquetes como pagados
 export const markPackagesAsPaid = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { package_ids, total_cost, payment_reference } = req.body;
+        const { package_ids, total_cost, payment_reference, supplier_id } = req.body;
         const user = (req as any).user;
 
         if (!package_ids || !Array.isArray(package_ids) || package_ids.length === 0) {
@@ -458,9 +458,9 @@ export const markPackagesAsPaid = async (req: Request, res: Response): Promise<v
         // Registrar el pago en historial
         await pool.query(`
             INSERT INTO pobox_payment_history 
-            (package_ids, total_cost, payment_reference, paid_by, paid_at)
-            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-        `, [JSON.stringify(package_ids), total_cost, payment_reference, user.userId]);
+            (package_ids, total_cost, payment_reference, paid_by, paid_at, supplier_id)
+            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5)
+        `, [JSON.stringify(package_ids), total_cost, payment_reference, user.userId, supplier_id || null]);
 
         console.log(`💰 ${result.rows.length} paquetes marcados como pagados`);
         res.json({ 
@@ -470,8 +470,8 @@ export const markPackagesAsPaid = async (req: Request, res: Response): Promise<v
             total_cost
         });
     } catch (error: any) {
-        // Si la tabla de historial no existe, crearla
-        if (error.code === '42P01') {
+        // Si la tabla de historial no existe o le falta columna, crearla/actualizarla
+        if (error.code === '42P01' || error.code === '42703') {
             await pool.query(`
                 CREATE TABLE IF NOT EXISTS pobox_payment_history (
                     id SERIAL PRIMARY KEY,
@@ -479,9 +479,15 @@ export const markPackagesAsPaid = async (req: Request, res: Response): Promise<v
                     total_cost DECIMAL(12,2),
                     payment_reference VARCHAR(100),
                     paid_by INTEGER REFERENCES users(id),
-                    paid_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    paid_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    supplier_id INTEGER
                 )
             `);
+            // Agregar columna si no existe
+            await pool.query(`
+                ALTER TABLE pobox_payment_history 
+                ADD COLUMN IF NOT EXISTS supplier_id INTEGER
+            `).catch(() => {});
             // Reintentar
             return markPackagesAsPaid(req, res);
         }
@@ -493,32 +499,58 @@ export const markPackagesAsPaid = async (req: Request, res: Response): Promise<v
 // Obtener historial de pagos
 export const getPaymentHistory = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { date_from, date_to } = req.query;
+        const { date_from, date_to, supplier_id } = req.query;
         
-        let dateFilter = '';
-        const params: any[] = [];
-        
-        if (date_from) {
-            dateFilter += ' AND paid_at >= $1';
-            params.push(date_from);
-        }
-        if (date_to) {
-            dateFilter += ` AND paid_at <= $${params.length + 1}`;
-            params.push(date_to + ' 23:59:59');
+        if (!supplier_id) {
+            res.json({ history: [] });
+            return;
         }
 
+        // Consultar directamente los paquetes pagados y agruparlos por referencia
+        let whereClause = 'WHERE p.costing_paid = TRUE AND p.supplier_id = $1';
+        const params: any[] = [supplier_id];
+        let paramIndex = 2;
+        
+        if (date_from) {
+            whereClause += ` AND p.costing_paid_at >= $${paramIndex}`;
+            params.push(date_from);
+            paramIndex++;
+        }
+        if (date_to) {
+            whereClause += ` AND p.costing_paid_at <= $${paramIndex}`;
+            params.push(date_to + ' 23:59:59');
+            paramIndex++;
+        }
+
+        // Agrupar pagos por referencia y fecha
         const result = await pool.query(`
             SELECT 
-                ph.*,
-                u.full_name as paid_by_name
-            FROM pobox_payment_history ph
-            LEFT JOIN users u ON ph.paid_by = u.id
-            WHERE 1=1 ${dateFilter}
-            ORDER BY ph.paid_at DESC
+                COALESCE(p.costing_payment_reference, p.payment_reference, 'PAGO-' || TO_CHAR(p.costing_paid_at, 'YYYYMMDD-HH24MI')) as payment_reference,
+                MIN(p.costing_paid_at) as paid_at,
+                array_agg(p.id) as package_ids,
+                COUNT(p.id)::int as package_count,
+                SUM(COALESCE(p.assigned_cost_mxn, p.pobox_service_cost, 0)) as total_cost,
+                MAX(u.full_name) as paid_by_name
+            FROM packages p
+            LEFT JOIN users u ON p.costing_paid_by = u.id
+            ${whereClause}
+            GROUP BY COALESCE(p.costing_payment_reference, p.payment_reference, 'PAGO-' || TO_CHAR(p.costing_paid_at, 'YYYYMMDD-HH24MI'))
+            ORDER BY MIN(p.costing_paid_at) DESC
             LIMIT 100
         `, params);
 
-        res.json({ history: result.rows });
+        const history = result.rows.map((row, idx) => ({
+            id: idx + 1,
+            package_ids: row.package_ids,
+            total_cost: parseFloat(row.total_cost) || 0,
+            payment_reference: row.payment_reference,
+            paid_at: row.paid_at,
+            paid_by_name: row.paid_by_name || 'Sistema',
+            package_count: row.package_count
+        }));
+
+        console.log(`📜 Historial de pagos para proveedor ${supplier_id}: ${history.length} registros`);
+        res.json({ history });
     } catch (error) {
         console.error('Error obteniendo historial de pagos:', error);
         res.json({ history: [] });
@@ -552,7 +584,7 @@ export const updatePackageCost = async (req: Request, res: Response): Promise<vo
 // Obtener datos de utilidades (Guía, Cliente, Costo, Costo de Venta, Utilidad)
 export const getUtilidadesData = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { date_from, date_to, payment_status, supplier_id } = req.query;
+        const { date_from, date_to, payment_status, paid, supplier_id } = req.query;
         
         // Construir condiciones de filtro
         let dateFilter = '';
@@ -569,9 +601,11 @@ export const getUtilidadesData = async (req: Request, res: Response): Promise<vo
             params.push(date_to + ' 23:59:59');
             paramIndex++;
         }
-        if (payment_status === 'paid') {
+        // Soportar ambos: payment_status (viejo) y paid (nuevo)
+        const paidFilter = paid || payment_status;
+        if (paidFilter === 'paid' || paidFilter === 'true') {
             dateFilter += ` AND p.costing_paid = TRUE`;
-        } else if (payment_status === 'unpaid') {
+        } else if (paidFilter === 'unpaid' || paidFilter === 'false') {
             dateFilter += ` AND (p.costing_paid IS NULL OR p.costing_paid = FALSE)`;
         }
         // Filtro por proveedor
@@ -582,7 +616,7 @@ export const getUtilidadesData = async (req: Request, res: Response): Promise<vo
         }
 
         // Obtener paquetes con desglose de costos guardado
-        // Paquetes PO Box USA: shipment_type NULL o no específico (excluir FCL/maritime/china_air/dhl)
+        // Paquetes PO Box USA: service_type 'usa' o NULL (excluir FCL/maritime/china_air/dhl)
         const result = await pool.query(`
             SELECT 
                 p.id,
@@ -611,7 +645,7 @@ export const getUtilidadesData = async (req: Request, res: Response): Promise<vo
                 COALESCE(u.full_name, 'Sin asignar') as client_name
             FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
-            WHERE (p.shipment_type IS NULL OR p.shipment_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))
+            WHERE (p.service_type IS NULL OR UPPER(p.service_type) IN ('USA', 'POBOX_USA'))
             AND (p.is_master = true OR p.master_id IS NULL)
             ${dateFilter}
             ORDER BY p.received_at DESC NULLS LAST, p.created_at DESC

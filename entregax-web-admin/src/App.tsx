@@ -66,7 +66,7 @@ import BuildIcon from '@mui/icons-material/Build';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import HeadsetMicIcon from '@mui/icons-material/HeadsetMic';
 import LocalAtmIcon from '@mui/icons-material/LocalAtm';
-import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+// AccountBalanceWalletIcon removido - Tesorería oculta
 import AdminHubPage from './pages/AdminHubPage';
 import CajaChicaPage from './pages/CajaChicaPage';
 import TesoreriaSucursalPage from './pages/TesoreriaSucursalPage';
@@ -190,7 +190,7 @@ const menuItemsConfig: Array<{
       { key: 'panelsAdmin', icon: <BuildIcon /> },         // Herramientas Administrativas
       { key: 'panelsOperations', icon: <InventoryIcon /> }, // Herramientas de Operación
       { key: 'panelsService', icon: <HeadsetMicIcon /> },   // Servicio a Cliente
-      { key: 'tesoreriaSucursal', icon: <AccountBalanceWalletIcon /> }, // Tesorería Sucursal
+      // { key: 'tesoreriaSucursal', icon: <AccountBalanceWalletIcon /> }, // Tesorería Sucursal - OCULTO
     ]
   },
   { key: 'cajaChica', icon: <LocalAtmIcon /> }, // Caja CC (Control Cobros) - pagos de clientes
@@ -473,6 +473,75 @@ function App() {
   const translateRole = (role: string): string => {
     return t(`roles.${role}`, role);
   };
+
+  // Si es un cliente, mostrar portal de cliente simplificado (sin sidebar completo)
+  const isClient = currentUser?.role && ['client', 'Client', 'cliente', 'Cliente'].includes(currentUser.role);
+  if (isClient) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
+          {/* AppBar simplificado para clientes */}
+          <AppBar 
+            position="fixed" 
+            elevation={0}
+            sx={{ 
+              bgcolor: '#111111',
+              borderBottom: 1,
+              borderColor: 'divider',
+            }}
+          >
+            <Toolbar sx={{ justifyContent: 'space-between' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Box
+                  component="img"
+                  src="/logo.png"
+                  alt="EntregaX"
+                  sx={{
+                    width: 120,
+                    height: 'auto',
+                    objectFit: 'contain',
+                  }}
+                />
+                <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.6)' }}>
+                  Mi Portal
+                </Typography>
+              </Box>
+
+              {/* User Menu */}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Tooltip title={currentUser?.name || 'Usuario'}>
+                  <IconButton onClick={(e) => setAnchorEl(e.currentTarget)}>
+                    <Avatar sx={{ bgcolor: '#F05A28', width: 36, height: 36 }}>
+                      {getInitials(currentUser?.name || 'U')}
+                    </Avatar>
+                  </IconButton>
+                </Tooltip>
+                <Menu
+                  anchorEl={anchorEl}
+                  open={Boolean(anchorEl)}
+                  onClose={() => setAnchorEl(null)}
+                >
+                  <MenuItem disabled>
+                    <Typography variant="body2">{currentUser?.email}</Typography>
+                  </MenuItem>
+                  <Divider />
+                  <MenuItem onClick={handleLogout}>
+                    <LogoutIcon sx={{ mr: 1 }} /> Cerrar Sesión
+                  </MenuItem>
+                </Menu>
+              </Box>
+            </Toolbar>
+          </AppBar>
+
+          {/* Contenido principal para cliente */}
+          <Box sx={{ pt: 8 }}>
+            <DashboardClient />
+          </Box>
+        </Box>
+      </ThemeProvider>
+    );
+  }
 
   const drawer = (
     <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: '#111111' }}>

@@ -1367,6 +1367,321 @@ app.get('/api/dashboard/summary', authenticateToken, requireMinLevel(ROLES.WAREH
 // --- RUTA DE DASHBOARD COUNTER STAFF (Mostrador) ---
 app.get('/api/dashboard/counter-staff', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getCounterStaffDashboard);
 
+// --- RUTA DE DASHBOARD CLIENTE (Portal del Cliente) ---
+app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'Usuario no autenticado' });
+    }
+
+    // 1. Obtener datos del usuario
+    const userQuery = await pool.query(`
+      SELECT id, full_name, email, box_id, phone, wallet_balance, 
+             used_credit, credit_limit, has_credit
+      FROM users WHERE id = $1
+    `, [userId]);
+    
+    if (userQuery.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    
+    const user = userQuery.rows[0];
+    const boxId = user.box_id;
+
+    // 2. Contar paquetes por estado (usando user_id, no box_id)
+    const packagesStatsQuery = await pool.query(`
+      SELECT 
+        COUNT(*) FILTER (WHERE status::text IN ('in_transit')) as en_transito,
+        COUNT(*) FILTER (WHERE status::text IN ('received', 'customs', 'reempacado')) as en_bodega,
+        COUNT(*) FILTER (WHERE status::text = 'ready_pickup') as listos_recoger,
+        COUNT(*) FILTER (WHERE status::text = 'delivered' AND delivered_at >= NOW() - INTERVAL '30 days') as entregados_mes,
+        COALESCE(SUM(COALESCE(assigned_cost_mxn, saldo_pendiente, 0)) FILTER (WHERE client_paid = FALSE AND status::text NOT IN ('cancelled', 'returned', 'delivered')), 0) as saldo_pendiente
+      FROM packages
+      WHERE user_id = $1
+    `, [userId]);
+
+    // 2b. Contar órdenes marítimas
+    const maritimeStatsQuery = await pool.query(`
+      SELECT 
+        COUNT(*) FILTER (WHERE status IN ('in_transit', 'in_warehouse', 'shipped', 'at_port', 'loading')) as en_transito,
+        COUNT(*) FILTER (WHERE status IN ('received_cedis', 'ready_pickup')) as listos_recoger,
+        COUNT(*) FILTER (WHERE status = 'delivered' AND delivered_at >= NOW() - INTERVAL '30 days') as entregados_mes,
+        COALESCE(SUM(COALESCE(assigned_cost_mxn, saldo_pendiente, 0)) FILTER (WHERE payment_status != 'paid' AND status NOT IN ('cancelled', 'delivered')), 0) as saldo_pendiente
+      FROM maritime_orders
+      WHERE user_id = $1
+    `, [userId]);
+
+    const stats = packagesStatsQuery.rows[0];
+    const maritimeStats = maritimeStatsQuery.rows[0];
+
+    // 3. Obtener paquetes activos del cliente (PO Box USA y Aéreo China)
+    const packagesQuery = await pool.query(`
+      SELECT 
+        id,
+        tracking_internal as tracking,
+        tracking_provider,
+        description as descripcion,
+        service_type as servicio,
+        CASE 
+          WHEN service_type = 'POBOX_USA' THEN 'air'
+          WHEN service_type = 'AIR_CHN_MX' THEN 'china_air'
+          WHEN service_type = 'SEA_CHN_MX' THEN 'maritime'
+          ELSE 'air'
+        END as shipment_type,
+        status::text as status,
+        CASE status::text 
+          WHEN 'received' THEN 'En Bodega'
+          WHEN 'in_transit' THEN 'En Tránsito'
+          WHEN 'customs' THEN 'En Aduana'
+          WHEN 'ready_pickup' THEN 'Listo para Recoger'
+          WHEN 'delivered' THEN 'Entregado'
+          WHEN 'reempacado' THEN 'Reempacado'
+          WHEN 'received_china' THEN 'Recibido China'
+          WHEN 'received_origin' THEN 'En Bodega China'
+          WHEN 'at_customs' THEN 'En Aduana'
+          WHEN 'in_transit_mx' THEN 'En Ruta México'
+          WHEN 'received_cedis' THEN 'En CEDIS'
+          ELSE status::text
+        END as status_label,
+        COALESCE(eta::text, 'Por confirmar') as fecha_estimada,
+        COALESCE(assigned_cost_mxn, saldo_pendiente, 0) as monto,
+        client_paid,
+        assigned_address_id as delivery_address_id,
+        assigned_address_id,
+        created_at
+      FROM packages
+      WHERE user_id = $1
+        AND status::text NOT IN ('delivered', 'cancelled', 'returned')
+      ORDER BY 
+        CASE WHEN status::text = 'ready_pickup' THEN 0 ELSE 1 END,
+        created_at DESC
+      LIMIT 20
+    `, [userId]);
+
+    // 3b. Obtener órdenes marítimas activas del cliente
+    const maritimeOrdersQuery = await pool.query(`
+      SELECT 
+        id,
+        ordersn as tracking,
+        'MARITIMO' as tracking_provider,
+        COALESCE(goods_name, summary_description, 'Carga Marítima') as descripcion,
+        'SEA_CHN_MX' as servicio,
+        'maritime' as shipment_type,
+        status,
+        CASE status 
+          WHEN 'in_warehouse' THEN 'En Bodega China'
+          WHEN 'in_transit' THEN '🚢 En Tránsito Marítimo'
+          WHEN 'shipped' THEN '🚢 Ya Zarpó'
+          WHEN 'at_port' THEN '⚓ En Puerto'
+          WHEN 'loading' THEN '📦 Cargando'
+          WHEN 'customs_mx' THEN '🛃 Aduana México'
+          WHEN 'in_transit_mx' THEN '🚛 En Ruta México'
+          WHEN 'received_cedis' THEN '✅ En CEDIS'
+          WHEN 'ready_pickup' THEN '📍 Listo para Recoger'
+          WHEN 'delivered' THEN '✅ Entregado'
+          ELSE status
+        END as status_label,
+        COALESCE(container_number, bl_number, 'En tránsito') as fecha_estimada,
+        COALESCE(assigned_cost_mxn, saldo_pendiente, 0) as monto,
+        CASE WHEN payment_status = 'paid' THEN true ELSE false END as client_paid,
+        delivery_address_id,
+        NULL as assigned_address_id,
+        created_at
+      FROM maritime_orders
+      WHERE user_id = $1
+        AND status NOT IN ('delivered', 'cancelled')
+      ORDER BY 
+        CASE WHEN status = 'ready_pickup' THEN 0 ELSE 1 END,
+        created_at DESC
+      LIMIT 20
+    `, [userId]);
+
+    // 3c. Obtener paquetes DHL activos del cliente (si existe la tabla y tiene relación)
+    let dhlPackagesRows: any[] = [];
+    try {
+      // DHL packages se vinculan por nombre de cliente o branch
+      const dhlQuery = await pool.query(`
+        SELECT 
+          dp.id,
+          dp.tracking_number as tracking,
+          'DHL' as tracking_provider,
+          COALESCE(dp.description, 'Paquete DHL') as descripcion,
+          'DHL_MTY' as servicio,
+          'dhl' as shipment_type,
+          dp.status,
+          CASE dp.status 
+            WHEN 'received' THEN '📦 Recibido CEDIS MTY'
+            WHEN 'pending_release' THEN '⏳ Pendiente Liberación'
+            WHEN 'released' THEN '✅ Liberado'
+            WHEN 'delivered' THEN '✅ Entregado'
+            ELSE dp.status
+          END as status_label,
+          'CEDIS MTY' as fecha_estimada,
+          0 as monto,
+          false as client_paid,
+          NULL as delivery_address_id,
+          NULL as assigned_address_id,
+          dp.created_at
+        FROM dhl_packages dp
+        JOIN users u ON (
+          LOWER(dp.client_name) LIKE '%' || LOWER(u.full_name) || '%'
+          OR LOWER(dp.client_name) LIKE '%' || LOWER(u.box_id) || '%'
+        )
+        WHERE u.id = $1
+          AND dp.status NOT IN ('delivered', 'cancelled')
+        ORDER BY dp.created_at DESC
+        LIMIT 10
+      `, [userId]);
+      dhlPackagesRows = dhlQuery.rows;
+    } catch (err) {
+      // Tabla DHL no existe o error, continuar sin DHL
+      console.log('DHL packages query error:', (err as Error).message);
+    }
+
+    // Combinar todos los paquetes
+    const allPackages = [
+      ...packagesQuery.rows,
+      ...maritimeOrdersQuery.rows,
+      ...dhlPackagesRows
+    ].sort((a, b) => {
+      // Primero los listos para recoger
+      if (a.status === 'ready_pickup' && b.status !== 'ready_pickup') return -1;
+      if (b.status === 'ready_pickup' && a.status !== 'ready_pickup') return 1;
+      // Luego por fecha de creación
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+
+    // 4. Obtener facturas recientes (si la tabla existe)
+    let invoicesRows: any[] = [];
+    try {
+      const invoicesQuery = await pool.query(`
+        SELECT 
+          id,
+          folio_fiscal as folio,
+          fecha_emision as fecha,
+          total,
+          status,
+          pdf_url,
+          xml_url
+        FROM facturas
+        WHERE user_id = $1
+        ORDER BY fecha_emision DESC
+        LIMIT 10
+      `, [userId]);
+      invoicesRows = invoicesQuery.rows;
+    } catch (err) {
+      // Tabla facturas no existe, continuar sin facturas
+      console.log('Tabla facturas no disponible');
+    }
+
+    // 5. Construir respuesta
+    res.json({
+      stats: {
+        casillero: boxId,
+        direccion_usa: {
+          nombre: user.full_name,
+          direccion: `2819 Perkins Lane, Suite ${boxId}`,
+          ciudad: 'Laredo',
+          estado: 'TX',
+          zip: '78045',
+        },
+        paquetes: {
+          en_transito: (parseInt(stats.en_transito) || 0) + (parseInt(maritimeStats.en_transito) || 0),
+          en_bodega: parseInt(stats.en_bodega) || 0,
+          listos_recoger: (parseInt(stats.listos_recoger) || 0) + (parseInt(maritimeStats.listos_recoger) || 0),
+          entregados_mes: (parseInt(stats.entregados_mes) || 0) + (parseInt(maritimeStats.entregados_mes) || 0),
+        },
+        financiero: {
+          saldo_pendiente: (parseFloat(stats.saldo_pendiente) || 0) + (parseFloat(maritimeStats.saldo_pendiente) || 0),
+          saldo_favor: parseFloat(user.wallet_balance) || 0,
+          credito_disponible: user.has_credit 
+            ? (parseFloat(user.credit_limit) - parseFloat(user.used_credit)) 
+            : 0,
+          ultimo_pago: 'N/A', // TODO: Obtener del historial de pagos
+        },
+      },
+      packages: allPackages,
+      invoices: invoicesRows,
+    });
+  } catch (error: any) {
+    console.error('Error en dashboard cliente:', error);
+    res.status(500).json({ error: 'Error al cargar dashboard', details: error.message });
+  }
+});
+
+// Historial de paquetes entregados del cliente
+app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ error: 'No autorizado' });
+    }
+
+    // Obtener paquetes entregados de la tabla packages
+    const packagesQuery = await pool.query(`
+      SELECT 
+        id,
+        tracking_internal as tracking,
+        description as descripcion,
+        service_type as servicio,
+        status,
+        'Entregado' as status_label,
+        COALESCE(TO_CHAR(delivered_at, 'DD Mon YYYY'), TO_CHAR(updated_at, 'DD Mon YYYY')) as fecha_entrega,
+        COALESCE(assigned_cost_mxn, 0) as monto,
+        received_by as recibio,
+        destination_city as branch_name,
+        weight
+      FROM packages
+      WHERE user_id = $1
+        AND status = 'delivered'
+      ORDER BY COALESCE(delivered_at, updated_at) DESC
+      LIMIT 50
+    `, [userId]);
+
+    // Obtener órdenes marítimas entregadas
+    let maritimeDelivered: any[] = [];
+    try {
+      const maritimeQuery = await pool.query(`
+        SELECT 
+          id,
+          order_number as tracking,
+          COALESCE(consolidation_code, 'Marítimo') as descripcion,
+          'MAR_CHN_MX' as servicio,
+          status,
+          'Entregado' as status_label,
+          TO_CHAR(updated_at, 'DD Mon YYYY') as fecha_entrega,
+          COALESCE(total_cost, 0) as monto,
+          NULL as recibio,
+          'Marítimo China' as branch_name,
+          total_cbm as weight_lbs
+        FROM maritime_orders
+        WHERE user_id = $1
+          AND status = 'delivered'
+        ORDER BY updated_at DESC
+        LIMIT 20
+      `, [userId]);
+      maritimeDelivered = maritimeQuery.rows;
+    } catch (err) {
+      // Maritime table might not exist
+    }
+
+    // Combinar resultados
+    const allHistory = [
+      ...packagesQuery.rows,
+      ...maritimeDelivered
+    ].sort((a, b) => new Date(b.fecha_entrega || 0).getTime() - new Date(a.fecha_entrega || 0).getTime());
+
+    res.json({ 
+      packages: allHistory,
+      total: allHistory.length
+    });
+  } catch (error: any) {
+    console.error('Error en historial de paquetes:', error);
+    res.status(500).json({ error: 'Error al cargar historial', details: error.message });
+  }
+});
+
 // --- RUTA PARA VERIFICAR PERMISOS ---
 app.get('/api/auth/verify', authenticateToken, (req: AuthRequest, res: Response) => {
   res.json({
@@ -2162,15 +2477,15 @@ const anticipoUpload = multer({ storage: multer.memoryStorage(), limits: { fileS
 // Proveedores
 app.get('/api/anticipos/proveedores', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getProveedoresAnticipos);
 app.get('/api/anticipos/proveedores/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getProveedorById);
-app.post('/api/anticipos/proveedores', authenticateToken, requireMinLevel(ROLES.ADMIN), createProveedor);
-app.put('/api/anticipos/proveedores/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateProveedor);
+app.post('/api/anticipos/proveedores', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createProveedor);
+app.put('/api/anticipos/proveedores/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateProveedor);
 
 // Bolsas de Anticipos (Depósitos)
 app.get('/api/anticipos/bolsas', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getBolsasAnticipos);
 app.get('/api/anticipos/bolsas/disponibles', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getBolsasDisponibles);
-app.post('/api/anticipos/bolsas', authenticateToken, requireMinLevel(ROLES.ADMIN), anticipoUpload.single('comprobante'), createBolsaAnticipo);
-app.put('/api/anticipos/bolsas/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateBolsaAnticipo);
-app.delete('/api/anticipos/bolsas/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteBolsaAnticipo);
+app.post('/api/anticipos/bolsas', authenticateToken, requireMinLevel(ROLES.DIRECTOR), anticipoUpload.single('comprobante'), createBolsaAnticipo);
+app.put('/api/anticipos/bolsas/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateBolsaAnticipo);
+app.delete('/api/anticipos/bolsas/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteBolsaAnticipo);
 app.get('/api/anticipos/bolsas/:bolsaId/asignaciones', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAsignacionesByBolsa);
 app.get('/api/anticipos/bolsas/:bolsaId/referencias', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getReferenciasByBolsa);
 
@@ -2186,7 +2501,7 @@ app.get('/api/anticipos/container/:containerId/anticipos', authenticateToken, re
 // Asignaciones de Anticipos
 app.get('/api/anticipos/container/:containerId/asignaciones', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAsignacionesByContainer);
 app.post('/api/anticipos/asignar', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), asignarAnticipo);
-app.delete('/api/anticipos/asignaciones/:id/revertir', authenticateToken, requireMinLevel(ROLES.ADMIN), revertirAsignacion);
+app.delete('/api/anticipos/asignaciones/:id/revertir', authenticateToken, requireMinLevel(ROLES.DIRECTOR), revertirAsignacion);
 
 // Estadísticas de Anticipos
 app.get('/api/anticipos/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAnticiposStats);
@@ -2284,8 +2599,8 @@ app.get('/api/suppliers', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF
 app.get('/api/suppliers/consolidaciones-pendientes', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getConsolidacionesPendientes);
 app.get('/api/suppliers/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSupplierById);
 app.get('/api/suppliers/:id/consolidations', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSupplierConsolidations);
-app.post('/api/suppliers', authenticateToken, requireMinLevel(ROLES.ADMIN), createSupplier);
-app.put('/api/suppliers/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateSupplier);
+app.post('/api/suppliers', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createSupplier);
+app.put('/api/suppliers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateSupplier);
 app.put('/api/suppliers/consolidations/:consolidationId/status', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateConsolidationStatus);
 app.delete('/api/suppliers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteSupplier);
 

@@ -72,8 +72,11 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
       const { user, access } = response.data;
 
-      // Verificar si puede acceder al Web Admin
-      if (!access.canAccessWebAdmin) {
+      // Los clientes pueden acceder a su portal especial
+      // Solo personal administrativo puede acceder al panel completo
+      const isClient = user.role === 'client' || user.role === 'cliente' || user.role === 'Client' || user.role === 'Cliente';
+      
+      if (!access.canAccessWebAdmin && !isClient) {
         setError('Acceso denegado. Solo personal autorizado puede ingresar al panel administrativo.');
         setLoading(false);
         return;

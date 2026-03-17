@@ -1201,9 +1201,9 @@ export const pagarConsolidacionProveedor = async (req: AuthRequest, res: Respons
     // Crear transacción de egreso en caja chica
     const transaccionResult = await pool.query(`
       INSERT INTO caja_chica_transacciones 
-        (tipo, monto, concepto, categoria, admin_id, admin_name, saldo_despues_movimiento, notas, referencia)
+        (tipo, monto, concepto, categoria, admin_id, admin_name, saldo_despues_movimiento, notas)
       VALUES 
-        ('egreso', $1, $2, 'pago_proveedor', $3, $4, $5, $6, $7)
+        ('egreso', $1, $2, 'pago_proveedor', $3, $4, $5, $6)
       RETURNING id
     `, [
       monto,
@@ -1211,8 +1211,7 @@ export const pagarConsolidacionProveedor = async (req: AuthRequest, res: Respons
       adminId,
       adminName,
       nuevoSaldo,
-      notas || null,
-      referencia || null
+      `${referencia ? `Ref: ${referencia}` : ''}${notas ? ` | ${notas}` : ''}`.trim() || null
     ]);
 
     const transaccionId = transaccionResult.rows[0].id;
@@ -1230,6 +1229,26 @@ export const pagarConsolidacionProveedor = async (req: AuthRequest, res: Respons
       AND (costing_paid IS NULL OR costing_paid = FALSE)
       RETURNING id, tracking_internal
     `, [referencia || `CAJA-${transaccionId}`, consolidation_id, consolidacion.supplier_id]);
+
+    // Registrar en historial de pagos para el panel del proveedor
+    const packageIds = updateResult.rows.map(p => p.id);
+    if (packageIds.length > 0) {
+      await pool.query(`
+        INSERT INTO pobox_payment_history 
+        (package_ids, total_cost, payment_reference, paid_by, paid_at, supplier_id)
+        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5)
+      `, [JSON.stringify(packageIds), monto, referencia || `CAJA-${transaccionId}`, adminId, consolidacion.supplier_id]).catch(async (err) => {
+        // Si falta la columna supplier_id, agregarla
+        if (err.code === '42703') {
+          await pool.query('ALTER TABLE pobox_payment_history ADD COLUMN IF NOT EXISTS supplier_id INTEGER').catch(() => {});
+          await pool.query(`
+            INSERT INTO pobox_payment_history 
+            (package_ids, total_cost, payment_reference, paid_by, paid_at, supplier_id)
+            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5)
+          `, [JSON.stringify(packageIds), monto, referencia || `CAJA-${transaccionId}`, adminId, consolidacion.supplier_id]).catch(() => {});
+        }
+      });
+    }
 
     console.log(`💰 [CAJA] Pago a proveedor: ${consolidacion.supplier_name} - Consolidación #${consolidation_id} - $${monto} MXN - ${updateResult.rows.length} paquetes`);
 
