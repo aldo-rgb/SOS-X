@@ -3,8 +3,7 @@
 // Gestión de contenedores FCL con gastos extras
 // ============================================
 
-import React, { useState, useEffect, useCallback } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useState, useEffect, useCallback } from 'react';
 import {
     Box,
     Typography,
@@ -30,17 +29,12 @@ import {
     Snackbar,
     CircularProgress,
     Divider,
-    Tabs,
-    Tab,
     InputAdornment,
     Tooltip,
     FormControl,
     InputLabel,
     Select,
     MenuItem,
-    Accordion,
-    AccordionSummary,
-    AccordionDetails,
 } from '@mui/material';
 import {
     DirectionsBoat as BoatIcon,
@@ -51,16 +45,9 @@ import {
     Visibility as VisibilityIcon,
     Delete as DeleteIcon,
     Close as CloseIcon,
-    ExpandMore as ExpandMoreIcon,
-    Receipt as ReceiptIcon,
     LocalShipping as ShippingIcon,
     AttachMoney as MoneyIcon,
-    Schedule as ScheduleIcon,
-    Person as PersonIcon,
     Inventory as InventoryIcon,
-    Edit as EditIcon,
-    CheckCircle as CheckCircleIcon,
-    Warning as WarningIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -134,7 +121,6 @@ const formatDate = (dateStr: string | null): string => {
 const getToken = () => localStorage.getItem('token');
 
 export default function FCLManagementPage() {
-    const { t } = useTranslation();
     const [containers, setContainers] = useState<FCLContainer[]>([]);
     const [stats, setStats] = useState<FCLStats | null>(null);
     const [loading, setLoading] = useState(true);
@@ -305,7 +291,7 @@ export default function FCLManagementPage() {
 
             {/* Stats Cards */}
             <Grid container spacing={2} sx={{ mb: 3 }}>
-                <Grid item xs={6} sm={3}>
+                <Grid size={{ xs: 6, sm: 3 }}>
                     <Card sx={{ bgcolor: '#FFF3E0' }}>
                         <CardContent>
                             <Typography variant="h3" fontWeight="bold" color={FCL_COLOR}>
@@ -317,7 +303,7 @@ export default function FCLManagementPage() {
                         </CardContent>
                     </Card>
                 </Grid>
-                <Grid item xs={6} sm={3}>
+                <Grid size={{ xs: 6, sm: 3 }}>
                     <Card sx={{ bgcolor: '#E3F2FD' }}>
                         <CardContent>
                             <Typography variant="h3" fontWeight="bold" color="#1976D2">
@@ -329,7 +315,7 @@ export default function FCLManagementPage() {
                         </CardContent>
                     </Card>
                 </Grid>
-                <Grid item xs={6} sm={3}>
+                <Grid size={{ xs: 6, sm: 3 }}>
                     <Card sx={{ bgcolor: '#E8F5E9' }}>
                         <CardContent>
                             <Typography variant="h3" fontWeight="bold" color="#388E3C">
@@ -341,7 +327,7 @@ export default function FCLManagementPage() {
                         </CardContent>
                     </Card>
                 </Grid>
-                <Grid item xs={6} sm={3}>
+                <Grid size={{ xs: 6, sm: 3 }}>
                     <Card sx={{ bgcolor: '#FCE4EC' }}>
                         <CardContent>
                             <Typography variant="h3" fontWeight="bold" color="#C2185B">
@@ -357,8 +343,8 @@ export default function FCLManagementPage() {
 
             {/* Filtros */}
             <Paper sx={{ p: 2, mb: 3 }}>
-                <Grid container spacing={2} alignItems="center">
-                    <Grid item xs={12} sm={6}>
+                <Grid container spacing={2} sx={{ alignItems: 'center' }}>
+                    <Grid size={{ xs: 12, sm: 6 }}>
                         <TextField
                             fullWidth
                             placeholder="Buscar por contenedor, BL, referencia, cliente..."
@@ -374,7 +360,7 @@ export default function FCLManagementPage() {
                             size="small"
                         />
                     </Grid>
-                    <Grid item xs={12} sm={6}>
+                    <Grid size={{ xs: 12, sm: 6 }}>
                         <Box sx={{ display: 'flex', gap: 1 }}>
                             {['all', 'in_transit', 'in_warehouse', 'delivered'].map((status) => (
                                 <Chip
@@ -514,57 +500,57 @@ export default function FCLManagementPage() {
                     {selectedContainer && (
                         <Grid container spacing={3}>
                             {/* Información General */}
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                     <InventoryIcon /> Información del Contenedor
                                 </Typography>
                                 <Grid container spacing={2}>
-                                    <Grid item xs={6} sm={3}>
+                                    <Grid size={{ xs: 6, sm: 3 }}>
                                         <Typography variant="caption" color="text.secondary">Referencia</Typography>
                                         <Typography fontWeight="bold">{selectedContainer.reference_code || '-'}</Typography>
                                     </Grid>
-                                    <Grid item xs={6} sm={3}>
+                                    <Grid size={{ xs: 6, sm: 3 }}>
                                         <Typography variant="caption" color="text.secondary">Contenedor</Typography>
                                         <Typography fontFamily="monospace">{selectedContainer.container_number}</Typography>
                                     </Grid>
-                                    <Grid item xs={6} sm={3}>
+                                    <Grid size={{ xs: 6, sm: 3 }}>
                                         <Typography variant="caption" color="text.secondary">BL</Typography>
                                         <Typography>{selectedContainer.bl_number || '-'}</Typography>
                                     </Grid>
-                                    <Grid item xs={6} sm={3}>
+                                    <Grid size={{ xs: 6, sm: 3 }}>
                                         <Typography variant="caption" color="text.secondary">Estado</Typography>
                                         <Chip size="small" label={getStatusLabel(selectedContainer.status)} color={getStatusColor(selectedContainer.status) as any} />
                                     </Grid>
-                                    <Grid item xs={6} sm={3}>
+                                    <Grid size={{ xs: 6, sm: 3 }}>
                                         <Typography variant="caption" color="text.secondary">Cliente</Typography>
                                         <Typography fontWeight="bold">{selectedContainer.client_name || 'Sin asignar'}</Typography>
                                     </Grid>
-                                    <Grid item xs={6} sm={3}>
+                                    <Grid size={{ xs: 6, sm: 3 }}>
                                         <Typography variant="caption" color="text.secondary">Ruta</Typography>
                                         <Typography>{selectedContainer.route_code} - {selectedContainer.route_name}</Typography>
                                     </Grid>
-                                    <Grid item xs={6} sm={3}>
+                                    <Grid size={{ xs: 6, sm: 3 }}>
                                         <Typography variant="caption" color="text.secondary">Semana</Typography>
                                         <Typography>{selectedContainer.week_number || '-'}</Typography>
                                     </Grid>
-                                    <Grid item xs={6} sm={3}>
+                                    <Grid size={{ xs: 6, sm: 3 }}>
                                         <Typography variant="caption" color="text.secondary">ETA</Typography>
                                         <Typography>{formatDate(selectedContainer.eta)}</Typography>
                                     </Grid>
                                 </Grid>
                             </Grid>
 
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <Divider />
                             </Grid>
 
                             {/* Medidas */}
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                     <ShippingIcon /> Medidas
                                 </Typography>
                                 <Grid container spacing={2}>
-                                    <Grid item xs={4}>
+                                    <Grid size={{ xs: 4 }}>
                                         <Card variant="outlined">
                                             <CardContent sx={{ textAlign: 'center' }}>
                                                 <Typography variant="h5" fontWeight="bold">{formatCurrency(selectedContainer.total_weight_kg)} kg</Typography>
@@ -572,7 +558,7 @@ export default function FCLManagementPage() {
                                             </CardContent>
                                         </Card>
                                     </Grid>
-                                    <Grid item xs={4}>
+                                    <Grid size={{ xs: 4 }}>
                                         <Card variant="outlined">
                                             <CardContent sx={{ textAlign: 'center' }}>
                                                 <Typography variant="h5" fontWeight="bold">{formatCurrency(selectedContainer.total_cbm)} m³</Typography>
@@ -580,7 +566,7 @@ export default function FCLManagementPage() {
                                             </CardContent>
                                         </Card>
                                     </Grid>
-                                    <Grid item xs={4}>
+                                    <Grid size={{ xs: 4 }}>
                                         <Card variant="outlined">
                                             <CardContent sx={{ textAlign: 'center' }}>
                                                 <Typography variant="h5" fontWeight="bold">{selectedContainer.total_packages || 0}</Typography>
@@ -591,12 +577,12 @@ export default function FCLManagementPage() {
                                 </Grid>
                             </Grid>
 
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <Divider />
                             </Grid>
 
                             {/* Gastos Extras */}
-                            <Grid item xs={12}>
+                            <Grid size={{ xs: 12 }}>
                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                                     <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                         <MoneyIcon /> Gastos Extras
@@ -671,7 +657,7 @@ export default function FCLManagementPage() {
 
                             {/* Notas */}
                             {selectedContainer.notes && (
-                                <Grid item xs={12}>
+                                <Grid size={{ xs: 12 }}>
                                     <Typography variant="h6" gutterBottom>📝 Notas</Typography>
                                     <Paper sx={{ p: 2, bgcolor: '#FFF8E1' }}>
                                         <Typography>{selectedContainer.notes}</Typography>
@@ -701,7 +687,7 @@ export default function FCLManagementPage() {
                 </DialogTitle>
                 <DialogContent dividers>
                     <Grid container spacing={2} sx={{ mt: 1 }}>
-                        <Grid item xs={12}>
+                        <Grid size={{ xs: 12 }}>
                             <FormControl fullWidth>
                                 <InputLabel>Concepto</InputLabel>
                                 <Select
@@ -722,7 +708,7 @@ export default function FCLManagementPage() {
                                 </Select>
                             </FormControl>
                         </Grid>
-                        <Grid item xs={8}>
+                        <Grid size={{ xs: 8 }}>
                             <TextField
                                 fullWidth
                                 label="Monto"
@@ -734,7 +720,7 @@ export default function FCLManagementPage() {
                                 }}
                             />
                         </Grid>
-                        <Grid item xs={4}>
+                        <Grid size={{ xs: 4 }}>
                             <FormControl fullWidth>
                                 <InputLabel>Moneda</InputLabel>
                                 <Select
@@ -747,7 +733,7 @@ export default function FCLManagementPage() {
                                 </Select>
                             </FormControl>
                         </Grid>
-                        <Grid item xs={12}>
+                        <Grid size={{ xs: 12 }}>
                             <TextField
                                 fullWidth
                                 label="Notas (opcional)"
