@@ -75,6 +75,7 @@ import ExchangeRateConfigPage from './ExchangeRateConfigPage';
 import BranchManagementPage from './BranchManagementPage';
 import CarouselSlidesPage from './CarouselSlidesPage';
 import AdvanceControlPanel from './AdvanceControlPanel';
+import FCLManagementPage from './FCLManagementPage';
 import {
     UploadFile as UploadIcon,
     AccountBalanceWallet as WalletIcon,
@@ -125,6 +126,7 @@ const MODULE_ICONS: Record<string, React.ReactElement> = {
     reports: <AssessmentIcon />,
     verifications: <VerifiedUserIcon />,
     consolidations: <InventoryIcon />,
+    fcl_management: <BoatIcon />,
     customs: <AssignmentIcon />,
     coverage: <TimelineIcon />,
     instructions: <AssignmentIcon />,
@@ -157,6 +159,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'instructions', status: 'active' },
         { key: 'routes', status: 'active' },
         { key: 'consolidations', status: 'active' },
+        { key: 'fcl_management', status: 'active' },
         { key: 'inbound_emails', status: 'active' },
         { key: 'maritime_api', status: 'active' },
         { key: 'anticipos', status: 'active' },
@@ -640,6 +643,30 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
         if (selectedModule === 'maritime_api' && selectedService === 'china_sea') {
             return (
                 <MaritimeApiPage onBack={() => setSelectedModule(null)} />
+            );
+        }
+
+        // Panel Gestión FCL (fcl_management) - solo china_sea
+        if (selectedModule === 'fcl_management' && selectedService === 'china_sea') {
+            return (
+                <Box>
+                    {/* Breadcrumb */}
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    <FCLManagementPage />
+                </Box>
             );
         }
 

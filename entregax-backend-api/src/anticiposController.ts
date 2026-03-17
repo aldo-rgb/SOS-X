@@ -6,9 +6,29 @@
 import { Response } from 'express';
 import { pool } from './db';
 import { AuthRequest } from './authController';
-import { uploadToS3, isS3Configured } from './s3Service';
+import { uploadToS3, isS3Configured, getSignedUrlForKey, extractKeyFromUrl } from './s3Service';
 import * as fs from 'fs';
 import * as path from 'path';
+
+// Helper para generar URLs firmadas de comprobantes
+const getSignedComprobante = async (comprobante_url: string | null): Promise<string | null> => {
+  if (!comprobante_url) return null;
+  
+  // Si es una URL de S3, generar URL firmada
+  if (comprobante_url.includes('s3.') && comprobante_url.includes('amazonaws.com')) {
+    try {
+      const key = extractKeyFromUrl(comprobante_url);
+      if (key) {
+        return await getSignedUrlForKey(key, 3600); // 1 hora de validez
+      }
+    } catch (error) {
+      console.error('Error generating signed URL:', error);
+    }
+  }
+  
+  // Si no es S3 o hay error, devolver la URL original
+  return comprobante_url;
+};
 
 // ========== PROVEEDORES ==========
 
@@ -49,9 +69,15 @@ export const getProveedorById = async (req: AuthRequest, res: Response): Promise
       ORDER BY fecha_pago DESC
     `, [id]);
 
+    // Generar URLs firmadas para comprobantes
+    const bolsasConUrls = await Promise.all(bolsasRes.rows.map(async (bolsa) => ({
+      ...bolsa,
+      comprobante_url: await getSignedComprobante(bolsa.comprobante_url)
+    })));
+
     res.json({
       proveedor: proveedorRes.rows[0],
-      bolsas: bolsasRes.rows
+      bolsas: bolsasConUrls
     });
   } catch (error) {
     console.error('Error fetching proveedor:', error);
@@ -149,7 +175,14 @@ export const getBolsasAnticipos = async (req: AuthRequest, res: Response): Promi
     query += ' ORDER BY fecha_pago DESC';
 
     const result = await pool.query(query, params);
-    res.json(result.rows);
+    
+    // Generar URLs firmadas para comprobantes
+    const bolsasConUrls = await Promise.all(result.rows.map(async (bolsa) => ({
+      ...bolsa,
+      comprobante_url: await getSignedComprobante(bolsa.comprobante_url)
+    })));
+    
+    res.json(bolsasConUrls);
   } catch (error) {
     console.error('Error fetching bolsas:', error);
     res.status(500).json({ error: 'Error al obtener bolsas de anticipos' });
@@ -175,7 +208,14 @@ export const getBolsasDisponibles = async (_req: AuthRequest, res: Response): Pr
       WHERE ba.estado = 'con_saldo' AND ba.saldo_disponible > 0
       ORDER BY pa.nombre, ba.fecha_pago DESC
     `);
-    res.json(result.rows);
+    
+    // Generar URLs firmadas para comprobantes
+    const bolsasConUrls = await Promise.all(result.rows.map(async (bolsa) => ({
+      ...bolsa,
+      comprobante_url: await getSignedComprobante(bolsa.comprobante_url)
+    })));
+    
+    res.json(bolsasConUrls);
   } catch (error) {
     console.error('Error fetching bolsas disponibles:', error);
     res.status(500).json({ error: 'Error al obtener bolsas disponibles' });
@@ -322,12 +362,18 @@ export const getAnticiposByContainer = async (req: AuthRequest, res: Response): 
       ORDER BY ar.created_at DESC
     `, [reference_code]);
     
+    // Generar URLs firmadas para comprobantes
+    const anticiposConUrls = await Promise.all(result.rows.map(async (anticipo) => ({
+      ...anticipo,
+      comprobante_url: await getSignedComprobante(anticipo.comprobante_url)
+    })));
+    
     const total = result.rows.reduce((sum, r) => sum + Number(r.monto), 0);
     
     res.json({
       container_number,
       reference_code,
-      anticipos: result.rows,
+      anticipos: anticiposConUrls,
       total
     });
   } catch (error) {

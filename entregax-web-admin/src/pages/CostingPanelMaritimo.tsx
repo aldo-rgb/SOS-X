@@ -248,9 +248,11 @@ const emptyCosts: ContainerCosts = {
 };
 
 // Función para formatear moneda MXN
-const formatCurrency = (value: number | null | undefined): string => {
-    if (value === null || value === undefined || isNaN(value)) return '0.00';
-    return value.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const formatCurrency = (value: number | string | null | undefined): string => {
+    if (value === null || value === undefined) return '0.00';
+    const numValue = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(numValue)) return '0.00';
+    return numValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
 export default function CostingPanelMaritimo() {

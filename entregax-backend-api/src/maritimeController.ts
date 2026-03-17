@@ -43,7 +43,7 @@ export const getContainers = async (req: AuthRequest, res: Response): Promise<an
     }
 
     if (search) {
-      query += ` AND (c.container_number ILIKE $${paramIndex} OR c.bl_number ILIKE $${paramIndex} OR c.consignee ILIKE $${paramIndex})`;
+      query += ` AND (c.container_number ILIKE $${paramIndex} OR c.bl_number ILIKE $${paramIndex} OR c.consignee ILIKE $${paramIndex} OR c.reference_code ILIKE $${paramIndex} OR mr.code ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
       paramIndex++;
     }

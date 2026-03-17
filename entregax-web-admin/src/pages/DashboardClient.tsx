@@ -17,9 +17,6 @@ import {
   TextField,
   InputAdornment,
   Button,
-  Stepper,
-  Step,
-  StepLabel,
   Alert,
   Tabs,
   Tab,
@@ -58,7 +55,6 @@ import {
   AttachMoney as MoneyIcon,
   Search as SearchIcon,
   CheckCircle as CheckCircleIcon,
-  AccessTime as AccessTimeIcon,
   Flight as FlightIcon,
   DirectionsBoat as BoatIcon,
   LocalPostOffice as PostOfficeIcon,
@@ -86,7 +82,6 @@ import {
   CreditCard as CreditCardIcon,
   AccountBalance as AccountBalanceIcon,
   Star as StarIcon,
-  ArrowForward as ArrowForwardIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 

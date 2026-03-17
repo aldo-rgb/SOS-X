@@ -2470,6 +2470,148 @@ app.post('/api/maritime/calculate-cost', authenticateToken, calculateShipmentCos
 // Utilidades por Contenedor
 app.get('/api/maritime/containers/:containerId/profit', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getContainerProfitBreakdown);
 
+// ========== GESTIÓN FCL - CONTENEDORES DEDICADOS ==========
+// Listar contenedores FCL con filtros
+app.get('/api/maritime/fcl/containers', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
+    try {
+        const { status, search } = req.query;
+        
+        let query = `
+            SELECT c.*, 
+                mr.code as route_code,
+                mr.name as route_name,
+                lc.box_id as client_box_id,
+                lc.full_name as client_name,
+                COALESCE(
+                    (SELECT SUM(amount) FROM container_extra_costs ec WHERE ec.container_id = c.id),
+                    0
+                ) as total_extra_costs
+            FROM containers c
+            LEFT JOIN maritime_routes mr ON mr.id = c.route_id
+            LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
+            WHERE UPPER(c.type) = 'FCL'
+        `;
+        const params: any[] = [];
+        let paramIndex = 1;
+
+        if (status && status !== 'all') {
+            query += ` AND c.status = $${paramIndex}`;
+            params.push(status);
+            paramIndex++;
+        }
+
+        if (search) {
+            query += ` AND (c.container_number ILIKE $${paramIndex} OR c.bl_number ILIKE $${paramIndex} OR c.reference_code ILIKE $${paramIndex} OR lc.full_name ILIKE $${paramIndex} OR lc.box_id ILIKE $${paramIndex})`;
+            params.push(`%${search}%`);
+            paramIndex++;
+        }
+
+        query += ' ORDER BY c.created_at DESC';
+
+        const result = await pool.query(query, params);
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error fetching FCL containers:', error);
+        res.status(500).json({ error: 'Error al obtener contenedores FCL' });
+    }
+});
+
+// Stats FCL
+app.get('/api/maritime/fcl/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (_req: AuthRequest, res: Response) => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                COUNT(*) FILTER (WHERE UPPER(type) = 'FCL') as total_fcl,
+                COUNT(*) FILTER (WHERE UPPER(type) = 'FCL' AND status = 'in_transit') as en_transito,
+                COUNT(*) FILTER (WHERE UPPER(type) = 'FCL' AND status = 'in_warehouse') as en_bodega,
+                COUNT(*) FILTER (WHERE UPPER(type) = 'FCL' AND status = 'delivered') as entregados,
+                COALESCE(
+                    (SELECT SUM(ec.amount) 
+                     FROM container_extra_costs ec 
+                     JOIN containers c ON c.id = ec.container_id 
+                     WHERE UPPER(c.type) = 'FCL'),
+                    0
+                ) as total_extra_costs
+            FROM containers
+        `);
+        res.json(result.rows[0]);
+    } catch (error) {
+        console.error('Error fetching FCL stats:', error);
+        res.status(500).json({ error: 'Error al obtener estadísticas FCL' });
+    }
+});
+
+// Obtener gastos extras de un contenedor
+app.get('/api/maritime/fcl/containers/:containerId/extra-costs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
+    try {
+        const { containerId } = req.params;
+        
+        const costsResult = await pool.query(`
+            SELECT ec.*, u.full_name as created_by_name
+            FROM container_extra_costs ec
+            LEFT JOIN users u ON u.id = ec.created_by
+            WHERE ec.container_id = $1
+            ORDER BY ec.created_at DESC
+        `, [containerId]);
+
+        const totalResult = await pool.query(`
+            SELECT COALESCE(SUM(amount), 0) as total
+            FROM container_extra_costs
+            WHERE container_id = $1
+        `, [containerId]);
+
+        res.json({
+            costs: costsResult.rows,
+            total: totalResult.rows[0].total
+        });
+    } catch (error) {
+        console.error('Error fetching extra costs:', error);
+        res.status(500).json({ error: 'Error al obtener gastos extras' });
+    }
+});
+
+// Agregar gasto extra a un contenedor
+app.post('/api/maritime/fcl/containers/:containerId/extra-costs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
+    try {
+        const { containerId } = req.params;
+        const { concept, amount, currency, notes } = req.body;
+        const userId = req.user?.userId;
+
+        if (!concept || !amount) {
+            res.status(400).json({ error: 'Concepto y monto son requeridos' });
+            return;
+        }
+
+        const result = await pool.query(`
+            INSERT INTO container_extra_costs (container_id, concept, amount, currency, notes, created_by)
+            VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING *
+        `, [containerId, concept, amount, currency || 'MXN', notes, userId]);
+
+        res.status(201).json(result.rows[0]);
+    } catch (error) {
+        console.error('Error adding extra cost:', error);
+        res.status(500).json({ error: 'Error al agregar gasto extra' });
+    }
+});
+
+// Eliminar gasto extra
+app.delete('/api/maritime/fcl/containers/:containerId/extra-costs/:costId', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
+    try {
+        const { containerId, costId } = req.params;
+
+        await pool.query(`
+            DELETE FROM container_extra_costs 
+            WHERE id = $1 AND container_id = $2
+        `, [costId, containerId]);
+
+        res.json({ message: 'Gasto eliminado correctamente' });
+    } catch (error) {
+        console.error('Error deleting extra cost:', error);
+        res.status(500).json({ error: 'Error al eliminar gasto extra' });
+    }
+});
+
 // ========== MÓDULO DE ANTICIPOS A PROVEEDORES ==========
 // Upload para comprobantes de anticipos
 const anticipoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
