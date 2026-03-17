@@ -2476,6 +2476,7 @@ app.get('/api/maritime/fcl/containers', authenticateToken, requireMinLevel(ROLES
     try {
         const { status, search } = req.query;
         
+        // FCL/Dedicados = contenedores con legacy_client_id asignado (dedicados a un cliente)
         let query = `
             SELECT c.*, 
                 mr.code as route_code,
@@ -2489,7 +2490,7 @@ app.get('/api/maritime/fcl/containers', authenticateToken, requireMinLevel(ROLES
             FROM containers c
             LEFT JOIN maritime_routes mr ON mr.id = c.route_id
             LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
-            WHERE UPPER(c.type) = 'FCL'
+            WHERE c.legacy_client_id IS NOT NULL
         `;
         const params: any[] = [];
         let paramIndex = 1;
@@ -2516,20 +2517,20 @@ app.get('/api/maritime/fcl/containers', authenticateToken, requireMinLevel(ROLES
     }
 });
 
-// Stats FCL
+// Stats FCL - Contenedores dedicados (con legacy_client_id)
 app.get('/api/maritime/fcl/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (_req: AuthRequest, res: Response) => {
     try {
         const result = await pool.query(`
             SELECT 
-                COUNT(*) FILTER (WHERE UPPER(type) = 'FCL') as total_fcl,
-                COUNT(*) FILTER (WHERE UPPER(type) = 'FCL' AND status = 'in_transit') as en_transito,
-                COUNT(*) FILTER (WHERE UPPER(type) = 'FCL' AND status = 'in_warehouse') as en_bodega,
-                COUNT(*) FILTER (WHERE UPPER(type) = 'FCL' AND status = 'delivered') as entregados,
+                COUNT(*) FILTER (WHERE legacy_client_id IS NOT NULL) as total_fcl,
+                COUNT(*) FILTER (WHERE legacy_client_id IS NOT NULL AND status = 'in_transit') as en_transito,
+                COUNT(*) FILTER (WHERE legacy_client_id IS NOT NULL AND status = 'in_warehouse') as en_bodega,
+                COUNT(*) FILTER (WHERE legacy_client_id IS NOT NULL AND status = 'delivered') as entregados,
                 COALESCE(
                     (SELECT SUM(ec.amount) 
                      FROM container_extra_costs ec 
                      JOIN containers c ON c.id = ec.container_id 
-                     WHERE UPPER(c.type) = 'FCL'),
+                     WHERE c.legacy_client_id IS NOT NULL),
                     0
                 ) as total_extra_costs
             FROM containers
