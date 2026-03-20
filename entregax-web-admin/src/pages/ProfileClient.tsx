@@ -33,7 +33,6 @@ import {
   Edit as EditIcon,
   Visibility as VisibilityIcon,
   VisibilityOff as VisibilityOffIcon,
-  Person as PersonIcon,
   Badge as BadgeIcon,
   ContentCopy as CopyIcon,
 } from '@mui/icons-material';

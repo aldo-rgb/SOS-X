@@ -970,12 +970,12 @@ export default function DashboardClient() {
         setStats(response.data.stats);
         // Debug: ver qué paquetes llegan del backend
         console.log('📦 Paquetes recibidos del backend:', response.data.packages?.length || 0);
-        response.data.packages?.forEach((pkg: Package) => {
+        response.data.packages?.forEach((pkg: PackageTracking) => {
           console.log(`- ${pkg.tracking}: has_delivery_instructions=${pkg.has_delivery_instructions}, delivery_address_id=${pkg.delivery_address_id}, needs_instructions=${pkg.needs_instructions}, destination_address=${pkg.destination_address}`);
         });
         
         // Filtrar solo paquetes que existan realmente en la base de datos
-        const validPackages = (response.data.packages || []).filter((pkg: Package) => 
+        const validPackages = (response.data.packages || []).filter((pkg: PackageTracking) => 
           pkg.tracking && 
           pkg.tracking !== 'US-IBZ57499' && 
           pkg.tracking !== 'US-H6QN3188' && 
@@ -2420,7 +2420,7 @@ export default function DashboardClient() {
                     startIcon={<CheckCircleIcon />}
                     onClick={() => {
                       // Simular confirmación de pago OpenPay
-                      const total = getSelectedPackages().reduce((sum, pkg) => sum + (pkg.amount_due || 0), 0);
+                      const total = getSelectedPackages().reduce((sum, pkg) => sum + (pkg.monto || 0), 0);
                       testConfirmPayment(
                         `openpay_test_${Date.now()}`,
                         selectedPackageIds,
@@ -4101,7 +4101,7 @@ export default function DashboardClient() {
         </DialogTitle>
         <DialogContent sx={{ p: 0 }}>
           {(() => {
-            const selectedPackage = getSelectedPackages()[0]; // Primer paquete seleccionado para mostrar info
+            const _selectedPackage = getSelectedPackages()[0]; // Primer paquete seleccionado para mostrar info
             const userName = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!).name || 'NOMBRE DEL CLIENTE' : 'NOMBRE DEL CLIENTE';
             
             return (
@@ -4173,7 +4173,7 @@ export default function DashboardClient() {
                           {(() => {
                             const totalWeight = getSelectedPackages().reduce((sum, pkg) => {
                               // Buscar peso en diferentes campos posibles
-                              const weight = pkg.weight || pkg.peso_kg || pkg.peso || (pkg as any).weight_kg || 12; // Default 12 como en la app
+                              const weight = pkg.weight || (pkg as unknown as { peso_kg?: number; peso?: number }).peso_kg || (pkg as unknown as { peso?: number }).peso || 12; // Default 12 como en la app
                               return sum + parseFloat(weight.toString());
                             }, 0);
                             return totalWeight.toFixed(1);
@@ -4315,12 +4315,12 @@ export default function DashboardClient() {
                       {pkg.tracking}
                     </Typography>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                      📦 {pkg.dimensiones || '12×12×12 cm'}
+                      📦 {pkg.dimensions || '12×12×12 cm'}
                     </Typography>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Box>
                         <Typography variant="caption" color="text.secondary">Peso Total</Typography>
-                        <Typography variant="body2" fontWeight="bold">{pkg.peso_kg || '12'} kg</Typography>
+                        <Typography variant="body2" fontWeight="bold">{pkg.weight || '12'} kg</Typography>
                       </Box>
                       <Box sx={{ textAlign: 'right' }}>
                         <Typography variant="caption" color="text.secondary">CBM Total</Typography>

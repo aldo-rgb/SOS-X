@@ -167,8 +167,7 @@ export default function AdvanceControlPanel() {
     const [referenciasValidacion, setReferenciasValidacion] = useState<{ [key: string]: { valida: boolean; container_number?: string; duplicada?: boolean } }>({});
     const [comprobanteFile, setComprobanteFile] = useState<File | null>(null);
     
-    // Asignaciones
-    const [_asignaciones, setAsignaciones] = useState<Asignacion[]>([]);
+    // Referencias y UI
     const [referencias, setReferencias] = useState<Referencia[]>([]);
     const [expandedBolsa, setExpandedBolsa] = useState<number | null>(null);
     
@@ -232,18 +231,6 @@ export default function AdvanceControlPanel() {
             console.error('Error fetching bolsas:', error);
         }
     }, []);
-
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const _fetchAsignacionesBolsa = async (bolsaId: number) => {
-        try {
-            const res = await axios.get(`${API_URL}/api/anticipos/bolsas/${bolsaId}/asignaciones`, {
-                headers: { Authorization: `Bearer ${getToken()}` }
-            });
-            setAsignaciones(res.data);
-        } catch (error) {
-            console.error('Error fetching asignaciones:', error);
-        }
-    };
 
     const fetchReferenciasBolsa = async (bolsaId: number) => {
         try {
