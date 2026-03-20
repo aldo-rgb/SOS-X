@@ -33,14 +33,10 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  ToggleButton,
-  ToggleButtonGroup,
   Snackbar,
   Checkbox,
-  Select,
   MenuItem,
   FormControl,
-  InputLabel,
   FormControlLabel,
   Radio,
   RadioGroup,
@@ -69,7 +65,6 @@ import {
   Refresh as RefreshIcon,
   Info as InfoIcon,
   Warning as WarningIcon,
-  WhatsApp as WhatsAppIcon,
   HelpOutline as HelpIcon,
   LocalShipping as TruckIcon,
   SupportAgent as SupportIcon,
@@ -342,7 +337,7 @@ export default function DashboardClient() {
   const [deliveryModalOpen, setDeliveryModalOpen] = useState(false);
   const [deliveryAddresses, setDeliveryAddresses] = useState<DeliveryAddress[]>([]);
   const [selectedDeliveryAddress, setSelectedDeliveryAddress] = useState<number | null>(null);
-  const [deliveryMethod, setDeliveryMethod] = useState<'domicilio' | 'pickup'>('domicilio');
+  const [_deliveryMethod, _setDeliveryMethod] = useState<'domicilio' | 'pickup'>('domicilio');
   const [deliveryLoading, setDeliveryLoading] = useState(false);
   
   // Nuevos estados para el modal mejorado de instrucciones
@@ -728,7 +723,8 @@ export default function DashboardClient() {
             zip_code: '64860',
             country: 'México',
             phone: '8119411741',
-            reference: 'Bodega principal'
+            reference: 'Bodega principal',
+            is_default: true
           },
           {
             id: 2,
@@ -743,7 +739,8 @@ export default function DashboardClient() {
             zip_code: '6000',
             country: 'México',
             phone: '3000000',
-            reference: 'Ubicación secundaria'
+            reference: 'Ubicación secundaria',
+            is_default: false
           }
         ]);
       }
@@ -764,7 +761,8 @@ export default function DashboardClient() {
           zip_code: '64860',
           country: 'México',
           phone: '8119411741',
-          reference: 'Bodega principal'
+          reference: 'Bodega principal',
+          is_default: true
         },
         {
           id: 2,
@@ -779,7 +777,8 @@ export default function DashboardClient() {
           zip_code: '6000',
           country: 'México',
           phone: '3000000',
-          reference: 'Ubicación secundaria'
+          reference: 'Ubicación secundaria',
+          is_default: false
         }
       ]);
     }

@@ -168,7 +168,7 @@ export default function AdvanceControlPanel() {
     const [comprobanteFile, setComprobanteFile] = useState<File | null>(null);
     
     // Asignaciones
-    const [asignaciones, setAsignaciones] = useState<Asignacion[]>([]);
+    const [_asignaciones, setAsignaciones] = useState<Asignacion[]>([]);
     const [referencias, setReferencias] = useState<Referencia[]>([]);
     const [expandedBolsa, setExpandedBolsa] = useState<number | null>(null);
     
@@ -233,7 +233,7 @@ export default function AdvanceControlPanel() {
         }
     }, []);
 
-    const fetchAsignacionesBolsa = async (bolsaId: number) => {
+    const _fetchAsignacionesBolsa = async (bolsaId: number) => {
         try {
             const res = await axios.get(`${API_URL}/api/anticipos/bolsas/${bolsaId}/asignaciones`, {
                 headers: { Authorization: `Bearer ${getToken()}` }
