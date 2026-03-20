@@ -108,8 +108,8 @@ interface Referencia {
 }
 
 // Interface para asignaciones (reservada para uso futuro)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-interface Asignacion {
+// @ts-ignore - Interface reservada para implementación futura
+type _Asignacion = {
     id: number;
     bolsa_anticipo_id: number;
     bolsa_referencia: string;
