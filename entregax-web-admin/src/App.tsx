@@ -29,7 +29,6 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  Checkbox,
   CircularProgress,
 } from '@mui/material';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';

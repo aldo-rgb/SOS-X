@@ -1,7 +1,7 @@
 # 📚 EntregaX - Manual del Programador
 
 > **Última actualización:** 19 de marzo de 2026  
-> **Versión:** 2.14.0
+> **Versión:** 2.15.0
 
 ---
 
@@ -30,17 +30,18 @@
 21. [Sistema de Pagos en Sucursal](#sistema-de-pagos-en-sucursal)
 22. [Caja Chica Multi-Moneda USD/MXN](#caja-chica-multi-moneda-usdmxn)
 23. [Guía de Servicios Mobile (ServicesGuide)](#guía-de-servicios-mobile-servicesguide)
-24. [Asignación de Asesor a Clientes](#asignación-de-asesor-a-clientes) ⭐ NUEVO
+24. [Asignación de Asesor a Clientes](#asignación-de-asesor-a-clientes)
 25. [Sistema de Direcciones](#sistema-de-direcciones)
 26. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo)
 27. [Panel Marítimo China](#panel-marítimo-china)
 28. [Integración con OpenAI](#integración-con-openai)
-29. [DHL Monterrey - Costeo Internacional](#dhl-monterrey---costeo-internacional) ⭐ ACTUALIZADO v2.14
+29. [DHL Monterrey - Costeo Internacional](#dhl-monterrey---costeo-internacional)
 30. [Tradlinx Ocean Visibility](#tradlinx-ocean-visibility---tracking-de-contenedores)
-31. [Módulos Implementados](#módulos-implementados)
-32. [Guía de Desarrollo](#guía-de-desarrollo)
-33. [Credenciales de Prueba](#credenciales-de-prueba)
-34. [Changelog](#changelog)
+31. [Sistema de Costeo Aéreo China](#sistema-de-costeo-aéreo-china) ⭐ NUEVO v2.15
+32. [Módulos Implementados](#módulos-implementados)
+33. [Guía de Desarrollo](#guía-de-desarrollo)
+34. [Credenciales de Prueba](#credenciales-de-prueba)
+35. [Changelog](#changelog)
 
 ---
 
@@ -5248,7 +5249,566 @@ setLegacyClients(res.data.clients);  // ✅ Correcto: accede a .clients
 
 ---
 
-## 📦 Módulos Implementados
+## � Sistema de Costeo Aéreo China
+
+> ⭐ **NUEVO en v2.15.0** - Sistema completo de tarifas, precios y costeo para envíos aéreos desde China.
+
+### 📋 Descripción General
+
+El sistema de costeo aéreo permite:
+- **Definir rutas aéreas** (ej. Guangzhou → México, Ningbo → México)
+- **Tarifas por bracket de peso** por ruta (0-30kg, 31-100kg, etc.)
+- **Precios personalizados por cliente** (sobrescriben las tarifas generales)
+- **Asignación automática de precios** cuando llegan paquetes vía API
+- **Modal de costeo AWB** para registrar costos y calcular utilidad
+- **Gestión de proveedores CAJO** y consolidación
+
+---
+
+### 🗄️ Tablas de Base de Datos
+
+#### air_routes - Rutas Aéreas
+
+```sql
+CREATE TABLE air_routes (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,           -- "Guangzhou-MX", "Ningbo-MX"
+    origin_city VARCHAR(100),             -- "Guangzhou"
+    origin_country VARCHAR(100),          -- "China"
+    destination_city VARCHAR(100),        -- "Ciudad de México"
+    destination_country VARCHAR(100),     -- "México"
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Ejemplo de datos:
+INSERT INTO air_routes (name, origin_city, origin_country, destination_city, destination_country)
+VALUES 
+    ('Guangzhou-MX', 'Guangzhou', 'China', 'Ciudad de México', 'México'),
+    ('Ningbo-MX', 'Ningbo', 'China', 'Ciudad de México', 'México'),
+    ('Shenzhen-MX', 'Shenzhen', 'China', 'Ciudad de México', 'México');
+```
+
+#### air_tariffs - Tarifas por Bracket de Peso
+
+```sql
+CREATE TABLE air_tariffs (
+    id SERIAL PRIMARY KEY,
+    route_id INTEGER REFERENCES air_routes(id) ON DELETE CASCADE,
+    min_weight DECIMAL(10,2) NOT NULL,    -- 0
+    max_weight DECIMAL(10,2) NOT NULL,    -- 30
+    price_per_kg DECIMAL(10,2) NOT NULL,  -- 85.00 USD/kg
+    currency VARCHAR(3) DEFAULT 'USD',
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(route_id, min_weight, max_weight)
+);
+
+-- Ejemplo de brackets para ruta Guangzhou-MX:
+INSERT INTO air_tariffs (route_id, min_weight, max_weight, price_per_kg)
+VALUES 
+    (1, 0, 30, 85.00),      -- 0-30 kg: $85 USD/kg
+    (1, 31, 100, 75.00),    -- 31-100 kg: $75 USD/kg
+    (1, 101, 500, 65.00),   -- 101-500 kg: $65 USD/kg
+    (1, 501, 9999, 55.00);  -- 500+ kg: $55 USD/kg
+```
+
+#### air_client_tariffs - Precios Personalizados por Cliente
+
+```sql
+CREATE TABLE air_client_tariffs (
+    id SERIAL PRIMARY KEY,
+    client_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+    legacy_client_id INTEGER REFERENCES legacy_clients(id) ON DELETE CASCADE,
+    route_id INTEGER REFERENCES air_routes(id) ON DELETE CASCADE,
+    min_weight DECIMAL(10,2) NOT NULL,
+    max_weight DECIMAL(10,2) NOT NULL,
+    price_per_kg DECIMAL(10,2) NOT NULL,  -- Precio especial para este cliente
+    currency VARCHAR(3) DEFAULT 'USD',
+    notes TEXT,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER REFERENCES users(id),
+    CONSTRAINT client_or_legacy CHECK (
+        (client_id IS NOT NULL AND legacy_client_id IS NULL) OR
+        (client_id IS NULL AND legacy_client_id IS NOT NULL) OR
+        (client_id IS NULL AND legacy_client_id IS NULL)
+    )
+);
+
+-- Ejemplo: Cliente con tarifa especial
+INSERT INTO air_client_tariffs (legacy_client_id, route_id, min_weight, max_weight, price_per_kg, notes)
+VALUES (123, 1, 0, 30, 70.00, 'Cliente VIP - descuento especial');
+```
+
+#### Columnas Nuevas en packages
+
+```sql
+-- Columnas de precio de venta aéreo
+ALTER TABLE packages ADD COLUMN air_price_per_kg DECIMAL(10,4);
+ALTER TABLE packages ADD COLUMN air_sale_price DECIMAL(10,2);
+ALTER TABLE packages ADD COLUMN air_tariff_type VARCHAR(20) DEFAULT 'general'; -- 'general', 'custom'
+ALTER TABLE packages ADD COLUMN air_route_id INTEGER REFERENCES air_routes(id);
+ALTER TABLE packages ADD COLUMN air_is_custom_tariff BOOLEAN DEFAULT false;
+ALTER TABLE packages ADD COLUMN air_price_assigned_at TIMESTAMP;
+ALTER TABLE packages ADD COLUMN air_price_assigned_by INTEGER REFERENCES users(id);
+```
+
+#### air_waybill_costs - Costeo por AWB
+
+```sql
+CREATE TABLE air_waybill_costs (
+    id SERIAL PRIMARY KEY,
+    awb_number VARCHAR(50) NOT NULL,          -- "001-12345678"
+    
+    -- Costos generales
+    general_freight_usd DECIMAL(10,2),        -- Flete general
+    general_aduanas_mxn DECIMAL(10,2),        -- Costo aduana
+    general_shipping_mxn DECIMAL(10,2),       -- Envío interno
+    general_other_mxn DECIMAL(10,2),          -- Otros gastos
+    general_notes TEXT,
+    
+    -- Documentos (subida por multer)
+    general_document_url TEXT,                -- URL del PDF subido
+    
+    -- Costos por cliente (JSONB)
+    client_costs JSONB DEFAULT '[]',
+    /* Ejemplo de client_costs:
+    [
+        {
+            "clientId": 123,
+            "clientName": "Juan Pérez",
+            "boxId": "S-87",
+            "freight_usd": 500.00,
+            "aduanas_mxn": 1500.00,
+            "shipping_mxn": 300.00,
+            "other_mxn": 0,
+            "document_url": "/uploads/awb-costs/abc123.pdf"
+        }
+    ]
+    */
+    
+    exchange_rate DECIMAL(10,4),              -- Tipo de cambio usado
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by INTEGER REFERENCES users(id)
+);
+```
+
+#### cajo_guides - Guías CAJO
+
+```sql
+CREATE TABLE cajo_guides (
+    id SERIAL PRIMARY KEY,
+    guide_number VARCHAR(50),                 -- Número de guía CAJO
+    awb_number VARCHAR(50),                   -- AWB asociado
+    origin_country VARCHAR(100) DEFAULT 'China',
+    status VARCHAR(50) DEFAULT 'pending',
+    
+    total_packages INTEGER DEFAULT 0,
+    total_weight DECIMAL(10,2) DEFAULT 0,
+    total_cbm DECIMAL(10,4) DEFAULT 0,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+### 🔌 Endpoints API
+
+#### Rutas Aéreas
+
+| Método | Endpoint | Descripción | Autenticación |
+|--------|----------|-------------|---------------|
+| GET | `/api/admin/air-pricing/routes` | Listar rutas aéreas | Admin |
+| POST | `/api/admin/air-pricing/routes` | Crear ruta | Admin |
+| PUT | `/api/admin/air-pricing/routes/:id` | Actualizar ruta | Admin |
+| DELETE | `/api/admin/air-pricing/routes/:id` | Eliminar ruta | Admin |
+
+#### Tarifas por Bracket
+
+| Método | Endpoint | Descripción | Autenticación |
+|--------|----------|-------------|---------------|
+| GET | `/api/admin/air-pricing/tariffs?route_id=X` | Listar tarifas por ruta | Admin |
+| POST | `/api/admin/air-pricing/tariffs` | Crear tarifa | Admin |
+| PUT | `/api/admin/air-pricing/tariffs/:id` | Actualizar tarifa | Admin |
+| DELETE | `/api/admin/air-pricing/tariffs/:id` | Eliminar tarifa | Admin |
+
+#### Precios por Cliente
+
+| Método | Endpoint | Descripción | Autenticación |
+|--------|----------|-------------|---------------|
+| GET | `/api/admin/air-pricing/client-tariffs` | Listar precios personalizados | Admin |
+| GET | `/api/admin/air-pricing/client-tariffs/:clientId` | Precios de un cliente | Admin |
+| POST | `/api/admin/air-pricing/client-tariffs` | Crear precio personalizado | Admin |
+| PUT | `/api/admin/air-pricing/client-tariffs/:id` | Actualizar precio | Admin |
+| DELETE | `/api/admin/air-pricing/client-tariffs/:id` | Eliminar precio | Admin |
+| POST | `/api/admin/air-pricing/calculate` | Calcular precio de venta | Admin |
+
+```typescript
+// POST /api/admin/air-pricing/calculate
+// Body:
+{
+    "weight": 25.5,
+    "routeId": 1,
+    "clientId": 123,      // opcional: si tiene precio especial
+    "legacyClientId": 456 // opcional: cliente legacy
+}
+
+// Response:
+{
+    "pricePerKg": 70.00,        // Precio encontrado
+    "totalPrice": 1785.00,     // weight * pricePerKg
+    "tariffType": "custom",    // 'general' o 'custom'
+    "isCustom": true,
+    "bracket": { "min": 0, "max": 30 }
+}
+```
+
+#### Costeo AWB
+
+| Método | Endpoint | Descripción | Autenticación |
+|--------|----------|-------------|---------------|
+| GET | `/api/awb-costs` | Listar todos los costos | Admin |
+| GET | `/api/awb-costs/:awbNumber` | Obtener costo por AWB | Admin |
+| POST | `/api/awb-costs` | Crear/actualizar costo | Admin |
+| GET | `/api/awb-costs/:awbNumber/profit` | Calcular utilidad | Admin |
+| POST | `/api/awb-costs/upload` | Subir documento PDF | Admin |
+
+```typescript
+// POST /api/awb-costs/upload (multipart/form-data)
+// Fields: awbNumber, type ('general' | 'client'), clientId (si type='client')
+// File: document (PDF o imagen)
+
+// Response:
+{
+    "success": true,
+    "url": "/uploads/awb-costs/awb-001-12345678-general-abc123.pdf"
+}
+```
+
+```typescript
+// GET /api/awb-costs/:awbNumber/profit
+// Response:
+{
+    "success": true,
+    "data": {
+        "awbNumber": "001-12345678",
+        "totalCostUSD": 5000.00,
+        "totalCostMXN": 25000.00,     // Incluyendo aduana, envío, otros
+        "totalRevenue": 45000.00,     // Suma de air_sale_price de paquetes
+        "profitMXN": 20000.00,
+        "profitPercentage": 44.44,
+        "exchangeRate": 18.50,
+        "packages": [
+            {
+                "id": 123,
+                "tracking": "TDI001",
+                "weight": 5.5,
+                "air_sale_price": 3000.00,
+                "client_name": "Juan Pérez"
+            }
+        ]
+    }
+}
+```
+
+---
+
+### 🔄 Flujo de Asignación de Precios
+
+#### 1. Llegada vía API MJCustomer
+
+Cuando un paquete llega vía webhook de MJCustomer, el sistema calcula y asigna el precio automáticamente:
+
+```typescript
+// chinaController.ts - processCallbackPayload()
+
+const calculateAndAssignPrice = async (packageId: number, weight: number, boxId: string) => {
+    // 1. Buscar cliente legacy por box_id
+    const clientResult = await pool.query(
+        'SELECT id FROM legacy_clients WHERE box_id = $1',
+        [boxId]
+    );
+    const legacyClientId = clientResult.rows[0]?.id;
+    
+    // 2. Buscar ruta activa (por defecto la primera)
+    const routeResult = await pool.query(
+        'SELECT id FROM air_routes WHERE is_active = true LIMIT 1'
+    );
+    const routeId = routeResult.rows[0]?.id || 1;
+    
+    // 3. Buscar tarifa personalizada del cliente
+    let pricePerKg = null;
+    let tariffType = 'general';
+    let isCustom = false;
+    
+    if (legacyClientId) {
+        const customTariff = await pool.query(`
+            SELECT price_per_kg FROM air_client_tariffs 
+            WHERE legacy_client_id = $1 
+            AND route_id = $2 
+            AND is_active = true
+            AND $3 >= min_weight AND $3 <= max_weight
+            ORDER BY min_weight ASC LIMIT 1
+        `, [legacyClientId, routeId, weight]);
+        
+        if (customTariff.rows.length > 0) {
+            pricePerKg = customTariff.rows[0].price_per_kg;
+            tariffType = 'custom';
+            isCustom = true;
+        }
+    }
+    
+    // 4. Si no hay tarifa personalizada, usar tarifa general
+    if (!pricePerKg) {
+        const generalTariff = await pool.query(`
+            SELECT price_per_kg FROM air_tariffs 
+            WHERE route_id = $1 
+            AND is_active = true
+            AND $2 >= min_weight AND $2 <= max_weight
+            ORDER BY min_weight ASC LIMIT 1
+        `, [routeId, weight]);
+        
+        pricePerKg = generalTariff.rows[0]?.price_per_kg;
+    }
+    
+    // 5. Calcular precio total y actualizar paquete
+    if (pricePerKg) {
+        const salePrice = parseFloat(pricePerKg) * parseFloat(weight);
+        
+        await pool.query(`
+            UPDATE packages SET 
+                air_price_per_kg = $1,
+                air_sale_price = $2,
+                air_tariff_type = $3,
+                air_route_id = $4,
+                air_is_custom_tariff = $5,
+                air_price_assigned_at = NOW()
+            WHERE id = $6
+        `, [pricePerKg, salePrice, tariffType, routeId, isCustom, packageId]);
+    }
+};
+```
+
+#### 2. Aprobación de Email (Draft)
+
+Cuando se aprueba un draft de email, también se asigna precio si no tiene:
+
+```typescript
+// airEmailController.ts - approveAirDraft()
+
+// NO sobrescribir si ya tiene precio asignado
+if (!existingPackage.air_sale_price && weight > 0) {
+    // Calcular precio usando la misma lógica
+    await calculateAndAssignPrice(packageId, weight, boxId);
+}
+```
+
+---
+
+### 💻 Frontend - Páginas
+
+#### AirPricingPage.tsx - Tarifas y Precios
+
+Pestañas:
+1. **Rutas** - CRUD de rutas aéreas
+2. **Tarifas** - Brackets de peso por ruta
+3. **Precios por Cliente** - Tarifas personalizadas
+
+```typescript
+// Dialog para agregar precio por cliente
+<Dialog open={clientPriceDialogOpen}>
+    <DialogTitle>Precio Especial por Cliente</DialogTitle>
+    <DialogContent>
+        <Autocomplete
+            options={legacyClients}
+            getOptionLabel={(opt) => `${opt.name} (${opt.box_id})`}
+            onChange={(_, val) => setSelectedClient(val)}
+        />
+        <FormControl>
+            <InputLabel>Ruta</InputLabel>
+            <Select value={routeId} onChange={(e) => setRouteId(e.target.value)}>
+                {routes.map(r => <MenuItem key={r.id} value={r.id}>{r.name}</MenuItem>)}
+            </Select>
+        </FormControl>
+        <TextField label="Peso Mínimo (kg)" type="number" />
+        <TextField label="Peso Máximo (kg)" type="number" />
+        <TextField label="Precio por Kg (USD)" type="number" />
+        <TextField label="Notas" multiline rows={2} />
+    </DialogContent>
+</Dialog>
+```
+
+#### AwbCostingDialog.tsx - Modal de Costeo
+
+Modal para registrar costos de un AWB y ver utilidad:
+
+```typescript
+// Componente para subir PDF
+const CostField = ({ label, name, type, isPdf }) => {
+    if (isPdf) {
+        return (
+            <Box>
+                <Typography variant="caption">{label}</Typography>
+                <input
+                    type="file"
+                    accept=".pdf,.jpg,.jpeg,.png"
+                    style={{ display: 'none' }}
+                    id={`upload-${name}`}
+                    onChange={(e) => handleUploadFile(e.target.files[0], name)}
+                />
+                <label htmlFor={`upload-${name}`}>
+                    <Button variant="outlined" component="span" startIcon={<UploadIcon />}>
+                        {values[name] ? 'Cambiar PDF' : 'Subir PDF'}
+                    </Button>
+                </label>
+                {values[name] && (
+                    <Link href={values[name]} target="_blank">Ver documento</Link>
+                )}
+            </Box>
+        );
+    }
+    return <TextField label={label} name={name} type={type} />;
+};
+
+// Upload handler
+const handleUploadFile = async (file: File, fieldName: string) => {
+    const formData = new FormData();
+    formData.append('document', file);
+    formData.append('awbNumber', awbNumber);
+    formData.append('type', fieldName.includes('general') ? 'general' : 'client');
+    
+    const response = await api.post('/api/awb-costs/upload', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    
+    if (response.data.success) {
+        setValues(prev => ({ ...prev, [fieldName]: response.data.url }));
+    }
+};
+```
+
+Secciones del modal:
+1. **Costos Generales** - Flete, aduana, envío, otros + PDF
+2. **Costos por Cliente** - Desglose individual si aplica
+3. **Utilidad** - Botón para calcular profit vs revenue
+
+```typescript
+// Cálculo de utilidad (GET /api/awb-costs/:awb/profit)
+const handleShowProfit = async () => {
+    const res = await api.get(`/api/awb-costs/${awbNumber}/profit`);
+    setProfitData(res.data.data);
+    // Muestra: Costo Total, Ingreso (air_sale_price), Utilidad, %
+};
+```
+
+---
+
+### 🧮 Cálculo de Utilidad
+
+El profit se calcula usando **air_sale_price** de cada paquete (NO assigned_cost_mxn):
+
+```sql
+-- Total de ingresos (revenue) para un AWB
+SELECT COALESCE(SUM(p.air_sale_price), 0) as total_revenue
+FROM packages p
+JOIN china_receipts cr ON p.china_receipt_id = cr.id
+WHERE cr.awb_number = '001-12345678'
+  AND p.air_sale_price IS NOT NULL;
+
+-- Fórmula:
+-- profit = total_revenue - total_cost_mxn
+-- profit_percentage = (profit / total_revenue) * 100
+```
+
+---
+
+### 📁 Archivos Relacionados
+
+**Backend:**
+- `src/controllers/chinaController.ts` - processCallbackPayload con asignación de precios
+- `src/controllers/airPricingController.ts` - CRUD de rutas, tarifas, precios cliente
+- `src/controllers/airEmailController.ts` - Aprobación de drafts con precios
+- `src/controllers/airWaybillCostController.ts` - Costeo AWB y cálculo de utilidad
+- `src/controllers/cajoController.ts` - Gestión de guías CAJO
+
+**Migraciones:**
+- `migrations/add_air_routes.sql` - Tabla air_routes
+- `migrations/add_air_tariffs.sql` - Tabla air_tariffs
+- `migrations/add_air_client_tariffs.sql` - Tabla air_client_tariffs
+- `migrations/add_air_cost_brackets.sql` - Brackets y columnas en packages
+- `migrations/add_air_waybill_costs.sql` - Tabla de costeo AWB
+- `migrations/add_cajo_guides.sql` - Tabla guías CAJO
+
+**Frontend:**
+- `src/pages/AirManagementPage.tsx` - Panel principal aéreo
+- `src/pages/AirPricingPage.tsx` - Tarifas y precios
+- `src/pages/AirRoutesPage.tsx` - Gestión de rutas
+- `src/components/AwbCostingDialog.tsx` - Modal de costeo
+- `src/pages/CajoManagementPage.tsx` - Guías CAJO
+- `src/pages/InboundEmailsAirPage.tsx` - Emails aéreos
+
+---
+
+### 🔧 Configuración Multer para Uploads
+
+```typescript
+// airWaybillCostController.ts
+import multer from 'multer';
+import path from 'path';
+import { v4 as uuidv4 } from 'uuid';
+
+const awbStorage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, path.join(__dirname, '../../uploads/awb-costs'));
+    },
+    filename: (req, file, cb) => {
+        const awbNumber = req.body.awbNumber?.replace(/\//g, '-') || 'unknown';
+        const type = req.body.type || 'general';
+        const ext = path.extname(file.originalname);
+        cb(null, `awb-${awbNumber}-${type}-${uuidv4()}${ext}`);
+    }
+});
+
+export const uploadAwbDocument = multer({
+    storage: awbStorage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    fileFilter: (req, file, cb) => {
+        const allowed = ['.pdf', '.jpg', '.jpeg', '.png'];
+        const ext = path.extname(file.originalname).toLowerCase();
+        cb(null, allowed.includes(ext));
+    }
+}).single('document');
+```
+
+---
+
+### ⚠️ Consideraciones Importantes
+
+1. **Prioridad de Tarifas**: Los precios personalizados por cliente SIEMPRE tienen prioridad sobre las tarifas generales.
+
+2. **Asignación de Precios**: Los precios se asignan en DOS momentos:
+   - Cuando llega el paquete vía API MJCustomer (processCallbackPayload)
+   - Cuando se aprueba un draft de email (si no tiene precio previo)
+
+3. **No Sobrescribir**: Si un paquete ya tiene `air_sale_price`, NO se sobrescribe al aprobar drafts.
+
+4. **Cliente por shipping_mark**: Los clientes se resuelven vía `china_receipts.shipping_mark` → `legacy_clients.box_id`, NO por `packages.box_id`.
+
+5. **Revenue vs Cost**: 
+   - **Revenue** = Suma de `air_sale_price` (lo que cobramos al cliente)
+   - **Cost** = Valores en `air_waybill_costs` (lo que pagamos al proveedor)
+
+---
+
+## �📦 Módulos Implementados
 
 ### ✅ Completados
 
@@ -6626,6 +7186,51 @@ for (const mod of modules.rows) {
   `, [userId, mod.panel_key, mod.module_key]);
 }
 ```
+
+### v2.15.0 (19 Mar 2026) - SISTEMA DE COSTEO AÉREO CHINA ⭐
+
+#### Tarifas y Precios Aéreos
+- ✅ **air_routes** - Nueva tabla para rutas aéreas (Guangzhou-MX, Ningbo-MX, etc.)
+- ✅ **air_tariffs** - Tarifas por bracket de peso (0-30kg, 31-100kg, etc.)
+- ✅ **air_client_tariffs** - Precios personalizados por cliente (sobrescriben generales)
+- ✅ **AirPricingPage.tsx** - Interfaz completa con 3 pestañas: Rutas, Tarifas, Clientes
+- ✅ **6 endpoints CRUD** - Gestión completa de rutas, tarifas y precios cliente
+
+#### Asignación Automática de Precios
+- ✅ **processCallbackPayload** - Calcula y asigna precio cuando llega paquete vía API
+- ✅ **approveAirDraft** - Asigna precio al aprobar email (si no tiene)
+- ✅ **Prioridad cliente** - Tarifas personalizadas tienen prioridad sobre generales
+- ✅ **Columnas en packages** - air_price_per_kg, air_sale_price, air_tariff_type, etc.
+
+#### Costeo AWB y Utilidad
+- ✅ **air_waybill_costs** - Tabla para costos por AWB (flete, aduana, envío, otros)
+- ✅ **AwbCostingDialog.tsx** - Modal de costeo con campos de costo y documentos
+- ✅ **Upload de PDFs** - Subida de documentos vía multer (NO URLs manuales)
+- ✅ **Cálculo de utilidad** - profit = revenue (air_sale_price) - costs
+- ✅ **GET /api/awb-costs/:awb/profit** - Endpoint para calcular utilidad
+
+#### Resolución de Clientes
+- ✅ **shipping_mark → legacy_clients** - Clientes se resuelven vía china_receipts.shipping_mark
+- ✅ **LEFT JOIN corregido** - getAirDaughterGuides ahora muestra nombres correctamente
+- ✅ **Conteo "Sin Asignar"** - Corregido de 293 a 99 (excluyendo con shipping_mark)
+
+#### CAJO y Consolidación
+- ✅ **cajo_guides** - Nueva tabla para guías de proveedor CAJO
+- ✅ **CajoManagementPage.tsx** - Página de gestión de guías CAJO
+- ✅ **cajoController.ts** - CRUD de guías CAJO
+
+#### Archivos Nuevos/Modificados
+| Archivo | Cambio |
+|---------|--------|
+| `chinaController.ts` | Asignación de precios en processCallbackPayload, JOINs corregidos |
+| `airPricingController.ts` | Nuevo - CRUD rutas, tarifas, precios cliente |
+| `airWaybillCostController.ts` | Nuevo - Costeo AWB y utilidad |
+| `cajoController.ts` | Nuevo - Gestión guías CAJO |
+| `AirPricingPage.tsx` | Nuevo - Interfaz de tarifas con 3 pestañas |
+| `AwbCostingDialog.tsx` | Nuevo - Modal de costeo AWB |
+| `CajoManagementPage.tsx` | Nuevo - Gestión de guías CAJO |
+
+---
 
 ### v2.14.0 (19 Mar 2026) - DHL COSTEO INTERNACIONAL COMPLETO ⭐
 
