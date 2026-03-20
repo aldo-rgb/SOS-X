@@ -233,6 +233,7 @@ export default function AdvanceControlPanel() {
         }
     }, []);
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const _fetchAsignacionesBolsa = async (bolsaId: number) => {
         try {
             const res = await axios.get(`${API_URL}/api/anticipos/bolsas/${bolsaId}/asignaciones`, {

@@ -970,12 +970,12 @@ export default function DashboardClient() {
         setStats(response.data.stats);
         // Debug: ver qué paquetes llegan del backend
         console.log('📦 Paquetes recibidos del backend:', response.data.packages?.length || 0);
-        response.data.packages?.forEach(pkg => {
+        response.data.packages?.forEach((pkg: Package) => {
           console.log(`- ${pkg.tracking}: has_delivery_instructions=${pkg.has_delivery_instructions}, delivery_address_id=${pkg.delivery_address_id}, needs_instructions=${pkg.needs_instructions}, destination_address=${pkg.destination_address}`);
         });
         
         // Filtrar solo paquetes que existan realmente en la base de datos
-        const validPackages = (response.data.packages || []).filter(pkg => 
+        const validPackages = (response.data.packages || []).filter((pkg: Package) => 
           pkg.tracking && 
           pkg.tracking !== 'US-IBZ57499' && 
           pkg.tracking !== 'US-H6QN3188' && 
@@ -1004,7 +1004,7 @@ export default function DashboardClient() {
           zip: '78045',
         },
         paquetes: { en_transito: 0, en_bodega: 0, listos_recoger: 0, entregados_mes: 0 },
-        financiero: { saldo_pendiente: 0, saldo_favor: 0, credito_disponible: 0, ultimo_pago: null },
+        financiero: { saldo_pendiente: 0, saldo_favor: 0, credito_disponible: 0, ultimo_pago: '' },
       });
       setPackages([]); // No mostrar paquetes falsos
       setInvoices([]);
@@ -1329,7 +1329,7 @@ export default function DashboardClient() {
       );
       
       // Configuración de empresa por servicio
-      const companyConfig = {
+      const companyConfig: Record<string, { company: string; rfc: string }> = {
         'china_air': { company: 'EntregaX Aéreo', rfc: 'EAE123456789' },
         'china_sea': { company: 'EntregaX Marítimo', rfc: 'EMA123456789' },
         'usa_pobox': { company: 'EntregaX USA', rfc: 'EUS123456789' },
@@ -1495,7 +1495,8 @@ export default function DashboardClient() {
       
     } catch (error) {
       console.error('Error processing payment:', error);
-      const errorMessage = error.response?.data?.message || error.message || 'Error al procesar pago';
+      const err = error as { response?: { data?: { message?: string } }; message?: string };
+      const errorMessage = err.response?.data?.message || err.message || 'Error al procesar pago';
       setSnackbar({ 
         open: true, 
         message: `❌ ${errorMessage}`, 
