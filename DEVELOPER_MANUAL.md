@@ -1,7 +1,7 @@
 # 📚 EntregaX - Manual del Programador
 
-> **Última actualización:** 13 de marzo de 2026  
-> **Versión:** 2.13.0
+> **Última actualización:** 19 de marzo de 2026  
+> **Versión:** 2.14.0
 
 ---
 
@@ -35,7 +35,7 @@
 26. [API MJCustomer - China TDI Aéreo](#api-mjcustomer---china-tdi-aéreo)
 27. [Panel Marítimo China](#panel-marítimo-china)
 28. [Integración con OpenAI](#integración-con-openai)
-29. [DHL Monterrey - Costeo](#dhl-monterrey---costeo)
+29. [DHL Monterrey - Costeo Internacional](#dhl-monterrey---costeo-internacional) ⭐ ACTUALIZADO v2.14
 30. [Tradlinx Ocean Visibility](#tradlinx-ocean-visibility---tracking-de-contenedores)
 31. [Módulos Implementados](#módulos-implementados)
 32. [Guía de Desarrollo](#guía-de-desarrollo)
@@ -5793,7 +5793,7 @@ TRADLINX_USE_SANDBOX=true|false
 
 ### v2.5.0 (2 Mar 2026) - DHL COSTING & CHINA API SM2 ⭐
 
-#### DHL Monterrey - Sistema de Costeo
+#### DHL Monterrey - Sistema de Costeo (Base Inicial - Ampliado en v2.14.0)
 - ✅ **dhl_cost_rates** - Nueva tabla para tarifas de costo interno (Standard/High Value)
 - ✅ **DhlCostingPage.tsx** - Página de costeo con tabs: Tarifas de Costo + Lista de Cajas
 - ✅ **getDhlCostRates** - Endpoint GET `/api/admin/dhl/cost-rates`
@@ -6273,14 +6273,54 @@ POST /api/facebook/webhook
 
 ---
 
-## � DHL Monterrey - Costeo
+## 📦 DHL Monterrey - Costeo Internacional
 
 ### Descripción General
 
-El módulo de costeo DHL permite gestionar:
-1. **Tarifas de Costo** - Lo que EntregaX paga a DHL por tipo (Standard/High Value)
-2. **Lista de Cajas** - Todos los paquetes AA_DHL con sus costos asignados
-3. **Auto-asignación** - Asignar costos automáticamente basado en el tipo de producto
+El módulo de **Costeo Internacional DHL** gestiona todo el ciclo financiero de los envíos DHL recibidos en CEDIS Monterrey:
+
+1. **Tarifas de Costo (Tab 0)** - Desglose de costos internos por categoría: Agencia, Liberación, Otros
+2. **Lista de Cajas (Tab 1)** - Envíos con filtros de fecha, estado de pago, y acción de marcar pagados
+3. **Utilidades (Tab 2)** - Análisis de rentabilidad: Cobrado vs Costo vs Por Cobrar por envío
+
+### Modelo de Datos Financiero
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                    FLUJO FINANCIERO DHL                          │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  PRECIO AL CLIENTE (import_cost_mxn)                            │
+│  = users.dhl_standard_price (o dhl_high_value_price)            │
+│  × exchange_rate                                                 │
+│  Ejemplo: $125 USD × $21.46 = $2,682.50 MXN                    │
+│                                                                  │
+│  COSTO INTERNO (assigned_cost_usd) ← en MXN pese al nombre     │
+│  = dhl_cost_rates.costo_agencia                                 │
+│  + dhl_cost_rates.costo_liberacion                              │
+│  + dhl_cost_rates.costo_otros                                   │
+│  Se auto-asigna al momento de la recepción (receiveDhlPackage)  │
+│                                                                  │
+│  UTILIDAD = import_cost_mxn - assigned_cost_usd                 │
+│                                                                  │
+│  COBRADO = monto_pagado (lo que el cliente ha pagado)           │
+│  POR COBRAR = import_cost_mxn - monto_pagado                   │
+│                                                                  │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+### Colores del Módulo
+
+| Elemento | Color | Hex |
+|----------|-------|-----|
+| DHL Rojo | Botones principales, alertas | `#D40511` |
+| DHL Amarillo | Chips High Value | `#FFCC00` |
+| Naranja EntregaX | Totales, acentos, utilidad | `#F05A28` |
+| Negro | Footers, cards resumen | `#111111` |
+| Verde | Cobrado, utilidad positiva | `#4caf50` |
+| Naranja Warning | Por Cobrar | `#ff9800` |
+| Azul | Agencia | `#1565c0` |
+| Naranja Oscuro | Liberación | `#e65100` |
 
 ### Estructura de Base de Datos
 
@@ -6290,7 +6330,10 @@ CREATE TABLE dhl_cost_rates (
     id SERIAL PRIMARY KEY,
     rate_type VARCHAR(50) NOT NULL UNIQUE,  -- 'standard', 'high_value'
     rate_name VARCHAR(100) NOT NULL,
-    cost_usd DECIMAL(10,2) NOT NULL DEFAULT 0,
+    cost_usd DECIMAL(10,2) NOT NULL DEFAULT 0,  -- Total = suma de los 3 desgloses
+    costo_agencia DECIMAL(10,2) DEFAULT 0,      -- Costo de agencia aduanal
+    costo_liberacion DECIMAL(10,2) DEFAULT 0,   -- Costo de liberación del paquete
+    costo_otros DECIMAL(10,2) DEFAULT 0,        -- Maniobras, almacenaje, etc.
     description TEXT,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT NOW(),
@@ -6304,37 +6347,65 @@ VALUES
     ('high_value', 'High Value', 0, 'Costo por envío DHL High Value');
 ```
 
-#### Columnas en dhl_shipments
+#### Columnas de Costeo en dhl_shipments
 ```sql
-ALTER TABLE dhl_shipments ADD COLUMN assigned_cost_usd DECIMAL(10,2);
-ALTER TABLE dhl_shipments ADD COLUMN cost_rate_type VARCHAR(50);
+-- Costeo interno
+ALTER TABLE dhl_shipments ADD COLUMN assigned_cost_usd DECIMAL(10,2);  -- Costo total MXN (agencia+lib+otros)
+ALTER TABLE dhl_shipments ADD COLUMN cost_rate_type VARCHAR(50);        -- 'standard' o 'high_value'
 ALTER TABLE dhl_shipments ADD COLUMN cost_assigned_at TIMESTAMP;
 ALTER TABLE dhl_shipments ADD COLUMN cost_assigned_by INTEGER REFERENCES users(id);
+
+-- Tracking de pago de costos internos
+ALTER TABLE dhl_shipments ADD COLUMN cost_payment_status VARCHAR(20) DEFAULT 'pending'; -- 'pending', 'paid'
+ALTER TABLE dhl_shipments ADD COLUMN cost_paid_at TIMESTAMP;
+ALTER TABLE dhl_shipments ADD COLUMN cost_paid_by INTEGER REFERENCES users(id);
+ALTER TABLE dhl_shipments ADD COLUMN cost_payment_batch_id INTEGER;
+
+-- Tracking de pago del cliente
+ALTER TABLE dhl_shipments ADD COLUMN monto_pagado DECIMAL(10,2) DEFAULT 0;  -- Lo que el cliente ha pagado
+ALTER TABLE dhl_shipments ADD COLUMN saldo_pendiente DECIMAL(10,2);         -- Balance pendiente
+ALTER TABLE dhl_shipments ADD COLUMN paid_at TIMESTAMP;                     -- Fecha de pago del cliente
+```
+
+#### Tabla: dhl_cost_payment_batches
+```sql
+CREATE TABLE dhl_cost_payment_batches (
+    id SERIAL PRIMARY KEY,
+    batch_number VARCHAR(50) UNIQUE,        -- Ej: 'DHL-PAY-20260319-001'
+    shipment_count INTEGER NOT NULL,
+    total_amount DECIMAL(10,2) NOT NULL,
+    payment_method VARCHAR(50),             -- 'transfer', 'cash', etc.
+    payment_reference VARCHAR(100),
+    notes TEXT,
+    created_by INTEGER REFERENCES users(id),
+    created_at TIMESTAMP DEFAULT NOW()
+);
 ```
 
 ### Endpoints API
 
 | Método | Endpoint | Descripción | Rol Mínimo |
 |--------|----------|-------------|------------|
-| GET | `/api/admin/dhl/cost-rates` | Obtener tarifas de costo | ADMIN |
-| PUT | `/api/admin/dhl/cost-rates/:id` | Actualizar tarifa de costo | DIRECTOR |
-| GET | `/api/admin/dhl/costing` | Lista de cajas con costeo | ADMIN |
-| POST | `/api/admin/dhl/costing/assign` | Asignar costo a envíos | ADMIN |
-| POST | `/api/admin/dhl/costing/auto-assign` | Auto-asignar costos | ADMIN |
+| GET | `/api/admin/dhl/cost-rates` | Tarifas con desglose (agencia, liberación, otros) | ADMIN |
+| PUT | `/api/admin/dhl/cost-rates/:id` | Actualizar tarifa con desglose, auto-calcula total | DIRECTOR |
+| GET | `/api/admin/dhl/costing` | Lista de cajas con filtros de fecha y pago | ADMIN |
+| POST | `/api/admin/dhl/costing/assign` | Asignar costo a envíos seleccionados | ADMIN |
+| POST | `/api/admin/dhl/costing/auto-assign` | Auto-asignar costos por tipo | ADMIN |
+| POST | `/api/admin/dhl/costing/mark-paid` | Marcar envíos como pagados (costo interno) | ADMIN |
+| GET | `/api/admin/dhl/costing/payment-batches` | Historial de lotes de pago | ADMIN |
+| GET | `/api/admin/dhl/costing/profitability` | Datos de utilidad por envío | ADMIN |
 
-### Parámetros GET /api/admin/dhl/costing
+### GET /api/admin/dhl/costing - Parámetros
 
 | Parámetro | Tipo | Descripción |
 |-----------|------|-------------|
 | `search` | string | Buscar por tracking, cliente, box_id |
-| `status` | string | Filtrar por estado del envío |
 | `has_cost` | 'true'/'false' | Filtrar por si tiene costo asignado |
+| `payment_status` | 'pending'/'paid'/'all' | Filtrar por estado de pago (default: 'pending') |
 | `date_from` | date | Fecha inicial |
 | `date_to` | date | Fecha final |
-| `limit` | number | Límite de resultados (default: 50) |
-| `offset` | number | Offset para paginación |
 
-### Respuesta GET /api/admin/dhl/costing
+### GET /api/admin/dhl/costing - Respuesta
 
 ```json
 {
@@ -6345,78 +6416,193 @@ ALTER TABLE dhl_shipments ADD COLUMN cost_assigned_by INTEGER REFERENCES users(i
       "product_type": "standard",
       "weight_kg": 5.5,
       "status": "received_mty",
-      "assigned_cost_usd": 145.00,
+      "assigned_cost_usd": 800.00,
       "cost_rate_type": "standard",
+      "cost_payment_status": "pending",
       "client_name": "Juan Pérez",
-      "client_box_id": "S1234"
+      "client_box_id": "S1234",
+      "rate_costo_agencia": 500.00,
+      "rate_costo_liberacion": 250.00,
+      "rate_costo_otros": 50.00
     }
   ],
-  "total": 150,
   "stats": {
-    "total_shipments": 150,
-    "with_cost": 120,
-    "without_cost": 30,
-    "total_cost_usd": 17400.00,
-    "standard_count": 100,
-    "high_value_count": 50
+    "total_shipments": 7,
+    "with_cost": 7,
+    "without_cost": 0,
+    "total_cost_usd": 5600.00,
+    "standard_count": 5,
+    "high_value_count": 2,
+    "paid_count": 0,
+    "unpaid_count": 7,
+    "total_paid": 0,
+    "total_unpaid": 5600.00,
+    "total_agencia": 3500.00,
+    "total_liberacion": 1750.00,
+    "total_otros": 350.00
   }
 }
 ```
 
-### POST /api/admin/dhl/costing/assign
+### PUT /api/admin/dhl/cost-rates/:id - Actualizar Tarifa
+
+```json
+// Request - Se envía el desglose, el total se calcula automáticamente
+{
+  "costo_agencia": 500.00,
+  "costo_liberacion": 250.00,
+  "costo_otros": 50.00,
+  "description": "Tarifa actualizada marzo 2026"
+}
+
+// Backend calcula: cost_usd = 500 + 250 + 50 = 800.00
+```
+
+### POST /api/admin/dhl/costing/mark-paid
 
 ```json
 // Request
 {
   "shipment_ids": [1, 2, 3],
-  "cost_rate_type": "standard",     // o "high_value"
-  "custom_cost_usd": null           // si se quiere costo personalizado
+  "payment_method": "transfer",
+  "payment_reference": "REF-0001",
+  "notes": "Pago transferencia BBVA"
 }
 
 // Response
 {
   "success": true,
-  "message": "Costo asignado a 3 envío(s)",
-  "updated": [
-    { "id": 1, "inbound_tracking": "123", "assigned_cost_usd": 145.00 }
-  ]
+  "message": "3 envío(s) marcados como pagados",
+  "batch": {
+    "id": 1,
+    "batch_number": "DHL-PAY-20260319-001",
+    "shipment_count": 3,
+    "total_amount": 2400.00
+  }
 }
+```
+
+### GET /api/admin/dhl/costing/profitability - Utilidades
+
+```json
+// Parámetros: date_from, date_to, search
+
+// Response
+{
+  "data": [
+    {
+      "id": 1,
+      "inbound_tracking": "2323434543",
+      "product_type": "standard",
+      "client_name": "Jose Lopez",
+      "revenue": 2682.50,       // import_cost_mxn - lo que se cobra
+      "cost": 800.00,           // assigned_cost_usd - lo que nos cuesta
+      "agencia": 500.00,
+      "liberacion": 250.00,
+      "otros": 50.00,
+      "profit": 1882.50,        // revenue - cost
+      "cobrado": 0.00,          // monto_pagado - lo que ha pagado el cliente
+      "por_cobrar": 2682.50,    // revenue - cobrado
+      "is_paid": false          // si paid_at tiene valor
+    }
+  ],
+  "summary": {
+    "total_shipments": 7,
+    "standard_count": 5,
+    "hv_count": 2,
+    "total_revenue": 21237.50,
+    "total_cost": 5600.00,
+    "total_agencia": 3500.00,
+    "total_liberacion": 1750.00,
+    "total_otros": 350.00,
+    "total_profit": 15637.50,
+    "total_cobrado": 0.00,
+    "total_por_cobrar": 21237.50
+  }
+}
+```
+
+### Auto-asignación de Costos en Recepción
+
+El costo se asigna **automáticamente** al momento de recibir un paquete DHL (`receiveDhlPackage`). No se necesita asignación manual posterior.
+
+```typescript
+// En receiveDhlPackage() - dhlController.ts
+// Al INSERT, se busca la tarifa vigente para el product_type
+const costRate = await pool.query(
+  'SELECT cost_usd FROM dhl_cost_rates WHERE rate_type = $1',
+  [product_type]  // 'standard' o 'high_value'
+);
+// Se asigna assigned_cost_usd = costRate.cost_usd en el INSERT
 ```
 
 ### Componentes Frontend
 
-#### DhlCostingPage.tsx
+#### DhlCostingPage.tsx (~1200 líneas)
 ```
 /entregax-web-admin/src/pages/DhlCostingPage.tsx
 
 Tabs:
 ├── Tab 0: Tarifas de Costo
-│   └── Tabla editable con Standard y High Value
+│   ├── Tabla con columnas: Tipo, Agencia, Liberación, Otros, Total
+│   ├── Botón editar abre dialog con 3 campos + total auto-calculado
+│   └── Paper negro con total y chips de desglose
 │
-└── Tab 1: Lista de Cajas
-    ├── Filtros (búsqueda, estado de costo)
-    ├── Selección múltiple
-    ├── Botón Auto-Asignar
-    ├── Botón Asignar Costo (seleccionados)
-    └── Resumen estadístico
+├── Tab 1: Lista de Cajas
+│   ├── Filtros: fecha desde/hasta, estado pago (Pendientes/Pagados/Todos), búsqueda
+│   ├── Filtro de pago por defecto: "pending" (solo pendientes)
+│   ├── Checkbox selección múltiple
+│   ├── Columnas: tracking, cliente, tipo, costo, agencia, liberación, estado pago
+│   ├── Botón "Marcar como Pagado" (seleccionados)
+│   └── Footer negro con totales: cajas, std/hv, agencia, liberación, otros, costo total
+│
+└── Tab 2: Utilidades
+    ├── Filtros: fecha desde/hasta, búsqueda
+    ├── Summary Cards: Total Cajas, Precio Cobro (MXN), Costo (Gasto), Utilidad Neta, Por Cobrar
+    ├── Tabla: tracking, cliente, tipo, peso, fecha, cobrado, por cobrar, costo, agencia, lib, utilidad
+    ├── Columna "Por Cobrar" con Chip naranja (monto) o verde ("Pagado")
+    └── Footer negro: cajas, ingresos, costos, utilidad neta, por cobrar
 ```
 
-#### Acceso en AdminHubPage
-```
-Admin Hub → MX CEDIS → Costeo
+#### Acceso en AdminHubPage - Módulos MX CEDIS
+```typescript
+// Orden de módulos en AdminHubPage.tsx para mx_cedis:
+const modules = [
+  { key: 'costing', name: 'Costeo Internacional', icon: '💰' },
+  { key: 'dhl_rates', name: 'Tarifas DHL', icon: '📊' },
+  { key: 'invoicing', name: 'Facturación', icon: '🧾' },
+  { key: 'instructions', name: 'Direcciones', icon: '📍' },
+  // Nota: 'inventory' fue removido de mx_cedis
+];
 ```
 
-### Migración
+### Migraciones
 
 ```bash
-# Ejecutar migración
+# Migración original (tarifas + columnas básicas)
 cd entregax-backend-api
 node run_dhl_cost_migration.js
+
+# Migración de desglose de costos (agencia, liberación, otros)
+psql -d entregax -f migrations/add_dhl_cost_breakdown.sql
+
+# Migración de tracking de pagos (batches, cost_payment_status, etc.)
+psql -d entregax -f migrations/add_dhl_cost_payment.sql
 ```
+
+### Archivos Clave
+
+| Archivo | Propósito | Líneas aprox. |
+|---------|-----------|---------------|
+| `src/dhlController.ts` | Todos los endpoints DHL (costeo, recepción, tarifas, utilidades) | ~1290 |
+| `src/pages/DhlCostingPage.tsx` | UI de costeo con 3 tabs | ~1200 |
+| `src/pages/AdminHubPage.tsx` | Hub que incluye mx_cedis con módulo costing | ~800 |
+| `migrations/add_dhl_cost_breakdown.sql` | Agrega costo_agencia, costo_liberacion, costo_otros | — |
+| `migrations/add_dhl_cost_payment.sql` | Agrega dhl_cost_payment_batches y columnas de pago | — |
 
 ---
 
-## �📝 Changelog
+## 📝 Changelog
 
 #### Asignación de Permisos (Script)
 ```javascript
@@ -6440,6 +6626,70 @@ for (const mod of modules.rows) {
   `, [userId, mod.panel_key, mod.module_key]);
 }
 ```
+
+### v2.14.0 (19 Mar 2026) - DHL COSTEO INTERNACIONAL COMPLETO ⭐
+
+#### DHL Monterrey - Desglose de Costos por Categoría
+- ✅ **Desglose 3 categorías** - Costo dividido en: Agencia Aduanal, Liberación, Otros
+- ✅ **costo_agencia, costo_liberacion, costo_otros** - Nuevas columnas en dhl_cost_rates
+- ✅ **cost_usd auto-calculado** - Total = suma de las 3 categorías
+- ✅ **Dialog de edición** - 3 campos individuales + total auto-calculado en footer negro
+- ✅ **Migración add_dhl_cost_breakdown.sql** - Agrega columnas de desglose
+
+#### DHL Monterrey - Tracking de Pagos Internos
+- ✅ **dhl_cost_payment_batches** - Nueva tabla para lotes de pago
+- ✅ **cost_payment_status** - Estado de pago por envío (pending/paid)
+- ✅ **markDhlCostPaid** - POST endpoint para marcar envíos como pagados en lote
+- ✅ **getDhlPaymentBatches** - GET historial de lotes de pago
+- ✅ **Checkbox selección múltiple** - Seleccionar envíos para marcar pagados
+- ✅ **Filtro de pago** - Pendientes/Pagados/Todos (default: pendientes)
+- ✅ **Migración add_dhl_cost_payment.sql** - Tabla batches + columnas de tracking
+
+#### DHL Monterrey - Filtros de Fecha en Lista de Cajas
+- ✅ **date_from / date_to** - Filtros de rango de fecha en Tab 1
+- ✅ **CalendarIcon** - Icono visual para filtros de fecha
+- ✅ **Backend date filtering** - `created_at >= $date::date` y `< $date::date + 1 day`
+
+#### DHL Monterrey - Auto-asignación de Costos en Recepción
+- ✅ **receiveDhlPackage mejorado** - Busca tarifa vigente al momento de INSERT
+- ✅ **assigned_cost_usd auto-populate** - Se asigna automáticamente sin intervención manual
+- ✅ **Botones de asignación removidos** - Ya no se necesitan en UI (costo va en recepción)
+
+#### DHL Monterrey - Tab Utilidades (Profitability)
+- ✅ **getDhlProfitability** - Nuevo endpoint GET `/api/admin/dhl/costing/profitability`
+- ✅ **Tab 2 en DhlCostingPage** - Vista de análisis de rentabilidad
+- ✅ **Filtros de fecha y búsqueda** - Independientes del Tab 1
+- ✅ **Summary Cards** - Total Cajas, Precio Cobro, Costo (Gasto), Utilidad Neta, Por Cobrar
+- ✅ **Tabla por envío** - Tracking, Cliente, Tipo, Peso, Fecha, Cobrado, Por Cobrar, Costo, Agencia, Liberación, Utilidad
+- ✅ **Columna Por Cobrar** - Chip naranja con monto pendiente o verde "Pagado"
+- ✅ **Cálculo por envío** - revenue (import_cost_mxn), cost (assigned_cost_usd), profit, cobrado (monto_pagado), por_cobrar
+- ✅ **Footer negro** - Totales: Cajas, Ingresos, Costos, Utilidad Neta, Por Cobrar
+
+#### DHL Monterrey - Columnas de Pago del Cliente
+- ✅ **monto_pagado** - Lo que el cliente ha pagado (default 0)
+- ✅ **saldo_pendiente** - Balance pendiente del cliente
+- ✅ **paid_at** - Timestamp de pago del cliente
+- ✅ **por_cobrar = import_cost_mxn - monto_pagado** - Calculado en backend
+- ✅ **total_cobrado / total_por_cobrar** - Agregados en summary de profitability
+
+#### Módulos MX CEDIS - Orden y Limpieza
+- ✅ **Orden de módulos** - costing → dhl_rates → invoicing → instructions
+- ✅ **Módulo inventory removido** - Ya no aparece en la lista de mx_cedis
+
+#### Endpoints Nuevos
+| Método | Endpoint | Descripción |
+|--------|----------|-------------|
+| POST | `/api/admin/dhl/costing/mark-paid` | Marcar envíos como pagados (lote) |
+| GET | `/api/admin/dhl/costing/payment-batches` | Historial de lotes de pago |
+| GET | `/api/admin/dhl/costing/profitability` | Datos de utilidad + cobrado/por cobrar |
+
+#### Archivos Modificados
+- `src/dhlController.ts` - getDhlCostRates, updateDhlCostRate, getDhlCosting, markDhlCostPaid, getDhlPaymentBatches, getDhlProfitability, receiveDhlPackage
+- `src/index.ts` - Registro de nuevas rutas (mark-paid, payment-batches, profitability)
+- `src/pages/DhlCostingPage.tsx` - 3 tabs completas (~1200 líneas)
+- `src/pages/AdminHubPage.tsx` - Módulos mx_cedis actualizados
+- `migrations/add_dhl_cost_breakdown.sql` - Columnas de desglose
+- `migrations/add_dhl_cost_payment.sql` - Tabla batches + columnas de tracking pago
 
 ### v2.12.0 (12 Mar 2026) - ASIGNACIÓN DE ASESORES ⭐
 - ✅ **Asignación de Asesor a Clientes** - Dropdown en modal de edición

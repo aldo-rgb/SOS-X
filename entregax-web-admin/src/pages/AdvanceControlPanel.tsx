@@ -52,6 +52,7 @@ import {
     TrendingUp as TrendingUpIcon,
     Refresh as RefreshIcon,
     Assignment as AssignmentIcon,
+    Delete as DeleteIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -91,8 +92,22 @@ interface Bolsa {
     comprobante_url: string | null;
     referencia_pago: string | null;
     numero_operacion: string | null;
+    banco_origen: string | null;
+    tipo_pago: string | null;
+    notas: string | null;
     estado: string;
     total_asignaciones: number;
+}
+
+interface Referencia {
+    id: number;
+    referencia: string;
+    monto: number;
+    estado: string;
+    created_at: string;
+    usado_at: string | null;
+    container_number: string | null;
+    usado_por_nombre: string | null;
 }
 
 interface Asignacion {
@@ -157,7 +172,13 @@ export default function AdvanceControlPanel() {
     
     // Asignaciones
     const [asignaciones, setAsignaciones] = useState<Asignacion[]>([]);
+    const [referencias, setReferencias] = useState<Referencia[]>([]);
     const [expandedBolsa, setExpandedBolsa] = useState<number | null>(null);
+    
+    // Eliminar bolsa
+    const [deleteDialog, setDeleteDialog] = useState(false);
+    const [bolsaToDelete, setBolsaToDelete] = useState<Bolsa | null>(null);
+    const [deleting, setDeleting] = useState(false);
     
     // UI
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
@@ -208,6 +229,7 @@ export default function AdvanceControlPanel() {
             const res = await axios.get(url, {
                 headers: { Authorization: `Bearer ${getToken()}` }
             });
+            console.log('Bolsas recibidas:', res.data.map((b: any) => ({ id: b.id, comprobante_url: b.comprobante_url })));
             setBolsas(res.data);
         } catch (error) {
             console.error('Error fetching bolsas:', error);
@@ -222,6 +244,17 @@ export default function AdvanceControlPanel() {
             setAsignaciones(res.data);
         } catch (error) {
             console.error('Error fetching asignaciones:', error);
+        }
+    };
+
+    const fetchReferenciasBolsa = async (bolsaId: number) => {
+        try {
+            const res = await axios.get(`${API_URL}/api/anticipos/bolsas/${bolsaId}/referencias`, {
+                headers: { Authorization: `Bearer ${getToken()}` }
+            });
+            setReferencias(res.data);
+        } catch (error) {
+            console.error('Error fetching referencias:', error);
         }
     };
 
@@ -403,7 +436,36 @@ export default function AdvanceControlPanel() {
             setExpandedBolsa(null);
         } else {
             setExpandedBolsa(bolsaId);
-            fetchAsignacionesBolsa(bolsaId);
+            fetchReferenciasBolsa(bolsaId);
+        }
+    };
+
+    // Eliminar bolsa de anticipo
+    const handleDeleteBolsa = async () => {
+        console.log('handleDeleteBolsa called, bolsaToDelete:', bolsaToDelete);
+        if (!bolsaToDelete) {
+            console.log('No hay bolsa seleccionada para eliminar');
+            return;
+        }
+        
+        setDeleting(true);
+        try {
+            console.log('Enviando DELETE a:', `${API_URL}/api/anticipos/bolsas/${bolsaToDelete.id}`);
+            const response = await axios.delete(`${API_URL}/api/anticipos/bolsas/${bolsaToDelete.id}`, {
+                headers: { Authorization: `Bearer ${getToken()}` }
+            });
+            console.log('Respuesta:', response.data);
+            setSnackbar({ open: true, message: 'Depósito eliminado correctamente', severity: 'success' });
+            setDeleteDialog(false);
+            setBolsaToDelete(null);
+            fetchBolsas();
+            fetchStats();
+        } catch (error: any) {
+            console.error('Error eliminando bolsa:', error);
+            const errorMsg = error.response?.data?.error || 'Error al eliminar depósito';
+            setSnackbar({ open: true, message: errorMsg, severity: 'error' });
+        } finally {
+            setDeleting(false);
         }
     };
 
@@ -460,32 +522,12 @@ export default function AdvanceControlPanel() {
                             </CardContent>
                         </Card>
                     </Grid>
-                    <Grid size={{ xs: 6, md: 2 }}>
+                    <Grid size={{ xs: 6, md: 3 }}>
                         <Card sx={{ bgcolor: '#FFF3E0' }}>
                             <CardContent sx={{ textAlign: 'center', py: 2 }}>
                                 <MoneyIcon sx={{ fontSize: 30, color: '#F57C00' }} />
                                 <Typography variant="h6" fontWeight="bold">${formatCurrency(stats.total_depositado)}</Typography>
                                 <Typography variant="caption">Total Depositado</Typography>
-                            </CardContent>
-                        </Card>
-                    </Grid>
-                    <Grid size={{ xs: 6, md: 3 }}>
-                        <Card sx={{ bgcolor: '#E8F5E9', border: '2px solid #4CAF50' }}>
-                            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                                <TrendingUpIcon sx={{ fontSize: 30, color: '#2E7D32' }} />
-                                <Typography variant="h5" fontWeight="bold" color="success.main">
-                                    ${formatCurrency(stats.saldo_total_disponible)}
-                                </Typography>
-                                <Typography variant="caption">Saldo Disponible</Typography>
-                            </CardContent>
-                        </Card>
-                    </Grid>
-                    <Grid size={{ xs: 12, md: 3 }}>
-                        <Card sx={{ bgcolor: '#FCE4EC' }}>
-                            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                                <AssignmentIcon sx={{ fontSize: 30, color: '#C2185B' }} />
-                                <Typography variant="h6" fontWeight="bold">${formatCurrency(stats.total_asignado)}</Typography>
-                                <Typography variant="caption">Asignado ({stats.total_asignaciones_activas} asign.)</Typography>
                             </CardContent>
                         </Card>
                     </Grid>
@@ -634,34 +676,28 @@ export default function AdvanceControlPanel() {
                                                 <Typography variant="subtitle2" color="text.secondary">Fecha Pago</Typography>
                                                 <Typography>{new Date(bolsa.fecha_pago).toLocaleDateString()}</Typography>
                                             </Grid>
-                                            <Grid size={{ xs: 6, md: 2 }}>
-                                                <Typography variant="subtitle2" color="text.secondary">Monto Original</Typography>
-                                                <Typography fontWeight="bold">${formatCurrency(bolsa.monto_original)}</Typography>
+                                            <Grid size={{ xs: 6, md: 3 }}>
+                                                <Typography variant="subtitle2" color="text.secondary">Monto Total</Typography>
+                                                <Typography fontWeight="bold" color="success.main">${formatCurrency(bolsa.monto_original)}</Typography>
                                             </Grid>
-                                            <Grid size={{ xs: 6, md: 2 }}>
-                                                <Typography variant="subtitle2" color="text.secondary">Saldo Disponible</Typography>
-                                                <Typography fontWeight="bold" color={parseFloat(String(bolsa.saldo_disponible)) > 0 ? 'success.main' : 'error.main'}>
-                                                    ${formatCurrency(bolsa.saldo_disponible)}
-                                                </Typography>
-                                            </Grid>
-                                            <Grid size={{ xs: 6, md: 2 }}>
-                                                <Typography variant="subtitle2" color="text.secondary">Utilizado</Typography>
-                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                    <LinearProgress 
-                                                        variant="determinate" 
-                                                        value={Math.min(bolsa.porcentaje_utilizado, 100)} 
-                                                        sx={{ flex: 1, height: 8, borderRadius: 4 }}
-                                                        color={bolsa.porcentaje_utilizado >= 100 ? 'error' : 'primary'}
-                                                    />
-                                                    <Typography variant="caption">{bolsa.porcentaje_utilizado}%</Typography>
-                                                </Box>
-                                            </Grid>
-                                            <Grid size={{ xs: 12, md: 1 }}>
-                                                <Box sx={{ display: 'flex', gap: 1 }}>
-                                                    {bolsa.comprobante_url && (
+                                            <Grid size={{ xs: 12, md: 2 }}>
+                                                <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                                    {bolsa.comprobante_url ? (
                                                         <Tooltip title="Ver comprobante">
-                                                            <IconButton size="small" onClick={() => window.open(bolsa.comprobante_url!, '_blank')}>
+                                                            <IconButton 
+                                                                size="small" 
+                                                                onClick={() => {
+                                                                    console.log('Abriendo comprobante:', bolsa.comprobante_url);
+                                                                    window.open(bolsa.comprobante_url!, '_blank');
+                                                                }}
+                                                            >
                                                                 <VisibilityIcon />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                    ) : (
+                                                        <Tooltip title="Sin comprobante">
+                                                            <IconButton size="small" disabled>
+                                                                <VisibilityIcon sx={{ opacity: 0.3 }} />
                                                             </IconButton>
                                                         </Tooltip>
                                                     )}
@@ -670,59 +706,84 @@ export default function AdvanceControlPanel() {
                                                             {expandedBolsa === bolsa.id ? <ExpandLessIcon /> : <ExpandMoreIcon />}
                                                         </IconButton>
                                                     </Tooltip>
+                                                    <Tooltip title="Eliminar depósito">
+                                                        <IconButton 
+                                                            size="small" 
+                                                            color="error"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                console.log('Click eliminar bolsa:', bolsa);
+                                                                setBolsaToDelete(bolsa);
+                                                                setDeleteDialog(true);
+                                                            }}
+                                                        >
+                                                            <DeleteIcon />
+                                                        </IconButton>
+                                                    </Tooltip>
                                                 </Box>
                                             </Grid>
                                         </Grid>
 
-                                        {/* Historial de asignaciones */}
+                                        {/* Historial de referencias */}
                                         <Collapse in={expandedBolsa === bolsa.id}>
                                             <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid #eee' }}>
+                                                {/* Notas */}
+                                                {bolsa.notas && (
+                                                    <Box sx={{ mb: 2, p: 1.5, bgcolor: '#fff8e1', borderRadius: 1, border: '1px solid #ffe082' }}>
+                                                        <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                                                            📝 Notas del depósito:
+                                                        </Typography>
+                                                        <Typography variant="body2">{bolsa.notas}</Typography>
+                                                    </Box>
+                                                )}
+
                                                 <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                    <HistoryIcon fontSize="small" /> Historial de Asignaciones ({bolsa.total_asignaciones})
+                                                    <HistoryIcon fontSize="small" /> Referencias Asignadas ({bolsa.total_asignaciones})
                                                 </Typography>
-                                                {asignaciones.length === 0 ? (
+                                                {referencias.length === 0 ? (
                                                     <Typography variant="body2" color="text.secondary">
-                                                        No hay asignaciones para esta bolsa.
+                                                        No hay referencias registradas para esta bolsa.
                                                     </Typography>
                                                 ) : (
                                                     <TableContainer>
                                                         <Table size="small">
                                                             <TableHead>
                                                                 <TableRow>
+                                                                    <TableCell>Referencia</TableCell>
                                                                     <TableCell>Contenedor</TableCell>
-                                                                    <TableCell>Campo</TableCell>
                                                                     <TableCell align="right">Monto</TableCell>
-                                                                    <TableCell>Fecha</TableCell>
+                                                                    <TableCell>Fecha Registro</TableCell>
                                                                     <TableCell>Estado</TableCell>
                                                                 </TableRow>
                                                             </TableHead>
                                                             <TableBody>
-                                                                {asignaciones.filter(a => a.bolsa_anticipo_id === bolsa.id).map((asig) => (
-                                                                    <TableRow key={asig.id}>
+                                                                {referencias.map((ref) => (
+                                                                    <TableRow key={ref.id}>
                                                                         <TableCell>
-                                                                            <Typography variant="body2" fontFamily="monospace">
-                                                                                {asig.container_number}
+                                                                            <Typography variant="body2" fontFamily="monospace" fontWeight="bold">
+                                                                                {ref.referencia}
                                                                             </Typography>
                                                                         </TableCell>
                                                                         <TableCell>
-                                                                            <Chip 
-                                                                                label={asig.campo_anticipo.replace('advance_', 'Anticipo ')}
-                                                                                size="small"
-                                                                            />
+                                                                            <Typography variant="body2" fontFamily="monospace" color="text.secondary">
+                                                                                {ref.container_number || '-'}
+                                                                            </Typography>
                                                                         </TableCell>
                                                                         <TableCell align="right">
-                                                                            <Typography fontWeight="bold">
-                                                                                ${formatCurrency(asig.monto_asignado)}
+                                                                            <Typography fontWeight="bold" color="success.main">
+                                                                                ${formatCurrency(ref.monto)}
                                                                             </Typography>
                                                                         </TableCell>
                                                                         <TableCell>
-                                                                            {new Date(asig.fecha_asignacion).toLocaleDateString()}
+                                                                            {new Date(ref.created_at).toLocaleDateString()}
                                                                         </TableCell>
                                                                         <TableCell>
-                                                                            {asig.is_active ? (
-                                                                                <Chip label="Activo" size="small" color="success" />
+                                                                            {ref.estado === 'disponible' ? (
+                                                                                <Chip label="✓ Disponible" size="small" color="success" />
+                                                                            ) : ref.estado === 'usado' ? (
+                                                                                <Chip label="Usado" size="small" color="warning" />
                                                                             ) : (
-                                                                                <Chip label="Revertido" size="small" color="error" />
+                                                                                <Chip label={ref.estado} size="small" />
                                                                             )}
                                                                         </TableCell>
                                                                     </TableRow>
@@ -891,14 +952,18 @@ export default function AdvanceControlPanel() {
                                     />
                                 </Grid>
                                 <Grid size={{ xs: 12, md: 6 }}>
-                                    <TextField
-                                        fullWidth
-                                        required
-                                        label="Banco Origen *"
-                                        value={newBolsa.banco_origen}
-                                        onChange={(e) => setNewBolsa({ ...newBolsa, banco_origen: e.target.value })}
-                                        placeholder="Ej: BBVA, Banorte, Santander..."
-                                    />
+                                    <FormControl fullWidth required>
+                                        <InputLabel>Banco Origen *</InputLabel>
+                                        <Select
+                                            value={newBolsa.banco_origen}
+                                            label="Banco Origen *"
+                                            onChange={(e) => setNewBolsa({ ...newBolsa, banco_origen: e.target.value })}
+                                        >
+                                            <MenuItem value="BANORTE">BANORTE</MenuItem>
+                                            <MenuItem value="BBVA">BBVA</MenuItem>
+                                            <MenuItem value="BANREGIO">BANREGIO</MenuItem>
+                                        </Select>
+                                    </FormControl>
                                 </Grid>
                             </>
                         )}
@@ -1089,6 +1154,50 @@ export default function AdvanceControlPanel() {
                             {saving ? <CircularProgress size={20} /> : `Registrar Depósito ($${formatCurrency(getTotalReferencias())})`}
                         </Button>
                     </Box>
+                </DialogActions>
+            </Dialog>
+
+            {/* Diálogo de confirmación de eliminación */}
+            <Dialog open={deleteDialog} onClose={() => setDeleteDialog(false)} maxWidth="sm" fullWidth>
+                <DialogTitle sx={{ color: 'error.main' }}>
+                    ⚠️ Eliminar Depósito
+                </DialogTitle>
+                <DialogContent>
+                    {bolsaToDelete && (
+                        <Box>
+                            <Typography gutterBottom>
+                                ¿Estás seguro de eliminar este depósito?
+                            </Typography>
+                            <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
+                                <Typography><strong>Proveedor:</strong> {bolsaToDelete.proveedor_nombre}</Typography>
+                                <Typography><strong>Monto Original:</strong> ${formatCurrency(bolsaToDelete.monto_original)}</Typography>
+                                <Typography><strong>Saldo Disponible:</strong> ${formatCurrency(bolsaToDelete.saldo_disponible)}</Typography>
+                                <Typography><strong>Fecha:</strong> {new Date(bolsaToDelete.fecha_pago).toLocaleDateString()}</Typography>
+                                {bolsaToDelete.referencia_pago && (
+                                    <Typography><strong>Referencia:</strong> {bolsaToDelete.referencia_pago}</Typography>
+                                )}
+                            </Box>
+                            {bolsaToDelete.total_asignaciones > 0 && (
+                                <Alert severity="warning" sx={{ mt: 2 }}>
+                                    Este depósito tiene {bolsaToDelete.total_asignaciones} asignación(es) activa(s) que serán revertidas automáticamente.
+                                </Alert>
+                            )}
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setDeleteDialog(false)} disabled={deleting}>
+                        Cancelar
+                    </Button>
+                    <Button 
+                        onClick={handleDeleteBolsa} 
+                        color="error" 
+                        variant="contained"
+                        disabled={deleting}
+                        startIcon={deleting ? <CircularProgress size={20} /> : <DeleteIcon />}
+                    >
+                        {deleting ? 'Eliminando...' : 'Eliminar'}
+                    </Button>
                 </DialogActions>
             </Dialog>
 

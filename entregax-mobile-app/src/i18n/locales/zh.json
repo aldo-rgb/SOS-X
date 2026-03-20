@@ -15,9 +15,11 @@
     "no": "否",
     "error": "错误",
     "success": "成功",
+    "ok": "确定",
     "retry": "重试",
     "viewAll": "查看全部",
-    "noData": "暂无数据"
+    "noData": "暂无数据",
+    "optional": "可选"
   },
   "auth": {
     "login": "登录",
@@ -252,6 +254,43 @@
     "inReview": "审核中",
     "approved": "已通过",
     "rejected": "已拒绝"
+  },
+  "helpCenter": {
+    "title": "帮助中心",
+    "welcomeTitle": "我们如何帮助您？",
+    "welcomeSubtitle": "选择一个选项以获得帮助",
+    "talkNow": "立即对话",
+    "talkNowDesc": "与我们的虚拟助手聊天获得即时回复",
+    "requestAdvisor": "请求顾问",
+    "requestAdvisorDesc": "将您的账户与销售顾问关联",
+    "createTicket": "创建工单",
+    "createTicketDesc": "报告问题，我们会尽快回复",
+    "infoText": "我们的客服团队工作时间为周一至周五10:00至18:00。",
+    "categoryLabel": "类别",
+    "selectCategory": "请选择一个类别",
+    "trackingLabel": "快递单号",
+    "trackingPlaceholder": "例如：EX12345678",
+    "enterTracking": "请输入快递单号",
+    "describeIssue": "问题描述",
+    "ticketPlaceholder": "请详细描述您的问题...",
+    "ticketInfoText": "您的消息将由人工客服处理。",
+    "sendTicket": "发送工单",
+    "enterMessage": "请输入问题描述",
+    "ticketCreated": "工单已创建！",
+    "ticketCreatedMsg": "您的工单 #{{folio}} 已创建，我们将尽快回复。",
+    "requestSent": "请求已发送！",
+    "advisorRequest": "{{name}} 请求联系人工顾问",
+    "advisorRequestSuccess": "您的请求 #{{folio}} 已登记，顾问将尽快与您联系。",
+    "categories": {
+      "tracking": "物流追踪",
+      "delay": "延误",
+      "warranty": "延长保修",
+      "compensation": "赔偿",
+      "systemError": "系统错误",
+      "other": "其他"
+    },
+    "yourAdvisor": "您的顾问",
+    "noAdvisorPhone": "此顾问没有登记电话号码"
   },
   "support": {
     "title": "帮助中心",

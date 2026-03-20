@@ -138,7 +138,7 @@ const SERVICES: ServiceCard[] = [
     tagline: '¡Express nacional sin complicaciones!',
     benefits: [
       '✅ Liberación en 24-48 hrs',
-      '📋 Sin trámites de importación',
+      '📋 Sin trámites de importación complicados',
       '🏪 Recibe en nuestro CEDIS MTY',
       '💳 Pago contra entrega disponible',
     ],

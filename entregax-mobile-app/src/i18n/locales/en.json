@@ -15,9 +15,11 @@
     "no": "No",
     "error": "Error",
     "success": "Success",
+    "ok": "OK",
     "retry": "Retry",
     "viewAll": "View all",
-    "noData": "No data"
+    "noData": "No data",
+    "optional": "Optional"
   },
   "auth": {
     "login": "Login",
@@ -253,6 +255,43 @@
     "inReview": "Under Review",
     "approved": "Approved",
     "rejected": "Rejected"
+  },
+  "helpCenter": {
+    "title": "Help Center",
+    "welcomeTitle": "How can we help you?",
+    "welcomeSubtitle": "Select an option to receive assistance",
+    "talkNow": "Talk Now",
+    "talkNowDesc": "Chat with our virtual assistant for immediate answers",
+    "requestAdvisor": "Request Advisor",
+    "requestAdvisorDesc": "Link your account with a sales advisor",
+    "createTicket": "Create Support Ticket",
+    "createTicketDesc": "Report an issue and we'll respond soon",
+    "infoText": "Our support team is available Monday to Friday from 10:00 AM to 6:00 PM.",
+    "categoryLabel": "Category",
+    "selectCategory": "Please select a category",
+    "trackingLabel": "Tracking Number",
+    "trackingPlaceholder": "E.g. EX12345678",
+    "enterTracking": "Please enter tracking number",
+    "describeIssue": "Issue Description",
+    "ticketPlaceholder": "Describe your issue in detail...",
+    "ticketInfoText": "Your message will be handled by a human support agent.",
+    "sendTicket": "Send Ticket",
+    "enterMessage": "Please enter a description",
+    "ticketCreated": "Ticket Created!",
+    "ticketCreatedMsg": "Your ticket #{{folio}} has been created. We'll respond soon.",
+    "requestSent": "Request Sent!",
+    "advisorRequest": "{{name}} requests contact with a human advisor",
+    "advisorRequestSuccess": "Your request #{{folio}} has been registered. An advisor will contact you soon.",
+    "categories": {
+      "tracking": "Tracking",
+      "delay": "Delay",
+      "warranty": "Extended Warranty",
+      "compensation": "Compensation",
+      "systemError": "System Error",
+      "other": "Other"
+    },
+    "yourAdvisor": "Your Advisor",
+    "noAdvisorPhone": "No phone number registered for this advisor"
   },
   "support": {
     "title": "Help Center",

@@ -21,32 +21,35 @@ interface AuthRequest extends Request {
 // ============================================
 // OBTENER ESTADÍSTICAS DE CAJA CHICA
 // Ahora con soporte multi-moneda (USD/MXN)
+// Excluye pagos de PO Box
 // ============================================
 export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    // Estadísticas por moneda (USD)
+    // Estadísticas por moneda (USD) - excluyendo PO Box
     const saldoUSDResult = await pool.query(`
       SELECT 
         COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as total_ingresos,
         COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0) as total_egresos
       FROM caja_chica_transacciones
       WHERE COALESCE(currency, 'USD') = 'USD'
+        AND concepto NOT ILIKE '%PO Box%'
     `);
     
     const saldoUSD = parseFloat(saldoUSDResult.rows[0].total_ingresos) - parseFloat(saldoUSDResult.rows[0].total_egresos);
     
-    // Estadísticas por moneda (MXN)
+    // Estadísticas por moneda (MXN) - excluyendo PO Box
     const saldoMXNResult = await pool.query(`
       SELECT 
         COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as total_ingresos,
         COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0) as total_egresos
       FROM caja_chica_transacciones
       WHERE currency = 'MXN'
+        AND concepto NOT ILIKE '%PO Box%'
     `);
     
     const saldoMXN = parseFloat(saldoMXNResult.rows[0].total_ingresos) - parseFloat(saldoMXNResult.rows[0].total_egresos);
     
-    // Transacciones del día por moneda (USD)
+    // Transacciones del día por moneda (USD) - excluyendo PO Box
     const hoyUSDResult = await pool.query(`
       SELECT 
         COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as ingresos_hoy,
@@ -55,9 +58,10 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
       FROM caja_chica_transacciones
       WHERE DATE(created_at) = CURRENT_DATE
         AND COALESCE(currency, 'USD') = 'USD'
+        AND concepto NOT ILIKE '%PO Box%'
     `);
     
-    // Transacciones del día por moneda (MXN)
+    // Transacciones del día por moneda (MXN) - excluyendo PO Box
     const hoyMXNResult = await pool.query(`
       SELECT 
         COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as ingresos_hoy,
@@ -66,6 +70,7 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
       FROM caja_chica_transacciones
       WHERE DATE(created_at) = CURRENT_DATE
         AND currency = 'MXN'
+        AND concepto NOT ILIKE '%PO Box%'
     `);
     
     // Último corte por moneda
@@ -647,7 +652,7 @@ export const getTransacciones = async (req: AuthRequest, res: Response): Promise
         ) as aplicaciones
       FROM caja_chica_transacciones t
       LEFT JOIN users u ON u.id = t.cliente_id
-      WHERE 1=1
+      WHERE t.concepto NOT ILIKE '%PO Box%'
     `;
     const params: (string | number)[] = [];
     let paramIndex = 1;

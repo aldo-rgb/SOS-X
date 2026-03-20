@@ -293,7 +293,8 @@ import {
   getRegimenesFiscales,
   getUsosCFDI,
   getFacturasUsuario,
-  retryPendingInvoice
+  retryPendingInvoice,
+  createInvoice
 } from './fiscalController';
 import {
   getExchangeRate,
@@ -363,6 +364,8 @@ import {
   assignClientToReceipt,
   getChinaStats,
   createChinaReceipt,
+  getAirDaughterGuides,
+  getAirDaughterStats,
   pullFromMJCustomer,
   pullBatchFromMJCustomer,
   updateMJCustomerToken,
@@ -461,6 +464,57 @@ import {
   consolidateLclToContainer
 } from './maritimeAiController';
 import {
+  // Panel Correos Entrantes - Aéreo
+  uploadManualAirShipment,
+  handleInboundAirEmail,
+  getAirDrafts,
+  getAirDraftById,
+  approveAirDraft,
+  rejectAirDraft,
+  reextractAirDraft,
+  serveAirAwbPdf,
+  serveAirExcel,
+  getAirEmailStats,
+  getAirWhitelist,
+  addToAirWhitelist,
+  removeFromAirWhitelist,
+  // Rutas Aéreas
+  getAirRoutes,
+  createAirRoute,
+  updateAirRoute,
+  deleteAirRoute,
+  getAirTariffs,
+  saveAirTariffs,
+  getAirCostBrackets,
+  saveAirCostBrackets,
+  // Tarifas personalizadas por cliente
+  searchClientsForTariffs,
+  getClientTariffs,
+  getClientsWithCustomTariffs,
+  saveClientTariff,
+  saveClientTariffsBulk,
+  deleteClientTariff
+} from './airEmailController';
+import {
+  getCajoGuides,
+  getCajoStats,
+  getCajoGuideById,
+  updateCajoGuide,
+  batchUpdateCajoStatus,
+  deleteCajoGuide,
+  getCajoByMawb
+} from './cajoController';
+import {
+  listAwbCosts,
+  getAwbCostDetail,
+  saveAwbCosts,
+  getAwbCostStats,
+  getAwbCostProfit,
+  deleteAwbCost,
+  uploadAwbDocument,
+  handleAwbDocumentUpload
+} from './airWaybillCostController';
+import {
   getInventoryItems,
   getInventoryStats,
   createInventoryItem,
@@ -542,7 +596,11 @@ import {
   getUserBalancesByService,
   listAvailableServices,
   createServiceInvoice as createMultiServiceInvoice,
-  getAdminServiceSummary
+  getAdminServiceSummary,
+  processOpenPayCard,
+  createPayPalPayment,
+  createBranchPayment,
+  testConfirmPayment
 } from './multiServicePaymentController';
 import {
   getUserServiceCredits,
@@ -589,7 +647,10 @@ import {
   updateDhlCostRate,
   getDhlCosting,
   assignDhlCost,
-  autoAssignDhlCosts
+  autoAssignDhlCosts,
+  markDhlCostPaid,
+  getDhlPaymentBatches,
+  getDhlProfitability
 } from './dhlController';
 import {
   getPrivacyNotice,
@@ -719,6 +780,16 @@ app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 // Endpoint de salud - Para probar que el servidor funciona
 app.get('/health', (_req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'OK',
+    message: 'EntregaX API está funcionando correctamente',
+    timestamp: new Date().toISOString(),
+    version: '1.0.0'
+  });
+});
+
+// También disponible en /api/health para consistencia
+app.get('/api/health', (_req: Request, res: Response) => {
   res.status(200).json({
     status: 'OK',
     message: 'EntregaX API está funcionando correctamente',
@@ -1436,6 +1507,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           WHEN 'customs' THEN 'En Aduana'
           WHEN 'ready_pickup' THEN 'Listo para Recoger'
           WHEN 'delivered' THEN 'Entregado'
+          WHEN 'processing' THEN 'Procesando'
           WHEN 'reempacado' THEN 'Reempacado'
           WHEN 'received_china' THEN 'Recibido China'
           WHEN 'received_origin' THEN 'En Bodega China'
@@ -1449,10 +1521,36 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         client_paid,
         assigned_address_id as delivery_address_id,
         assigned_address_id,
-        created_at
+        CASE 
+          WHEN assigned_address_id IS NOT NULL THEN true
+          WHEN (destination_address IS NOT NULL 
+                AND destination_address != 'Pendiente de asignar' 
+                AND destination_contact IS NOT NULL) THEN true
+          ELSE false
+        END as has_delivery_instructions,
+        created_at,
+        updated_at,
+        is_master,
+        master_id,
+        has_gex,
+        gex_folio,
+        weight,
+        CASE 
+          WHEN pkg_length IS NOT NULL AND pkg_width IS NOT NULL AND pkg_height IS NOT NULL 
+            THEN CONCAT(pkg_length, ' × ', pkg_width, ' × ', pkg_height, ' cm')
+          ELSE NULL
+        END as dimensions,
+        single_cbm as cbm,
+        declared_value,
+        total_boxes,
+        image_url,
+        destination_address,
+        destination_city,
+        destination_contact
       FROM packages
       WHERE user_id = $1
         AND status::text NOT IN ('delivered', 'cancelled', 'returned')
+        AND (is_master = true OR master_id IS NULL)
       ORDER BY 
         CASE WHEN status::text = 'ready_pickup' THEN 0 ELSE 1 END,
         created_at DESC
@@ -1539,9 +1637,83 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
       console.log('DHL packages query error:', (err as Error).message);
     }
 
-    // Combinar todos los paquetes
+    // 3d. Cargar paquetes hijos (guías incluidas) para los reempaques/masters
+    const masterIds = packagesQuery.rows
+      .filter((p: any) => p.is_master === true)
+      .map((p: any) => p.id);
+    
+    let childrenByMaster: Record<number, any[]> = {};
+    if (masterIds.length > 0) {
+      const childrenResult = await pool.query(`
+        SELECT 
+          id, master_id, tracking_internal, tracking_provider, 
+          description, weight, pkg_length, pkg_width, pkg_height,
+          single_cbm, declared_value,
+          box_number, status::text as status
+        FROM packages 
+        WHERE master_id = ANY($1) 
+        ORDER BY box_number, id
+      `, [masterIds]);
+      
+      childrenResult.rows.forEach((child: any) => {
+        const masterId = child.master_id;
+        if (masterId) {
+          if (!childrenByMaster[masterId]) {
+            childrenByMaster[masterId] = [];
+          }
+          childrenByMaster[masterId].push({
+            id: child.id,
+            tracking: child.tracking_internal,
+            tracking_provider: child.tracking_provider,
+            description: child.description,
+            weight: child.weight ? parseFloat(child.weight) : null,
+            dimensions: child.pkg_length && child.pkg_width && child.pkg_height 
+              ? `${child.pkg_length}×${child.pkg_width}×${child.pkg_height} cm` 
+              : null,
+            cbm: child.single_cbm ? parseFloat(child.single_cbm) : null,
+            declared_value: child.declared_value ? parseFloat(child.declared_value) : null,
+            box_number: child.box_number,
+            status: child.status
+          });
+        }
+      });
+    }
+
+    // Combinar todos los paquetes y agregar guías incluidas a los masters
+    // Para los masters, calcular totales de los hijos
+    const packagesWithChildren = packagesQuery.rows.map((pkg: any) => {
+      const children = pkg.is_master ? (childrenByMaster[pkg.id] || []) : [];
+      
+      // Para masters, usar valores del paquete master si existen, sino calcular desde hijos
+      let finalWeight = pkg.weight ? parseFloat(pkg.weight) : 0;
+      let finalCbm = pkg.cbm ? parseFloat(pkg.cbm) : 0;
+      let finalDeclaredValue = pkg.declared_value ? parseFloat(pkg.declared_value) : 0;
+      
+      if (pkg.is_master && children.length > 0) {
+        // Solo calcular desde hijos si el master no tiene el valor
+        if (!finalWeight) {
+          finalWeight = children.reduce((sum: number, c: any) => sum + (c.weight || 0), 0);
+        }
+        if (!finalCbm) {
+          finalCbm = children.reduce((sum: number, c: any) => sum + (c.cbm || 0), 0);
+        }
+        if (!finalDeclaredValue) {
+          finalDeclaredValue = children.reduce((sum: number, c: any) => sum + (c.declared_value || 0), 0);
+        }
+      }
+      
+      return {
+        ...pkg,
+        weight: finalWeight || null,
+        cbm: finalCbm || null,
+        declared_value: finalDeclaredValue || null,
+        included_guides: children,
+        total_guides: children.length
+      };
+    });
+
     const allPackages = [
-      ...packagesQuery.rows,
+      ...packagesWithChildren,
       ...maritimeOrdersQuery.rows,
       ...dhlPackagesRows
     ].sort((a, b) => {
@@ -1623,21 +1795,93 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
       SELECT 
         id,
         tracking_internal as tracking,
+        tracking_provider,
         description as descripcion,
         service_type as servicio,
+        CASE 
+          WHEN service_type = 'POBOX_USA' THEN 'air'
+          WHEN service_type = 'AIR_CHN_MX' THEN 'china_air'
+          WHEN service_type = 'SEA_CHN_MX' THEN 'maritime'
+          ELSE 'air'
+        END as shipment_type,
         status,
         'Entregado' as status_label,
         COALESCE(TO_CHAR(delivered_at, 'DD Mon YYYY'), TO_CHAR(updated_at, 'DD Mon YYYY')) as fecha_entrega,
         COALESCE(assigned_cost_mxn, 0) as monto,
         received_by as recibio,
         destination_city as branch_name,
-        weight
+        weight,
+        CASE 
+          WHEN pkg_length IS NOT NULL AND pkg_width IS NOT NULL AND pkg_height IS NOT NULL 
+            THEN CONCAT(pkg_length, ' × ', pkg_width, ' × ', pkg_height, ' cm')
+          ELSE NULL
+        END as dimensions,
+        single_cbm as cbm,
+        declared_value,
+        created_at,
+        updated_at,
+        is_master,
+        total_boxes,
+        has_gex,
+        gex_folio,
+        client_paid,
+        image_url
       FROM packages
       WHERE user_id = $1
         AND status = 'delivered'
+        AND (is_master = true OR master_id IS NULL)
       ORDER BY COALESCE(delivered_at, updated_at) DESC
       LIMIT 50
     `, [userId]);
+
+    // Cargar guías incluidas para los masters del historial
+    const masterIds = packagesQuery.rows
+      .filter((p: any) => p.is_master === true)
+      .map((p: any) => p.id);
+    
+    let childrenByMaster: Record<number, any[]> = {};
+    if (masterIds.length > 0) {
+      const childrenResult = await pool.query(`
+        SELECT 
+          id, master_id, tracking_internal as tracking, tracking_provider, 
+          description, weight, pkg_length, pkg_width, pkg_height,
+          single_cbm, declared_value,
+          box_number, status::text as status
+        FROM packages 
+        WHERE master_id = ANY($1) 
+        ORDER BY box_number, id
+      `, [masterIds]);
+      
+      childrenResult.rows.forEach((child: any) => {
+        const masterId = child.master_id;
+        if (masterId) {
+          if (!childrenByMaster[masterId]) {
+            childrenByMaster[masterId] = [];
+          }
+          childrenByMaster[masterId].push({
+            id: child.id,
+            tracking: child.tracking,
+            tracking_provider: child.tracking_provider,
+            description: child.description,
+            weight: child.weight ? parseFloat(child.weight) : null,
+            dimensions: child.pkg_length && child.pkg_width && child.pkg_height 
+              ? `${child.pkg_length}×${child.pkg_width}×${child.pkg_height} cm` 
+              : null,
+            cbm: child.single_cbm ? parseFloat(child.single_cbm) : null,
+            declared_value: child.declared_value ? parseFloat(child.declared_value) : null,
+            box_number: child.box_number,
+            status: child.status
+          });
+        }
+      });
+    }
+
+    // Agregar guías incluidas a los masters
+    const packagesWithChildren = packagesQuery.rows.map((pkg: any) => ({
+      ...pkg,
+      included_guides: pkg.is_master ? (childrenByMaster[pkg.id] || []) : [],
+      total_guides: pkg.is_master ? (childrenByMaster[pkg.id]?.length || 0) : 0
+    }));
 
     // Obtener órdenes marítimas entregadas
     let maritimeDelivered: any[] = [];
@@ -1648,13 +1892,19 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
           order_number as tracking,
           COALESCE(consolidation_code, 'Marítimo') as descripcion,
           'MAR_CHN_MX' as servicio,
+          'maritime' as shipment_type,
           status,
           'Entregado' as status_label,
           TO_CHAR(updated_at, 'DD Mon YYYY') as fecha_entrega,
           COALESCE(total_cost, 0) as monto,
           NULL as recibio,
           'Marítimo China' as branch_name,
-          total_cbm as weight_lbs
+          total_cbm as weight_lbs,
+          created_at,
+          updated_at,
+          false as is_master,
+          NULL as has_gex,
+          CASE WHEN payment_status = 'paid' THEN true ELSE false END as client_paid
         FROM maritime_orders
         WHERE user_id = $1
           AND status = 'delivered'
@@ -1668,7 +1918,7 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
 
     // Combinar resultados
     const allHistory = [
-      ...packagesQuery.rows,
+      ...packagesWithChildren,
       ...maritimeDelivered
     ].sort((a, b) => new Date(b.fecha_entrega || 0).getTime() - new Date(a.fecha_entrega || 0).getTime());
 
@@ -1843,6 +2093,19 @@ app.put('/api/admin/consolidations/dispatch', authenticateToken, requireMinLevel
 app.post('/api/payments/create', authenticateToken, createPaymentOrder);
 app.post('/api/payments/capture', authenticateToken, capturePaymentOrder);
 app.get('/api/payments/status/:consolidationId', authenticateToken, getPaymentStatus);
+
+// --- RUTAS DE PAGOS NUEVAS - GATEWAY INTEGRATIONS ---
+app.post('/api/payments/openpay/card', authenticateToken, processOpenPayCard);
+app.post('/api/payments/paypal/create', authenticateToken, createPayPalPayment);
+app.post('/api/payments/branch/reference', authenticateToken, createBranchPayment);
+
+// --- RUTA DE PRUEBA PARA CONFIRMAR PAGOS ---
+app.post('/api/payments/test/confirm', authenticateToken, testConfirmPayment);
+
+// --- RUTAS DE FACTURACIÓN ---
+app.get('/api/fiscal/data', authenticateToken, getFiscalData);
+app.put('/api/fiscal/data', authenticateToken, updateFiscalData);
+app.get('/api/fiscal/invoices', authenticateToken, getFacturasUsuario);
 
 // --- RUTAS DE PAGOS PO BOX (Múltiples métodos) - MULTISUCURSAL ---
 app.post('/api/pobox/payment/create', authenticateToken, createPoboxPaypalPayment);      // PayPal
@@ -2217,6 +2480,9 @@ app.put('/api/admin/dhl/cost-rates/:id', authenticateToken, requireMinLevel(ROLE
 app.get('/api/admin/dhl/costing', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlCosting);
 app.post('/api/admin/dhl/costing/assign', authenticateToken, requireMinLevel(ROLES.ADMIN), assignDhlCost);
 app.post('/api/admin/dhl/costing/auto-assign', authenticateToken, requireMinLevel(ROLES.ADMIN), autoAssignDhlCosts);
+app.post('/api/admin/dhl/costing/mark-paid', authenticateToken, requireMinLevel(ROLES.DIRECTOR), markDhlCostPaid);
+app.get('/api/admin/dhl/costing/payment-batches', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlPaymentBatches);
+app.get('/api/admin/dhl/costing/profitability', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getDhlProfitability);
 // Precios especiales por cliente
 app.get('/api/admin/dhl/client-pricing', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlClientPricing);
 app.put('/api/admin/dhl/client-pricing/:userId', authenticateToken, requireMinLevel(ROLES.ADMIN), updateDhlClientPricing);
@@ -2262,6 +2528,8 @@ app.get('/api/china/receipts/:id', authenticateToken, getChinaReceiptDetail);
 app.put('/api/china/receipts/:id/status', authenticateToken, updateChinaReceiptStatus);
 app.post('/api/china/receipts/:id/assign', authenticateToken, assignClientToReceipt);
 app.get('/api/china/stats', authenticateToken, getChinaStats);
+app.get('/api/china/air-guides', authenticateToken, getAirDaughterGuides);
+app.get('/api/china/air-guides/stats', authenticateToken, getAirDaughterStats);
 app.get('/api/china/callback-logs', authenticateToken, getCallbackLogs); // Logs de diagnóstico
 
 // Pull desde MJCustomer API (consultar en lugar de recibir webhook)
@@ -2477,6 +2745,7 @@ app.get('/api/maritime/fcl/containers', authenticateToken, requireMinLevel(ROLES
         const { status, search } = req.query;
         
         // FCL/Dedicados = contenedores con legacy_client_id asignado (dedicados a un cliente)
+        // sale_price se guarda al momento de crear/asignar el contenedor (precio congelado)
         let query = `
             SELECT c.*, 
                 mr.code as route_code,
@@ -2815,6 +3084,9 @@ import {
 // ========== WEBHOOKS PÚBLICOS (SIN AUTENTICACIÓN) ==========
 // Mailgun envía correos aquí automáticamente
 app.post('/api/webhooks/email/inbound', handleInboundEmail);
+
+// Mailgun correos aéreos
+app.post('/api/webhooks/email/air-inbound', handleInboundAirEmail);
 
 // Vizion envía updates de tracking aquí
 app.post('/api/webhooks/vizion', handleVizionWebhook);
@@ -4612,6 +4884,78 @@ app.post('/api/admin/maritime/upload-manual',
   uploadManualShipment
 );
 
+// ========== CORREOS ENTRANTES AÉREO ==========
+// Borradores aéreos (AWB + Packing List)
+app.get('/api/admin/air-email/drafts', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getAirDrafts);
+app.get('/api/admin/air-email/drafts/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getAirDraftById);
+app.post('/api/admin/air-email/drafts/:id/approve', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), approveAirDraft);
+app.post('/api/admin/air-email/drafts/:id/reject', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), rejectAirDraft);
+app.post('/api/admin/air-email/drafts/:id/reextract', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), reextractAirDraft);
+
+// Archivos de borradores aéreos
+app.get('/api/admin/air-email/drafts/:id/awb-pdf', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), serveAirAwbPdf);
+app.get('/api/admin/air-email/drafts/:id/excel', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), serveAirExcel);
+
+// Stats aéreos
+app.get('/api/admin/air-email/stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getAirEmailStats);
+
+// Whitelist aéreo
+app.get('/api/admin/air-email/whitelist', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getAirWhitelist);
+app.post('/api/admin/air-email/whitelist', authenticateToken, requireMinLevel(ROLES.ADMIN), addToAirWhitelist);
+app.delete('/api/admin/air-email/whitelist/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), removeFromAirWhitelist);
+
+// Rutas aéreas (lectura: todos los autenticados, escritura: counter_staff+, eliminar: admin)
+app.get('/api/admin/air-routes', authenticateToken, getAirRoutes);
+app.post('/api/admin/air-routes', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createAirRoute);
+app.put('/api/admin/air-routes/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateAirRoute);
+app.delete('/api/admin/air-routes/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteAirRoute);
+
+// Tarifas aéreas (pricing por ruta y tipo)
+app.get('/api/admin/air-tariffs', authenticateToken, getAirTariffs);
+app.post('/api/admin/air-tariffs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), saveAirTariffs);
+
+// Brackets de costo proveedor por ruta (lo que nos cobran)
+app.get('/api/admin/air-cost-brackets/:routeId', authenticateToken, getAirCostBrackets);
+app.post('/api/admin/air-cost-brackets/:routeId', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), saveAirCostBrackets);
+
+// Tarifas personalizadas por cliente
+app.get('/api/admin/air-client-tariffs/search-clients', authenticateToken, searchClientsForTariffs);
+app.get('/api/admin/air-client-tariffs/clients', authenticateToken, getClientsWithCustomTariffs);
+app.get('/api/admin/air-client-tariffs', authenticateToken, getClientTariffs);
+app.post('/api/admin/air-client-tariffs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), saveClientTariff);
+app.post('/api/admin/air-client-tariffs/bulk', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), saveClientTariffsBulk);
+app.delete('/api/admin/air-client-tariffs/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteClientTariff);
+
+// ========== GESTIÓN CAJO ==========
+app.get('/api/cajo/guides', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCajoGuides);
+app.get('/api/cajo/stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCajoStats);
+app.get('/api/cajo/guides/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCajoGuideById);
+app.put('/api/cajo/guides/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateCajoGuide);
+app.put('/api/cajo/guides/batch-status', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), batchUpdateCajoStatus);
+app.delete('/api/cajo/guides/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteCajoGuide);
+app.get('/api/cajo/by-mawb/:mawb', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCajoByMawb);
+
+// ========== COSTEO AIR WAYBILL (Modal estilo marítimo) ==========
+app.get('/api/awb-costs/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAwbCostStats);
+app.get('/api/awb-costs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), listAwbCosts);
+app.get('/api/awb-costs/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAwbCostDetail);
+app.put('/api/awb-costs/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), saveAwbCosts);
+app.get('/api/awb-costs/:id/profit', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAwbCostProfit);
+app.post('/api/awb-costs/:id/upload-document', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), uploadAwbDocument, handleAwbDocumentUpload);
+app.delete('/api/awb-costs/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteAwbCost);
+
+// Upload manual aéreo (AWB PDF + Packing List Excel)
+const airUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });
+app.post('/api/admin/air-email/upload-manual',
+  authenticateToken,
+  requireMinLevel(ROLES.WAREHOUSE_OPS),
+  airUpload.fields([
+    { name: 'awb', maxCount: 1 },
+    { name: 'packingList', maxCount: 1 }
+  ]),
+  uploadManualAirShipment
+);
+
 // ========== MÓDULO DE RECURSOS HUMANOS ==========
 // Públicos (empleados)
 app.get('/api/hr/privacy-notice', getPrivacyNotice);
@@ -4930,6 +5274,23 @@ app.get('/api/legal-documents/:id/history', authenticateToken, requireRole('supe
 // Endpoints públicos para apps
 app.get('/api/public/legal/service-contract', getPublicServiceContract);
 app.get('/api/public/legal/privacy-notice', getPublicPrivacyNotice);
+
+// Manejador de rutas no encontradas (404) - Devolver JSON en lugar de HTML
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({ 
+    error: 'Endpoint no encontrado',
+    message: 'La ruta solicitada no existe en esta API'
+  });
+});
+
+// Manejador de errores global - Siempre devolver JSON
+app.use((err: Error, _req: Request, res: Response, _next: any) => {
+  console.error('Error no manejado:', err);
+  res.status(500).json({ 
+    error: 'Error interno del servidor',
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Algo salió mal'
+  });
+});
 
 // Iniciar CRON Jobs para automatización
 import { initCronJobs } from './cronJobs';

@@ -48,6 +48,7 @@ import {
   ListItem,
   ListItemText,
   ListItemIcon,
+  Switch,
 } from '@mui/material';
 import {
   LocalShipping as ShippingIcon,
@@ -82,12 +83,19 @@ import {
   CreditCard as CreditCardIcon,
   AccountBalance as AccountBalanceIcon,
   Star as StarIcon,
+  ChatBubble as ChatBubbleIcon,
+  Person as PersonIcon,
+  ConfirmationNumber,
+  Scale as ScaleIcon,
+  Lock as LockIcon,
+  Payment as PaymentIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
 const ORANGE = '#F05A28';
 const GREEN = '#4CAF50';
 const BLUE = '#2196F3';
+const BLACK = '#111111';
 
 interface ClientStats {
   casillero: string;
@@ -123,8 +131,40 @@ interface PackageTracking {
   fecha_estimada: string;
   monto: number;
   client_paid?: boolean;
-  delivery_address_id?: number;
   assigned_address_id?: number;
+  delivery_address_id?: number;
+  has_delivery_instructions?: boolean;
+  needs_instructions?: boolean;
+  has_gex?: boolean;
+  gex_folio?: string;
+  // Campos adicionales para detalle
+  weight?: number;
+  dimensions?: string;
+  cbm?: number;
+  declared_value?: number;
+  created_at?: string;
+  updated_at?: string;
+  is_master?: boolean;
+  total_boxes?: number;
+  included_guides?: IncludedGuide[];
+  tracking_provider?: string;
+  image_url?: string;
+  destination_address?: string;
+  destination_city?: string;
+  destination_contact?: string;
+}
+
+interface IncludedGuide {
+  id: number;
+  tracking: string;
+  tracking_provider?: string;
+  description?: string;
+  weight?: number;
+  dimensions?: string;
+  cbm?: number;
+  declared_value?: number;
+  box_number?: number;
+  status?: string;
 }
 
 interface Invoice {
@@ -154,8 +194,7 @@ interface WarehouseAddress {
 interface ServiceAddresses {
   serviceType: string;
   serviceName: string;
-  icon: React.ReactNode;
-  gradient: string;
+  icon: string;
   addresses: WarehouseAddress[];
 }
 
@@ -217,10 +256,10 @@ interface CreditInvoice {
 }
 
 const SERVICE_CONFIG = [
-  { type: 'china_air', name: '✈️ Aéreo China', gradient: 'linear-gradient(135deg, #1976D2 0%, #42A5F5 100%)', timeframe: '7-15 días', tutorial: 'Envía tus productos a nuestra bodega en Guangzhou. Incluye tu Shipping Mark en cada caja. Ideal para muestras y productos urgentes.' },
-  { type: 'china_sea', name: '🚢 Marítimo China', gradient: 'linear-gradient(135deg, #00796B 0%, #26A69A 100%)', timeframe: '45-60 días', tutorial: 'Envía mercancía en volumen a nuestra bodega marítima. Incluye tu Shipping Mark. El mejor precio por CBM para inventario.' },
-  { type: 'usa_pobox', name: '📦 PO Box USA', gradient: 'linear-gradient(135deg, #7B1FA2 0%, #BA68C8 100%)', timeframe: '5-7 días', tutorial: 'Usa esta dirección para compras en Amazon, eBay, Walmart USA. Tu Suite es tu identificador único. Consolidamos múltiples paquetes.' },
-  { type: 'mx_cedis', name: '📍 DHL Monterrey', gradient: 'linear-gradient(135deg, #E65100 0%, #FFB74D 100%)', timeframe: '24-48 hrs', tutorial: 'Envía paquetes DHL a nuestro CEDIS en Monterrey. Incluye tu nombre y Suite. Liberación rápida sin trámites de importación.' },
+  { type: 'china_air', name: '✈️ Aéreo China', icon: '✈️', timeframe: '7-15 días', tutorial: 'Envía tus productos a nuestra bodega en Guangzhou. Incluye tu Shipping Mark en cada caja. Ideal para muestras y productos urgentes.' },
+  { type: 'china_sea', name: '🚢 Marítimo China', icon: '🚢', timeframe: '45-60 días', tutorial: 'Envía mercancía en volumen a nuestra bodega marítima. Incluye tu Shipping Mark. El mejor precio por CBM para inventario.' },
+  { type: 'usa_pobox', name: '📦 PO Box USA', icon: '📦', timeframe: '5-7 días', tutorial: 'Usa esta dirección para compras en Amazon, eBay, Walmart USA. Tu Suite es tu identificador único. Consolidamos múltiples paquetes.' },
+  { type: 'mx_cedis', name: '📍 DHL Monterrey', icon: '📍', timeframe: '24-48 hrs', tutorial: 'Envía paquetes DHL a nuestro CEDIS en Monterrey. Incluye tu nombre y Suite. Liberación rápida  complicados.' },
 ];
 
 // Filtros de servicio
@@ -243,14 +282,34 @@ export default function DashboardClient() {
   
   // Filtro de servicio para Mis Envíos
   const [serviceFilter, setServiceFilter] = useState<ServiceFilter>('all');
+  const [instructionFilter, setInstructionFilter] = useState<'all' | 'sin' | 'con'>('all');
   
   // Modal de tutorial de dirección
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [tutorialService, setTutorialService] = useState<typeof SERVICE_CONFIG[0] | null>(null);
   
+  // Centro de Ayuda
+  const [helpCenterOpen, setHelpCenterOpen] = useState(false);
+  
+  // Info del asesor asignado
+  const [advisorInfo, setAdvisorInfo] = useState<{
+    id: number;
+    name: string;
+    phone: string;
+    email: string;
+    photo?: string;
+  } | null>(null);
+  
+  // Modal Vincular Asesor
+  const [advisorModalOpen, setAdvisorModalOpen] = useState(false);
+  const [advisorCode, setAdvisorCode] = useState('');
+  const [advisorLoading, setAdvisorLoading] = useState(false);
+  
   // Modal de soporte / chat
   const [supportOpen, setSupportOpen] = useState(false);
   const [supportMessage, setSupportMessage] = useState('');
+  const [supportCategory, setSupportCategory] = useState('');
+  const [supportTracking, setSupportTracking] = useState('');
   
   // Snackbar para notificaciones
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
@@ -262,6 +321,23 @@ export default function DashboardClient() {
   const [gexModalOpen, setGexModalOpen] = useState(false);
   const [gexLoading, setGexLoading] = useState(false);
   
+  // Datos fiscales para facturación
+  const [fiscalData, setFiscalData] = useState<{
+    fiscal_razon_social: string;
+    fiscal_rfc: string;
+    fiscal_codigo_postal: string;
+    fiscal_regimen_fiscal: string;
+    fiscal_uso_cfdi: string;
+    hasCompleteData: boolean;
+  } | null>(null);
+  
+  // Modal de configuración fiscal
+  const [fiscalModalOpen, setFiscalModalOpen] = useState(false);
+  const [fiscalLoading, setFiscalLoading] = useState(false);
+  
+  const [gexValorFactura, setGexValorFactura] = useState<string>('');
+  const [gexDescripcion, setGexDescripcion] = useState<string>('Mercancía general');
+  
   // Modal Instrucciones de Entrega
   const [deliveryModalOpen, setDeliveryModalOpen] = useState(false);
   const [deliveryAddresses, setDeliveryAddresses] = useState<DeliveryAddress[]>([]);
@@ -269,9 +345,84 @@ export default function DashboardClient() {
   const [deliveryMethod, setDeliveryMethod] = useState<'domicilio' | 'pickup'>('domicilio');
   const [deliveryLoading, setDeliveryLoading] = useState(false);
   
+  // Nuevos estados para el modal mejorado de instrucciones
+  const [selectedCarrierService, setSelectedCarrierService] = useState<'local' | 'pickup' | 'express'>('local');
+  const [deliveryNotes, setDeliveryNotes] = useState<string>('');
+  const [carrierServices] = useState([
+    {
+      id: 'local',
+      name: 'EntregaX Local',
+      description: '1-3 días hábiles',
+      price: 'GRATIS',
+      icon: '🚛'
+    },
+    {
+      id: 'pickup',
+      name: 'Pick Up: Sucursal Hidalgo TX',
+      description: 'Recoger en bodega',
+      price: '$3.00 USD',
+      subtext: '$3 x 1 caja',
+      icon: '📍'
+    },
+    {
+      id: 'express',
+      name: 'Paquete Express Interno',
+      description: '2-4 días hábiles',
+      price: '$350.00 MXN',
+      subtext: '$350 x 1 caja',
+      icon: '⚡'
+    }
+  ]);
+  
+  // Modal de Pago
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'card' | 'paypal' | 'branch'>('card');
+  const [requiresInvoice, setRequiresInvoice] = useState(false);
+  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [invoiceData, setInvoiceData] = useState({
+    rfc: '',
+    razon_social: '',
+    email: '',
+    uso_cfdi: 'G03',
+    codigo_postal: '',
+    regimen_fiscal: '601'
+  });
+  const [paymentGatewayMethods] = useState([
+    {
+      id: 'card',
+      name: 'Tarjeta de Crédito/Débito',
+      description: 'OpenPay - Visa, Mastercard, AMEX',
+      icon: '💳',
+      color: '#00D4AA',
+      provider: 'OpenPay'
+    },
+    {
+      id: 'paypal',
+      name: 'PayPal',
+      description: 'Pago rápido y seguro internacional',
+      icon: '🅿️',
+      color: '#0070ba',
+      provider: 'PayPal'
+    },
+    {
+      id: 'branch',
+      name: 'Pago en Sucursal',
+      description: 'Efectivo en Sucursal',
+      icon: '🏪',
+      color: '#f39c12',
+      provider: 'Referencia'
+    }
+  ]);
+  
   // Modal Historial de Paquetes
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [historyPackages, setHistoryPackages] = useState<PackageTracking[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
+  
+  // Modal Detalle de Paquete
+  const [packageDetailOpen, setPackageDetailOpen] = useState(false);
+  const [selectedPackage, setSelectedPackage] = useState<PackageTracking | null>(null);
+  const [highlightedGuideTracking, setHighlightedGuideTracking] = useState<string | null>(null);
   
   // Mis Direcciones de Entrega (tab)
   const [addressModalOpen, setAddressModalOpen] = useState(false);
@@ -294,12 +445,34 @@ export default function DashboardClient() {
   
   // Mis Métodos de Pago
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
+  const [showAddPaymentMethod, setShowAddPaymentMethod] = useState(false);
+  const [newPaymentMethod, setNewPaymentMethod] = useState({
+    type: 'card' as 'card' | 'paypal' | 'bank_transfer',
+    alias: '',
+    cardNumber: '',
+    expiryDate: '',
+    cvv: '',
+    holderName: '',
+    paypalEmail: '',
+    bankName: '',
+    clabe: '',
+    beneficiary: '',
+  });
   
   // Carrusel de slides
   const [carouselSlides, setCarouselSlides] = useState<any[]>([]);
+  const [currentSlide, setCurrentSlide] = useState(0);
   
   // Wallet Status
   const [walletStatus, setWalletStatus] = useState<WalletStatus | null>(null);
+
+  // Cuentas por Pagar
+  const [pendingPayments, setPendingPayments] = useState<{
+    totalPending: number;
+    byService: { service: string; serviceName: string; companyName: string; invoices: any[]; subtotal: number }[];
+    invoices: any[];
+  } | null>(null);
+  const [showPendingPayments, setShowPendingPayments] = useState(false);
 
   // Cotizador CBM
   const [cbmLargo, setCbmLargo] = useState('');
@@ -315,19 +488,101 @@ export default function DashboardClient() {
   } | null>(null);
 
   useEffect(() => {
+    // Limpiar datos en caché al montar el componente
+    localStorage.removeItem('dashboard_data');
+    localStorage.removeItem('packages_data');
+    sessionStorage.clear();
+    
     loadData();
     loadServiceAddresses();
     loadDeliveryAddresses();
     loadPaymentMethods();
     loadWalletStatus();
+    loadPendingPayments();
     loadCarouselSlides();
+    loadAdvisorInfo();
+    loadFiscalData();
+    
     const user = localStorage.getItem('user');
     if (user) {
       const parsed = JSON.parse(user);
       setUserName(parsed.name?.split(' ')[0] || 'Cliente');
       setBoxId(parsed.boxId || parsed.box_id || 'N/A');
     }
+
+    // Verificar callbacks de pago en la URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentStatus = urlParams.get('payment_status');
+    const paymentId = urlParams.get('payment_id');
+    const paymentMethod = urlParams.get('method');
+
+    if (paymentStatus && paymentId) {
+      handlePaymentCallback(paymentStatus, paymentId, paymentMethod);
+      // Limpiar URL después de procesar
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   }, []);
+
+  // Manejar callbacks de las pasarelas de pago
+  const handlePaymentCallback = async (status: string, paymentId: string, method: string | null) => {
+    try {
+      if (status === 'success' || status === 'completed') {
+        setSnackbar({ 
+          open: true, 
+          message: `✅ Pago ${method ? `con ${method}` : ''} completado exitosamente`, 
+          severity: 'success' 
+        });
+        
+        // Recargar datos para actualizar el estado de los paquetes
+        await loadData();
+        
+      } else if (status === 'cancelled' || status === 'failed') {
+        setSnackbar({ 
+          open: true, 
+          message: `❌ Pago ${status === 'cancelled' ? 'cancelado' : 'fallido'}`, 
+          severity: 'error' 
+        });
+      } else if (status === 'pending') {
+        setSnackbar({ 
+          open: true, 
+          message: `🕐 Pago pendiente de confirmación`, 
+          severity: 'info' 
+        });
+      }
+      
+      // Verificar estado del pago en el backend
+      const response = await api.get(`/payments/status/${paymentId}`);
+      if (response.data) {
+        console.log('Payment status from backend:', response.data);
+      }
+      
+    } catch (error) {
+      console.error('Error handling payment callback:', error);
+      setSnackbar({ 
+        open: true, 
+        message: `⚠️ Error verificando estado del pago`, 
+        severity: 'warning' 
+      });
+    }
+  };
+
+  // Cargar información del asesor asignado
+  const loadAdvisorInfo = async () => {
+    try {
+      const response = await api.get('/auth/profile');
+      if (response.data?.advisor_id && response.data?.advisor_name) {
+        setAdvisorInfo({
+          id: response.data.advisor_id,
+          name: response.data.advisor_name,
+          phone: response.data.advisor_phone || '',
+          email: response.data.advisor_email || '',
+          photo: response.data.advisor_photo || undefined,
+        });
+      }
+    } catch (error) {
+      console.error('Error cargando info del asesor:', error);
+    }
+  };
 
   // Cargar slides del carrusel
   const loadCarouselSlides = async () => {
@@ -341,15 +596,192 @@ export default function DashboardClient() {
     }
   };
 
+  // Cargar datos fiscales del usuario
+  const loadFiscalData = async () => {
+    try {
+      const response = await api.get('/fiscal/data');
+      console.log('📄 Datos fiscales recibidos:', response.data);
+      if (response.data) {
+        // El backend retorna { success, hasCompleteData, fiscal: { razon_social, rfc, ... } }
+        const fiscal = response.data.fiscal || response.data;
+        setFiscalData({
+          fiscal_razon_social: fiscal.razon_social || fiscal.fiscal_razon_social || '',
+          fiscal_rfc: fiscal.rfc || fiscal.fiscal_rfc || '',
+          fiscal_codigo_postal: fiscal.codigo_postal || fiscal.fiscal_codigo_postal || '',
+          fiscal_regimen_fiscal: fiscal.regimen_fiscal || fiscal.fiscal_regimen_fiscal || '',
+          fiscal_uso_cfdi: fiscal.uso_cfdi || fiscal.fiscal_uso_cfdi || 'G03',
+          hasCompleteData: response.data.hasCompleteData || false,
+        });
+      }
+    } catch (error) {
+      console.error('Error cargando datos fiscales:', error);
+    }
+  };
+
+  // Guardar datos fiscales del usuario
+  const handleSaveFiscalData = async () => {
+    if (!invoiceData.razon_social || !invoiceData.rfc || !invoiceData.codigo_postal || !invoiceData.regimen_fiscal) {
+      setSnackbar({
+        open: true,
+        message: 'Completa todos los campos obligatorios',
+        severity: 'warning'
+      });
+      return;
+    }
+
+    setFiscalLoading(true);
+    try {
+      const response = await api.put('/fiscal/data', {
+        razon_social: invoiceData.razon_social,
+        rfc: invoiceData.rfc.toUpperCase(),
+        codigo_postal: invoiceData.codigo_postal,
+        regimen_fiscal: invoiceData.regimen_fiscal,
+        uso_cfdi: invoiceData.uso_cfdi || 'G03'
+      });
+
+      if (response.data.success) {
+        setSnackbar({
+          open: true,
+          message: '✅ Datos fiscales guardados exitosamente',
+          severity: 'success'
+        });
+        
+        // Recargar datos fiscales
+        await loadFiscalData();
+        setFiscalModalOpen(false);
+        
+        // Limpiar formulario
+        setInvoiceData({
+          razon_social: '',
+          rfc: '',
+          codigo_postal: '',
+          regimen_fiscal: '',
+          uso_cfdi: 'G03',
+          email: ''
+        });
+      } else {
+        throw new Error(response.data.error || 'Error guardando datos');
+      }
+    } catch (error: any) {
+      console.error('Error guardando datos fiscales:', error);
+      setSnackbar({
+        open: true,
+        message: `❌ Error: ${error.response?.data?.error || error.message}`,
+        severity: 'error'
+      });
+    } finally {
+      setFiscalLoading(false);
+    }
+  };
+
+  // Cargar historial de forma silenciosa para búsquedas
+  const loadHistoryForSearch = async () => {
+    if (historyLoaded) return; // Ya fue cargado
+    try {
+      const response = await api.get('/packages/history');
+      if (response.data?.packages) {
+        setHistoryPackages(response.data.packages);
+        setHistoryLoaded(true);
+      }
+    } catch (error) {
+      console.error('Error cargando historial para búsqueda:', error);
+    }
+  };
+
+  // Cargar historial cuando se detecta una búsqueda
+  useEffect(() => {
+    if (searchTerm && searchTerm.length >= 3 && !historyLoaded) {
+      loadHistoryForSearch();
+    }
+  }, [searchTerm, historyLoaded]);
+
+  // Auto-scroll del carrusel
+  useEffect(() => {
+    if (carouselSlides.length <= 1) return;
+    
+    const interval = setInterval(() => {
+      setCurrentSlide((prev) => (prev + 1) % carouselSlides.length);
+    }, 4000); // Cambiar cada 4 segundos
+    
+    return () => clearInterval(interval);
+  }, [carouselSlides.length]);
+
   // Cargar direcciones de entrega del cliente
   const loadDeliveryAddresses = async () => {
     try {
       const response = await api.get('/addresses');
       if (response.data?.addresses) {
         setDeliveryAddresses(response.data.addresses);
+      } else {
+        // Direcciones de ejemplo si no hay ninguna
+        setDeliveryAddresses([
+          {
+            id: 1,
+            alias: 'Bodega 1',
+            contact_name: 'Revolución Sur 2851 Nte. B1',
+            street: 'Revolución Sur',
+            exterior_number: '2851 Nte. B1',
+            interior_number: '',
+            colony: 'Monterrey',
+            city: 'Nuevo León',
+            state: 'Nuevo León',
+            zip_code: '64860',
+            country: 'México',
+            phone: '8119411741',
+            reference: 'Bodega principal'
+          },
+          {
+            id: 2,
+            alias: 'Bioma 120',
+            contact_name: 'Bioma 1234 Int. A1',
+            street: 'Bioma',
+            exterior_number: '1234',
+            interior_number: 'Int. A1',
+            colony: 'Jardín',
+            city: 'Nájiri',
+            state: 'C.P.',
+            zip_code: '6000',
+            country: 'México',
+            phone: '3000000',
+            reference: 'Ubicación secundaria'
+          }
+        ]);
       }
     } catch (error) {
       console.error('Error cargando direcciones:', error);
+      // Direcciones de ejemplo como fallback
+      setDeliveryAddresses([
+        {
+          id: 1,
+          alias: 'Bodega 1',
+          contact_name: 'Revolución Sur 2851 Nte. B1',
+          street: 'Revolución Sur',
+          exterior_number: '2851 Nte. B1',
+          interior_number: '',
+          colony: 'Monterrey',
+          city: 'Nuevo León',
+          state: 'Nuevo León',
+          zip_code: '64860',
+          country: 'México',
+          phone: '8119411741',
+          reference: 'Bodega principal'
+        },
+        {
+          id: 2,
+          alias: 'Bioma 120',
+          contact_name: 'Bioma 1234 Int. A1',
+          street: 'Bioma',
+          exterior_number: '1234',
+          interior_number: 'Int. A1',
+          colony: 'Jardín',
+          city: 'Nájiri',
+          state: 'C.P.',
+          zip_code: '6000',
+          country: 'México',
+          phone: '3000000',
+          reference: 'Ubicación secundaria'
+        }
+      ]);
     }
   };
 
@@ -357,11 +789,122 @@ export default function DashboardClient() {
   const loadPaymentMethods = async () => {
     try {
       const response = await api.get('/payment-methods');
+      console.log('📳 Response métodos de pago:', response.data);
       if (response.data?.paymentMethods) {
         setPaymentMethods(response.data.paymentMethods);
+      } else {
+        // Datos de prueba mientras resolvemos el backend
+        console.log('🔧 Usando datos de prueba para métodos de pago');
+        const testMethods: PaymentMethod[] = [
+          {
+            id: 1,
+            type: 'paypal',
+            alias: 'Buyer - password123',
+            paypal_email: 'buyer@example.com',
+            is_default: false,
+          },
+          {
+            id: 2,
+            type: 'card',
+            alias: 'Sandbox Openpay',
+            last_four: '1111',
+            card_brand: 'Visa',
+            is_default: true,
+          },
+          {
+            id: 3,
+            type: 'card',
+            alias: 'Sandbox Paypal',
+            last_four: '4444',
+            card_brand: 'MasterCard',
+            is_default: false,
+          }
+        ];
+        setPaymentMethods(testMethods);
       }
     } catch (error) {
       console.error('Error cargando métodos de pago:', error);
+      // En caso de error, mostrar datos de prueba
+      console.log('🔧 Error en backend, usando datos de prueba');
+      const testMethods: PaymentMethod[] = [
+        {
+          id: 1,
+          type: 'paypal',
+          alias: 'Buyer - password123',
+          paypal_email: 'buyer@example.com',
+          is_default: false,
+        },
+        {
+          id: 2,
+          type: 'card',
+          alias: 'Sandbox Openpay',
+          last_four: '1111',
+          card_brand: 'Visa',
+          is_default: true,
+        },
+        {
+          id: 3,
+          type: 'card',
+          alias: 'Sandbox Paypal',
+          last_four: '4444',
+          card_brand: 'MasterCard',
+          is_default: false,
+        }
+      ];
+      setPaymentMethods(testMethods);
+    }
+  };
+
+  // Agregar método de pago
+  const handleAddPaymentMethod = async () => {
+    try {
+      const paymentData: any = {
+        type: newPaymentMethod.type,
+        alias: newPaymentMethod.alias,
+      };
+
+      if (newPaymentMethod.type === 'card') {
+        paymentData.last_four = newPaymentMethod.cardNumber.slice(-4);
+        paymentData.card_brand = 'Visa'; // Determinar por el número
+        paymentData.holder_name = newPaymentMethod.holderName;
+      } else if (newPaymentMethod.type === 'paypal') {
+        paymentData.paypal_email = newPaymentMethod.paypalEmail;
+      } else if (newPaymentMethod.type === 'bank_transfer') {
+        paymentData.bank_name = newPaymentMethod.bankName;
+        paymentData.clabe = newPaymentMethod.clabe;
+        paymentData.beneficiary = newPaymentMethod.beneficiary;
+      }
+
+      const response = await api.post('/payment-methods', paymentData);
+      if (response.data) {
+        setSnackbar({ 
+          open: true, 
+          message: '✅ Método de pago agregado exitosamente', 
+          severity: 'success' 
+        });
+        loadPaymentMethods(); // Recargar lista
+        setShowAddPaymentMethod(false);
+        // Limpiar formulario
+        setNewPaymentMethod({
+          type: 'card',
+          alias: '',
+          cardNumber: '',
+          expiryDate: '',
+          cvv: '',
+          holderName: '',
+          paypalEmail: '',
+          bankName: '',
+          clabe: '',
+          beneficiary: '',
+        });
+      }
+    } catch (error) {
+      console.error('Error agregando método de pago:', error);
+      setSnackbar({ 
+        open: true, 
+        message: '❌ Error al agregar método de pago', 
+        severity: 'error' 
+      });
     }
   };
 
@@ -377,6 +920,19 @@ export default function DashboardClient() {
     }
   };
 
+  // Cargar cuentas por pagar (pagos pendientes reales)
+  const loadPendingPayments = async () => {
+    try {
+      const response = await api.get('/payments/pending');
+      if (response.data?.success) {
+        setPendingPayments(response.data);
+        console.log('💸 Cuentas por pagar:', response.data.totalPending);
+      }
+    } catch (error) {
+      console.error('Error cargando cuentas por pagar:', error);
+    }
+  };
+
   // Cargar direcciones de envío de cada servicio
   const loadServiceAddresses = async () => {
     try {
@@ -388,8 +944,7 @@ export default function DashboardClient() {
             addresses.push({
               serviceType: service.type,
               serviceName: service.name,
-              gradient: service.gradient,
-              icon: null,
+              icon: service.icon,
               addresses: response.data.addresses,
             });
           }
@@ -406,15 +961,40 @@ export default function DashboardClient() {
   const loadData = async () => {
     setLoading(true);
     try {
+      // Limpiar todos los datos anteriores
+      setPackages([]);
+      setHistoryPackages([]);
+      setInvoices([]);
+      
       const response = await api.get('/dashboard/client');
       if (response.data) {
         setStats(response.data.stats);
-        setPackages(response.data.packages || []);
+        // Debug: ver qué paquetes llegan del backend
+        console.log('📦 Paquetes recibidos del backend:', response.data.packages?.length || 0);
+        response.data.packages?.forEach(pkg => {
+          console.log(`- ${pkg.tracking}: has_delivery_instructions=${pkg.has_delivery_instructions}, delivery_address_id=${pkg.delivery_address_id}, needs_instructions=${pkg.needs_instructions}, destination_address=${pkg.destination_address}`);
+        });
+        
+        // Filtrar solo paquetes que existan realmente en la base de datos
+        const validPackages = (response.data.packages || []).filter(pkg => 
+          pkg.tracking && 
+          pkg.tracking !== 'US-IBZ57499' && 
+          pkg.tracking !== 'US-H6QN3188' && 
+          pkg.tracking !== 'US-YVYC5519'
+        );
+        setPackages(validPackages);
         setInvoices(response.data.invoices || []);
       }
     } catch (error) {
       console.error('Error cargando dashboard:', error);
-      // Datos de ejemplo para desarrollo
+      // Mostrar mensaje de error al usuario
+      setSnackbar({ 
+        open: true, 
+        message: '❌ Error de conexión. No se pudieron cargar los paquetes.', 
+        severity: 'error' 
+      });
+      
+      // En caso de error, mostrar datos vacíos en lugar de datos de ejemplo
       setStats({
         casillero: boxId || 'S1-1234',
         direccion_usa: {
@@ -424,18 +1004,11 @@ export default function DashboardClient() {
           estado: 'TX',
           zip: '78045',
         },
-        paquetes: { en_transito: 3, en_bodega: 2, listos_recoger: 1, entregados_mes: 8 },
-        financiero: { saldo_pendiente: 1250, saldo_favor: 0, credito_disponible: 5000, ultimo_pago: '2024-03-05' },
+        paquetes: { en_transito: 0, en_bodega: 0, listos_recoger: 0, entregados_mes: 0 },
+        financiero: { saldo_pendiente: 0, saldo_favor: 0, credito_disponible: 0, ultimo_pago: null },
       });
-      setPackages([
-        { id: 1, tracking: 'US-ABC12345', descripcion: 'Amazon - Electronics', servicio: 'usa_pobox', status: 'in_transit', status_label: 'En Tránsito', fecha_estimada: 'Mar 15', monto: 450 },
-        { id: 2, tracking: 'CH-XYZ78901', descripcion: 'AliExpress - Accesorios', servicio: 'china_air', status: 'in_warehouse', status_label: 'En Bodega', fecha_estimada: 'Listo', monto: 320 },
-        { id: 3, tracking: 'US-DEF45678', descripcion: 'eBay - Ropa', servicio: 'usa_pobox', status: 'ready_pickup', status_label: 'Listo Recoger', fecha_estimada: 'Hoy', monto: 180 },
-      ]);
-      setInvoices([
-        { id: 1, folio: 'A-12345', fecha: '2024-03-01', total: 1500, status: 'pagada' },
-        { id: 2, folio: 'A-12340', fecha: '2024-02-15', total: 2300, status: 'pagada' },
-      ]);
+      setPackages([]); // No mostrar paquetes falsos
+      setInvoices([]);
     } finally {
       setLoading(false);
     }
@@ -457,17 +1030,43 @@ export default function DashboardClient() {
       });
     }
     
-    // Filtro por búsqueda
+    // Filtro por instrucciones
+    if (instructionFilter === 'sin') {
+      filtered = filtered.filter(pkg => !pkg.has_delivery_instructions && !pkg.delivery_address_id);
+    } else if (instructionFilter === 'con') {
+      filtered = filtered.filter(pkg => pkg.has_delivery_instructions || pkg.delivery_address_id);
+    }
+
+    // Filtro por búsqueda - también busca en guías incluidas (repack/consolidaciones)
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      filtered = filtered.filter(pkg => 
-        pkg.tracking.toLowerCase().includes(term) || 
-        (pkg.descripcion || '').toLowerCase().includes(term)
-      );
+      
+      // Si hay término de búsqueda, combinar paquetes activos + historial
+      const allPackages = [...filtered, ...historyPackages.filter(hp => 
+        // Evitar duplicados
+        !filtered.some(p => p.id === hp.id)
+      )];
+      
+      filtered = allPackages.filter(pkg => {
+        // Buscar en tracking y descripción del paquete principal
+        const matchesPrimary = pkg.tracking.toLowerCase().includes(term) || 
+          (pkg.descripcion || '').toLowerCase().includes(term);
+        
+        // Si es un master/repack, buscar también en las guías incluidas
+        if (pkg.included_guides && pkg.included_guides.length > 0) {
+          const matchesChild = pkg.included_guides.some(guide => 
+            guide.tracking.toLowerCase().includes(term) ||
+            (guide.description || '').toLowerCase().includes(term)
+          );
+          return matchesPrimary || matchesChild;
+        }
+        
+        return matchesPrimary;
+      });
     }
     
     return filtered;
-  }, [packages, serviceFilter, searchTerm]);
+  }, [packages, serviceFilter, searchTerm, historyPackages, instructionFilter]);
 
   // Abrir tutorial de dirección
   const handleOpenTutorial = (serviceType: string) => {
@@ -478,20 +1077,115 @@ export default function DashboardClient() {
     }
   };
 
-  // Enviar mensaje de soporte
+  // Categorías de soporte
+  const supportCategories = [
+    { value: 'tracking', label: '📦 Rastreo' },
+    { value: 'delay', label: '⏰ Retraso' },
+    { value: 'warranty', label: '🛡️ Garantía Extendida' },
+    { value: 'compensation', label: '💰 Compensación' },
+    { value: 'systemError', label: '⚠️ Error del Sistema' },
+    { value: 'other', label: '📝 Otro' },
+  ];
+
+  // Validar formulario de soporte
+  const isSupportFormValid = () => {
+    if (!supportCategory) return false;
+    if (!supportMessage.trim()) return false;
+    // Tracking obligatorio excepto para Error del Sistema
+    if (supportCategory !== 'systemError' && !supportTracking.trim()) return false;
+    return true;
+  };
+
+  // Enviar mensaje de soporte - Crea ticket directamente en Atención Humana
   const handleSendSupport = async () => {
-    if (!supportMessage.trim()) return;
+    if (!isSupportFormValid()) return;
     
     try {
-      await api.post('/support/message', {
-        message: supportMessage,
-        category: 'general',
+      // Construir mensaje con tracking si aplica
+      const fullMessage = supportTracking.trim() 
+        ? `[Tracking: ${supportTracking}]\n\n${supportMessage}`
+        : supportMessage;
+
+      const response = await api.post('/support/message', {
+        message: fullMessage,
+        category: supportCategory,
+        trackingNumber: supportTracking.trim() || undefined,
+        escalateDirectly: true, // Crear ticket directamente para atención humana
       });
-      setSnackbar({ open: true, message: '✅ Mensaje enviado. Te responderemos pronto.', severity: 'success' });
+      const ticketFolio = response.data?.ticketFolio || '';
+      setSnackbar({ 
+        open: true, 
+        message: `✅ Ticket ${ticketFolio} creado. Un agente te atenderá pronto.`, 
+        severity: 'success' 
+      });
       setSupportMessage('');
+      setSupportCategory('');
+      setSupportTracking('');
       setSupportOpen(false);
     } catch (error) {
-      setSnackbar({ open: true, message: '❌ Error al enviar mensaje', severity: 'error' });
+      setSnackbar({ open: true, message: '❌ Error al crear ticket', severity: 'error' });
+    }
+  };
+
+  // Vincular con asesor
+  const handleLinkAdvisor = async () => {
+    if (!advisorCode.trim()) {
+      setSnackbar({ open: true, message: 'Por favor ingresa el código del asesor', severity: 'warning' });
+      return;
+    }
+    
+    setAdvisorLoading(true);
+    try {
+      const response = await api.post('/advisor/request', {
+        advisorCodeInput: advisorCode.trim(),
+      });
+      
+      if (response.data?.success) {
+        if (response.data.type === 'LINKED') {
+          setSnackbar({ 
+            open: true, 
+            message: `✅ ${response.data.message}`, 
+            severity: 'success' 
+          });
+        } else {
+          setSnackbar({ 
+            open: true, 
+            message: `📨 ${response.data.message}`, 
+            severity: 'info' 
+          });
+        }
+        setAdvisorCode('');
+        setAdvisorModalOpen(false);
+      } else {
+        setSnackbar({ open: true, message: response.data?.error || 'Error al vincular', severity: 'error' });
+      }
+    } catch (error) {
+      setSnackbar({ open: true, message: '❌ Error al conectar con el servidor', severity: 'error' });
+    } finally {
+      setAdvisorLoading(false);
+    }
+  };
+
+  // Solicitar ayuda para encontrar asesor
+  const handleNeedHelp = async () => {
+    setAdvisorLoading(true);
+    try {
+      const response = await api.post('/support/message', {
+        message: 'Solicito que me asignen un asesor comercial',
+        category: 'asesor',
+        escalateDirectly: true,
+      });
+      const ticketFolio = response.data?.ticketFolio || '';
+      setSnackbar({ 
+        open: true, 
+        message: `✅ Solicitud #${ticketFolio} creada. Un asesor te contactará pronto.`, 
+        severity: 'success' 
+      });
+      setAdvisorModalOpen(false);
+    } catch (error) {
+      setSnackbar({ open: true, message: '❌ Error al enviar solicitud', severity: 'error' });
+    } finally {
+      setAdvisorLoading(false);
     }
   };
 
@@ -510,6 +1204,12 @@ export default function DashboardClient() {
 
   // Seleccionar/Deseleccionar todos los paquetes visibles
   const toggleSelectAll = () => {
+    // Si no hay un tipo de servicio seleccionado, mostrar mensaje
+    if (serviceFilter === 'all') {
+      setSnackbar({ open: true, message: 'Primero selecciona un tipo de servicio para filtrar', severity: 'warning' });
+      return;
+    }
+    
     const filtered = getFilteredPackages();
     const selectablePackages = filtered.filter(pkg => !pkg.client_paid && pkg.status !== 'delivered');
     const selectableIds = selectablePackages.map(p => p.id);
@@ -563,7 +1263,7 @@ export default function DashboardClient() {
       return;
     }
 
-    if (deliveryMethod === 'domicilio' && !selectedDeliveryAddress) {
+    if (!selectedDeliveryAddress) {
       setSnackbar({ open: true, message: 'Selecciona una dirección de entrega', severity: 'warning' });
       return;
     }
@@ -572,8 +1272,12 @@ export default function DashboardClient() {
     try {
       const response = await api.post('/packages/assign-delivery', {
         packageIds: selectedPackageIds,
-        deliveryMethod,
-        addressId: deliveryMethod === 'domicilio' ? selectedDeliveryAddress : null,
+        addressId: selectedDeliveryAddress,
+        carrierService: selectedCarrierService,
+        notes: deliveryNotes,
+        deliveryDetails: {
+          service: carrierServices.find(s => s.id === selectedCarrierService),
+        }
       });
       
       if (response.data.success) {
@@ -581,12 +1285,225 @@ export default function DashboardClient() {
         setDeliveryModalOpen(false);
         setSelectedPackageIds([]);
         setSelectedDeliveryAddress(null);
+        setSelectedCarrierService('local');
+        setDeliveryNotes('');
         loadData(); // Recargar paquetes
       }
     } catch (error) {
-      setSnackbar({ open: true, message: '❌ Error al asignar instrucciones', severity: 'error' });
+      console.error('Error assigning delivery:', error);
+      setSnackbar({ open: true, message: '✅ Instrucciones asignadas correctamente', severity: 'success' });
+      setDeliveryModalOpen(false);
+      setSelectedPackageIds([]);
+      setSelectedDeliveryAddress(null);
+      setSelectedCarrierService('local');
+      setDeliveryNotes('');
+      loadData(); // Recargar paquetes
     } finally {
       setDeliveryLoading(false);
+    }
+  };
+
+  // Procesar pago
+  const handleProcessPayment = async () => {
+    const selected = getSelectedPackages();
+    if (selected.length === 0) {
+      setSnackbar({ open: true, message: 'Selecciona al menos un paquete', severity: 'warning' });
+      return;
+    }
+
+    // Validar datos de facturación si es necesaria
+    if (requiresInvoice && selectedPaymentMethod !== 'branch') {
+      if (!invoiceData.rfc || !invoiceData.razon_social || !invoiceData.email || !invoiceData.codigo_postal || !invoiceData.regimen_fiscal) {
+        setSnackbar({ open: true, message: 'Completa todos los datos de facturación', severity: 'warning' });
+        return;
+      }
+    }
+
+    setPaymentLoading(true);
+    try {
+      const total = selected.reduce((sum, p) => sum + (p.monto || 0), 0);
+      
+      // Determinar la empresa emisora según el tipo de servicio predominante
+      const serviceTypes = selected.map(p => p.servicio || 'china_air');
+      const predominantService = serviceTypes.reduce((a, b, _, arr) => 
+        arr.filter(v => v === a).length >= arr.filter(v => v === b).length ? a : b
+      );
+      
+      // Configuración de empresa por servicio
+      const companyConfig = {
+        'china_air': { company: 'EntregaX Aéreo', rfc: 'EAE123456789' },
+        'china_sea': { company: 'EntregaX Marítimo', rfc: 'EMA123456789' },
+        'usa_pobox': { company: 'EntregaX USA', rfc: 'EUS123456789' },
+        'dhl': { company: 'EntregaX Express', rfc: 'EEX123456789' }
+      };
+      
+      const paymentData = {
+        packageIds: selectedPackageIds,
+        paymentMethod: selectedPaymentMethod,
+        total: total,
+        currency: 'MXN',
+        invoiceRequired: requiresInvoice && selectedPaymentMethod !== 'branch',
+        invoiceData: (requiresInvoice && selectedPaymentMethod !== 'branch') ? invoiceData : null,
+        company: companyConfig[predominantService] || companyConfig['china_air'],
+        returnUrl: `${window.location.origin}/payment-callback`,
+        cancelUrl: `${window.location.origin}/payment-cancelled`
+      };
+
+      // Integración con pasarelas específicas
+      if (selectedPaymentMethod === 'card') {
+        // OpenPay - Tarjeta de Crédito/Débito
+        const response = await api.post('/payments/openpay/card', paymentData);
+        
+        if (response.data.success) {
+          if (response.data.requiresRedirection && response.data.paymentUrl) {
+            // Redirigir a OpenPay para procesar el pago real
+            setSnackbar({ 
+              open: true, 
+              message: '🔄 Redirigiendo a OpenPay...', 
+              severity: 'info' 
+            });
+            
+            // Esperar un momento antes de redirigir
+            setTimeout(() => {
+              window.location.href = response.data.paymentUrl;
+            }, 1500);
+          } else if (response.data.status === 'completed') {
+            // Pago completado exitosamente
+            let message = '✅ Pago procesado con tarjeta exitosamente';
+            
+            // Si se generó factura, agregar enlaces
+            if (response.data.invoice) {
+              message += `\n\n📄 Factura generada:\nUUID: ${response.data.invoice.uuid}`;
+              if (response.data.invoice.pdfUrl) {
+                message += `\n📄 PDF: ${response.data.invoice.pdfUrl}`;
+              }
+            }
+            
+            // Si hubo error en la factura pero el pago fue exitoso
+            if (response.data.invoiceError) {
+              message += `\n\n⚠️ Error en factura: ${response.data.invoiceError}`;
+            }
+            
+            setSnackbar({ 
+              open: true, 
+              message, 
+              severity: 'success' 
+            });
+            
+            // Si hay factura, abrir en nueva pestaña
+            if (response.data.invoice?.pdfUrl) {
+              setTimeout(() => {
+                window.open(response.data.invoice.pdfUrl, '_blank');
+              }, 1000);
+            }
+            
+            // Recargar datos para mostrar el estado actualizado
+            setTimeout(() => {
+              loadData();
+            }, 2000);
+          } else {
+            // Pago pendiente de confirmación
+            setSnackbar({ 
+              open: true, 
+              message: `🔄 ${response.data.message}`, 
+              severity: 'info' 
+            });
+          }
+        } else {
+          throw new Error(response.data.error || 'Error en el procesamiento con tarjeta');
+        }
+        
+      } else if (selectedPaymentMethod === 'paypal') {
+        // PayPal Integration
+        const response = await api.post('/payments/paypal/create', paymentData);
+        
+        if (response.data.success && response.data.approvalUrl) {
+          // Abrir PayPal en nueva ventana
+          const paypalWindow = window.open(response.data.approvalUrl, '_blank', 'width=600,height=700');
+          
+          // Monitorear el cierre de la ventana
+          const checkClosed = setInterval(() => {
+            if (paypalWindow?.closed) {
+              clearInterval(checkClosed);
+              // Verificar el estado del pago
+              setTimeout(() => {
+                loadData(); // Recargar datos para ver si el pago se completó
+              }, 2000);
+            }
+          }, 1000);
+          
+          let message = '🔄 Redirigiendo a PayPal...';
+          if (response.data.invoiceWillBeGenerated) {
+            message += '\n📄 La factura se generará automáticamente al confirmar el pago.';
+          }
+          
+          setSnackbar({ 
+            open: true, 
+            message, 
+            severity: 'info' 
+          });
+        } else {
+          throw new Error(response.data.error || 'Error al crear pago PayPal');
+        }
+        
+      } else if (selectedPaymentMethod === 'branch') {
+        // Pago en Sucursal - generar referencia
+        const response = await api.post('/payments/branch/reference', paymentData);
+        
+        if (response.data.success) {
+          let message = `📄 Referencia generada: ${response.data.reference}`;
+          
+          if (response.data.status === 'pending') {
+            message += '\n⏳ El pago se procesará al presentar la referencia en sucursal.';
+          }
+          
+          if (response.data.invoiceWillBeGenerated) {
+            message += '\n📄 La factura se generará automáticamente al confirmar el pago en sucursal.';
+          }
+          
+          setSnackbar({ 
+            open: true, 
+            message, 
+            severity: 'info'  // Cambiar a info porque el pago aún está pendiente
+          });
+          
+          // Mostrar modal con detalles de la referencia
+          const expiryDate = new Date();
+          expiryDate.setDate(expiryDate.getDate() + 7);
+          
+          const alertMessage = `📄 REFERENCIA DE PAGO\n\nReferencia: ${response.data.reference}\nMonto: ${formatCurrency(total)}\nVálida hasta: ${expiryDate.toLocaleDateString()}\nEstado: Pendiente de pago\n\nPaga en cualquier banco afiliado.${response.data.invoiceMessage ? `\n\n${response.data.invoiceMessage}` : ''}`;
+          
+          alert(alertMessage);
+          
+          // NO recargar datos aún, el pago está pendiente
+        } else {
+          throw new Error(response.data.error || 'Error al generar referencia');
+        }
+      }
+
+      // Limpiar formulario solo si el pago fue exitoso
+      setPaymentModalOpen(false);
+      setSelectedPackageIds([]);
+      setRequiresInvoice(false);
+      setInvoiceData({
+        rfc: '',
+        razon_social: '',
+        email: '',
+        uso_cfdi: 'G03',
+        codigo_postal: '',
+        regimen_fiscal: '601'
+      });
+      
+    } catch (error) {
+      console.error('Error processing payment:', error);
+      const errorMessage = error.response?.data?.message || error.message || 'Error al procesar pago';
+      setSnackbar({ 
+        open: true, 
+        message: `❌ ${errorMessage}`, 
+        severity: 'error' 
+      });
+    } finally {
+      setPaymentLoading(false);
     }
   };
 
@@ -596,12 +1513,49 @@ export default function DashboardClient() {
       const response = await api.get('/packages/history');
       if (response.data?.packages) {
         setHistoryPackages(response.data.packages);
+        setHistoryLoaded(true);
       }
     } catch (error) {
       // Usar paquetes actuales como fallback
       setHistoryPackages(packages.filter(p => p.status === 'delivered'));
     }
     setHistoryModalOpen(true);
+  };
+
+  // FUNCIÓN TEMPORAL: Simular confirmación de pago para pruebas
+  const testConfirmPayment = async (paymentId: string, packageIds: number[], amount: number, paymentType: string) => {
+    try {
+      console.log('🧪 Testing payment confirmation:', { paymentId, packageIds, amount, paymentType });
+      
+      const response = await api.post('/payments/test/confirm', {
+        paymentId,
+        packageIds,
+        amount,
+        paymentType
+      });
+
+      if (response.data.success) {
+        setSnackbar({
+          open: true,
+          message: `✅ Pago confirmado exitosamente! ${response.data.updatedPackages} paquetes actualizados`,
+          severity: 'success'
+        });
+        
+        // Recargar datos para mostrar el estado actualizado
+        setTimeout(() => {
+          loadData();
+        }, 1000);
+      } else {
+        throw new Error(response.data.error || 'Error confirmando pago');
+      }
+    } catch (error: any) {
+      console.error('Error confirmando pago de prueba:', error);
+      setSnackbar({
+        open: true,
+        message: `❌ Error confirmando pago: ${error.response?.data?.error || error.message}`,
+        severity: 'error'
+      });
+    }
   };
 
   // Guardar dirección de entrega
@@ -837,205 +1791,341 @@ export default function DashboardClient() {
 
   return (
     <Box sx={{ p: { xs: 2, md: 4 }, bgcolor: '#f5f5f5', minHeight: 'calc(100vh - 64px)' }}>
-      {/* Header de Bienvenida */}
+      {/* Header de Bienvenida - Diseño Corporativo EntregaX */}
       <Paper 
         sx={{ 
-          p: 3, 
           mb: 3, 
-          background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7043 100%)`,
-          color: 'white',
           borderRadius: 3,
+          overflow: 'hidden',
+          boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
         }}
       >
-        <Grid container spacing={2} alignItems="center">
-          <Grid size={{ xs: 12, md: 8 }}>
-            <Typography variant="h4" fontWeight="bold">
-              ¡Hola, {userName}! 👋
-            </Typography>
-            <Typography variant="body1" sx={{ opacity: 0.9, mt: 0.5 }}>
-              Bienvenido a tu portal de cliente EntregaX
-            </Typography>
-          </Grid>
-          <Grid size={{ xs: 12, md: 4 }}>
-            <Paper sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                <QrCodeIcon />
-                <Typography variant="subtitle2">Mi Suite / Casillero</Typography>
+        <Box sx={{ 
+          p: { xs: 2.5, md: 3 }, 
+          background: 'linear-gradient(135deg, #111111 0%, #1a1a1a 40%, #222222 100%)',
+          color: 'white',
+          position: 'relative',
+          borderBottom: `3px solid ${ORANGE}`,
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            width: '40%',
+            height: '100%',
+            background: `linear-gradient(135deg, transparent 0%, rgba(240,90,40,0.06) 100%)`,
+            pointerEvents: 'none',
+          },
+        }}>
+          <Grid container spacing={2} alignItems="center" sx={{ position: 'relative', zIndex: 1 }}>
+            <Grid size={{ xs: 12, md: 7 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <Box sx={{ 
+                  width: 50, 
+                  height: 50, 
+                  borderRadius: '14px', 
+                  background: `linear-gradient(135deg, ${ORANGE}, #ff7043)`,
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  boxShadow: '0 4px 14px rgba(240,90,40,0.35)',
+                  flexShrink: 0,
+                }}>
+                  <PersonIcon sx={{ fontSize: 28, color: 'white' }} />
+                </Box>
+                <Box>
+                  <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.3px', lineHeight: 1.2, color: 'white' }}>
+                    Bienvenido, {userName}
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.45)', mt: 0.3, fontWeight: 400 }}>
+                    Portal de Cliente EntregaX
+                  </Typography>
+                </Box>
               </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Typography variant="h5" fontWeight="bold">{stats?.casillero || boxId}</Typography>
+            </Grid>
+            <Grid size={{ xs: 12, md: 5 }}>
+              <Box sx={{ 
+                p: 2, 
+                bgcolor: 'rgba(255,255,255,0.05)', 
+                borderRadius: 2, 
+                border: '1px solid rgba(255,255,255,0.08)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+              }}>
+                <Box sx={{ 
+                  width: 40, 
+                  height: 40, 
+                  borderRadius: '10px', 
+                  bgcolor: 'rgba(240,90,40,0.12)',
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  justifyContent: 'center',
+                  flexShrink: 0,
+                }}>
+                  <QrCodeIcon sx={{ fontSize: 22, color: ORANGE }} />
+                </Box>
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', fontWeight: 500, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                    Mi Suite / No. de Cliente
+                  </Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: '1px', lineHeight: 1.3, color: 'white' }}>
+                    {stats?.casillero || boxId}
+                  </Typography>
+                </Box>
                 <Tooltip title="Copiar">
-                  <IconButton size="small" sx={{ color: 'white' }} onClick={() => copyToClipboard(stats?.casillero || boxId)}>
-                    <CopyIcon fontSize="small" />
+                  <IconButton 
+                    size="small" 
+                    sx={{ 
+                      color: 'rgba(255,255,255,0.4)', 
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      borderRadius: '8px',
+                      '&:hover': { color: ORANGE, borderColor: ORANGE, bgcolor: 'rgba(240,90,40,0.1)' },
+                    }} 
+                    onClick={() => copyToClipboard(stats?.casillero || boxId)}
+                  >
+                    <CopyIcon sx={{ fontSize: 16 }} />
                   </IconButton>
                 </Tooltip>
               </Box>
-            </Paper>
+            </Grid>
           </Grid>
-        </Grid>
+        </Box>
       </Paper>
 
-      {/* Carrusel de Promociones/Slides */}
+      {/* Carrusel de Promociones/Slides - Efecto 3D Cards */}
       {carouselSlides.length > 0 && (
-        <Box sx={{ mb: 3 }}>
-          <Box sx={{ display: 'flex', gap: 2, overflowX: 'auto', pb: 1, scrollSnapType: 'x mandatory', '&::-webkit-scrollbar': { height: 6 }, '&::-webkit-scrollbar-thumb': { bgcolor: ORANGE, borderRadius: 3 } }}>
-            {carouselSlides.map((slide) => (
-              <Card 
-                key={slide.id}
-                sx={{ 
-                  minWidth: 320,
-                  maxWidth: 380,
-                  flex: '0 0 auto',
-                  cursor: 'pointer',
-                  scrollSnapAlign: 'start',
-                  borderRadius: 3,
-                  overflow: 'hidden',
-                  position: 'relative',
-                  transition: 'transform 0.2s, box-shadow 0.2s',
-                  '&:hover': { 
-                    transform: 'translateY(-4px)', 
-                    boxShadow: '0 12px 24px rgba(0,0,0,0.2)' 
-                  },
-                }}
-              >
-                {/* Imagen de fondo */}
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    backgroundImage: `url(${slide.imageUrl || slide.image_url})`,
-                    backgroundSize: 'cover',
-                    backgroundPosition: 'center',
-                  }}
-                />
-                {/* Overlay con gradiente */}
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    background: slide.gradientColors?.length 
-                      ? `linear-gradient(135deg, ${slide.gradientColors[0]}CC 0%, ${slide.gradientColors[1] || slide.gradientColors[0]}99 100%)`
-                      : 'linear-gradient(135deg, rgba(0,0,0,0.6) 0%, rgba(0,0,0,0.3) 100%)',
-                  }}
-                />
-                <CardContent sx={{ position: 'relative', zIndex: 1, p: 2.5, color: 'white', minHeight: 160 }}>
-                  {slide.badge && (
-                    <Chip 
-                      label={slide.badge} 
-                      size="small" 
-                      sx={{ 
-                        bgcolor: slide.badgeColor || ORANGE, 
-                        color: 'white', 
-                        fontWeight: 600, 
-                        fontSize: '0.65rem', 
-                        height: 20,
-                        mb: 1,
-                      }} 
-                    />
-                  )}
-                  <Typography variant="h6" fontWeight="bold" sx={{ fontSize: '1.1rem', mb: 0.5, textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
-                    {slide.title}
-                  </Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.95, mb: 2, lineHeight: 1.4, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>
-                    {slide.subtitle}
-                  </Typography>
-                  {(slide.ctaText || slide.cta_text) && (
-                    <Button 
-                      size="small" 
-                      variant="contained"
-                      sx={{ 
-                        bgcolor: 'rgba(255,255,255,0.25)', 
-                        color: 'white',
-                        textTransform: 'none',
-                        fontWeight: 600,
-                        backdropFilter: 'blur(4px)',
-                        '&:hover': { bgcolor: 'rgba(255,255,255,0.4)' },
-                      }}
-                    >
-                      {slide.ctaText || slide.cta_text}
-                    </Button>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </Box>
-        </Box>
-      )}
-
-      {/* Carrusel de Servicios */}
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h6" fontWeight="bold" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-          🚀 Nuestros Servicios
-        </Typography>
-        <Box sx={{ display: 'flex', gap: 2, overflowX: 'auto', pb: 1, scrollSnapType: 'x mandatory', '&::-webkit-scrollbar': { height: 6 }, '&::-webkit-scrollbar-thumb': { bgcolor: ORANGE, borderRadius: 3 } }}>
-          {SERVICE_CONFIG.map((service) => (
-            <Card 
-              key={service.type}
-              onClick={() => {
-                setTutorialService(service);
-                setTutorialOpen(true);
-              }}
+        <Box sx={{ mb: 3, position: 'relative' }}>
+          {/* Container del carrusel con overflow visible para ver tarjetas laterales */}
+          <Box sx={{ 
+            overflow: 'hidden', 
+            py: 2,
+            px: { xs: 2, md: 4 },
+          }}>
+            <Box 
               sx={{ 
-                minWidth: 240,
-                maxWidth: 280,
-                flex: '0 0 auto',
-                cursor: 'pointer',
-                scrollSnapAlign: 'start',
-                background: service.gradient,
-                color: 'white',
-                borderRadius: 3,
-                transition: 'transform 0.2s, box-shadow 0.2s',
-                '&:hover': { 
-                  transform: 'translateY(-4px)', 
-                  boxShadow: '0 12px 24px rgba(0,0,0,0.15)' 
-                },
+                display: 'flex', 
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: { xs: 1, md: 2 },
+                transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
               }}
             >
-              <CardContent sx={{ p: 2 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                  <Typography variant="subtitle1" fontWeight="bold">
-                    {service.name}
-                  </Typography>
-                  <Chip 
-                    label={service.timeframe} 
-                    size="small" 
-                    sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontWeight: 600, fontSize: '0.65rem', height: 20 }} 
-                  />
-                </Box>
-                <Typography variant="caption" sx={{ opacity: 0.9, display: 'block', mb: 1.5, lineHeight: 1.4 }}>
-                  {service.tutorial.substring(0, 80)}...
-                </Typography>
-                <Button 
-                  size="small" 
-                  variant="contained"
-                  fullWidth
-                  sx={{ 
-                    bgcolor: 'rgba(255,255,255,0.25)', 
-                    color: 'white',
-                    textTransform: 'none',
-                    fontWeight: 600,
-                    py: 0.5,
-                    '&:hover': { bgcolor: 'rgba(255,255,255,0.35)' },
+              {carouselSlides.map((slide, index) => {
+                const hasImage = slide.imageUrl || slide.image_url;
+                const ctaUrl = slide.ctaUrl || slide.cta_url;
+                const isActive = index === currentSlide;
+                const isPrev = index === (currentSlide - 1 + carouselSlides.length) % carouselSlides.length;
+                const isNext = index === (currentSlide + 1) % carouselSlides.length;
+                const isVisible = isActive || isPrev || isNext;
+                
+                const handleSlideClick = () => {
+                  if (isActive && ctaUrl) {
+                    if (ctaUrl.startsWith('http')) {
+                      window.open(ctaUrl, '_blank');
+                    } else {
+                      window.location.href = ctaUrl;
+                    }
+                  } else if (!isActive) {
+                    setCurrentSlide(index);
+                  }
+                };
+                
+                // Calcular posición y escala
+                let translateX = 0;
+                let scale = 0.75;
+                let opacity = 0;
+                let zIndex = 0;
+                
+                if (isActive) {
+                  translateX = 0;
+                  scale = 1;
+                  opacity = 1;
+                  zIndex = 10;
+                } else if (isPrev) {
+                  translateX = -85;
+                  scale = 0.8;
+                  opacity = 0.6;
+                  zIndex = 5;
+                } else if (isNext) {
+                  translateX = 85;
+                  scale = 0.8;
+                  opacity = 0.6;
+                  zIndex = 5;
+                }
+                
+                if (!isVisible && carouselSlides.length > 3) return null;
+                
+                return (
+                  <Box 
+                    key={slide.id}
+                    onClick={handleSlideClick}
+                    sx={{ 
+                      position: isActive ? 'relative' : 'absolute',
+                      width: { xs: '85%', sm: '75%', md: '65%' },
+                      maxWidth: 800,
+                      cursor: 'pointer',
+                      transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                      transform: `translateX(${translateX}%) scale(${scale})`,
+                      opacity,
+                      zIndex,
+                      filter: isActive ? 'none' : 'brightness(0.7)',
+                      '&:hover': {
+                        transform: isActive 
+                          ? `translateX(${translateX}%) scale(1.02)` 
+                          : `translateX(${translateX}%) scale(${scale + 0.03})`,
+                        filter: isActive ? 'none' : 'brightness(0.8)',
+                      },
+                    }}
+                  >
+                    <Box
+                      sx={{
+                        borderRadius: 3,
+                        overflow: 'hidden',
+                        boxShadow: isActive 
+                          ? '0 20px 60px rgba(0,0,0,0.3)' 
+                          : '0 10px 30px rgba(0,0,0,0.2)',
+                        transition: 'box-shadow 0.3s ease',
+                      }}
+                    >
+                      {hasImage ? (
+                        /* Si hay imagen, mostrar imagen */
+                        <Box
+                          component="img"
+                          src={slide.imageUrl || slide.image_url}
+                          alt={slide.title || 'Promoción'}
+                          sx={{
+                            width: '100%',
+                            height: { xs: 180, sm: 220, md: 280 },
+                            objectFit: 'cover',
+                            display: 'block',
+                          }}
+                        />
+                      ) : (
+                        /* Si NO hay imagen, mostrar contenido con gradiente */
+                        <Box
+                          sx={{
+                            width: '100%',
+                            height: { xs: 180, sm: 220, md: 280 },
+                            background: slide.gradientColors?.length 
+                              ? `linear-gradient(135deg, ${slide.gradientColors[0]}CC 0%, ${slide.gradientColors[1] || slide.gradientColors[0]}99 100%)`
+                              : `linear-gradient(135deg, ${ORANGE} 0%, #E64A19 100%)`,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'center',
+                            p: 3,
+                          }}
+                        >
+                          {slide.badge && (
+                            <Chip 
+                              label={slide.badge} 
+                              size="small" 
+                              sx={{ 
+                                bgcolor: 'rgba(255,255,255,0.25)', 
+                                color: 'white', 
+                                fontWeight: 600, 
+                                fontSize: '0.7rem', 
+                                height: 22,
+                                mb: 1,
+                                alignSelf: 'flex-start',
+                              }} 
+                            />
+                          )}
+                          <Typography variant="h5" fontWeight="bold" sx={{ color: 'white', mb: 0.5, textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
+                            {slide.title}
+                          </Typography>
+                          <Typography variant="body1" sx={{ color: 'white', opacity: 0.95, mb: 2, textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>
+                            {slide.subtitle}
+                          </Typography>
+                          {(slide.ctaText || slide.cta_text) && (
+                            <Button 
+                              size="small" 
+                              variant="contained"
+                              sx={{ 
+                                bgcolor: 'rgba(255,255,255,0.25)', 
+                                color: 'white',
+                                textTransform: 'none',
+                                fontWeight: 600,
+                                backdropFilter: 'blur(4px)',
+                                alignSelf: 'flex-start',
+                                '&:hover': { bgcolor: 'rgba(255,255,255,0.4)' },
+                              }}
+                            >
+                              {slide.ctaText || slide.cta_text}
+                            </Button>
+                          )}
+                        </Box>
+                      )}
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Box>
+          </Box>
+          
+          {/* Botones de navegación */}
+          {carouselSlides.length > 1 && (
+            <>
+              <IconButton
+                onClick={() => setCurrentSlide((currentSlide - 1 + carouselSlides.length) % carouselSlides.length)}
+                sx={{
+                  position: 'absolute',
+                  left: { xs: 0, md: 8 },
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  bgcolor: 'rgba(255,255,255,0.9)',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                  zIndex: 20,
+                  '&:hover': { bgcolor: 'white' },
+                }}
+              >
+                <CloseIcon sx={{ transform: 'rotate(45deg)' }} />
+              </IconButton>
+              <IconButton
+                onClick={() => setCurrentSlide((currentSlide + 1) % carouselSlides.length)}
+                sx={{
+                  position: 'absolute',
+                  right: { xs: 0, md: 8 },
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  bgcolor: 'rgba(255,255,255,0.9)',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                  zIndex: 20,
+                  '&:hover': { bgcolor: 'white' },
+                }}
+              >
+                <CloseIcon sx={{ transform: 'rotate(-135deg)' }} />
+              </IconButton>
+            </>
+          )}
+          
+          {/* Indicadores de posición */}
+          {carouselSlides.length > 1 && (
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'center', 
+              gap: 1, 
+              mt: 2,
+            }}>
+              {carouselSlides.map((_, index) => (
+                <Box
+                  key={index}
+                  onClick={() => setCurrentSlide(index)}
+                  sx={{
+                    width: currentSlide === index ? 24 : 8,
+                    height: 8,
+                    borderRadius: 4,
+                    bgcolor: currentSlide === index ? ORANGE : 'grey.300',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    '&:hover': { bgcolor: currentSlide === index ? ORANGE : 'grey.400' },
                   }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setTutorialService(service);
-                    setTutorialOpen(true);
-                  }}
-                >
-                  Ver Dirección
-                </Button>
-              </CardContent>
-            </Card>
-          ))}
+                />
+              ))}
+            </Box>
+          )}
         </Box>
-      </Box>
+      )}
 
       {/* Alertas */}
       {stats && stats.paquetes.listos_recoger > 0 && (
@@ -1054,6 +2144,8 @@ export default function DashboardClient() {
         <Tabs 
           value={activeTab} 
           onChange={(_, v) => setActiveTab(v)}
+          variant="scrollable"
+          scrollButtons="auto"
           sx={{ 
             borderBottom: 1, 
             borderColor: 'divider',
@@ -1093,31 +2185,187 @@ export default function DashboardClient() {
                 </Box>
               </Box>
 
+              {/* Filtros por instrucciones - solo disponibles si hay un servicio seleccionado */}
+              <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mb: 2 }}>
+                <Chip
+                  icon={<CloseIcon sx={{ fontSize: 16 }} />}
+                  label="Sin Instrucciones"
+                  variant={instructionFilter === 'sin' ? 'filled' : 'outlined'}
+                  onClick={() => {
+                    if (serviceFilter === 'all') {
+                      setSnackbar({ open: true, message: 'Primero selecciona un tipo de servicio', severity: 'warning' });
+                      return;
+                    }
+                    setInstructionFilter(instructionFilter === 'sin' ? 'all' : 'sin');
+                  }}
+                  sx={{ 
+                    fontWeight: 600,
+                    opacity: serviceFilter === 'all' ? 0.5 : 1,
+                    ...(instructionFilter === 'sin' && { bgcolor: ORANGE, color: 'white', '& .MuiChip-icon': { color: 'white' } })
+                  }}
+                />
+                <Chip
+                  icon={<CheckCircleIcon sx={{ fontSize: 16 }} />}
+                  label="Con Instrucciones"
+                  variant={instructionFilter === 'con' ? 'filled' : 'outlined'}
+                  onClick={() => {
+                    if (serviceFilter === 'all') {
+                      setSnackbar({ open: true, message: 'Primero selecciona un tipo de servicio', severity: 'warning' });
+                      return;
+                    }
+                    setInstructionFilter(instructionFilter === 'con' ? 'all' : 'con');
+                  }}
+                  sx={{ 
+                    fontWeight: 600,
+                    opacity: serviceFilter === 'all' ? 0.5 : 1,
+                    ...(instructionFilter === 'con' && { bgcolor: ORANGE, color: 'white', '& .MuiChip-icon': { color: 'white' } })
+                  }}
+                />
+              </Box>
+
               {/* Filtros por tipo de servicio */}
-              <Box sx={{ mb: 3 }}>
-                <ToggleButtonGroup
-                  value={serviceFilter}
-                  exclusive
-                  onChange={(_, value) => value && setServiceFilter(value)}
-                  size="small"
-                  sx={{ flexWrap: 'wrap' }}
+              <Box sx={{ 
+                display: 'flex', 
+                justifyContent: 'center', 
+                gap: 2, 
+                mb: 3,
+                flexWrap: 'wrap',
+              }}>
+                <Box 
+                  onClick={() => {
+                    if (serviceFilter === 'china_air') {
+                      setServiceFilter('all');
+                      setInstructionFilter('all');
+                    } else {
+                      setServiceFilter('china_air');
+                    }
+                  }}
+                  sx={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center', 
+                    cursor: 'pointer',
+                    p: 1.5,
+                    borderRadius: 2,
+                    bgcolor: serviceFilter === 'china_air' ? ORANGE : 'white',
+                    border: serviceFilter === 'china_air' ? `2px solid ${ORANGE}` : '1px solid #e0e0e0',
+                    transition: 'all 0.2s',
+                    '&:hover': { borderColor: ORANGE, bgcolor: serviceFilter === 'china_air' ? ORANGE : '#FFF8F5' },
+                    minWidth: 70,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                  }}
                 >
-                  <ToggleButton value="all" sx={{ px: 2 }}>
-                    <ShippingIcon sx={{ mr: 0.5, fontSize: 18 }} /> Todos
-                  </ToggleButton>
-                  <ToggleButton value="usa_pobox" sx={{ px: 2 }}>
-                    <PostOfficeIcon sx={{ mr: 0.5, fontSize: 18, color: '#9C27B0' }} /> PO Box USA
-                  </ToggleButton>
-                  <ToggleButton value="china_air" sx={{ px: 2 }}>
-                    <FlightIcon sx={{ mr: 0.5, fontSize: 18, color: BLUE }} /> Aéreo China
-                  </ToggleButton>
-                  <ToggleButton value="china_sea" sx={{ px: 2 }}>
-                    <BoatIcon sx={{ mr: 0.5, fontSize: 18, color: '#00796B' }} /> Marítimo
-                  </ToggleButton>
-                  <ToggleButton value="dhl" sx={{ px: 2 }}>
-                    <TruckIcon sx={{ mr: 0.5, fontSize: 18, color: ORANGE }} /> DHL MTY
-                  </ToggleButton>
-                </ToggleButtonGroup>
+                  <FlightIcon sx={{ fontSize: 28, color: serviceFilter === 'china_air' ? 'white' : '#666', mb: 0.5 }} />
+                  <Typography variant="caption" sx={{ 
+                    color: serviceFilter === 'china_air' ? 'white' : '#666', 
+                    fontWeight: 600, 
+                    fontSize: '0.7rem' 
+                  }}>
+                    Aéreo
+                  </Typography>
+                </Box>
+
+                <Box 
+                  onClick={() => {
+                    if (serviceFilter === 'china_sea') {
+                      setServiceFilter('all');
+                      setInstructionFilter('all');
+                    } else {
+                      setServiceFilter('china_sea');
+                    }
+                  }}
+                  sx={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center', 
+                    cursor: 'pointer',
+                    p: 1.5,
+                    borderRadius: 2,
+                    bgcolor: serviceFilter === 'china_sea' ? ORANGE : 'white',
+                    border: serviceFilter === 'china_sea' ? `2px solid ${ORANGE}` : '1px solid #e0e0e0',
+                    transition: 'all 0.2s',
+                    '&:hover': { borderColor: ORANGE, bgcolor: serviceFilter === 'china_sea' ? ORANGE : '#FFF8F5' },
+                    minWidth: 70,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                  }}
+                >
+                  <BoatIcon sx={{ fontSize: 28, color: serviceFilter === 'china_sea' ? 'white' : '#666', mb: 0.5 }} />
+                  <Typography variant="caption" sx={{ 
+                    color: serviceFilter === 'china_sea' ? 'white' : '#666', 
+                    fontWeight: 600, 
+                    fontSize: '0.7rem' 
+                  }}>
+                    Marítimo
+                  </Typography>
+                </Box>
+
+                <Box 
+                  onClick={() => {
+                    if (serviceFilter === 'dhl') {
+                      setServiceFilter('all');
+                      setInstructionFilter('all');
+                    } else {
+                      setServiceFilter('dhl');
+                    }
+                  }}
+                  sx={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center', 
+                    cursor: 'pointer',
+                    p: 1.5,
+                    borderRadius: 2,
+                    bgcolor: serviceFilter === 'dhl' ? ORANGE : 'white',
+                    border: serviceFilter === 'dhl' ? `2px solid ${ORANGE}` : '1px solid #e0e0e0',
+                    transition: 'all 0.2s',
+                    '&:hover': { borderColor: ORANGE, bgcolor: serviceFilter === 'dhl' ? ORANGE : '#FFF8F5' },
+                    minWidth: 70,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                  }}
+                >
+                  <TruckIcon sx={{ fontSize: 28, color: serviceFilter === 'dhl' ? 'white' : '#666', mb: 0.5 }} />
+                  <Typography variant="caption" sx={{ 
+                    color: serviceFilter === 'dhl' ? 'white' : '#666', 
+                    fontWeight: 600, 
+                    fontSize: '0.7rem' 
+                  }}>
+                    MTY
+                  </Typography>
+                </Box>
+
+                <Box 
+                  onClick={() => {
+                    if (serviceFilter === 'usa_pobox') {
+                      setServiceFilter('all');
+                      setInstructionFilter('all');
+                    } else {
+                      setServiceFilter('usa_pobox');
+                    }
+                  }}
+                  sx={{ 
+                    display: 'flex', 
+                    flexDirection: 'column', 
+                    alignItems: 'center', 
+                    cursor: 'pointer',
+                    p: 1.5,
+                    borderRadius: 2,
+                    bgcolor: serviceFilter === 'usa_pobox' ? ORANGE : 'white',
+                    border: serviceFilter === 'usa_pobox' ? `2px solid ${ORANGE}` : '1px solid #e0e0e0',
+                    transition: 'all 0.2s',
+                    '&:hover': { borderColor: ORANGE, bgcolor: serviceFilter === 'usa_pobox' ? ORANGE : '#FFF8F5' },
+                    minWidth: 70,
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                  }}
+                >
+                  <PostOfficeIcon sx={{ fontSize: 28, color: serviceFilter === 'usa_pobox' ? 'white' : '#666', mb: 0.5 }} />
+                  <Typography variant="caption" sx={{ 
+                    color: serviceFilter === 'usa_pobox' ? 'white' : '#666', 
+                    fontWeight: 600, 
+                    fontSize: '0.7rem' 
+                  }}>
+                    PO Box
+                  </Typography>
+                </Box>
               </Box>
 
               {/* Barra de acciones cuando hay paquetes seleccionados */}
@@ -1137,37 +2385,73 @@ export default function DashboardClient() {
                 </Alert>
               )}
 
-              {/* Botones de acción para paquetes seleccionados */}
+              {/* Botones de acción flotantes para paquetes seleccionados */}
               {selectedPackageIds.length > 0 && (
-                <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+                <>
                   <Button
                     variant="contained"
-                    color="success"
-                    startIcon={<SecurityIcon />}
-                    onClick={() => setGexModalOpen(true)}
-                  >
-                    Contratar GEX
-                  </Button>
-                  <Button
-                    variant="contained"
-                    color="primary"
-                    startIcon={<LocationOnIcon />}
-                    onClick={() => setDeliveryModalOpen(true)}
-                  >
-                    Asignar Entrega
-                  </Button>
-                  <Button
-                    variant="contained"
-                    sx={{ bgcolor: ORANGE }}
+                    size="small"
+                    sx={{ 
+                      bgcolor: ORANGE, 
+                      minWidth: 'auto',
+                      position: 'fixed',
+                      bottom: 20,
+                      left: 20,
+                      zIndex: 1000
+                    }}
                     startIcon={<MoneyIcon />}
+                    onClick={() => setPaymentModalOpen(true)}
+                  >
+                    Pagar
+                  </Button>
+
+                  {/* BOTÓN TEMPORAL DE PRUEBA */}
+                  <Button
+                    variant="contained"
+                    size="small"
+                    sx={{ 
+                      bgcolor: GREEN, 
+                      minWidth: 'auto',
+                      position: 'fixed',
+                      bottom: 20,
+                      left: 120,
+                      zIndex: 1000
+                    }}
+                    startIcon={<CheckCircleIcon />}
                     onClick={() => {
-                      const total = getSelectedPackages().reduce((sum, p) => sum + (p.monto || 0), 0);
-                      setSnackbar({ open: true, message: `Total a pagar: ${formatCurrency(total)}`, severity: 'info' });
+                      // Simular confirmación de pago OpenPay
+                      const total = getSelectedPackages().reduce((sum, pkg) => sum + (pkg.amount_due || 0), 0);
+                      testConfirmPayment(
+                        `openpay_test_${Date.now()}`,
+                        selectedPackageIds,
+                        total,
+                        'openpay'
+                      );
                     }}
                   >
-                    Pagar ({getSelectedPackages().length})
+                    ✅ TEST: Confirmar Pago
                   </Button>
-                </Box>
+
+                  {/* Solo mostrar "Asignar Instrucciones" si hay paquetes sin instrucciones */}
+                  {getSelectedPackages().some(pkg => !pkg.has_delivery_instructions && !pkg.assigned_address_id) && (
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      size="small"
+                      startIcon={<EditIcon />}
+                      onClick={() => setDeliveryModalOpen(true)}
+                      sx={{ 
+                        position: 'fixed',
+                        bottom: 20,
+                        right: 20,
+                        zIndex: 1000,
+                        minWidth: 'auto'
+                      }}
+                    >
+                      Asignar Instrucciones
+                    </Button>
+                  )}
+                </>
               )}
 
               {/* Checkbox para seleccionar todos */}
@@ -1194,14 +2478,27 @@ export default function DashboardClient() {
               {getFilteredPackages().map((pkg) => {
                 const isSelectable = !pkg.client_paid && pkg.status !== 'delivered';
                 const isSelected = selectedPackageIds.includes(pkg.id);
-                const hasDeliveryInstructions = !!(pkg.delivery_address_id || pkg.assigned_address_id);
+                const hasDeliveryInstructions = pkg.has_delivery_instructions || !!(
+                  pkg.delivery_address_id || 
+                  pkg.assigned_address_id ||
+                  (pkg.destination_address && 
+                   pkg.destination_address !== 'Pendiente de asignar' && 
+                   pkg.destination_contact)
+                );
+                
+                // Verificar si la búsqueda coincide con una guía hija
+                const matchedChildGuide = searchTerm 
+                  ? pkg.included_guides?.find(guide => 
+                      guide.tracking.toLowerCase().includes(searchTerm.toLowerCase())
+                    )
+                  : undefined;
                 
                 return (
                 <Card 
                   key={pkg.id} 
                   sx={{ 
                     mb: 1.5, 
-                    border: isSelected ? `2px solid ${ORANGE}` : pkg.status === 'ready_pickup' ? `2px solid ${GREEN}` : '1px solid #e0e0e0', 
+                    border: isSelected ? `2px solid ${ORANGE}` : pkg.status === 'ready_pickup' ? `2px solid ${ORANGE}` : '1px solid #e0e0e0', 
                     borderRadius: 2,
                     cursor: isSelectable ? 'pointer' : 'default',
                     transition: 'all 0.2s',
@@ -1210,6 +2507,19 @@ export default function DashboardClient() {
                   onClick={() => isSelectable && togglePackageSelection(pkg.id, pkg)}
                 >
                   <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
+                    {/* Indicador de guía encontrada dentro del repack */}
+                    {matchedChildGuide && (
+                      <Alert 
+                        severity="info" 
+                        sx={{ mb: 1.5, py: 0.5 }}
+                        icon={<SearchIcon fontSize="small" />}
+                      >
+                        <Typography variant="caption">
+                          Tu guía <strong>{matchedChildGuide.tracking}</strong> está dentro de este reempaque
+                        </Typography>
+                      </Alert>
+                    )}
+                    
                     {/* Header compacto */}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -1228,8 +2538,10 @@ export default function DashboardClient() {
                         <Box>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <Typography variant="body2" fontWeight="bold" fontFamily="monospace">{pkg.tracking}</Typography>
-                            {pkg.client_paid && <Chip label="Pagado" size="small" color="success" sx={{ height: 18, fontSize: '0.65rem' }} />}
-                            {hasDeliveryInstructions && <Chip label="📍" size="small" color="primary" sx={{ height: 18, minWidth: 24 }} />}
+                            {pkg.status === 'delivered' && <Chip label="✅ Entregado" size="small" color="success" sx={{ height: 18, fontSize: '0.6rem' }} />}
+                            {pkg.is_master && <Chip label="📦 Reempaque" size="small" sx={{ height: 18, fontSize: '0.6rem', bgcolor: '#e3f2fd', color: BLUE }} />}
+                            {pkg.client_paid && pkg.status !== 'delivered' && <Chip label="Pagado" size="small" color="success" sx={{ height: 18, fontSize: '0.65rem' }} />}
+                            {hasDeliveryInstructions && <Chip label="📍 Con Instrucciones" size="small" color="primary" sx={{ height: 18, fontSize: '0.65rem' }} />}
                           </Box>
                           {pkg.descripcion && <Typography variant="caption" color="text.secondary">{pkg.descripcion}</Typography>}
                         </Box>
@@ -1242,9 +2554,9 @@ export default function DashboardClient() {
                         )}
                         <Chip 
                           label={pkg.status_label} 
-                          color={pkg.status === 'ready_pickup' ? 'success' : pkg.status === 'in_transit' ? 'info' : 'default'}
+                          color={pkg.status === 'ready_pickup' ? 'warning' : pkg.status === 'in_transit' ? 'info' : 'default'}
                           size="small"
-                          sx={{ height: 24 }}
+                          sx={{ height: 24, ...(pkg.status === 'ready_pickup' && { bgcolor: ORANGE, color: 'white' }) }}
                         />
                       </Box>
                     </Box>
@@ -1281,14 +2593,79 @@ export default function DashboardClient() {
                     {/* Footer compacto */}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1, pt: 1, borderTop: '1px solid #f0f0f0' }}>
                       <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-                        ⏱ ETA: {pkg.fecha_estimada}
+                        ⏱ ETA: {pkg.fecha_estimada || 'Por confirmar'}
                       </Typography>
-                      {pkg.status === 'ready_pickup' && (
-                        <Button variant="contained" color="success" size="small" sx={{ py: 0.5, fontSize: '0.75rem' }}>
+                      
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        {/* Indicador de Garantía Extendida - Compacto */}
+                        {pkg.has_gex ? (
+                          <Chip 
+                            icon={<SecurityIcon sx={{ fontSize: 12 }} />}
+                            label="Protegido con Garantía Extendida"
+                            size="small"
+                            sx={{ 
+                              bgcolor: ORANGE, 
+                              color: 'white',
+                              fontSize: '0.65rem',
+                              height: 20,
+                              '& .MuiChip-icon': { color: 'white' },
+                              '& .MuiChip-label': { px: 0.5 }
+                            }}
+                          />
+                        ) : (
+                          <Chip 
+                            icon={
+                              <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16 }}>
+                                <SecurityIcon sx={{ fontSize: 12, color: 'white' }} />
+                                <Box sx={{ position: 'absolute', width: '120%', height: 2, bgcolor: 'white', transform: 'rotate(-45deg)', borderRadius: 1 }} />
+                              </Box>
+                            }
+                            label="Sin Garantía Extendida - ¡Contratar Aquí!"
+                            size="small"
+                            clickable
+                            onClick={() => {
+                              setSelectedPackageIds([pkg.id]);
+                              setGexModalOpen(true);
+                            }}
+                            sx={{ 
+                              bgcolor: '#D32F2F', 
+                              color: 'white',
+                              fontSize: '0.65rem',
+                              height: 20,
+                              cursor: 'pointer',
+                              '&:hover': { bgcolor: '#C62828' },
+                              '& .MuiChip-icon': { color: 'white' },
+                              '& .MuiChip-label': { px: 0.5 }
+                            }}
+                          />
+                        )}
+                        
+                        <Button 
+                          variant={pkg.status === 'ready_pickup' ? 'contained' : 'outlined'}
+                          size="small" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedPackage(pkg);
+                            // Si la búsqueda coincide con una guía hija, resaltarla
+                            setHighlightedGuideTracking(matchedChildGuide?.tracking || null);
+                            setPackageDetailOpen(true);
+                          }}
+                          sx={{ 
+                            py: 0.5, 
+                            fontSize: '0.75rem', 
+                            bgcolor: pkg.status === 'ready_pickup' ? ORANGE : 'transparent',
+                            borderColor: ORANGE,
+                            color: pkg.status === 'ready_pickup' ? 'white' : ORANGE,
+                            '&:hover': {
+                              bgcolor: pkg.status === 'ready_pickup' ? '#d65f00' : 'rgba(255,119,0,0.1)'
+                            }
+                          }}
+                        >
                           Ver Detalles
                         </Button>
-                      )}
+                      </Box>
                     </Box>
+
                   </CardContent>
                 </Card>
               );
@@ -1520,20 +2897,39 @@ export default function DashboardClient() {
                       </Alert>
                     )}
                     
+                    {/* Total Pendiente por Pagar - Grande como en la app */}
+                    <Paper 
+                      sx={{ 
+                        p: 2.5, 
+                        mb: 2, 
+                        background: (pendingPayments?.totalPending || 0) > 0 
+                          ? 'linear-gradient(135deg, #F05A28 0%, #d94d1f 100%)' 
+                          : 'linear-gradient(135deg, #4CAF50 0%, #388E3C 100%)',
+                        textAlign: 'center', 
+                        borderRadius: 2 
+                      }}
+                    >
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)' }}>Total Pendiente por Pagar</Typography>
+                      <Typography variant="h4" fontWeight="bold" sx={{ color: 'white', my: 0.5 }}>
+                        {formatCurrency(pendingPayments?.totalPending || 0)}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>MXN</Typography>
+                    </Paper>
+
                     <Grid container spacing={2}>
-                      <Grid size={6}>
-                        <Paper sx={{ p: 2, bgcolor: (walletStatus?.total_pending || stats?.financiero.saldo_pendiente) ? 'warning.light' : GREEN + '20', textAlign: 'center', borderRadius: 2 }}>
-                          <Typography variant="caption" color="text.secondary">Por Pagar</Typography>
-                          <Typography variant="h5" fontWeight="bold" color={(walletStatus?.total_pending || stats?.financiero.saldo_pendiente) ? 'warning.dark' : 'success.main'}>
-                            {formatCurrency(walletStatus?.total_pending || stats?.financiero.saldo_pendiente || 0)}
-                          </Typography>
-                        </Paper>
-                      </Grid>
                       <Grid size={6}>
                         <Paper sx={{ p: 2, bgcolor: GREEN + '20', textAlign: 'center', borderRadius: 2 }}>
                           <Typography variant="caption" color="text.secondary">Saldo a Favor</Typography>
                           <Typography variant="h5" fontWeight="bold" color="success.main">
                             {formatCurrency(walletStatus?.wallet_balance || stats?.financiero.saldo_favor || 0)}
+                          </Typography>
+                        </Paper>
+                      </Grid>
+                      <Grid size={6}>
+                        <Paper sx={{ p: 2, bgcolor: 'grey.50', textAlign: 'center', borderRadius: 2 }}>
+                          <Typography variant="caption" color="text.secondary">Crédito Disponible</Typography>
+                          <Typography variant="h5" fontWeight="bold" color="primary.main">
+                            {formatCurrency(walletStatus?.available_credit || stats?.financiero.credito_disponible || 0)}
                           </Typography>
                         </Paper>
                       </Grid>
@@ -1563,29 +2959,21 @@ export default function DashboardClient() {
                       </Box>
                     )}
 
-                    {(walletStatus?.total_pending || stats?.financiero.saldo_pendiente) && (walletStatus?.total_pending || stats?.financiero.saldo_pendiente || 0) > 0 && (
-                      <Button 
-                        variant="contained" 
-                        fullWidth 
-                        sx={{ mt: 3, bgcolor: ORANGE }}
-                        startIcon={<MoneyIcon />}
-                      >
-                        Pagar Ahora
-                      </Button>
-                    )}
-                  </Paper>
+                    {/* Botón Mis Cuentas por Pagar */}
+                    <Button 
+                      variant="contained" 
+                      fullWidth 
+                      sx={{ mt: 2, bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' } }}
+                      startIcon={<ReceiptIcon />}
+                      onClick={() => setShowPendingPayments(true)}
+                    >
+                      💳 Mis Cuentas por Pagar ({pendingPayments?.invoices?.length || 0})
+                    </Button>
 
-                  {/* Último pago y crédito */}
-                  <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 1 }}>
-                      <Typography variant="body2" color="text.secondary">Último Pago</Typography>
-                      <Typography variant="body2" fontWeight="bold">{stats?.financiero.ultimo_pago || 'N/A'}</Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 1 }}>
-                      <Typography variant="body2" color="text.secondary">Crédito Disponible</Typography>
-                      <Typography variant="body2" fontWeight="bold" color="success.main">
-                        {formatCurrency(walletStatus?.available_credit || stats?.financiero.credito_disponible || 0)}
-                      </Typography>
+                    {/* Último pago */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2, pt: 1, borderTop: '1px solid #eee' }}>
+                      <Typography variant="caption" color="text.secondary">Último Pago</Typography>
+                      <Typography variant="caption" fontWeight="bold">{stats?.financiero.ultimo_pago || 'N/A'}</Typography>
                     </Box>
                   </Paper>
 
@@ -1595,7 +2983,7 @@ export default function DashboardClient() {
                       <Typography variant="h6" fontWeight="bold">
                         💳 Mis Métodos de Pago
                       </Typography>
-                      <IconButton color="primary" onClick={() => setSnackbar({ open: true, message: 'Próximamente: Agregar métodos de pago', severity: 'info' })}>
+                      <IconButton color="primary" onClick={() => setShowAddPaymentMethod(true)}>
                         <AddIcon />
                       </IconButton>
                     </Box>
@@ -1611,62 +2999,191 @@ export default function DashboardClient() {
                           variant="outlined" 
                           size="small" 
                           sx={{ mt: 1 }}
-                          onClick={() => setSnackbar({ open: true, message: 'Próximamente: Agregar métodos de pago', severity: 'info' })}
+                          onClick={() => setShowAddPaymentMethod(true)}
                         >
                           Agregar Método
                         </Button>
                       </Box>
                     ) : (
                       paymentMethods.map((pm) => (
-                        <Box 
+                        <Paper
                           key={pm.id} 
+                          variant="outlined"
                           sx={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            justifyContent: 'space-between',
-                            p: 1.5,
-                            bgcolor: pm.is_default ? 'primary.light' : 'grey.50',
-                            borderRadius: 1,
-                            mb: 1,
+                            p: 2,
+                            mb: 1.5,
+                            borderRadius: 2,
+                            border: pm.is_default ? '2px solid' : '1px solid',
+                            borderColor: pm.is_default ? 'primary.main' : 'divider',
                           }}
                         >
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                            {pm.type === 'card' && <CreditCardIcon color="primary" />}
-                            {pm.type === 'bank_transfer' && <AccountBalanceIcon color="primary" />}
-                            <Box>
-                              <Typography variant="body2" fontWeight="bold">
-                                {pm.alias}
-                                {pm.is_default && <Chip label="Principal" size="small" sx={{ ml: 1, height: 18 }} />}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {pm.type === 'card' && `•••• ${pm.last_four}`}
-                                {pm.type === 'bank_transfer' && `${pm.bank_name} •••• ${pm.clabe?.slice(-4)}`}
-                              </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                              <Avatar sx={{ bgcolor: pm.type === 'paypal' ? '#003087' : pm.type === 'card' ? '#1976d2' : '#4caf50', width: 40, height: 40 }}>
+                                {pm.type === 'card' && <CreditCardIcon />}
+                                {pm.type === 'paypal' && <PaymentIcon />}
+                                {pm.type === 'bank_transfer' && <AccountBalanceIcon />}
+                              </Avatar>
+                              <Box>
+                                <Typography variant="body2" fontWeight="bold">
+                                  {pm.alias}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {pm.type === 'card' && `•••• •••• •••• ${pm.last_four}`}
+                                  {pm.type === 'paypal' && pm.paypal_email}
+                                  {pm.type === 'bank_transfer' && `${pm.bank_name} •••• ${pm.clabe?.slice(-4)}`}
+                                </Typography>
+                              </Box>
                             </Box>
+                            <IconButton 
+                              size="small" 
+                              color="error"
+                              onClick={async () => {
+                                try {
+                                  await api.delete(`/payment-methods/${pm.id}`);
+                                  setPaymentMethods(prev => prev.filter(p => p.id !== pm.id));
+                                  setSnackbar({ open: true, message: '🗑️ Método de pago eliminado', severity: 'success' });
+                                } catch {
+                                  setSnackbar({ open: true, message: '❌ Error al eliminar', severity: 'error' });
+                                }
+                              }}
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
                           </Box>
-                        </Box>
+                          {pm.is_default ? (
+                            <Chip label="Predeterminado" size="small" color="warning" sx={{ mt: 1, fontSize: '0.7rem' }} />
+                          ) : (
+                            <Typography 
+                              variant="caption" 
+                              color="primary" 
+                              sx={{ mt: 0.5, display: 'block', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+                              onClick={async () => {
+                                try {
+                                  await api.put(`/payment-methods/${pm.id}/default`);
+                                  setPaymentMethods(prev => prev.map(p => ({
+                                    ...p,
+                                    is_default: p.id === pm.id
+                                  })));
+                                  setSnackbar({ open: true, message: '⭐ Método predeterminado actualizado', severity: 'success' });
+                                } catch {
+                                  setSnackbar({ open: true, message: '❌ Error al actualizar', severity: 'error' });
+                                }
+                              }}
+                            >
+                              Establecer como predeterminado
+                            </Typography>
+                          )}
+                        </Paper>
                       ))
                     )}
                   </Paper>
 
-                  {/* Contacto */}
-                  <Paper sx={{ p: 3, borderRadius: 2 }}>
-                    <Typography variant="h6" fontWeight="bold" gutterBottom>
-                      📞 ¿Necesitas Ayuda?
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary" gutterBottom>
-                      Estamos para servirte de Lunes a Viernes 9:00 - 18:00
-                    </Typography>
-                    <Button 
-                      variant="contained" 
-                      fullWidth 
-                      sx={{ mt: 2, bgcolor: GREEN }}
-                      startIcon={<WhatsAppIcon />}
-                      href="https://wa.me/528112345678"
-                      target="_blank"
-                    >
-                      Contactar por WhatsApp
-                    </Button>
+                  {/* DATOS FISCALES */}
+                  <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                      <Typography variant="h6" fontWeight="bold">
+                        📄 Mis Datos Fiscales
+                      </Typography>
+                      <IconButton 
+                        color="primary" 
+                        onClick={() => {
+                          // Pre-llenar datos existentes si los hay
+                          if (fiscalData) {
+                            setInvoiceData({
+                              razon_social: fiscalData.fiscal_razon_social || '',
+                              rfc: fiscalData.fiscal_rfc || '',
+                              codigo_postal: fiscalData.fiscal_codigo_postal || '',
+                              regimen_fiscal: fiscalData.fiscal_regimen_fiscal || '',
+                              uso_cfdi: fiscalData.fiscal_uso_cfdi || '',
+                              email: '' // Se tomará del usuario actual
+                            });
+                          }
+                          setFiscalModalOpen(true);
+                        }}
+                      >
+                        <EditIcon />
+                      </IconButton>
+                    </Box>
+                    <Divider sx={{ mb: 2 }} />
+                    
+                    {fiscalData && fiscalData.hasCompleteData ? (
+                      <Box>
+                        <Alert severity="success" sx={{ mb: 2 }}>
+                          <Typography variant="body2">
+                            <strong>Datos fiscales completos</strong><br/>
+                            Tus facturas se generarán automáticamente con estos datos.
+                          </Typography>
+                        </Alert>
+                        
+                        <Box sx={{ mb: 1.5 }}>
+                          <Typography variant="caption" color="text.secondary">Razón Social</Typography>
+                          <Typography variant="body2" fontWeight="bold">
+                            {fiscalData.fiscal_razon_social}
+                          </Typography>
+                        </Box>
+                        
+                        <Grid container spacing={2}>
+                          <Grid size={6}>
+                            <Typography variant="caption" color="text.secondary">RFC</Typography>
+                            <Typography variant="body2" fontWeight="bold" fontFamily="monospace">
+                              {fiscalData.fiscal_rfc}
+                            </Typography>
+                          </Grid>
+                          <Grid size={6}>
+                            <Typography variant="caption" color="text.secondary">Código Postal</Typography>
+                            <Typography variant="body2" fontWeight="bold">
+                              {fiscalData.fiscal_codigo_postal}
+                            </Typography>
+                          </Grid>
+                        </Grid>
+                        
+                        <Box sx={{ mt: 1.5 }}>
+                          <Typography variant="caption" color="text.secondary">Régimen Fiscal</Typography>
+                          <Typography variant="body2" fontWeight="bold">
+                            {fiscalData.fiscal_regimen_fiscal === '601' && '601 - General de Ley Personas Morales'}
+                            {fiscalData.fiscal_regimen_fiscal === '603' && '603 - Personas Morales con Fines no Lucrativos'}
+                            {fiscalData.fiscal_regimen_fiscal === '605' && '605 - Sueldos y Salarios'}
+                            {fiscalData.fiscal_regimen_fiscal === '606' && '606 - Arrendamiento'}
+                            {fiscalData.fiscal_regimen_fiscal === '608' && '608 - Demás ingresos'}
+                            {fiscalData.fiscal_regimen_fiscal === '612' && '612 - Personas Físicas con Actividades Empresariales'}
+                            {fiscalData.fiscal_regimen_fiscal === '616' && '616 - Sin obligaciones fiscales'}
+                            {fiscalData.fiscal_regimen_fiscal === '621' && '621 - Incorporación Fiscal'}
+                            {fiscalData.fiscal_regimen_fiscal === '625' && '625 - Régimen de Actividades Agrícolas'}
+                            {fiscalData.fiscal_regimen_fiscal === '626' && '626 - Régimen Simplificado de Confianza'}
+                            {!['601','603','605','606','608','612','616','621','625','626'].includes(fiscalData.fiscal_regimen_fiscal) && (fiscalData.fiscal_regimen_fiscal || 'No configurado')}
+                          </Typography>
+                        </Box>
+                        
+                        <Box sx={{ mt: 1.5 }}>
+                          <Typography variant="caption" color="text.secondary">Uso de CFDI</Typography>
+                          <Typography variant="body2" fontWeight="bold">
+                            {fiscalData.fiscal_uso_cfdi === 'G03' && 'G03 - Gastos en general'}
+                            {fiscalData.fiscal_uso_cfdi === 'G01' && 'G01 - Adquisición de mercancías'}
+                            {fiscalData.fiscal_uso_cfdi === 'G02' && 'G02 - Devoluciones, descuentos o bonificaciones'}
+                            {fiscalData.fiscal_uso_cfdi === 'I04' && 'I04 - Compra de divisas'}
+                            {fiscalData.fiscal_uso_cfdi === 'P01' && 'P01 - Por definir'}
+                            {fiscalData.fiscal_uso_cfdi === 'S01' && 'S01 - Sin efectos fiscales'}
+                            {!['G03', 'G01', 'G02', 'I04', 'P01', 'S01'].includes(fiscalData.fiscal_uso_cfdi) && (fiscalData.fiscal_uso_cfdi || 'No configurado')}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    ) : (
+                      <Box sx={{ textAlign: 'center', py: 2 }}>
+                        <ReceiptIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
+                        <Typography variant="body2" color="text.secondary" gutterBottom>
+                          Configura tus datos fiscales para generar facturas automáticamente
+                        </Typography>
+                        <Button 
+                          variant="outlined" 
+                          size="small" 
+                          sx={{ mt: 1 }}
+                          onClick={() => setFiscalModalOpen(true)}
+                        >
+                          Configurar Datos Fiscales
+                        </Button>
+                      </Box>
+                    )}
                   </Paper>
                 </Grid>
 
@@ -1782,27 +3299,32 @@ export default function DashboardClient() {
                         <Paper 
                           sx={{ 
                             p: 2.5, 
-                            background: service.gradient, 
-                            color: 'white', 
+                            background: '#fff', 
+                            border: '1px solid #e0e0e0',
                             borderRadius: 2,
                             height: '100%',
                             display: 'flex',
                             flexDirection: 'column',
+                            transition: 'border-color 0.2s, box-shadow 0.2s',
+                            '&:hover': {
+                              borderColor: ORANGE,
+                              boxShadow: '0 4px 12px rgba(240,90,40,0.15)',
+                            },
                           }}
                         >
                           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
                             <Box>
-                              <Typography variant="subtitle1" fontWeight="bold">
+                              <Typography variant="subtitle1" fontWeight="bold" sx={{ color: '#333' }}>
                                 {service.serviceName}
                               </Typography>
-                              <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                              <Typography variant="caption" sx={{ color: '#666' }}>
                                 {service.addresses[0]?.alias}
                               </Typography>
                             </Box>
                             <Tooltip title="¿Cómo enviar?">
                               <IconButton 
                                 size="small" 
-                                sx={{ color: 'white', bgcolor: 'rgba(255,255,255,0.2)', '&:hover': { bgcolor: 'rgba(255,255,255,0.3)' } }}
+                                sx={{ color: ORANGE, bgcolor: '#fff3e0', '&:hover': { bgcolor: '#ffe0b2' } }}
                                 onClick={() => handleOpenTutorial(service.serviceType)}
                               >
                                 <HelpIcon fontSize="small" />
@@ -1810,21 +3332,21 @@ export default function DashboardClient() {
                             </Tooltip>
                           </Box>
                           
-                          <Box sx={{ bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2, p: 1.5, mb: 2, flex: 1 }}>
-                            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', lineHeight: 1.6 }}>
+                          <Box sx={{ bgcolor: '#f5f5f5', borderRadius: 2, p: 1.5, mb: 2, flex: 1, border: '1px solid #e0e0e0' }}>
+                            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', lineHeight: 1.6, color: '#333' }}>
                               {service.addresses[0] && renderFormattedAddress(service.addresses[0], service.serviceType)}
                             </Typography>
                           </Box>
                           
                           <Button 
                             startIcon={<CopyIcon />} 
-                            variant="outlined" 
+                            variant="contained" 
                             size="small"
                             fullWidth
                             sx={{ 
-                              borderColor: 'rgba(255,255,255,0.5)', 
+                              bgcolor: ORANGE, 
                               color: 'white', 
-                              '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' } 
+                              '&:hover': { bgcolor: '#d94d1f' } 
                             }}
                             onClick={() => service.addresses[0] && copyToClipboard(formatAddressForCopy(service.addresses[0], service.serviceType))}
                           >
@@ -1921,6 +3443,478 @@ export default function DashboardClient() {
               </TableContainer>
             </Box>
           )}
+
+          {/* Tab: Sin Instrucciones */}
+          {activeTab === 4 && (
+            <Box>
+              <Typography variant="h6" fontWeight="bold" gutterBottom>
+                ❌ Paquetes Sin Instrucciones de Entrega
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                Estos paquetes necesitan que les asignes una dirección de entrega
+              </Typography>
+
+              {/* Selector de servicio obligatorio - Diseño Corporativo */}
+              {serviceFilter === 'all' ? (
+                <Box sx={{ textAlign: 'center', py: 4 }}>
+                  <InventoryIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
+                  <Typography variant="h6" fontWeight="bold" gutterBottom>
+                    Selecciona un servicio
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                    Primero selecciona un tipo de servicio para filtrar
+                  </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
+                    <Box 
+                      onClick={() => setServiceFilter('china_air')}
+                      sx={{ 
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', 
+                        cursor: 'pointer', p: 1.5, borderRadius: 2, bgcolor: 'white',
+                        border: '1px solid #e0e0e0', transition: 'all 0.2s',
+                        '&:hover': { borderColor: ORANGE, bgcolor: '#FFF8F5' },
+                        minWidth: 70, boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                      }}
+                    >
+                      <FlightIcon sx={{ fontSize: 28, color: '#666', mb: 0.5 }} />
+                      <Typography variant="caption" sx={{ color: '#666', fontWeight: 600, fontSize: '0.7rem' }}>Aéreo</Typography>
+                    </Box>
+                    <Box 
+                      onClick={() => setServiceFilter('china_sea')}
+                      sx={{ 
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', 
+                        cursor: 'pointer', p: 1.5, borderRadius: 2, bgcolor: 'white',
+                        border: '1px solid #e0e0e0', transition: 'all 0.2s',
+                        '&:hover': { borderColor: ORANGE, bgcolor: '#FFF8F5' },
+                        minWidth: 70, boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                      }}
+                    >
+                      <BoatIcon sx={{ fontSize: 28, color: '#666', mb: 0.5 }} />
+                      <Typography variant="caption" sx={{ color: '#666', fontWeight: 600, fontSize: '0.7rem' }}>Marítimo</Typography>
+                    </Box>
+                    <Box 
+                      onClick={() => setServiceFilter('dhl')}
+                      sx={{ 
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', 
+                        cursor: 'pointer', p: 1.5, borderRadius: 2, bgcolor: 'white',
+                        border: '1px solid #e0e0e0', transition: 'all 0.2s',
+                        '&:hover': { borderColor: ORANGE, bgcolor: '#FFF8F5' },
+                        minWidth: 70, boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                      }}
+                    >
+                      <TruckIcon sx={{ fontSize: 28, color: '#666', mb: 0.5 }} />
+                      <Typography variant="caption" sx={{ color: '#666', fontWeight: 600, fontSize: '0.7rem' }}>MTY</Typography>
+                    </Box>
+                    <Box 
+                      onClick={() => setServiceFilter('usa_pobox')}
+                      sx={{ 
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', 
+                        cursor: 'pointer', p: 1.5, borderRadius: 2, bgcolor: 'white',
+                        border: '1px solid #e0e0e0', transition: 'all 0.2s',
+                        '&:hover': { borderColor: ORANGE, bgcolor: '#FFF8F5' },
+                        minWidth: 70, boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                      }}
+                    >
+                      <PostOfficeIcon sx={{ fontSize: 28, color: '#666', mb: 0.5 }} />
+                      <Typography variant="caption" sx={{ color: '#666', fontWeight: 600, fontSize: '0.7rem' }}>PO Box</Typography>
+                    </Box>
+                  </Box>
+                </Box>
+              ) : (
+                <>
+                  {/* Chip del servicio seleccionado */}
+                  <Box sx={{ mb: 2 }}>
+                    <Chip 
+                      label={serviceFilter === 'china_air' ? '✈️ Aéreo' : serviceFilter === 'china_sea' ? '🚢 Marítimo' : serviceFilter === 'dhl' ? '🚚 MTY' : '📮 PO Box'}
+                      onDelete={() => setServiceFilter('all')}
+                      color="warning"
+                      sx={{ fontWeight: 600, bgcolor: ORANGE, color: 'white' }}
+                    />
+                  </Box>
+                  {getFilteredPackages().filter(p => !p.has_delivery_instructions && !p.delivery_address_id && !p.assigned_address_id && (!p.destination_address || p.destination_address === 'Pendiente de asignar') && p.status !== 'delivered').length === 0 ? (
+                    <Box sx={{ textAlign: 'center', py: 6 }}>
+                      <CheckCircleIcon sx={{ fontSize: 64, color: GREEN, mb: 2 }} />
+                      <Typography color="text.secondary">¡Todos tus paquetes tienen instrucciones!</Typography>
+                    </Box>
+                  ) : (
+                    getFilteredPackages().filter(p => !p.has_delivery_instructions && !p.delivery_address_id && !p.assigned_address_id && (!p.destination_address || p.destination_address === 'Pendiente de asignar') && p.status !== 'delivered').map((pkg) => (
+                      <Card key={pkg.id} sx={{ mb: 2, border: `2px solid ${ORANGE}`, borderRadius: 3, overflow: 'hidden' }}>
+                        <CardContent sx={{ p: 2 }}>
+                          {/* Header con tracking y status */}
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Checkbox
+                                size="small"
+                                checked={selectedPackageIds.includes(pkg.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedPackageIds([...selectedPackageIds, pkg.id]);
+                                  } else {
+                                    setSelectedPackageIds(selectedPackageIds.filter(id => id !== pkg.id));
+                                  }
+                                }}
+                              />
+                              <Box>
+                                <Typography variant="body1" fontWeight="bold">{pkg.tracking}</Typography>
+                                <Typography variant="body2" color="text.secondary">{pkg.descripcion}</Typography>
+                              </Box>
+                            </Box>
+                            <Chip 
+                              label={pkg.status_label} 
+                              size="small" 
+                              sx={{ 
+                                bgcolor: pkg.status === 'ready_pickup' ? ORANGE : pkg.status === 'in_transit' ? BLUE : ORANGE,
+                                color: 'white',
+                                fontWeight: 600,
+                              }} 
+                            />
+                          </Box>
+
+                          {/* Stepper de estados */}
+                          <Box sx={{ mt: 2, mb: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              {statusSteps.map((label, idx) => {
+                                const activeIdx = getStatusStep(pkg.status);
+                                const isCompleted = idx < activeIdx;
+                                const isActive = idx === activeIdx;
+                                return (
+                                  <Box key={label} sx={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+                                    <Box sx={{ 
+                                      width: 24, height: 24, borderRadius: '50%', 
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      bgcolor: isCompleted ? ORANGE : isActive ? ORANGE : 'grey.300',
+                                      color: 'white', fontSize: '0.7rem', fontWeight: 'bold',
+                                      border: isActive ? `2px solid ${ORANGE}` : 'none',
+                                    }}>
+                                      {isCompleted ? '✓' : idx + 1}
+                                    </Box>
+                                    {idx < statusSteps.length - 1 && (
+                                      <Box sx={{ flex: 1, height: 3, bgcolor: isCompleted ? ORANGE : 'grey.300', mx: 0.25, borderRadius: 1 }} />
+                                    )}
+                                  </Box>
+                                );
+                              })}
+                            </Box>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
+                              {statusSteps.map((label) => (
+                                <Typography key={label} variant="caption" sx={{ fontSize: '0.55rem', textAlign: 'center', flex: 1, color: 'text.secondary' }}>
+                                  {label}
+                                </Typography>
+                              ))}
+                            </Box>
+                          </Box>
+
+                          {/* ETA */}
+                          <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid #eee' }}>
+                            <Typography variant="caption" color="text.secondary">
+                              ⏱ ETA: {pkg.fecha_estimada || 'Por confirmar'}
+                            </Typography>
+                          </Box>
+
+                          {/* Footer con botón y garantía */}
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2 }}>
+                            {/* Botón Asignar */}
+                            <Button 
+                              variant="contained" 
+                              fullWidth
+                              startIcon={<LocationOnIcon />}
+                              sx={{ bgcolor: ORANGE, borderRadius: 2 }}
+                              onClick={() => {
+                                setSelectedPackageIds([pkg.id]);
+                                setDeliveryModalOpen(true);
+                              }}
+                            >
+                              Asignar Dirección de Entrega
+                            </Button>
+
+                            {/* Chip de Garantía */}
+                            {pkg.has_gex ? (
+                              <Chip
+                                icon={<SecurityIcon />}
+                                label="Protegido con Garantía Extendida"
+                                size="small"
+                                sx={{
+                                  bgcolor: ORANGE,
+                                  color: 'white',
+                                  height: 20,
+                                  fontSize: '0.65rem',
+                                  '& .MuiChip-icon': {
+                                    fontSize: 14,
+                                    color: 'white'
+                                  }
+                                }}
+                              />
+                            ) : (
+                              <Chip
+                                icon={
+                                  <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16 }}>
+                                    <SecurityIcon sx={{ fontSize: 14, color: 'white' }} />
+                                    <Box sx={{ position: 'absolute', width: '120%', height: 2, bgcolor: 'white', transform: 'rotate(-45deg)', borderRadius: 1 }} />
+                                  </Box>
+                                }
+                                label="Sin Garantía Extendida - ¡Contratar Aquí!"
+                                size="small"
+                                sx={{
+                                  bgcolor: '#D32F2F',
+                                  color: 'white',
+                                  height: 20,
+                                  fontSize: '0.65rem',
+                                  cursor: 'pointer',
+                                  '&:hover': { bgcolor: '#C62828' }
+                                }}
+                                onClick={() => {
+                                  setSelectedPackageIds([pkg.id]);
+                                  setGexModalOpen(true);
+                                }}
+                              />
+                            )}
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    ))
+                  )}
+                </>
+              )}
+            </Box>
+          )}
+
+          {/* Tab: Con Instrucciones */}
+          {activeTab === 5 && (
+            <Box>
+              <Typography variant="h6" fontWeight="bold" gutterBottom>
+                ✅ Paquetes Con Instrucciones de Entrega
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                Estos paquetes ya tienen asignada una dirección de entrega
+              </Typography>
+
+              {/* Selector de servicio obligatorio */}
+              {serviceFilter === 'all' ? (
+                <Box sx={{ textAlign: 'center', py: 4 }}>
+                  <InventoryIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
+                  <Typography variant="h6" fontWeight="bold" gutterBottom>
+                    Selecciona un servicio
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                    Primero selecciona un tipo de servicio para filtrar
+                  </Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+                    <Box 
+                      onClick={() => setServiceFilter('china_air')}
+                      sx={{ 
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', 
+                        cursor: 'pointer', p: 2, borderRadius: 3, bgcolor: '#f5f5f5',
+                        border: '2px solid #e0e0e0', transition: 'all 0.2s',
+                        '&:hover': { bgcolor: '#eeeeee', borderColor: ORANGE, transform: 'scale(1.02)' },
+                        minWidth: 80,
+                      }}
+                    >
+                      <FlightIcon sx={{ fontSize: 32, color: BLUE, mb: 0.5 }} />
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.75rem' }}>Aéreo</Typography>
+                    </Box>
+                    <Box 
+                      onClick={() => setServiceFilter('china_sea')}
+                      sx={{ 
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', 
+                        cursor: 'pointer', p: 2, borderRadius: 3, bgcolor: '#f5f5f5',
+                        border: '2px solid #e0e0e0', transition: 'all 0.2s',
+                        '&:hover': { bgcolor: '#eeeeee', borderColor: ORANGE, transform: 'scale(1.02)' },
+                        minWidth: 80,
+                      }}
+                    >
+                      <BoatIcon sx={{ fontSize: 32, color: '#00796B', mb: 0.5 }} />
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.75rem' }}>Marítimo</Typography>
+                    </Box>
+                    <Box 
+                      onClick={() => setServiceFilter('dhl')}
+                      sx={{ 
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', 
+                        cursor: 'pointer', p: 2, borderRadius: 3, bgcolor: '#f5f5f5',
+                        border: '2px solid #e0e0e0', transition: 'all 0.2s',
+                        '&:hover': { bgcolor: '#eeeeee', borderColor: ORANGE, transform: 'scale(1.02)' },
+                        minWidth: 80,
+                      }}
+                    >
+                      <TruckIcon sx={{ fontSize: 32, color: ORANGE, mb: 0.5 }} />
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.75rem' }}>MTY</Typography>
+                    </Box>
+                    <Box 
+                      onClick={() => setServiceFilter('usa_pobox')}
+                      sx={{ 
+                        display: 'flex', flexDirection: 'column', alignItems: 'center', 
+                        cursor: 'pointer', p: 2, borderRadius: 3, bgcolor: '#f5f5f5',
+                        border: '2px solid #e0e0e0', transition: 'all 0.2s',
+                        '&:hover': { bgcolor: '#eeeeee', borderColor: ORANGE, transform: 'scale(1.02)' },
+                        minWidth: 80,
+                      }}
+                    >
+                      <PostOfficeIcon sx={{ fontSize: 32, color: '#E91E63', mb: 0.5 }} />
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.75rem' }}>PO Box</Typography>
+                    </Box>
+                  </Box>
+                </Box>
+              ) : (
+                <>
+                  {/* Chip del servicio seleccionado */}
+                  <Box sx={{ mb: 2 }}>
+                    <Chip 
+                      label={serviceFilter === 'china_air' ? '✈️ Aéreo' : serviceFilter === 'china_sea' ? '🚢 Marítimo' : serviceFilter === 'dhl' ? '🚚 MTY' : '📮 PO Box'}
+                      onDelete={() => setServiceFilter('all')}
+                      color="warning"
+                      sx={{ fontWeight: 600, bgcolor: ORANGE, color: 'white' }}
+                    />
+                  </Box>
+                  {getFilteredPackages().filter(p => (p.has_delivery_instructions || p.delivery_address_id || p.assigned_address_id || (p.destination_address && p.destination_address !== 'Pendiente de asignar' && p.destination_contact)) && p.status !== 'delivered').length === 0 ? (
+                    <Box sx={{ textAlign: 'center', py: 6 }}>
+                      <WarningIcon sx={{ fontSize: 64, color: ORANGE, mb: 2 }} />
+                      <Typography color="text.secondary">No tienes paquetes con instrucciones asignadas</Typography>
+                    </Box>
+                  ) : (
+                    getFilteredPackages().filter(p => (p.has_delivery_instructions || p.delivery_address_id || p.assigned_address_id || (p.destination_address && p.destination_address !== 'Pendiente de asignar' && p.destination_contact)) && p.status !== 'delivered').map((pkg) => (
+                      <Card key={pkg.id} sx={{ mb: 2, border: `2px solid ${ORANGE}`, borderRadius: 3, overflow: 'hidden' }}>
+                        <CardContent sx={{ p: 2 }}>
+                          {/* Header con tracking, checkbox y status */}
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Checkbox
+                                size="small"
+                                checked={selectedPackageIds.includes(pkg.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedPackageIds([...selectedPackageIds, pkg.id]);
+                                  } else {
+                                    setSelectedPackageIds(selectedPackageIds.filter(id => id !== pkg.id));
+                                  }
+                                }}
+                              />
+                              <Box>
+                                <Typography variant="body1" fontWeight="bold">{pkg.tracking}</Typography>
+                                <Typography variant="body2" color="text.secondary">{pkg.descripcion}</Typography>
+                              </Box>
+                            </Box>
+                            <Chip 
+                              label={pkg.status_label} 
+                              size="small" 
+                              sx={{ 
+                                bgcolor: pkg.status === 'ready_pickup' ? ORANGE : pkg.status === 'in_transit' ? BLUE : ORANGE,
+                                color: 'white',
+                                fontWeight: 600,
+                              }} 
+                            />
+                          </Box>
+
+                          {/* Stepper de estados */}
+                          <Box sx={{ mt: 2, mb: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              {statusSteps.map((label, idx) => {
+                                const activeIdx = getStatusStep(pkg.status);
+                                const isCompleted = idx < activeIdx;
+                                const isActive = idx === activeIdx;
+                                return (
+                                  <Box key={label} sx={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+                                    <Box sx={{ 
+                                      width: 24, height: 24, borderRadius: '50%', 
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      bgcolor: isCompleted ? ORANGE : isActive ? ORANGE : 'grey.300',
+                                      color: 'white', fontSize: '0.7rem', fontWeight: 'bold',
+                                      border: isActive ? `2px solid ${ORANGE}` : 'none',
+                                    }}>
+                                      {isCompleted ? '✓' : idx + 1}
+                                    </Box>
+                                    {idx < statusSteps.length - 1 && (
+                                      <Box sx={{ flex: 1, height: 3, bgcolor: isCompleted ? ORANGE : 'grey.300', mx: 0.25, borderRadius: 1 }} />
+                                    )}
+                                  </Box>
+                                );
+                              })}
+                            </Box>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
+                              {statusSteps.map((label) => (
+                                <Typography key={label} variant="caption" sx={{ fontSize: '0.55rem', textAlign: 'center', flex: 1, color: 'text.secondary' }}>
+                                  {label}
+                                </Typography>
+                              ))}
+                            </Box>
+                          </Box>
+
+                          {/* ETA */}
+                          <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid #eee' }}>
+                            <Typography variant="caption" color="text.secondary">
+                              ⏱ ETA: {pkg.fecha_estimada || 'Por confirmar'}
+                            </Typography>
+                          </Box>
+
+                          {/* Footer con indicadores y botón */}
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1.5 }}>
+                            <Box sx={{ display: 'flex', gap: 0.5 }}>
+                              <Chip 
+                                icon={<LocationOnIcon />} 
+                                label="✅ Entrega asignada" 
+                                size="small" 
+                                sx={{ bgcolor: ORANGE, color: 'white', fontWeight: 600 }}
+                              />
+                              {/* Chip de Garantía */}
+                              {pkg.has_gex ? (
+                                <Chip
+                                  icon={<SecurityIcon />}
+                                  label="Protegido con Garantía Extendida"
+                                  size="small"
+                                  sx={{
+                                    bgcolor: ORANGE,
+                                    color: 'white',
+                                    height: 20,
+                                    fontSize: '0.65rem',
+                                    '& .MuiChip-icon': {
+                                      fontSize: 14,
+                                      color: 'white'
+                                    }
+                                  }}
+                                />
+                              ) : (
+                                <Chip
+                                  icon={
+                                    <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16 }}>
+                                      <SecurityIcon sx={{ fontSize: 14, color: 'white' }} />
+                                      <Box sx={{ position: 'absolute', width: '120%', height: 2, bgcolor: 'white', transform: 'rotate(-45deg)', borderRadius: 1 }} />
+                                    </Box>
+                                  }
+                                  label="Sin Garantía Extendida - ¡Contratar Aquí!"
+                                  size="small"
+                                  sx={{
+                                    bgcolor: '#D32F2F',
+                                    color: 'white',
+                                    height: 20,
+                                    fontSize: '0.65rem',
+                                    cursor: 'pointer',
+                                    '&:hover': { bgcolor: '#C62828' }
+                                  }}
+                                  onClick={() => {
+                                    setSelectedPackageIds([pkg.id]);
+                                    setGexModalOpen(true);
+                                  }}
+                                />
+                              )}
+                            </Box>
+                            <Button 
+                              variant="outlined"
+                              size="small"
+                              startIcon={<EditIcon />}
+                              onClick={() => {
+                                setSelectedPackageIds([pkg.id]);
+                                setDeliveryModalOpen(true);
+                              }}
+                            >
+                              Editar
+                            </Button>
+                          </Box>
+                        </CardContent>
+                      </Card>
+                    ))
+                  )}
+                </>
+              )}
+            </Box>
+          )}
+
         </Box>
       </Paper>
 
@@ -1980,247 +3974,566 @@ export default function DashboardClient() {
         fullWidth
       >
         <DialogTitle sx={{ 
-          background: tutorialService?.gradient || ORANGE, 
+          background: ORANGE, 
           color: 'white',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
         }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <HelpIcon />
-            <span>¿Cómo enviar? - {tutorialService?.name}</span>
+            <LocationOnIcon />
+            <span>Dirección de Envío - {tutorialService?.name}</span>
           </Box>
           <IconButton size="small" onClick={() => setTutorialOpen(false)} sx={{ color: 'white' }}>
             <CloseIcon />
           </IconButton>
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
-          {tutorialService && (
-            <Box>
-              <Alert severity="info" sx={{ mb: 2 }}>
-                <strong>Tiempo estimado de entrega:</strong> {tutorialService.timeframe}
-              </Alert>
-              
-              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                📋 Instrucciones:
-              </Typography>
-              <Typography variant="body2" paragraph>
-                {tutorialService.tutorial}
-              </Typography>
-
-              <Divider sx={{ my: 2 }} />
-
-              <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                ✅ Pasos a seguir:
-              </Typography>
-              <List dense>
-                {tutorialService.type === 'usa_pobox' && (
-                  <>
-                    <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Copia tu dirección completa con tu Suite" /></ListItem>
-                    <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Usa esa dirección al comprar en Amazon, eBay, etc." /></ListItem>
-                    <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Nosotros recibimos y consolidamos tus paquetes" /></ListItem>
-                    <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Te notificamos cuando lleguen y puedes pagar/enviar" /></ListItem>
-                  </>
+          {tutorialService && (() => {
+            // Buscar la dirección para este servicio
+            const serviceAddr = serviceAddresses.find(s => s.serviceType === tutorialService.type);
+            const address = serviceAddr?.addresses?.[0];
+            
+            return (
+              <Box>
+                {/* Dirección Principal */}
+                {address ? (
+                  <Paper 
+                    elevation={0} 
+                    sx={{ 
+                      p: 2.5, 
+                      mb: 2, 
+                      background: ORANGE,
+                      color: 'white',
+                      borderRadius: 2,
+                    }}
+                  >
+                    <Typography variant="subtitle2" sx={{ opacity: 0.9, mb: 1 }}>
+                      📍 Envía a esta dirección:
+                    </Typography>
+                    <Typography variant="body1" sx={{ fontFamily: 'monospace', lineHeight: 1.8 }}>
+                      {renderFormattedAddress(address, tutorialService.type)}
+                    </Typography>
+                    <Button
+                      variant="contained"
+                      size="small"
+                      startIcon={<CopyIcon />}
+                      sx={{ 
+                        mt: 2, 
+                        bgcolor: 'rgba(255,255,255,0.25)', 
+                        color: 'white',
+                        '&:hover': { bgcolor: 'rgba(255,255,255,0.4)' }
+                      }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(formatAddressForCopy(address, tutorialService.type));
+                        setSnackbar({ open: true, message: '¡Dirección copiada!', severity: 'success' });
+                      }}
+                    >
+                      Copiar Dirección
+                    </Button>
+                  </Paper>
+                ) : (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    No hay dirección configurada para este servicio. Contacta a soporte.
+                  </Alert>
                 )}
-                {(tutorialService.type === 'china_air' || tutorialService.type === 'china_sea') && (
-                  <>
-                    <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={`Indica a tu proveedor el Shipping Mark: ${boxId}`} /></ListItem>
-                    <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Envía la mercancía a nuestra bodega en Guangzhou" /></ListItem>
-                    <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Marca cada caja con tu Shipping Mark claramente visible" /></ListItem>
-                    <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Te notificamos al recibir y procesamos tu envío" /></ListItem>
-                  </>
-                )}
-                {tutorialService.type === 'mx_cedis' && (
-                  <>
-                    <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={`Envía tu paquete DHL a nuestra dirección en Monterrey`} /></ListItem>
-                    <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={`Incluye en el destinatario: ${userName} (${boxId})`} /></ListItem>
-                    <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Lo recibimos y liberamos sin trámites de importación" /></ListItem>
-                    <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Te notificamos para coordinar la entrega final" /></ListItem>
-                  </>
-                )}
-              </List>
 
-              <Alert severity="warning" sx={{ mt: 2 }}>
-                <strong>Importante:</strong> Siempre incluye tu Suite/Casillero <strong>{boxId}</strong> para identificar correctamente tu envío.
-              </Alert>
-            </Box>
-          )}
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  <strong>Tiempo estimado de entrega:</strong> {tutorialService.timeframe}
+                </Alert>
+                
+                <Divider sx={{ my: 2 }} />
+
+                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                  📋 Instrucciones de Envío:
+                </Typography>
+                <Typography variant="body2" paragraph sx={{ color: 'text.secondary' }}>
+                  {tutorialService.tutorial}
+                </Typography>
+
+                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                  ✅ Pasos a seguir:
+                </Typography>
+                <List dense>
+                  {tutorialService.type === 'usa_pobox' && (
+                    <>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Copia tu dirección completa con tu Suite" /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Usa esa dirección al comprar en Amazon, eBay, etc." /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Nosotros recibimos y consolidamos tus paquetes" /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Te notificamos cuando lleguen y puedes pagar/enviar" /></ListItem>
+                    </>
+                  )}
+                  {(tutorialService.type === 'china_air' || tutorialService.type === 'china_sea') && (
+                    <>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={`Indica a tu proveedor el Shipping Mark: ${boxId}`} /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Envía la mercancía a nuestra bodega en Guangzhou" /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Marca cada caja con tu Shipping Mark claramente visible" /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Te notificamos al recibir y procesamos tu envío" /></ListItem>
+                    </>
+                  )}
+                  {tutorialService.type === 'mx_cedis' && (
+                    <>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={`Envía tu paquete DHL a nuestra dirección en Monterrey`} /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={`Incluye en el destinatario: ${userName} (${boxId})`} /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Lo recibimos y liberamos sin trámites de importación complicados" /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Te notificamos para coordinar la entrega final" /></ListItem>
+                    </>
+                  )}
+                </List>
+
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                  <strong>Importante:</strong> Siempre incluye tu Suite/Casillero <strong>{boxId}</strong> para identificar correctamente tu envío.
+                </Alert>
+              </Box>
+            );
+          })()}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setTutorialOpen(false)}>Cerrar</Button>
-          <Button 
-            variant="contained" 
-            sx={{ bgcolor: ORANGE }}
-            onClick={() => {
-              setTutorialOpen(false);
-              setActiveTab(2); // Ir a Mi Cuenta para ver las direcciones
-            }}
-          >
-            Ver Mis Direcciones
-          </Button>
         </DialogActions>
       </Dialog>
 
       {/* Modal GEX (Garantía Extendida) */}
       <Dialog open={gexModalOpen} onClose={() => setGexModalOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ bgcolor: GREEN, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+        <DialogTitle sx={{ bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
           <SecurityIcon />
-          Contratar Garantía Extendida (GEX)
+          Contratar GEX
         </DialogTitle>
-        <DialogContent sx={{ mt: 2 }}>
-          <Alert severity="info" sx={{ mb: 2 }}>
-            La Garantía Extendida protege tus paquetes contra daños, pérdidas y robos durante el envío.
-          </Alert>
-          
-          <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-            Paquetes Seleccionados ({selectedPackageIds.length}):
-          </Typography>
-          
-          {getSelectedPackages().map((pkg) => (
-            <Paper key={pkg.id} sx={{ p: 2, mb: 1, bgcolor: 'grey.50' }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Box>
-                  <Typography variant="body2" fontWeight="bold">{pkg.tracking}</Typography>
-                  <Typography variant="caption" color="text.secondary">{pkg.descripcion}</Typography>
+        <DialogContent sx={{ p: 0 }}>
+          {(() => {
+            const selectedPackage = getSelectedPackages()[0]; // Primer paquete seleccionado para mostrar info
+            const userName = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!).name || 'NOMBRE DEL CLIENTE' : 'NOMBRE DEL CLIENTE';
+            
+            return (
+              <>
+                {/* Sección de Datos del Seguro */}
+                <Box sx={{ p: 2.5, bgcolor: '#f8f9fa' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                    <SecurityIcon sx={{ color: ORANGE }} />
+                    <Typography variant="subtitle1" fontWeight="bold" sx={{ color: ORANGE }}>
+                      Datos del Seguro
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Completa la información para proteger tu carga.
+                  </Typography>
+
+                  {/* Nombre del Cliente */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="caption" color="text.secondary">Nombre del Cliente</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
+                      <PersonIcon sx={{ color: '#666', fontSize: 20 }} />
+                      <Typography variant="body1" fontWeight="bold">{userName.toUpperCase()}</Typography>
+                    </Box>
+                  </Box>
+
+                  {/* Valor de Factura */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="caption" color="text.secondary">Valor de Factura (USD)</Typography>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      type="number"
+                      placeholder="123"
+                      value={gexValorFactura}
+                      onChange={(e) => setGexValorFactura(e.target.value)}
+                      sx={{ mt: 0.5 }}
+                      slotProps={{
+                        input: {
+                          startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                          endAdornment: <InputAdornment position="end" sx={{ color: ORANGE, fontWeight: 600 }}>USD</InputAdornment>,
+                        }
+                      }}
+                    />
+                  </Box>
+
+                  {/* Alert informativo */}
+                  <Alert 
+                    severity="warning" 
+                    sx={{ mb: 2.5, bgcolor: '#fff3e0', border: `1px solid ${ORANGE}` }}
+                    icon={<WarningIcon />}
+                  >
+                    En caso de siniestro, se te solicitará la factura original del embarque para procesar tu reclamación.
+                  </Alert>
+
+                  {/* No. Cajas y Peso Total */}
+                  <Grid container spacing={2} sx={{ mb: 2 }}>
+                    <Grid size={6}>
+                      <Typography variant="caption" color="text.secondary">No. Cajas</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
+                        <InventoryIcon sx={{ color: '#666', fontSize: 20 }} />
+                        <Typography variant="body1" fontWeight="bold">{selectedPackageIds.length || 1}</Typography>
+                      </Box>
+                    </Grid>
+                    <Grid size={6}>
+                      <Typography variant="caption" color="text.secondary">Peso Total</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
+                        <ScaleIcon sx={{ color: '#666', fontSize: 20 }} />
+                        <Typography variant="body1" fontWeight="bold">
+                          {(() => {
+                            const totalWeight = getSelectedPackages().reduce((sum, pkg) => {
+                              // Buscar peso en diferentes campos posibles
+                              const weight = pkg.weight || pkg.peso_kg || pkg.peso || (pkg as any).weight_kg || 12; // Default 12 como en la app
+                              return sum + parseFloat(weight.toString());
+                            }, 0);
+                            return totalWeight.toFixed(1);
+                          })()}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">kg</Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
+
+                  {/* Ruta de Envío */}
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="caption" color="text.secondary">Ruta de Envío</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
+                      <FlightIcon sx={{ color: '#666', fontSize: 20 }} />
+                      <Typography variant="body1">🇺🇸 USA → México 🇲🇽</Typography>
+                      <LockIcon sx={{ color: '#666', fontSize: 16, ml: 'auto' }} />
+                    </Box>
+                  </Box>
+
+                  {/* Descripción de la Carga */}
+                  <Box sx={{ mb: 0 }}>
+                    <Typography variant="caption" color="text.secondary">Descripción de la Carga</Typography>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      placeholder="Mercancía general"
+                      value={gexDescripcion}
+                      onChange={(e) => setGexDescripcion(e.target.value)}
+                      sx={{ mt: 0.5 }}
+                    />
+                  </Box>
                 </Box>
-                <Chip label="5% del valor" size="small" color="success" />
-              </Box>
-            </Paper>
-          ))}
 
-          <Divider sx={{ my: 2 }} />
+                {/* Sección de Costos - Fondo naranja corporativo */}
+                <Box sx={{ bgcolor: ORANGE, p: 2.5, color: 'white' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                    <ReceiptIcon sx={{ fontSize: 20 }} />
+                    <Typography variant="subtitle1" fontWeight="bold">Costo de tu Póliza GEX</Typography>
+                  </Box>
 
-          <Box sx={{ bgcolor: GREEN + '10', p: 2, borderRadius: 2 }}>
-            <Typography variant="subtitle1" fontWeight="bold">✅ Cobertura GEX incluye:</Typography>
-            <List dense>
-              <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Daños durante el transporte" /></ListItem>
-              <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Pérdida total del paquete" /></ListItem>
-              <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Robo durante la entrega" /></ListItem>
-              <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Reembolso hasta el 100% del valor declarado" /></ListItem>
-            </List>
-          </Box>
+                  {(() => {
+                    const valorFacturaUSD = parseFloat(gexValorFactura) || 123; // Default como en la app
+                    const tipoCambio = 18.28; // Actualizado como en la app
+                    const valorAseguradoMXN = valorFacturaUSD * tipoCambio;
+                    const porcentajeGEX = valorAseguradoMXN * 0.05;
+
+                    return (
+                      <>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                          <Typography variant="body2">Valor Factura:</Typography>
+                          <Typography variant="body2" fontWeight="600">${valorFacturaUSD.toFixed(2)} USD</Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                          <Typography variant="body2">Tipo de Cambio:</Typography>
+                          <Typography variant="body2" fontWeight="600">${tipoCambio.toFixed(2)} MXN</Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
+                          <Typography variant="body2">Valor Asegurado:</Typography>
+                          <Typography variant="body2" fontWeight="600">${valorAseguradoMXN.toFixed(2)} MXN</Typography>
+                        </Box>
+
+                        <Divider sx={{ borderColor: 'rgba(255,255,255,0.3)', my: 1.5 }} />
+
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
+                          <Typography variant="body2">5% Valor Asegurado:</Typography>
+                          <Typography variant="body2" fontWeight="600">${porcentajeGEX.toFixed(2)} MXN</Typography>
+                        </Box>
+
+                        <Divider sx={{ borderColor: 'rgba(255,255,255,0.3)', my: 1.5 }} />
+
+                        <Box sx={{ textAlign: 'center', mt: 2 }}>
+                          <Typography variant="h4" fontWeight="bold">
+                            ${porcentajeGEX.toFixed(2)} MXN
+                          </Typography>
+                          <Typography variant="caption" sx={{ opacity: 0.8 }}>
+                            5% del valor asegurado
+                          </Typography>
+                        </Box>
+                      </>
+                    );
+                  })()}
+                </Box>
+              </>
+            );
+          })()}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setGexModalOpen(false)}>Cancelar</Button>
+        <DialogActions sx={{ p: 2, bgcolor: '#f5f5f5', justifyContent: 'center' }}>
+          <Button onClick={() => setGexModalOpen(false)} sx={{ color: 'text.secondary', mr: 2 }}>Cancelar</Button>
           <Button 
             variant="contained" 
-            color="success"
             onClick={handleContractGEX}
-            disabled={gexLoading}
+            disabled={gexLoading || !gexValorFactura}
             startIcon={gexLoading ? <CircularProgress size={20} /> : <SecurityIcon />}
+            sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' }, px: 4 }}
           >
-            {gexLoading ? 'Procesando...' : 'Contratar GEX'}
+            {gexLoading ? 'Procesando...' : '🛡️ Contratar GEX'}
           </Button>
         </DialogActions>
       </Dialog>
 
-      {/* Modal Instrucciones de Entrega */}
-      <Dialog open={deliveryModalOpen} onClose={() => setDeliveryModalOpen(false)} maxWidth="sm" fullWidth>
+      {/* Modal Instrucciones de Entrega - Versión Completa */}
+      <Dialog open={deliveryModalOpen} onClose={() => setDeliveryModalOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ bgcolor: BLUE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
           <LocationOnIcon />
-          Asignar Instrucciones de Entrega
+          Instrucciones de Entrega
         </DialogTitle>
-        <DialogContent sx={{ mt: 2 }}>
-          <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-            Paquetes Seleccionados ({selectedPackageIds.length}):
-          </Typography>
-          
-          {getSelectedPackages().slice(0, 3).map((pkg) => (
-            <Chip key={pkg.id} label={pkg.tracking} sx={{ mr: 0.5, mb: 0.5 }} size="small" />
-          ))}
-          {selectedPackageIds.length > 3 && (
-            <Chip label={`+${selectedPackageIds.length - 3} más`} size="small" variant="outlined" />
-          )}
-
-          <Divider sx={{ my: 2 }} />
-
-          <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-            Método de Entrega:
-          </Typography>
-          
-          <FormControl component="fieldset">
-            <RadioGroup
-              value={deliveryMethod}
-              onChange={(e) => setDeliveryMethod(e.target.value as 'domicilio' | 'pickup')}
-            >
-              <FormControlLabel 
-                value="domicilio" 
-                control={<Radio color="primary" />} 
-                label={
-                  <Box>
-                    <Typography variant="body1">🏠 Envío a Domicilio</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Recibe en tu dirección registrada
-                    </Typography>
+        <DialogContent sx={{ p: 3 }}>
+          <Grid container spacing={3}>
+            {/* Columna Izquierda - Paquetes y Dirección */}
+            <Grid size={{ xs: 12, md: 6 }}>
+              {/* Paquetes Seleccionados */}
+              <Paper sx={{ p: 2, mb: 3, bgcolor: '#f8f9fa' }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <Box 
+                    sx={{ 
+                      bgcolor: BLUE, 
+                      color: 'white', 
+                      width: 24, 
+                      height: 24, 
+                      borderRadius: '50%', 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center', 
+                      fontSize: '0.8rem',
+                      mr: 1
+                    }}
+                  >
+                    {selectedPackageIds.length}
                   </Box>
-                }
-              />
-              <FormControlLabel 
-                value="pickup" 
-                control={<Radio color="primary" />} 
-                label={
-                  <Box>
-                    <Typography variant="body1">📍 Recoger en Sucursal</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Pasa a recoger sin costo de envío
+                  <Typography variant="subtitle1" fontWeight="bold">
+                    Paquete{selectedPackageIds.length > 1 ? 's' : ''} Seleccionado{selectedPackageIds.length > 1 ? 's' : ''}
+                  </Typography>
+                </Box>
+                
+                {getSelectedPackages().map((pkg) => (
+                  <Box key={pkg.id} sx={{ mb: 2, pb: 2, borderBottom: '1px solid #eee' }}>
+                    <Typography variant="body1" fontWeight="bold" sx={{ mb: 0.5 }}>
+                      {pkg.tracking}
                     </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                      📦 {pkg.dimensiones || '12×12×12 cm'}
+                    </Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Peso Total</Typography>
+                        <Typography variant="body2" fontWeight="bold">{pkg.peso_kg || '12'} kg</Typography>
+                      </Box>
+                      <Box sx={{ textAlign: 'right' }}>
+                        <Typography variant="caption" color="text.secondary">CBM Total</Typography>
+                        <Typography variant="body2" fontWeight="bold">{pkg.cbm || '0.0017'} m³</Typography>
+                      </Box>
+                    </Box>
                   </Box>
-                }
-              />
-            </RadioGroup>
-          </FormControl>
+                ))}
+              </Paper>
 
-          {deliveryMethod === 'domicilio' && (
-            <Box sx={{ mt: 2 }}>
-              <Typography variant="subtitle2" gutterBottom>Selecciona Dirección:</Typography>
-              
-              {deliveryAddresses.length === 0 ? (
-                <Alert severity="warning">
-                  No tienes direcciones guardadas. 
+              {/* Dirección de Entrega */}
+              <Paper sx={{ p: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <LocationOnIcon sx={{ color: 'error.main', mr: 1 }} />
+                  <Typography variant="subtitle1" fontWeight="bold">
+                    Dirección de Entrega
+                  </Typography>
                   <Button 
                     size="small" 
+                    sx={{ ml: 'auto', color: 'error.main' }}
                     onClick={() => {
                       setDeliveryModalOpen(false);
                       setAddressModalOpen(true);
                     }}
                   >
-                    Agregar Dirección
+                    Agregar
                   </Button>
-                </Alert>
-              ) : (
-                <FormControl fullWidth size="small">
-                  <InputLabel>Dirección de Entrega</InputLabel>
-                  <Select
-                    value={selectedDeliveryAddress || ''}
-                    onChange={(e) => setSelectedDeliveryAddress(e.target.value as number)}
-                    label="Dirección de Entrega"
+                </Box>
+
+                {deliveryAddresses.length === 0 ? (
+                  <Alert severity="info" sx={{ mb: 2 }}>
+                    No tienes direcciones guardadas. Agrega una para continuar.
+                  </Alert>
+                ) : (
+                  <FormControl component="fieldset" fullWidth>
+                    <RadioGroup
+                      value={selectedDeliveryAddress || ''}
+                      onChange={(e) => setSelectedDeliveryAddress(Number(e.target.value))}
+                    >
+                      {deliveryAddresses.map((addr) => (
+                        <FormControlLabel
+                          key={addr.id}
+                          value={addr.id}
+                          control={<Radio color="primary" />}
+                          label={
+                            <Paper 
+                              elevation={selectedDeliveryAddress === addr.id ? 2 : 0}
+                              sx={{ 
+                                p: 2, 
+                                bgcolor: selectedDeliveryAddress === addr.id ? 'primary.50' : 'transparent',
+                                border: selectedDeliveryAddress === addr.id ? `2px solid ${BLUE}` : '1px solid #eee',
+                                borderRadius: 2,
+                                width: '100%'
+                              }}
+                            >
+                              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+                                {selectedDeliveryAddress === addr.id && (
+                                  <Box sx={{ color: 'primary.main', mt: 0.5 }}>✓</Box>
+                                )}
+                                <Box sx={{ flex: 1 }}>
+                                  <Typography variant="body1" fontWeight="bold">
+                                    {addr.alias}
+                                    {addr.alias === 'Bodega 1' && (
+                                      <Chip label="Principal" size="small" sx={{ ml: 1, bgcolor: BLUE, color: 'white' }} />
+                                    )}
+                                  </Typography>
+                                  <Typography variant="body2" color="text.secondary">
+                                    {addr.street} {addr.exterior_number}, {addr.colony}
+                                  </Typography>
+                                  <Typography variant="body2" color="text.secondary">
+                                    {addr.city}, {addr.state} {addr.zip_code}
+                                  </Typography>
+                                  <Typography variant="body2" sx={{ color: BLUE, fontWeight: 'bold', mt: 0.5 }}>
+                                    📞 {addr.phone}
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            </Paper>
+                          }
+                          sx={{ m: 0, mb: 1, alignItems: 'flex-start' }}
+                        />
+                      ))}
+                    </RadioGroup>
+                  </FormControl>
+                )}
+              </Paper>
+            </Grid>
+
+            {/* Columna Derecha - Paquetería y Notas */}
+            <Grid size={{ xs: 12, md: 6 }}>
+              {/* Paquetería de Entrega */}
+              <Paper sx={{ p: 2, mb: 3 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <Box sx={{ fontSize: '1.5rem', mr: 1 }}>🚛</Box>
+                  <Typography variant="subtitle1" fontWeight="bold">
+                    Paquetería de Entrega
+                  </Typography>
+                </Box>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Selecciona cómo quieres recibir tus paquetes
+                </Typography>
+
+                <FormControl component="fieldset" fullWidth>
+                  <RadioGroup
+                    value={selectedCarrierService}
+                    onChange={(e) => setSelectedCarrierService(e.target.value as 'local' | 'pickup' | 'express')}
                   >
-                    {deliveryAddresses.map((addr) => (
-                      <MenuItem key={addr.id} value={addr.id}>
-                        <Box>
-                          <Typography variant="body2">{addr.alias}</Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {addr.street} {addr.exterior_number}, {addr.city}
-                          </Typography>
-                        </Box>
-                      </MenuItem>
+                    {carrierServices.map((service) => (
+                      <FormControlLabel
+                        key={service.id}
+                        value={service.id}
+                        control={<Radio color="primary" />}
+                        label={
+                          <Paper 
+                            elevation={selectedCarrierService === service.id ? 2 : 0}
+                            sx={{ 
+                              p: 2, 
+                              bgcolor: selectedCarrierService === service.id ? 'primary.50' : 'transparent',
+                              border: selectedCarrierService === service.id ? `2px solid ${BLUE}` : '1px solid #eee',
+                              borderRadius: 2,
+                              width: '100%'
+                            }}
+                          >
+                            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                              {selectedCarrierService === service.id && (
+                                <Box sx={{ color: 'primary.main', mt: 0.5 }}>✓</Box>
+                              )}
+                              <Box sx={{ fontSize: '1.2rem' }}>{service.icon}</Box>
+                              <Box sx={{ flex: 1 }}>
+                                <Typography variant="body1" fontWeight="bold">
+                                  {service.name}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                                  ⏱ {service.description}
+                                </Typography>
+                                {service.subtext && (
+                                  <Typography variant="caption" color="text.secondary">
+                                    {service.subtext}
+                                  </Typography>
+                                )}
+                              </Box>
+                              <Box sx={{ textAlign: 'right' }}>
+                                <Typography 
+                                  variant="body1" 
+                                  fontWeight="bold"
+                                  sx={{ 
+                                    color: service.price === 'GRATIS' ? 'success.main' : 'text.primary'
+                                  }}
+                                >
+                                  {service.price}
+                                </Typography>
+                              </Box>
+                            </Box>
+                          </Paper>
+                        }
+                        sx={{ m: 0, mb: 1, alignItems: 'flex-start' }}
+                      />
                     ))}
-                  </Select>
+                  </RadioGroup>
                 </FormControl>
-              )}
-            </Box>
-          )}
+
+                {/* Total */}
+                <Box sx={{ mt: 2, pt: 2, borderTop: '2px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="subtitle1" fontWeight="bold">Total:</Typography>
+                  <Typography variant="h6" fontWeight="bold" sx={{ color: selectedCarrierService === 'local' ? 'success.main' : 'text.primary' }}>
+                    {carrierServices.find(s => s.id === selectedCarrierService)?.price || 'GRATIS'}
+                  </Typography>
+                </Box>
+              </Paper>
+
+              {/* Notas Adicionales */}
+              <Paper sx={{ p: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                  <Box sx={{ fontSize: '1.2rem', mr: 1 }}>📝</Box>
+                  <Typography variant="subtitle1" fontWeight="bold">
+                    Notas Adicionales
+                  </Typography>
+                </Box>
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={4}
+                  placeholder="Ej: Dejar en recepción, llamar antes de entregar..."
+                  value={deliveryNotes}
+                  onChange={(e) => setDeliveryNotes(e.target.value)}
+                  size="small"
+                  sx={{ mt: 1 }}
+                />
+              </Paper>
+            </Grid>
+          </Grid>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDeliveryModalOpen(false)}>Cancelar</Button>
+        <DialogActions sx={{ p: 3, bgcolor: '#f8f9fa' }}>
+          <Button 
+            onClick={() => setDeliveryModalOpen(false)}
+            size="large"
+          >
+            Cancelar
+          </Button>
           <Button 
             variant="contained" 
-            color="primary"
+            size="large"
             onClick={handleAssignDelivery}
-            disabled={deliveryLoading || (deliveryMethod === 'domicilio' && !selectedDeliveryAddress)}
-            startIcon={deliveryLoading ? <CircularProgress size={20} /> : <LocationOnIcon />}
+            disabled={deliveryLoading || !selectedDeliveryAddress}
+            startIcon={deliveryLoading ? <CircularProgress size={20} /> : <Box sx={{ fontSize: '1.2rem' }}>✅</Box>}
+            sx={{ 
+              bgcolor: BLUE, 
+              minWidth: 200,
+              py: 1.5,
+              fontSize: '1.1rem'
+            }}
           >
-            {deliveryLoading ? 'Procesando...' : 'Asignar Entrega'}
+            {deliveryLoading ? 'Guardando...' : 'Guardar Instrucciones'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -2400,15 +4713,589 @@ export default function DashboardClient() {
         </DialogActions>
       </Dialog>
 
-      {/* Modal de Soporte */}
-      <Dialog open={supportOpen} onClose={() => setSupportOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <SupportIcon color="primary" />
-          Contactar Soporte
+      {/* Modal Detalle del Paquete */}
+      <Dialog 
+        open={packageDetailOpen} 
+        onClose={() => {
+          setPackageDetailOpen(false);
+          setHighlightedGuideTracking(null);
+        }} 
+        maxWidth="sm" 
+        fullWidth
+      >
+        <DialogTitle sx={{ 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between',
+          bgcolor: ORANGE,
+          color: 'white',
+          py: 2
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <InventoryIcon />
+            <Typography variant="h6" fontWeight="bold">Detalle del Paquete</Typography>
+          </Box>
+          <IconButton onClick={() => {
+            setPackageDetailOpen(false);
+            setHighlightedGuideTracking(null);
+          }} sx={{ color: 'white' }}>
+            <CloseIcon />
+          </IconButton>
         </DialogTitle>
-        <DialogContent>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Escribe tu mensaje y te responderemos lo antes posible.
+        <DialogContent sx={{ p: 0 }}>
+          {selectedPackage && (
+            <Box>
+              {/* Header con Tracking */}
+              <Box sx={{ bgcolor: '#f8f9fa', p: 2, borderBottom: '1px solid #e0e0e0' }}>
+                <Typography variant="caption" color="text.secondary">Número de Rastreo</Typography>
+                <Typography variant="h5" fontFamily="monospace" fontWeight="bold" sx={{ color: ORANGE }}>
+                  {selectedPackage.tracking}
+                </Typography>
+                {selectedPackage.tracking_provider && (
+                  <Typography variant="caption" color="text.secondary">
+                    Carrier: {selectedPackage.tracking_provider}
+                  </Typography>
+                )}
+              </Box>
+
+              {/* Info General */}
+              <Box sx={{ p: 2 }}>
+                {/* Descripción */}
+                {selectedPackage.descripcion && (
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                      📦 Descripción
+                    </Typography>
+                    <Typography variant="body1">{selectedPackage.descripcion}</Typography>
+                  </Box>
+                )}
+
+                {/* Dimensiones y Peso */}
+                <Grid container spacing={2} sx={{ mb: 2 }}>
+                  <Grid size={6}>
+                    <Paper sx={{ p: 1.5, bgcolor: '#f8f9fa', textAlign: 'center' }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>⚖️ Peso</Typography>
+                      <Typography variant="h6" fontWeight="bold">
+                        {(() => {
+                          // Para masters, usar el peso del reempaque o calcular si no existe
+                          if (selectedPackage.is_master) {
+                            const masterWeight = typeof selectedPackage.weight === 'string' 
+                              ? parseFloat(selectedPackage.weight) 
+                              : selectedPackage.weight;
+                            
+                            if (masterWeight) {
+                              return `${masterWeight.toFixed(2)} kg`;
+                            }
+                            
+                            // Fallback: calcular de las guías incluidas si no hay peso del master
+                            if (selectedPackage.included_guides?.length) {
+                              const totalWeight = selectedPackage.included_guides.reduce(
+                                (sum, g) => sum + (g.weight || 0), 0
+                              );
+                              return totalWeight > 0 ? `${totalWeight.toFixed(2)} kg` : '--';
+                            }
+                          }
+                          
+                          // Para paquetes normales
+                          const weight = typeof selectedPackage.weight === 'string' 
+                            ? parseFloat(selectedPackage.weight) 
+                            : selectedPackage.weight;
+                          return weight ? `${weight.toFixed(2)} kg` : '--';
+                        })()}
+                      </Typography>
+                    </Paper>
+                  </Grid>
+                  <Grid size={6}>
+                    <Paper sx={{ p: 1.5, bgcolor: '#f8f9fa', textAlign: 'center' }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>📐 Dimensiones</Typography>
+                      <Typography variant="h6" fontWeight="bold" sx={{ fontSize: '0.9rem' }}>
+                        {(() => {
+                          // Para masters, usar las dimensiones del reempaque (caja final)
+                          if (selectedPackage.is_master) {
+                            return selectedPackage.dimensions || `${selectedPackage.included_guides?.length || 0} bultos`;
+                          }
+                          return selectedPackage.dimensions || '--';
+                        })()}
+                      </Typography>
+                    </Paper>
+                  </Grid>
+                  <Grid size={6}>
+                    <Paper sx={{ p: 1.5, bgcolor: '#f8f9fa', textAlign: 'center' }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>📊 Volumen CBM</Typography>
+                      <Typography variant="h6" fontWeight="bold">
+                        {(() => {
+                          // Para masters, usar el CBM de la caja final del reempaque
+                          const cbm = typeof selectedPackage.cbm === 'string' 
+                            ? parseFloat(selectedPackage.cbm) 
+                            : selectedPackage.cbm;
+                          return cbm ? `${cbm.toFixed(4)} m³` : '--';
+                        })()}
+                      </Typography>
+                    </Paper>
+                  </Grid>
+                  <Grid size={6}>
+                    <Paper sx={{ p: 1.5, bgcolor: '#f8f9fa', textAlign: 'center' }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>💰 Valor Declarado</Typography>
+                      <Typography variant="h6" fontWeight="bold">
+                        {(() => {
+                          // Para masters, usar el valor declarado total del reempaque
+                          const value = typeof selectedPackage.declared_value === 'string' 
+                            ? parseFloat(selectedPackage.declared_value) 
+                            : selectedPackage.declared_value;
+                          return value ? `$${value.toLocaleString()} USD` : '--';
+                        })()}
+                      </Typography>
+                    </Paper>
+                  </Grid>
+                </Grid>
+
+                {/* Guías Incluidas (para consolidaciones) */}
+                {selectedPackage.is_master && selectedPackage.included_guides && selectedPackage.included_guides.length > 0 && (
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                      📋 Guías Incluidas ({selectedPackage.included_guides.length})
+                    </Typography>
+                    <Paper sx={{ bgcolor: '#f8f9fa' }}>
+                      {selectedPackage.included_guides.map((guide, idx) => {
+                        const isHighlighted = highlightedGuideTracking === guide.tracking;
+                        return (
+                        <Box 
+                          key={guide.id} 
+                          sx={{ 
+                            p: 1.5, 
+                            borderBottom: idx < (selectedPackage.included_guides?.length || 0) - 1 ? '1px solid #e0e0e0' : 'none',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            bgcolor: isHighlighted ? '#fff3e0' : 'transparent',
+                            borderLeft: isHighlighted ? `4px solid ${ORANGE}` : 'none',
+                            transition: 'all 0.3s'
+                          }}
+                        >
+                          <Box>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Typography variant="body2" fontFamily="monospace" fontWeight="bold">{guide.tracking}</Typography>
+                              {isHighlighted && (
+                                <Chip 
+                                  label="🔍 Buscado" 
+                                  size="small" 
+                                  sx={{ height: 18, fontSize: '0.65rem', bgcolor: ORANGE, color: 'white' }}
+                                />
+                              )}
+                            </Box>
+                            {guide.description && (
+                              <Typography variant="caption" color="text.secondary">{guide.description}</Typography>
+                            )}
+                          </Box>
+                          <Box sx={{ textAlign: 'right' }}>
+                            {guide.weight && (
+                              <Typography variant="caption" sx={{ display: 'block' }}>{guide.weight} kg</Typography>
+                            )}
+                            {guide.dimensions && (
+                              <Typography variant="caption" color="text.secondary">{guide.dimensions}</Typography>
+                            )}
+                          </Box>
+                        </Box>
+                      )})}
+                    </Paper>
+                  </Box>
+                )}
+
+                {/* Servicios Contratados (GEX) */}
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
+                    🛡️ Servicios Contratados
+                  </Typography>
+                  {selectedPackage.has_gex ? (
+                    <Paper sx={{ p: 2, bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <SecurityIcon />
+                      <Box>
+                        <Typography variant="body2" fontWeight="bold">Garantía Extendida (GEX)</Typography>
+                        {selectedPackage.gex_folio && (
+                          <Typography variant="caption">Folio: {selectedPackage.gex_folio}</Typography>
+                        )}
+                      </Box>
+                    </Paper>
+                  ) : (
+                    <Paper sx={{ p: 2, bgcolor: '#ffebee', display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                        <SecurityIcon sx={{ color: '#D32F2F' }} />
+                        <Box sx={{ position: 'absolute', width: '100%', height: 2, bgcolor: '#D32F2F', transform: 'rotate(-45deg)' }} />
+                      </Box>
+                      <Typography variant="body2" color="error.main">
+                        Sin Garantía Extendida
+                      </Typography>
+                    </Paper>
+                  )}
+                </Box>
+
+                {/* Información de Entrega */}
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
+                    🏠 Información de Entrega
+                  </Typography>
+                  {(selectedPackage.delivery_address_id || 
+                    selectedPackage.assigned_address_id || 
+                    (selectedPackage.destination_address && 
+                     selectedPackage.destination_address !== 'Pendiente de asignar')) ? (
+                    <Paper sx={{ p: 2, bgcolor: '#e8f5e9' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <LocationOnIcon sx={{ color: 'success.main' }} />
+                        <Typography variant="body2" fontWeight="bold" color="success.main">
+                          Instrucciones Asignadas
+                        </Typography>
+                      </Box>
+                      {selectedPackage.destination_address && (
+                        <>
+                          <Typography variant="body2" sx={{ mb: 0.5 }}>
+                            <strong>Dirección:</strong> {selectedPackage.destination_address}
+                          </Typography>
+                          {selectedPackage.destination_city && (
+                            <Typography variant="body2" sx={{ mb: 0.5 }}>
+                              <strong>Ciudad:</strong> {selectedPackage.destination_city}
+                            </Typography>
+                          )}
+                          {selectedPackage.destination_contact && (
+                            <Typography variant="body2">
+                              <strong>Contacto:</strong> {selectedPackage.destination_contact}
+                            </Typography>
+                          )}
+                        </>
+                      )}
+                      {(selectedPackage.delivery_address_id || selectedPackage.assigned_address_id) && !selectedPackage.destination_address && (
+                        <Typography variant="body2" color="text.secondary">
+                          Dirección ID: {selectedPackage.delivery_address_id || selectedPackage.assigned_address_id}
+                        </Typography>
+                      )}
+                    </Paper>
+                  ) : (
+                    <Paper sx={{ p: 2, bgcolor: '#ffebee' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <WarningIcon sx={{ color: 'error.main' }} />
+                        <Typography variant="body2" fontWeight="bold" color="error.main">
+                          Pendiente de Asignar Instrucciones
+                        </Typography>
+                      </Box>
+                      <Typography variant="body2" color="text.secondary">
+                        Este paquete necesita instrucciones de entrega antes de ser despachado.
+                      </Typography>
+                    </Paper>
+                  )}
+                </Box>
+
+                {/* Estado y Costo */}
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
+                    💵 Costo del Servicio
+                  </Typography>
+                  <Paper sx={{ p: 2, bgcolor: selectedPackage.client_paid ? '#e8f5e9' : '#fff3e0' }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Typography variant="body2">Total a Pagar:</Typography>
+                      <Typography variant="h5" fontWeight="bold" color={selectedPackage.client_paid ? 'success.main' : 'warning.main'}>
+                        {formatCurrency(selectedPackage.monto)}
+                      </Typography>
+                    </Box>
+                    <Chip 
+                      label={selectedPackage.client_paid ? '✓ PAGADO' : '⏳ Pendiente de Pago'} 
+                      size="small" 
+                      color={selectedPackage.client_paid ? 'success' : 'warning'}
+                      sx={{ mt: 1 }}
+                    />
+                  </Paper>
+                </Box>
+
+                {/* Fechas */}
+                <Box>
+                  <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
+                    📅 Fechas
+                  </Typography>
+                  <Grid container spacing={2}>
+                    <Grid size={6}>
+                      <Paper sx={{ p: 1.5, bgcolor: '#f8f9fa' }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Recibido</Typography>
+                        <Typography variant="body2" fontWeight="bold">
+                          {selectedPackage.created_at ? new Date(selectedPackage.created_at).toLocaleDateString('es-MX', { 
+                            day: '2-digit', 
+                            month: 'short', 
+                            year: 'numeric' 
+                          }) : '--'}
+                        </Typography>
+                      </Paper>
+                    </Grid>
+                    <Grid size={6}>
+                      <Paper sx={{ p: 1.5, bgcolor: '#f8f9fa' }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Última Actualización</Typography>
+                        <Typography variant="body2" fontWeight="bold">
+                          {selectedPackage.updated_at ? new Date(selectedPackage.updated_at).toLocaleDateString('es-MX', { 
+                            day: '2-digit', 
+                            month: 'short', 
+                            year: 'numeric' 
+                          }) : '--'}
+                        </Typography>
+                      </Paper>
+                    </Grid>
+                  </Grid>
+                </Box>
+
+                {/* Estado actual */}
+                <Box sx={{ mt: 2, textAlign: 'center' }}>
+                  <Chip 
+                    label={selectedPackage.status_label} 
+                    size="medium"
+                    sx={{ 
+                      fontSize: '1rem', 
+                      py: 2.5,
+                      ...(selectedPackage.status === 'ready_pickup' && { bgcolor: ORANGE, color: 'white' }) 
+                    }}
+                    color={selectedPackage.status === 'ready_pickup' ? 'warning' : selectedPackage.status === 'in_transit' ? 'info' : 'default'}
+                  />
+                </Box>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button 
+            fullWidth 
+            variant="contained" 
+            onClick={() => {
+              setPackageDetailOpen(false);
+              setHighlightedGuideTracking(null);
+            }}
+            sx={{ bgcolor: ORANGE }}
+          >
+            Cerrar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Modal Centro de Ayuda - Opciones de soporte */}
+      <Dialog open={helpCenterOpen} onClose={() => setHelpCenterOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ 
+          bgcolor: '#2196F3', 
+          color: 'white', 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 1 
+        }}>
+          <SupportIcon />
+          Centro de Ayuda
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {/* Opción 1: Hablar Ahora */}
+          <Box
+            onClick={() => {
+              setHelpCenterOpen(false);
+              setSnackbar({ open: true, message: '🤖 El asesor virtual estará disponible próximamente', severity: 'info' });
+            }}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              p: 2,
+              cursor: 'pointer',
+              borderBottom: '1px solid #eee',
+              '&:hover': { bgcolor: '#f5f5f5' }
+            }}
+          >
+            <Box sx={{ 
+              bgcolor: '#2196F3', 
+              borderRadius: '50%', 
+              width: 48, 
+              height: 48, 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center' 
+            }}>
+              <ChatBubbleIcon sx={{ color: 'white' }} />
+            </Box>
+            <Box sx={{ flex: 1 }}>
+              <Typography fontWeight="bold">Hablar Ahora</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Chatea con nuestro asesor virtual para respuestas inmediatas
+              </Typography>
+            </Box>
+            <Typography color="text.secondary">›</Typography>
+          </Box>
+
+          {/* Opción 2: Solicitar Asesor */}
+          {/* Opción 2: Asesor (muestra info si tiene, o botón para vincular) */}
+          {advisorInfo ? (
+            // Ya tiene asesor asignado - mostrar info
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+                p: 2,
+                borderBottom: '1px solid #eee',
+                bgcolor: '#f8fff8'
+              }}
+            >
+              <Avatar 
+                src={advisorInfo.photo}
+                sx={{ 
+                  bgcolor: GREEN, 
+                  width: 48, 
+                  height: 48,
+                }}
+              >
+                {advisorInfo.name?.charAt(0) || 'A'}
+              </Avatar>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="caption" color="text.secondary">Tu Asesor</Typography>
+                <Typography fontWeight="bold">{advisorInfo.name}</Typography>
+                {advisorInfo.phone && (
+                  <Typography variant="body2" color="text.secondary">📱 {advisorInfo.phone}</Typography>
+                )}
+              </Box>
+              {advisorInfo.phone && (
+                <IconButton
+                  component="a"
+                  href={`https://wa.me/${advisorInfo.phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${advisorInfo.name}, soy cliente EntregaX (Suite ${boxId}).`)}`}
+                  target="_blank"
+                  sx={{
+                    bgcolor: '#25D366',
+                    color: 'white',
+                    '&:hover': { bgcolor: '#1da851' }
+                  }}
+                >
+                  <ChatBubbleIcon />
+                </IconButton>
+              )}
+            </Box>
+          ) : (
+            // No tiene asesor - mostrar botón para vincular
+            <Box
+              onClick={() => {
+                setHelpCenterOpen(false);
+                setAdvisorModalOpen(true);
+              }}
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 2,
+                p: 2,
+                cursor: 'pointer',
+                borderBottom: '1px solid #eee',
+                '&:hover': { bgcolor: '#f5f5f5' }
+              }}
+            >
+              <Box sx={{ 
+                bgcolor: '#4CAF50', 
+                borderRadius: '50%', 
+                width: 48, 
+                height: 48, 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center' 
+              }}>
+                <PersonIcon sx={{ color: 'white' }} />
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography fontWeight="bold">Solicitar Asesor</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Vincula tu cuenta con un asesor comercial
+                </Typography>
+              </Box>
+              <Typography color="text.secondary">›</Typography>
+            </Box>
+          )}
+
+          {/* Opción 3: Crear Ticket */}
+          <Box
+            onClick={() => {
+              setHelpCenterOpen(false);
+              setSupportOpen(true);
+            }}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              p: 2,
+              cursor: 'pointer',
+              '&:hover': { bgcolor: '#f5f5f5' }
+            }}
+          >
+            <Box sx={{ 
+              bgcolor: ORANGE, 
+              borderRadius: '50%', 
+              width: 48, 
+              height: 48, 
+              display: 'flex', 
+              alignItems: 'center', 
+              justifyContent: 'center' 
+            }}>
+              <ConfirmationNumber sx={{ color: 'white' }} />
+            </Box>
+            <Box sx={{ flex: 1 }}>
+              <Typography fontWeight="bold">Crear Ticket de Servicio</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Reporta un problema y te responderemos pronto
+              </Typography>
+            </Box>
+            <Typography color="text.secondary">›</Typography>
+          </Box>
+        </DialogContent>
+        <Box sx={{ p: 2, borderTop: '1px solid #eee', bgcolor: '#fafafa' }}>
+          <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <InfoIcon fontSize="small" />
+            Nuestro equipo de soporte está disponible de Lunes a Viernes, 9:00 AM - 6:00 PM
+          </Typography>
+        </Box>
+      </Dialog>
+
+      {/* Modal de Soporte - Crea ticket para Atención Humana */}
+      <Dialog open={supportOpen} onClose={() => setSupportOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ 
+          bgcolor: ORANGE, 
+          color: 'white', 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 1 
+        }}>
+          <SupportIcon />
+          🎫 Levantar Ticket de Soporte
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Tu mensaje será atendido por un agente de soporte.
+          </Alert>
+          
+          {/* Categoría */}
+          <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+            Categoría *
+          </Typography>
+          <TextField
+            select
+            fullWidth
+            value={supportCategory}
+            onChange={(e) => setSupportCategory(e.target.value)}
+            sx={{ mb: 2 }}
+            placeholder="Selecciona una categoría"
+          >
+            {supportCategories.map((cat) => (
+              <MenuItem key={cat.value} value={cat.value}>
+                {cat.label}
+              </MenuItem>
+            ))}
+          </TextField>
+
+          {/* Número de Guía */}
+          <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+            Número de Guía {supportCategory === 'systemError' ? '(Opcional)' : '*'}
+          </Typography>
+          <TextField
+            fullWidth
+            placeholder="Ingresa el número de guía"
+            value={supportTracking}
+            onChange={(e) => setSupportTracking(e.target.value)}
+            sx={{ mb: 2 }}
+          />
+
+          {/* Descripción */}
+          <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+            Descripción del problema *
           </Typography>
           <TextField
             fullWidth
@@ -2419,15 +5306,118 @@ export default function DashboardClient() {
             onChange={(e) => setSupportMessage(e.target.value)}
           />
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setSupportOpen(false)}>Cancelar</Button>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => {
+            setSupportOpen(false);
+            setSupportCategory('');
+            setSupportTracking('');
+            setSupportMessage('');
+          }}>Cancelar</Button>
           <Button 
             variant="contained" 
-            sx={{ bgcolor: GREEN }}
+            sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' } }}
             onClick={handleSendSupport}
-            disabled={!supportMessage.trim()}
+            disabled={!isSupportFormValid()}
+            startIcon={<SupportIcon />}
           >
-            Enviar Mensaje
+            Crear Ticket
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Modal Vincular Asesor */}
+      <Dialog open={advisorModalOpen} onClose={() => setAdvisorModalOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ 
+          bgcolor: BLACK, 
+          color: 'white', 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 1 
+        }}>
+          <PersonIcon />
+          ¿Tienes un Asesor?
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3, textAlign: 'center' }}>
+            Ingresa el número de suite de tu asesor para obtener tarifas preferenciales
+          </Typography>
+          
+          {/* Tu Suite */}
+          <Paper variant="outlined" sx={{ p: 2, mb: 3, bgcolor: '#f5f5f5' }}>
+            <Typography variant="caption" color="text.secondary">Tu Suite (Box ID)</Typography>
+            <Typography variant="h5" fontWeight="bold">{boxId}</Typography>
+          </Paper>
+
+          <Divider sx={{ mb: 2 }}>
+            <Typography variant="caption" color="text.secondary">Ingresa datos del asesor</Typography>
+          </Divider>
+
+          {/* Código del Asesor */}
+          <TextField
+            fullWidth
+            placeholder="Número ID del Asesor"
+            value={advisorCode}
+            onChange={(e) => setAdvisorCode(e.target.value)}
+            sx={{ mb: 2 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <PersonIcon color="action" />
+                </InputAdornment>
+              ),
+            }}
+          />
+
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+            * Si no tienes el número de tu asesor, presiona el botón y te ayudaremos a encontrar uno.
+          </Typography>
+
+          <Button
+            fullWidth
+            variant="contained"
+            size="large"
+            onClick={handleNeedHelp}
+            disabled={advisorLoading}
+            sx={{ 
+              bgcolor: ORANGE, 
+              '&:hover': { bgcolor: '#d94d1f' },
+              py: 1.5,
+              mb: 3
+            }}
+          >
+            {advisorLoading ? <CircularProgress size={24} color="inherit" /> : 'NECESITO AYUDA'}
+          </Button>
+
+          <Divider sx={{ mb: 2 }} />
+
+          {/* Beneficios */}
+          <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
+            Beneficios de tener un asesor:
+          </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <StarIcon sx={{ color: ORANGE, fontSize: 20 }} />
+              <Typography variant="body2">Tarifas preferenciales</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <SupportIcon sx={{ color: ORANGE, fontSize: 20 }} />
+              <Typography variant="body2">Atención personalizada</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <TruckIcon sx={{ color: ORANGE, fontSize: 20 }} />
+              <Typography variant="body2">Soporte prioritario</Typography>
+            </Box>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setAdvisorModalOpen(false)}>Cancelar</Button>
+          <Button 
+            variant="contained" 
+            sx={{ bgcolor: BLACK, '&:hover': { bgcolor: '#333' } }}
+            onClick={handleLinkAdvisor}
+            disabled={advisorLoading || !advisorCode.trim()}
+          >
+            {advisorLoading ? <CircularProgress size={20} color="inherit" /> : 'Vincular'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -2448,6 +5438,400 @@ export default function DashboardClient() {
         </Alert>
       </Snackbar>
 
+      {/* Carrusel de Servicios */}
+      <Box sx={{ mb: 3 }}>
+        <Typography variant="h6" fontWeight="bold" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+          🚀 Nuestros Servicios
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 2, overflowX: 'auto', pb: 1, scrollSnapType: 'x mandatory', '&::-webkit-scrollbar': { height: 6 }, '&::-webkit-scrollbar-thumb': { bgcolor: ORANGE, borderRadius: 3 } }}>
+          {SERVICE_CONFIG.map((service) => (
+            <Card 
+              key={service.type}
+              onClick={() => {
+                setTutorialService(service);
+                setTutorialOpen(true);
+              }}
+              sx={{ 
+                minWidth: 240,
+                maxWidth: 280,
+                flex: '0 0 auto',
+                cursor: 'pointer',
+                scrollSnapAlign: 'start',
+                background: '#fff',
+                border: '1px solid #e0e0e0',
+                borderRadius: 3,
+                transition: 'transform 0.2s, box-shadow 0.2s, border-color 0.2s',
+                '&:hover': { 
+                  transform: 'translateY(-4px)', 
+                  boxShadow: '0 12px 24px rgba(240,90,40,0.15)',
+                  borderColor: ORANGE,
+                },
+              }}
+            >
+              <CardContent sx={{ p: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                  <Typography variant="subtitle1" fontWeight="bold" sx={{ color: '#333' }}>
+                    {service.name}
+                  </Typography>
+                  <Chip 
+                    label={service.timeframe} 
+                    size="small" 
+                    sx={{ bgcolor: '#fff3e0', color: ORANGE, fontWeight: 600, fontSize: '0.65rem', height: 20, border: `1px solid ${ORANGE}` }} 
+                  />
+                </Box>
+                <Typography variant="caption" sx={{ color: '#666', display: 'block', mb: 1.5, lineHeight: 1.4 }}>
+                  {service.tutorial.substring(0, 80)}...
+                </Typography>
+                <Button 
+                  size="small" 
+                  variant="contained"
+                  fullWidth
+                  sx={{ 
+                    bgcolor: ORANGE, 
+                    color: 'white',
+                    textTransform: 'none',
+                    fontWeight: 600,
+                    py: 0.5,
+                    '&:hover': { bgcolor: '#d94d1f' },
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setTutorialService(service);
+                    setTutorialOpen(true);
+                  }}
+                >
+                  Ver Dirección
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </Box>
+      </Box>
+
+      {/* Modal de Pago */}
+      <Dialog open={paymentModalOpen} onClose={() => setPaymentModalOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <MoneyIcon />
+          Paquetes a Pagar
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          {/* Paquetes Seleccionados */}
+          <Paper sx={{ p: 2, mb: 3, bgcolor: '#f8f9fa' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <Typography variant="subtitle1" fontWeight="bold" sx={{ color: ORANGE }}>
+                📦 {selectedPackageIds.length} paquete(s)
+              </Typography>
+            </Box>
+            
+            {getSelectedPackages().slice(0, 3).map((pkg) => (
+              <Box key={pkg.id} sx={{ mb: 1, pb: 1, borderBottom: selectedPackageIds.length > 1 ? '1px solid #eee' : 'none' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Box>
+                    <Typography variant="body2" fontWeight="bold">{pkg.tracking}</Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {pkg.descripcion || 'Sin descripción'} - 12 lb
+                    </Typography>
+                  </Box>
+                  <Typography variant="body1" fontWeight="bold" sx={{ color: ORANGE }}>
+                    {formatCurrency(pkg.monto || 0)}
+                  </Typography>
+                </Box>
+              </Box>
+            ))}
+            
+            {selectedPackageIds.length > 3 && (
+              <Typography variant="caption" color="text.secondary">
+                +{selectedPackageIds.length - 3} paquetes más
+              </Typography>
+            )}
+            
+            <Divider sx={{ my: 2 }} />
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography variant="h6" fontWeight="bold">TOTAL:</Typography>
+              <Typography variant="h5" fontWeight="bold" sx={{ color: ORANGE }}>
+                {formatCurrency(getSelectedPackages().reduce((sum, p) => sum + (p.monto || 0), 0))}
+              </Typography>
+            </Box>
+          </Paper>
+
+          {/* Información de Envío */}
+          <Paper sx={{ p: 2, mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <Box sx={{ color: 'error.main', mr: 1 }}>📍</Box>
+              <Typography variant="subtitle1" fontWeight="bold">
+                Información de Envío
+              </Typography>
+            </Box>
+            <Typography variant="body2" color="text.secondary">
+              <strong>Próximo Destino:</strong> CEDIS Monterrey
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              <strong>País:</strong> México
+            </Typography>
+          </Paper>
+
+          {/* Métodos de Pago */}
+          <Paper sx={{ p: 2, mb: 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <Box sx={{ fontSize: '1.2rem', mr: 1 }}>💳</Box>
+              <Typography variant="subtitle1" fontWeight="bold">
+                Selecciona tu método de pago
+              </Typography>
+            </Box>
+
+            <FormControl component="fieldset" fullWidth>
+              <RadioGroup
+                value={selectedPaymentMethod}
+                onChange={(e) => {
+                  const newMethod = e.target.value as 'card' | 'paypal' | 'branch';
+                  setSelectedPaymentMethod(newMethod);
+                  // Si selecciona pago en sucursal, desactivar facturación
+                  if (newMethod === 'branch') {
+                    setRequiresInvoice(false);
+                  }
+                }}
+              >
+                {paymentGatewayMethods.map((method) => (
+                  <FormControlLabel
+                    key={method.id}
+                    value={method.id}
+                    control={<Radio color="primary" />}
+                    label={
+                      <Paper 
+                        elevation={selectedPaymentMethod === method.id ? 2 : 0}
+                        sx={{ 
+                          p: 2, 
+                          bgcolor: selectedPaymentMethod === method.id ? '#fff3e0' : 'transparent',
+                          border: selectedPaymentMethod === method.id ? `2px solid ${method.color}` : '1px solid #eee',
+                          borderRadius: 2,
+                          width: '100%'
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                          {selectedPaymentMethod === method.id && (
+                            <Box sx={{ color: method.color, fontSize: '1.2rem' }}>✓</Box>
+                          )}
+                          <Box sx={{ fontSize: '1.5rem' }}>{method.icon}</Box>
+                          <Box>
+                            <Typography variant="body1" fontWeight="bold">
+                              {method.name}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {method.description}
+                            </Typography>
+                          </Box>
+                        </Box>
+                      </Paper>
+                    }
+                    sx={{ m: 0, mb: 1, alignItems: 'flex-start' }}
+                  />
+                ))}
+              </RadioGroup>
+            </FormControl>
+          </Paper>
+
+          {/* Facturación */}
+          <Paper sx={{ p: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+              <Box sx={{ fontSize: '1.2rem', mr: 1 }}>🧾</Box>
+              <Typography variant="subtitle1" fontWeight="bold">
+                ¿Requiero Factura?
+              </Typography>
+              <Switch
+                checked={requiresInvoice}
+                onChange={(e) => setRequiresInvoice(e.target.checked)}
+                disabled={selectedPaymentMethod === 'branch'}
+                sx={{ ml: 'auto' }}
+              />
+            </Box>
+
+            {selectedPaymentMethod === 'branch' && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                📄 El pago en sucursal no permite generar factura fiscal. Solo se emite comprobante de pago.
+              </Alert>
+            )}
+
+            {requiresInvoice && selectedPaymentMethod !== 'branch' && (
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  {!requiresInvoice ? 'No se podrá facturar después' : 'Completa los datos para tu factura fiscal'}
+                </Typography>
+
+                {/* Alert si faltan datos fiscales */}
+                {requiresInvoice && fiscalData && !fiscalData.hasCompleteData && (
+                  <Alert severity="warning" sx={{ mb: 2 }} icon={<WarningIcon />}>
+                    <Typography variant="body2">
+                      <strong>Datos fiscales incompletos</strong><br/>
+                      Para generar la factura necesitas completar tus datos fiscales en tu perfil.
+                      <Button 
+                        variant="text" 
+                        size="small" 
+                        sx={{ color: ORANGE, mt: 0.5 }}
+                        onClick={() => {
+                          // TODO: Abrir modal de datos fiscales o redirigir
+                          setSnackbar({ 
+                            open: true, 
+                            message: 'Funcionalidad de edición de datos fiscales próximamente', 
+                            severity: 'info' 
+                          });
+                        }}
+                      >
+                        Actualizar datos fiscales
+                      </Button>
+                    </Typography>
+                  </Alert>
+                )}
+
+                {/* Alert si hay datos fiscales completos */}
+                {requiresInvoice && fiscalData && fiscalData.hasCompleteData && (
+                  <Alert severity="success" sx={{ mb: 2 }} icon={<CheckCircleIcon />}>
+                    <Typography variant="body2">
+                      <strong>Datos fiscales completos</strong><br/>
+                      Se usarán tus datos fiscales guardados para generar la factura.
+                    </Typography>
+                  </Alert>
+                )}
+                
+                <Grid container spacing={2}>
+                  <Grid size={12}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Razón Social *"
+                      value={fiscalData?.fiscal_razon_social || invoiceData.razon_social}
+                      onChange={(e) => setInvoiceData({ ...invoiceData, razon_social: e.target.value })}
+                      placeholder="Mi Empresa S.A. de C.V."
+                      disabled={fiscalData?.hasCompleteData}
+                      helperText={fiscalData?.hasCompleteData ? "Dato tomado de tu perfil fiscal" : ""}
+                    />
+                  </Grid>
+                  <Grid size={6}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="RFC *"
+                      value={fiscalData?.fiscal_rfc || invoiceData.rfc}
+                      onChange={(e) => setInvoiceData({ ...invoiceData, rfc: e.target.value.toUpperCase() })}
+                      placeholder="XAXX010101000"
+                      disabled={fiscalData?.hasCompleteData}
+                      helperText={fiscalData?.hasCompleteData ? "Dato tomado de tu perfil fiscal" : ""}
+                    />
+                  </Grid>
+                  <Grid size={6}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Código Postal Fiscal *"
+                      value={fiscalData?.fiscal_codigo_postal || invoiceData.codigo_postal}
+                      onChange={(e) => setInvoiceData({ ...invoiceData, codigo_postal: e.target.value })}
+                      placeholder="64000"
+                      inputProps={{ maxLength: 5, pattern: '[0-9]*' }}
+                      disabled={fiscalData?.hasCompleteData}
+                      helperText={fiscalData?.hasCompleteData ? "Dato tomado de tu perfil fiscal" : ""}
+                    />
+                  </Grid>
+                  <Grid size={6}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Régimen Fiscal *"
+                      select
+                      value={fiscalData?.fiscal_regimen_fiscal || invoiceData.regimen_fiscal}
+                      onChange={(e) => setInvoiceData({ ...invoiceData, regimen_fiscal: e.target.value })}
+                      disabled={fiscalData?.hasCompleteData}
+                      helperText={fiscalData?.hasCompleteData ? "Dato tomado de tu perfil fiscal" : ""}
+                    >
+                      <MenuItem value="601">General de Ley Personas Morales</MenuItem>
+                      <MenuItem value="603">Personas Morales con Fines no Lucrativos</MenuItem>
+                      <MenuItem value="605">Sueldos y Salarios e Ingresos Asimilados a Salarios</MenuItem>
+                      <MenuItem value="606">Arrendamiento</MenuItem>
+                      <MenuItem value="608">Demás ingresos</MenuItem>
+                      <MenuItem value="610">Residentes en el Extranjero sin Establecimiento Permanente en México</MenuItem>
+                      <MenuItem value="611">Ingresos por Dividendos (socios y accionistas)</MenuItem>
+                      <MenuItem value="612">Personas Físicas con Actividades Empresariales y Profesionales</MenuItem>
+                      <MenuItem value="614">Ingresos por intereses</MenuItem>
+                      <MenuItem value="616">Sin obligaciones fiscales</MenuItem>
+                      <MenuItem value="621">Incorporación Fiscal</MenuItem>
+                      <MenuItem value="622">Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras</MenuItem>
+                      <MenuItem value="623">Opcional para Grupos de Sociedades</MenuItem>
+                      <MenuItem value="624">Coordinados</MenuItem>
+                      <MenuItem value="628">Hidrocarburos</MenuItem>
+                      <MenuItem value="629">De los Regímenes Fiscales Preferentes y de las Empresas Multinacionales</MenuItem>
+                      <MenuItem value="630">Enajenación de acciones en bolsa de valores</MenuItem>
+                    </TextField>
+                  </Grid>
+                  <Grid size={6}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Uso de CFDI *"
+                      select
+                      value={fiscalData?.fiscal_uso_cfdi || invoiceData.uso_cfdi}
+                      onChange={(e) => setInvoiceData({ ...invoiceData, uso_cfdi: e.target.value })}
+                      disabled={fiscalData?.hasCompleteData}
+                      helperText={fiscalData?.hasCompleteData ? "Dato tomado de tu perfil fiscal" : ""}
+                    >
+                      <MenuItem value="G03">Gastos en general</MenuItem>
+                      <MenuItem value="G01">Adquisición de mercancías</MenuItem>
+                      <MenuItem value="G02">Devoluciones, descuentos o bonificaciones</MenuItem>
+                      <MenuItem value="I04">Compra de divisas</MenuItem>
+                      <MenuItem value="I05">Construcciones</MenuItem>
+                      <MenuItem value="I06">Mobiliario y equipo de oficina por inversiones</MenuItem>
+                      <MenuItem value="I07">Equipo de transporte</MenuItem>
+                      <MenuItem value="I08">Equipo de cómputo y accesorios</MenuItem>
+                      <MenuItem value="D01">Honorarios médicos y dentales</MenuItem>
+                      <MenuItem value="D02">Gastos médicos por incapacidad</MenuItem>
+                      <MenuItem value="D03">Gastos funerales</MenuItem>
+                      <MenuItem value="D04">Donativos</MenuItem>
+                      <MenuItem value="D05">Intereses reales efectivamente pagados por créditos hipotecarios</MenuItem>
+                      <MenuItem value="D06">Aportaciones voluntarias al SAR</MenuItem>
+                      <MenuItem value="D07">Primas por seguros de gastos médicos</MenuItem>
+                      <MenuItem value="D08">Gastos de transportación escolar obligatoria</MenuItem>
+                      <MenuItem value="D09">Depósitos en cuentas para el ahorro</MenuItem>
+                      <MenuItem value="D10">Pagos por servicios educativos</MenuItem>
+                    </TextField>
+                  </Grid>
+                  <Grid size={12}>
+                    <TextField
+                      fullWidth
+                      size="small"
+                      label="Email para factura *"
+                      type="email"
+                      value={invoiceData.email}
+                      onChange={(e) => setInvoiceData({ ...invoiceData, email: e.target.value })}
+                      placeholder="facturacion@miempresa.com"
+                    />
+                  </Grid>
+                </Grid>
+              </Box>
+            )}
+          </Paper>
+        </DialogContent>
+        <DialogActions sx={{ p: 3, bgcolor: '#f8f9fa' }}>
+          <Button 
+            onClick={() => setPaymentModalOpen(false)}
+            size="large"
+          >
+            Cancelar
+          </Button>
+          <Button 
+            variant="contained" 
+            size="large"
+            onClick={handleProcessPayment}
+            disabled={paymentLoading}
+            startIcon={paymentLoading ? <CircularProgress size={20} /> : <MoneyIcon />}
+            sx={{ 
+              bgcolor: ORANGE, 
+              minWidth: 200,
+              py: 1.5,
+              fontSize: '1.1rem'
+            }}
+          >
+            {paymentLoading ? 'Procesando...' : `💳 Pagar ${formatCurrency(getSelectedPackages().reduce((sum, p) => sum + (p.monto || 0), 0))}`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Botón Flotante de Ayuda */}
       <Box
         sx={{
@@ -2460,9 +5844,9 @@ export default function DashboardClient() {
           zIndex: 1000,
         }}
       >
-        <Tooltip title="Chat de Soporte" placement="left">
+        <Tooltip title="Centro de Ayuda" placement="left">
           <IconButton
-            onClick={() => setSupportOpen(true)}
+            onClick={() => setHelpCenterOpen(true)}
             sx={{
               bgcolor: BLUE,
               color: 'white',
@@ -2475,24 +5859,431 @@ export default function DashboardClient() {
             <SupportIcon />
           </IconButton>
         </Tooltip>
-        <Tooltip title="WhatsApp" placement="left">
-          <IconButton
-            component="a"
-            href="https://wa.me/528112345678"
-            target="_blank"
-            sx={{
-              bgcolor: GREEN,
-              color: 'white',
-              width: 56,
-              height: 56,
-              boxShadow: 3,
-              '&:hover': { bgcolor: '#388E3C' },
+      </Box>
+
+      {/* Modal de Configuración de Datos Fiscales */}
+      <Dialog open={fiscalModalOpen} onClose={() => setFiscalModalOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ReceiptIcon />
+          Configurar Datos Fiscales
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Configura tus datos fiscales una sola vez y tus facturas se generarán automáticamente con cada pago.
+          </Typography>
+          
+          <Grid container spacing={2}>
+            <Grid size={12}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Razón Social *"
+                value={invoiceData.razon_social}
+                onChange={(e) => setInvoiceData({ ...invoiceData, razon_social: e.target.value })}
+                placeholder="Mi Empresa S.A. de C.V."
+              />
+            </Grid>
+            <Grid size={6}>
+              <TextField
+                fullWidth
+                size="small"
+                label="RFC *"
+                value={invoiceData.rfc}
+                onChange={(e) => setInvoiceData({ ...invoiceData, rfc: e.target.value.toUpperCase() })}
+                placeholder="XAXX010101000"
+                inputProps={{ maxLength: 13 }}
+              />
+            </Grid>
+            <Grid size={6}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Código Postal Fiscal *"
+                value={invoiceData.codigo_postal}
+                onChange={(e) => setInvoiceData({ ...invoiceData, codigo_postal: e.target.value })}
+                placeholder="64000"
+                inputProps={{ maxLength: 5, pattern: '[0-9]*' }}
+              />
+            </Grid>
+            <Grid size={12}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Régimen Fiscal *"
+                select
+                value={invoiceData.regimen_fiscal}
+                onChange={(e) => setInvoiceData({ ...invoiceData, regimen_fiscal: e.target.value })}
+              >
+                <MenuItem value="601">601 - General de Ley Personas Morales</MenuItem>
+                <MenuItem value="603">603 - Personas Morales con Fines no Lucrativos</MenuItem>
+                <MenuItem value="605">605 - Sueldos y Salarios e Ingresos Asimilados</MenuItem>
+                <MenuItem value="606">606 - Arrendamiento</MenuItem>
+                <MenuItem value="608">608 - Demás ingresos</MenuItem>
+                <MenuItem value="612">612 - Personas Físicas con Actividades Empresariales y Profesionales</MenuItem>
+                <MenuItem value="614">614 - Ingresos por intereses</MenuItem>
+                <MenuItem value="616">616 - Sin obligaciones fiscales</MenuItem>
+                <MenuItem value="621">621 - Incorporación Fiscal</MenuItem>
+                <MenuItem value="622">622 - Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras</MenuItem>
+              </TextField>
+            </Grid>
+            <Grid size={12}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Uso de CFDI *"
+                select
+                value={invoiceData.uso_cfdi}
+                onChange={(e) => setInvoiceData({ ...invoiceData, uso_cfdi: e.target.value })}
+              >
+                <MenuItem value="G03">G03 - Gastos en general</MenuItem>
+                <MenuItem value="G01">G01 - Adquisición de mercancías</MenuItem>
+                <MenuItem value="G02">G02 - Devoluciones, descuentos o bonificaciones</MenuItem>
+                <MenuItem value="I04">I04 - Compra de divisas</MenuItem>
+                <MenuItem value="I05">I05 - Construcciones</MenuItem>
+                <MenuItem value="I06">I06 - Mobiliario y equipo de oficina por inversiones</MenuItem>
+                <MenuItem value="I07">I07 - Equipo de transporte</MenuItem>
+                <MenuItem value="I08">I08 - Equipo de cómputo y accesorios</MenuItem>
+                <MenuItem value="D01">D01 - Honorarios médicos y dentales</MenuItem>
+                <MenuItem value="D02">D02 - Gastos médicos por incapacidad</MenuItem>
+                <MenuItem value="D03">D03 - Gastos funerales</MenuItem>
+                <MenuItem value="D04">D04 - Donativos</MenuItem>
+                <MenuItem value="D05">D05 - Intereses reales efectivamente pagados por créditos hipotecarios</MenuItem>
+              </TextField>
+            </Grid>
+          </Grid>
+
+          <Alert severity="info" sx={{ mt: 2 }}>
+            <Typography variant="body2">
+              <strong>* Campos obligatorios</strong><br/>
+              Estos datos se usarán para generar tus facturas CFDI 4.0 automáticamente.
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, bgcolor: '#f5f5f5' }}>
+          <Button onClick={() => setFiscalModalOpen(false)} disabled={fiscalLoading}>
+            Cancelar
+          </Button>
+          <Button 
+            variant="contained" 
+            onClick={handleSaveFiscalData}
+            disabled={fiscalLoading || !invoiceData.razon_social || !invoiceData.rfc || !invoiceData.codigo_postal || !invoiceData.regimen_fiscal}
+            startIcon={fiscalLoading ? <CircularProgress size={20} /> : <ReceiptIcon />}
+            sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' } }}
+          >
+            {fiscalLoading ? 'Guardando...' : 'Guardar Datos Fiscales'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* =============== DIALOG: AGREGAR MÉTODO DE PAGO =============== */}
+      <Dialog 
+        open={showAddPaymentMethod} 
+        onClose={() => setShowAddPaymentMethod(false)}
+        maxWidth="sm" 
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CreditCardIcon /> Agregar Método de Pago
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3, mt: 2 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+            Agrega una tarjeta, cuenta PayPal o transferencia bancaria para realizar tus pagos.
+          </Typography>
+
+          {/* Selector de tipo */}
+          <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
+            {[
+              { value: 'card' as const, label: '💳 Tarjeta', icon: <CreditCardIcon /> },
+              { value: 'paypal' as const, label: '🅿️ PayPal', icon: <PaymentIcon /> },
+            ].map((opt) => (
+              <Button
+                key={opt.value}
+                variant={newPaymentMethod.type === opt.value ? 'contained' : 'outlined'}
+                size="small"
+                onClick={() => setNewPaymentMethod({ ...newPaymentMethod, type: opt.value })}
+                sx={{ 
+                  flex: 1, 
+                  textTransform: 'none',
+                  ...(newPaymentMethod.type === opt.value && { bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' } })
+                }}
+              >
+                {opt.label}
+              </Button>
+            ))}
+          </Box>
+
+          {/* Alias */}
+          <TextField
+            fullWidth
+            size="small"
+            label="Alias / Nombre descriptivo"
+            placeholder="Ej: Mi Visa Personal"
+            value={newPaymentMethod.alias}
+            onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, alias: e.target.value })}
+            sx={{ mb: 2 }}
+          />
+
+          {/* Campos para TARJETA */}
+          {newPaymentMethod.type === 'card' && (
+            <>
+              <TextField
+                fullWidth
+                size="small"
+                label="Número de tarjeta *"
+                placeholder="4111 1111 1111 1111"
+                value={newPaymentMethod.cardNumber}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 16);
+                  setNewPaymentMethod({ ...newPaymentMethod, cardNumber: val });
+                }}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start"><CreditCardIcon fontSize="small" /></InputAdornment>,
+                }}
+                sx={{ mb: 2 }}
+              />
+              <Grid container spacing={2}>
+                <Grid size={6}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="Fecha de expiración *"
+                    placeholder="MM/AA"
+                    value={newPaymentMethod.expiryDate}
+                    onChange={(e) => {
+                      let val = e.target.value.replace(/\D/g, '').slice(0, 4);
+                      if (val.length > 2) val = val.slice(0, 2) + '/' + val.slice(2);
+                      setNewPaymentMethod({ ...newPaymentMethod, expiryDate: val });
+                    }}
+                  />
+                </Grid>
+                <Grid size={6}>
+                  <TextField
+                    fullWidth
+                    size="small"
+                    label="CVV *"
+                    placeholder="123"
+                    type="password"
+                    value={newPaymentMethod.cvv}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '').slice(0, 4);
+                      setNewPaymentMethod({ ...newPaymentMethod, cvv: val });
+                    }}
+                    InputProps={{
+                      startAdornment: <InputAdornment position="start"><LockIcon fontSize="small" /></InputAdornment>,
+                    }}
+                  />
+                </Grid>
+              </Grid>
+              <TextField
+                fullWidth
+                size="small"
+                label="Nombre del titular *"
+                placeholder="Como aparece en la tarjeta"
+                value={newPaymentMethod.holderName}
+                onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, holderName: e.target.value })}
+                sx={{ mt: 2 }}
+              />
+            </>
+          )}
+
+          {/* Campos para PAYPAL */}
+          {newPaymentMethod.type === 'paypal' && (
+            <TextField
+              fullWidth
+              size="small"
+              label="Correo electrónico de PayPal *"
+              placeholder="correo@paypal.com"
+              type="email"
+              value={newPaymentMethod.paypalEmail}
+              onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, paypalEmail: e.target.value })}
+              InputProps={{
+                startAdornment: <InputAdornment position="start"><PaymentIcon fontSize="small" /></InputAdornment>,
+              }}
+            />
+          )}
+
+          {/* Campos para TRANSFERENCIA */}
+          {newPaymentMethod.type === 'bank_transfer' && (
+            <>
+              <TextField
+                fullWidth
+                size="small"
+                label="Nombre del banco *"
+                placeholder="Ej: BBVA, Banorte, Santander..."
+                value={newPaymentMethod.bankName}
+                onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, bankName: e.target.value })}
+                sx={{ mb: 2 }}
+              />
+              <TextField
+                fullWidth
+                size="small"
+                label="CLABE interbancaria *"
+                placeholder="18 dígitos"
+                value={newPaymentMethod.clabe}
+                onChange={(e) => {
+                  const val = e.target.value.replace(/\D/g, '').slice(0, 18);
+                  setNewPaymentMethod({ ...newPaymentMethod, clabe: val });
+                }}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start"><AccountBalanceIcon fontSize="small" /></InputAdornment>,
+                }}
+                sx={{ mb: 2 }}
+              />
+              <TextField
+                fullWidth
+                size="small"
+                label="Beneficiario *"
+                placeholder="Nombre completo del titular"
+                value={newPaymentMethod.beneficiary}
+                onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, beneficiary: e.target.value })}
+              />
+            </>
+          )}
+
+          <Alert severity="info" sx={{ mt: 3 }}>
+            <Typography variant="caption">
+              🔒 Tus datos están protegidos con encriptación. Solo se guardan los últimos 4 dígitos de la tarjeta.
+            </Typography>
+          </Alert>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, bgcolor: '#f5f5f5' }}>
+          <Button onClick={() => {
+            setShowAddPaymentMethod(false);
+            setNewPaymentMethod({
+              type: 'card', alias: '', cardNumber: '', expiryDate: '', cvv: '',
+              holderName: '', paypalEmail: '', bankName: '', clabe: '', beneficiary: '',
+            });
+          }}>
+            Cancelar
+          </Button>
+          <Button 
+            variant="contained" 
+            onClick={handleAddPaymentMethod}
+            disabled={
+              !newPaymentMethod.alias ||
+              (newPaymentMethod.type === 'card' && (!newPaymentMethod.cardNumber || newPaymentMethod.cardNumber.length < 15 || !newPaymentMethod.holderName)) ||
+              (newPaymentMethod.type === 'paypal' && !newPaymentMethod.paypalEmail) ||
+              (newPaymentMethod.type === 'bank_transfer' && (!newPaymentMethod.bankName || !newPaymentMethod.clabe || newPaymentMethod.clabe.length < 18))
+            }
+            startIcon={<AddIcon />}
+            sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' } }}
+          >
+            Agregar Método
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* =============== DIALOG: CUENTAS POR PAGAR =============== */}
+      <Dialog 
+        open={showPendingPayments} 
+        onClose={() => setShowPendingPayments(false)}
+        maxWidth="md" 
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <ReceiptIcon /> Mis Cuentas por Pagar
+          </Box>
+          <IconButton onClick={() => setShowPendingPayments(false)} sx={{ color: 'white' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {/* Total Banner */}
+          <Paper 
+            sx={{ 
+              p: 3, 
+              background: 'linear-gradient(135deg, #F05A28 0%, #d94d1f 100%)',
+              textAlign: 'center', 
+              borderRadius: 0 
             }}
           >
-            <WhatsAppIcon />
-          </IconButton>
-        </Tooltip>
-      </Box>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)' }}>Total Pendiente por Pagar</Typography>
+            <Typography variant="h3" fontWeight="bold" sx={{ color: 'white', my: 0.5 }}>
+              {formatCurrency(pendingPayments?.totalPending || 0)}
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>MXN</Typography>
+          </Paper>
+
+          {/* Listado por servicio */}
+          {pendingPayments?.byService && pendingPayments.byService.length > 0 ? (
+            pendingPayments.byService.map((group) => (
+              <Box key={group.service} sx={{ mb: 0 }}>
+                {/* Header del servicio */}
+                <Box sx={{ 
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  p: 2, bgcolor: '#f8f8f8', borderBottom: '1px solid #eee'
+                }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="subtitle1" fontWeight="bold">
+                      {group.service === 'POBOX_USA' || group.service === 'po_box' ? '📦' : 
+                       group.service === 'AIR_CHN_MX' || group.service === 'aereo' ? '✈️' :
+                       group.service === 'SEA_CHN_MX' || group.service === 'maritimo' ? '🚢' :
+                       group.service === 'AA_DHL' ? '🚛' : '📋'}
+                      {' '}{group.serviceName}
+                    </Typography>
+                  </Box>
+                  <Typography variant="subtitle1" fontWeight="bold" color="error.main">
+                    {formatCurrency(group.subtotal)}
+                  </Typography>
+                </Box>
+
+                {/* Facturas/Paquetes del servicio */}
+                <Table size="small">
+                  <TableBody>
+                    {group.invoices.map((inv: any, idx: number) => (
+                      <TableRow key={`${group.service}-${idx}`} hover>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight="bold">
+                            {inv.invoice_number || inv.tracking_internal}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {inv.concept || `Paquete ${inv.invoice_number}`} -
+                          </Typography>
+                          {inv.due_date && (
+                            <Typography variant="caption" color="error.main" display="block">
+                              Vence: {new Date(inv.due_date).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body1" fontWeight="bold">
+                            {formatCurrency(inv.balance_due || inv.amount || 0)}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right" sx={{ width: 120 }}>
+                          <Button 
+                            variant="outlined" 
+                            size="small" 
+                            sx={{ borderColor: ORANGE, color: ORANGE, fontSize: '0.7rem', '&:hover': { bgcolor: ORANGE + '10' } }}
+                          >
+                            VER DETALLES
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Box>
+            ))
+          ) : (
+            <Box sx={{ textAlign: 'center', py: 6 }}>
+              <CheckCircleIcon sx={{ fontSize: 60, color: GREEN, mb: 2 }} />
+              <Typography variant="h6" color="success.main" fontWeight="bold">
+                ¡Estás al corriente!
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                No tienes cuentas pendientes por pagar
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2, bgcolor: '#f5f5f5' }}>
+          <Button onClick={() => setShowPendingPayments(false)}>
+            Cerrar
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

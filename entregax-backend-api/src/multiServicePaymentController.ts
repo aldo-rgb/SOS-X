@@ -13,6 +13,7 @@ import {
   getAllServices,
   getServiceFromReferenceType 
 } from './services/openpayConfig';
+import { createInvoice } from './fiscalController';
 
 // ============================================
 // OBTENER PAGOS PENDIENTES DEL USUARIO
@@ -533,5 +534,287 @@ export const getAdminServiceSummary = async (req: AuthRequest, res: Response): P
   } catch (error) {
     console.error('Error getting admin service summary:', error);
     res.status(500).json({ error: 'Error obteniendo resumen' });
+  }
+};
+
+// ============================================
+// PAYMENT GATEWAY INTEGRATIONS
+// OpenPay y PayPal para pagos de paquetes
+// ============================================
+
+export const processOpenPayCard = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.userId;
+    const { packageIds, paymentMethod, total, currency, company, returnUrl, cancelUrl, invoiceRequired, invoiceData } = req.body;
+
+    console.log('📦 Processing OpenPay card payment:', {
+      userId,
+      packageIds,
+      total,
+      currency,
+      company,
+      invoiceRequired
+    });
+
+    // Validar datos requeridos
+    if (!packageIds || !Array.isArray(packageIds) || packageIds.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Se requiere al menos un paquete para procesar el pago' 
+      });
+    }
+
+    if (!total || total <= 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'El monto del pago debe ser mayor a 0' 
+      });
+    }
+
+    // Por ahora, simular respuesta exitosa mientras se implementa OpenPay
+    // TODO: Implementar integración real con OpenPay
+    const paymentId = `openpay_${Date.now()}`;
+    
+    // TEMPORAL: Retornar que necesita redirección a la pasarela
+    // En producción aquí iría la integración real con OpenPay
+    const mockPaymentResponse: any = {
+      success: true,
+      paymentId,
+      requiresRedirection: true,
+      paymentUrl: `https://sandbox-dashboard.openpay.mx/paynet-reference?id=${paymentId}`,
+      status: 'pending',
+      message: 'Redirigiendo a OpenPay para procesar el pago'
+    };
+
+    // NO generar factura ni marcar como pagado hasta que se confirme el pago real
+    console.log('💳 OpenPay payment created, awaiting confirmation:', paymentId);
+
+    // Aquí iría la lógica real de OpenPay
+    // const openpay = new Openpay(merchantId, privateKey, isSandbox);
+    // const charge = await openpay.charges.create({...});
+
+    res.json(mockPaymentResponse);
+
+  } catch (error) {
+    console.error('❌ Error processing OpenPay card payment:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Error procesando pago con tarjeta' 
+    });
+  }
+};
+
+export const createPayPalPayment = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.userId;
+    const { packageIds, paymentMethod, total, currency, company, returnUrl, cancelUrl, invoiceRequired, invoiceData } = req.body;
+
+    console.log('📦 Creating PayPal payment:', {
+      userId,
+      packageIds,
+      total,
+      currency,
+      company,
+      invoiceRequired
+    });
+
+    // Validar datos requeridos
+    if (!packageIds || !Array.isArray(packageIds) || packageIds.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Se requiere al menos un paquete para procesar el pago' 
+      });
+    }
+
+    if (!total || total <= 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'El monto del pago debe ser mayor a 0' 
+      });
+    }
+
+    // Por ahora, simular respuesta exitosa mientras se implementa PayPal
+    // TODO: Implementar integración real con PayPal
+    const paymentId = `paypal_${Date.now()}`;
+    const mockPaymentResponse: any = {
+      success: true,
+      paymentId,
+      approvalUrl: `https://www.sandbox.paypal.com/checkoutnow?token=EC-${paymentId}`,
+      status: 'pending',
+      message: 'Pago creado exitosamente con PayPal'
+    };
+
+    // NO generar factura ni marcar como pagado hasta que se confirme el pago real
+    // Para PayPal, guardamos la intención de facturar y la procesamos en el callback
+    if (invoiceRequired && invoiceData) {
+      console.log('📄 Invoice will be generated after PayPal payment confirmation:', paymentId);
+      mockPaymentResponse.invoiceWillBeGenerated = true;
+    }
+
+    console.log('🔄 PayPal payment created, awaiting confirmation:', paymentId);
+
+    // Aquí iría la lógica real de PayPal
+    // const paypal = require('paypal-rest-sdk');
+    // const payment = await paypal.payment.create({...});
+
+    res.json(mockPaymentResponse);
+
+  } catch (error) {
+    console.error('❌ Error creating PayPal payment:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Error creando pago con PayPal' 
+    });
+  }
+};
+
+export const createBranchPayment = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.userId;
+    const { packageIds, paymentMethod, total, currency, company, invoiceRequired, invoiceData } = req.body;
+
+    console.log('📦 Creating branch payment reference:', {
+      userId,
+      packageIds,
+      total,
+      currency,
+      company,
+      invoiceRequired
+    });
+
+    // Validar datos requeridos
+    if (!packageIds || !Array.isArray(packageIds) || packageIds.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Se requiere al menos un paquete para generar referencia' 
+      });
+    }
+
+    if (!total || total <= 0) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'El monto del pago debe ser mayor a 0' 
+      });
+    }
+
+    // Generar referencia única para pago en sucursal
+    const paymentReference = `ENT${Date.now().toString().slice(-8)}`;
+
+    const mockPaymentResponse: any = {
+      success: true,
+      paymentId: paymentReference,
+      reference: paymentReference,
+      barcode: paymentReference,
+      status: 'pending',
+      message: 'Referencia generada exitosamente',
+      instructions: 'Presenta esta referencia en cualquier sucursal EntregaX para procesar tu pago'
+    };
+
+    // Para pagos en sucursal, la factura se genera cuando el cajero confirma el pago
+    // NO marcar como pagado hasta que se confirme en sucursal
+    if (invoiceRequired && invoiceData) {
+      console.log('📄 Invoice will be generated when branch payment is confirmed:', paymentReference);
+      mockPaymentResponse.invoiceWillBeGenerated = true;
+      mockPaymentResponse.invoiceMessage = 'La factura será generada al confirmar el pago en sucursal';
+    }
+
+    console.log('🏪 Branch payment reference created:', paymentReference);
+
+    res.json(mockPaymentResponse);
+
+  } catch (error) {
+    console.error('❌ Error creating branch payment:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Error generando referencia de pago' 
+    });
+  }
+};
+
+// ============================================
+// CONFIRMAR PAGO Y MARCAR PAQUETES COMO PAGADOS
+// Se llama desde webhooks o callbacks de las pasarelas
+// ============================================
+
+export const confirmPaymentAndUpdatePackages = async (
+  paymentId: string, 
+  packageIds: number[], 
+  amount: number,
+  paymentType: 'openpay' | 'paypal' | 'branch',
+  userId: number
+): Promise<{ success: boolean; error?: string; invoiceData?: any }> => {
+  try {
+    console.log('💰 Confirming payment and updating packages:', { paymentId, packageIds, amount, paymentType, userId });
+
+    // 1. Marcar paquetes como pagados
+    const updateResult = await pool.query(`
+      UPDATE packages 
+      SET 
+        payment_status = 'paid',
+        paid_at = NOW(),
+        payment_method = $1,
+        payment_reference = $2,
+        paid_amount = $3
+      WHERE id = ANY($4) AND user_id = $5
+      RETURNING id, tracking_number
+    `, [paymentType, paymentId, amount, packageIds, userId]);
+
+    if (updateResult.rows.length === 0) {
+      return { success: false, error: 'No se encontraron paquetes para actualizar' };
+    }
+
+    console.log('✅ Packages marked as paid:', updateResult.rows.map(r => r.tracking_number));
+
+    // 2. Registrar transacción de pago
+    await pool.query(`
+      INSERT INTO payment_transactions 
+      (user_id, payment_id, payment_type, amount, currency, status, package_ids, created_at)
+      VALUES ($1, $2, $3, $4, 'MXN', 'completed', $5, NOW())
+    `, [userId, paymentId, paymentType, amount, packageIds]);
+
+    return { success: true };
+
+  } catch (error) {
+    console.error('❌ Error confirming payment:', error);
+    return { success: false, error: 'Error confirmando pago' };
+  }
+};
+
+// ============================================
+// ENDPOINT DE PRUEBA: CONFIRMAR PAGO MANUALMENTE
+// Para testing hasta implementar webhooks reales
+// ============================================
+
+export const testConfirmPayment = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.userId;
+    const { paymentId, packageIds, amount, paymentType } = req.body;
+
+    console.log('🧪 TEST: Confirming payment manually:', { paymentId, packageIds, amount, paymentType });
+
+    const result = await confirmPaymentAndUpdatePackages(
+      paymentId,
+      packageIds,
+      amount,
+      paymentType,
+      userId!
+    );
+
+    if (result.success) {
+      res.json({ 
+        success: true, 
+        message: 'Pago confirmado y paquetes actualizados',
+        updatedPackages: packageIds.length
+      });
+    } else {
+      res.status(400).json(result);
+    }
+
+  } catch (error) {
+    console.error('❌ Error in test confirm payment:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Error confirmando pago de prueba' 
+    });
   }
 };

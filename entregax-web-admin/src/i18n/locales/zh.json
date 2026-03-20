@@ -552,6 +552,8 @@
       "coverage": "覆盖范围",
       "inventory": "库存",
       "inbound_emails": "海运邮件",
+      "inbound_emails_air": "空运邮件",
+      "air_routes": "空运路线",
       "maritime_api": "中国海运API",
       "air_api": "中国空运API",
       "routes": "路线",

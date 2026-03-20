@@ -600,6 +600,8 @@
       "coverage": "Coverage",
       "inventory": "Inventory",
       "inbound_emails": "Maritime Emails",
+      "inbound_emails_air": "Air Cargo Emails",
+      "air_routes": "Air Routes",
       "maritime_api": "China Maritime API",
       "air_api": "China Air API",
       "routes": "Routes",

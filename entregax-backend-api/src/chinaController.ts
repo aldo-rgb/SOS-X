@@ -607,6 +607,218 @@ export const getChinaStats = async (req: Request, res: Response): Promise<any> =
 };
 
 // ============================================
+// GET: Guías aéreas hijas (daughter guides) para Gestión Aérea
+// GET /api/china/air-guides
+// ============================================
+export const getAirDaughterGuides = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { status, search, awb, limit = 100, offset = 0 } = req.query;
+
+        let query = `
+            SELECT 
+                p.id,
+                p.tracking_internal,
+                p.tracking_provider,
+                p.child_no,
+                p.description,
+                p.weight,
+                p.pkg_length,
+                p.pkg_width,
+                p.pkg_height,
+                p.single_volume,
+                p.single_cbm,
+                p.international_tracking,
+                p.status::text as status,
+                p.etd,
+                p.eta,
+                p.created_at,
+                p.updated_at,
+                p.user_id,
+                p.box_number,
+                p.total_boxes,
+                p.assigned_cost_mxn,
+                p.client_paid,
+                p.master_id,
+                p.china_receipt_id,
+                p.pro_name,
+                p.customs_bno,
+                p.box_id as package_box_id,
+                p.air_sale_price,
+                p.air_price_per_kg,
+                p.air_tariff_type,
+                p.air_is_custom_tariff,
+                COALESCE(u.full_name, lc.full_name, lc_mark.full_name, CASE WHEN COALESCE(p.box_id, cr.shipping_mark) IS NOT NULL AND COALESCE(p.box_id, cr.shipping_mark) != '' THEN COALESCE(p.box_id, cr.shipping_mark) ELSE 'Sin asignar' END) as client_name,
+                COALESCE(u.box_id, p.box_id, cr.shipping_mark, '') as client_box_id,
+                cr.fno as receipt_fno,
+                cr.shipping_mark
+            FROM packages p
+            LEFT JOIN users u ON p.user_id = u.id
+            LEFT JOIN legacy_clients lc ON p.box_id = lc.box_id
+            LEFT JOIN china_receipts cr ON p.china_receipt_id = cr.id
+            LEFT JOIN legacy_clients lc_mark ON cr.shipping_mark = lc_mark.box_id
+            WHERE p.service_type = 'AIR_CHN_MX'
+            AND p.warehouse_location = 'china_air'
+            AND (p.is_master = false OR p.is_master IS NULL)
+        `;
+        const params: any[] = [];
+        let paramIndex = 1;
+
+        if (status && status !== 'all') {
+            query += ` AND p.status::text = $${paramIndex}`;
+            params.push(status);
+            paramIndex++;
+        }
+
+        if (search) {
+            query += ` AND (
+                UPPER(p.tracking_internal) LIKE UPPER($${paramIndex})
+                OR UPPER(p.child_no) LIKE UPPER($${paramIndex})
+                OR UPPER(p.international_tracking) LIKE UPPER($${paramIndex})
+                OR UPPER(COALESCE(u.full_name, lc.full_name, '')) LIKE UPPER($${paramIndex})
+                OR UPPER(COALESCE(u.box_id, '')) LIKE UPPER($${paramIndex})
+                OR UPPER(COALESCE(p.box_id, '')) LIKE UPPER($${paramIndex})
+                OR UPPER(COALESCE(cr.fno, '')) LIKE UPPER($${paramIndex})
+            )`;
+            params.push(`%${search}%`);
+            paramIndex++;
+        }
+
+        if (awb) {
+            query += ` AND UPPER(p.international_tracking) = UPPER($${paramIndex})`;
+            params.push(awb);
+            paramIndex++;
+        }
+
+        query += ` ORDER BY p.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+        params.push(limit, offset);
+
+        const result = await pool.query(query, params);
+
+        // Count total
+        let countQuery = `
+            SELECT COUNT(*) as total
+            FROM packages p
+            LEFT JOIN users u ON p.user_id = u.id
+            LEFT JOIN legacy_clients lc ON p.box_id = lc.box_id
+            LEFT JOIN china_receipts cr ON p.china_receipt_id = cr.id
+            LEFT JOIN legacy_clients lc_mark ON cr.shipping_mark = lc_mark.box_id
+            WHERE p.service_type = 'AIR_CHN_MX'
+            AND p.warehouse_location = 'china_air'
+            AND (p.is_master = false OR p.is_master IS NULL)
+        `;
+        const countParams: any[] = [];
+        let countParamIndex = 1;
+
+        if (status && status !== 'all') {
+            countQuery += ` AND p.status::text = $${countParamIndex}`;
+            countParams.push(status);
+            countParamIndex++;
+        }
+        if (search) {
+            countQuery += ` AND (
+                UPPER(p.tracking_internal) LIKE UPPER($${countParamIndex})
+                OR UPPER(p.child_no) LIKE UPPER($${countParamIndex})
+                OR UPPER(p.international_tracking) LIKE UPPER($${countParamIndex})
+                OR UPPER(COALESCE(u.full_name, lc.full_name, lc_mark.full_name, '')) LIKE UPPER($${countParamIndex})
+                OR UPPER(COALESCE(u.box_id, '')) LIKE UPPER($${countParamIndex})
+                OR UPPER(COALESCE(p.box_id, cr.shipping_mark, '')) LIKE UPPER($${countParamIndex})
+                OR UPPER(COALESCE(cr.fno, '')) LIKE UPPER($${countParamIndex})
+            )`;
+            countParams.push(`%${search}%`);
+            countParamIndex++;
+        }
+        if (awb) {
+            countQuery += ` AND UPPER(p.international_tracking) = UPPER($${countParamIndex})`;
+            countParams.push(awb);
+            countParamIndex++;
+        }
+
+        const countResult = await pool.query(countQuery, countParams);
+
+        res.json({
+            success: true,
+            guides: result.rows,
+            total: parseInt(countResult.rows[0].total),
+        });
+    } catch (error: any) {
+        console.error("Error obteniendo guías aéreas hijas:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// ============================================
+// GET: Estadísticas de guías aéreas hijas
+// GET /api/china/air-guides/stats
+// ============================================
+export const getAirDaughterStats = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const statusStats = await pool.query(`
+            SELECT p.status::text as status, COUNT(*) as count
+            FROM packages p
+            WHERE p.service_type = 'AIR_CHN_MX'
+            AND p.warehouse_location = 'china_air'
+            AND (p.is_master = false OR p.is_master IS NULL)
+            GROUP BY p.status
+        `);
+
+        const awbStats = await pool.query(`
+            SELECT 
+                COALESCE(p.international_tracking, 'Sin AWB') as awb,
+                COUNT(*) as count
+            FROM packages p
+            WHERE p.service_type = 'AIR_CHN_MX'
+            AND p.warehouse_location = 'china_air'
+            AND (p.is_master = false OR p.is_master IS NULL)
+            GROUP BY p.international_tracking
+            ORDER BY count DESC
+            LIMIT 20
+        `);
+
+        // "Sin asignar" = paquetes que NO tienen:
+        // - user_id válido
+        // - box_id que exista en legacy_clients
+        // - shipping_mark (del china_receipt) que exista en legacy_clients
+        const unassigned = await pool.query(`
+            SELECT COUNT(*) as count
+            FROM packages p
+            LEFT JOIN legacy_clients lc ON p.box_id = lc.box_id
+            LEFT JOIN china_receipts cr ON p.china_receipt_id = cr.id
+            LEFT JOIN legacy_clients lc_mark ON cr.shipping_mark = lc_mark.box_id
+            LEFT JOIN users u ON p.user_id = u.id
+            WHERE p.service_type = 'AIR_CHN_MX'
+            AND p.warehouse_location = 'china_air'
+            AND (p.is_master = false OR p.is_master IS NULL)
+            AND u.id IS NULL
+            AND lc.id IS NULL
+            AND lc_mark.id IS NULL
+            AND (p.box_id IS NULL OR p.box_id = '')
+            AND (cr.shipping_mark IS NULL OR cr.shipping_mark = '')
+        `);
+
+        const total = await pool.query(`
+            SELECT COUNT(*) as count
+            FROM packages p
+            WHERE p.service_type = 'AIR_CHN_MX'
+            AND p.warehouse_location = 'china_air'
+            AND (p.is_master = false OR p.is_master IS NULL)
+        `);
+
+        res.json({
+            success: true,
+            stats: {
+                byStatus: statusStats.rows,
+                byAwb: awbStats.rows,
+                totalGuides: parseInt(total.rows[0].count),
+                unassigned: parseInt(unassigned.rows[0].count),
+            }
+        });
+    } catch (error: any) {
+        console.error("Error obteniendo stats de guías aéreas:", error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// ============================================
 // GET: Logs de callbacks de MoJie (diagnóstico)
 // GET /api/china/callback-logs
 // ============================================
@@ -1834,7 +2046,7 @@ async function processCallbackPayload(
                 );
                 
                 if (existingPkg.rows.length > 0) {
-                    // Actualizar paquete existente
+                    // Actualizar paquete existente (NO sobrescribir precio si ya tiene)
                     await client.query(`
                         UPDATE packages SET
                             weight = COALESCE($1, weight),
@@ -1868,40 +2080,99 @@ async function processCallbackPayload(
                     ]);
                     packagesUpdated++;
                 } else {
-                    // Crear nuevo paquete
+                    // Crear nuevo paquete CON PRECIO DE VENTA ASIGNADO
                     const trackingInternal = `CN-${childNo.slice(-8)}`;
                     const dimensions = `${item.long || 0}x${item.width || 0}x${item.height || 0}`;
                     
+                    // === CALCULAR PRECIO DE VENTA ===
+                    // Buscar ruta activa (asumimos destino MEX por defecto)
+                    const routeRes = await client.query(`
+                        SELECT id FROM air_routes WHERE is_active = true LIMIT 1
+                    `);
+                    const airRouteId = routeRes.rows.length > 0 ? routeRes.rows[0].id : null;
+                    
+                    // Determinar tipo de tarifa basado en proName/descripción
+                    const proNameLower = (item.proName || '').toLowerCase();
+                    let tariffType = 'G'; // Por defecto Genérico
+                    if (proNameLower.includes('logo') || proNameLower.includes('鞋') || proNameLower.includes('zapato') || proNameLower.includes('shoes')) {
+                        tariffType = 'L';
+                    } else if (proNameLower.includes('medical') || proNameLower.includes('sensible') || proNameLower.includes('medicina')) {
+                        tariffType = 'S';
+                    }
+                    
+                    // Buscar precio: primero tarifa personalizada del cliente, luego general
+                    let pricePerKg = 0;
+                    let isCustomTariff = false;
+                    
+                    if (airRouteId && userId) {
+                        // Buscar tarifa personalizada del cliente
+                        const customTariffRes = await client.query(`
+                            SELECT price_per_kg FROM air_client_tariffs 
+                            WHERE user_id = $1 AND route_id = $2 AND tariff_type = $3 AND is_active = true
+                            LIMIT 1
+                        `, [userId, airRouteId, tariffType]);
+                        
+                        if (customTariffRes.rows.length > 0) {
+                            pricePerKg = parseFloat(customTariffRes.rows[0].price_per_kg);
+                            isCustomTariff = true;
+                        }
+                    }
+                    
+                    // Si no hay personalizada, buscar tarifa general
+                    if (pricePerKg === 0 && airRouteId) {
+                        const generalTariffRes = await client.query(`
+                            SELECT price_per_kg FROM air_tariffs 
+                            WHERE route_id = $1 AND tariff_type = $2 AND is_active = true
+                            LIMIT 1
+                        `, [airRouteId, tariffType]);
+                        
+                        if (generalTariffRes.rows.length > 0) {
+                            pricePerKg = parseFloat(generalTariffRes.rows[0].price_per_kg);
+                        }
+                    }
+                    
+                    const weight = parseFloat(String(item.weight || 0)) || 0;
+                    const salePrice = weight * pricePerKg;
+                    
+                    console.log(`   📦 ${childNo}: ${weight}kg × $${pricePerKg}/kg = $${salePrice.toFixed(2)} (${isCustomTariff ? 'CUSTOM' : 'GENERAL'})`);
+                    
                     await client.query(`
                         INSERT INTO packages 
-                        (tracking_internal, child_no, china_receipt_id, user_id, 
+                        (tracking_internal, child_no, china_receipt_id, user_id, box_id,
                          weight, dimensions, long_cm, width_cm, height_cm,
                          description, pro_name, customs_bno, trajectory_name,
                          single_volume, single_cbm, international_tracking,
-                         etd, eta, service_type, warehouse_location, status)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                         etd, eta, service_type, warehouse_location, status,
+                         air_route_id, air_tariff_type, air_price_per_kg, air_sale_price, air_is_custom_tariff, air_price_assigned_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, NOW())
                     `, [
-                        trackingInternal,
-                        childNo,
-                        receiptId,
-                        userId,
-                        item.weight || 0,
-                        dimensions,
-                        item.long || 0,
-                        item.width || 0,
-                        item.height || 0,
-                        item.proName || 'Sin descripción',
-                        item.proName,
-                        item.customsBno,
-                        item.trajecotryName,
-                        item.singleVolume || 0,
-                        item.singleCbm || 0,
-                        item.billNo || null,
-                        item.etd || null,
-                        item.eta || null,
-                        'AIR_CHN_MX',
-                        'china_air',
-                        'received_china'
+                        trackingInternal,       // $1
+                        childNo,                // $2
+                        receiptId,              // $3
+                        userId,                 // $4
+                        payload.shippingMark || null, // $5 box_id
+                        item.weight || 0,       // $6
+                        dimensions,             // $7
+                        item.long || 0,         // $8
+                        item.width || 0,        // $9
+                        item.height || 0,       // $10
+                        item.proName || 'Sin descripción', // $11
+                        item.proName,           // $12
+                        item.customsBno,        // $13
+                        item.trajecotryName,    // $14
+                        item.singleVolume || 0, // $15
+                        item.singleCbm || 0,    // $16
+                        item.billNo || null,    // $17
+                        item.etd || null,       // $18
+                        item.eta || null,       // $19
+                        'AIR_CHN_MX',           // $20
+                        'china_air',            // $21
+                        'received_china',       // $22
+                        airRouteId,             // $23
+                        tariffType,             // $24
+                        pricePerKg,             // $25
+                        salePrice,              // $26
+                        isCustomTariff          // $27
                     ]);
                     packagesCreated++;
                 }

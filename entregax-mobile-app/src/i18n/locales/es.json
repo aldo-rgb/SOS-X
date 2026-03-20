@@ -15,9 +15,11 @@
     "no": "No",
     "error": "Error",
     "success": "Éxito",
+    "ok": "Aceptar",
     "retry": "Reintentar",
     "viewAll": "Ver todo",
-    "noData": "Sin datos"
+    "noData": "Sin datos",
+    "optional": "Opcional"
   },
   "auth": {
     "login": "Iniciar Sesión",
@@ -253,6 +255,43 @@
     "inReview": "En Revisión",
     "approved": "Aprobada",
     "rejected": "Rechazada"
+  },
+  "helpCenter": {
+    "title": "Centro de Ayuda",
+    "welcomeTitle": "¿Cómo podemos ayudarte?",
+    "welcomeSubtitle": "Selecciona una opción para recibir asistencia",
+    "talkNow": "Hablar Ahora",
+    "talkNowDesc": "Chatea con nuestro asesor virtual para respuestas inmediatas",
+    "requestAdvisor": "Solicitar Asesor",
+    "requestAdvisorDesc": "Vincula tu cuenta con un asesor comercial",
+    "createTicket": "Crear Ticket de Servicio",
+    "createTicketDesc": "Reporta un problema y te responderemos pronto",
+    "infoText": "Nuestro equipo de soporte está disponible de lunes a viernes de 10:00 a 18:00 hrs.",
+    "categoryLabel": "Categoría",
+    "selectCategory": "Por favor selecciona una categoría",
+    "trackingLabel": "Número de guía",
+    "trackingPlaceholder": "Ej: EX12345678",
+    "enterTracking": "Por favor ingresa el número de guía",
+    "describeIssue": "Descripción del problema",
+    "ticketPlaceholder": "Describe detalladamente tu problema o consulta...",
+    "ticketInfoText": "Tu mensaje será atendido por un agente de soporte.",
+    "sendTicket": "Enviar Ticket",
+    "enterMessage": "Por favor ingresa una descripción",
+    "ticketCreated": "¡Ticket Creado!",
+    "ticketCreatedMsg": "Tu ticket #{{folio}} ha sido creado. Te responderemos pronto.",
+    "requestSent": "¡Solicitud Enviada!",
+    "advisorRequest": "{{name}} solicita contacto con un asesor humano",
+    "advisorRequestSuccess": "Tu solicitud #{{folio}} ha sido registrada. Un asesor te contactará pronto.",
+    "categories": {
+      "tracking": "Rastreo",
+      "delay": "Retraso",
+      "warranty": "Garantía Extendida",
+      "compensation": "Compensación",
+      "systemError": "Error del Sistema",
+      "other": "Otro"
+    },
+    "yourAdvisor": "Tu Asesor",
+    "noAdvisorPhone": "No hay teléfono registrado para este asesor"
   },
   "support": {
     "title": "Servicio al Cliente",

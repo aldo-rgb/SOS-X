@@ -48,7 +48,10 @@ import {
     Warning as WarningIcon,
     TrendingUp as TrendingUpIcon,
     Inventory as BoxIcon,
+    Receipt as ReceiptIcon,
+    OpenInNew as OpenCostIcon,
 } from '@mui/icons-material';
+import AwbCostingDialog from './AwbCostingDialog';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -114,6 +117,27 @@ interface ProfitReportItem {
     packages_linked: number;
 }
 
+interface AwbCostListItem {
+    id: number;
+    awb_number: string;
+    carrier: string | null;
+    origin_airport: string | null;
+    destination_airport: string | null;
+    flight_number: string | null;
+    flight_date: string | null;
+    pieces: number | null;
+    gross_weight_kg: number | null;
+    calc_grand_total: number;
+    calc_cost_per_kg: number;
+    is_fully_costed: boolean;
+    status: string;
+    total_packages_s: number;
+    total_packages_cajo: number;
+    packages_s_count: number;
+    packages_cajo_count: number;
+    created_at: string;
+}
+
 export default function CostingPanelChinaAir() {
     const { t } = useTranslation();
     const [tabValue, setTabValue] = useState(0);
@@ -162,6 +186,14 @@ export default function CostingPanelChinaAir() {
     });
 
     const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; id: number | null }>({ open: false, id: null });
+
+    // AWB Costing (Tab 3)
+    const [awbCostList, setAwbCostList] = useState<AwbCostListItem[]>([]);
+    const [awbCostDialog, setAwbCostDialog] = useState<{ open: boolean; id: number | null }>({ open: false, id: null });
+    const [awbCostStats, setAwbCostStats] = useState({
+        total: 0, pending: 0, costed: 0, total_cost: 0, total_weight: 0,
+        total_pieces: 0, total_s_packages: 0, total_cajo_packages: 0,
+    });
 
     const token = localStorage.getItem('token');
 
@@ -251,11 +283,36 @@ export default function CostingPanelChinaAir() {
         }
     }, [token]);
 
+    // Cargar lista de costos AWB (Tab 3)
+    const loadAwbCostList = useCallback(async () => {
+        try {
+            const [listRes, statsRes] = await Promise.all([
+                fetch(`${API_URL}/api/awb-costs?limit=100`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                }),
+                fetch(`${API_URL}/api/awb-costs/stats`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                }),
+            ]);
+            if (listRes.ok) {
+                const json = await listRes.json();
+                setAwbCostList(json.data || []);
+            }
+            if (statsRes.ok) {
+                const json = await statsRes.json();
+                setAwbCostStats(json.stats || awbCostStats);
+            }
+        } catch (err) {
+            console.error('Error loading AWB costs:', err);
+        }
+    }, [token]);
+
     useEffect(() => {
         loadStats();
         loadMasterList();
         loadProfitReport();
-    }, [loadStats, loadMasterList, loadProfitReport]);
+        loadAwbCostList();
+    }, [loadStats, loadMasterList, loadProfitReport, loadAwbCostList]);
 
     // ============================================
     // BUSCAR GUÍA
@@ -458,10 +515,14 @@ export default function CostingPanelChinaAir() {
 
             {/* Tabs */}
             <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
-                <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
+                <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} variant="scrollable" scrollButtons="auto">
                     <Tab icon={<CalculateIcon />} label={t('costing.tabs.capture')} />
                     <Tab icon={<BoxIcon />} label={t('costing.tabs.registered')} />
                     <Tab icon={<TrendingUpIcon />} label={t('costing.tabs.profit')} />
+                    <Tab
+                        icon={<ReceiptIcon />}
+                        label={`Costeo AWB (${awbCostList.length})`}
+                    />
                 </Tabs>
             </Box>
 
@@ -1003,6 +1064,148 @@ export default function CostingPanelChinaAir() {
                     </Button>
                 </DialogActions>
             </Dialog>
+
+            {/* TAB 3: COSTEO AWB (estilo marítimo) */}
+            {tabValue === 3 && (
+                <Box>
+                    {/* Stats cards */}
+                    <Grid container spacing={2} sx={{ mb: 3 }}>
+                        {[
+                            { label: 'Total AWBs', value: awbCostStats.total, color: '#1976d2', icon: '✈️' },
+                            { label: 'Pendientes', value: awbCostStats.pending, color: '#ed6c02', icon: '⏳' },
+                            { label: 'Costeados', value: awbCostStats.costed, color: '#2e7d32', icon: '✅' },
+                            { label: 'Costo Total', value: `$${Number(awbCostStats.total_cost || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`, color: '#9c27b0', icon: '💰' },
+                            { label: 'Peso Total', value: `${Number(awbCostStats.total_weight || 0).toLocaleString()} kg`, color: '#0288d1', icon: '⚖️' },
+                            { label: 'Paquetes S', value: awbCostStats.total_s_packages, color: '#388e3c', icon: '📦' },
+                        ].map(({ label, value, color, icon }) => (
+                            <Grid size={{ xs: 6, md: 2 }} key={label}>
+                                <Card sx={{ borderLeft: 4, borderColor: color }}>
+                                    <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+                                        <Typography variant="caption" color="text.secondary">{icon} {label}</Typography>
+                                        <Typography variant="h6" fontWeight="bold">{value}</Typography>
+                                    </CardContent>
+                                </Card>
+                            </Grid>
+                        ))}
+                    </Grid>
+
+                    {/* Header */}
+                    <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="h6">📋 Líneas de Costeo AWB</Typography>
+                        <Button startIcon={<RefreshIcon />} onClick={loadAwbCostList}>
+                            Actualizar
+                        </Button>
+                    </Box>
+
+                    {/* Table */}
+                    <TableContainer component={Paper}>
+                        <Table>
+                            <TableHead>
+                                <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                    <TableCell>AWB Number</TableCell>
+                                    <TableCell>Carrier</TableCell>
+                                    <TableCell>Ruta</TableCell>
+                                    <TableCell>Vuelo</TableCell>
+                                    <TableCell align="right">Piezas</TableCell>
+                                    <TableCell align="right">Peso (kg)</TableCell>
+                                    <TableCell align="right">Pkgs S</TableCell>
+                                    <TableCell align="right">CAJO</TableCell>
+                                    <TableCell align="right">Costo Total</TableCell>
+                                    <TableCell align="right">$/kg</TableCell>
+                                    <TableCell align="center">Estado</TableCell>
+                                    <TableCell align="center">Acciones</TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {awbCostList.map((item) => (
+                                    <TableRow
+                                        key={item.id}
+                                        hover
+                                        sx={{ cursor: 'pointer', '&:hover': { bgcolor: '#f0f7ff' } }}
+                                        onClick={() => setAwbCostDialog({ open: true, id: item.id })}
+                                    >
+                                        <TableCell>
+                                            <Typography variant="body2" fontWeight="bold" color="primary">
+                                                {item.awb_number}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell>{item.carrier || '-'}</TableCell>
+                                        <TableCell>
+                                            <Typography variant="body2">
+                                                {item.origin_airport || '?'} → {item.destination_airport || '?'}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell>{item.flight_number || '-'}</TableCell>
+                                        <TableCell align="right">{item.pieces || 0}</TableCell>
+                                        <TableCell align="right">{Number(item.gross_weight_kg || 0).toFixed(1)}</TableCell>
+                                        <TableCell align="right">
+                                            <Chip size="small" label={item.packages_s_count || 0} color="primary" variant="outlined" />
+                                        </TableCell>
+                                        <TableCell align="right">
+                                            <Chip size="small" label={item.packages_cajo_count || 0} color="warning" variant="outlined" />
+                                        </TableCell>
+                                        <TableCell align="right">
+                                            <Typography fontWeight="bold">
+                                                ${Number(item.calc_grand_total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell align="right">
+                                            ${Number(item.calc_cost_per_kg || 0).toFixed(2)}
+                                        </TableCell>
+                                        <TableCell align="center">
+                                            <Chip
+                                                size="small"
+                                                icon={item.is_fully_costed ? <CheckIcon /> : <WarningIcon />}
+                                                label={item.is_fully_costed ? 'Costeado' : 'Pendiente'}
+                                                color={item.is_fully_costed ? 'success' : 'warning'}
+                                                variant="outlined"
+                                            />
+                                        </TableCell>
+                                        <TableCell align="center">
+                                            <Tooltip title="Abrir modal de costeo">
+                                                <IconButton
+                                                    size="small"
+                                                    color="primary"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setAwbCostDialog({ open: true, id: item.id });
+                                                    }}
+                                                >
+                                                    <OpenCostIcon fontSize="small" />
+                                                </IconButton>
+                                            </Tooltip>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                                {awbCostList.length === 0 && (
+                                    <TableRow>
+                                        <TableCell colSpan={12} align="center" sx={{ py: 6 }}>
+                                            <FlightIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+                                            <Typography color="text.secondary">
+                                                No hay líneas de costeo AWB registradas.
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary">
+                                                Las líneas se crean automáticamente al aprobar borradores en Correos Entrantes Aéreo.
+                                            </Typography>
+                                        </TableCell>
+                                    </TableRow>
+                                )}
+                            </TableBody>
+                        </Table>
+                    </TableContainer>
+                </Box>
+            )}
+
+            {/* AWB Costing Dialog (modal estilo marítimo) */}
+            <AwbCostingDialog
+                open={awbCostDialog.open}
+                onClose={() => setAwbCostDialog({ open: false, id: null })}
+                awbCostId={awbCostDialog.id}
+                onSaved={() => {
+                    loadAwbCostList();
+                    loadStats();
+                }}
+            />
         </Box>
     );
 }

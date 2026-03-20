@@ -172,26 +172,47 @@ async function getAIResponse(userMessage: string, chatHistory: any[]): Promise<{
  */
 export const handleSupportMessage = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { userId, message, ticketId, category } = req.body;
+    const { userId, message, ticketId, category, escalateDirectly } = req.body;
 
     if (!userId || !message) {
       return res.status(400).json({ error: 'userId y message son requeridos' });
     }
 
     let currentTicketId = ticketId;
+    let ticketFolio = '';
 
     // A. CREAR NUEVO TICKET SI NO EXISTE
     if (!currentTicketId) {
       const folio = await generateTicketFolio();
+      ticketFolio = folio;
       const subject = message.length > 50 ? message.substring(0, 47) + '...' : message;
+      
+      // Si escalateDirectly es true, crear directamente como escalated_human
+      const initialStatus = escalateDirectly ? 'escalated_human' : 'open_ai';
       
       const newTicket = await pool.query(
         `INSERT INTO support_tickets (ticket_folio, user_id, category, subject, status)
-         VALUES ($1, $2, $3, $4, 'open_ai') RETURNING id, ticket_folio`,
-        [folio, userId, category || 'other', subject]
+         VALUES ($1, $2, $3, $4, $5) RETURNING id, ticket_folio`,
+        [folio, userId, category || 'other', subject, initialStatus]
       );
       currentTicketId = newTicket.rows[0].id;
-      console.log(`🎫 Nuevo ticket creado: ${folio}`);
+      ticketFolio = newTicket.rows[0].ticket_folio;
+      console.log(`🎫 Nuevo ticket creado: ${folio} (${initialStatus})`);
+      
+      // Si es escalado directo, guardar mensaje y retornar inmediatamente
+      if (escalateDirectly) {
+        await pool.query(
+          `INSERT INTO ticket_messages (ticket_id, sender_type, message) VALUES ($1, 'client', $2)`,
+          [currentTicketId, message]
+        );
+        
+        return res.json({
+          status: 'escalated',
+          ticketId: currentTicketId,
+          ticketFolio: ticketFolio,
+          message: '✅ Ticket creado. Un agente humano te atenderá pronto.'
+        });
+      }
     }
 
     // B. GUARDAR MENSAJE DEL CLIENTE

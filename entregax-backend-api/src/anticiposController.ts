@@ -152,7 +152,7 @@ export const getBolsasAnticipos = async (req: AuthRequest, res: Response): Promi
   try {
     const { proveedor_id, estado, con_saldo } = req.query;
 
-    let query = 'SELECT * FROM vista_bolsas_anticipos WHERE 1=1';
+    let query = "SELECT * FROM vista_bolsas_anticipos WHERE estado != 'eliminado'";
     const params: (string | number)[] = [];
     let paramIndex = 1;
 
@@ -339,7 +339,7 @@ export const getAnticiposByContainer = async (req: AuthRequest, res: Response): 
       return;
     }
     
-    // Obtener todos los anticipos para esta referencia
+    // Obtener todos los anticipos para esta referencia (excluyendo eliminados)
     const result = await pool.query(`
       SELECT 
         ar.id,
@@ -358,7 +358,7 @@ export const getAnticiposByContainer = async (req: AuthRequest, res: Response): 
       FROM anticipo_referencias ar
       INNER JOIN bolsas_anticipos ba ON ba.id = ar.bolsa_anticipo_id
       INNER JOIN proveedores_anticipos p ON p.id = ba.proveedor_id
-      WHERE ar.referencia = $1
+      WHERE ar.referencia = $1 AND ar.estado != 'eliminado' AND ba.estado != 'eliminado'
       ORDER BY ar.created_at DESC
     `, [reference_code]);
     
@@ -388,14 +388,19 @@ export const getReferenciasByBolsa = async (req: AuthRequest, res: Response): Pr
     const { bolsaId } = req.params;
     const result = await pool.query(`
       SELECT 
-        ar.*,
+        ar.id,
+        ar.referencia,
+        ar.monto,
+        ar.estado,
+        ar.created_at,
+        ar.usado_at,
         c.container_number,
         u.full_name as usado_por_nombre
       FROM anticipo_referencias ar
-      LEFT JOIN containers c ON c.id = ar.container_id
+      LEFT JOIN containers c ON c.reference_code = ar.referencia
       LEFT JOIN users u ON u.id = ar.usado_por
-      WHERE ar.bolsa_anticipo_id = $1
-      ORDER BY ar.referencia
+      WHERE ar.bolsa_anticipo_id = $1 AND ar.estado != 'eliminado'
+      ORDER BY ar.created_at DESC
     `, [bolsaId]);
     res.json(result.rows);
   } catch (error) {
@@ -929,6 +934,13 @@ export const deleteBolsaAnticipo = async (req: AuthRequest, res: Response): Prom
         WHERE container_id = $1
       `, [asig.container_id]);
     }
+
+    // Marcar referencias como eliminadas
+    await client.query(`
+      UPDATE anticipo_referencias 
+      SET estado = 'eliminado', updated_at = NOW()
+      WHERE bolsa_anticipo_id = $1
+    `, [id]);
 
     // Eliminar la bolsa (soft delete)
     await client.query(`

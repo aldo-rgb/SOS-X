@@ -141,6 +141,25 @@ export const updateContainer = async (req: AuthRequest, res: Response): Promise<
     const { id } = req.params;
     const { containerNumber, blNumber, eta, status, notes, routeId, week_number, legacy_client_id } = req.body;
 
+    // Si se está asignando un cliente dedicado, buscar y congelar el precio del tarifario
+    let salePriceQuery = '';
+    let salePriceParams: any[] = [containerNumber, blNumber, eta, status, notes, routeId, week_number, legacy_client_id, id];
+    
+    if (legacy_client_id && routeId) {
+      // Buscar tarifa FCL para este cliente y ruta
+      const rateResult = await pool.query(`
+        SELECT custom_price_usd, currency 
+        FROM fcl_client_rates 
+        WHERE legacy_client_id = $1 AND route_id = $2
+      `, [legacy_client_id, routeId]);
+      
+      if (rateResult.rows.length > 0) {
+        const rate = rateResult.rows[0];
+        salePriceQuery = `, sale_price = $10, sale_price_currency = $11`;
+        salePriceParams.push(rate.custom_price_usd, rate.currency);
+      }
+    }
+
     const result = await pool.query(`
       UPDATE containers 
       SET container_number = COALESCE($1, container_number),
@@ -152,9 +171,10 @@ export const updateContainer = async (req: AuthRequest, res: Response): Promise<
           week_number = COALESCE($7, week_number),
           legacy_client_id = COALESCE($8, legacy_client_id),
           updated_at = NOW()
+          ${salePriceQuery}
       WHERE id = $9
       RETURNING *
-    `, [containerNumber, blNumber, eta, status, notes, routeId, week_number, legacy_client_id, id]);
+    `, salePriceParams);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Contenedor no encontrado' });
@@ -1324,11 +1344,12 @@ export const getContainerProfitBreakdown = async (req: AuthRequest, res: Respons
       WHERE c.id = $1
     `, [containerId]);
 
-    // Obtener anticipos asignados desde tabla anticipo_referencias
+    // Obtener anticipos asignados desde tabla anticipo_referencias (excluyendo eliminados)
     const anticiposRes = await pool.query(`
       SELECT COALESCE(SUM(ar.monto), 0) as total_anticipos
       FROM anticipo_referencias ar
-      WHERE ar.container_id = $1
+      INNER JOIN bolsas_anticipos ba ON ba.id = ar.bolsa_anticipo_id
+      WHERE ar.container_id = $1 AND ar.estado != 'eliminado' AND ba.estado != 'eliminado'
     `, [containerId]);
     const totalAnticiposFromTable = parseFloat(anticiposRes.rows[0]?.total_anticipos) || 0;
 

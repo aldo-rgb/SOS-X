@@ -20,6 +20,7 @@ import MyProfileScreen from './src/screens/MyProfileScreen';
 import GEXContractScreen from './src/screens/GEXContractScreen';
 import RequestAdvisorScreen from './src/screens/RequestAdvisorScreen';
 import SupportChatScreen from './src/screens/SupportChatScreen';
+import HelpCenterScreen from './src/screens/HelpCenterScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
 import DeliveryInstructionsScreen from './src/screens/DeliveryInstructionsScreen';
 import MaritimeDetailScreen from './src/screens/MaritimeDetailScreen';
@@ -69,7 +70,8 @@ export type RootStackParamList = {
   MyProfile: { user: any; token: string };
   GEXContract: { package: Package; user: any; token: string };
   RequestAdvisor: { user: any; token: string };
-  SupportChat: { user: any; token: string };
+  HelpCenter: { user: any; token: string };
+  SupportChat: { user: any; token: string; mode?: 'ai' | 'human' };
   Notifications: { user: any; token: string };
   DeliveryInstructions: { package: Package; packages?: Package[]; user: any; token: string };
   MaritimeDetail: { package: Package; user: any; token: string };
@@ -164,6 +166,10 @@ export default function App() {
           <Stack.Screen 
             name="SupportChat" 
             component={SupportChatScreen}
+          />
+          <Stack.Screen 
+            name="HelpCenter" 
+            component={HelpCenterScreen}
           />
           <Stack.Screen 
             name="Notifications" 

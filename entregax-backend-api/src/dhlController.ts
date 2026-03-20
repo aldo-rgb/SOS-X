@@ -62,7 +62,12 @@ export const updateDhlRate = async (req: Request, res: Response) => {
 export const getDhlCostRates = async (_req: Request, res: Response) => {
   try {
     const result = await pool.query(`
-      SELECT * FROM dhl_cost_rates 
+      SELECT id, rate_type, rate_name, cost_usd, description, is_active,
+             COALESCE(costo_agencia, 0) as costo_agencia,
+             COALESCE(costo_liberacion, 0) as costo_liberacion,
+             COALESCE(costo_otros, 0) as costo_otros,
+             created_at, updated_at
+      FROM dhl_cost_rates 
       ORDER BY rate_type
     `);
     res.json(result.rows);
@@ -76,7 +81,14 @@ export const getDhlCostRates = async (_req: Request, res: Response) => {
 export const updateDhlCostRate = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { rate_name, cost_usd, description, is_active } = req.body;
+    const { rate_name, cost_usd, description, is_active, costo_agencia, costo_liberacion, costo_otros } = req.body;
+
+    // Si vienen los desgloses, calcular cost_usd como la suma
+    const agencia = parseFloat(costo_agencia) || 0;
+    const liberacion = parseFloat(costo_liberacion) || 0;
+    const otros = parseFloat(costo_otros) || 0;
+    const hasBreakdown = costo_agencia !== undefined || costo_liberacion !== undefined || costo_otros !== undefined;
+    const totalCost = hasBreakdown ? (agencia + liberacion + otros) : cost_usd;
 
     const result = await pool.query(`
       UPDATE dhl_cost_rates 
@@ -84,10 +96,13 @@ export const updateDhlCostRate = async (req: Request, res: Response) => {
           cost_usd = COALESCE($2, cost_usd),
           description = COALESCE($3, description),
           is_active = COALESCE($4, is_active),
+          costo_agencia = COALESCE($5, costo_agencia),
+          costo_liberacion = COALESCE($6, costo_liberacion),
+          costo_otros = COALESCE($7, costo_otros),
           updated_at = NOW()
-      WHERE id = $5
+      WHERE id = $8
       RETURNING *
-    `, [rate_name, cost_usd, description, is_active, id]);
+    `, [rate_name, totalCost, description, is_active, agencia, liberacion, otros, id]);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Tarifa de costo no encontrada' });
@@ -113,7 +128,8 @@ export const getDhlCosting = async (req: Request, res: Response) => {
       date_from, 
       date_to, 
       has_cost,
-      limit = 50, 
+      payment_status,
+      limit = 100, 
       offset = 0 
     } = req.query;
 
@@ -134,15 +150,25 @@ export const getDhlCosting = async (req: Request, res: Response) => {
         ds.assigned_cost_usd,
         ds.cost_rate_type,
         ds.cost_assigned_at,
+        ds.cost_payment_status,
+        ds.cost_paid_at,
+        ds.cost_payment_batch_id,
         u.full_name as client_name,
         u.box_id as client_box_id,
         u.email as client_email,
         cost_user.full_name as cost_assigned_by_name,
-        cr.cost_usd as rate_cost_usd
+        paid_user.full_name as cost_paid_by_name,
+        cr.cost_usd as rate_cost_usd,
+        cr.costo_agencia as rate_costo_agencia,
+        cr.costo_liberacion as rate_costo_liberacion,
+        cr.costo_otros as rate_costo_otros,
+        pb.batch_number as payment_batch_number
       FROM dhl_shipments ds
       LEFT JOIN users u ON ds.user_id = u.id
       LEFT JOIN users cost_user ON ds.cost_assigned_by = cost_user.id
+      LEFT JOIN users paid_user ON ds.cost_paid_by = paid_user.id
       LEFT JOIN dhl_cost_rates cr ON ds.cost_rate_type = cr.rate_type
+      LEFT JOIN dhl_cost_payment_batches pb ON ds.cost_payment_batch_id = pb.id
       WHERE 1=1
     `;
 
@@ -162,13 +188,13 @@ export const getDhlCosting = async (req: Request, res: Response) => {
     }
 
     if (date_from) {
-      query += ` AND ds.created_at >= $${paramIndex}`;
+      query += ` AND ds.created_at >= $${paramIndex}::date`;
       params.push(date_from);
       paramIndex++;
     }
 
     if (date_to) {
-      query += ` AND ds.created_at <= $${paramIndex}`;
+      query += ` AND ds.created_at < ($${paramIndex}::date + interval '1 day')`;
       params.push(date_to);
       paramIndex++;
     }
@@ -179,10 +205,17 @@ export const getDhlCosting = async (req: Request, res: Response) => {
       query += ` AND ds.assigned_cost_usd IS NULL`;
     }
 
-    // Obtener conteo total
-    const countQueryBase = query.replace(/SELECT .+? FROM/, 'SELECT COUNT(*) as count FROM');
-    const countQuery = countQueryBase.split('ORDER BY')[0] || countQueryBase;
-    const countResult = await pool.query(countQuery, params);
+    if (payment_status && payment_status !== 'all') {
+      if (payment_status === 'paid') {
+        query += ` AND ds.cost_payment_status = 'paid'`;
+      } else if (payment_status === 'pending') {
+        query += ` AND (ds.cost_payment_status = 'pending' OR ds.cost_payment_status IS NULL) AND ds.assigned_cost_usd IS NOT NULL`;
+      }
+    }
+
+    // Obtener conteo total con los mismos filtros
+    const countQueryBase = query.replace(/SELECT[\s\S]+?FROM dhl_shipments/, 'SELECT COUNT(*) as count FROM dhl_shipments');
+    const countResult = await pool.query(countQueryBase, params);
     const total = parseInt((countResult.rows[0] as { count: string })?.count || '0');
 
     query += ` ORDER BY ds.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
@@ -190,17 +223,52 @@ export const getDhlCosting = async (req: Request, res: Response) => {
 
     const result = await pool.query(query, params);
 
-    // Obtener estadísticas
-    const statsResult = await pool.query(`
+    // Estadísticas usando los mismos filtros de fecha
+    let statsQuery = `
       SELECT 
         COUNT(*) as total_shipments,
-        COUNT(assigned_cost_usd) as with_cost,
-        COUNT(*) - COUNT(assigned_cost_usd) as without_cost,
-        SUM(COALESCE(assigned_cost_usd, 0)) as total_cost_usd,
-        COUNT(CASE WHEN cost_rate_type = 'standard' THEN 1 END) as standard_count,
-        COUNT(CASE WHEN cost_rate_type = 'high_value' THEN 1 END) as high_value_count
-      FROM dhl_shipments
-    `);
+        COUNT(ds.assigned_cost_usd) as with_cost,
+        COUNT(*) - COUNT(ds.assigned_cost_usd) as without_cost,
+        SUM(COALESCE(ds.assigned_cost_usd, 0)) as total_cost_usd,
+        COUNT(CASE WHEN ds.cost_rate_type = 'standard' THEN 1 END) as standard_count,
+        COUNT(CASE WHEN ds.cost_rate_type = 'high_value' THEN 1 END) as high_value_count,
+        COUNT(CASE WHEN ds.cost_payment_status = 'paid' THEN 1 END) as paid_count,
+        COUNT(CASE WHEN (ds.cost_payment_status = 'pending' OR ds.cost_payment_status IS NULL) AND ds.assigned_cost_usd IS NOT NULL THEN 1 END) as unpaid_count,
+        SUM(CASE WHEN ds.cost_payment_status = 'paid' THEN COALESCE(ds.assigned_cost_usd, 0) ELSE 0 END) as total_paid,
+        SUM(CASE WHEN (ds.cost_payment_status = 'pending' OR ds.cost_payment_status IS NULL) AND ds.assigned_cost_usd IS NOT NULL THEN ds.assigned_cost_usd ELSE 0 END) as total_unpaid,
+        SUM(CASE WHEN ds.cost_rate_type = 'standard' AND ds.assigned_cost_usd IS NOT NULL THEN COALESCE(cr.costo_agencia, 0) ELSE 0 END) as total_agencia_standard,
+        SUM(CASE WHEN ds.cost_rate_type = 'standard' AND ds.assigned_cost_usd IS NOT NULL THEN COALESCE(cr.costo_liberacion, 0) ELSE 0 END) as total_liberacion_standard,
+        SUM(CASE WHEN ds.cost_rate_type = 'high_value' AND ds.assigned_cost_usd IS NOT NULL THEN COALESCE(cr.costo_agencia, 0) ELSE 0 END) as total_agencia_hv,
+        SUM(CASE WHEN ds.cost_rate_type = 'high_value' AND ds.assigned_cost_usd IS NOT NULL THEN COALESCE(cr.costo_liberacion, 0) ELSE 0 END) as total_liberacion_hv,
+        SUM(CASE WHEN ds.assigned_cost_usd IS NOT NULL THEN COALESCE(cr.costo_agencia, 0) ELSE 0 END) as total_agencia,
+        SUM(CASE WHEN ds.assigned_cost_usd IS NOT NULL THEN COALESCE(cr.costo_liberacion, 0) ELSE 0 END) as total_liberacion,
+        SUM(CASE WHEN ds.assigned_cost_usd IS NOT NULL THEN COALESCE(cr.costo_otros, 0) ELSE 0 END) as total_otros
+      FROM dhl_shipments ds
+      LEFT JOIN dhl_cost_rates cr ON ds.cost_rate_type = cr.rate_type
+      WHERE 1=1
+    `;
+    const statsParams: any[] = [];
+    let statsParamIdx = 1;
+
+    if (date_from) {
+      statsQuery += ` AND ds.created_at >= $${statsParamIdx}::date`;
+      statsParams.push(date_from);
+      statsParamIdx++;
+    }
+    if (date_to) {
+      statsQuery += ` AND ds.created_at < ($${statsParamIdx}::date + interval '1 day')`;
+      statsParams.push(date_to);
+      statsParamIdx++;
+    }
+    if (payment_status && payment_status !== 'all') {
+      if (payment_status === 'paid') {
+        statsQuery += ` AND ds.cost_payment_status = 'paid'`;
+      } else if (payment_status === 'pending') {
+        statsQuery += ` AND (ds.cost_payment_status = 'pending' OR ds.cost_payment_status IS NULL) AND ds.assigned_cost_usd IS NOT NULL`;
+      }
+    }
+
+    const statsResult = await pool.query(statsQuery, statsParams);
 
     res.json({
       data: result.rows,
@@ -210,6 +278,208 @@ export const getDhlCosting = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error obteniendo costeo DHL:', error);
     res.status(500).json({ error: 'Error al obtener costeo' });
+  }
+};
+
+// POST /api/admin/dhl/costing/mark-paid - Marcar lote como pagado
+export const markDhlCostPaid = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as any).user?.userId;
+    const { shipment_ids, notes } = req.body;
+
+    if (!shipment_ids || !Array.isArray(shipment_ids) || shipment_ids.length === 0) {
+      return res.status(400).json({ error: 'Se requieren IDs de envíos' });
+    }
+
+    // Generar número de lote
+    const batchNumber = `PAY-DHL-${Date.now()}`;
+
+    // Calcular totales del lote usando las tarifas de costo asignadas
+    const totalsResult = await pool.query(`
+      SELECT 
+        COUNT(*) as total_shipments,
+        SUM(COALESCE(cr.costo_agencia, 0)) as total_agencia,
+        SUM(COALESCE(cr.costo_liberacion, 0)) as total_liberacion,
+        SUM(COALESCE(cr.costo_otros, 0)) as total_otros,
+        SUM(COALESCE(ds.assigned_cost_usd, 0)) as total_amount,
+        MIN(ds.created_at)::date as date_from,
+        MAX(ds.created_at)::date as date_to
+      FROM dhl_shipments ds
+      LEFT JOIN dhl_cost_rates cr ON ds.cost_rate_type = cr.rate_type
+      WHERE ds.id = ANY($1)
+    `, [shipment_ids]);
+
+    const totals = totalsResult.rows[0];
+
+    // Crear lote de pago
+    const batchResult = await pool.query(`
+      INSERT INTO dhl_cost_payment_batches (batch_number, total_shipments, total_agencia, total_liberacion, total_otros, total_amount, date_from, date_to, notes, created_by)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      RETURNING *
+    `, [batchNumber, totals.total_shipments, totals.total_agencia, totals.total_liberacion, totals.total_otros, totals.total_amount, totals.date_from, totals.date_to, notes || null, userId]);
+
+    const batchId = batchResult.rows[0].id;
+
+    // Marcar envíos como pagados
+    await pool.query(`
+      UPDATE dhl_shipments 
+      SET cost_payment_status = 'paid',
+          cost_paid_at = NOW(),
+          cost_paid_by = $1,
+          cost_payment_batch_id = $2
+      WHERE id = ANY($3)
+    `, [userId, batchId, shipment_ids]);
+
+    res.json({
+      success: true,
+      batch: batchResult.rows[0],
+      message: `Lote ${batchNumber} creado: ${totals.total_shipments} envíos marcados como pagados`
+    });
+  } catch (error) {
+    console.error('Error marcando pago DHL:', error);
+    res.status(500).json({ error: 'Error al marcar como pagado' });
+  }
+};
+
+// GET /api/admin/dhl/costing/payment-batches - Obtener historial de lotes de pago
+export const getDhlPaymentBatches = async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT pb.*, u.full_name as created_by_name
+      FROM dhl_cost_payment_batches pb
+      LEFT JOIN users u ON pb.created_by = u.id
+      ORDER BY pb.created_at DESC
+      LIMIT 50
+    `);
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error obteniendo lotes de pago:', error);
+    res.status(500).json({ error: 'Error al obtener lotes de pago' });
+  }
+};
+
+// GET /api/admin/dhl/costing/profitability - Reporte de utilidades
+export const getDhlProfitability = async (req: Request, res: Response) => {
+  try {
+    const { date_from, date_to, search } = req.query;
+
+    let query = `
+      SELECT 
+        ds.id,
+        ds.inbound_tracking,
+        ds.product_type,
+        ds.weight_kg,
+        ds.status,
+        ds.created_at,
+        ds.import_cost_usd,
+        ds.import_cost_mxn,
+        ds.exchange_rate,
+        ds.assigned_cost_usd,
+        ds.cost_rate_type,
+        ds.cost_payment_status,
+        COALESCE(ds.monto_pagado, 0) as monto_pagado,
+        ds.saldo_pendiente,
+        ds.paid_at,
+        u.full_name as client_name,
+        u.box_id as client_box_id,
+        u.dhl_standard_price,
+        u.dhl_high_value_price,
+        cr.costo_agencia as rate_costo_agencia,
+        cr.costo_liberacion as rate_costo_liberacion,
+        cr.costo_otros as rate_costo_otros
+      FROM dhl_shipments ds
+      LEFT JOIN users u ON ds.user_id = u.id
+      LEFT JOIN dhl_cost_rates cr ON ds.cost_rate_type = cr.rate_type
+      WHERE ds.assigned_cost_usd IS NOT NULL
+    `;
+
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (date_from) {
+      query += ` AND ds.created_at >= $${paramIndex}::date`;
+      params.push(date_from);
+      paramIndex++;
+    }
+    if (date_to) {
+      query += ` AND ds.created_at < ($${paramIndex}::date + interval '1 day')`;
+      params.push(date_to);
+      paramIndex++;
+    }
+    if (search) {
+      query += ` AND (ds.inbound_tracking ILIKE $${paramIndex} OR u.full_name ILIKE $${paramIndex} OR u.box_id ILIKE $${paramIndex})`;
+      params.push(`%${search}%`);
+      paramIndex++;
+    }
+
+    query += ` ORDER BY ds.created_at DESC`;
+
+    const result = await pool.query(query, params);
+
+    // Calcular totales
+    let totalRevenue = 0;
+    let totalCost = 0;
+    let totalAgencia = 0;
+    let totalLiberacion = 0;
+    let totalOtros = 0;
+    let totalCobrado = 0;
+    let totalPorCobrar = 0;
+    let standardCount = 0;
+    let hvCount = 0;
+
+    const rows = result.rows.map((r: any) => {
+      const revenue = parseFloat(r.import_cost_mxn) || 0;
+      const cost = parseFloat(r.assigned_cost_usd) || 0;
+      const agencia = parseFloat(r.rate_costo_agencia) || 0;
+      const liberacion = parseFloat(r.rate_costo_liberacion) || 0;
+      const otros = parseFloat(r.rate_costo_otros) || 0;
+      const profit = revenue - cost;
+      const cobrado = parseFloat(r.monto_pagado) || 0;
+      const porCobrar = revenue - cobrado;
+
+      totalRevenue += revenue;
+      totalCost += cost;
+      totalAgencia += agencia;
+      totalLiberacion += liberacion;
+      totalOtros += otros;
+      totalCobrado += cobrado;
+      totalPorCobrar += porCobrar;
+      if (r.product_type === 'standard') standardCount++;
+      else hvCount++;
+
+      return {
+        ...r,
+        revenue,
+        cost,
+        agencia,
+        liberacion,
+        otros,
+        profit,
+        cobrado,
+        por_cobrar: porCobrar,
+        is_paid: !!r.paid_at
+      };
+    });
+
+    res.json({
+      data: rows,
+      summary: {
+        total_shipments: rows.length,
+        standard_count: standardCount,
+        hv_count: hvCount,
+        total_revenue: totalRevenue,
+        total_cost: totalCost,
+        total_agencia: totalAgencia,
+        total_liberacion: totalLiberacion,
+        total_otros: totalOtros,
+        total_profit: totalRevenue - totalCost,
+        total_cobrado: totalCobrado,
+        total_por_cobrar: totalPorCobrar
+      }
+    });
+  } catch (error) {
+    console.error('Error obteniendo utilidades DHL:', error);
+    res.status(500).json({ error: 'Error al obtener utilidades' });
   }
 };
 
@@ -495,21 +765,31 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       ? (length_cm * width_cm * height_cm) / 5000 
       : null;
 
-    // Insertar registro
+    // Obtener costo interno (lo que nos cuesta a nosotros) basado en tipo
+    const costRateResult = await pool.query(
+      'SELECT cost_usd FROM dhl_cost_rates WHERE rate_type = $1 AND is_active = true',
+      [priceType]
+    );
+    const internalCost = costRateResult.rows.length > 0 ? parseFloat(costRateResult.rows[0].cost_usd) : null;
+
+    // Insertar registro con costo interno auto-asignado
     const result = await pool.query(`
       INSERT INTO dhl_shipments (
         inbound_tracking, user_id, box_id, product_type, description,
         weight_kg, length_cm, width_cm, height_cm, volumetric_weight,
         photos, inspected_by, inspected_at,
         exchange_rate, import_cost_usd, import_cost_mxn,
+        assigned_cost_usd, cost_rate_type, cost_assigned_at, cost_assigned_by,
+        cost_payment_status,
         status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13, $14, $15, 'received_mty')
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13, $14, $15, $16, $17, NOW(), $18, 'pending', 'received_mty')
       RETURNING *
     `, [
       inbound_tracking, userId, box_id, priceType, description,
       weight_kg, length_cm, width_cm, height_cm, volWeight,
       JSON.stringify(photos || []), inspectorId,
-      exchangeRate, importCostUsd, importCostMxn
+      exchangeRate, importCostUsd, importCostMxn,
+      internalCost, internalCost ? priceType : null, internalCost ? inspectorId : null
     ]);
 
     // TODO: Enviar notificación push al cliente

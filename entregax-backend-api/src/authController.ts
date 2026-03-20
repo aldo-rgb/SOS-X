@@ -447,10 +447,15 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
         const userId = req.user?.userId;
         
         const userQuery = await pool.query(
-            `SELECT id, full_name, email, box_id, role, warehouse_location, created_at,
-                    is_verified, verification_status, is_employee_onboarded, profile_photo_url,
-                    phone, rfc
-             FROM users WHERE id = $1`,
+            `SELECT u.id, u.full_name, u.email, u.box_id, u.role, u.warehouse_location, u.created_at,
+                    u.is_verified, u.verification_status, u.is_employee_onboarded, u.profile_photo_url,
+                    u.phone, u.rfc, u.advisor_id,
+                    a.full_name as advisor_name,
+                    a.phone as advisor_phone,
+                    a.email as advisor_email
+             FROM users u
+             LEFT JOIN users a ON u.advisor_id = a.id
+             WHERE u.id = $1`,
             [userId]
         );
 

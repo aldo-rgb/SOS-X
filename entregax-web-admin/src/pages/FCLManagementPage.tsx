@@ -76,6 +76,9 @@ interface FCLContainer {
     client_name: string;
     client_box_id: string;
     legacy_client_id: number | null;
+    // Precio de venta (tarifa FCL)
+    sale_price: number | null;
+    sale_price_currency: string | null;
     // Gastos extras
     extra_costs?: ExtraCost[];
     total_extra_costs?: number;
@@ -400,6 +403,7 @@ export default function FCLManagementPage() {
                                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Ruta</TableCell>
                                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>ETA</TableCell>
                                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Estado</TableCell>
+                                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Costo de Venta</TableCell>
                                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Gastos Extras</TableCell>
                                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Acciones</TableCell>
                             </TableRow>
@@ -442,6 +446,15 @@ export default function FCLManagementPage() {
                                             label={getStatusLabel(container.status)}
                                             color={getStatusColor(container.status) as any}
                                         />
+                                    </TableCell>
+                                    <TableCell>
+                                        {container.sale_price ? (
+                                            <Typography fontWeight="bold" color="success.main">
+                                                ${formatCurrency(container.sale_price)} {container.sale_price_currency || 'MXN'}
+                                            </Typography>
+                                        ) : (
+                                            <Typography color="text.secondary">Sin tarifa</Typography>
+                                        )}
                                     </TableCell>
                                     <TableCell>
                                         <Typography fontWeight="bold" color={container.total_extra_costs ? FCL_COLOR : 'text.secondary'}>

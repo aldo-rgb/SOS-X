@@ -3,7 +3,7 @@ import { pool } from './db';
 import { PoolClient, Pool } from 'pg';
 
 // ============ TIPOS ============
-type PackageStatus = 'received' | 'in_transit' | 'customs' | 'ready_pickup' | 'delivered' | 'reempacado';
+type PackageStatus = 'received' | 'in_transit' | 'customs' | 'ready_pickup' | 'delivered' | 'reempacado' | 'processing';
 
 interface BoxItem {
     weight: number;
@@ -70,7 +70,8 @@ const getStatusLabel = (status: PackageStatus): string => {
         customs: '🛃 En Aduana',
         ready_pickup: '✅ Listo para Recoger',
         delivered: '🎉 Entregado',
-        reempacado: '📦 Reempacado'
+        reempacado: '📦 Reempacado',
+        processing: '📋 Procesando'
     };
     return labels[status] || status;
 };

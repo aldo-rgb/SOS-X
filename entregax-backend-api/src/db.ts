@@ -11,8 +11,11 @@ const poolConfig = process.env.DATABASE_URL
         connectionString: process.env.DATABASE_URL,
         ssl: { rejectUnauthorized: false },
         connectionTimeoutMillis: 10000,
-        idleTimeoutMillis: 30000,
+        idleTimeoutMillis: 10000,
         max: 20,
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 10000,
+        allowExitOnIdle: false,
     }
     : {
         user: process.env.DB_USER,
@@ -20,10 +23,28 @@ const poolConfig = process.env.DATABASE_URL
         database: process.env.DB_NAME,
         password: process.env.DB_PASSWORD,
         port: parseInt(process.env.DB_PORT || '5432'),
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 10000,
     };
 
 // Creamos un "Pool" de conexiones (Es como tener varias líneas telefónicas listas)
 export const pool = new Pool(poolConfig);
+
+// Manejar errores de conexiones idle para que no maten el proceso
+pool.on('error', (err: Error) => {
+    console.error('⚠️ Error en conexión idle del pool PostgreSQL:', err.message);
+    // No hacer process.exit — el pool se reconecta automáticamente
+});
+
+// Capturar errores no manejados de conexión para evitar crash
+process.on('uncaughtException', (err: Error) => {
+    if (err.message.includes('Connection terminated') || err.message.includes('ECONNRESET') || err.message.includes('ECONNREFUSED')) {
+        console.error('⚠️ Conexión a BD perdida, el pool se reconectará:', err.message);
+        return; // No crashear
+    }
+    console.error('❌ Uncaught Exception:', err);
+    process.exit(1);
+});
 
 // Probamos la conexión al iniciar
 pool.connect()

@@ -58,6 +58,14 @@ export interface Package {
   pending_payment_reference?: string | null;
   pending_payment_amount?: number | null;
   pending_payment_expires?: string | null;
+  // 🏠 Instrucciones de entrega
+  has_delivery_instructions?: boolean;
+  delivery_address_id?: number;
+  assigned_address_id?: number;
+  destination_address?: string;
+  destination_city?: string;
+  destination_contact?: string;
+  needs_instructions?: boolean;
 }
 
 // Función para hacer login
@@ -112,36 +120,58 @@ export const changePasswordApi = async (token: string, currentPassword: string, 
   return response.json();
 };
 
+// Helper para parsear respuesta JSON de forma segura
+const parseJsonResponse = async (response: Response) => {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    // Si no es JSON válido (ej: HTML de error), mostrar mensaje amigable
+    console.error('Error parsing response:', text.substring(0, 200));
+    throw new Error('No se pudo conectar con el servidor. Verifica tu conexión a internet.');
+  }
+};
+
 // Wrapper de API para llamadas genéricas (estilo axios)
 export const api = {
   get: async (endpoint: string, config?: { headers?: Record<string, string> }) => {
-    const response = await fetch(`${API_URL}${endpoint}`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...config?.headers,
-      },
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      throw { response: { data } };
+    try {
+      const response = await fetch(`${API_URL}${endpoint}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...config?.headers,
+        },
+      });
+      const data = await parseJsonResponse(response);
+      if (!response.ok) {
+        throw { response: { data } };
+      }
+      return { data };
+    } catch (error: any) {
+      if (error.response) throw error;
+      throw { response: { data: { error: error.message || 'Error de conexión' } } };
     }
-    return { data };
   },
   post: async (endpoint: string, body?: any, config?: { headers?: Record<string, string> }) => {
-    const response = await fetch(`${API_URL}${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...config?.headers,
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const data = await response.json();
-    if (!response.ok) {
-      throw { response: { data } };
+    try {
+      const response = await fetch(`${API_URL}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...config?.headers,
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await parseJsonResponse(response);
+      if (!response.ok) {
+        throw { response: { data } };
+      }
+      return { data };
+    } catch (error: any) {
+      if (error.response) throw error;
+      throw { response: { data: { error: error.message || 'Error de conexión' } } };
     }
-    return { data };
   },
 };
 

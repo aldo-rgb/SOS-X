@@ -69,7 +69,8 @@ type RootStackParamList = {
   MyProfile: { user: any; token: string };
   GEXContract: { package: Package; user: any; token: string };
   RequestAdvisor: { user: any; token: string };
-  SupportChat: { user: any; token: string };
+  SupportChat: { user: any; token: string; mode?: 'ai' | 'human' };
+  HelpCenter: { user: any; token: string };
   Notifications: { user: any; token: string };
   DeliveryInstructions: { package: Package; packages?: Package[]; user: any; token: string };
   MaritimeDetail: { package: Package; user: any; token: string };
@@ -119,6 +120,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const [trackedPackage, setTrackedPackage] = useState<Package | null>(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
   const [trackingError, setTrackingError] = useState('');
+
+  // 🔔 Estado para contador de notificaciones no leídas
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
 
   // �🔐 Verificar si el usuario está verificado
   const isUserVerified = user.isVerified === true;
@@ -369,7 +373,22 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     setShowHistoryModal(true);
   }, [packages]);
 
-  // �🔄 Función para actualizar datos del usuario desde el servidor
+  // 🔔 Función para obtener conteo de notificaciones no leídas
+  const fetchUnreadNotifications = useCallback(async () => {
+    try {
+      const response = await fetch(`http://192.168.1.114:3001/api/notifications/unread-count`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setUnreadNotifications(data.count || 0);
+      }
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+    }
+  }, [token]);
+
+  // 🔄 Función para actualizar datos del usuario desde el servidor
   const refreshUserData = useCallback(async () => {
     try {
       const response = await fetch(`http://192.168.1.114:3001/api/auth/profile`, {
@@ -392,20 +411,23 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   useEffect(() => {
     fetchPackages();
     fetchCarouselSlides(); // Cargar slides del carrusel
-  }, [fetchPackages, fetchCarouselSlides]);
+    fetchUnreadNotifications(); // 🔔 Cargar notificaciones no leídas
+  }, [fetchPackages, fetchCarouselSlides, fetchUnreadNotifications]);
 
   // 🔄 Refrescar al volver a la pantalla (después de contratar GEX o completar onboarding)
   useFocusEffect(
     useCallback(() => {
       fetchPackages();
       refreshUserData(); // Actualizar datos del usuario
-    }, [fetchPackages, refreshUserData])
+      fetchUnreadNotifications(); // 🔔 Actualizar notificaciones
+    }, [fetchPackages, refreshUserData, fetchUnreadNotifications])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
     setSelectedIds([]); // Limpiar selección al refrescar
     fetchPackages();
+    fetchUnreadNotifications(); // 🔔 Refrescar notificaciones
   };
 
   const handleLogout = () => {
@@ -586,6 +608,20 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     });
   };
 
+  // 🚚 Función para obtener el nombre amigable del carrier
+  const getCarrierName = (carrierID: string): string => {
+    const carrierMap: Record<string, string> = {
+      'paquete_express': 'Paquete Express',
+      'entregax_local': 'Entregax Local',
+      'fedex': 'FedEx',
+      'estafeta': 'Estafeta',
+      'dhl': 'DHL',
+      'ups': 'UPS',
+      'pickup_hidalgo': 'Recoger en Sucursal',
+    };
+    return carrierMap[carrierID] || carrierID;
+  };
+
   const renderPackageCard = ({ item }: { item: Package }) => {
     const statusColor = STATUS_COLORS[item.status] || '#999';
     // Usar statusLabel traducido - pasar shipment_type para diferenciar marítimo y received_by para entregado
@@ -601,8 +637,15 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     const isDHL = item.shipment_type === 'dhl';
     
     // ¿Ya tiene instrucciones de entrega asignadas?
-    // Para marítimo/china_air/dhl usa delivery_address_id, para PO Box USA usa assigned_address_id
-    const hasDeliveryInstructions = !!(item as any).delivery_address_id || !!(item as any).assigned_address_id;
+    // Prioridad 1: Campo calculado del backend
+    // Prioridad 2: Para marítimo/china_air/dhl usa delivery_address_id, para PO Box USA usa assigned_address_id  
+    // Prioridad 3: Verificar campos destination_* directamente
+    const hasDeliveryInstructions = !!(item as any).has_delivery_instructions || 
+      !!(item as any).delivery_address_id || 
+      !!(item as any).assigned_address_id ||
+      !!((item as any).destination_address && 
+         (item as any).destination_address !== 'Pendiente de asignar' && 
+         (item as any).destination_contact);
     
     // 💰 ¿El paquete está pagado?
     const isPaid = (item as any).client_paid === true || parseFloat((item as any).saldo_pendiente || '0') === 0;
@@ -865,7 +908,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   {item.carrier && (
                     <View style={styles.infoItem}>
                       <Text style={styles.infoIcon}>{isMaritime ? '🚢' : isChinaAir ? '✈️' : isDHL ? '🚚' : '🚚'}</Text>
-                      <Text style={styles.infoText}>{item.carrier}</Text>
+                      <Text style={styles.infoText}>{getCarrierName(item.carrier)}</Text>
                     </View>
                   )}
                 </View>
@@ -971,11 +1014,23 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         >
           <Text style={styles.languageFlag}>{getLanguageFlag(currentLang)}</Text>
         </TouchableOpacity>
-        <Appbar.Action 
-          icon="bell-outline" 
-          onPress={() => navigation.navigate('Notifications', { user, token })} 
-          color="white" 
-        />
+        {/* 🔔 Ícono de notificaciones con badge rojo */}
+        <View style={{ position: 'relative' }}>
+          <Appbar.Action 
+            icon="bell-outline" 
+            onPress={() => navigation.navigate('Notifications', { user, token })} 
+            color="white" 
+          />
+          {unreadNotifications > 0 && (
+            <View style={styles.notificationBadge}>
+              {unreadNotifications <= 9 ? (
+                <Text style={styles.notificationBadgeText}>{unreadNotifications}</Text>
+              ) : (
+                <Text style={styles.notificationBadgeText}>9+</Text>
+              )}
+            </View>
+          )}
+        </View>
         <Appbar.Action icon="menu" onPress={() => setShowMenu(true)} color="white" />
       </Appbar.Header>
 
@@ -1093,7 +1148,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 navigation.navigate('SaldoFavor' as any, { user, token });
               }}
             >
-              <Ionicons name="gift-outline" size={24} color="#F05A28" />
+              <Ionicons name="gift-outline" size={24} color={BLACK} />
               <Text style={styles.menuItemText}>Saldo a Favor</Text>
               <Ionicons name="chevron-forward" size={20} color="#ccc" />
             </TouchableOpacity>
@@ -1119,19 +1174,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               style={styles.menuItem}
               onPress={() => {
                 setShowMenu(false);
-                navigation.navigate('RequestAdvisor', { user, token });
-              }}
-            >
-              <Ionicons name="people-outline" size={24} color={BLACK} />
-              <Text style={styles.menuItemText}>{t('profile.requestAdvisor')}</Text>
-              <Ionicons name="chevron-forward" size={20} color="#ccc" />
-            </TouchableOpacity>
-
-            <TouchableOpacity 
-              style={styles.menuItem}
-              onPress={() => {
-                setShowMenu(false);
-                navigation.navigate('SupportChat', { user, token });
+                navigation.navigate('HelpCenter', { user, token });
               }}
             >
               <Ionicons name="chatbubbles-outline" size={24} color="#2196F3" />
@@ -1902,6 +1945,26 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  // 🔔 Badge de notificaciones no leídas
+  notificationBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#FF3B30',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: ORANGE,
+  },
+  notificationBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
   // 🎯 Filtros de Servicio
   serviceFilters: {

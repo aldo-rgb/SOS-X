@@ -64,7 +64,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
 
     setValidatingCode(true);
     try {
-      const response = await api.get(`/referral/validate/${code.toUpperCase()}`);
+      const response = await api.get(`/api/referral/validate/${code.toUpperCase()}`);
       setCodeValidation({
         valid: response.data.valid,
         advisorName: response.data.advisor?.name,
@@ -97,7 +97,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
 
     setLoading(true);
     try {
-      const response = await api.post('/auth/register', {
+      const response = await api.post('/api/auth/register', {
         fullName: fullName.trim(),
         email: email.trim().toLowerCase(),
         phone: phone.trim(),

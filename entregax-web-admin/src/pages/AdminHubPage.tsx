@@ -57,9 +57,12 @@ import InventoryPanel from './InventoryPanel';
 import VerificationsPage from './VerificationsPage';
 import SupplierPaymentsPage from './SupplierPaymentsPage';
 import InboundEmailsPage from './InboundEmailsPage';
+import InboundEmailsAirPage from './InboundEmailsAirPage';
 import MaritimeApiPage from './MaritimeApiPage';
 import AirApiPage from './AirApiPage';
 import MaritimeRoutesPage from './MaritimeRoutesPage';
+import AirRoutesPage from './AirRoutesPage';
+import AirPricingPage from './AirPricingPage';
 import LegacyClientsPage from './LegacyClientsPage';
 // MaritimeRatesPage removido - se usa MaritimePricingEnginePage
 import MaritimePricingEnginePage from './MaritimePricingEnginePage';
@@ -76,6 +79,8 @@ import BranchManagementPage from './BranchManagementPage';
 import CarouselSlidesPage from './CarouselSlidesPage';
 import AdvanceControlPanel from './AdvanceControlPanel';
 import FCLManagementPage from './FCLManagementPage';
+import AirManagementPage from './AirManagementPage';
+import CajoManagementPage from './CajoManagementPage';
 import {
     UploadFile as UploadIcon,
     AccountBalanceWallet as WalletIcon,
@@ -132,9 +137,13 @@ const MODULE_ICONS: Record<string, React.ReactElement> = {
     instructions: <AssignmentIcon />,
     inventory: <InventoryIcon />,
     inbound_emails: <EmailIcon />,
+    inbound_emails_air: <EmailIcon />,
     maritime_api: <ApiIcon />,
     air_api: <ApiIcon />,
     routes: <RouteIcon />,
+    air_routes: <FlightIcon />,
+    air_management: <FlightIcon />,
+    cajo_management: <FlightIcon />,
     last_mile: <LocalShippingIcon />,
     dhl_rates: <SellIcon />,
     anticipos: <WalletIcon />,
@@ -145,10 +154,14 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
     china_air: [
         { key: 'costing', status: 'active' },
         { key: 'inventory', status: 'active' },
-        { key: 'pricing', status: 'pending' },
+        { key: 'pricing', status: 'active' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
+        { key: 'inbound_emails_air', status: 'active' },
+        { key: 'air_routes', status: 'active' },
         { key: 'air_api', status: 'active' },
+        { key: 'air_management', status: 'active' },
+        { key: 'cajo_management', status: 'active' },
         { key: 'reports', status: 'pending' },
     ],
     china_sea: [
@@ -174,7 +187,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
     ],
     mx_cedis: [
         { key: 'costing', status: 'active' },
-        { key: 'inventory', status: 'active' },
+        { key: 'dhl_rates', status: 'active' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
     ],
@@ -639,6 +652,30 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
             );
         }
 
+        // Panel Correos Aéreos (inbound_emails_air) - solo china_air
+        if (selectedModule === 'inbound_emails_air' && selectedService === 'china_air') {
+            return (
+                <Box>
+                    {/* Breadcrumb */}
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    <InboundEmailsAirPage />
+                </Box>
+            );
+        }
+
         // Panel API China Marítimo (maritime_api) - solo china_sea
         if (selectedModule === 'maritime_api' && selectedService === 'china_sea') {
             return (
@@ -714,6 +751,30 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                         />
                     </Box>
                     <MaritimeRoutesPage />
+                </Box>
+            );
+        }
+
+        // Panel Tarifas Aéreas (pricing) - solo china_air
+        if (selectedModule === 'pricing' && selectedService === 'china_air') {
+            return (
+                <Box>
+                    {/* Breadcrumb */}
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    <AirPricingPage />
                 </Box>
             );
         }
@@ -917,6 +978,44 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
         if (selectedModule === 'air_api' && selectedService === 'china_air') {
             return (
                 <AirApiPage onBack={() => setSelectedModule(null)} />
+            );
+        }
+
+        // Panel Gestión Aérea - Guías EntregaX (air_management) - solo china_air
+        if (selectedModule === 'air_management' && selectedService === 'china_air') {
+            return (
+                <AirManagementPage onBack={() => setSelectedModule(null)} />
+            );
+        }
+
+        // Panel Gestión CAJO (cajo_management) - solo china_air
+        if (selectedModule === 'cajo_management' && selectedService === 'china_air') {
+            return (
+                <CajoManagementPage onBack={() => setSelectedModule(null)} />
+            );
+        }
+
+        // Panel Rutas Aéreas (air_routes) - solo china_air
+        if (selectedModule === 'air_routes' && selectedService === 'china_air') {
+            return (
+                <Box>
+                    {/* Breadcrumb */}
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    <AirRoutesPage />
+                </Box>
             );
         }
 
