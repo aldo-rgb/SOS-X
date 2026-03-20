@@ -4101,7 +4101,7 @@ export default function DashboardClient() {
         </DialogTitle>
         <DialogContent sx={{ p: 0 }}>
           {(() => {
-            const _selectedPackage = getSelectedPackages()[0]; // Primer paquete seleccionado para mostrar info
+            // Obtener nombre del usuario para mostrar en el seguro
             const userName = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!).name || 'NOMBRE DEL CLIENTE' : 'NOMBRE DEL CLIENTE';
             
             return (

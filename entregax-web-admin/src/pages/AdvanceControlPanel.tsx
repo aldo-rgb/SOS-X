@@ -107,6 +107,8 @@ interface Referencia {
     usado_por_nombre: string | null;
 }
 
+// Interface para asignaciones (reservada para uso futuro)
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 interface Asignacion {
     id: number;
     bolsa_anticipo_id: number;
