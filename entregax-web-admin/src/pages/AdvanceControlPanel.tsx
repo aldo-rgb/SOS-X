@@ -30,7 +30,6 @@ import {
     CircularProgress,
     Tabs,
     Tab,
-    LinearProgress,
     Tooltip,
     FormControl,
     InputLabel,
@@ -49,9 +48,7 @@ import {
     ExpandMore as ExpandMoreIcon,
     ExpandLess as ExpandLessIcon,
     CloudUpload as UploadIcon,
-    TrendingUp as TrendingUpIcon,
     Refresh as RefreshIcon,
-    Assignment as AssignmentIcon,
     Delete as DeleteIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
