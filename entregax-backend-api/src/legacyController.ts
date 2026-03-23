@@ -442,14 +442,20 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
         console.log('🔍 Procesando referralCodeInput:', referralCodeInput);
         
         if (referralCodeInput) {
-            const codeToCheck = referralCodeInput.trim().toUpperCase();
-            console.log('🔍 Código a verificar:', codeToCheck);
+            const codeUpper = referralCodeInput.trim().toUpperCase();
+            // Normalizar código: agregar guión si no lo tiene (CHRI3225 -> CHRI-3225)
+            const codeToCheck = codeUpper.includes('-') 
+                ? codeUpper 
+                : codeUpper.length >= 5 
+                    ? `${codeUpper.slice(0, 4)}-${codeUpper.slice(4)}`
+                    : codeUpper;
+            console.log('🔍 Código a verificar (normalizado):', codeToCheck, 'Original:', codeUpper);
             
-            // Buscar si es un código de asesor
+            // Buscar si es un código de asesor (buscar ambos formatos)
             const advisorCheck = await client.query(`
                 SELECT id, full_name FROM users 
-                WHERE referral_code = $1 AND role = 'advisor'
-            `, [codeToCheck]);
+                WHERE (referral_code = $1 OR referral_code = $2) AND role = 'advisor'
+            `, [codeUpper, codeToCheck]);
             
             console.log('🔍 Asesor encontrado:', advisorCheck.rows);
             
@@ -461,11 +467,11 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
                 hasAdvisor = true;
                 console.log('✅ Asesor asignado:', advisorCheck.rows[0].full_name);
             } else {
-                // Buscar si es código de amigo
+                // Buscar si es código de amigo (buscar ambos formatos)
                 const friendCheck = await client.query(`
                     SELECT id, full_name FROM users 
-                    WHERE referral_code = $1 AND role = 'client'
-                `, [codeToCheck]);
+                    WHERE (referral_code = $1 OR referral_code = $2) AND role = 'client'
+                `, [codeUpper, codeToCheck]);
                 
                 if (friendCheck.rows.length > 0) {
                     // Registrar en tabla de referidos
