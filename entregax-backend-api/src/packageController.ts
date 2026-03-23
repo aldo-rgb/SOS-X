@@ -334,21 +334,11 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
 
             user = userQuery.rows[0];
 
-            // Validar que el usuario esté verificado para poder documentar paquetes
+            // ⚠️ NOTA: La verificación de cliente se aplicará más adelante en el flujo (al enviar/cobrar)
+            // Por ahora permitimos recibir paquetes aunque el cliente no esté verificado
+            // Solo logueamos el estado para tracking
             if (user && !user.is_verified) {
-                const statusMessage = user.verification_status === 'pending_review' 
-                    ? 'El perfil del cliente está en revisión. No puede recibir paquetes hasta que sea aprobado.'
-                    : user.verification_status === 'rejected'
-                        ? 'El perfil del cliente fue rechazado. Debe completar la verificación nuevamente.'
-                        : 'El cliente no ha completado su verificación de identidad.';
-                
-                res.status(403).json({ 
-                    error: 'Cliente no verificado',
-                    message: statusMessage,
-                    verificationStatus: user.verification_status || 'not_started',
-                    requiresVerification: true
-                });
-                return;
+                console.log(`⚠️ Cliente ${user.box_id} no verificado (status: ${user.verification_status || 'not_started'}) - Permitiendo recepción de paquete`);
             }
         }
         const masterTracking = generateTracking();
