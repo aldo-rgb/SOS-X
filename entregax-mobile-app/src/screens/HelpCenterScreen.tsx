@@ -92,18 +92,18 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
   const advisorName = advisorInfo?.name || '';
   const advisorPhone = advisorInfo?.phone || '';
 
-  // Categorías de ticket
+  // Categorías de ticket (valores en inglés para coincidir con web admin)
   const ticketCategories = [
-    { value: 'rastreo', label: t('helpCenter.categories.tracking') },
-    { value: 'retraso', label: t('helpCenter.categories.delay') },
-    { value: 'garantia', label: t('helpCenter.categories.warranty') },
-    { value: 'compensacion', label: t('helpCenter.categories.compensation') },
-    { value: 'error_sistema', label: t('helpCenter.categories.systemError') },
-    { value: 'otro', label: t('helpCenter.categories.other') },
+    { value: 'tracking', label: t('helpCenter.categories.tracking') },
+    { value: 'delay', label: t('helpCenter.categories.delay') },
+    { value: 'warranty', label: t('helpCenter.categories.warranty') },
+    { value: 'compensation', label: t('helpCenter.categories.compensation') },
+    { value: 'systemError', label: t('helpCenter.categories.systemError') },
+    { value: 'other', label: t('helpCenter.categories.other') },
   ];
 
-  // El número de guía es obligatorio excepto para "error_sistema"
-  const isTrackingRequired = ticketCategory !== 'error_sistema' && ticketCategory !== '';
+  // El número de guía es obligatorio excepto para "systemError"
+  const isTrackingRequired = ticketCategory !== 'systemError' && ticketCategory !== '';
 
   // Opción 1: Hablar ahora (Asesor Virtual / AI)
   const handleTalkNow = () => {

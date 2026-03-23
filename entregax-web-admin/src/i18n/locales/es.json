@@ -257,6 +257,10 @@
     "messages": "msgs",
     "categories": {
       "tracking": "Rastreo",
+      "delay": "Retraso",
+      "warranty": "Garantía Extendida",
+      "compensation": "Compensación",
+      "systemError": "Error del Sistema",
       "billing": "Facturación",
       "quote": "Cotización",
       "missing": "Faltante",

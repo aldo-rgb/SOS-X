@@ -82,6 +82,10 @@ interface SupportStats {
 
 const categoryIcons: Record<string, React.ReactElement> = {
   tracking: <TrackingIcon fontSize="small" />,
+  delay: <TimeIcon fontSize="small" />,
+  warranty: <AgentIcon fontSize="small" />,
+  compensation: <BillingIcon fontSize="small" />,
+  systemError: <WarningIcon fontSize="small" />,
   billing: <BillingIcon fontSize="small" />,
   damage: <WarningIcon fontSize="small" />,
   quote: <HelpIcon fontSize="small" />,
