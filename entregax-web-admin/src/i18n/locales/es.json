@@ -1360,6 +1360,10 @@
       "pickup": "Pick Up: Sucursal Hidalgo TX",
       "pickupDesc": "Recoger en bodega",
       "pickupPrice": "$3 x 1 caja",
+      "nacional": "EntregaX Nacional",
+      "nacionalTime": "3-5 días hábiles",
+      "nacionalPrice": "Cotizar",
+      "nacionalSubtext": "Envío a cualquier estado de México",
       "express": "Paquete Express Interno",
       "expressTime": "2-4 días hábiles",
       "expressPrice": "$350 x 1 caja"

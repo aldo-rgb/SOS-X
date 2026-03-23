@@ -1156,6 +1156,10 @@
       "pickup": "自提：Hidalgo TX网点",
       "pickupDesc": "到仓库自提",
       "pickupPrice": "$3 x 1箱",
+      "nacional": "EntregaX 全国",
+      "nacionalTime": "3-5个工作日",
+      "nacionalPrice": "报价",
+      "nacionalSubtext": "送达墨西哥任何州",
       "express": "内部快递",
       "expressTime": "2-4个工作日",
       "expressPrice": "$350 x 1箱"

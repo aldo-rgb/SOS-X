@@ -1325,6 +1325,10 @@
       "pickup": "Pick Up: Hidalgo TX Branch",
       "pickupDesc": "Pick up at warehouse",
       "pickupPrice": "$3 x 1 box",
+      "nacional": "EntregaX National",
+      "nacionalTime": "3-5 business days",
+      "nacionalPrice": "Quote",
+      "nacionalSubtext": "Shipping to any state in Mexico",
       "express": "Internal Express Package",
       "expressTime": "2-4 business days",
       "expressPrice": "$350 x 1 box"

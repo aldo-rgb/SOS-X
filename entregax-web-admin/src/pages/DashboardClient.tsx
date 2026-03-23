@@ -374,13 +374,25 @@ export default function DashboardClient() {
   const [deliveryLoading, setDeliveryLoading] = useState(false);
   
   // Nuevos estados para el modal mejorado de instrucciones
-  const [selectedCarrierService, setSelectedCarrierService] = useState<'local' | 'pickup' | 'express'>('local');
+  const [selectedCarrierService, setSelectedCarrierService] = useState<'local' | 'pickup' | 'express' | 'nacional'>('local');
   const [deliveryNotes, setDeliveryNotes] = useState<string>('');
-  const carrierServices = useMemo(() => [
-    { id: 'local', name: t('cd.carriers.local'), description: t('cd.carriers.localTime'), price: t('cd.carriers.localPrice'), icon: '🚛' },
-    { id: 'pickup', name: t('cd.carriers.pickup'), description: t('cd.carriers.pickupDesc'), price: t('cd.carriers.pickupPrice'), subtext: '$3 x 1 caja', icon: '📍' },
-    { id: 'express', name: t('cd.carriers.express'), description: t('cd.carriers.expressTime'), price: t('cd.carriers.expressPrice'), subtext: '$350 x 1 caja', icon: '⚡' },
-  ], [t]);
+  
+  // Determinar el tipo de servicio de los paquetes seleccionados
+  const selectedServiceType = useMemo(() => {
+    const selected = packages.filter(p => selectedPackageIds.includes(p.id));
+    if (selected.length === 0) return 'china_air';
+    return selected[0]?.servicio || 'china_air';
+  }, [packages, selectedPackageIds]);
+
+  const carrierServices = useMemo(() => {
+    const allServices = [
+      { id: 'local', name: t('cd.carriers.local'), description: t('cd.carriers.localTime'), price: t('cd.carriers.localPrice'), icon: '🚛', forServices: ['china_air', 'china_sea', 'usa_pobox', 'dhl'] },
+      { id: 'nacional', name: t('cd.carriers.nacional'), description: t('cd.carriers.nacionalTime'), price: t('cd.carriers.nacionalPrice'), subtext: t('cd.carriers.nacionalSubtext'), icon: '🚚', forServices: ['china_air', 'china_sea'] },
+      { id: 'pickup', name: t('cd.carriers.pickup'), description: t('cd.carriers.pickupDesc'), price: t('cd.carriers.pickupPrice'), subtext: '$3 x 1 caja', icon: '📍', forServices: ['usa_pobox'] },
+      { id: 'express', name: t('cd.carriers.express'), description: t('cd.carriers.expressTime'), price: t('cd.carriers.expressPrice'), subtext: '$350 x 1 caja', icon: '⚡', forServices: ['china_air', 'china_sea', 'usa_pobox', 'dhl'] },
+    ];
+    return allServices.filter(s => s.forServices.includes(selectedServiceType));
+  }, [t, selectedServiceType]);
   
   // Modal de Pago
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -4644,7 +4656,7 @@ export default function DashboardClient() {
                 <FormControl component="fieldset" fullWidth>
                   <RadioGroup
                     value={selectedCarrierService}
-                    onChange={(e) => setSelectedCarrierService(e.target.value as 'local' | 'pickup' | 'express')}
+                    onChange={(e) => setSelectedCarrierService(e.target.value as 'local' | 'pickup' | 'express' | 'nacional')}
                   >
                     {carrierServices.map((service) => (
                       <FormControlLabel
