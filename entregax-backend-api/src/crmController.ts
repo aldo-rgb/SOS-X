@@ -8,16 +8,32 @@ import { pool } from './db';
 // 📱 APP: MANEJAR SOLICITUD DEL CLIENTE
 export const requestAdvisor = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { userId, advisorCodeInput } = req.body;
+    // Obtener userId del token JWT o del body (para compatibilidad)
+    const userId = (req as any).user?.id || req.body.userId;
+    const { advisorCodeInput } = req.body;
+    
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Usuario no autenticado' });
+    }
 
     // CASO A: SI ESCRIBIÓ CÓDIGO (Vinculación Inmediata)
     if (advisorCodeInput && advisorCodeInput.trim() !== '') {
-      // 1. Buscar al asesor por código o box_id
+      const codeUpper = advisorCodeInput.trim().toUpperCase();
+      // Normalizar código: agregar guión si no lo tiene (CHRI3225 -> CHRI-3225)
+      const normalizedCode = codeUpper.includes('-') 
+        ? codeUpper 
+        : codeUpper.length >= 5 
+          ? `${codeUpper.slice(0, 4)}-${codeUpper.slice(4)}`
+          : codeUpper;
+      
+      console.log('🔍 Buscando asesor:', codeUpper, 'normalizado:', normalizedCode);
+      
+      // 1. Buscar al asesor por código o box_id (buscar ambos formatos)
       const advisorRes = await pool.query(
         `SELECT id, full_name FROM users 
-         WHERE (referral_code = $1 OR box_id = $1) 
+         WHERE (referral_code = $1 OR referral_code = $2 OR box_id = $1 OR box_id = $2) 
          AND role IN ('advisor', 'asesor', 'asesor_lider', 'sub_advisor')`,
-        [advisorCodeInput.trim().toUpperCase()]
+        [codeUpper, normalizedCode]
       );
 
       if (advisorRes.rows.length === 0) {
@@ -29,8 +45,9 @@ export const requestAdvisor = async (req: Request, res: Response): Promise<any> 
 
       const advisor = advisorRes.rows[0];
 
-      // 2. Vincular al cliente con ese asesor
-      await pool.query('UPDATE users SET referred_by_id = $1 WHERE id = $2', [advisor.id, userId]);
+      // 2. Vincular al cliente con ese asesor (usar advisor_id en lugar de referred_by_id)
+      await pool.query('UPDATE users SET advisor_id = $1 WHERE id = $2', [advisor.id, userId]);
+      console.log('✅ Asesor', advisor.full_name, 'asignado a usuario', userId);
 
       return res.json({
         success: true,

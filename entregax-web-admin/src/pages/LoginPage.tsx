@@ -646,7 +646,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   label="Código de referido (opcional)"
                   value={referralCode}
                   onChange={(e) => {
-                    const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+                    const value = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 12);
                     setReferralCode(value);
                     setCodeValidation(null);
                   }}
@@ -912,7 +912,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 label="Código de asesor o referido (opcional)"
                 value={existingReferralCode}
                 onChange={(e) => {
-                  const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+                  const value = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 12);
                   setExistingReferralCode(value);
                   setExistingCodeValidation(null);
                 }}
