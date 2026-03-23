@@ -43,7 +43,7 @@ const DEFAULT_PASSWORD = 'Entregax123';
 // ============ REGISTRO CON CONTRASEÑA ENCRIPTADA ============
 export const registerUser = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { fullName, email, password, phone, isAdminCreated, referralCodeInput } = req.body;
+        const { fullName, email, password, phone, isAdminCreated, referralCodeInput, existingBoxId } = req.body;
 
         // Si es creado por admin, usa contraseña por defecto y requiere cambio
         const useDefaultPassword = isAdminCreated === true;
@@ -74,6 +74,37 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
         if (userCheck.rows.length > 0) {
             res.status(400).json({ error: 'El usuario ya existe' });
             return;
+        }
+
+        // 1.5 Si proporciona un box_id existente, verificar que esté en legacy_clients y no en users
+        let claimedBoxId: string | null = null;
+        if (existingBoxId) {
+            const boxIdUpper = existingBoxId.toUpperCase().trim();
+            
+            // Verificar que no esté ya en uso por otro usuario
+            const boxInUse = await pool.query(
+                'SELECT id FROM users WHERE UPPER(box_id) = $1',
+                [boxIdUpper]
+            );
+            
+            if (boxInUse.rows.length > 0) {
+                res.status(400).json({ error: 'Este número de cliente ya está registrado. Si es tuyo, contacta a soporte.' });
+                return;
+            }
+            
+            // Verificar que exista en legacy_clients (es un cliente conocido)
+            const legacyCheck = await pool.query(
+                'SELECT box_id, full_name FROM legacy_clients WHERE UPPER(box_id) = $1',
+                [boxIdUpper]
+            );
+            
+            if (legacyCheck.rows.length > 0) {
+                claimedBoxId = legacyCheck.rows[0].box_id;
+                console.log(`[REGISTRO] Cliente reclamando box_id existente: ${claimedBoxId}`);
+            } else {
+                // Si no existe en legacy_clients, ignorar y generar uno nuevo
+                console.log(`[REGISTRO] Box_id ${boxIdUpper} no encontrado en legacy_clients, se generará nuevo`);
+            }
         }
 
         // 2. Buscar código de referido y determinar si es asesor o amigo
@@ -110,8 +141,8 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
         const saltRounds = 10;
         const hashedPassword = await bcrypt.hash(actualPassword, saltRounds);
 
-        // 4. Generar BoxID único consecutivo (S4000, S4001, etc.)
-        const newBoxId = await generateBoxId();
+        // 4. Usar box_id reclamado o generar uno nuevo
+        const newBoxId = claimedBoxId || await generateBoxId();
 
         // 5. Generar código de referido propio para el nuevo usuario
         const myReferralCode = generateReferralCode(fullName);
@@ -137,6 +168,78 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
             } catch (refError) {
                 console.error('[REFERIDOS] Error al registrar referido:', refError);
             }
+        }
+
+        // 7.5 Vincular órdenes y paquetes pendientes de TODOS los servicios
+        try {
+            // ===== MARÍTIMO (LOG) - por shipping_mark =====
+            const linkedMaritime = await pool.query(`
+                UPDATE maritime_orders 
+                SET user_id = $1, updated_at = NOW()
+                WHERE user_id IS NULL 
+                AND UPPER(shipping_mark) LIKE '%' || $2 || '%'
+                RETURNING ordersn
+            `, [savedUser.id, newBoxId]);
+            
+            if (linkedMaritime.rowCount && linkedMaritime.rowCount > 0) {
+                console.log(`[REGISTRO] ✅ Marítimo: ${linkedMaritime.rowCount} órdenes LOG vinculadas a ${newBoxId}`);
+            }
+            
+            // ===== AÉREO CHINA (AIR) - china_receipts por shipping_mark =====
+            const linkedReceipts = await pool.query(`
+                UPDATE china_receipts 
+                SET user_id = $1, updated_at = NOW()
+                WHERE user_id IS NULL 
+                AND UPPER(shipping_mark) = $2
+                RETURNING id, fno
+            `, [savedUser.id, newBoxId]);
+            
+            if (linkedReceipts.rowCount && linkedReceipts.rowCount > 0) {
+                console.log(`[REGISTRO] ✅ Aéreo China: ${linkedReceipts.rowCount} receipts vinculados a ${newBoxId}`);
+                
+                // También vincular los paquetes relacionados a esos receipts
+                const receiptIds = linkedReceipts.rows.map(r => r.id);
+                const linkedAirPackages = await pool.query(`
+                    UPDATE packages 
+                    SET user_id = $1, updated_at = NOW()
+                    WHERE user_id IS NULL 
+                    AND china_receipt_id = ANY($2::int[])
+                    RETURNING id
+                `, [savedUser.id, receiptIds]);
+                
+                if (linkedAirPackages.rowCount && linkedAirPackages.rowCount > 0) {
+                    console.log(`[REGISTRO]    → ${linkedAirPackages.rowCount} paquetes AIR vinculados`);
+                }
+            }
+            
+            // ===== TODOS LOS SERVICIOS - paquetes por box_id (PO Box, DHL, AIR, etc) =====
+            const linkedPackages = await pool.query(`
+                UPDATE packages 
+                SET user_id = $1, updated_at = NOW()
+                WHERE user_id IS NULL 
+                AND UPPER(box_id) = $2
+                RETURNING id, service_type
+            `, [savedUser.id, newBoxId]);
+            
+            if (linkedPackages.rowCount && linkedPackages.rowCount > 0) {
+                // Agrupar por servicio para logging
+                const byService: { [key: string]: number } = {};
+                linkedPackages.rows.forEach(p => {
+                    const svc = p.service_type || 'unknown';
+                    byService[svc] = (byService[svc] || 0) + 1;
+                });
+                console.log(`[REGISTRO] ✅ Paquetes vinculados a ${newBoxId}:`, byService);
+            }
+            
+            // ===== Actualizar legacy_clients para marcar como reclamado =====
+            await pool.query(`
+                UPDATE legacy_clients 
+                SET claimed_by_user_id = $1, claimed_at = NOW()
+                WHERE UPPER(box_id) = $2 AND claimed_by_user_id IS NULL
+            `, [savedUser.id, newBoxId]);
+            
+        } catch (linkError) {
+            console.error('[REGISTRO] Error vinculando órdenes/paquetes:', linkError);
         }
 
         // 8. Generar token JWT

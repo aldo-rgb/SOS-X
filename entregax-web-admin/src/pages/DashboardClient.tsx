@@ -3,7 +3,7 @@
 // Panel principal para Clientes con portal completo
 // ============================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Box,
   Typography,
@@ -1068,6 +1068,32 @@ export default function DashboardClient() {
     
     return filtered;
   }, [packages, serviceFilter, searchTerm, historyPackages, instructionFilter]);
+
+  // Contadores por tipo de servicio (para badges en botones de filtro)
+  const serviceCounts = useMemo(() => {
+    const counts = {
+      china_air: 0,
+      china_sea: 0,
+      usa_pobox: 0,
+      dhl: 0,
+      total: packages.length
+    };
+    
+    packages.forEach(pkg => {
+      const type = pkg.shipment_type || pkg.servicio;
+      if (type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX') {
+        counts.china_air++;
+      } else if (type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl') {
+        counts.china_sea++;
+      } else if (type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type) {
+        counts.usa_pobox++;
+      } else if (type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL') {
+        counts.dhl++;
+      }
+    });
+    
+    return counts;
+  }, [packages]);
 
   // Abrir tutorial de dirección
   const handleOpenTutorial = (serviceType: string) => {
@@ -2269,7 +2295,28 @@ export default function DashboardClient() {
                     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                   }}
                 >
-                  <FlightIcon sx={{ fontSize: 28, color: serviceFilter === 'china_air' ? 'white' : '#666', mb: 0.5 }} />
+                  <Box sx={{ position: 'relative' }}>
+                    <FlightIcon sx={{ fontSize: 28, color: serviceFilter === 'china_air' ? 'white' : '#666', mb: 0.5 }} />
+                    {serviceCounts.china_air > 0 && (
+                      <Box sx={{
+                        position: 'absolute',
+                        top: -8,
+                        right: -12,
+                        bgcolor: serviceFilter === 'china_air' ? 'white' : ORANGE,
+                        color: serviceFilter === 'china_air' ? ORANGE : 'white',
+                        borderRadius: '50%',
+                        minWidth: 20,
+                        height: 20,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.65rem',
+                        fontWeight: 700,
+                      }}>
+                        {serviceCounts.china_air}
+                      </Box>
+                    )}
+                  </Box>
                   <Typography variant="caption" sx={{ 
                     color: serviceFilter === 'china_air' ? 'white' : '#666', 
                     fontWeight: 600, 
@@ -2303,7 +2350,28 @@ export default function DashboardClient() {
                     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                   }}
                 >
-                  <BoatIcon sx={{ fontSize: 28, color: serviceFilter === 'china_sea' ? 'white' : '#666', mb: 0.5 }} />
+                  <Box sx={{ position: 'relative' }}>
+                    <BoatIcon sx={{ fontSize: 28, color: serviceFilter === 'china_sea' ? 'white' : '#666', mb: 0.5 }} />
+                    {serviceCounts.china_sea > 0 && (
+                      <Box sx={{
+                        position: 'absolute',
+                        top: -8,
+                        right: -12,
+                        bgcolor: serviceFilter === 'china_sea' ? 'white' : ORANGE,
+                        color: serviceFilter === 'china_sea' ? ORANGE : 'white',
+                        borderRadius: '50%',
+                        minWidth: 20,
+                        height: 20,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.65rem',
+                        fontWeight: 700,
+                      }}>
+                        {serviceCounts.china_sea}
+                      </Box>
+                    )}
+                  </Box>
                   <Typography variant="caption" sx={{ 
                     color: serviceFilter === 'china_sea' ? 'white' : '#666', 
                     fontWeight: 600, 
@@ -2337,7 +2405,28 @@ export default function DashboardClient() {
                     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                   }}
                 >
-                  <TruckIcon sx={{ fontSize: 28, color: serviceFilter === 'dhl' ? 'white' : '#666', mb: 0.5 }} />
+                  <Box sx={{ position: 'relative' }}>
+                    <TruckIcon sx={{ fontSize: 28, color: serviceFilter === 'dhl' ? 'white' : '#666', mb: 0.5 }} />
+                    {serviceCounts.dhl > 0 && (
+                      <Box sx={{
+                        position: 'absolute',
+                        top: -8,
+                        right: -12,
+                        bgcolor: serviceFilter === 'dhl' ? 'white' : ORANGE,
+                        color: serviceFilter === 'dhl' ? ORANGE : 'white',
+                        borderRadius: '50%',
+                        minWidth: 20,
+                        height: 20,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.65rem',
+                        fontWeight: 700,
+                      }}>
+                        {serviceCounts.dhl}
+                      </Box>
+                    )}
+                  </Box>
                   <Typography variant="caption" sx={{ 
                     color: serviceFilter === 'dhl' ? 'white' : '#666', 
                     fontWeight: 600, 
@@ -2371,7 +2460,28 @@ export default function DashboardClient() {
                     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                   }}
                 >
-                  <PostOfficeIcon sx={{ fontSize: 28, color: serviceFilter === 'usa_pobox' ? 'white' : '#666', mb: 0.5 }} />
+                  <Box sx={{ position: 'relative' }}>
+                    <PostOfficeIcon sx={{ fontSize: 28, color: serviceFilter === 'usa_pobox' ? 'white' : '#666', mb: 0.5 }} />
+                    {serviceCounts.usa_pobox > 0 && (
+                      <Box sx={{
+                        position: 'absolute',
+                        top: -8,
+                        right: -12,
+                        bgcolor: serviceFilter === 'usa_pobox' ? 'white' : ORANGE,
+                        color: serviceFilter === 'usa_pobox' ? ORANGE : 'white',
+                        borderRadius: '50%',
+                        minWidth: 20,
+                        height: 20,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '0.65rem',
+                        fontWeight: 700,
+                      }}>
+                        {serviceCounts.usa_pobox}
+                      </Box>
+                    )}
+                  </Box>
                   <Typography variant="caption" sx={{ 
                     color: serviceFilter === 'usa_pobox' ? 'white' : '#666', 
                     fontWeight: 600, 

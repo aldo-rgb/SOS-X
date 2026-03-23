@@ -211,7 +211,8 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
     // Intentamos extraer el código S#### del shipping_mark
     const shippingMark = order.shipping_mark || '';
     const boxIdMatch = shippingMark.match(/S\d+/i);
-    const boxId = boxIdMatch ? boxIdMatch[0].toUpperCase() : shippingMark.split('+')[0].trim();
+    const fallback = shippingMark.split('+')[0]?.trim() || '';
+    const boxId = (boxIdMatch && boxIdMatch[0]) ? boxIdMatch[0].toUpperCase() : fallback;
     
     // Primero buscar en users
     const userResult = await pool.query(
@@ -223,31 +224,19 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
         userId = userResult.rows[0].id;
         console.log(`    → Cliente encontrado (users): ${userResult.rows[0].full_name} (${boxId})`);
     } else {
-        // Si no está en users, buscar en legacy_clients y crear usuario
+        // Solo verificar si existe en legacy_clients para logging, pero NO crear usuario
+        // El usuario se vinculará automáticamente cuando se registre con su box_id
         const legacyResult = await pool.query(
-            `SELECT id, box_id, full_name, email, phone FROM legacy_clients WHERE UPPER(box_id) = $1 LIMIT 1`,
+            `SELECT id, box_id, full_name FROM legacy_clients WHERE UPPER(box_id) = $1 LIMIT 1`,
             [boxId.toUpperCase()]
         );
         
         if (legacyResult.rows.length > 0) {
-            const legacy = legacyResult.rows[0];
-            console.log(`    → Cliente encontrado en legacy_clients: ${legacy.full_name} (${legacy.box_id})`);
-            
-            // Crear usuario desde legacy_client
-            const newUserResult = await pool.query(`
-                INSERT INTO users (box_id, full_name, email, phone, role, password, created_at)
-                VALUES ($1, $2, $3, $4, 'client', '', NOW())
-                ON CONFLICT (box_id) DO UPDATE SET updated_at = NOW()
-                RETURNING id, full_name
-            `, [legacy.box_id, legacy.full_name, legacy.email || `${legacy.box_id.toLowerCase()}@entregax.app`, legacy.phone]);
-            
-            if (newUserResult.rows.length > 0) {
-                userId = newUserResult.rows[0].id;
-                console.log(`    → Usuario creado/actualizado: ID ${userId}`);
-            }
+            console.log(`    → Cliente en legacy_clients: ${legacyResult.rows[0].full_name} (${boxId}) - pendiente de registro`);
         } else {
-            console.log(`    → Cliente no encontrado para shipping_mark: ${shippingMark} (boxId extraído: ${boxId})`);
+            console.log(`    → Cliente no registrado: ${shippingMark} (boxId extraído: ${boxId})`);
         }
+        // userId permanece null - el shipping_mark guardará la referencia
     }
 
     // Buscar dirección predeterminada para servicio marítimo
