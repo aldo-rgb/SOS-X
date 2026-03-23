@@ -909,8 +909,25 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       setSnackbar({ open: true, message: response.data.message, severity: 'success' });
       setActiveStep(4);  // Avanzar al paso de confirmación (ahora es 4)
     } catch (err) {
-      const error = err as { response?: { data?: { error?: string; message?: string } } };
-      setFormError(error.response?.data?.error || error.response?.data?.message || 'Error');
+      const error = err as { response?: { data?: { error?: string; message?: string; requiresVerification?: boolean; verificationStatus?: string } } };
+      const errorData = error.response?.data;
+      
+      // Si es error de verificación, mostrar mensaje más detallado
+      if (errorData?.requiresVerification) {
+        const statusMsg = errorData.verificationStatus === 'pending_review' 
+          ? '⏳ El perfil del cliente está en revisión.'
+          : errorData.verificationStatus === 'rejected'
+            ? '❌ El perfil del cliente fue rechazado.'
+            : '⚠️ El cliente no ha completado su verificación.';
+        setFormError(`🚫 CLIENTE NO VERIFICADO: ${statusMsg} No puede recibir paquetes hasta que sea aprobado.`);
+        setSnackbar({ 
+          open: true, 
+          message: `Cliente ${boxId} no verificado - ${statusMsg}`, 
+          severity: 'error' 
+        });
+      } else {
+        setFormError(errorData?.error || errorData?.message || 'Error al crear el envío');
+      }
     } finally {
       setSubmitting(false);
     }
