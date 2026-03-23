@@ -6,6 +6,8 @@ import {
   Paper,
   IconButton,
   Alert,
+  Badge,
+  Chip,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import WhatshotIcon from '@mui/icons-material/Whatshot';
@@ -49,6 +51,13 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
   const { t } = useTranslation();
   const [activeView, setActiveView] = useState<ActiveView>('hub');
   const [userPermissions, setUserPermissions] = useState<Record<string, { can_view: boolean; can_edit: boolean }>>({});
+  const [hubStats, setHubStats] = useState<{
+    pendingLeads: number;
+    activeClients: number;
+    atRiskClients: number;
+    openTickets: number;
+    escalatedTickets: number;
+  }>({ pendingLeads: 0, activeClients: 0, atRiskClients: 0, openTickets: 0, escalatedTickets: 0 });
 
   const token = localStorage.getItem('token');
   const savedUser = localStorage.getItem('user');
@@ -78,6 +87,59 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
     };
     loadPermissions();
   }, [token, isSuperAdmin]);
+
+  // Cargar estadísticas del hub
+  useEffect(() => {
+    if (activeView !== 'hub') return;
+    let cancelled = false;
+
+    const fetchStats = async () => {
+      try {
+        // Cargar leads pendientes
+      const leadsRes = await fetch(`${API_URL}/api/admin/crm/leads`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      let pendingLeads = 0;
+      if (leadsRes.ok) {
+        const leadsData = await leadsRes.json();
+        pendingLeads = Number(leadsData.stats?.pending || 0);
+
+        // Cargar stats de soporte
+        const supportRes = await fetch(`${API_URL}/api/admin/support/stats`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        let openTickets = 0;
+        let escalatedTickets = 0;
+        if (supportRes.ok) {
+          const supportData = await supportRes.json();
+          openTickets = Number(supportData.ai_handling || 0) + Number(supportData.needs_human || 0) + Number(supportData.waiting_client || 0);
+          escalatedTickets = Number(supportData.needs_human || 0);
+        }
+
+        // Cargar clientes activos
+        const clientsRes = await fetch(`${API_URL}/api/admin/crm/clients/stats`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        let activeClients = 0;
+        let atRiskClients = 0;
+        if (clientsRes.ok) {
+          const clientsData = await clientsRes.json();
+          activeClients = Number(clientsData.active || clientsData.total || 0);
+          atRiskClients = Number(clientsData.atRisk || clientsData.at_risk || 0);
+        }
+
+        if (!cancelled) {
+          setHubStats({ pendingLeads, activeClients, atRiskClients, openTickets, escalatedTickets });
+        }
+      } catch (err) {
+        console.error('Error loading hub stats:', err);
+      }
+    };
+
+    fetchStats();
+    const interval = setInterval(fetchStats, 60000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [activeView, token]);
 
   // Función para verificar permiso
   const hasPermission = (toolKey: string): boolean => {
@@ -225,46 +287,82 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
         gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, 
         gap: 3 
       }}>
-        {filteredTools.map((tool) => (
-          <Paper
-            key={tool.key}
-            onClick={() => setActiveView(tool.key as ActiveView)}
-            sx={{
-              p: 3,
-              borderRadius: 3,
-              cursor: 'pointer',
-              transition: 'all 0.2s ease',
-              border: '2px solid transparent',
-              '&:hover': {
-                transform: 'translateY(-4px)',
-                boxShadow: '0 12px 24px -10px rgba(0,0,0,0.15)',
-                borderColor: tool.color,
-              },
-            }}
-          >
-            <Box
+        {filteredTools.map((tool) => {
+          const badgeCount = tool.key === 'leads' ? hubStats.pendingLeads
+            : tool.key === 'support' ? hubStats.escalatedTickets
+            : tool.key === 'clients' ? hubStats.atRiskClients
+            : 0;
+          return (
+            <Paper
+              key={tool.key}
+              onClick={() => setActiveView(tool.key as ActiveView)}
               sx={{
-                width: 72,
-                height: 72,
+                p: 3,
                 borderRadius: 3,
-                bgcolor: tool.bgColor,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: tool.color,
-                mb: 2,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                border: '2px solid transparent',
+                position: 'relative',
+                '&:hover': {
+                  transform: 'translateY(-4px)',
+                  boxShadow: '0 12px 24px -10px rgba(0,0,0,0.15)',
+                  borderColor: tool.color,
+                },
               }}
             >
-              {tool.icon}
-            </Box>
-            <Typography variant="h6" fontWeight={700} sx={{ mb: 1 }}>
-              {tool.title}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {tool.description}
-            </Typography>
-          </Paper>
-        ))}
+              {badgeCount > 0 && (
+                <Chip
+                  label={`${badgeCount} ${t('customerService.pending', 'pendientes')}`}
+                  size="small"
+                  sx={{
+                    position: 'absolute',
+                    top: 12,
+                    right: 12,
+                    bgcolor: tool.color,
+                    color: '#fff',
+                    fontWeight: 700,
+                    fontSize: '0.7rem',
+                    animation: 'pulse 2s infinite',
+                    '@keyframes pulse': {
+                      '0%': { boxShadow: `0 0 0 0 ${tool.color}40` },
+                      '70%': { boxShadow: `0 0 0 8px ${tool.color}00` },
+                      '100%': { boxShadow: `0 0 0 0 ${tool.color}00` },
+                    },
+                  }}
+                />
+              )}
+              <Badge
+                badgeContent={badgeCount}
+                color="error"
+                invisible={badgeCount === 0}
+                sx={{ '& .MuiBadge-badge': { fontSize: '0.75rem', fontWeight: 700 } }}
+              >
+                <Box
+                  sx={{
+                    width: 72,
+                    height: 72,
+                    borderRadius: 3,
+                    bgcolor: tool.bgColor,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: tool.color,
+                  }}
+                >
+                  {tool.icon}
+                </Box>
+              </Badge>
+              <Box sx={{ mt: 2 }}>
+                <Typography variant="h6" fontWeight={700} sx={{ mb: 1 }}>
+                  {tool.title}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {tool.description}
+                </Typography>
+              </Box>
+            </Paper>
+          );
+        })}
       </Box>
 
       {/* Estadísticas rápidas */}
@@ -279,7 +377,7 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
         }}>
           <Paper sx={{ p: 2, borderRadius: 2, textAlign: 'center' }}>
             <Typography variant="h4" fontWeight={700} color="#FF6B35">
-              --
+              {hubStats.pendingLeads}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {t('customerService.stats.pendingLeads', 'Leads Pendientes')}
@@ -287,7 +385,7 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           </Paper>
           <Paper sx={{ p: 2, borderRadius: 2, textAlign: 'center' }}>
             <Typography variant="h4" fontWeight={700} color="#2196F3">
-              --
+              {hubStats.activeClients}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {t('customerService.stats.activeClients', 'Clientes Activos')}
@@ -295,7 +393,7 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           </Paper>
           <Paper sx={{ p: 2, borderRadius: 2, textAlign: 'center' }}>
             <Typography variant="h4" fontWeight={700} color="#EF4444">
-              --
+              {hubStats.atRiskClients}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {t('customerService.stats.atRiskClients', 'Clientes en Riesgo')}
@@ -303,7 +401,7 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           </Paper>
           <Paper sx={{ p: 2, borderRadius: 2, textAlign: 'center' }}>
             <Typography variant="h4" fontWeight={700} color="#10B981">
-              --
+              {hubStats.openTickets}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {t('customerService.stats.openTickets', 'Tickets Abiertos')}
