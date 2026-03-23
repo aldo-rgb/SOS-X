@@ -1488,6 +1488,21 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
     const stats = packagesStatsQuery.rows[0];
     const maritimeStats = maritimeStatsQuery.rows[0];
 
+    // 2c. Contar envíos DHL shipments
+    let dhlStats = { en_bodega: 0, saldo_pendiente: 0 };
+    try {
+      const dhlStatsQuery = await pool.query(`
+        SELECT 
+          COUNT(*) FILTER (WHERE status IN ('received_mty', 'inspected', 'pending_payment', 'pending_inspection')) as en_bodega,
+          COALESCE(SUM(COALESCE(saldo_pendiente, total_cost_mxn, 0)) FILTER (WHERE paid_at IS NULL AND status NOT IN ('cancelled', 'delivered')), 0) as saldo_pendiente
+        FROM dhl_shipments
+        WHERE user_id = $1 OR box_id = $2
+      `, [userId, boxId]);
+      dhlStats = dhlStatsQuery.rows[0] || dhlStats;
+    } catch (err) {
+      console.log('DHL stats error:', (err as Error).message);
+    }
+
     // 3. Obtener paquetes activos del cliente (PO Box USA y Aéreo China)
     const packagesQuery = await pool.query(`
       SELECT 
@@ -1654,6 +1669,58 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
       console.log('DHL packages query error:', (err as Error).message);
     }
 
+    // 3e. Obtener envíos DHL Shipments (AA DHL con inspección)
+    let dhlShipmentRows: any[] = [];
+    try {
+      const dhlShipQuery = await pool.query(`
+        SELECT 
+          ds.id,
+          ds.inbound_tracking as tracking,
+          COALESCE(ds.national_tracking, 'DHL') as tracking_provider,
+          COALESCE(ds.description, 'Paquete DHL') as descripcion,
+          'AA_DHL' as servicio,
+          'dhl' as shipment_type,
+          ds.status,
+          CASE ds.status 
+            WHEN 'pending_inspection' THEN '🔍 Pendiente Inspección'
+            WHEN 'received_mty' THEN '📦 Recibido MTY'
+            WHEN 'inspected' THEN '✅ Inspeccionado'
+            WHEN 'pending_payment' THEN '💳 Pendiente de Pago'
+            WHEN 'paid' THEN '✅ Pagado'
+            WHEN 'dispatched' THEN '🚚 Enviado'
+            WHEN 'delivered' THEN '✅ Entregado'
+            ELSE ds.status
+          END as status_label,
+          'CEDIS MTY' as fecha_estimada,
+          COALESCE(ds.total_cost_mxn, ds.assigned_cost_usd, 0) as monto,
+          CASE WHEN ds.paid_at IS NOT NULL THEN true ELSE false END as client_paid,
+          ds.delivery_address_id,
+          NULL as assigned_address_id,
+          ds.created_at,
+          false as is_master,
+          NULL as master_id,
+          ds.has_gex,
+          ds.gex_folio,
+          ds.weight_kg as weight,
+          CASE 
+            WHEN ds.length_cm IS NOT NULL AND ds.width_cm IS NOT NULL AND ds.height_cm IS NOT NULL 
+              THEN CONCAT(ds.length_cm, ' × ', ds.width_cm, ' × ', ds.height_cm, ' cm')
+            ELSE NULL
+          END as dimensions,
+          ds.product_type,
+          ds.saldo_pendiente,
+          ds.monto_pagado
+        FROM dhl_shipments ds
+        WHERE (ds.user_id = $1 OR ds.box_id = $2)
+          AND ds.status NOT IN ('delivered', 'cancelled')
+        ORDER BY ds.created_at DESC
+        LIMIT 50
+      `, [userId, boxId]);
+      dhlShipmentRows = dhlShipQuery.rows;
+    } catch (err) {
+      console.log('DHL shipments query error:', (err as Error).message);
+    }
+
     // 3d. Cargar paquetes hijos (guías incluidas) para los reempaques/masters
     const masterIds = packagesQuery.rows
       .filter((p: any) => p.is_master === true)
@@ -1732,7 +1799,8 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
     const allPackages = [
       ...packagesWithChildren,
       ...maritimeOrdersQuery.rows,
-      ...dhlPackagesRows
+      ...dhlPackagesRows,
+      ...dhlShipmentRows
     ].sort((a, b) => {
       // Primero los listos para recoger
       if (a.status === 'ready_pickup' && b.status !== 'ready_pickup') return -1;
@@ -1777,12 +1845,12 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         },
         paquetes: {
           en_transito: (parseInt(stats.en_transito) || 0) + (parseInt(maritimeStats.en_transito) || 0),
-          en_bodega: parseInt(stats.en_bodega) || 0,
+          en_bodega: (parseInt(stats.en_bodega) || 0) + (parseInt(dhlStats.en_bodega) || 0),
           listos_recoger: (parseInt(stats.listos_recoger) || 0) + (parseInt(maritimeStats.listos_recoger) || 0),
           entregados_mes: (parseInt(stats.entregados_mes) || 0) + (parseInt(maritimeStats.entregados_mes) || 0),
         },
         financiero: {
-          saldo_pendiente: (parseFloat(stats.saldo_pendiente) || 0) + (parseFloat(maritimeStats.saldo_pendiente) || 0),
+          saldo_pendiente: (parseFloat(stats.saldo_pendiente) || 0) + (parseFloat(maritimeStats.saldo_pendiente) || 0) + (parseFloat(dhlStats.saldo_pendiente as any) || 0),
           saldo_favor: parseFloat(user.wallet_balance) || 0,
           credito_disponible: user.has_credit 
             ? (parseFloat(user.credit_limit) - parseFloat(user.used_credit)) 
