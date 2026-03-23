@@ -8,8 +8,8 @@ import { pool } from './db';
 // 📱 APP: MANEJAR SOLICITUD DEL CLIENTE
 export const requestAdvisor = async (req: Request, res: Response): Promise<any> => {
   try {
-    // Obtener userId del token JWT o del body (para compatibilidad)
-    const userId = (req as any).user?.id || req.body.userId;
+    // Obtener userId del token JWT (el token usa 'userId' no 'id')
+    const userId = (req as any).user?.userId || (req as any).user?.id || req.body.userId;
     const { advisorCodeInput } = req.body;
     
     if (!userId) {

@@ -1230,18 +1230,24 @@ export default function DashboardClient() {
   const handleNeedHelp = async () => {
     setAdvisorLoading(true);
     try {
-      const response = await api.post('/support/message', {
-        message: 'Solicito que me asignen un asesor comercial',
-        category: 'asesor',
-        escalateDirectly: true,
-      });
-      const ticketFolio = response.data?.ticketFolio || '';
-      setSnackbar({ 
-        open: true, 
-        message: `✅ Solicitud #${ticketFolio} creada. Un asesor te contactará pronto.`, 
-        severity: 'success' 
-      });
-      setAdvisorModalOpen(false);
+      // Usar el endpoint correcto de CRM para solicitar asesor
+      const response = await api.post('/advisor/request', {});
+      
+      if (response.data?.success) {
+        const messageType = response.data.type;
+        let message = response.data.message || '✅ Solicitud enviada';
+        
+        if (messageType === 'PENDING') {
+          message = '⏳ Ya tienes una solicitud en proceso. Te contactaremos pronto.';
+        } else if (messageType === 'REQUESTED') {
+          message = '✅ Solicitud enviada. Un asesor experto te contactará en 24-48 horas.';
+        }
+        
+        setSnackbar({ open: true, message, severity: 'success' });
+        setAdvisorModalOpen(false);
+      } else {
+        setSnackbar({ open: true, message: response.data?.error || '❌ Error al enviar solicitud', severity: 'error' });
+      }
     } catch (error) {
       setSnackbar({ open: true, message: '❌ Error al enviar solicitud', severity: 'error' });
     } finally {
@@ -5607,7 +5613,7 @@ export default function DashboardClient() {
               mb: 3
             }}
           >
-            {advisorLoading ? <CircularProgress size={24} color="inherit" /> : 'NECESITO AYUDA'}
+            {advisorLoading ? <CircularProgress size={24} color="inherit" /> : 'SOLICITAR ASESOR PERSONALIZADO'}
           </Button>
 
           <Divider sx={{ mb: 2 }} />
