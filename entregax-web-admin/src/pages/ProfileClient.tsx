@@ -3,7 +3,7 @@
 // Página de perfil para clientes (mirror de app móvil)
 // ============================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -99,6 +99,11 @@ const ProfileClient = ({ onBack }: ProfileClientProps) => {
   const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
   const [showCameraPreview, setShowCameraPreview] = useState(false);
   const [currentCaptureStep, setCurrentCaptureStep] = useState<string>('');
+
+  // Signature canvas refs and state
+  const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const isDrawingRef = useRef(false);
+  const [hasDrawn, setHasDrawn] = useState(false);
   
   // Términos y Condiciones
   const TERMS_AND_CONDITIONS = `LOGISTI-K SYSTEMS DEVELOPMENT S.A. DE C.V. (en adelante como "LSD") y EL CLIENTE, acuerdan que la aceptación y ejecución del presente contrato constituye el consentimiento de EL CLIENTE para sujetarse a los siguientes términos y condiciones:
@@ -251,6 +256,7 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
     setTermsAccepted(false);
     setTermsScrolled(false);
     setSignature(null);
+    setHasDrawn(false);
   };
 
   // Cerrar cámara y modal
@@ -362,6 +368,80 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
     } finally {
       setVerifying(false);
     }
+  };
+
+  // ---- Signature Canvas Handlers ----
+  const initSignatureCanvas = useCallback(() => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    // Set actual resolution to match display size
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * 2;
+    canvas.height = rect.height * 2;
+    ctx.scale(2, 2);
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#111';
+    ctx.lineWidth = 2.5;
+    // Fill white background
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, rect.width, rect.height);
+  }, []);
+
+  // When we reach the signature step, init the canvas
+  useEffect(() => {
+    if (showVerificationModal && verificationStep === 4 && !signature) {
+      // Small delay to let the DOM render
+      const timer = setTimeout(() => initSignatureCanvas(), 100);
+      return () => clearTimeout(timer);
+    }
+  }, [showVerificationModal, verificationStep, signature, initSignatureCanvas]);
+
+  const getCanvasPoint = (canvas: HTMLCanvasElement, clientX: number, clientY: number) => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  };
+
+  const startDrawing = (clientX: number, clientY: number) => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    isDrawingRef.current = true;
+    const { x, y } = getCanvasPoint(canvas, clientX, clientY);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+  };
+
+  const draw = (clientX: number, clientY: number) => {
+    if (!isDrawingRef.current) return;
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const { x, y } = getCanvasPoint(canvas, clientX, clientY);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    setHasDrawn(true);
+  };
+
+  const stopDrawing = () => {
+    isDrawingRef.current = false;
+  };
+
+  const clearSignatureCanvas = () => {
+    setHasDrawn(false);
+    setSignature(null);
+    initSignatureCanvas();
+  };
+
+  const saveSignatureFromCanvas = () => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    const dataUrl = canvas.toDataURL('image/png');
+    setSignature(dataUrl);
   };
 
   // Manejar scroll de términos
@@ -975,50 +1055,117 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
               {/* Paso 4: Firma */}
               {verificationStep === 4 && (
                 <Box sx={{ textAlign: 'center' }}>
-                  <DrawIcon sx={{ fontSize: 64, color: '#1a3c5a', mb: 2 }} />
-                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>Firma Digital</Typography>
-                  <Typography variant="body2" sx={{ color: '#666', mb: 3 }}>
-                    Dibuja tu firma en el recuadro usando tu mouse o dedo
+                  <DrawIcon sx={{ fontSize: 48, color: '#1a3c5a', mb: 1 }} />
+                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>Firma Digital</Typography>
+                  <Typography variant="body2" sx={{ color: '#666', mb: 2 }}>
+                    Dibuja tu firma en el recuadro usando tu dedo o mouse
                   </Typography>
                   
-                  <Box 
-                    sx={{ 
-                      border: '2px dashed #ccc', 
-                      borderRadius: 2, 
-                      p: 2, 
-                      minHeight: 150,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      bgcolor: signature ? '#f5f5f5' : 'white',
-                    }}
-                  >
-                    {signature ? (
-                      <Box>
-                        <img src={signature} alt="Firma" style={{ maxWidth: '100%', maxHeight: 120 }} />
-                        <Box sx={{ mt: 1 }}>
-                          <Button size="small" onClick={() => setSignature(null)}>Borrar firma</Button>
-                        </Box>
+                  {signature ? (
+                    <Box>
+                      <Box sx={{ border: '2px solid #4CAF50', borderRadius: 2, p: 1, bgcolor: '#f9fff9', mb: 1 }}>
+                        <img src={signature} alt="Firma" style={{ maxWidth: '100%', maxHeight: 140, display: 'block', margin: '0 auto' }} />
                       </Box>
-                    ) : (
-                      <Box>
-                        <Typography variant="body2" sx={{ color: '#999', mb: 2 }}>
-                          Por ahora, sube una imagen de tu firma o usa la app móvil para firmar digitalmente
-                        </Typography>
-                        <Button variant="outlined" startIcon={<ImageIcon />} component="label">
-                          Subir Firma
-                          <input type="file" accept="image/*" hidden onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                              const reader = new FileReader();
-                              reader.onload = (event) => setSignature(event.target?.result as string);
-                              reader.readAsDataURL(file);
-                            }
-                          }} />
+                      <Button size="small" color="error" onClick={clearSignatureCanvas} sx={{ mt: 1 }}>
+                        ✕ Borrar y firmar de nuevo
+                      </Button>
+                    </Box>
+                  ) : (
+                    <Box>
+                      {/* Drawing Canvas */}
+                      <Box
+                        sx={{
+                          border: '2px solid #1a3c5a',
+                          borderRadius: 2,
+                          overflow: 'hidden',
+                          bgcolor: '#fff',
+                          touchAction: 'none',
+                          cursor: 'crosshair',
+                          position: 'relative',
+                          mb: 1,
+                        }}
+                      >
+                        <canvas
+                          ref={signatureCanvasRef}
+                          style={{ width: '100%', height: 180, display: 'block', touchAction: 'none' }}
+                          onMouseDown={(e) => startDrawing(e.clientX, e.clientY)}
+                          onMouseMove={(e) => draw(e.clientX, e.clientY)}
+                          onMouseUp={stopDrawing}
+                          onMouseLeave={stopDrawing}
+                          onTouchStart={(e) => {
+                            e.preventDefault();
+                            const touch = e.touches[0];
+                            startDrawing(touch.clientX, touch.clientY);
+                          }}
+                          onTouchMove={(e) => {
+                            e.preventDefault();
+                            const touch = e.touches[0];
+                            draw(touch.clientX, touch.clientY);
+                          }}
+                          onTouchEnd={(e) => {
+                            e.preventDefault();
+                            stopDrawing();
+                          }}
+                        />
+                        {!hasDrawn && (
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              position: 'absolute',
+                              top: '50%',
+                              left: '50%',
+                              transform: 'translate(-50%, -50%)',
+                              color: '#bbb',
+                              pointerEvents: 'none',
+                              userSelect: 'none',
+                              fontSize: isMobile ? '0.85rem' : '0.9rem',
+                            }}
+                          >
+                            ✍️ Firma aquí
+                          </Typography>
+                        )}
+                      </Box>
+
+                      {/* Canvas action buttons */}
+                      <Box sx={{ display: 'flex', gap: 1.5, justifyContent: 'center', mb: 2, flexWrap: 'wrap' }}>
+                        <Button
+                          size="small"
+                          variant="contained"
+                          disabled={!hasDrawn}
+                          onClick={saveSignatureFromCanvas}
+                          sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' }, textTransform: 'none', borderRadius: 2, px: 3 }}
+                        >
+                          ✓ Guardar Firma
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={!hasDrawn}
+                          onClick={clearSignatureCanvas}
+                          sx={{ textTransform: 'none', borderRadius: 2 }}
+                        >
+                          Limpiar
                         </Button>
                       </Box>
-                    )}
-                  </Box>
+
+                      <Divider sx={{ my: 1.5 }}>
+                        <Typography variant="caption" sx={{ color: '#999' }}>o bien</Typography>
+                      </Divider>
+
+                      {/* Upload fallback */}
+                      <Button variant="outlined" size="small" startIcon={<ImageIcon />} component="label" sx={{ textTransform: 'none' }}>
+                        Subir imagen de firma
+                        <input type="file" accept="image/*" hidden onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            const reader = new FileReader();
+                            reader.onload = (event) => setSignature(event.target?.result as string);
+                            reader.readAsDataURL(file);
+                          }
+                        }} />
+                      </Button>
+                    </Box>
+                  )}
                 </Box>
               )}
             </Box>
