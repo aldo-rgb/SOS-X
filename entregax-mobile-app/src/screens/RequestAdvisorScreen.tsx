@@ -53,7 +53,7 @@ export default function RequestAdvisorScreen({ navigation, route }: Props) {
 
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/advisor/request`, {
+      const res = await fetch(`${API_URL}/api/advisor/request`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
