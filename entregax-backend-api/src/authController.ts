@@ -404,6 +404,8 @@ const ROLE_HIERARCHY: Record<string, number> = {
     [ROLES.CUSTOMER_SERVICE]: 70,
     [ROLES.OPERACIONES]: 65,
     [ROLES.COUNTER_STAFF]: 60,
+    'advisor': 55,
+    'sub_advisor': 50,
     [ROLES.WAREHOUSE_OPS]: 40,
     [ROLES.REPARTIDOR]: 35,
     [ROLES.CLIENT]: 10,
@@ -415,6 +417,8 @@ const ROLE_HIERARCHY: Record<string, number> = {
     'Branch Manager': 80,
     'Customer Service': 70,
     'Counter Staff': 60,
+    'Advisor': 55,
+    'Sub Advisor': 50,
     'Warehouse Ops': 40,
     'Repartidor': 35,
     'Client': 10
