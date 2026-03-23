@@ -1473,7 +1473,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
       WHERE user_id = $1
     `, [userId]);
 
-    // 2b. Contar órdenes marítimas
+    // 2b. Contar órdenes marítimas (por user_id O por shipping_mark)
     const maritimeStatsQuery = await pool.query(`
       SELECT 
         COUNT(*) FILTER (WHERE status IN ('in_transit', 'in_warehouse', 'shipped', 'at_port', 'loading')) as en_transito,
@@ -1481,8 +1481,8 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         COUNT(*) FILTER (WHERE status = 'delivered' AND delivered_at >= NOW() - INTERVAL '30 days') as entregados_mes,
         COALESCE(SUM(COALESCE(assigned_cost_mxn, saldo_pendiente, 0)) FILTER (WHERE payment_status != 'paid' AND status NOT IN ('cancelled', 'delivered')), 0) as saldo_pendiente
       FROM maritime_orders
-      WHERE user_id = $1
-    `, [userId]);
+      WHERE user_id = $1 OR UPPER(shipping_mark) = UPPER($2)
+    `, [userId, boxId]);
 
     const stats = packagesStatsQuery.rows[0];
     const maritimeStats = maritimeStatsQuery.rows[0];
@@ -1560,6 +1560,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
     `, [userId, boxId]);
 
     // 3b. Obtener órdenes marítimas activas del cliente
+    // Buscar por user_id O por shipping_mark = box_id
     const maritimeOrdersQuery = await pool.query(`
       SELECT 
         id,
@@ -1587,15 +1588,28 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         CASE WHEN payment_status = 'paid' THEN true ELSE false END as client_paid,
         delivery_address_id,
         NULL as assigned_address_id,
-        created_at
+        created_at,
+        total_boxes,
+        total_weight_kg as weight,
+        total_cbm as cbm,
+        NULL as dimensions,
+        declared_value,
+        NULL as image_url,
+        NULL as destination_address,
+        NULL as destination_city,
+        NULL as destination_contact,
+        false as is_master,
+        NULL as master_id,
+        false as has_gex,
+        NULL as gex_folio
       FROM maritime_orders
-      WHERE user_id = $1
+      WHERE (user_id = $1 OR UPPER(shipping_mark) = UPPER($2))
         AND status NOT IN ('delivered', 'cancelled')
       ORDER BY 
         CASE WHEN status = 'ready_pickup' THEN 0 ELSE 1 END,
         created_at DESC
-      LIMIT 20
-    `, [userId]);
+      LIMIT 50
+    `, [userId, boxId]);
 
     // 3c. Obtener paquetes DHL activos del cliente (si existe la tabla y tiene relación)
     let dhlPackagesRows: any[] = [];
