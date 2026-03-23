@@ -15,6 +15,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Linking,
+  Image,
 } from 'react-native';
 import {
   Text,
@@ -27,6 +28,7 @@ import { RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { API_URL } from '../services/api';
 import { useTranslation } from 'react-i18next';
+import * as ImagePicker from 'expo-image-picker';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111111';
@@ -52,6 +54,7 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
   const [ticketMessage, setTicketMessage] = useState('');
   const [ticketCategory, setTicketCategory] = useState('');
   const [ticketTracking, setTicketTracking] = useState('');
+  const [ticketImages, setTicketImages] = useState<{ uri: string; name: string; type: string }[]>([]);
   const [loading, setLoading] = useState(false);
   
   // Info del asesor (cargar desde API)
@@ -129,6 +132,70 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
     setTicketMessage('');
     setTicketCategory('');
     setTicketTracking('');
+    setTicketImages([]);
+  };
+
+  // Seleccionar imagen de la galería
+  const handlePickImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(t('common.error'), t('helpCenter.galleryPermissionDenied'));
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        quality: 0.7,
+        selectionLimit: 5,
+      });
+
+      if (!result.canceled && result.assets) {
+        const newImages = result.assets.map((asset) => ({
+          uri: asset.uri,
+          name: asset.fileName || `image_${Date.now()}.jpg`,
+          type: asset.mimeType || 'image/jpeg',
+        }));
+        setTicketImages((prev) => [...prev, ...newImages].slice(0, 5));
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+    }
+  };
+
+  // Tomar foto con la cámara
+  const handleTakePhoto = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(t('common.error'), t('helpCenter.cameraPermissionDenied'));
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        quality: 0.7,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const asset = result.assets[0];
+        setTicketImages((prev) => [
+          ...prev,
+          {
+            uri: asset.uri,
+            name: asset.fileName || `photo_${Date.now()}.jpg`,
+            type: asset.mimeType || 'image/jpeg',
+          },
+        ].slice(0, 5));
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+    }
+  };
+
+  // Eliminar imagen
+  const handleRemoveImage = (index: number) => {
+    setTicketImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   // Validar formulario
@@ -158,22 +225,34 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
     try {
       // Construir mensaje con contexto
       const fullMessage = ticketTracking.trim() 
-        ? `[Guía: ${ticketTracking.trim()}] ${ticketMessage.trim()}`
+        ? `[Tracking: ${ticketTracking.trim()}]\n\n${ticketMessage.trim()}`
         : ticketMessage.trim();
+
+      // Usar FormData para enviar imágenes
+      const formData = new FormData();
+      formData.append('message', fullMessage);
+      formData.append('category', ticketCategory);
+      if (ticketTracking.trim()) {
+        formData.append('trackingNumber', ticketTracking.trim());
+      }
+      formData.append('escalateDirectly', 'true');
+      
+      // Agregar imágenes
+      ticketImages.forEach((img, index) => {
+        formData.append('images', {
+          uri: img.uri,
+          name: img.name || `support_image_${index}.jpg`,
+          type: img.type || 'image/jpeg',
+        } as any);
+      });
 
       const res = await fetch(`${API_URL}/api/support/message`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
+          'Content-Type': 'multipart/form-data',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          userId: user.id,
-          message: fullMessage,
-          category: ticketCategory,
-          trackingNumber: ticketTracking.trim() || null,
-          escalateDirectly: true,
-        }),
+        body: formData,
       });
 
       const data = await res.json();
@@ -375,6 +454,43 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
                 value={ticketMessage}
                 onChangeText={setTicketMessage}
               />
+
+              {/* Sección de Fotografías */}
+              <Text style={styles.modalLabel}>📷 {t('helpCenter.photosLabel')} ({t('common.optional')})</Text>
+              <Text style={styles.photosHint}>{t('helpCenter.photosHint')}</Text>
+              
+              <View style={styles.photoButtonsRow}>
+                <TouchableOpacity style={styles.photoButton} onPress={handlePickImage}>
+                  <Ionicons name="images-outline" size={22} color={ORANGE} />
+                  <Text style={styles.photoButtonText}>{t('helpCenter.gallery')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.photoButton} onPress={handleTakePhoto}>
+                  <Ionicons name="camera-outline" size={22} color={ORANGE} />
+                  <Text style={styles.photoButtonText}>{t('helpCenter.camera')}</Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Preview de imágenes */}
+              {ticketImages.length > 0 && (
+                <View style={styles.imagesPreviewContainer}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {ticketImages.map((img, index) => (
+                      <View key={index} style={styles.imagePreviewWrapper}>
+                        <Image source={{ uri: img.uri }} style={styles.imagePreview} />
+                        <TouchableOpacity 
+                          style={styles.removeImageButton}
+                          onPress={() => handleRemoveImage(index)}
+                        >
+                          <Ionicons name="close-circle" size={24} color="#FF4444" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </ScrollView>
+                  <Text style={styles.imagesCount}>
+                    ✓ {ticketImages.length} {ticketImages.length === 1 ? t('helpCenter.imageAttached') : t('helpCenter.imagesAttached')}
+                  </Text>
+                </View>
+              )}
 
               <View style={styles.modalInfo}>
                 <Ionicons name="shield-checkmark" size={18} color={GREEN} />
@@ -659,5 +775,58 @@ const styles = StyleSheet.create({
     height: 50,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Estilos para fotos
+  photosHint: {
+    fontSize: 12,
+    color: '#999',
+    marginBottom: 10,
+  },
+  photoButtonsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  photoButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: ORANGE,
+    borderRadius: 10,
+    backgroundColor: '#FFF5F2',
+  },
+  photoButtonText: {
+    fontSize: 14,
+    color: ORANGE,
+    fontWeight: '500',
+  },
+  imagesPreviewContainer: {
+    marginBottom: 12,
+  },
+  imagePreviewWrapper: {
+    position: 'relative',
+    marginRight: 10,
+  },
+  imagePreview: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+  },
+  removeImageButton: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+  },
+  imagesCount: {
+    fontSize: 12,
+    color: GREEN,
+    marginTop: 8,
+    fontWeight: '500',
   },
 });
