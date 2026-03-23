@@ -314,7 +314,7 @@ export default function DashboardClient() {
   const [supportImages, setSupportImages] = useState<{ file: File; preview: string }[]>([]);
   const [trackingValidation, setTrackingValidation] = useState<{ status: 'idle' | 'validating' | 'valid' | 'invalid'; message: string }>({ status: 'idle', message: '' });
   
-  // Chat Virtual con Javier (asesor IA)
+  // Chat Virtual con Orlando (asesor IA)
   const [supportChatOpen, setSupportChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<{ id: number; type: 'user' | 'agent'; text: string; time: string }[]>([]);
   const [chatInput, setChatInput] = useState('');
@@ -1043,7 +1043,7 @@ export default function DashboardClient() {
         if (serviceFilter === 'china_air') return type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX';
         if (serviceFilter === 'china_sea') return type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl';
         if (serviceFilter === 'usa_pobox') return type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type;
-        if (serviceFilter === 'dhl') return type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL';
+        if (serviceFilter === 'dhl') return type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL' || type === 'AA_DHL' || type === 'DHL_MTY';
         return true;
       });
     }
@@ -1104,7 +1104,7 @@ export default function DashboardClient() {
         counts.china_sea++;
       } else if (type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type) {
         counts.usa_pobox++;
-      } else if (type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL') {
+      } else if (type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL' || type === 'AA_DHL' || type === 'DHL_MTY') {
         counts.dhl++;
       }
     });
@@ -1224,13 +1224,13 @@ export default function DashboardClient() {
     }
   };
 
-  // Inicializar Chat Virtual con Javier
+  // Inicializar Chat Virtual con Orlando
   const initSupportChat = () => {
     const now = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
     const userNamePart = userName?.split(' ')[0] || 'Cliente';
     setChatMessages([
       { id: 1, type: 'agent', text: `¡Hola ${userNamePart}! Soy Orlando, tu asistente en línea de EntregaX. 👋`, time: now },
-      { id: 2, type: 'agent', text: '¿En qué puedo ayudarte hoy?.', time: now },
+      { id: 2, type: 'agent', text: '¿En qué puedo ayudarte hoy?Orlando.', time: now },
     ]);
     setChatTicketId(null);
     setChatInput('');
@@ -5941,7 +5941,7 @@ export default function DashboardClient() {
         </Box>
       </Dialog>
 
-      {/* Modal Chat Virtual con Javier */}
+      {/* Modal Chat Virtual con Orlando */}
       <Dialog 
         open={supportChatOpen} 
         onClose={() => setSupportChatOpen(false)} 
@@ -5971,7 +5971,7 @@ export default function DashboardClient() {
             sx={{ width: 40, height: 40 }}
           />
           <Box sx={{ flex: 1 }}>
-            <Typography fontWeight="bold">Javier</Typography>
+            <Typography fontWeight="bold"></Typography>
             <Typography variant="caption" sx={{ opacity: 0.9 }}>
               {chatLoading ? 'Escribiendo...' : 'Servicio al Cliente'}
             </Typography>
@@ -6034,7 +6034,7 @@ export default function DashboardClient() {
             <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
               <Box sx={{ bgcolor: 'white', borderRadius: 2, px: 2, py: 1, boxShadow: 1 }}>
                 <Typography variant="body2" color="text.secondary">
-                  ⏳ Javier está escribiendo...
+                  ⏳ Orlando está escribiendo...
                 </Typography>
               </Box>
             </Box>
