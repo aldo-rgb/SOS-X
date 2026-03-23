@@ -211,10 +211,10 @@ const styles = StyleSheet.create({
     backgroundColor: BLACK,
   },
   header: {
-    flex: 0.42,
+    flex: 0.45,
     justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingBottom: 20,
+    paddingBottom: 15,
   },
   logoImage: {
     width: 207,
