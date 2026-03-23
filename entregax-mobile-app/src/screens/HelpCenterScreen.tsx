@@ -249,7 +249,6 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
       const res = await fetch(`${API_URL}/api/support/message`, {
         method: 'POST',
         headers: {
-          'Content-Type': 'multipart/form-data',
           Authorization: `Bearer ${token}`,
         },
         body: formData,
@@ -257,14 +256,16 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
 
       const data = await res.json();
 
-      if (data.status === 'escalated') {
+      if (res.ok && (data.status === 'escalated' || data.ticketFolio)) {
         setTicketModalOpen(false);
         resetTicketForm();
         Alert.alert(
           t('helpCenter.ticketCreated'),
-          t('helpCenter.ticketCreatedMsg', { folio: data.ticketFolio }),
+          t('helpCenter.ticketCreatedMsg', { folio: data.ticketFolio || '' }),
           [{ text: t('common.ok'), onPress: () => navigation.goBack() }]
         );
+      } else if (!res.ok) {
+        Alert.alert(t('common.error'), data.error || data.message || t('errors.serverError'));
       } else {
         Alert.alert(t('common.success'), data.message || t('helpCenter.ticketCreated'));
       }
