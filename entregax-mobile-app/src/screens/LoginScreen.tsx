@@ -211,15 +211,15 @@ const styles = StyleSheet.create({
     backgroundColor: BLACK,
   },
   header: {
-    flex: 0.35,
-    justifyContent: 'center',
+    flex: 0.38,
+    justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingTop: 40,
+    paddingBottom: 30,
   },
   logoImage: {
-    width: 180,
-    height: 180,
-    marginBottom: 10,
+    width: 207,
+    height: 207,
+    marginBottom: 8,
   },
   logoText: {
     fontSize: 42,
