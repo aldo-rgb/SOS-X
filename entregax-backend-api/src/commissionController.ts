@@ -131,9 +131,18 @@ export const validateReferralCode = async (req: Request, res: Response): Promise
             return res.status(400).json({ valid: false, message: 'Código requerido' });
         }
         
+        const codeUpper = code.toUpperCase();
+        // Normalizar código: agregar guión si no lo tiene (CHRI3225 -> CHRI-3225)
+        const normalizedCode = codeUpper.includes('-') 
+            ? codeUpper 
+            : codeUpper.length >= 5 
+                ? `${codeUpper.slice(0, 4)}-${codeUpper.slice(4)}`
+                : codeUpper;
+        
+        // Buscar por código exacto o normalizado
         const result = await pool.query(
-            'SELECT id, full_name, role FROM users WHERE referral_code = $1',
-            [code.toUpperCase()]
+            'SELECT id, full_name, role FROM users WHERE referral_code = $1 OR referral_code = $2',
+            [codeUpper, normalizedCode]
         );
         
         if (result.rows.length === 0) {
@@ -146,6 +155,12 @@ export const validateReferralCode = async (req: Request, res: Response): Promise
             advisor: {
                 name: advisor.full_name,
                 role: advisor.role
+            },
+            // Agregar campos adicionales para compatibilidad
+            success: true,
+            data: {
+                referidor: advisor.full_name,
+                isAdvisor: advisor.role === 'advisor'
             }
         });
     } catch (error) {

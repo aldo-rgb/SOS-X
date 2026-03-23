@@ -439,8 +439,11 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
         let hasAdvisor = false;
         let referredBy = null;
         
+        console.log('🔍 Procesando referralCodeInput:', referralCodeInput);
+        
         if (referralCodeInput) {
             const codeToCheck = referralCodeInput.trim().toUpperCase();
+            console.log('🔍 Código a verificar:', codeToCheck);
             
             // Buscar si es un código de asesor
             const advisorCheck = await client.query(`
@@ -448,12 +451,15 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
                 WHERE referral_code = $1 AND role = 'advisor'
             `, [codeToCheck]);
             
+            console.log('🔍 Asesor encontrado:', advisorCheck.rows);
+            
             if (advisorCheck.rows.length > 0) {
                 // Asignar asesor
                 await client.query(`
                     UPDATE users SET advisor_id = $1 WHERE id = $2
                 `, [advisorCheck.rows[0].id, newUserId]);
                 hasAdvisor = true;
+                console.log('✅ Asesor asignado:', advisorCheck.rows[0].full_name);
             } else {
                 // Buscar si es código de amigo
                 const friendCheck = await client.query(`

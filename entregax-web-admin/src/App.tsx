@@ -295,7 +295,7 @@ function App() {
             const isPendingReview = currentUser.verificationStatus === 'pending_review';
             const verificationNotif = {
               id: -1, // ID especial para no confundir con reales
-              title: isPendingReview ? '⏳ Verificación en revisión' : '⚠️ Verificación pendiente',
+              title: isPendingReview ? 'Verificación en revisión' : 'Verificación pendiente',
               message: isPendingReview 
                 ? 'Tu perfil está siendo revisado por nuestro equipo. Te notificaremos cuando sea aprobado.'
                 : 'Completa tu verificación de identidad para poder recibir paquetes y realizar envíos.',
