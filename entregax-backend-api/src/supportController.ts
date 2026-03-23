@@ -13,8 +13,12 @@ import fs from 'fs';
 // CONFIGURACIÓN DE MULTER PARA IMÁGENES DE SOPORTE
 // ============================================================
 const supportUploadsDir = path.join(__dirname, '..', 'uploads', 'support');
-if (!fs.existsSync(supportUploadsDir)) {
-  fs.mkdirSync(supportUploadsDir, { recursive: true });
+try {
+  if (!fs.existsSync(supportUploadsDir)) {
+    fs.mkdirSync(supportUploadsDir, { recursive: true });
+  }
+} catch (e) {
+  console.warn('⚠️ No se pudo crear directorio de uploads de soporte:', e);
 }
 
 const supportStorage = multer.diskStorage({
@@ -27,7 +31,7 @@ const supportStorage = multer.diskStorage({
   }
 });
 
-export const uploadSupportImages = multer({
+const multerUpload = multer({
   storage: supportStorage,
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB por imagen
   fileFilter: (_req, file, cb) => {
@@ -37,10 +41,21 @@ export const uploadSupportImages = multer({
     if (extname && mimetype) {
       cb(null, true);
     } else {
-      cb(new Error('Solo se permiten imágenes (jpeg, jpg, png, gif, webp)'));
+      cb(null, false); // Ignorar archivo no válido en vez de lanzar error
     }
   }
-}).array('images', 10); // Máximo 10 imágenes
+}).array('images', 10);
+
+// Wrapper que maneja errores de multer sin crashear el request
+export const uploadSupportImages = (req: Request, res: Response, next: Function) => {
+  multerUpload(req, res, (err: any) => {
+    if (err) {
+      console.warn('⚠️ Error de multer (ignorando, continuando sin imágenes):', err.message || err);
+      // Continuar sin archivos, no bloquear el ticket
+    }
+    next();
+  });
+};
 
 // ============================================================
 // CONFIGURACIÓN DE IA (OpenAI)
@@ -213,6 +228,8 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
     const userId = (req as any).user?.userId || req.body.userId;
     const message = req.body.message;
     const ticketId = req.body.ticketId;
+
+    console.log(`🎫 [SUPPORT] userId=${userId}, message=${message?.substring(0, 50)}, hasFiles=${!!(req.files as any[])?.length}`);
     const category = req.body.category;
     const escalateDirectly = req.body.escalateDirectly === 'true' || req.body.escalateDirectly === true;
     
