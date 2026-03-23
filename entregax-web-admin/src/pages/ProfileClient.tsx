@@ -239,7 +239,7 @@ const ProfileClient = ({ onBack }: ProfileClientProps) => {
             fontSize: 36, 
             color: profile?.is_verified ? '#4CAF50' : '#FFC107',
           }} />
-          <Box>
+          <Box sx={{ flex: 1 }}>
             <Typography variant="subtitle1" sx={{ fontWeight: 700, color: profile?.is_verified ? '#4CAF50' : '#FFC107' }}>
               {profile?.is_verified ? 'Verificado' : 'Pendiente de Verificación'}
             </Typography>
@@ -250,6 +250,28 @@ const ProfileClient = ({ onBack }: ProfileClientProps) => {
               }
             </Typography>
           </Box>
+          {!profile?.is_verified && (
+            <Button
+              variant="contained"
+              size="small"
+              onClick={() => {
+                // Abrir el formulario de verificación
+                window.open('https://forms.gle/TuFormularioDeVerificacion', '_blank');
+                // O alternativamente navegar a una pantalla de verificación interna
+                // setShowVerificationModal(true);
+              }}
+              sx={{
+                bgcolor: ORANGE,
+                '&:hover': { bgcolor: '#d94d1f' },
+                borderRadius: 2,
+                textTransform: 'none',
+                fontWeight: 600,
+                px: 2,
+              }}
+            >
+              Iniciar Verificación
+            </Button>
+          )}
         </Box>
       </Paper>
 

@@ -209,8 +209,8 @@ async function getAIResponse(userMessage: string, chatHistory: any[]): Promise<{
  */
 export const handleSupportMessage = async (req: Request, res: Response): Promise<any> => {
   try {
-    // Obtener datos del body (puede venir como form-data o json)
-    const userId = req.body.userId;
+    // Obtener userId del JWT o del body (para compatibilidad)
+    const userId = (req as any).user?.id || req.body.userId;
     const message = req.body.message;
     const ticketId = req.body.ticketId;
     const category = req.body.category;
