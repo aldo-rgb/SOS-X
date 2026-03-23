@@ -826,17 +826,27 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
     try {
         const { userId } = req.params;
         
-        // 1. Paquetes AÉREOS (USA PO Box)
+        // Obtener box_id del usuario para búsqueda extendida
+        const userResult = await pool.query(`SELECT box_id FROM users WHERE id = $1`, [userId]);
+        const userBoxId = userResult.rows[0]?.box_id || null;
+        
+        // 1. Paquetes AÉREOS (USA PO Box) - Buscar por user_id O por box_id (sin duplicados)
         const airResult = await pool.query(`
-            SELECT p.*, u.full_name, u.box_id,
-                   c.status as consolidation_status,
-                   c.id as consolidation_id
-            FROM packages p
-            JOIN users u ON p.user_id = u.id
-            LEFT JOIN consolidations c ON p.consolidation_id = c.id
-            WHERE p.user_id = $1 AND (p.is_master = true OR p.master_id IS NULL)
-            ORDER BY p.created_at DESC
-        `, [userId]);
+            SELECT * FROM (
+                SELECT DISTINCT ON (p.id) p.*, 
+                       COALESCE(u.full_name, '') as full_name, 
+                       COALESCE(p.box_id, u.box_id, $2) as client_box_id,
+                       c.status as consolidation_status,
+                       c.id as consolidation_id
+                FROM packages p
+                LEFT JOIN users u ON p.user_id = u.id
+                LEFT JOIN consolidations c ON p.consolidation_id = c.id
+                WHERE (p.user_id = $1 OR ($2 IS NOT NULL AND p.box_id = $2))
+                  AND (p.is_master = true OR p.master_id IS NULL)
+                ORDER BY p.id
+            ) sub
+            ORDER BY created_at DESC
+        `, [userId, userBoxId]);
 
         // Obtener órdenes de pago pendientes para los paquetes del usuario
         const pendingPaymentsResult = await pool.query(`
@@ -968,16 +978,16 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             };
         });
 
-        // 2. Paquetes MARÍTIMOS (China)
+        // 2. Paquetes MARÍTIMOS (China) - Buscar por user_id O por shipping_mark
         const maritimeResult = await pool.query(`
-            SELECT mo.*, 
+            SELECT DISTINCT ON (mo.id) mo.*, 
                    ct.container_number,
                    ct.bl_number as container_bl
             FROM maritime_orders mo
             LEFT JOIN containers ct ON mo.container_id = ct.id
-            WHERE mo.user_id = $1
-            ORDER BY mo.created_at DESC
-        `, [userId]);
+            WHERE mo.user_id = $1 OR ($2 IS NOT NULL AND mo.shipping_mark = $2)
+            ORDER BY mo.id, mo.created_at DESC
+        `, [userId, userBoxId]);
 
         const maritimePackages = maritimeResult.rows.map(pkg => ({
             id: pkg.id + 100000, // Offset para evitar colisión de IDs
@@ -1016,14 +1026,14 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             instructions_assigned_at: pkg.instructions_assigned_at || null
         }));
 
-        // 3. Paquetes TDI AÉREO China (china_receipts)
+        // 3. Paquetes TDI AÉREO China (china_receipts) - Buscar por user_id O por shipping_mark
         const chinaAirResult = await pool.query(`
-            SELECT cr.*, u.full_name, u.box_id
+            SELECT DISTINCT ON (cr.id) cr.*, u.full_name, COALESCE(u.box_id, cr.shipping_mark) as box_id
             FROM china_receipts cr
             LEFT JOIN users u ON cr.user_id = u.id
-            WHERE cr.user_id = $1
-            ORDER BY cr.created_at DESC
-        `, [userId]);
+            WHERE cr.user_id = $1 OR ($2 IS NOT NULL AND cr.shipping_mark = $2)
+            ORDER BY cr.id, cr.created_at DESC
+        `, [userId, userBoxId]);
 
         const chinaAirPackages = chinaAirResult.rows.map(pkg => ({
             id: pkg.id + 200000, // Offset para evitar colisión de IDs
