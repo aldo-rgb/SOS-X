@@ -22,6 +22,11 @@ import {
   DialogContent,
   DialogActions,
   InputAdornment,
+  Stepper,
+  Step,
+  StepLabel,
+  Checkbox,
+  FormControlLabel,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -35,6 +40,11 @@ import {
   VisibilityOff as VisibilityOffIcon,
   Badge as BadgeIcon,
   ContentCopy as CopyIcon,
+  CameraAlt as CameraIcon,
+  Image as ImageIcon,
+  PhoneIphone as PhoneIphoneIcon,
+  Warning as WarningIcon,
+  Draw as DrawIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -72,6 +82,46 @@ const ProfileClient = ({ onBack }: ProfileClientProps) => {
   const [showCurrentPw, setShowCurrentPw] = useState(false);
   const [showNewPw, setShowNewPw] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
+
+  // Verification modal state
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [verificationStep, setVerificationStep] = useState(0);
+  const [hasCamera, setHasCamera] = useState<boolean | null>(null);
+  const [verificationImages, setVerificationImages] = useState<{[key: string]: string}>({});
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [termsScrolled, setTermsScrolled] = useState(false);
+  const [signature, setSignature] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState(false);
+  const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
+  const [showCameraPreview, setShowCameraPreview] = useState(false);
+  const [currentCaptureStep, setCurrentCaptureStep] = useState<string>('');
+  
+  // Términos y Condiciones
+  const TERMS_AND_CONDITIONS = `LOGISTI-K SYSTEMS DEVELOPMENT S.A. DE C.V. (en adelante como "LSD") y EL CLIENTE, acuerdan que la aceptación y ejecución del presente contrato constituye el consentimiento de EL CLIENTE para sujetarse a los siguientes términos y condiciones:
+
+TÉRMINOS Y CONDICIONES:
+
+OBJETO. El objeto de la relación comercial, así como su alcance, se limitan única y exclusivamente a lo detallado en (las) Cotización(es) que se anexen al presente Contrato de tiempo en tiempo.
+
+CONTRAPRESTACIÓN. La cantidad señalada como contraprestación en la Cotización aplicable será pagada en los términos y condiciones ahí descritos.
+
+OBLIGACIONES DEL CLIENTE. EL CLIENTE se compromete en todo momento a proporcionar la información correcta de sus productos como lo es: fotografías, manuales, listas de empaque, comprobantes de pago de adquisición de mercancías y/o cualquier otra que sea necesaria para el servicio contratado.
+
+CONFIDENCIALIDAD DE LA INFORMACIÓN. Las partes acuerdan considerar como información confidencial cualquier información oral o escrita proporcionada por una a la otra con motivo de esta operación.
+
+VIGENCIA. La relación de este Contrato es por tiempo indefinido y aplicará en todas y cada una de las Cotizaciones que se emitan por LSD.
+
+POLÍTICA DE DEVOLUCIÓN. La garantía de devolución a favor de EL CLIENTE aplicará siempre y cuando sea informado a través de un correo institucional de LSD que su mercancía califica para dicho evento. El reembolso será de USD $7.00 por kilo si el traslado es aéreo/terrestre. Si el traslado es marítimo se reembolsarán USD $800.00 por metro cúbico.
+
+GASTOS DE ALMACENAMIENTO. Una vez transcurrido el plazo de 15 días naturales después de que la mercancía haya arribado a las instalaciones de LSD sin liquidar adeudos, se cobrarán MXN $1.00 por kilo diario de almacenaje.
+
+RENUNCIA DE DERECHOS. Una vez transcurrido el plazo de 60 días naturales sin liquidar adeudos, EL CLIENTE renuncia a sus derechos de propiedad sobre dichas mercancías.
+
+LÍMITE DE RESPONSABILIDAD. El límite máximo de responsabilidad de LSD no excederá del 50% del valor total de la contraprestación pactada.
+
+FIRMA DIGITAL. Las Partes consienten el uso de firma electrónica, dando el mismo valor a documentos firmados digitalmente como si hubieran sido firmados de forma autógrafa.
+
+JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a las leyes aplicables en Monterrey, Nuevo León.`;
 
   // Edit phone dialog
   const [showEditPhone, setShowEditPhone] = useState(false);
@@ -177,6 +227,148 @@ const ProfileClient = ({ onBack }: ProfileClientProps) => {
     setSnackbar({ open: true, message: 'Copiado al portapapeles', severity: 'info' });
   };
 
+  // Detectar si hay cámara disponible
+  const checkCamera = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      setHasCamera(videoDevices.length > 0);
+    } catch {
+      setHasCamera(false);
+    }
+  };
+
+  // Abrir modal de verificación
+  const openVerificationModal = () => {
+    checkCamera();
+    setShowVerificationModal(true);
+    setVerificationStep(0);
+    setVerificationImages({});
+    setTermsAccepted(false);
+    setTermsScrolled(false);
+    setSignature(null);
+  };
+
+  // Cerrar cámara y modal
+  const closeVerificationModal = () => {
+    if (videoStream) {
+      videoStream.getTracks().forEach(track => track.stop());
+      setVideoStream(null);
+    }
+    setShowCameraPreview(false);
+    setShowVerificationModal(false);
+  };
+
+  // Manejar captura desde cámara
+  const handleCapture = async (stepKey: string) => {
+    setCurrentCaptureStep(stepKey);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: stepKey === 'selfie' ? 'user' : 'environment' } 
+      });
+      setVideoStream(stream);
+      setShowCameraPreview(true);
+    } catch (error) {
+      setSnackbar({ open: true, message: 'No se pudo acceder a la cámara', severity: 'error' });
+    }
+  };
+
+  // Tomar foto desde preview de cámara
+  const takePhoto = () => {
+    const video = document.getElementById('camera-preview') as HTMLVideoElement;
+    if (video) {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(video, 0, 0);
+      const imageData = canvas.toDataURL('image/jpeg', 0.8);
+      setVerificationImages(prev => ({ ...prev, [currentCaptureStep]: imageData }));
+      if (videoStream) {
+        videoStream.getTracks().forEach(track => track.stop());
+        setVideoStream(null);
+      }
+      setShowCameraPreview(false);
+    }
+  };
+
+  // Manejar subida de imagen desde galería
+  const handleImageUpload = (stepKey: string, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        setVerificationImages(prev => ({ ...prev, [stepKey]: event.target?.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Verificar si el paso actual está completo
+  const isStepComplete = (step: number) => {
+    switch (step) {
+      case 0: return !!verificationImages['ineFront'];
+      case 1: return !!verificationImages['ineBack'];
+      case 2: return !!verificationImages['selfie'];
+      case 3: return termsAccepted && termsScrolled;
+      case 4: return !!signature;
+      default: return false;
+    }
+  };
+
+  // Enviar verificación
+  const submitVerification = async () => {
+    if (!verificationImages['ineFront'] || !verificationImages['ineBack'] || !verificationImages['selfie'] || !signature) {
+      setSnackbar({ open: true, message: 'Por favor completa todos los pasos', severity: 'warning' });
+      return;
+    }
+
+    setVerifying(true);
+    try {
+      const response = await api.post('/verify/documents', {
+        ineFrontBase64: verificationImages['ineFront'],
+        ineBackBase64: verificationImages['ineBack'],
+        selfieBase64: verificationImages['selfie'],
+        signatureBase64: signature,
+      });
+
+      if (response.data.success) {
+        if (response.data.pendingReview) {
+          setSnackbar({ 
+            open: true, 
+            message: '📋 Documentos enviados. Un administrador revisará tu verificación en 24-48 horas.', 
+            severity: 'info' 
+          });
+        } else {
+          setSnackbar({ 
+            open: true, 
+            message: `✅ ¡Verificación exitosa! Confianza: ${response.data.confidence || 'alta'}`, 
+            severity: 'success' 
+          });
+        }
+        closeVerificationModal();
+        loadProfile();
+      }
+    } catch (error: any) {
+      setSnackbar({ 
+        open: true, 
+        message: error.response?.data?.message || 'Error en la verificación', 
+        severity: 'error' 
+      });
+    } finally {
+      setVerifying(false);
+    }
+  };
+
+  // Manejar scroll de términos
+  const handleTermsScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    const element = e.currentTarget;
+    const isAtBottom = element.scrollHeight - element.scrollTop <= element.clientHeight + 50;
+    if (isAtBottom) {
+      setTermsScrolled(true);
+    }
+  };
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
@@ -254,12 +446,7 @@ const ProfileClient = ({ onBack }: ProfileClientProps) => {
             <Button
               variant="contained"
               size="small"
-              onClick={() => {
-                // Abrir el formulario de verificación
-                window.open('https://forms.gle/TuFormularioDeVerificacion', '_blank');
-                // O alternativamente navegar a una pantalla de verificación interna
-                // setShowVerificationModal(true);
-              }}
+              onClick={openVerificationModal}
               sx={{
                 bgcolor: ORANGE,
                 '&:hover': { bgcolor: '#d94d1f' },
@@ -544,6 +731,325 @@ const ProfileClient = ({ onBack }: ProfileClientProps) => {
           >
             {savingPhone ? 'Guardando...' : 'Actualizar'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Modal de Verificación */}
+      <Dialog 
+        open={showVerificationModal} 
+        onClose={closeVerificationModal} 
+        maxWidth="sm" 
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3, maxHeight: '90vh' } }}
+      >
+        <DialogTitle sx={{ bgcolor: '#1a3c5a', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <BadgeIcon />
+          Verificación de Identidad
+          <Box sx={{ flex: 1 }} />
+          <Typography variant="body2">Paso {verificationStep + 1} de 5</Typography>
+        </DialogTitle>
+        
+        <DialogContent sx={{ p: 0 }}>
+          {/* Advertencia de cámara */}
+          {hasCamera === false && verificationStep < 3 && (
+            <Box sx={{ bgcolor: '#fff3e0', p: 2, display: 'flex', alignItems: 'flex-start', gap: 1.5, borderBottom: '1px solid #ffe0b2' }}>
+              <PhoneIphoneIcon sx={{ color: ORANGE, mt: 0.3 }} />
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#e65100' }}>
+                  Recomendamos usar un celular
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#bf360c' }}>
+                  No detectamos cámara en tu dispositivo. Para tomar la selfie necesitas cámara. 
+                  Puedes continuar subiendo fotos desde archivos, pero recomendamos hacer este proceso desde tu celular.
+                </Typography>
+              </Box>
+            </Box>
+          )}
+
+          {/* Stepper */}
+          <Box sx={{ px: 3, pt: 2, pb: 1 }}>
+            <Stepper activeStep={verificationStep} alternativeLabel>
+              {['ID Frente', 'ID Reverso', 'Selfie', 'Términos', 'Firma'].map((label, index) => (
+                <Step key={label} completed={isStepComplete(index)}>
+                  <StepLabel>{label}</StepLabel>
+                </Step>
+              ))}
+            </Stepper>
+          </Box>
+
+          {/* Preview de cámara */}
+          {showCameraPreview && videoStream && (
+            <Box sx={{ p: 2, textAlign: 'center' }}>
+              <video
+                id="camera-preview"
+                autoPlay
+                playsInline
+                muted
+                ref={(video) => {
+                  if (video && videoStream) {
+                    video.srcObject = videoStream;
+                  }
+                }}
+                style={{ width: '100%', maxWidth: 400, borderRadius: 12, transform: currentCaptureStep === 'selfie' ? 'scaleX(-1)' : 'none' }}
+              />
+              <Box sx={{ mt: 2, display: 'flex', gap: 2, justifyContent: 'center' }}>
+                <Button variant="outlined" onClick={() => {
+                  if (videoStream) {
+                    videoStream.getTracks().forEach(track => track.stop());
+                    setVideoStream(null);
+                  }
+                  setShowCameraPreview(false);
+                }}>
+                  Cancelar
+                </Button>
+                <Button variant="contained" onClick={takePhoto} sx={{ bgcolor: ORANGE }}>
+                  📸 Tomar Foto
+                </Button>
+              </Box>
+            </Box>
+          )}
+
+          {/* Contenido del paso actual */}
+          {!showCameraPreview && (
+            <Box sx={{ p: 3 }}>
+              {/* Paso 0: INE Frente */}
+              {verificationStep === 0 && (
+                <Box sx={{ textAlign: 'center' }}>
+                  <BadgeIcon sx={{ fontSize: 64, color: '#1a3c5a', mb: 2 }} />
+                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>ID Oficial (Frente)</Typography>
+                  <Typography variant="body2" sx={{ color: '#666', mb: 3 }}>
+                    Toma una foto clara del frente de tu identificación oficial (INE/Pasaporte)
+                  </Typography>
+                  
+                  {verificationImages['ineFront'] ? (
+                    <Box>
+                      <img src={verificationImages['ineFront']} alt="INE Frente" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8 }} />
+                      <Button size="small" onClick={() => setVerificationImages(prev => ({ ...prev, ineFront: '' }))} sx={{ mt: 1 }}>
+                        Cambiar foto
+                      </Button>
+                    </Box>
+                  ) : (
+                    <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+                      {hasCamera !== false && (
+                        <Button variant="contained" startIcon={<CameraIcon />} onClick={() => handleCapture('ineFront')} sx={{ bgcolor: '#1a3c5a' }}>
+                          Tomar Foto
+                        </Button>
+                      )}
+                      <Button variant="outlined" startIcon={<ImageIcon />} component="label">
+                        Subir desde Galería
+                        <input type="file" accept="image/*" hidden onChange={(e) => handleImageUpload('ineFront', e)} />
+                      </Button>
+                    </Box>
+                  )}
+                </Box>
+              )}
+
+              {/* Paso 1: INE Reverso */}
+              {verificationStep === 1 && (
+                <Box sx={{ textAlign: 'center' }}>
+                  <BadgeIcon sx={{ fontSize: 64, color: '#1a3c5a', mb: 2 }} />
+                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>ID Oficial (Reverso)</Typography>
+                  <Typography variant="body2" sx={{ color: '#666', mb: 3 }}>
+                    Toma una foto clara del reverso de tu identificación oficial
+                  </Typography>
+                  
+                  {verificationImages['ineBack'] ? (
+                    <Box>
+                      <img src={verificationImages['ineBack']} alt="INE Reverso" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8 }} />
+                      <Button size="small" onClick={() => setVerificationImages(prev => ({ ...prev, ineBack: '' }))} sx={{ mt: 1 }}>
+                        Cambiar foto
+                      </Button>
+                    </Box>
+                  ) : (
+                    <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+                      {hasCamera !== false && (
+                        <Button variant="contained" startIcon={<CameraIcon />} onClick={() => handleCapture('ineBack')} sx={{ bgcolor: '#1a3c5a' }}>
+                          Tomar Foto
+                        </Button>
+                      )}
+                      <Button variant="outlined" startIcon={<ImageIcon />} component="label">
+                        Subir desde Galería
+                        <input type="file" accept="image/*" hidden onChange={(e) => handleImageUpload('ineBack', e)} />
+                      </Button>
+                    </Box>
+                  )}
+                </Box>
+              )}
+
+              {/* Paso 2: Selfie */}
+              {verificationStep === 2 && (
+                <Box sx={{ textAlign: 'center' }}>
+                  <CameraIcon sx={{ fontSize: 64, color: '#1a3c5a', mb: 2 }} />
+                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>Selfie</Typography>
+                  <Typography variant="body2" sx={{ color: '#666', mb: 3 }}>
+                    Toma una selfie clara de tu rostro mirando directamente a la cámara
+                  </Typography>
+                  
+                  {hasCamera === false && (
+                    <Box sx={{ bgcolor: '#ffebee', p: 2, borderRadius: 2, mb: 2 }}>
+                      <Typography variant="body2" sx={{ color: '#c62828', display: 'flex', alignItems: 'center', gap: 1, justifyContent: 'center' }}>
+                        <WarningIcon fontSize="small" />
+                        Se requiere cámara para la selfie. Por favor usa un celular o sube una foto reciente.
+                      </Typography>
+                    </Box>
+                  )}
+                  
+                  {verificationImages['selfie'] ? (
+                    <Box>
+                      <img src={verificationImages['selfie']} alt="Selfie" style={{ maxWidth: '100%', maxHeight: 200, borderRadius: 8 }} />
+                      <Button size="small" onClick={() => setVerificationImages(prev => ({ ...prev, selfie: '' }))} sx={{ mt: 1 }}>
+                        Cambiar foto
+                      </Button>
+                    </Box>
+                  ) : (
+                    <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+                      {hasCamera !== false && (
+                        <Button variant="contained" startIcon={<CameraIcon />} onClick={() => handleCapture('selfie')} sx={{ bgcolor: '#1a3c5a' }}>
+                          Tomar Selfie
+                        </Button>
+                      )}
+                      <Button variant="outlined" startIcon={<ImageIcon />} component="label">
+                        Subir Foto
+                        <input type="file" accept="image/*" hidden onChange={(e) => handleImageUpload('selfie', e)} />
+                      </Button>
+                    </Box>
+                  )}
+                </Box>
+              )}
+
+              {/* Paso 3: Términos */}
+              {verificationStep === 3 && (
+                <Box>
+                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, textAlign: 'center' }}>
+                    📋 Términos y Condiciones
+                  </Typography>
+                  <Typography variant="body2" sx={{ color: '#666', mb: 2, textAlign: 'center' }}>
+                    Por favor lee los términos y condiciones. Debes llegar al final para poder aceptar.
+                  </Typography>
+                  
+                  <Box 
+                    onScroll={handleTermsScroll}
+                    sx={{ 
+                      maxHeight: 250, 
+                      overflow: 'auto', 
+                      p: 2, 
+                      bgcolor: '#f5f5f5', 
+                      borderRadius: 2,
+                      border: '1px solid #ddd',
+                      fontSize: '0.85rem',
+                      lineHeight: 1.6,
+                      mb: 2,
+                    }}
+                  >
+                    {TERMS_AND_CONDITIONS.split('\n\n').map((paragraph, i) => (
+                      <Typography key={i} variant="body2" sx={{ mb: 1.5 }}>
+                        {paragraph}
+                      </Typography>
+                    ))}
+                  </Box>
+                  
+                  <FormControlLabel
+                    control={
+                      <Checkbox 
+                        checked={termsAccepted} 
+                        onChange={(e) => setTermsAccepted(e.target.checked)}
+                        disabled={!termsScrolled}
+                        sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }}
+                      />
+                    }
+                    label={
+                      <Typography variant="body2" sx={{ color: termsScrolled ? '#333' : '#999' }}>
+                        He leído y acepto los términos y condiciones
+                        {!termsScrolled && ' (desplázate hasta el final para aceptar)'}
+                      </Typography>
+                    }
+                  />
+                </Box>
+              )}
+
+              {/* Paso 4: Firma */}
+              {verificationStep === 4 && (
+                <Box sx={{ textAlign: 'center' }}>
+                  <DrawIcon sx={{ fontSize: 64, color: '#1a3c5a', mb: 2 }} />
+                  <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>Firma Digital</Typography>
+                  <Typography variant="body2" sx={{ color: '#666', mb: 3 }}>
+                    Dibuja tu firma en el recuadro usando tu mouse o dedo
+                  </Typography>
+                  
+                  <Box 
+                    sx={{ 
+                      border: '2px dashed #ccc', 
+                      borderRadius: 2, 
+                      p: 2, 
+                      minHeight: 150,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      bgcolor: signature ? '#f5f5f5' : 'white',
+                    }}
+                  >
+                    {signature ? (
+                      <Box>
+                        <img src={signature} alt="Firma" style={{ maxWidth: '100%', maxHeight: 120 }} />
+                        <Box sx={{ mt: 1 }}>
+                          <Button size="small" onClick={() => setSignature(null)}>Borrar firma</Button>
+                        </Box>
+                      </Box>
+                    ) : (
+                      <Box>
+                        <Typography variant="body2" sx={{ color: '#999', mb: 2 }}>
+                          Por ahora, sube una imagen de tu firma o usa la app móvil para firmar digitalmente
+                        </Typography>
+                        <Button variant="outlined" startIcon={<ImageIcon />} component="label">
+                          Subir Firma
+                          <input type="file" accept="image/*" hidden onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              const reader = new FileReader();
+                              reader.onload = (event) => setSignature(event.target?.result as string);
+                              reader.readAsDataURL(file);
+                            }
+                          }} />
+                        </Button>
+                      </Box>
+                    )}
+                  </Box>
+                </Box>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+
+        <DialogActions sx={{ p: 2, borderTop: '1px solid #eee' }}>
+          <Button onClick={closeVerificationModal} sx={{ color: '#666' }}>
+            Cancelar
+          </Button>
+          <Box sx={{ flex: 1 }} />
+          {verificationStep > 0 && (
+            <Button onClick={() => setVerificationStep(s => s - 1)} sx={{ color: '#1a3c5a' }}>
+              Anterior
+            </Button>
+          )}
+          {verificationStep < 4 ? (
+            <Button 
+              variant="contained" 
+              onClick={() => setVerificationStep(s => s + 1)}
+              disabled={!isStepComplete(verificationStep)}
+              sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' } }}
+            >
+              Siguiente →
+            </Button>
+          ) : (
+            <Button 
+              variant="contained" 
+              onClick={submitVerification}
+              disabled={!isStepComplete(4) || verifying}
+              startIcon={verifying ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}
+              sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' } }}
+            >
+              {verifying ? 'Verificando...' : 'Completar Verificación'}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 
