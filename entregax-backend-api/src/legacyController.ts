@@ -342,7 +342,7 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
     const client = await pool.connect();
     
     try {
-        const { boxId, email, newPassword, phone, fullName } = req.body;
+        const { boxId, email, newPassword, phone, fullName, referralCodeInput } = req.body;
 
         // Validaciones básicas
         if (!boxId || !email || !newPassword) {
@@ -435,9 +435,51 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
             WHERE box_id = $2
         `, [newUserId, boxId.toUpperCase()]);
 
+        // 7. Procesar código de referido (asesor o amigo)
+        let hasAdvisor = false;
+        let referredBy = null;
+        
+        if (referralCodeInput) {
+            const codeToCheck = referralCodeInput.trim().toUpperCase();
+            
+            // Buscar si es un código de asesor
+            const advisorCheck = await client.query(`
+                SELECT id, full_name FROM users 
+                WHERE referral_code = $1 AND role = 'advisor'
+            `, [codeToCheck]);
+            
+            if (advisorCheck.rows.length > 0) {
+                // Asignar asesor
+                await client.query(`
+                    UPDATE users SET advisor_id = $1 WHERE id = $2
+                `, [advisorCheck.rows[0].id, newUserId]);
+                hasAdvisor = true;
+            } else {
+                // Buscar si es código de amigo
+                const friendCheck = await client.query(`
+                    SELECT id, full_name FROM users 
+                    WHERE referral_code = $1 AND role = 'client'
+                `, [codeToCheck]);
+                
+                if (friendCheck.rows.length > 0) {
+                    // Registrar en tabla de referidos
+                    await client.query(`
+                        UPDATE users SET referred_by_id = $1 WHERE id = $2
+                    `, [friendCheck.rows[0].id, newUserId]);
+                    
+                    await client.query(`
+                        INSERT INTO referidos (referidor_id, referido_id, bonus_mxn, is_paid, created_at)
+                        VALUES ($1, $2, 500, false, NOW())
+                    `, [friendCheck.rows[0].id, newUserId]);
+                    
+                    referredBy = friendCheck.rows[0].full_name;
+                }
+            }
+        }
+
         await client.query('COMMIT');
 
-        // 7. Generar JWT
+        // 8. Generar JWT
         const token = jwt.sign(
             { 
                 userId: newUserId, 
@@ -453,7 +495,11 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
             success: true,
             message: '¡Bienvenido de vuelta! Tu casillero ha sido vinculado exitosamente.',
             token,
-            user: newUser.rows[0]
+            user: {
+                ...newUser.rows[0],
+                hasAdvisor,
+                referredBy
+            }
         });
 
     } catch (error: any) {

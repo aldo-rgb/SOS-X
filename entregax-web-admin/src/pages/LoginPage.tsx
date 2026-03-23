@@ -89,30 +89,63 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [existingPassword, setExistingPassword] = useState('');
   const [existingConfirmPassword, setExistingConfirmPassword] = useState('');
   const [existingClientData, setExistingClientData] = useState<any>(null);
+  const [existingReferralCode, setExistingReferralCode] = useState('');
+  const [existingCodeValidation, setExistingCodeValidation] = useState<{
+    valid: boolean;
+    referrerName?: string;
+    isAdvisor?: boolean;
+  } | null>(null);
+  const [existingValidatingCode, setExistingValidatingCode] = useState(false);
 
   // Validate referral code
-  const validateReferralCode = async (code: string) => {
+  const validateReferralCode = async (code: string, forExisting = false) => {
     if (!code || code.length < 4) {
-      setCodeValidation(null);
+      if (forExisting) {
+        setExistingCodeValidation(null);
+      } else {
+        setCodeValidation(null);
+      }
       return;
     }
 
-    setValidatingCode(true);
+    if (forExisting) {
+      setExistingValidatingCode(true);
+    } else {
+      setValidatingCode(true);
+    }
+    
     try {
       const response = await axios.get(`${API_URL}/referral/validate/${code.toUpperCase()}`);
       if (response.data.success && response.data.data) {
-        setCodeValidation({
+        const validationResult = {
           valid: true,
           referrerName: response.data.data.referidor,
           isAdvisor: response.data.data.isAdvisor,
-        });
+        };
+        if (forExisting) {
+          setExistingCodeValidation(validationResult);
+        } else {
+          setCodeValidation(validationResult);
+        }
+      } else {
+        if (forExisting) {
+          setExistingCodeValidation({ valid: false });
+        } else {
+          setCodeValidation({ valid: false });
+        }
+      }
+    } catch {
+      if (forExisting) {
+        setExistingCodeValidation({ valid: false });
       } else {
         setCodeValidation({ valid: false });
       }
-    } catch {
-      setCodeValidation({ valid: false });
     } finally {
-      setValidatingCode(false);
+      if (forExisting) {
+        setExistingValidatingCode(false);
+      } else {
+        setValidatingCode(false);
+      }
     }
   };
 
@@ -298,10 +331,13 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
         fullName: existingClientData?.fullName,
         email: existingEmail.trim().toLowerCase(),
         phone: existingPhone.trim(),
-        newPassword: existingPassword
+        newPassword: existingPassword,
+        referralCodeInput: existingReferralCode.trim().toUpperCase() || undefined,
       });
 
-      setSuccess(`¡Cuenta activada! Tu casillero es ${response.data.user.box_id}. Ahora puedes iniciar sesión.`);
+      const advisorMsg = response.data.user?.hasAdvisor ? '\n¡Tu asesor ha sido asignado!' : '';
+      const referralMsg = response.data.user?.referredBy ? '\n¡Recibirás tu bono de bienvenida!' : '';
+      setSuccess(`¡Cuenta activada! Tu casillero es ${response.data.user.box_id}.${advisorMsg}${referralMsg} Ahora puedes iniciar sesión.`);
       setExistingClientDialog(false);
       resetExistingClientForm();
       setTabValue(0);
@@ -324,6 +360,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
     setExistingPassword('');
     setExistingConfirmPassword('');
     setExistingClientData(null);
+    setExistingReferralCode('');
+    setExistingCodeValidation(null);
     setError('');
   };
 
@@ -704,7 +742,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                     ¿Ya tienes número de cliente?
                   </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Si ya eras cliente de EntregaX, activa tu cuenta aquí
+                    Si ya eres cliente de EntregaX, activa tu cuenta aquí
                   </Typography>
                   <Button
                     variant="outlined"
@@ -918,6 +956,69 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 }}
                 sx={{ mb: 2 }}
               />
+
+              {/* Referral Code Section */}
+              <Divider sx={{ my: 2 }}>
+                <Typography variant="caption" color="text.secondary">
+                  ¿Tienes un código de asesor?
+                </Typography>
+              </Divider>
+              <TextField
+                fullWidth
+                label="Código de asesor (opcional)"
+                value={existingReferralCode}
+                onChange={(e) => {
+                  const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+                  setExistingReferralCode(value);
+                  setExistingCodeValidation(null);
+                }}
+                onBlur={() => {
+                  if (existingReferralCode.length >= 4) {
+                    validateReferralCode(existingReferralCode, true);
+                  }
+                }}
+                placeholder="Ej: ABC123"
+                sx={{ mb: 1.5 }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <GroupAddIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                  endAdornment: existingValidatingCode ? (
+                    <InputAdornment position="end">
+                      <CircularProgress size={20} />
+                    </InputAdornment>
+                  ) : existingCodeValidation ? (
+                    <InputAdornment position="end">
+                      {existingCodeValidation.valid ? (
+                        <CheckCircleOutlineIcon sx={{ color: 'success.main' }} />
+                      ) : (
+                        <Typography variant="caption" color="error">✗</Typography>
+                      )}
+                    </InputAdornment>
+                  ) : null,
+                }}
+              />
+              {existingCodeValidation && (
+                <Box sx={{ mb: 2 }}>
+                  {existingCodeValidation.valid ? (
+                    <Chip
+                      size="small"
+                      color="success"
+                      label={existingCodeValidation.isAdvisor 
+                        ? `✓ Asesor: ${existingCodeValidation.referrerName}` 
+                        : `✓ Referido por: ${existingCodeValidation.referrerName}`
+                      }
+                      sx={{ mt: 0.5 }}
+                    />
+                  ) : (
+                    <Typography variant="caption" color="error">
+                      Código no válido
+                    </Typography>
+                  )}
+                </Box>
+              )}
             </Box>
           )}
         </DialogContent>
