@@ -346,7 +346,8 @@ import {
   getSupportStats,
   adminReplyTicket,
   resolveTicket,
-  assignTicket
+  assignTicket,
+  uploadSupportImages
 } from './supportController';
 import {
   getMyNotifications,
@@ -2621,8 +2622,8 @@ app.get('/api/admin/crm/team-leaders', authenticateToken, requireMinLevel(ROLES.
 
 // ========== SOPORTE AL CLIENTE (AI + HUMANO) ==========
 
-// Cliente: Enviar mensaje al chat de soporte
-app.post('/api/support/message', authenticateToken, handleSupportMessage);
+// Cliente: Enviar mensaje al chat de soporte (con soporte para imágenes)
+app.post('/api/support/message', authenticateToken, uploadSupportImages, handleSupportMessage);
 
 // Cliente: Ver mis tickets
 app.get('/api/support/tickets', authenticateToken, getMyTickets);

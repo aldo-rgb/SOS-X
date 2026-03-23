@@ -226,6 +226,8 @@ interface AuthUser {
   email: string;
   boxId: string;
   role: string;
+  isVerified?: boolean;
+  verificationStatus?: string;
 }
 
 interface DashboardStats {
@@ -285,8 +287,30 @@ function App() {
         });
         if (res.ok) {
           const data = await res.json();
-          setNotifications(data.notifications || []);
-          setUnreadCount(data.unreadCount || 0);
+          let loadedNotifications = data.notifications || [];
+          let loadedUnread = data.unreadCount || 0;
+          
+          // Agregar notificación de verificación pendiente si no está verificado
+          if (currentUser && !currentUser.isVerified) {
+            const isPendingReview = currentUser.verificationStatus === 'pending_review';
+            const verificationNotif = {
+              id: -1, // ID especial para no confundir con reales
+              title: isPendingReview ? '⏳ Verificación en revisión' : '⚠️ Verificación pendiente',
+              message: isPendingReview 
+                ? 'Tu perfil está siendo revisado por nuestro equipo. Te notificaremos cuando sea aprobado.'
+                : 'Completa tu verificación de identidad para poder recibir paquetes y realizar envíos.',
+              icon: isPendingReview ? 'clock-outline' : 'alert-circle',
+              is_read: false,
+              created_at: new Date().toISOString(),
+              type: 'VERIFICATION_PENDING'
+            };
+            // Agregar al inicio de notificaciones
+            loadedNotifications = [verificationNotif, ...loadedNotifications];
+            loadedUnread += 1;
+          }
+          
+          setNotifications(loadedNotifications);
+          setUnreadCount(loadedUnread);
         }
       } catch (error) {
         console.error('Error cargando notificaciones:', error);
@@ -712,22 +736,37 @@ function App() {
                                       messageLower.includes('po box') ||
                                       messageLower.includes('pobox');
                       
-                      // Asignar emoji según tipo de servicio
+                      // Asignar emoji según tipo de servicio o tipo especial
                       let emoji = '📦'; // default paquete
-                      if (esMaritimo) emoji = '🚢';
+                      if (notif.type === 'VERIFICATION_PENDING') {
+                        emoji = notif.icon === 'clock-outline' ? '⏳' : '⚠️';
+                      } else if (esMaritimo) emoji = '🚢';
                       else if (esAereo) emoji = '✈️';
                       else if (esPOBox) emoji = '🚚';
                       else if (notif.icon === 'cash-check') emoji = '💳';
                       else if (notif.icon === 'check-circle') emoji = '✅';
                       else if (notif.icon === 'truck-delivery') emoji = '🚚';
                       
+                      // Estilo especial para verificación pendiente
+                      const isVerificationNotif = notif.type === 'VERIFICATION_PENDING';
+                      
                       return (
                         <MenuItem 
                           key={notif.id}
+                          onClick={() => {
+                            if (isVerificationNotif) {
+                              // Navegar a perfil para completar verificación
+                              setNotifAnchorEl(null);
+                              setShowClientProfile(true);
+                            }
+                          }}
                           sx={{ 
                             py: 1.5, 
                             borderBottom: index < notifications.length - 1 ? '1px solid #f5f5f5' : 'none',
-                            bgcolor: notif.is_read ? 'transparent' : 'rgba(240,90,40,0.05)',
+                            bgcolor: isVerificationNotif 
+                              ? 'rgba(255,152,0,0.1)' 
+                              : (notif.is_read ? 'transparent' : 'rgba(240,90,40,0.05)'),
+                            borderLeft: isVerificationNotif ? '3px solid #ff9800' : 'none',
                           }}
                         >
                           <Box sx={{ width: '100%' }}>

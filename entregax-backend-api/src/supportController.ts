@@ -5,6 +5,42 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+
+// ============================================================
+// CONFIGURACIÓN DE MULTER PARA IMÁGENES DE SOPORTE
+// ============================================================
+const supportUploadsDir = path.join(__dirname, '..', 'uploads', 'support');
+if (!fs.existsSync(supportUploadsDir)) {
+  fs.mkdirSync(supportUploadsDir, { recursive: true });
+}
+
+const supportStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, supportUploadsDir);
+  },
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, `support-${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+export const uploadSupportImages = multer({
+  storage: supportStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB por imagen
+  fileFilter: (_req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|webp/;
+    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimetype = allowedTypes.test(file.mimetype);
+    if (extname && mimetype) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten imágenes (jpeg, jpg, png, gif, webp)'));
+    }
+  }
+}).array('images', 10); // Máximo 10 imágenes
 
 // ============================================================
 // CONFIGURACIÓN DE IA (OpenAI)
@@ -169,10 +205,19 @@ async function getAIResponse(userMessage: string, chatHistory: any[]): Promise<{
 /**
  * POST /api/support/message
  * Enviar mensaje al chat de soporte (cliente)
+ * Soporta multipart/form-data para adjuntar imágenes
  */
 export const handleSupportMessage = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { userId, message, ticketId, category, escalateDirectly } = req.body;
+    // Obtener datos del body (puede venir como form-data o json)
+    const userId = req.body.userId;
+    const message = req.body.message;
+    const ticketId = req.body.ticketId;
+    const category = req.body.category;
+    const escalateDirectly = req.body.escalateDirectly === 'true' || req.body.escalateDirectly === true;
+    
+    // Obtener archivos si hay (de multer)
+    const files = req.files as Express.Multer.File[] | undefined;
 
     if (!userId || !message) {
       return res.status(400).json({ error: 'userId y message son requeridos' });
@@ -180,6 +225,13 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
 
     let currentTicketId = ticketId;
     let ticketFolio = '';
+    
+    // Procesar URLs de imágenes adjuntas
+    let imageUrls: string[] = [];
+    if (files && files.length > 0) {
+      const baseUrl = process.env.API_URL || 'http://localhost:3001';
+      imageUrls = files.map(f => `${baseUrl}/uploads/support/${f.filename}`);
+    }
 
     // A. CREAR NUEVO TICKET SI NO EXISTE
     if (!currentTicketId) {
@@ -197,22 +249,40 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       );
       currentTicketId = newTicket.rows[0].id;
       ticketFolio = newTicket.rows[0].ticket_folio;
-      console.log(`🎫 Nuevo ticket creado: ${folio} (${initialStatus})`);
+      console.log(`🎫 Nuevo ticket creado: ${folio} (${initialStatus})${imageUrls.length > 0 ? ` con ${imageUrls.length} imágenes` : ''}`);
       
-      // Si es escalado directo, guardar mensaje y retornar inmediatamente
+      // Si es escalado directo, guardar mensaje con imágenes y retornar inmediatamente
       if (escalateDirectly) {
+        // Construir mensaje con referencias a imágenes
+        let fullMessage = message;
+        if (imageUrls.length > 0) {
+          fullMessage += '\n\n📷 Imágenes adjuntas:\n' + imageUrls.map((url, i) => `[Imagen ${i+1}](${url})`).join('\n');
+        }
+        
         await pool.query(
-          `INSERT INTO ticket_messages (ticket_id, sender_type, message) VALUES ($1, 'client', $2)`,
-          [currentTicketId, message]
+          `INSERT INTO ticket_messages (ticket_id, sender_type, message, attachments) VALUES ($1, 'client', $2, $3)`,
+          [currentTicketId, fullMessage, JSON.stringify(imageUrls)]
         );
         
         return res.json({
           status: 'escalated',
           ticketId: currentTicketId,
           ticketFolio: ticketFolio,
-          message: '✅ Ticket creado. Un agente humano te atenderá pronto.'
+          message: '✅ Ticket creado. Un agente humano te atenderá pronto.',
+          imagesUploaded: imageUrls.length
         });
       }
+    } else {
+      // Si es ticket existente y hay imágenes, guardarlas con el mensaje
+      let fullMessage = message;
+      if (imageUrls.length > 0) {
+        fullMessage += '\n\n📷 Imágenes adjuntas:\n' + imageUrls.map((url, i) => `[Imagen ${i+1}](${url})`).join('\n');
+      }
+      
+      await pool.query(
+        `INSERT INTO ticket_messages (ticket_id, sender_type, message, attachments) VALUES ($1, 'client', $2, $3)`,
+        [currentTicketId, fullMessage, JSON.stringify(imageUrls)]
+      );
     }
 
     // B. GUARDAR MENSAJE DEL CLIENTE

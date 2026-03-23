@@ -84,6 +84,7 @@ import {
   Scale as ScaleIcon,
   Lock as LockIcon,
   Payment as PaymentIcon,
+  AddPhotoAlternate as AddPhotoIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -305,6 +306,7 @@ export default function DashboardClient() {
   const [supportMessage, setSupportMessage] = useState('');
   const [supportCategory, setSupportCategory] = useState('');
   const [supportTracking, setSupportTracking] = useState('');
+  const [supportImages, setSupportImages] = useState<{ file: File; preview: string }[]>([]);
   
   // Snackbar para notificaciones
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
@@ -1105,11 +1107,22 @@ export default function DashboardClient() {
         ? `[Tracking: ${supportTracking}]\n\n${supportMessage}`
         : supportMessage;
 
-      const response = await api.post('/support/message', {
-        message: fullMessage,
-        category: supportCategory,
-        trackingNumber: supportTracking.trim() || undefined,
-        escalateDirectly: true, // Crear ticket directamente para atención humana
+      // Usar FormData para enviar imágenes
+      const formData = new FormData();
+      formData.append('message', fullMessage);
+      formData.append('category', supportCategory);
+      if (supportTracking.trim()) {
+        formData.append('trackingNumber', supportTracking.trim());
+      }
+      formData.append('escalateDirectly', 'true');
+      
+      // Agregar imágenes
+      supportImages.forEach((img, index) => {
+        formData.append('images', img.file, `support_image_${index}.${img.file.name.split('.').pop()}`);
+      });
+
+      const response = await api.post('/support/message', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
       });
       const ticketFolio = response.data?.ticketFolio || '';
       setSnackbar({ 
@@ -1120,6 +1133,7 @@ export default function DashboardClient() {
       setSupportMessage('');
       setSupportCategory('');
       setSupportTracking('');
+      setSupportImages([]);
       setSupportOpen(false);
     } catch (error) {
       setSnackbar({ open: true, message: '❌ Error al crear ticket', severity: 'error' });
@@ -5304,7 +5318,102 @@ export default function DashboardClient() {
             placeholder="Describe tu consulta o problema..."
             value={supportMessage}
             onChange={(e) => setSupportMessage(e.target.value)}
+            sx={{ mb: 2 }}
           />
+
+          {/* Sección de Imágenes */}
+          <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+            📷 Fotografías (Opcional)
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+            Adjunta capturas de pantalla o fotos que ayuden a ilustrar el problema
+          </Typography>
+          
+          {/* Input oculto para seleccionar archivos */}
+          <input
+            type="file"
+            accept="image/*"
+            multiple
+            id="support-image-upload"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const files = Array.from(e.target.files || []);
+              const newImages = files.map(file => ({
+                file,
+                preview: URL.createObjectURL(file)
+              }));
+              setSupportImages(prev => [...prev, ...newImages]);
+              e.target.value = ''; // Reset para permitir seleccionar el mismo archivo
+            }}
+          />
+          
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+            {/* Botón para agregar imágenes */}
+            <label htmlFor="support-image-upload">
+              <Box
+                sx={{
+                  width: 80,
+                  height: 80,
+                  border: '2px dashed #ccc',
+                  borderRadius: 2,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                  '&:hover': { borderColor: ORANGE, bgcolor: 'rgba(240,90,40,0.05)' }
+                }}
+              >
+                <AddPhotoIcon sx={{ color: '#999', fontSize: 28 }} />
+                <Typography variant="caption" color="text.secondary">Agregar</Typography>
+              </Box>
+            </label>
+            
+            {/* Preview de imágenes */}
+            {supportImages.map((img, index) => (
+              <Box
+                key={index}
+                sx={{
+                  width: 80,
+                  height: 80,
+                  borderRadius: 2,
+                  overflow: 'hidden',
+                  position: 'relative',
+                  border: '1px solid #eee',
+                }}
+              >
+                <img
+                  src={img.preview}
+                  alt={`Imagen ${index + 1}`}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                />
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    URL.revokeObjectURL(img.preview);
+                    setSupportImages(prev => prev.filter((_, i) => i !== index));
+                  }}
+                  sx={{
+                    position: 'absolute',
+                    top: 2,
+                    right: 2,
+                    bgcolor: 'rgba(0,0,0,0.6)',
+                    color: 'white',
+                    p: 0.3,
+                    '&:hover': { bgcolor: 'rgba(220,53,69,0.9)' }
+                  }}
+                >
+                  <CloseIcon sx={{ fontSize: 14 }} />
+                </IconButton>
+              </Box>
+            ))}
+          </Box>
+          
+          {supportImages.length > 0 && (
+            <Typography variant="caption" color="success.main" sx={{ display: 'block', mb: 1 }}>
+              ✓ {supportImages.length} imagen{supportImages.length > 1 ? 'es' : ''} adjunta{supportImages.length > 1 ? 's' : ''}
+            </Typography>
+          )}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => {
@@ -5312,6 +5421,9 @@ export default function DashboardClient() {
             setSupportCategory('');
             setSupportTracking('');
             setSupportMessage('');
+            // Limpiar previews de imágenes
+            supportImages.forEach(img => URL.revokeObjectURL(img.preview));
+            setSupportImages([]);
           }}>Cancelar</Button>
           <Button 
             variant="contained" 
