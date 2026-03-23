@@ -125,9 +125,6 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           style={styles.logoImage}
           resizeMode="contain"
         />
-        <Text style={styles.logoText}>
-          Entrega<Text style={styles.logoX}>X</Text>
-        </Text>
         <Text style={styles.subtitle}>Tu suite inteligente</Text>
       </View>
 
@@ -220,10 +217,9 @@ const styles = StyleSheet.create({
     paddingTop: 40,
   },
   logoImage: {
-    width: 80,
-    height: 80,
+    width: 180,
+    height: 180,
     marginBottom: 10,
-    borderRadius: 16,
   },
   logoText: {
     fontSize: 42,
