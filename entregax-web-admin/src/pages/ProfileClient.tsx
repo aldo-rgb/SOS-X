@@ -510,37 +510,74 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
         ESTADO DE VERIFICACIÓN
       </Typography>
       <Paper sx={{ borderRadius: 3, mb: 3, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
-        <Box sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 2 }}>
-          <CheckCircleIcon sx={{ 
-            fontSize: 36, 
-            color: profile?.is_verified ? '#4CAF50' : '#FFC107',
-          }} />
-          <Box sx={{ flex: 1 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 700, color: profile?.is_verified ? '#4CAF50' : '#FFC107' }}>
-              {profile?.is_verified ? 'Verificado' : 'Pendiente de Verificación'}
-            </Typography>
-            <Typography variant="body2" sx={{ color: '#888' }}>
-              {profile?.is_verified 
-                ? 'Tu identidad ha sido verificada' 
-                : 'Tu cuenta está en proceso de verificación'
-              }
-            </Typography>
+        <Box sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+          {/* Ícono según estado */}
+          {profile?.is_verified ? (
+            <CheckCircleIcon sx={{ fontSize: 36, color: '#4CAF50' }} />
+          ) : profile?.verification_status === 'pending_review' ? (
+            <SecurityIcon sx={{ fontSize: 36, color: '#1976D2' }} />
+          ) : profile?.verification_status === 'rejected' ? (
+            <WarningIcon sx={{ fontSize: 36, color: '#f44336' }} />
+          ) : (
+            <CheckCircleIcon sx={{ fontSize: 36, color: '#FFC107' }} />
+          )}
+          
+          <Box sx={{ flex: 1, minWidth: 150 }}>
+            {profile?.is_verified ? (
+              <>
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#4CAF50' }}>
+                  ✅ Verificado
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#888' }}>
+                  Tu identidad ha sido verificada
+                </Typography>
+              </>
+            ) : profile?.verification_status === 'pending_review' ? (
+              <>
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#1976D2' }}>
+                  🔎 En Revisión
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#888' }}>
+                  Tus documentos fueron enviados. Un administrador los revisará en 24-48 horas.
+                </Typography>
+              </>
+            ) : profile?.verification_status === 'rejected' ? (
+              <>
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#f44336' }}>
+                  ❌ Verificación Rechazada
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#888' }}>
+                  Tu verificación fue rechazada. Puedes volver a intentarlo.
+                </Typography>
+              </>
+            ) : (
+              <>
+                <Typography variant="subtitle1" sx={{ fontWeight: 700, color: '#FFC107' }}>
+                  Pendiente de Verificación
+                </Typography>
+                <Typography variant="body2" sx={{ color: '#888' }}>
+                  Verifica tu identidad para acceder a todos los servicios
+                </Typography>
+              </>
+            )}
           </Box>
-          {!profile?.is_verified && (
+          
+          {/* Solo mostrar botón si NO está verificado y NO está en revisión */}
+          {!profile?.is_verified && profile?.verification_status !== 'pending_review' && (
             <Button
               variant="contained"
               size="small"
               onClick={openVerificationModal}
               sx={{
-                bgcolor: ORANGE,
-                '&:hover': { bgcolor: '#d94d1f' },
+                bgcolor: profile?.verification_status === 'rejected' ? '#f44336' : ORANGE,
+                '&:hover': { bgcolor: profile?.verification_status === 'rejected' ? '#d32f2f' : '#d94d1f' },
                 borderRadius: 2,
                 textTransform: 'none',
                 fontWeight: 600,
                 px: 2,
               }}
             >
-              Iniciar Verificación
+              {profile?.verification_status === 'rejected' ? 'Reintentar Verificación' : 'Iniciar Verificación'}
             </Button>
           )}
         </Box>
