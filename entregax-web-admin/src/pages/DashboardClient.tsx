@@ -4584,7 +4584,8 @@ export default function DashboardClient() {
                                 bgcolor: selectedDeliveryAddress === addr.id ? 'primary.50' : 'transparent',
                                 border: selectedDeliveryAddress === addr.id ? `2px solid ${BLUE}` : '1px solid #eee',
                                 borderRadius: 2,
-                                width: '100%'
+                                width: '100%',
+                                minHeight: 90,
                               }}
                             >
                               <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
@@ -4594,7 +4595,7 @@ export default function DashboardClient() {
                                 <Box sx={{ flex: 1 }}>
                                   <Typography variant="body1" fontWeight="bold">
                                     {addr.alias}
-                                    {addr.alias === 'Bodega 1' && (
+                                    {addr.is_default && (
                                       <Chip label={t('cd.address.primary')} size="small" sx={{ ml: 1, bgcolor: BLUE, color: 'white' }} />
                                     )}
                                   </Typography>
@@ -4611,7 +4612,13 @@ export default function DashboardClient() {
                               </Box>
                             </Paper>
                           }
-                          sx={{ m: 0, mb: 1, alignItems: 'flex-start' }}
+                          sx={{ 
+                            m: 0, 
+                            mb: 1, 
+                            alignItems: 'flex-start',
+                            width: '100%',
+                            '& .MuiFormControlLabel-label': { width: '100%' },
+                          }}
                         />
                       ))}
                     </RadioGroup>
