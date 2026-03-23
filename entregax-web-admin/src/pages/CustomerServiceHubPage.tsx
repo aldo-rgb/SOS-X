@@ -96,13 +96,14 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
     const fetchStats = async () => {
       try {
         // Cargar leads pendientes
-      const leadsRes = await fetch(`${API_URL}/api/admin/crm/leads`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      let pendingLeads = 0;
-      if (leadsRes.ok) {
-        const leadsData = await leadsRes.json();
-        pendingLeads = Number(leadsData.stats?.pending || 0);
+        const leadsRes = await fetch(`${API_URL}/api/admin/crm/leads`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        let pendingLeads = 0;
+        if (leadsRes.ok) {
+          const leadsData = await leadsRes.json();
+          pendingLeads = Number(leadsData.stats?.pending || 0);
+        }
 
         // Cargar stats de soporte
         const supportRes = await fetch(`${API_URL}/api/admin/support/stats`, {
