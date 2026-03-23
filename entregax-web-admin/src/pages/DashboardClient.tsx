@@ -4259,7 +4259,7 @@ export default function DashboardClient() {
                 <Divider sx={{ my: 2 }} />
 
                 <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  📋 {t('cd.tutorial.shippingInstructions')}
+                  {t('cd.tutorial.shippingInstructions')}
                 </Typography>
                 <Typography variant="body2" paragraph sx={{ color: 'text.secondary' }}>
                   {tutorialService.tutorial}
@@ -5035,7 +5035,7 @@ export default function DashboardClient() {
                   </Grid>
                   <Grid size={6}>
                     <Paper sx={{ p: 1.5, bgcolor: '#f8f9fa', textAlign: 'center' }}>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>📊 {t('cd.detail.volumeCBM')}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{t('cd.detail.volumeCBM')}</Typography>
                       <Typography variant="h6" fontWeight="bold">
                         {(() => {
                           // Para masters, usar el CBM de la caja final del reempaque
@@ -5118,7 +5118,7 @@ export default function DashboardClient() {
                 {/* Servicios Contratados (GEX) */}
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
-                    🛡️ {t('cd.detail.contractedServices')}
+                    {t('cd.detail.contractedServices')}
                   </Typography>
                   {selectedPackage.has_gex ? (
                     <Paper sx={{ p: 2, bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -5146,7 +5146,7 @@ export default function DashboardClient() {
                 {/* Información de Entrega */}
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
-                    🏠 {t('cd.detail.deliveryInfo')}
+                    {t('cd.detail.deliveryInfo')}
                   </Typography>
                   {(selectedPackage.delivery_address_id || 
                     selectedPackage.assigned_address_id || 
@@ -5200,7 +5200,7 @@ export default function DashboardClient() {
                 {/* Estado y Costo */}
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
-                    💵 {t('cd.detail.serviceCost')}
+                    {t('cd.detail.serviceCost')}
                   </Typography>
                   <Paper sx={{ p: 2, bgcolor: selectedPackage.client_paid ? '#e8f5e9' : '#fff3e0' }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -5221,7 +5221,7 @@ export default function DashboardClient() {
                 {/* Fechas */}
                 <Box>
                   <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
-                    📅 {t('cd.detail.dates')}
+                    {t('cd.detail.dates')}
                   </Typography>
                   <Grid container spacing={2}>
                     <Grid size={6}>
