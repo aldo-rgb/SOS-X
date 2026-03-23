@@ -900,72 +900,16 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 }}
                 sx={{ mb: 2 }}
               />
-              <Button
-                variant="contained"
-                fullWidth
-                onClick={() => setExistingClientStep(3)}
-                disabled={!existingEmail || !existingPhone || existingPhone.length < 10}
-                sx={{
-                  background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)',
-                  '&:hover': {
-                    background: 'linear-gradient(90deg, #A01F25 0%, #D94A20 100%)',
-                  },
-                }}
-              >
-                Continuar
-              </Button>
-            </Box>
-          )}
 
-          {/* Step 3: Set Password */}
-          {existingClientStep === 3 && (
-            <Box>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2, textAlign: 'center' }}>
-                Crea una contraseña para tu cuenta
-              </Typography>
-              <TextField
-                fullWidth
-                label="Nueva contraseña"
-                type="password"
-                value={existingPassword}
-                onChange={(e) => setExistingPassword(e.target.value)}
-                required
-                helperText="Mínimo 6 caracteres"
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <LockOutlinedIcon sx={{ color: 'text.secondary' }} />
-                    </InputAdornment>
-                  ),
-                }}
-                sx={{ mb: 2 }}
-              />
-              <TextField
-                fullWidth
-                label="Confirmar contraseña"
-                type="password"
-                value={existingConfirmPassword}
-                onChange={(e) => setExistingConfirmPassword(e.target.value)}
-                required
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <LockOutlinedIcon sx={{ color: 'text.secondary' }} />
-                    </InputAdornment>
-                  ),
-                }}
-                sx={{ mb: 2 }}
-              />
-
-              {/* Referral Code Section */}
+              {/* Referral Code Section in Step 2 */}
               <Divider sx={{ my: 2 }}>
                 <Typography variant="caption" color="text.secondary">
-                  ¿Tienes un código de asesor?
+                  ¿Te refirió un asesor?
                 </Typography>
               </Divider>
               <TextField
                 fullWidth
-                label="Código de asesor (opcional)"
+                label="Código de asesor o referido (opcional)"
                 value={existingReferralCode}
                 onChange={(e) => {
                   const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
@@ -978,6 +922,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   }
                 }}
                 placeholder="Ej: ABC123"
+                helperText="Si un asesor te invitó, ingresa su código"
                 sx={{ mb: 1.5 }}
                 InputProps={{
                   startAdornment: (
@@ -1019,6 +964,66 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   )}
                 </Box>
               )}
+
+              <Button
+                variant="contained"
+                fullWidth
+                onClick={() => setExistingClientStep(3)}
+                disabled={!existingEmail || !existingPhone || existingPhone.length < 10}
+                sx={{
+                  mt: 2,
+                  background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)',
+                  '&:hover': {
+                    background: 'linear-gradient(90deg, #A01F25 0%, #D94A20 100%)',
+                  },
+                }}
+              >
+                Continuar
+              </Button>
+            </Box>
+          )}
+
+          {/* Step 3: Set Password */}
+          {existingClientStep === 3 && (
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2, textAlign: 'center' }}>
+                Crea una contraseña para tu cuenta
+              </Typography>
+              <TextField
+                fullWidth
+                label="Nueva contraseña"
+                type="password"
+                value={existingPassword}
+                onChange={(e) => setExistingPassword(e.target.value)}
+                required
+                helperText="Mínimo 6 caracteres"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <LockOutlinedIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ mb: 2 }}
+              />
+              <TextField
+                fullWidth
+                label="Confirmar contraseña"
+                type="password"
+                value={existingConfirmPassword}
+                onChange={(e) => setExistingConfirmPassword(e.target.value)}
+                required
+                error={existingPassword !== existingConfirmPassword && existingConfirmPassword.length > 0}
+                helperText={existingPassword !== existingConfirmPassword && existingConfirmPassword.length > 0 ? 'Las contraseñas no coinciden' : ''}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <LockOutlinedIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ mb: 2 }}
+              />
             </Box>
           )}
         </DialogContent>
