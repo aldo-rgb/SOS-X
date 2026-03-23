@@ -3244,7 +3244,7 @@ export default function DashboardClient() {
                   <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                       <Typography variant="h6" fontWeight="bold">
-                        💳 {t('cd.account.paymentMethodsTitle')}
+                        {t('cd.account.paymentMethodsTitle')}
                       </Typography>
                       <IconButton color="primary" onClick={() => setShowAddPaymentMethod(true)}>
                         <AddIcon />
@@ -3346,7 +3346,7 @@ export default function DashboardClient() {
                   <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                       <Typography variant="h6" fontWeight="bold">
-                        📄 {t('cd.account.fiscalTitle')}
+                        {t('cd.account.fiscalTitle')}
                       </Typography>
                       <IconButton 
                         color="primary" 
