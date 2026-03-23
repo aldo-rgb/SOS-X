@@ -4091,54 +4091,6 @@ export default function DashboardClient() {
         </Box>
       </Paper>
 
-      {/* KPIs Cards - Resumen de Paquetes */}
-      <Grid container spacing={2} sx={{ mt: 3 }}>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Card sx={{ borderRadius: 2, height: '100%' }}>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <Avatar sx={{ bgcolor: BLUE + '20', color: BLUE, mx: 'auto', mb: 1 }}>
-                <FlightIcon />
-              </Avatar>
-              <Typography variant="h4" fontWeight="bold">{stats?.paquetes.en_transito || 0}</Typography>
-              <Typography variant="caption" color="text.secondary">En Tránsito</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Card sx={{ borderRadius: 2, height: '100%' }}>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <Avatar sx={{ bgcolor: ORANGE + '20', color: ORANGE, mx: 'auto', mb: 1 }}>
-                <InventoryIcon />
-              </Avatar>
-              <Typography variant="h4" fontWeight="bold">{stats?.paquetes.en_bodega || 0}</Typography>
-              <Typography variant="caption" color="text.secondary">En Bodega</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Card sx={{ borderRadius: 2, height: '100%' }}>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <Avatar sx={{ bgcolor: GREEN + '20', color: GREEN, mx: 'auto', mb: 1 }}>
-                <CheckCircleIcon />
-              </Avatar>
-              <Typography variant="h4" fontWeight="bold">{stats?.paquetes.listos_recoger || 0}</Typography>
-              <Typography variant="caption" color="text.secondary">Listos Recoger</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
-          <Card sx={{ borderRadius: 2, height: '100%' }}>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <Avatar sx={{ bgcolor: '#9c27b0' + '20', color: '#9c27b0', mx: 'auto', mb: 1 }}>
-                <HomeIcon />
-              </Avatar>
-              <Typography variant="h4" fontWeight="bold">{stats?.paquetes.entregados_mes || 0}</Typography>
-              <Typography variant="caption" color="text.secondary">Entregados (Mes)</Typography>
-            </CardContent>
-          </Card>
-        </Grid>
-      </Grid>
-
       {/* Modal de Tutorial de Envío */}
       <Dialog 
         open={tutorialOpen} 
