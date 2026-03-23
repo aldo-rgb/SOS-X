@@ -605,8 +605,8 @@ export const getMaritimeOrders = async (req: Request, res: Response): Promise<an
                 mo.*,
                 COALESCE(u.full_name, lc.full_name, 
                     CASE 
-                        WHEN mo.shipping_mark IS NOT NULL AND mo.shipping_mark != '' 
-                        THEN mo.shipping_mark 
+                        WHEN UPPER(SUBSTRING(mo.shipping_mark FROM 'S[0-9]+')) IS NOT NULL 
+                        THEN UPPER(SUBSTRING(mo.shipping_mark FROM 'S[0-9]+'))
                         ELSE NULL 
                     END
                 ) as client_name,
