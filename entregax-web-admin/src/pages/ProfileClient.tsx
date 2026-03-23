@@ -27,6 +27,8 @@ import {
   StepLabel,
   Checkbox,
   FormControlLabel,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -70,6 +72,8 @@ interface UserProfile {
 }
 
 const ProfileClient = ({ onBack }: ProfileClientProps) => {
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
@@ -740,11 +744,12 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
         onClose={closeVerificationModal} 
         maxWidth="sm" 
         fullWidth
-        PaperProps={{ sx: { borderRadius: 3, maxHeight: '90vh' } }}
+        fullScreen={isMobile}
+        PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3, maxHeight: isMobile ? '100vh' : '90vh' } }}
       >
-        <DialogTitle sx={{ bgcolor: '#1a3c5a', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+        <DialogTitle sx={{ bgcolor: '#1a3c5a', color: 'white', display: 'flex', alignItems: 'center', gap: 1, py: isMobile ? 1.5 : undefined }}>
           <BadgeIcon />
-          Verificación de Identidad
+          <Typography variant={isMobile ? 'subtitle1' : 'h6'} sx={{ fontWeight: 'bold' }}>Verificación de Identidad</Typography>
           <Box sx={{ flex: 1 }} />
           <Typography variant="body2">Paso {verificationStep + 1} de 5</Typography>
         </DialogTitle>
@@ -767,8 +772,8 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
           )}
 
           {/* Stepper */}
-          <Box sx={{ px: 3, pt: 2, pb: 1 }}>
-            <Stepper activeStep={verificationStep} alternativeLabel>
+          <Box sx={{ px: isMobile ? 1 : 3, pt: 2, pb: 1 }}>
+            <Stepper activeStep={verificationStep} alternativeLabel sx={{ '& .MuiStepLabel-label': { fontSize: isMobile ? '0.7rem' : undefined } }}>
               {['ID Frente', 'ID Reverso', 'Selfie', 'Términos', 'Firma'].map((label, index) => (
                 <Step key={label} completed={isStepComplete(index)}>
                   <StepLabel>{label}</StepLabel>

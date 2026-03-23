@@ -22,6 +22,8 @@ import {
   Stepper,
   Step,
   StepLabel,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material';
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
@@ -60,6 +62,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   // Login form state
   const [loginEmail, setLoginEmail] = useState('');
@@ -782,16 +786,17 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
         onClose={() => setExistingClientDialog(false)}
         maxWidth="sm"
         fullWidth
+        fullScreen={isMobile}
         PaperProps={{
-          sx: { borderRadius: 2 }
+          sx: { borderRadius: isMobile ? 0 : 2 }
         }}
       >
-        <DialogTitle sx={{ bgcolor: '#111', color: 'white', textAlign: 'center' }}>
+        <DialogTitle sx={{ bgcolor: '#111', color: 'white', textAlign: 'center', py: isMobile ? 2 : undefined }}>
           <InventoryIcon sx={{ fontSize: 40, mb: 1, color: '#F05A28' }} />
           <Typography variant="h6">Activar Cuenta Existente</Typography>
         </DialogTitle>
-        <DialogContent sx={{ pt: 3 }}>
-          <Stepper activeStep={existingClientStep} sx={{ mb: 4, mt: 2 }}>
+        <DialogContent sx={{ pt: 3, px: isMobile ? 2 : 3 }}>
+          <Stepper activeStep={existingClientStep} sx={{ mb: 4, mt: 2 }} alternativeLabel={isMobile}>
             <Step>
               <StepLabel>Casillero</StepLabel>
             </Step>
