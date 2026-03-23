@@ -598,15 +598,34 @@ export const getMaritimeOrders = async (req: Request, res: Response): Promise<an
         const limitNum = parseInt(String(limit)) || 50;
         const offsetNum = parseInt(String(offset)) || 0;
         
+        // Extraer box_id del shipping_mark usando expresión regular SQL
+        // El shipping_mark puede ser "S873", "S96+EDMUNDO MEDINA", "Carlos Osorio S1739", etc.
         let query = `
             SELECT 
                 mo.*,
-                u.full_name as client_name,
-                u.email as client_email,
-                u.box_id as client_box_id,
+                COALESCE(u.full_name, lc.full_name, 
+                    CASE 
+                        WHEN mo.shipping_mark IS NOT NULL AND mo.shipping_mark != '' 
+                        THEN mo.shipping_mark 
+                        ELSE NULL 
+                    END
+                ) as client_name,
+                COALESCE(u.email, lc.email) as client_email,
+                COALESCE(u.box_id, lc.box_id, 
+                    UPPER(SUBSTRING(mo.shipping_mark FROM 'S[0-9]+'))
+                ) as client_box_id,
+                CASE 
+                    WHEN u.id IS NOT NULL THEN true
+                    WHEN lc.id IS NOT NULL THEN false
+                    ELSE false
+                END as is_registered,
                 (SELECT COUNT(*) FROM maritime_tracking_logs WHERE ordersn = mo.ordersn) as tracking_count
             FROM maritime_orders mo
             LEFT JOIN users u ON mo.user_id = u.id
+            LEFT JOIN legacy_clients lc ON (
+                mo.user_id IS NULL 
+                AND UPPER(SUBSTRING(mo.shipping_mark FROM 'S[0-9]+')) = UPPER(lc.box_id)
+            )
             WHERE mo.ordersn LIKE 'LOG%'
         `;
         const params: any[] = [];
@@ -616,8 +635,9 @@ export const getMaritimeOrders = async (req: Request, res: Response): Promise<an
             query += ` AND mo.status = $${params.length}`;
         }
         
+        // Sin asignar = no tiene user_id Y no se encontró en legacy_clients
         if (unassigned === 'true') {
-            query += ` AND mo.user_id IS NULL`;
+            query += ` AND mo.user_id IS NULL AND lc.id IS NULL`;
         }
 
         query += ` ORDER BY mo.created_at DESC`;
@@ -627,15 +647,20 @@ export const getMaritimeOrders = async (req: Request, res: Response): Promise<an
         const result = await pool.query(query, params);
 
         // Contar totales (solo LOG, excluir LVS)
+        // "Sin asignar" = no tiene user_id Y no se encuentra en legacy_clients
         const countResult = await pool.query(`
             SELECT 
-                COUNT(*) FILTER (WHERE status = 'received_china') as received_china,
-                COUNT(*) FILTER (WHERE status = 'in_transit') as in_transit,
-                COUNT(*) FILTER (WHERE status = 'customs_mx') as customs_mx,
-                COUNT(*) FILTER (WHERE status = 'delivered') as delivered,
-                COUNT(*) FILTER (WHERE user_id IS NULL) as unassigned
-            FROM maritime_orders
-            WHERE ordersn LIKE 'LOG%'
+                COUNT(*) FILTER (WHERE mo.status = 'received_china') as received_china,
+                COUNT(*) FILTER (WHERE mo.status = 'in_transit') as in_transit,
+                COUNT(*) FILTER (WHERE mo.status = 'customs_mx') as customs_mx,
+                COUNT(*) FILTER (WHERE mo.status = 'delivered') as delivered,
+                COUNT(*) FILTER (WHERE mo.user_id IS NULL AND lc.id IS NULL) as unassigned
+            FROM maritime_orders mo
+            LEFT JOIN legacy_clients lc ON (
+                mo.user_id IS NULL 
+                AND UPPER(SUBSTRING(mo.shipping_mark FROM 'S[0-9]+')) = UPPER(lc.box_id)
+            )
+            WHERE mo.ordersn LIKE 'LOG%'
         `);
 
         res.json({
