@@ -1958,8 +1958,8 @@ app.get('/api/auth/verify', authenticateToken, (req: AuthRequest, res: Response)
 });
 
 // --- RUTAS DE PAQUETES ---
-// Crear paquete (Mostrador o superior - para recepción en sucursal)
-app.post('/api/packages', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createPackage);
+// Crear paquete (Bodega o superior - para recepción en sucursal y bodega)
+app.post('/api/packages', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), createPackage);
 
 // Listar todos los paquetes (Staff o superior)
 app.get('/api/packages', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getPackages);
