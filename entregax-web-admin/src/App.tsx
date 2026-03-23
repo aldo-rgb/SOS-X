@@ -638,7 +638,8 @@ function App() {
                     <Typography variant="subtitle2" fontWeight="bold">🌐 Idioma</Typography>
                   </Box>
                   <MenuItem 
-                    onClick={() => setLangAnchorEl(null)}
+                    onClick={() => toggleLanguage('es')}
+                    selected={i18n.language === 'es'}
                     sx={{ py: 1.5 }}
                   >
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -647,7 +648,8 @@ function App() {
                     </Box>
                   </MenuItem>
                   <MenuItem 
-                    onClick={() => setLangAnchorEl(null)}
+                    onClick={() => toggleLanguage('en')}
+                    selected={i18n.language === 'en'}
                     sx={{ py: 1.5 }}
                   >
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -656,7 +658,8 @@ function App() {
                     </Box>
                   </MenuItem>
                   <MenuItem 
-                    onClick={() => setLangAnchorEl(null)}
+                    onClick={() => toggleLanguage('zh')}
+                    selected={i18n.language === 'zh'}
                     sx={{ py: 1.5 }}
                   >
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>

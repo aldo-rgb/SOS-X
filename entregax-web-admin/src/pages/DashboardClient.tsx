@@ -1201,7 +1201,7 @@ export default function DashboardClient() {
     const userNamePart = userName?.split(' ')[0] || 'Cliente';
     setChatMessages([
       { id: 1, type: 'agent', text: `¡Hola ${userNamePart}! Soy Orlando, tu asistente en línea de EntregaX. 👋`, time: now },
-      { id: 2, type: 'agent', text: '¿En qué puedo ayudarte hoy? Puedes preguntarme sobre el estado de tus paquetes, tiempos de entrega, costos o cualquier otra duda.', time: now },
+      { id: 2, type: 'agent', text: '¿En qué puedo ayudarte hoy?.', time: now },
     ]);
     setChatTicketId(null);
     setChatInput('');
