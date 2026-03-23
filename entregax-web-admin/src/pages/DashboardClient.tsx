@@ -1301,8 +1301,13 @@ export default function DashboardClient() {
       } else {
         setSnackbar({ open: true, message: response.data?.error || 'Error al vincular', severity: 'error' });
       }
-    } catch (error) {
-      setSnackbar({ open: true, message: '❌ Error al conectar con el servidor', severity: 'error' });
+    } catch (error: any) {
+      const serverMsg = error?.response?.data?.error;
+      setSnackbar({ 
+        open: true, 
+        message: serverMsg || '❌ Error al conectar con el servidor', 
+        severity: 'error' 
+      });
     } finally {
       setAdvisorLoading(false);
     }
