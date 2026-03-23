@@ -13,6 +13,15 @@ import {
   InputAdornment,
   IconButton,
   Fade,
+  Divider,
+  Chip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Stepper,
+  Step,
+  StepLabel,
 } from '@mui/material';
 import EmailOutlinedIcon from '@mui/icons-material/EmailOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
@@ -20,6 +29,9 @@ import PersonOutlineIcon from '@mui/icons-material/PersonOutline';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
+import GroupAddIcon from '@mui/icons-material/GroupAdd';
+import PhoneIcon from '@mui/icons-material/Phone';
+import InventoryIcon from '@mui/icons-material/Inventory';
 
 interface LoginPageProps {
   onLoginSuccess: (userData: any) => void;
@@ -56,8 +68,53 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   // Register form state
   const [registerName, setRegisterName] = useState('');
   const [registerEmail, setRegisterEmail] = useState('');
+  const [registerPhone, setRegisterPhone] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [registerConfirmPassword, setRegisterConfirmPassword] = useState('');
+  const [referralCode, setReferralCode] = useState('');
+  const [validatingCode, setValidatingCode] = useState(false);
+  const [codeValidation, setCodeValidation] = useState<{
+    valid: boolean;
+    referrerName?: string;
+    isAdvisor?: boolean;
+  } | null>(null);
+
+  // Existing client dialog state
+  const [existingClientDialog, setExistingClientDialog] = useState(false);
+  const [existingClientStep, setExistingClientStep] = useState(0);
+  const [existingBoxId, setExistingBoxId] = useState('');
+  const [existingName, setExistingName] = useState('');
+  const [existingEmail, setExistingEmail] = useState('');
+  const [existingPhone, setExistingPhone] = useState('');
+  const [existingPassword, setExistingPassword] = useState('');
+  const [existingConfirmPassword, setExistingConfirmPassword] = useState('');
+  const [existingClientData, setExistingClientData] = useState<any>(null);
+
+  // Validate referral code
+  const validateReferralCode = async (code: string) => {
+    if (!code || code.length < 4) {
+      setCodeValidation(null);
+      return;
+    }
+
+    setValidatingCode(true);
+    try {
+      const response = await axios.get(`${API_URL}/referral/validate/${code.toUpperCase()}`);
+      if (response.data.success && response.data.data) {
+        setCodeValidation({
+          valid: true,
+          referrerName: response.data.data.referidor,
+          isAdvisor: response.data.data.isAdvisor,
+        });
+      } else {
+        setCodeValidation({ valid: false });
+      }
+    } catch {
+      setCodeValidation({ valid: false });
+    } finally {
+      setValidatingCode(false);
+    }
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,34 +168,163 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       return;
     }
 
+    if (registerPhone && registerPhone.length < 10) {
+      setError('El número de WhatsApp debe tener al menos 10 dígitos');
+      return;
+    }
+
     setLoading(true);
 
     try {
       const response = await axios.post(`${API_URL}/auth/register`, {
         fullName: registerName,
         email: registerEmail,
+        phone: registerPhone || undefined,
         password: registerPassword,
+        referralCodeInput: referralCode.trim().toUpperCase() || undefined,
       });
 
-      setSuccess(`¡Registro exitoso! Tu casillero es ${response.data.user.boxId}. Ahora puedes iniciar sesión.`);
+      const advisorMsg = response.data.user.hasAdvisor ? '\n¡Tu asesor ha sido asignado!' : '';
+      const referralMsg = response.data.user.referredBy ? '\n¡Recibirás tu bono de bienvenida!' : '';
+      
+      setSuccess(`¡Registro exitoso! Tu casillero es ${response.data.user.boxId}.${advisorMsg}${referralMsg} Ahora puedes iniciar sesión.`);
       
       // Limpiar formulario y cambiar a login
       setRegisterName('');
       setRegisterEmail('');
+      setRegisterPhone('');
       setRegisterPassword('');
       setRegisterConfirmPassword('');
+      setReferralCode('');
+      setCodeValidation(null);
       
       setTimeout(() => {
         setTabValue(0);
         setLoginEmail(registerEmail);
         setSuccess('');
-      }, 3000);
+      }, 4000);
 
     } catch (err: any) {
       setError(err.response?.data?.error || 'Error al registrar usuario');
     } finally {
       setLoading(false);
     }
+  };
+
+  // Existing client functions
+  const handleCheckBoxId = async () => {
+    if (!existingBoxId || existingBoxId.length < 2) {
+      setError('Ingresa tu número de cliente');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const response = await axios.get(`${API_URL}/legacy/verify/${existingBoxId.toUpperCase()}`);
+      
+      if (!response.data.exists) {
+        setError('No encontramos ese número de cliente. Verifica que sea correcto.');
+        return;
+      }
+
+      if (response.data.isClaimed) {
+        setError('Este número de cliente ya fue activado. Intenta iniciar sesión.');
+        return;
+      }
+
+      setExistingClientStep(1);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Error al verificar');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifyName = async () => {
+    if (!existingName || existingName.length < 3) {
+      setError('Ingresa tu nombre completo');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const response = await axios.post(`${API_URL}/legacy/verify-name`, {
+        boxId: existingBoxId.toUpperCase(),
+        fullName: existingName.trim()
+      });
+
+      if (response.data.nameMatch && response.data.clientData) {
+        setExistingClientData(response.data.clientData);
+        setExistingEmail(response.data.clientData.email || '');
+        setExistingPhone(response.data.clientData.phone || '');
+        setExistingClientStep(2);
+      }
+    } catch (err: any) {
+      if (err.response?.status === 403) {
+        setError('El nombre no coincide con nuestros registros. Verifica que sea el mismo nombre con el que te registraste.');
+      } else {
+        setError(err.response?.data?.error || 'Error al verificar');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCompleteActivation = async () => {
+    if (!existingPassword || existingPassword.length < 6) {
+      setError('La contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+    if (existingPassword !== existingConfirmPassword) {
+      setError('Las contraseñas no coinciden');
+      return;
+    }
+    if (!existingEmail || !existingEmail.includes('@')) {
+      setError('Ingresa un correo electrónico válido');
+      return;
+    }
+    if (!existingPhone || existingPhone.length < 10) {
+      setError('Ingresa un número de WhatsApp válido (10 dígitos)');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    try {
+      const response = await axios.post(`${API_URL}/legacy/claim`, {
+        boxId: existingClientData?.boxId,
+        fullName: existingClientData?.fullName,
+        email: existingEmail.trim().toLowerCase(),
+        phone: existingPhone.trim(),
+        newPassword: existingPassword
+      });
+
+      setSuccess(`¡Cuenta activada! Tu casillero es ${response.data.user.box_id}. Ahora puedes iniciar sesión.`);
+      setExistingClientDialog(false);
+      resetExistingClientForm();
+      setTabValue(0);
+      setLoginEmail(existingEmail);
+      
+      setTimeout(() => setSuccess(''), 5000);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Error al activar cuenta');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resetExistingClientForm = () => {
+    setExistingClientStep(0);
+    setExistingBoxId('');
+    setExistingName('');
+    setExistingEmail('');
+    setExistingPhone('');
+    setExistingPassword('');
+    setExistingConfirmPassword('');
+    setExistingClientData(null);
+    setError('');
   };
 
   return (
@@ -382,7 +568,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   value={registerConfirmPassword}
                   onChange={(e) => setRegisterConfirmPassword(e.target.value)}
                   required
-                  sx={{ mb: 3 }}
+                  sx={{ mb: 2.5 }}
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
@@ -391,6 +577,89 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                     ),
                   }}
                 />
+                <TextField
+                  fullWidth
+                  label="WhatsApp (10 dígitos)"
+                  value={registerPhone}
+                  onChange={(e) => setRegisterPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                  placeholder="55 1234 5678"
+                  sx={{ mb: 2.5 }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <PhoneIcon sx={{ color: 'text.secondary' }} />
+                      </InputAdornment>
+                    ),
+                  }}
+                  helperText="Opcional - Para notificaciones"
+                />
+
+                {/* Referral Code Section */}
+                <Divider sx={{ my: 2 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    ¿Tienes un código de referido?
+                  </Typography>
+                </Divider>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, textAlign: 'center' }}>
+                  Si un amigo o asesor te recomendó, ingresa su código
+                </Typography>
+                <TextField
+                  fullWidth
+                  label="Código de referido (opcional)"
+                  value={referralCode}
+                  onChange={(e) => {
+                    const value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10);
+                    setReferralCode(value);
+                    setCodeValidation(null);
+                  }}
+                  onBlur={() => {
+                    if (referralCode.length >= 4) {
+                      validateReferralCode(referralCode);
+                    }
+                  }}
+                  placeholder="Ej: ABC123"
+                  sx={{ mb: 1.5 }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <GroupAddIcon sx={{ color: 'text.secondary' }} />
+                      </InputAdornment>
+                    ),
+                    endAdornment: validatingCode ? (
+                      <InputAdornment position="end">
+                        <CircularProgress size={20} />
+                      </InputAdornment>
+                    ) : codeValidation ? (
+                      <InputAdornment position="end">
+                        {codeValidation.valid ? (
+                          <CheckCircleOutlineIcon sx={{ color: 'success.main' }} />
+                        ) : (
+                          <Typography variant="caption" color="error">✗</Typography>
+                        )}
+                      </InputAdornment>
+                    ) : null,
+                  }}
+                />
+                {codeValidation && (
+                  <Box sx={{ mb: 2 }}>
+                    {codeValidation.valid ? (
+                      <Chip
+                        size="small"
+                        color="success"
+                        label={codeValidation.isAdvisor 
+                          ? `✓ Asesor: ${codeValidation.referrerName}` 
+                          : `✓ Referido por: ${codeValidation.referrerName}`
+                        }
+                        sx={{ mt: 0.5 }}
+                      />
+                    ) : (
+                      <Typography variant="caption" color="error">
+                        Código no válido
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+
                 <Button
                   type="submit"
                   fullWidth
@@ -403,6 +672,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                     textTransform: 'none',
                     fontSize: '1rem',
                     fontWeight: 700,
+                    mt: 2,
                     background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)',
                     boxShadow: '0 4px 12px rgba(240, 90, 40, 0.3)',
                     '&:hover': {
@@ -417,6 +687,44 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                     'Crear Cuenta'
                   )}
                 </Button>
+
+                {/* Existing Client Section */}
+                <Divider sx={{ my: 3 }} />
+                <Box
+                  sx={{
+                    p: 2,
+                    bgcolor: '#F8F9FA',
+                    borderRadius: 2,
+                    border: '1px solid #E5E7EB',
+                    textAlign: 'center',
+                  }}
+                >
+                  <InventoryIcon sx={{ fontSize: 32, color: '#F05A28', mb: 1 }} />
+                  <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                    ¿Ya tienes número de cliente?
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Si ya eras cliente de EntregaX, activa tu cuenta aquí
+                  </Typography>
+                  <Button
+                    variant="outlined"
+                    fullWidth
+                    onClick={() => {
+                      resetExistingClientForm();
+                      setExistingClientDialog(true);
+                    }}
+                    sx={{
+                      borderColor: '#F05A28',
+                      color: '#F05A28',
+                      '&:hover': {
+                        borderColor: '#C1272D',
+                        bgcolor: 'rgba(240, 90, 40, 0.04)',
+                      },
+                    }}
+                  >
+                    Activar cuenta existente
+                  </Button>
+                </Box>
               </form>
             </TabPanel>
 
@@ -429,6 +737,252 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           </Box>
         </Paper>
       </Fade>
+
+      {/* Existing Client Dialog */}
+      <Dialog
+        open={existingClientDialog}
+        onClose={() => setExistingClientDialog(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: { borderRadius: 2 }
+        }}
+      >
+        <DialogTitle sx={{ bgcolor: '#111', color: 'white', textAlign: 'center' }}>
+          <InventoryIcon sx={{ fontSize: 40, mb: 1, color: '#F05A28' }} />
+          <Typography variant="h6">Activar Cuenta Existente</Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Stepper activeStep={existingClientStep} sx={{ mb: 4, mt: 2 }}>
+            <Step>
+              <StepLabel>Casillero</StepLabel>
+            </Step>
+            <Step>
+              <StepLabel>Verificar</StepLabel>
+            </Step>
+            <Step>
+              <StepLabel>Datos</StepLabel>
+            </Step>
+            <Step>
+              <StepLabel>Contraseña</StepLabel>
+            </Step>
+          </Stepper>
+
+          {error && (
+            <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
+              {error}
+            </Alert>
+          )}
+
+          {/* Step 0: Enter Box ID */}
+          {existingClientStep === 0 && (
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2, textAlign: 'center' }}>
+                Ingresa tu número de cliente (casillero) para comenzar
+              </Typography>
+              <TextField
+                fullWidth
+                label="Número de cliente"
+                value={existingBoxId}
+                onChange={(e) => setExistingBoxId(e.target.value.toUpperCase())}
+                placeholder="Ej: S87, DHL-001"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <InventoryIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ mb: 2 }}
+              />
+            </Box>
+          )}
+
+          {/* Step 1: Verify Name */}
+          {existingClientStep === 1 && (
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2, textAlign: 'center' }}>
+                Para verificar tu identidad, ingresa tu nombre completo tal como lo registraste
+              </Typography>
+              <TextField
+                fullWidth
+                label="Nombre completo"
+                value={existingName}
+                onChange={(e) => setExistingName(e.target.value)}
+                placeholder="Nombre como aparece en tu cuenta"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PersonOutlineIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ mb: 2 }}
+              />
+            </Box>
+          )}
+
+          {/* Step 2: Confirm/Edit Contact Info */}
+          {existingClientStep === 2 && existingClientData && (
+            <Box>
+              <Alert severity="success" sx={{ mb: 3 }}>
+                ¡Identidad verificada! Confirma o actualiza tus datos de contacto.
+              </Alert>
+              <Typography variant="subtitle2" sx={{ mb: 2, fontWeight: 600 }}>
+                Cliente: {existingClientData.fullName}
+              </Typography>
+              <TextField
+                fullWidth
+                label="Correo electrónico"
+                type="email"
+                value={existingEmail}
+                onChange={(e) => setExistingEmail(e.target.value)}
+                required
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <EmailOutlinedIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ mb: 2 }}
+              />
+              <TextField
+                fullWidth
+                label="WhatsApp (10 dígitos)"
+                value={existingPhone}
+                onChange={(e) => setExistingPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                required
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PhoneIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ mb: 2 }}
+              />
+              <Button
+                variant="contained"
+                fullWidth
+                onClick={() => setExistingClientStep(3)}
+                disabled={!existingEmail || !existingPhone || existingPhone.length < 10}
+                sx={{
+                  background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)',
+                  '&:hover': {
+                    background: 'linear-gradient(90deg, #A01F25 0%, #D94A20 100%)',
+                  },
+                }}
+              >
+                Continuar
+              </Button>
+            </Box>
+          )}
+
+          {/* Step 3: Set Password */}
+          {existingClientStep === 3 && (
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2, textAlign: 'center' }}>
+                Crea una contraseña para tu cuenta
+              </Typography>
+              <TextField
+                fullWidth
+                label="Nueva contraseña"
+                type="password"
+                value={existingPassword}
+                onChange={(e) => setExistingPassword(e.target.value)}
+                required
+                helperText="Mínimo 6 caracteres"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <LockOutlinedIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ mb: 2 }}
+              />
+              <TextField
+                fullWidth
+                label="Confirmar contraseña"
+                type="password"
+                value={existingConfirmPassword}
+                onChange={(e) => setExistingConfirmPassword(e.target.value)}
+                required
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <LockOutlinedIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+                sx={{ mb: 2 }}
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3 }}>
+          <Button
+            onClick={() => {
+              if (existingClientStep > 0) {
+                setExistingClientStep(existingClientStep - 1);
+                setError('');
+              } else {
+                setExistingClientDialog(false);
+                resetExistingClientForm();
+              }
+            }}
+            sx={{ color: 'text.secondary' }}
+          >
+            {existingClientStep === 0 ? 'Cancelar' : 'Atrás'}
+          </Button>
+          {existingClientStep === 0 && (
+            <Button
+              variant="contained"
+              onClick={handleCheckBoxId}
+              disabled={loading || !existingBoxId}
+              sx={{
+                background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)',
+                '&:hover': {
+                  background: 'linear-gradient(90deg, #A01F25 0%, #D94A20 100%)',
+                },
+              }}
+            >
+              {loading ? <CircularProgress size={20} color="inherit" /> : 'Verificar'}
+            </Button>
+          )}
+          {existingClientStep === 1 && (
+            <Button
+              variant="contained"
+              onClick={handleVerifyName}
+              disabled={loading || !existingName}
+              sx={{
+                background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)',
+                '&:hover': {
+                  background: 'linear-gradient(90deg, #A01F25 0%, #D94A20 100%)',
+                },
+              }}
+            >
+              {loading ? <CircularProgress size={20} color="inherit" /> : 'Verificar nombre'}
+            </Button>
+          )}
+          {existingClientStep === 3 && (
+            <Button
+              variant="contained"
+              onClick={handleCompleteActivation}
+              disabled={loading || !existingPassword || existingPassword.length < 6}
+              sx={{
+                background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)',
+                '&:hover': {
+                  background: 'linear-gradient(90deg, #A01F25 0%, #D94A20 100%)',
+                },
+              }}
+            >
+              {loading ? <CircularProgress size={20} color="inherit" /> : 'Activar Cuenta'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
