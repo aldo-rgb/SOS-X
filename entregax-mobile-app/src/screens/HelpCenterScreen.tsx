@@ -55,6 +55,7 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
   const [ticketCategory, setTicketCategory] = useState('');
   const [ticketTracking, setTicketTracking] = useState('');
   const [ticketImages, setTicketImages] = useState<{ uri: string; name: string; type: string }[]>([]);
+  const [trackingValidation, setTrackingValidation] = useState<{ status: 'idle' | 'validating' | 'valid' | 'invalid'; message: string }>({ status: 'idle', message: '' });
   const [loading, setLoading] = useState(false);
   
   // Info del asesor (cargar desde API)
@@ -133,6 +134,30 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
     setTicketCategory('');
     setTicketTracking('');
     setTicketImages([]);
+    setTrackingValidation({ status: 'idle', message: '' });
+  };
+
+  // Validar guía contra el backend
+  const validateTrackingNumber = async (tracking: string) => {
+    const trimmed = tracking.trim();
+    if (!trimmed) {
+      setTrackingValidation({ status: 'idle', message: '' });
+      return;
+    }
+    setTrackingValidation({ status: 'validating', message: 'Verificando guía...' });
+    try {
+      const res = await fetch(`${API_URL}/api/support/validate-tracking?tracking=${encodeURIComponent(trimmed)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data?.valid) {
+        setTrackingValidation({ status: 'valid', message: `✅ Guía encontrada` });
+      } else {
+        setTrackingValidation({ status: 'invalid', message: data?.error || 'Guía no encontrada para tu número de cliente.' });
+      }
+    } catch (error) {
+      setTrackingValidation({ status: 'invalid', message: 'Error al verificar la guía.' });
+    }
   };
 
   // Seleccionar imagen de la galería
@@ -203,6 +228,8 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
     if (!ticketCategory) return false;
     if (!ticketMessage.trim()) return false;
     if (isTrackingRequired && !ticketTracking.trim()) return false;
+    // Si hay tracking, debe estar validado
+    if (ticketTracking.trim() && trackingValidation.status !== 'valid') return false;
     return true;
   };
 
@@ -214,6 +241,10 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
     }
     if (isTrackingRequired && !ticketTracking.trim()) {
       Alert.alert(t('common.error'), t('helpCenter.enterTracking'));
+      return;
+    }
+    if (ticketTracking.trim() && trackingValidation.status !== 'valid') {
+      Alert.alert(t('common.error'), trackingValidation.message || 'Verifica el número de guía antes de continuar.');
       return;
     }
     if (!ticketMessage.trim()) {
@@ -435,13 +466,39 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
                 {t('helpCenter.trackingLabel')} {isTrackingRequired ? '*' : `(${t('common.optional')})`}
               </Text>
               <RNTextInput
-                style={styles.textInput}
+                style={[
+                  styles.textInput,
+                  trackingValidation.status === 'invalid' && { borderColor: '#D32F2F', borderWidth: 1.5 },
+                  trackingValidation.status === 'valid' && { borderColor: '#4CAF50', borderWidth: 1.5 },
+                ]}
                 placeholder={t('helpCenter.trackingPlaceholder')}
                 placeholderTextColor="#999"
                 value={ticketTracking}
-                onChangeText={setTicketTracking}
+                onChangeText={(text) => {
+                  setTicketTracking(text);
+                  if (trackingValidation.status !== 'idle') {
+                    setTrackingValidation({ status: 'idle', message: '' });
+                  }
+                }}
+                onBlur={() => {
+                  if (ticketTracking.trim()) {
+                    validateTrackingNumber(ticketTracking);
+                  }
+                }}
                 autoCapitalize="characters"
               />
+              {trackingValidation.status !== 'idle' && (
+                <Text style={{
+                  fontSize: 12,
+                  marginTop: -4,
+                  marginBottom: 8,
+                  color: trackingValidation.status === 'valid' ? '#4CAF50' : 
+                         trackingValidation.status === 'invalid' ? '#D32F2F' : '#666',
+                  fontWeight: '600',
+                }}>
+                  {trackingValidation.status === 'validating' ? '⏳ Verificando guía...' : trackingValidation.message}
+                </Text>
+              )}
 
               {/* Descripción */}
               <Text style={styles.modalLabel}>{t('helpCenter.describeIssue')} *</Text>
