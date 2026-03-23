@@ -86,6 +86,9 @@ import {
   Payment as PaymentIcon,
   AddPhotoAlternate as AddPhotoIcon,
   Send as SendIcon,
+  CheckCircleOutline as CheckCircleOutlineIcon,
+  Block as BlockIcon,
+  WarningAmber as WarningAmberIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -301,6 +304,7 @@ export default function DashboardClient() {
   const [advisorModalOpen, setAdvisorModalOpen] = useState(false);
   const [advisorCode, setAdvisorCode] = useState('');
   const [advisorLoading, setAdvisorLoading] = useState(false);
+  const [advisorConfirmOpen, setAdvisorConfirmOpen] = useState(false);
   
   // Modal de soporte / chat
   const [supportOpen, setSupportOpen] = useState(false);
@@ -1260,13 +1264,18 @@ export default function DashboardClient() {
     }
   };
 
-  // Vincular con asesor
-  const handleLinkAdvisor = async () => {
+  // Vincular con asesor - paso 1: mostrar confirmación
+  const handleLinkAdvisor = () => {
     if (!advisorCode.trim()) {
       setSnackbar({ open: true, message: 'Por favor ingresa el código del asesor', severity: 'warning' });
       return;
     }
-    
+    setAdvisorConfirmOpen(true);
+  };
+
+  // Vincular con asesor - paso 2: confirmar y enviar
+  const handleConfirmLinkAdvisor = async () => {
+    setAdvisorConfirmOpen(false);
     setAdvisorLoading(true);
     try {
       const response = await api.post('/advisor/request', {
@@ -5675,10 +5684,11 @@ export default function DashboardClient() {
             variant="contained"
             size="large"
             onClick={handleNeedHelp}
-            disabled={advisorLoading}
+            disabled={advisorLoading || !!advisorCode.trim()}
             sx={{ 
               bgcolor: ORANGE, 
               '&:hover': { bgcolor: '#d94d1f' },
+              '&.Mui-disabled': { bgcolor: '#ccc', color: '#999' },
               py: 1.5,
               mb: 3
             }}
@@ -5716,6 +5726,74 @@ export default function DashboardClient() {
             disabled={advisorLoading || !advisorCode.trim()}
           >
             {advisorLoading ? <CircularProgress size={20} color="inherit" /> : 'Vincular'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Modal Confirmación Vincular Asesor */}
+      <Dialog open={advisorConfirmOpen} onClose={() => setAdvisorConfirmOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ 
+          bgcolor: '#1565C0', 
+          color: 'white', 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 1,
+          fontSize: '1.1rem'
+        }}>
+          <SecurityIcon sx={{ fontSize: 24 }} />
+          Aviso Importante
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2, px: 3 }}>
+          <Typography variant="body1" sx={{ mb: 2, fontWeight: 600 }}>
+            Al vincular un asesor, aceptas lo siguiente:
+          </Typography>
+          
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" sx={{ mb: 1, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+              <CheckCircleOutlineIcon sx={{ color: '#4CAF50', fontSize: 20, mt: 0.3, flexShrink: 0 }} />
+              Tu asesor podrá <b>configurar direcciones de envío</b> en tu cuenta.
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 1, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+              <CheckCircleOutlineIcon sx={{ color: '#4CAF50', fontSize: 20, mt: 0.3, flexShrink: 0 }} />
+              Tu asesor podrá <b>asignar instrucciones de envío y paqueterías</b> a tus embarques.
+            </Typography>
+          </Box>
+
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="body2" sx={{ mb: 1, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
+              <BlockIcon sx={{ color: '#F44336', fontSize: 20, mt: 0.3, flexShrink: 0 }} />
+              Tu asesor <b>NO puede configurar métodos de pago</b> ni gestionar tus pagos.
+            </Typography>
+          </Box>
+
+          <Paper sx={{ 
+            p: 2, 
+            bgcolor: '#FFF3E0', 
+            border: '1px solid #FFB74D',
+            borderRadius: 2,
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 1
+          }}>
+            <WarningAmberIcon sx={{ color: '#E65100', fontSize: 22, mt: 0.2 }} />
+            <Typography variant="body2" sx={{ color: '#E65100', fontWeight: 600 }}>
+              Por ningún motivo los asesores de EntregaX te solicitarán datos de tu tarjeta de crédito.
+            </Typography>
+          </Paper>
+        </DialogContent>
+        <DialogActions sx={{ p: 2, gap: 1 }}>
+          <Button 
+            onClick={() => setAdvisorConfirmOpen(false)}
+            sx={{ color: '#666' }}
+          >
+            Cancelar
+          </Button>
+          <Button 
+            variant="contained" 
+            onClick={handleConfirmLinkAdvisor}
+            sx={{ bgcolor: '#1565C0', '&:hover': { bgcolor: '#0D47A1' }, px: 3 }}
+          >
+            Acepto y Vincular
           </Button>
         </DialogActions>
       </Dialog>
