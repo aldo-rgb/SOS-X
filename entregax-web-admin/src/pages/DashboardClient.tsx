@@ -85,6 +85,7 @@ import {
   Lock as LockIcon,
   Payment as PaymentIcon,
   AddPhotoAlternate as AddPhotoIcon,
+  Send as SendIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -307,6 +308,13 @@ export default function DashboardClient() {
   const [supportCategory, setSupportCategory] = useState('');
   const [supportTracking, setSupportTracking] = useState('');
   const [supportImages, setSupportImages] = useState<{ file: File; preview: string }[]>([]);
+  
+  // Chat Virtual con Javier (asesor IA)
+  const [supportChatOpen, setSupportChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<{ id: number; type: 'user' | 'agent'; text: string; time: string }[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatTicketId, setChatTicketId] = useState<number | null>(null);
   
   // Snackbar para notificaciones
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
@@ -1184,6 +1192,71 @@ export default function DashboardClient() {
       setSupportOpen(false);
     } catch (error) {
       setSnackbar({ open: true, message: '❌ Error al crear ticket', severity: 'error' });
+    }
+  };
+
+  // Inicializar Chat Virtual con Javier
+  const initSupportChat = () => {
+    const now = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+    const userNamePart = userName?.split(' ')[0] || 'Cliente';
+    setChatMessages([
+      { id: 1, type: 'agent', text: `¡Hola ${userNamePart}! Soy Javier, tu asistente virtual de EntregaX. 👋`, time: now },
+      { id: 2, type: 'agent', text: '¿En qué puedo ayudarte hoy? Puedes preguntarme sobre el estado de tus paquetes, tiempos de entrega, costos o cualquier otra duda.', time: now },
+    ]);
+    setChatTicketId(null);
+    setChatInput('');
+    setSupportChatOpen(true);
+    setHelpCenterOpen(false);
+  };
+
+  // Enviar mensaje al chat virtual
+  const handleSendChatMessage = async () => {
+    if (!chatInput.trim()) return;
+    
+    const userMessage = chatInput.trim();
+    const now = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+    
+    // Agregar mensaje del usuario inmediatamente
+    const userMsg = { id: Date.now(), type: 'user' as const, text: userMessage, time: now };
+    setChatMessages(prev => [...prev, userMsg]);
+    setChatInput('');
+    setChatLoading(true);
+    
+    try {
+      const response = await api.post('/support/message', {
+        message: userMessage,
+        ticketId: chatTicketId,
+        category: 'other',
+        language: 'es',
+      });
+      
+      if (response.data?.ticketId) {
+        setChatTicketId(response.data.ticketId);
+      }
+      
+      // Simular tiempo de escritura (1-2 segundos)
+      await new Promise(resolve => setTimeout(resolve, 1200 + Math.random() * 800));
+      
+      // Agregar respuesta del agente
+      if (response.data?.response) {
+        const agentMsg = {
+          id: Date.now() + 1,
+          type: 'agent' as const,
+          text: response.data.response,
+          time: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
+        };
+        setChatMessages(prev => [...prev, agentMsg]);
+      }
+    } catch (error) {
+      const errorMsg = {
+        id: Date.now() + 1,
+        type: 'agent' as const,
+        text: 'Lo siento, hubo un problema de conexión. Por favor intenta de nuevo.',
+        time: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
+      };
+      setChatMessages(prev => [...prev, errorMsg]);
+    } finally {
+      setChatLoading(false);
     }
   };
 
@@ -5214,10 +5287,7 @@ export default function DashboardClient() {
         <DialogContent sx={{ p: 0 }}>
           {/* Opción 1: Hablar Ahora */}
           <Box
-            onClick={() => {
-              setHelpCenterOpen(false);
-              setSnackbar({ open: true, message: '🤖 El asesor virtual estará disponible próximamente', severity: 'info' });
-            }}
+            onClick={() => initSupportChat()}
             sx={{
               display: 'flex',
               alignItems: 'center',
@@ -5648,6 +5718,151 @@ export default function DashboardClient() {
             {advisorLoading ? <CircularProgress size={20} color="inherit" /> : 'Vincular'}
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* Modal Chat Virtual con Javier */}
+      <Dialog 
+        open={supportChatOpen} 
+        onClose={() => setSupportChatOpen(false)} 
+        maxWidth="sm" 
+        fullWidth
+        PaperProps={{
+          sx: { 
+            height: '80vh', 
+            maxHeight: 600,
+            display: 'flex',
+            flexDirection: 'column'
+          }
+        }}
+      >
+        {/* Header del chat */}
+        <DialogTitle sx={{ 
+          bgcolor: '#2196F3', 
+          color: 'white', 
+          display: 'flex', 
+          alignItems: 'center', 
+          gap: 2,
+          p: 1.5,
+          flexShrink: 0
+        }}>
+          <Avatar 
+            src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face"
+            sx={{ width: 40, height: 40 }}
+          />
+          <Box sx={{ flex: 1 }}>
+            <Typography fontWeight="bold">Javier</Typography>
+            <Typography variant="caption" sx={{ opacity: 0.9 }}>
+              {chatLoading ? 'Escribiendo...' : 'Servicio al Cliente'}
+            </Typography>
+          </Box>
+          <IconButton 
+            onClick={() => setSupportChatOpen(false)} 
+            sx={{ color: 'white' }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+
+        {/* Área de mensajes */}
+        <DialogContent sx={{ 
+          flex: 1, 
+          bgcolor: '#ECE5DD', 
+          p: 2,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 1,
+          overflowY: 'auto'
+        }}>
+          {chatMessages.map((msg) => (
+            <Box
+              key={msg.id}
+              sx={{
+                display: 'flex',
+                justifyContent: msg.type === 'user' ? 'flex-end' : 'flex-start',
+                mb: 0.5
+              }}
+            >
+              <Box
+                sx={{
+                  maxWidth: '80%',
+                  bgcolor: msg.type === 'user' ? '#DCF8C6' : 'white',
+                  borderRadius: 2,
+                  px: 2,
+                  py: 1,
+                  boxShadow: 1
+                }}
+              >
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                  {msg.text}
+                </Typography>
+                <Typography 
+                  variant="caption" 
+                  sx={{ 
+                    display: 'block', 
+                    textAlign: 'right', 
+                    color: 'text.secondary',
+                    mt: 0.5
+                  }}
+                >
+                  {msg.time}
+                </Typography>
+              </Box>
+            </Box>
+          ))}
+          {chatLoading && (
+            <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
+              <Box sx={{ bgcolor: 'white', borderRadius: 2, px: 2, py: 1, boxShadow: 1 }}>
+                <Typography variant="body2" color="text.secondary">
+                  ⏳ Javier está escribiendo...
+                </Typography>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+
+        {/* Input de mensaje */}
+        <Box sx={{ 
+          p: 1.5, 
+          bgcolor: '#f0f0f0', 
+          display: 'flex', 
+          gap: 1,
+          alignItems: 'center',
+          flexShrink: 0
+        }}>
+          <TextField
+            fullWidth
+            placeholder="Escribe tu mensaje..."
+            value={chatInput}
+            onChange={(e) => setChatInput(e.target.value)}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                handleSendChatMessage();
+              }
+            }}
+            disabled={chatLoading}
+            size="small"
+            sx={{ 
+              bgcolor: 'white', 
+              borderRadius: 3,
+              '& .MuiOutlinedInput-root': {
+                borderRadius: 3
+              }
+            }}
+          />
+          <IconButton 
+            onClick={handleSendChatMessage}
+            disabled={!chatInput.trim() || chatLoading}
+            sx={{ 
+              bgcolor: '#2196F3', 
+              color: 'white',
+              '&:hover': { bgcolor: '#1976D2' },
+              '&:disabled': { bgcolor: '#ccc' }
+            }}
+          >
+            <SendIcon />
+          </IconButton>
+        </Box>
       </Dialog>
 
       {/* Snackbar para notificaciones */}
