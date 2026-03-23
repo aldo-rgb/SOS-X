@@ -257,6 +257,9 @@ const calculatePOBoxCost = async (
 
 // ============ CREAR ENVÍO (MASTER + HIJAS) ============
 export const createShipment = async (req: Request, res: Response): Promise<void> => {
+    console.log('📦 [createShipment] Iniciando...');
+    console.log('📦 [createShipment] Body:', JSON.stringify(req.body, null, 2).substring(0, 500));
+    
     const client = await pool.connect();
     
     try {

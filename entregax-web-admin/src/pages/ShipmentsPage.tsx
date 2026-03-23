@@ -802,9 +802,10 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       }
     }
     
-    // Validar que se seleccionó paquetería (excepto si es PO Box dejado en bodega)
+    // Validar que se seleccionó paquetería (excepto si es PO Box dejado en bodega o si es PO Box con cobro después)
     const isPOBoxInWarehouse = !!clientInstructions?.poboxRatesInfo && leaveInWarehouse;
-    if (activeStep === 3 && !carrier && !isPOBoxInWarehouse) {
+    const isPOBoxWithLaterPayment = !!clientInstructions?.poboxRatesInfo && paymentOption === 'later';
+    if (activeStep === 3 && !carrier && !isPOBoxInWarehouse && !isPOBoxWithLaterPayment) {
       const msg = i18n.language === 'es' ? '⚠️ Selecciona la paquetería de envío' : '⚠️ Select the shipping carrier';
       setFormError(msg);
       setSnackbar({ open: true, message: msg, severity: 'error' });
@@ -842,8 +843,10 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     setFormError('');
     
     try {
-      // Si es PO Box y se deja en bodega, no enviar dirección ni cotización
+      // Si es PO Box y se deja en bodega o se cobra después sin envío nacional, no enviar dirección ni cotización
       const isPOBoxInWarehouse = !!clientInstructions?.poboxRatesInfo && leaveInWarehouse;
+      const isPOBoxWithLaterPayment = !!clientInstructions?.poboxRatesInfo && paymentOption === 'later' && !carrier;
+      const skipShipping = isPOBoxInWarehouse || isPOBoxWithLaterPayment;
       
       const payload = {
         boxId,
@@ -857,8 +860,8 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         })),
         trackingProvider: trackingProvider || undefined,
         declaredValue: parseFloat(declaredValue) || undefined,
-        carrier: isPOBoxInWarehouse ? undefined : carrier,
-        destination: isPOBoxInWarehouse ? undefined : {
+        carrier: skipShipping ? undefined : carrier,
+        destination: skipShipping ? undefined : {
           country: destination.country,
           city: destination.city,
           address: destination.address,
@@ -869,9 +872,9 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         notes: notes || undefined,
         imageUrl: packageImage || undefined,
         warehouseLocation: warehouseLocation || undefined, // Ubicación del panel de bodega
-        leaveInWarehouse: isPOBoxInWarehouse || undefined, // Indicar que se deja en bodega
+        leaveInWarehouse: skipShipping || undefined, // Indicar que se deja en bodega o pendiente de envío
         // Información de cotización Skydropx
-        skydropxQuote: (!isPOBoxInWarehouse && selectedRate) ? {
+        skydropxQuote: (!skipShipping && selectedRate) ? {
           shipmentId,
           rateId: selectedRate.id,
           provider: selectedRate.provider,
@@ -887,6 +890,14 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           exchangeRate: gexQuote.exchangeRate,
           insuredValueMxn: gexQuote.insuredValueMxn,
           costMxn: gexQuote.totalCostMxn
+        } : undefined,
+        // 💰 Opción de pago
+        paymentOption: paymentOption || undefined,
+        // 📦 Costo PO Box (para registrar saldo pendiente)
+        poboxCost: clientInstructions?.poboxRatesInfo ? {
+          totalMxn: costoPOBox?.totalMxn || 0,
+          weightKg: costoPOBox?.weightKg || 0,
+          cbm: costoPOBox?.cbm || 0
         } : undefined
       };
 

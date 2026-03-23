@@ -56,7 +56,6 @@ import {
   Flight as FlightIcon,
   DirectionsBoat as BoatIcon,
   LocalPostOffice as PostOfficeIcon,
-  Home as HomeIcon,
   ContentCopy as CopyIcon,
   QrCode as QrCodeIcon,
   Calculate as CalculateIcon,
