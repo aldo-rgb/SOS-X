@@ -4,6 +4,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Box,
   Typography,
@@ -255,19 +256,32 @@ interface CreditInvoice {
   is_overdue: boolean;
 }
 
-const SERVICE_CONFIG = [
-  { type: 'china_air', name: '✈️ Aéreo China', icon: '✈️', timeframe: '7-15 días', tutorial: 'Envía tus productos a nuestra bodega en Guangzhou. Incluye tu Shipping Mark en cada caja. Ideal para muestras y productos urgentes.' },
-  { type: 'china_sea', name: '🚢 Marítimo China', icon: '🚢', timeframe: '45-60 días', tutorial: 'Envía mercancía en volumen a nuestra bodega marítima. Incluye tu Shipping Mark. El mejor precio por CBM para inventario.' },
-  { type: 'usa_pobox', name: '📦 PO Box USA', icon: '📦', timeframe: '5-7 días', tutorial: 'Usa esta dirección para compras en Amazon, eBay, Walmart USA. Tu Suite es tu identificador único. Consolidamos múltiples paquetes.' },
-  { type: 'mx_cedis', name: '📍 DHL Monterrey', icon: '📍', timeframe: '24-48 hrs', tutorial: 'Envía paquetes DHL a nuestro CEDIS en Monterrey. Incluye tu nombre y Suite. Liberación rápida  complicados.' },
-];
+interface ServiceConfigItem {
+  type: string;
+  name: string;
+  icon: string;
+  timeframe: string;
+  tutorial: string;
+}
 
 // Filtros de servicio
 type ServiceFilter = 'all' | 'china_air' | 'china_sea' | 'usa_pobox' | 'dhl';
 
-const statusSteps = ['Ordenado', 'En Tránsito', 'En Aduana', 'En Bodega', 'Listo', 'Entregado'];
-
 export default function DashboardClient() {
+  const { t } = useTranslation();
+
+  const SERVICE_CONFIG = useMemo<ServiceConfigItem[]>(() => [
+    { type: 'china_air', name: t('cd.services.china_air'), icon: '✈️', timeframe: t('cd.services.china_air_time'), tutorial: t('cd.services.china_air_tutorial') },
+    { type: 'china_sea', name: t('cd.services.china_sea'), icon: '🚢', timeframe: t('cd.services.china_sea_time'), tutorial: t('cd.services.china_sea_tutorial') },
+    { type: 'usa_pobox', name: t('cd.services.usa_pobox'), icon: '📦', timeframe: t('cd.services.usa_pobox_time'), tutorial: t('cd.services.usa_pobox_tutorial') },
+    { type: 'mx_cedis', name: t('cd.services.mx_cedis'), icon: '📍', timeframe: t('cd.services.mx_cedis_time'), tutorial: t('cd.services.mx_cedis_tutorial') },
+  ], [t]);
+
+  const statusSteps = useMemo(() => [
+    t('cd.steps.ordered'), t('cd.steps.inTransit'), t('cd.steps.customs'),
+    t('cd.steps.warehouse'), t('cd.steps.ready'), t('cd.steps.delivered')
+  ], [t]);
+
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<ClientStats | null>(null);
   const [packages, setPackages] = useState<PackageTracking[]>([]);
@@ -286,7 +300,7 @@ export default function DashboardClient() {
   
   // Modal de tutorial de dirección
   const [tutorialOpen, setTutorialOpen] = useState(false);
-  const [tutorialService, setTutorialService] = useState<typeof SERVICE_CONFIG[0] | null>(null);
+  const [tutorialService, setTutorialService] = useState<ServiceConfigItem | null>(null);
   
   // Centro de Ayuda
   const [helpCenterOpen, setHelpCenterOpen] = useState(false);
@@ -350,7 +364,7 @@ export default function DashboardClient() {
   const [fiscalLoading, setFiscalLoading] = useState(false);
   
   const [gexValorFactura, setGexValorFactura] = useState<string>('');
-  const [gexDescripcion, setGexDescripcion] = useState<string>('Mercancía general');
+  const [gexDescripcion, setGexDescripcion] = useState<string>(t('cd.gex.defaultDescription'));
   
   // Modal Instrucciones de Entrega
   const [deliveryModalOpen, setDeliveryModalOpen] = useState(false);
@@ -362,31 +376,11 @@ export default function DashboardClient() {
   // Nuevos estados para el modal mejorado de instrucciones
   const [selectedCarrierService, setSelectedCarrierService] = useState<'local' | 'pickup' | 'express'>('local');
   const [deliveryNotes, setDeliveryNotes] = useState<string>('');
-  const [carrierServices] = useState([
-    {
-      id: 'local',
-      name: 'EntregaX Local',
-      description: '1-3 días hábiles',
-      price: 'GRATIS',
-      icon: '🚛'
-    },
-    {
-      id: 'pickup',
-      name: 'Pick Up: Sucursal Hidalgo TX',
-      description: 'Recoger en bodega',
-      price: '$3.00 USD',
-      subtext: '$3 x 1 caja',
-      icon: '📍'
-    },
-    {
-      id: 'express',
-      name: 'Paquete Express Interno',
-      description: '2-4 días hábiles',
-      price: '$350.00 MXN',
-      subtext: '$350 x 1 caja',
-      icon: '⚡'
-    }
-  ]);
+  const carrierServices = useMemo(() => [
+    { id: 'local', name: t('cd.carriers.local'), description: t('cd.carriers.localTime'), price: t('cd.carriers.localPrice'), icon: '🚛' },
+    { id: 'pickup', name: t('cd.carriers.pickup'), description: t('cd.carriers.pickupDesc'), price: t('cd.carriers.pickupPrice'), subtext: '$3 x 1 caja', icon: '📍' },
+    { id: 'express', name: t('cd.carriers.express'), description: t('cd.carriers.expressTime'), price: t('cd.carriers.expressPrice'), subtext: '$350 x 1 caja', icon: '⚡' },
+  ], [t]);
   
   // Modal de Pago
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -401,32 +395,11 @@ export default function DashboardClient() {
     codigo_postal: '',
     regimen_fiscal: '601'
   });
-  const [paymentGatewayMethods] = useState([
-    {
-      id: 'card',
-      name: 'Tarjeta de Crédito/Débito',
-      description: 'OpenPay - Visa, Mastercard, AMEX',
-      icon: '💳',
-      color: '#00D4AA',
-      provider: 'OpenPay'
-    },
-    {
-      id: 'paypal',
-      name: 'PayPal',
-      description: 'Pago rápido y seguro internacional',
-      icon: '🅿️',
-      color: '#0070ba',
-      provider: 'PayPal'
-    },
-    {
-      id: 'branch',
-      name: 'Pago en Sucursal',
-      description: 'Efectivo en Sucursal',
-      icon: '🏪',
-      color: '#f39c12',
-      provider: 'Referencia'
-    }
-  ]);
+  const paymentGatewayMethods = useMemo(() => [
+    { id: 'card', name: t('cd.payment.card'), description: t('cd.payment.cardDesc'), icon: '💳', color: '#00D4AA', provider: 'OpenPay' },
+    { id: 'paypal', name: 'PayPal', description: t('cd.payment.paypalDesc'), icon: '🅿️', color: '#0070ba', provider: 'PayPal' },
+    { id: 'branch', name: t('cd.payment.branch'), description: t('cd.payment.branchDesc'), icon: '🏪', color: '#f39c12', provider: 'Referencia' },
+  ], [t]);
   
   // Modal Historial de Paquetes
   const [historyModalOpen, setHistoryModalOpen] = useState(false);
@@ -543,7 +516,7 @@ export default function DashboardClient() {
       if (status === 'success' || status === 'completed') {
         setSnackbar({ 
           open: true, 
-          message: `✅ Pago ${method ? `con ${method}` : ''} completado exitosamente`, 
+          message: `✅ ${t('cd.alerts.paymentSuccess', { method: method || '' })}`, 
           severity: 'success' 
         });
         
@@ -553,13 +526,13 @@ export default function DashboardClient() {
       } else if (status === 'cancelled' || status === 'failed') {
         setSnackbar({ 
           open: true, 
-          message: `❌ Pago ${status === 'cancelled' ? 'cancelado' : 'fallido'}`, 
+          message: `❌ ${status === 'cancelled' ? t('cd.alerts.paymentCancelled') : t('cd.alerts.paymentFailed')}`, 
           severity: 'error' 
         });
       } else if (status === 'pending') {
         setSnackbar({ 
           open: true, 
-          message: `🕐 Pago pendiente de confirmación`, 
+          message: `🕐 ${t('cd.alerts.paymentPending')}`, 
           severity: 'info' 
         });
       }
@@ -637,7 +610,7 @@ export default function DashboardClient() {
     if (!invoiceData.razon_social || !invoiceData.rfc || !invoiceData.codigo_postal || !invoiceData.regimen_fiscal) {
       setSnackbar({
         open: true,
-        message: 'Completa todos los campos obligatorios',
+        message: t('cd.snackbar.fiscalRequired'),
         severity: 'warning'
       });
       return;
@@ -656,7 +629,7 @@ export default function DashboardClient() {
       if (response.data.success) {
         setSnackbar({
           open: true,
-          message: '✅ Datos fiscales guardados exitosamente',
+          message: t('cd.snackbar.fiscalSaved'),
           severity: 'success'
         });
         
@@ -897,7 +870,7 @@ export default function DashboardClient() {
       if (response.data) {
         setSnackbar({ 
           open: true, 
-          message: '✅ Método de pago agregado exitosamente', 
+          message: t('cd.snackbar.paymentMethodAdded'), 
           severity: 'success' 
         });
         loadPaymentMethods(); // Recargar lista
@@ -920,7 +893,7 @@ export default function DashboardClient() {
       console.error('Error agregando método de pago:', error);
       setSnackbar({ 
         open: true, 
-        message: '❌ Error al agregar método de pago', 
+        message: t('cd.snackbar.paymentMethodError'), 
         severity: 'error' 
       });
     }
@@ -1008,7 +981,7 @@ export default function DashboardClient() {
       // Mostrar mensaje de error al usuario
       setSnackbar({ 
         open: true, 
-        message: '❌ Error de conexión. No se pudieron cargar los paquetes.', 
+        message: t('cd.snackbar.connectionError'), 
         severity: 'error' 
       });
       
@@ -1016,7 +989,7 @@ export default function DashboardClient() {
       setStats({
         casillero: boxId || 'S1-1234',
         direccion_usa: {
-          nombre: userName || 'Tu Nombre',
+          nombre: userName || t('cd.address.yourName'),
           direccion: `1234 Shipping Lane, Suite ${boxId || 'S1-1234'}`,
           ciudad: 'Laredo',
           estado: 'TX',
@@ -1140,12 +1113,12 @@ export default function DashboardClient() {
 
   // Categorías de soporte
   const supportCategories = [
-    { value: 'tracking', label: '📦 Rastreo' },
-    { value: 'delay', label: '⏰ Retraso' },
-    { value: 'warranty', label: '🛡️ Garantía Extendida' },
-    { value: 'compensation', label: '💰 Compensación' },
-    { value: 'systemError', label: '⚠️ Error del Sistema' },
-    { value: 'other', label: '📝 Otro' },
+    { value: 'tracking', label: `📦 ${t('cd.support.categories.tracking')}` },
+    { value: 'delay', label: `⏰ ${t('cd.support.categories.delay')}` },
+    { value: 'warranty', label: `🛡️ ${t('cd.support.categories.warranty')}` },
+    { value: 'compensation', label: `💰 ${t('cd.support.categories.compensation')}` },
+    { value: 'systemError', label: `⚠️ ${t('cd.support.categories.systemError')}` },
+    { value: 'other', label: `📝 ${t('cd.support.categories.other')}` },
   ];
 
   // Validar formulario de soporte
@@ -1166,17 +1139,17 @@ export default function DashboardClient() {
       setTrackingValidation({ status: 'idle', message: '' });
       return;
     }
-    setTrackingValidation({ status: 'validating', message: 'Verificando guía...' });
+    setTrackingValidation({ status: 'validating', message: t('cd.support.validatingTracking') });
     try {
       const response = await api.get(`/support/validate-tracking?tracking=${encodeURIComponent(trimmed)}`);
       if (response.data?.valid) {
-        setTrackingValidation({ status: 'valid', message: `✅ Guía encontrada: ${response.data.package?.description || response.data.package?.tracking || trimmed}` });
+        setTrackingValidation({ status: 'valid', message: `✅ ${t('cd.support.trackingFound')}: ${response.data.package?.description || response.data.package?.tracking || trimmed}` });
       } else {
-        setTrackingValidation({ status: 'invalid', message: response.data?.error || 'Guía no encontrada para tu número de cliente.' });
+        setTrackingValidation({ status: 'invalid', message: response.data?.error || t('cd.support.trackingNotFound') });
       }
     } catch (error: any) {
       const serverMsg = error?.response?.data?.error;
-      setTrackingValidation({ status: 'invalid', message: serverMsg || 'Error al verificar la guía.' });
+      setTrackingValidation({ status: 'invalid', message: serverMsg || t('cd.support.trackingVerifyError') });
     }
   };
 
@@ -1220,17 +1193,17 @@ export default function DashboardClient() {
       setTrackingValidation({ status: 'idle', message: '' });
       setSupportOpen(false);
     } catch (error) {
-      setSnackbar({ open: true, message: '❌ Error al crear ticket', severity: 'error' });
+      setSnackbar({ open: true, message: t('cd.snackbar.ticketError'), severity: 'error' });
     }
   };
 
   // Inicializar Chat Virtual con Orlando
   const initSupportChat = () => {
     const now = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
-    const userNamePart = userName?.split(' ')[0] || 'Cliente';
+    const userNamePart = userName?.split(' ')[0] || t('cd.chat.clientFallback');
     setChatMessages([
-      { id: 1, type: 'agent', text: `¡Hola ${userNamePart}! Soy Orlando, tu asistente en línea de EntregaX. 👋`, time: now },
-      { id: 2, type: 'agent', text: '¿En qué puedo ayudarte hoy?Orlando.', time: now },
+      { id: 1, type: 'agent', text: t('cd.chat.greeting', { name: userNamePart }), time: now },
+      { id: 2, type: 'agent', text: t('cd.chat.howCanIHelp'), time: now },
     ]);
     setChatTicketId(null);
     setChatInput('');
@@ -1280,7 +1253,7 @@ export default function DashboardClient() {
       const errorMsg = {
         id: Date.now() + 1,
         type: 'agent' as const,
-        text: 'Lo siento, hubo un problema de conexión. Por favor intenta de nuevo.',
+        text: t('cd.chat.connectionError'),
         time: new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }),
       };
       setChatMessages(prev => [...prev, errorMsg]);
@@ -1292,7 +1265,7 @@ export default function DashboardClient() {
   // Vincular con asesor - paso 1: mostrar confirmación
   const handleLinkAdvisor = () => {
     if (!advisorCode.trim()) {
-      setSnackbar({ open: true, message: 'Por favor ingresa el código del asesor', severity: 'warning' });
+      setSnackbar({ open: true, message: t('cd.snackbar.advisorCodeRequired'), severity: 'warning' });
       return;
     }
     setAdvisorConfirmOpen(true);
@@ -1324,13 +1297,13 @@ export default function DashboardClient() {
         setAdvisorCode('');
         setAdvisorModalOpen(false);
       } else {
-        setSnackbar({ open: true, message: response.data?.error || 'Error al vincular', severity: 'error' });
+        setSnackbar({ open: true, message: response.data?.error || t('cd.snackbar.linkError'), severity: 'error' });
       }
     } catch (error: any) {
       const serverMsg = error?.response?.data?.error;
       setSnackbar({ 
         open: true, 
-        message: serverMsg || '❌ Error al conectar con el servidor', 
+        message: serverMsg || t('cd.snackbar.serverConnectionError'), 
         severity: 'error' 
       });
     } finally {
@@ -1347,21 +1320,21 @@ export default function DashboardClient() {
       
       if (response.data?.success) {
         const messageType = response.data.type;
-        let message = response.data.message || '✅ Solicitud enviada';
+        let message = response.data.message || t('cd.snackbar.requestSent');
         
         if (messageType === 'PENDING') {
-          message = '⏳ Ya tienes una solicitud en proceso. Te contactaremos pronto.';
+          message = t('cd.snackbar.requestPending');
         } else if (messageType === 'REQUESTED') {
-          message = '✅ Solicitud enviada. Un asesor experto te contactará en 24-48 horas.';
+          message = t('cd.snackbar.requestSentAdvisor');
         }
         
         setSnackbar({ open: true, message, severity: 'success' });
         setAdvisorModalOpen(false);
       } else {
-        setSnackbar({ open: true, message: response.data?.error || '❌ Error al enviar solicitud', severity: 'error' });
+        setSnackbar({ open: true, message: response.data?.error || t('cd.snackbar.sendRequestError'), severity: 'error' });
       }
     } catch (error) {
-      setSnackbar({ open: true, message: '❌ Error al enviar solicitud', severity: 'error' });
+      setSnackbar({ open: true, message: t('cd.snackbar.requestError'), severity: 'error' });
     } finally {
       setAdvisorLoading(false);
     }
@@ -1371,7 +1344,7 @@ export default function DashboardClient() {
   const togglePackageSelection = (id: number, pkg: PackageTracking) => {
     // Solo permitir seleccionar paquetes elegibles (no pagados, no entregados)
     if (pkg.client_paid || pkg.status === 'delivered') {
-      setSnackbar({ open: true, message: 'Este paquete ya está pagado o entregado', severity: 'info' });
+      setSnackbar({ open: true, message: t('cd.snackbar.alreadyPaid'), severity: 'info' });
       return;
     }
     
@@ -1384,7 +1357,7 @@ export default function DashboardClient() {
   const toggleSelectAll = () => {
     // Si no hay un tipo de servicio seleccionado, mostrar mensaje
     if (serviceFilter === 'all') {
-      setSnackbar({ open: true, message: 'Primero selecciona un tipo de servicio para filtrar', severity: 'warning' });
+      setSnackbar({ open: true, message: t('cd.snackbar.selectServiceFilter'), severity: 'warning' });
       return;
     }
     
@@ -1410,7 +1383,7 @@ export default function DashboardClient() {
   const handleContractGEX = async () => {
     const selected = getSelectedPackages();
     if (selected.length === 0) {
-      setSnackbar({ open: true, message: 'Selecciona al menos un paquete', severity: 'warning' });
+      setSnackbar({ open: true, message: t('cd.snackbar.selectPackage'), severity: 'warning' });
       return;
     }
 
@@ -1421,13 +1394,13 @@ export default function DashboardClient() {
       });
       
       if (response.data.success) {
-        setSnackbar({ open: true, message: `✅ GEX contratado para ${selected.length} paquete(s)`, severity: 'success' });
+        setSnackbar({ open: true, message: t('cd.snackbar.gexContracted', { count: selected.length }), severity: 'success' });
         setGexModalOpen(false);
         setSelectedPackageIds([]);
         loadData(); // Recargar paquetes
       }
     } catch (error) {
-      setSnackbar({ open: true, message: '❌ Error al contratar GEX', severity: 'error' });
+      setSnackbar({ open: true, message: t('cd.snackbar.gexError'), severity: 'error' });
     } finally {
       setGexLoading(false);
     }
@@ -1437,12 +1410,12 @@ export default function DashboardClient() {
   const handleAssignDelivery = async () => {
     const selected = getSelectedPackages();
     if (selected.length === 0) {
-      setSnackbar({ open: true, message: 'Selecciona al menos un paquete', severity: 'warning' });
+      setSnackbar({ open: true, message: t('cd.snackbar.selectPackage'), severity: 'warning' });
       return;
     }
 
     if (!selectedDeliveryAddress) {
-      setSnackbar({ open: true, message: 'Selecciona una dirección de entrega', severity: 'warning' });
+      setSnackbar({ open: true, message: t('cd.snackbar.selectAddress'), severity: 'warning' });
       return;
     }
 
@@ -1459,7 +1432,7 @@ export default function DashboardClient() {
       });
       
       if (response.data.success) {
-        setSnackbar({ open: true, message: `✅ Instrucciones asignadas a ${selected.length} paquete(s)`, severity: 'success' });
+        setSnackbar({ open: true, message: t('cd.snackbar.instructionsAssignedCount', { count: selected.length }), severity: 'success' });
         setDeliveryModalOpen(false);
         setSelectedPackageIds([]);
         setSelectedDeliveryAddress(null);
@@ -1469,7 +1442,7 @@ export default function DashboardClient() {
       }
     } catch (error) {
       console.error('Error assigning delivery:', error);
-      setSnackbar({ open: true, message: '✅ Instrucciones asignadas correctamente', severity: 'success' });
+      setSnackbar({ open: true, message: t('cd.snackbar.instructionsAssigned'), severity: 'success' });
       setDeliveryModalOpen(false);
       setSelectedPackageIds([]);
       setSelectedDeliveryAddress(null);
@@ -1485,14 +1458,14 @@ export default function DashboardClient() {
   const handleProcessPayment = async () => {
     const selected = getSelectedPackages();
     if (selected.length === 0) {
-      setSnackbar({ open: true, message: 'Selecciona al menos un paquete', severity: 'warning' });
+      setSnackbar({ open: true, message: t('cd.snackbar.selectPackage'), severity: 'warning' });
       return;
     }
 
     // Validar datos de facturación si es necesaria
     if (requiresInvoice && selectedPaymentMethod !== 'branch') {
       if (!invoiceData.rfc || !invoiceData.razon_social || !invoiceData.email || !invoiceData.codigo_postal || !invoiceData.regimen_fiscal) {
-        setSnackbar({ open: true, message: 'Completa todos los datos de facturación', severity: 'warning' });
+        setSnackbar({ open: true, message: t('cd.snackbar.completeBilling'), severity: 'warning' });
         return;
       }
     }
@@ -1537,7 +1510,7 @@ export default function DashboardClient() {
             // Redirigir a OpenPay para procesar el pago real
             setSnackbar({ 
               open: true, 
-              message: '🔄 Redirigiendo a OpenPay...', 
+              message: t('cd.snackbar.redirectingOpenPay'), 
               severity: 'info' 
             });
             
@@ -1610,9 +1583,9 @@ export default function DashboardClient() {
             }
           }, 1000);
           
-          let message = '🔄 Redirigiendo a PayPal...';
+          let message = t('cd.snackbar.redirectingPayPal');
           if (response.data.invoiceWillBeGenerated) {
-            message += '\n📄 La factura se generará automáticamente al confirmar el pago.';
+            message += '\n📄 ' + t('cd.payment.invoiceAutoGenerated');
           }
           
           setSnackbar({ 
@@ -1621,7 +1594,7 @@ export default function DashboardClient() {
             severity: 'info' 
           });
         } else {
-          throw new Error(response.data.error || 'Error al crear pago PayPal');
+          throw new Error(response.data.error || t('cd.snackbar.paypalCreateError'));
         }
         
       } else if (selectedPaymentMethod === 'branch') {
@@ -1629,14 +1602,14 @@ export default function DashboardClient() {
         const response = await api.post('/payments/branch/reference', paymentData);
         
         if (response.data.success) {
-          let message = `📄 Referencia generada: ${response.data.reference}`;
+          let message = `📄 ${t('cd.payment.referenceGenerated')}: ${response.data.reference}`;
           
           if (response.data.status === 'pending') {
-            message += '\n⏳ El pago se procesará al presentar la referencia en sucursal.';
+            message += '\n⏳ ' + t('cd.payment.branchProcessInfo');
           }
           
           if (response.data.invoiceWillBeGenerated) {
-            message += '\n📄 La factura se generará automáticamente al confirmar el pago en sucursal.';
+            message += '\n📄 ' + t('cd.payment.invoiceAutoGeneratedBranch');
           }
           
           setSnackbar({ 
@@ -1649,13 +1622,13 @@ export default function DashboardClient() {
           const expiryDate = new Date();
           expiryDate.setDate(expiryDate.getDate() + 7);
           
-          const alertMessage = `📄 REFERENCIA DE PAGO\n\nReferencia: ${response.data.reference}\nMonto: ${formatCurrency(total)}\nVálida hasta: ${expiryDate.toLocaleDateString()}\nEstado: Pendiente de pago\n\nPaga en cualquier banco afiliado.${response.data.invoiceMessage ? `\n\n${response.data.invoiceMessage}` : ''}`;
+          const alertMessage = `📄 ${t('cd.payment.branchAlertTitle')}\n\n${t('cd.payment.reference')}: ${response.data.reference}\n${t('cd.payment.amount')}: ${formatCurrency(total)}\n${t('cd.payment.validUntil')}: ${expiryDate.toLocaleDateString()}\n${t('cd.payment.status')}: ${t('cd.payment.pendingPayment')}\n\n${t('cd.payment.payAtBank')}${response.data.invoiceMessage ? `\n\n${response.data.invoiceMessage}` : ''}`;
           
           alert(alertMessage);
           
           // NO recargar datos aún, el pago está pendiente
         } else {
-          throw new Error(response.data.error || 'Error al generar referencia');
+          throw new Error(response.data.error || t('cd.snackbar.referenceError'));
         }
       }
 
@@ -1675,7 +1648,7 @@ export default function DashboardClient() {
     } catch (error) {
       console.error('Error processing payment:', error);
       const err = error as { response?: { data?: { message?: string } }; message?: string };
-      const errorMessage = err.response?.data?.message || err.message || 'Error al procesar pago';
+      const errorMessage = err.response?.data?.message || err.message || t('cd.snackbar.paymentProcessError');
       setSnackbar({ 
         open: true, 
         message: `❌ ${errorMessage}`, 
@@ -1716,7 +1689,7 @@ export default function DashboardClient() {
       if (response.data.success) {
         setSnackbar({
           open: true,
-          message: `✅ Pago confirmado exitosamente! ${response.data.updatedPackages} paquetes actualizados`,
+          message: t('cd.snackbar.paymentConfirmed', { count: response.data.updatedPackages }),
           severity: 'success'
         });
         
@@ -1740,7 +1713,7 @@ export default function DashboardClient() {
   // Guardar dirección de entrega
   const handleSaveAddress = async () => {
     if (!addressForm.street || !addressForm.city || !addressForm.state) {
-      setSnackbar({ open: true, message: 'Completa los campos obligatorios', severity: 'warning' });
+      setSnackbar({ open: true, message: t('cd.snackbar.addressRequired'), severity: 'warning' });
       return;
     }
 
@@ -1750,10 +1723,10 @@ export default function DashboardClient() {
       
       if (editingAddress) {
         await api.put(`/addresses/${editingAddress.id}`, payload);
-        setSnackbar({ open: true, message: '✅ Dirección actualizada', severity: 'success' });
+        setSnackbar({ open: true, message: t('cd.snackbar.addressUpdated'), severity: 'success' });
       } else {
         await api.post('/addresses', payload);
-        setSnackbar({ open: true, message: '✅ Dirección agregada', severity: 'success' });
+        setSnackbar({ open: true, message: t('cd.snackbar.addressAdded'), severity: 'success' });
       }
       
       setAddressModalOpen(false);
@@ -1774,7 +1747,7 @@ export default function DashboardClient() {
       });
       loadDeliveryAddresses();
     } catch (error) {
-      setSnackbar({ open: true, message: '❌ Error al guardar dirección', severity: 'error' });
+      setSnackbar({ open: true, message: t('cd.snackbar.addressSaveError'), severity: 'error' });
     } finally {
       setAddressSaving(false);
     }
@@ -1782,14 +1755,14 @@ export default function DashboardClient() {
 
   // Eliminar dirección
   const handleDeleteAddress = async (id: number) => {
-    if (!window.confirm('¿Estás seguro de eliminar esta dirección?')) return;
+    if (!window.confirm(t('cd.address.confirmDelete'))) return;
     
     try {
       await api.delete(`/addresses/${id}`);
-      setSnackbar({ open: true, message: '✅ Dirección eliminada', severity: 'success' });
+      setSnackbar({ open: true, message: t('cd.snackbar.addressDeleted'), severity: 'success' });
       loadDeliveryAddresses();
     } catch (error) {
-      setSnackbar({ open: true, message: '❌ Error al eliminar dirección', severity: 'error' });
+      setSnackbar({ open: true, message: t('cd.snackbar.addressDeleteError'), severity: 'error' });
     }
   };
 
@@ -1816,7 +1789,7 @@ export default function DashboardClient() {
   // Copiar CLABE al portapapeles
   const copyClabe = (clabe: string) => {
     navigator.clipboard.writeText(clabe);
-    setSnackbar({ open: true, message: '✅ CLABE copiada al portapapeles', severity: 'success' });
+    setSnackbar({ open: true, message: t('cd.snackbar.clabeCopied'), severity: 'success' });
   };
 
   // Calcular CBM y costos
@@ -1900,7 +1873,7 @@ export default function DashboardClient() {
 
   // Formatear dirección personalizada con Suite del cliente
   const formatAddressForCopy = (address: WarehouseAddress, serviceType: string): string => {
-    const clientName = userName || 'TU NOMBRE';
+    const clientName = userName || t('cd.address.yourNameUpper');
     const suite = boxId || 'S-XXX';
     
     if (serviceType === 'usa_pobox') {
@@ -1909,16 +1882,16 @@ export default function DashboardClient() {
       return `${clientName}\n${addressLine}\n${address.city || ''}, ${address.state || ''} ${address.zip_code || ''}\nUSA`;
     } else if (serviceType === 'china_air' || serviceType === 'china_sea') {
       // China - incluir Shipping Mark
-      return `${address.address_line1}\n${address.address_line2 || ''}\n📦 Shipping Mark / 唛头: ${suite}\nContacto: ${address.contact_name || ''}\nTel: ${address.contact_phone || ''}`;
+      return `${address.address_line1}\n${address.address_line2 || ''}\n📦 Shipping Mark / 唛头: ${suite}\n${t('cd.address.contact')}: ${address.contact_name || ''}\nTel: ${address.contact_phone || ''}`;
     } else {
       // DHL Monterrey
-      return `${address.address_line1}\n${address.city || ''}, ${address.state || ''} ${address.zip_code || ''}\nMéxico\n📦 A nombre de: ${clientName} (${suite})`;
+      return `${address.address_line1}\n${address.city || ''}, ${address.state || ''} ${address.zip_code || ''}\nMéxico\n📦 ${t('cd.address.onBehalfOf')}: ${clientName} (${suite})`;
     }
   };
 
   // Mostrar dirección formateada en pantalla
   const renderFormattedAddress = (address: WarehouseAddress, serviceType: string): React.ReactNode => {
-    const clientName = userName || 'TU NOMBRE';
+    const clientName = userName || t('cd.address.yourNameUpper');
     const suite = boxId || 'S-XXX';
     
     if (serviceType === 'usa_pobox') {
@@ -1937,8 +1910,8 @@ export default function DashboardClient() {
           {address.address_line1}<br />
           {address.address_line2 && <>{address.address_line2}<br /></>}
           <strong style={{ color: '#FFD54F' }}>📦 Shipping Mark: {suite}</strong><br />
-          👤 {address.contact_name || 'Contacto'}<br />
-          📞 {address.contact_phone || 'Ver teléfono'}
+          👤 {address.contact_name || t('cd.address.contact')}<br />
+          📞 {address.contact_phone || t('cd.address.viewPhone')}
         </>
       );
     } else {
@@ -2014,10 +1987,10 @@ export default function DashboardClient() {
                 </Box>
                 <Box>
                   <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.3px', lineHeight: 1.2, color: 'white' }}>
-                    Bienvenido, {userName}
+                    {t('cd.header.welcome')} {userName}
                   </Typography>
                   <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.45)', mt: 0.3, fontWeight: 400 }}>
-                    Portal de Cliente EntregaX
+                    {t('cd.header.portal')}
                   </Typography>
                 </Box>
               </Box>
@@ -2046,13 +2019,13 @@ export default function DashboardClient() {
                 </Box>
                 <Box sx={{ flex: 1, minWidth: 0 }}>
                   <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', fontWeight: 500, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    Mi Suite / No. de Cliente
+                    {t('cd.header.suiteLabel')}
                   </Typography>
                   <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: '1px', lineHeight: 1.3, color: 'white' }}>
                     {stats?.casillero || boxId}
                   </Typography>
                 </Box>
-                <Tooltip title="Copiar">
+                <Tooltip title={t('cd.header.copy')}>
                   <IconButton 
                     size="small" 
                     sx={{ 
@@ -2309,12 +2282,12 @@ export default function DashboardClient() {
       {/* Alertas */}
       {stats && stats.paquetes.listos_recoger > 0 && (
         <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} icon={<CheckCircleIcon />}>
-          <strong>¡Tienes {stats.paquetes.listos_recoger} paquete(s) listo(s) para recoger!</strong> Visita nuestra sucursal.
+          <strong>{t('cd.alerts.readyPickup', { count: stats.paquetes.listos_recoger })}</strong> {t('cd.alerts.visitBranch')}
         </Alert>
       )}
       {stats && stats.financiero.saldo_pendiente > 0 && (
         <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }} icon={<WarningIcon />}>
-          <strong>Saldo pendiente: {formatCurrency(stats.financiero.saldo_pendiente)}</strong> - Realiza tu pago para liberar tus paquetes.
+          <strong>{t('cd.alerts.pendingBalance', { amount: formatCurrency(stats.financiero.saldo_pendiente) })}</strong>
         </Alert>
       )}
 
@@ -2333,10 +2306,10 @@ export default function DashboardClient() {
             '& .MuiTabs-indicator': { bgcolor: ORANGE },
           }}
         >
-          <Tab icon={<ShippingIcon />} label="Mis Envíos" iconPosition="start" />
-          <Tab icon={<CalculateIcon />} label="Cotizador" iconPosition="start" />
-          <Tab icon={<WalletIcon />} label="Mi Cuenta" iconPosition="start" />
-          <Tab icon={<ReceiptIcon />} label="Facturas" iconPosition="start" />
+          <Tab icon={<ShippingIcon />} label={t('cd.tabs.shipments')} iconPosition="start" />
+          <Tab icon={<CalculateIcon />} label={t('cd.tabs.quoter')} iconPosition="start" />
+          <Tab icon={<WalletIcon />} label={t('cd.tabs.account')} iconPosition="start" />
+          <Tab icon={<ReceiptIcon />} label={t('cd.tabs.invoices')} iconPosition="start" />
         </Tabs>
 
         <Box sx={{ p: 3 }}>
@@ -2345,12 +2318,12 @@ export default function DashboardClient() {
             <Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 2 }}>
                 <Typography variant="h6" fontWeight="bold">
-                  📦 Mis Paquetes Activos
+                  📦 {t('cd.packages.title')}
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   <TextField
                     size="small"
-                    placeholder="Buscar tracking..."
+                    placeholder={t('cd.packages.searchPlaceholder')}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     InputProps={{
@@ -2368,11 +2341,11 @@ export default function DashboardClient() {
               <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mb: 2 }}>
                 <Chip
                   icon={<CloseIcon sx={{ fontSize: 16 }} />}
-                  label="Sin Instrucciones"
+                  label={t('cd.packages.noInstructions')}
                   variant={instructionFilter === 'sin' ? 'filled' : 'outlined'}
                   onClick={() => {
                     if (serviceFilter === 'all') {
-                      setSnackbar({ open: true, message: 'Primero selecciona un tipo de servicio', severity: 'warning' });
+                      setSnackbar({ open: true, message: t('cd.snackbar.selectServiceFirst'), severity: 'warning' });
                       return;
                     }
                     setInstructionFilter(instructionFilter === 'sin' ? 'all' : 'sin');
@@ -2385,11 +2358,11 @@ export default function DashboardClient() {
                 />
                 <Chip
                   icon={<CheckCircleIcon sx={{ fontSize: 16 }} />}
-                  label="Con Instrucciones"
+                  label={t('cd.packages.withInstructions')}
                   variant={instructionFilter === 'con' ? 'filled' : 'outlined'}
                   onClick={() => {
                     if (serviceFilter === 'all') {
-                      setSnackbar({ open: true, message: 'Primero selecciona un tipo de servicio', severity: 'warning' });
+                      setSnackbar({ open: true, message: t('cd.snackbar.selectServiceFirst'), severity: 'warning' });
                       return;
                     }
                     setInstructionFilter(instructionFilter === 'con' ? 'all' : 'con');
@@ -2461,7 +2434,7 @@ export default function DashboardClient() {
                     fontWeight: 600, 
                     fontSize: '0.7rem' 
                   }}>
-                    Aéreo
+                    {t('cd.packages.air')}
                   </Typography>
                 </Box>
 
@@ -2516,7 +2489,7 @@ export default function DashboardClient() {
                     fontWeight: 600, 
                     fontSize: '0.7rem' 
                   }}>
-                    Marítimo
+                    {t('cd.packages.sea')}
                   </Typography>
                 </Box>
 
@@ -2571,7 +2544,7 @@ export default function DashboardClient() {
                     fontWeight: 600, 
                     fontSize: '0.7rem' 
                   }}>
-                    MTY
+                    {t('cd.packages.mty')}
                   </Typography>
                 </Box>
 
@@ -2626,7 +2599,7 @@ export default function DashboardClient() {
                     fontWeight: 600, 
                     fontSize: '0.7rem' 
                   }}>
-                    PO Box
+                    {t('cd.packages.pobox')}
                   </Typography>
                 </Box>
               </Box>
@@ -2639,12 +2612,12 @@ export default function DashboardClient() {
                   action={
                     <Box sx={{ display: 'flex', gap: 1 }}>
                       <Button size="small" color="inherit" onClick={() => setSelectedPackageIds([])}>
-                        Limpiar
+                        {t('cd.packages.clear')}
                       </Button>
                     </Box>
                   }
                 >
-                  <strong>{selectedPackageIds.length} paquete(s) seleccionado(s)</strong>
+                  <strong>{t('cd.packages.selectedCount', { count: selectedPackageIds.length })}</strong>
                 </Alert>
               )}
 
@@ -2665,7 +2638,7 @@ export default function DashboardClient() {
                     startIcon={<MoneyIcon />}
                     onClick={() => setPaymentModalOpen(true)}
                   >
-                    Pagar
+                    {t('cd.packages.pay')}
                   </Button>
 
                   {/* BOTÓN TEMPORAL DE PRUEBA */}
@@ -2692,7 +2665,7 @@ export default function DashboardClient() {
                       );
                     }}
                   >
-                    ✅ TEST: Confirmar Pago
+                    {t('cd.packages.testConfirmPayment')}
                   </Button>
 
                   {/* Solo mostrar "Asignar Instrucciones" si hay paquetes sin instrucciones */}
@@ -2711,7 +2684,7 @@ export default function DashboardClient() {
                         minWidth: 'auto'
                       }}
                     >
-                      Asignar Instrucciones
+                      {t('cd.packages.assignInstructions')}
                     </Button>
                   )}
                 </>
@@ -2732,7 +2705,7 @@ export default function DashboardClient() {
                         sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }}
                       />
                     }
-                    label={<Typography variant="body2">Seleccionar todos los paquetes elegibles</Typography>}
+                    label={<Typography variant="body2">{t('cd.packages.selectAll')}</Typography>}
                   />
                 </Box>
               )}
@@ -2801,10 +2774,10 @@ export default function DashboardClient() {
                         <Box>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <Typography variant="body2" fontWeight="bold" fontFamily="monospace">{pkg.tracking}</Typography>
-                            {pkg.status === 'delivered' && <Chip label="✅ Entregado" size="small" color="success" sx={{ height: 18, fontSize: '0.6rem' }} />}
-                            {pkg.is_master && <Chip label="📦 Reempaque" size="small" sx={{ height: 18, fontSize: '0.6rem', bgcolor: '#e3f2fd', color: BLUE }} />}
-                            {pkg.client_paid && pkg.status !== 'delivered' && <Chip label="Pagado" size="small" color="success" sx={{ height: 18, fontSize: '0.65rem' }} />}
-                            {hasDeliveryInstructions && <Chip label="📍 Con Instrucciones" size="small" color="primary" sx={{ height: 18, fontSize: '0.65rem' }} />}
+                            {pkg.status === 'delivered' && <Chip label={t('cd.packages.deliveredChip')} size="small" color="success" sx={{ height: 18, fontSize: '0.6rem' }} />}
+                            {pkg.is_master && <Chip label={t('cd.packages.repackChip')} size="small" sx={{ height: 18, fontSize: '0.6rem', bgcolor: '#e3f2fd', color: BLUE }} />}
+                            {pkg.client_paid && pkg.status !== 'delivered' && <Chip label={t('cd.packages.paidChip')} size="small" color="success" sx={{ height: 18, fontSize: '0.65rem' }} />}
+                            {hasDeliveryInstructions && <Chip label={t('cd.packages.instructionsChip')} size="small" color="primary" sx={{ height: 18, fontSize: '0.65rem' }} />}
                           </Box>
                           {pkg.descripcion && <Typography variant="caption" color="text.secondary">{pkg.descripcion}</Typography>}
                         </Box>
@@ -2856,7 +2829,7 @@ export default function DashboardClient() {
                     {/* Footer compacto */}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1, pt: 1, borderTop: '1px solid #f0f0f0' }}>
                       <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-                        ⏱ ETA: {pkg.fecha_estimada || 'Por confirmar'}
+                        ⏱ {pkg.fecha_estimada ? t('cd.packages.eta') + ': ' + pkg.fecha_estimada : t('cd.packages.etaPending')}
                       </Typography>
                       
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -2864,7 +2837,7 @@ export default function DashboardClient() {
                         {pkg.has_gex ? (
                           <Chip 
                             icon={<SecurityIcon sx={{ fontSize: 12 }} />}
-                            label="Protegido con Garantía Extendida"
+                            label={t('cd.packages.gexProtected')}
                             size="small"
                             sx={{ 
                               bgcolor: ORANGE, 
@@ -2883,7 +2856,7 @@ export default function DashboardClient() {
                                 <Box sx={{ position: 'absolute', width: '120%', height: 2, bgcolor: 'white', transform: 'rotate(-45deg)', borderRadius: 1 }} />
                               </Box>
                             }
-                            label="Sin Garantía Extendida - ¡Contratar Aquí!"
+                            label={t('cd.packages.noGex')}
                             size="small"
                             clickable
                             onClick={() => {
@@ -2924,7 +2897,7 @@ export default function DashboardClient() {
                             }
                           }}
                         >
-                          Ver Detalles
+                          {t('cd.packages.viewDetails')}
                         </Button>
                       </Box>
                     </Box>
@@ -2964,7 +2937,7 @@ export default function DashboardClient() {
               {packages.length === 0 && (
                 <Box sx={{ textAlign: 'center', py: 6 }}>
                   <InventoryIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
-                  <Typography color="text.secondary">No tienes paquetes activos</Typography>
+                  <Typography color="text.secondary">{t('cd.packages.noPackages')}</Typography>
                 </Box>
               )}
 
@@ -2976,7 +2949,7 @@ export default function DashboardClient() {
                   onClick={loadHistoryPackages}
                   sx={{ borderColor: ORANGE, color: ORANGE }}
                 >
-                  Ver Historial de Paquetes Entregados
+                  {t('cd.packages.viewHistory')}
                 </Button>
               </Box>
             </Box>
@@ -2986,24 +2959,24 @@ export default function DashboardClient() {
           {activeTab === 1 && (
             <Box>
               <Typography variant="h6" fontWeight="bold" gutterBottom>
-                🧮 Cotizador de Envíos China → México
+                🧮 {t('cd.quoter.title')}
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Calcula el costo aproximado de tu envío según las dimensiones y peso de tu mercancía.
+                {t('cd.quoter.subtitle')}
               </Typography>
 
               <Grid container spacing={3}>
                 <Grid size={{ xs: 12, md: 6 }}>
                   <Paper sx={{ p: 3, bgcolor: 'grey.50', borderRadius: 2 }}>
                     <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                      Dimensiones del paquete
+                      {t('cd.quoter.dimensionsTitle')}
                     </Typography>
                     <Grid container spacing={2}>
                       <Grid size={4}>
                         <TextField
                           fullWidth
                           size="small"
-                          label="Largo (cm)"
+                          label={t('cd.quoter.length')}
                           type="number"
                           value={cbmLargo}
                           onChange={(e) => setCbmLargo(e.target.value)}
@@ -3013,7 +2986,7 @@ export default function DashboardClient() {
                         <TextField
                           fullWidth
                           size="small"
-                          label="Ancho (cm)"
+                          label={t('cd.quoter.width')}
                           type="number"
                           value={cbmAncho}
                           onChange={(e) => setCbmAncho(e.target.value)}
@@ -3023,7 +2996,7 @@ export default function DashboardClient() {
                         <TextField
                           fullWidth
                           size="small"
-                          label="Alto (cm)"
+                          label={t('cd.quoter.height')}
                           type="number"
                           value={cbmAlto}
                           onChange={(e) => setCbmAlto(e.target.value)}
@@ -3033,11 +3006,11 @@ export default function DashboardClient() {
                         <TextField
                           fullWidth
                           size="small"
-                          label="Peso Real (kg)"
+                          label={t('cd.quoter.realWeight')}
                           type="number"
                           value={cbmPeso}
                           onChange={(e) => setCbmPeso(e.target.value)}
-                          helperText="Opcional - para comparar con peso volumétrico"
+                          helperText={t('cd.quoter.weightHelper')}
                         />
                       </Grid>
                       <Grid size={12}>
@@ -3048,7 +3021,7 @@ export default function DashboardClient() {
                           sx={{ bgcolor: ORANGE }}
                           startIcon={<CalculateIcon />}
                         >
-                          Calcular Cotización
+                          {t('cd.quoter.calculate')}
                         </Button>
                       </Grid>
                     </Grid>
@@ -3059,44 +3032,44 @@ export default function DashboardClient() {
                   {cbmResult ? (
                     <Paper sx={{ p: 3, borderRadius: 2, border: `2px solid ${BLUE}` }}>
                       <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                        📊 Resultado de Cotización
+                        📊 {t('cd.quoter.resultTitle')}
                       </Typography>
                       <Divider sx={{ my: 2 }} />
                       
                       <Grid container spacing={2}>
                         <Grid size={6}>
-                          <Typography variant="caption" color="text.secondary">Volumen (CBM)</Typography>
+                          <Typography variant="caption" color="text.secondary">{t('cd.quoter.volume')}</Typography>
                           <Typography variant="h5" fontWeight="bold">{cbmResult.cbm} m³</Typography>
                         </Grid>
                         <Grid size={6}>
-                          <Typography variant="caption" color="text.secondary">Peso Vol. Marítimo</Typography>
+                          <Typography variant="caption" color="text.secondary">{t('cd.quoter.volWeight')}</Typography>
                           <Typography variant="h5" fontWeight="bold">{cbmResult.peso_volumetrico} kg</Typography>
                         </Grid>
                         <Grid size={6}>
-                          <Typography variant="caption" color="text.secondary">Costo Marítimo</Typography>
+                          <Typography variant="caption" color="text.secondary">{t('cd.quoter.seaCost')}</Typography>
                           <Typography variant="h4" fontWeight="bold" color={BLUE}>${cbmResult.costo_maritimo} USD</Typography>
-                          <Typography variant="caption">~45-60 días</Typography>
+                          <Typography variant="caption">{t('cd.quoter.seaDays')}</Typography>
                         </Grid>
                         <Grid size={6}>
-                          <Typography variant="caption" color="text.secondary">Costo Aéreo</Typography>
+                          <Typography variant="caption" color="text.secondary">{t('cd.quoter.airCost')}</Typography>
                           <Typography variant="h4" fontWeight="bold" color={ORANGE}>${cbmResult.costo_aereo} USD</Typography>
-                          <Typography variant="caption">~10-15 días</Typography>
+                          <Typography variant="caption">{t('cd.quoter.airDays')}</Typography>
                         </Grid>
                       </Grid>
 
                       <Alert severity="info" sx={{ mt: 3 }}>
-                        <strong>Recomendado:</strong> {cbmResult.servicio_recomendado}
+                        <strong>{t('cd.quoter.recommended')}:</strong> {cbmResult.servicio_recomendado}
                       </Alert>
 
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
-                        * Cotización aproximada. Precio final puede variar según aduana, seguros y servicios adicionales.
+                        {t('cd.quoter.disclaimer')}
                       </Typography>
                     </Paper>
                   ) : (
                     <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'grey.50', borderRadius: 2 }}>
                       <InfoIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
                       <Typography color="text.secondary">
-                        Ingresa las dimensiones de tu paquete para ver la cotización estimada
+                        {t('cd.quoter.placeholder')}
                       </Typography>
                     </Paper>
                   )}
@@ -3106,48 +3079,48 @@ export default function DashboardClient() {
               {/* Tabla de tarifas de referencia */}
               <Paper sx={{ p: 3, mt: 3, borderRadius: 2 }}>
                 <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  📋 Tarifas de Referencia
+                  📋 {t('cd.quoter.tariffsTitle')}
                 </Typography>
                 <TableContainer>
                   <Table size="small">
                     <TableHead>
                       <TableRow sx={{ bgcolor: 'grey.100' }}>
-                        <TableCell><strong>Servicio</strong></TableCell>
-                        <TableCell><strong>Tiempo Estimado</strong></TableCell>
-                        <TableCell><strong>Desde</strong></TableCell>
-                        <TableCell><strong>Notas</strong></TableCell>
+                        <TableCell><strong>{t('cd.quoter.service')}</strong></TableCell>
+                        <TableCell><strong>{t('cd.quoter.estimatedTime')}</strong></TableCell>
+                        <TableCell><strong>{t('cd.quoter.from')}</strong></TableCell>
+                        <TableCell><strong>{t('cd.quoter.notes')}</strong></TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
                       <TableRow>
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <BoatIcon sx={{ color: '#00BCD4' }} /> Marítimo China
+                            <BoatIcon sx={{ color: '#00BCD4' }} /> {t('cd.quoter.seaChina')}
                           </Box>
                         </TableCell>
                         <TableCell>45-60 días</TableCell>
                         <TableCell><strong>$39 USD</strong></TableCell>
-                        <TableCell>Ideal para volúmenes grandes. Incluye entrega Monterrey*</TableCell>
+                        <TableCell>{t('cd.quoter.seaNote')}</TableCell>
                       </TableRow>
                       <TableRow>
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <FlightIcon sx={{ color: ORANGE }} /> Aéreo China
+                            <FlightIcon sx={{ color: ORANGE }} /> {t('cd.quoter.airChina')}
                           </Box>
                         </TableCell>
                         <TableCell>10-15 días</TableCell>
                         <TableCell><strong>$8 USD/kg</strong></TableCell>
-                        <TableCell>Para envíos urgentes y paquetes pequeños</TableCell>
+                        <TableCell>{t('cd.quoter.airNote')}</TableCell>
                       </TableRow>
                       <TableRow>
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <PostOfficeIcon sx={{ color: BLUE }} /> PO Box USA
+                            <PostOfficeIcon sx={{ color: BLUE }} /> {t('cd.quoter.pobox')}
                           </Box>
                         </TableCell>
                         <TableCell>5-10 días</TableCell>
                         <TableCell><strong>$3.50 USD/lb</strong></TableCell>
-                        <TableCell>Compras de Amazon, eBay y tiendas USA</TableCell>
+                        <TableCell>{t('cd.quoter.poboxNote')}</TableCell>
                       </TableRow>
                     </TableBody>
                   </Table>
@@ -3164,7 +3137,7 @@ export default function DashboardClient() {
                   {/* Wallet / Monedero */}
                   <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
                     <Typography variant="h6" fontWeight="bold" gutterBottom>
-                      💰 Mi Monedero
+                      💰 {t('cd.account.walletTitle')}
                     </Typography>
                     <Divider sx={{ my: 2 }} />
                     
@@ -3173,12 +3146,12 @@ export default function DashboardClient() {
                       <Alert severity="success" sx={{ mb: 2 }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <Box>
-                            <Typography variant="caption">Tu CLABE Virtual</Typography>
+                            <Typography variant="caption">{t('cd.account.virtualClabe')}</Typography>
                             <Typography variant="body1" fontWeight="bold" fontFamily="monospace">
                               {walletStatus.virtual_clabe}
                             </Typography>
                           </Box>
-                          <Tooltip title="Copiar CLABE">
+                          <Tooltip title={t('cd.account.copyClabe')}>
                             <IconButton size="small" onClick={() => copyClabe(walletStatus.virtual_clabe!)}>
                               <CopyIcon fontSize="small" />
                             </IconButton>
@@ -3199,7 +3172,7 @@ export default function DashboardClient() {
                         borderRadius: 2 
                       }}
                     >
-                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)' }}>Total Pendiente por Pagar</Typography>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)' }}>{t('cd.account.totalPending')}</Typography>
                       <Typography variant="h4" fontWeight="bold" sx={{ color: 'white', my: 0.5 }}>
                         {formatCurrency(pendingPayments?.totalPending || 0)}
                       </Typography>
@@ -3209,7 +3182,7 @@ export default function DashboardClient() {
                     <Grid container spacing={2}>
                       <Grid size={6}>
                         <Paper sx={{ p: 2, bgcolor: GREEN + '20', textAlign: 'center', borderRadius: 2 }}>
-                          <Typography variant="caption" color="text.secondary">Saldo a Favor</Typography>
+                          <Typography variant="caption" color="text.secondary">{t('cd.account.balanceFavor')}</Typography>
                           <Typography variant="h5" fontWeight="bold" color="success.main">
                             {formatCurrency(walletStatus?.wallet_balance || stats?.financiero.saldo_favor || 0)}
                           </Typography>
@@ -3217,7 +3190,7 @@ export default function DashboardClient() {
                       </Grid>
                       <Grid size={6}>
                         <Paper sx={{ p: 2, bgcolor: 'grey.50', textAlign: 'center', borderRadius: 2 }}>
-                          <Typography variant="caption" color="text.secondary">Crédito Disponible</Typography>
+                          <Typography variant="caption" color="text.secondary">{t('cd.account.creditAvailable')}</Typography>
                           <Typography variant="h5" fontWeight="bold" color="primary.main">
                             {formatCurrency(walletStatus?.available_credit || stats?.financiero.credito_disponible || 0)}
                           </Typography>
@@ -3228,23 +3201,23 @@ export default function DashboardClient() {
                     {/* Crédito si lo tiene */}
                     {walletStatus?.has_credit && (
                       <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                        <Typography variant="subtitle2" gutterBottom>📈 Línea de Crédito</Typography>
+                        <Typography variant="subtitle2" gutterBottom>📈 {t('cd.account.creditLine')}</Typography>
                         <Grid container spacing={1}>
                           <Grid size={6}>
-                            <Typography variant="caption">Disponible</Typography>
+                            <Typography variant="caption">{t('cd.account.available')}</Typography>
                             <Typography variant="body1" fontWeight="bold" color="success.main">
                               {formatCurrency(walletStatus.available_credit)}
                             </Typography>
                           </Grid>
                           <Grid size={6}>
-                            <Typography variant="caption">Utilizado</Typography>
+                            <Typography variant="caption">{t('cd.account.used')}</Typography>
                             <Typography variant="body1" fontWeight="bold" color="warning.main">
                               {formatCurrency(walletStatus.used_credit)}
                             </Typography>
                           </Grid>
                         </Grid>
                         {walletStatus.is_credit_blocked && (
-                          <Alert severity="error" sx={{ mt: 1 }}>Crédito bloqueado por adeudo vencido</Alert>
+                          <Alert severity="error" sx={{ mt: 1 }}>{t('cd.account.creditBlocked')}</Alert>
                         )}
                       </Box>
                     )}
@@ -3257,12 +3230,12 @@ export default function DashboardClient() {
                       startIcon={<ReceiptIcon />}
                       onClick={() => setShowPendingPayments(true)}
                     >
-                      💳 Mis Cuentas por Pagar ({pendingPayments?.invoices?.length || 0})
+                      💳 {t('cd.account.pendingPayments', { count: pendingPayments?.invoices?.length || 0 })}
                     </Button>
 
                     {/* Último pago */}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2, pt: 1, borderTop: '1px solid #eee' }}>
-                      <Typography variant="caption" color="text.secondary">Último Pago</Typography>
+                      <Typography variant="caption" color="text.secondary">{t('cd.account.lastPayment')}</Typography>
                       <Typography variant="caption" fontWeight="bold">{stats?.financiero.ultimo_pago || 'N/A'}</Typography>
                     </Box>
                   </Paper>
@@ -3271,7 +3244,7 @@ export default function DashboardClient() {
                   <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                       <Typography variant="h6" fontWeight="bold">
-                        💳 Mis Métodos de Pago
+                        💳 {t('cd.account.paymentMethodsTitle')}
                       </Typography>
                       <IconButton color="primary" onClick={() => setShowAddPaymentMethod(true)}>
                         <AddIcon />
@@ -3283,7 +3256,7 @@ export default function DashboardClient() {
                       <Box sx={{ textAlign: 'center', py: 2 }}>
                         <CreditCardIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
                         <Typography variant="body2" color="text.secondary">
-                          No tienes métodos de pago guardados
+                          {t('cd.account.noPaymentMethods')}
                         </Typography>
                         <Button 
                           variant="outlined" 
@@ -3291,7 +3264,7 @@ export default function DashboardClient() {
                           sx={{ mt: 1 }}
                           onClick={() => setShowAddPaymentMethod(true)}
                         >
-                          Agregar Método
+                          {t('cd.account.addMethod')}
                         </Button>
                       </Box>
                     ) : (
@@ -3332,9 +3305,9 @@ export default function DashboardClient() {
                                 try {
                                   await api.delete(`/payment-methods/${pm.id}`);
                                   setPaymentMethods(prev => prev.filter(p => p.id !== pm.id));
-                                  setSnackbar({ open: true, message: '🗑️ Método de pago eliminado', severity: 'success' });
+                                  setSnackbar({ open: true, message: t('cd.snackbar.paymentMethodDeleted'), severity: 'success' });
                                 } catch {
-                                  setSnackbar({ open: true, message: '❌ Error al eliminar', severity: 'error' });
+                                  setSnackbar({ open: true, message: t('cd.snackbar.deleteError'), severity: 'error' });
                                 }
                               }}
                             >
@@ -3342,7 +3315,7 @@ export default function DashboardClient() {
                             </IconButton>
                           </Box>
                           {pm.is_default ? (
-                            <Chip label="Predeterminado" size="small" color="warning" sx={{ mt: 1, fontSize: '0.7rem' }} />
+                            <Chip label={t('cd.account.defaultLabel')} size="small" color="warning" sx={{ mt: 1, fontSize: '0.7rem' }} />
                           ) : (
                             <Typography 
                               variant="caption" 
@@ -3355,13 +3328,13 @@ export default function DashboardClient() {
                                     ...p,
                                     is_default: p.id === pm.id
                                   })));
-                                  setSnackbar({ open: true, message: '⭐ Método predeterminado actualizado', severity: 'success' });
+                                  setSnackbar({ open: true, message: t('cd.snackbar.defaultMethodUpdated'), severity: 'success' });
                                 } catch {
-                                  setSnackbar({ open: true, message: '❌ Error al actualizar', severity: 'error' });
+                                  setSnackbar({ open: true, message: t('cd.snackbar.updateError'), severity: 'error' });
                                 }
                               }}
                             >
-                              Establecer como predeterminado
+                              {t('cd.account.setDefault')}
                             </Typography>
                           )}
                         </Paper>
@@ -3373,7 +3346,7 @@ export default function DashboardClient() {
                   <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                       <Typography variant="h6" fontWeight="bold">
-                        📄 Mis Datos Fiscales
+                        📄 {t('cd.account.fiscalTitle')}
                       </Typography>
                       <IconButton 
                         color="primary" 
@@ -3401,8 +3374,8 @@ export default function DashboardClient() {
                       <Box>
                         <Alert severity="success" sx={{ mb: 2 }}>
                           <Typography variant="body2">
-                            <strong>Datos fiscales completos</strong><br/>
-                            Tus facturas se generarán automáticamente con estos datos.
+                            <strong>{t('cd.account.fiscalComplete')}</strong><br/>
+                            {t('cd.account.fiscalAutoInvoice')}
                           </Typography>
                         </Alert>
                         
@@ -3441,7 +3414,7 @@ export default function DashboardClient() {
                             {fiscalData.fiscal_regimen_fiscal === '621' && '621 - Incorporación Fiscal'}
                             {fiscalData.fiscal_regimen_fiscal === '625' && '625 - Régimen de Actividades Agrícolas'}
                             {fiscalData.fiscal_regimen_fiscal === '626' && '626 - Régimen Simplificado de Confianza'}
-                            {!['601','603','605','606','608','612','616','621','625','626'].includes(fiscalData.fiscal_regimen_fiscal) && (fiscalData.fiscal_regimen_fiscal || 'No configurado')}
+                            {!['601','603','605','606','608','612','616','621','625','626'].includes(fiscalData.fiscal_regimen_fiscal) && (fiscalData.fiscal_regimen_fiscal || t('cd.account.notConfigured'))}
                           </Typography>
                         </Box>
                         
@@ -3454,7 +3427,7 @@ export default function DashboardClient() {
                             {fiscalData.fiscal_uso_cfdi === 'I04' && 'I04 - Compra de divisas'}
                             {fiscalData.fiscal_uso_cfdi === 'P01' && 'P01 - Por definir'}
                             {fiscalData.fiscal_uso_cfdi === 'S01' && 'S01 - Sin efectos fiscales'}
-                            {!['G03', 'G01', 'G02', 'I04', 'P01', 'S01'].includes(fiscalData.fiscal_uso_cfdi) && (fiscalData.fiscal_uso_cfdi || 'No configurado')}
+                            {!['G03', 'G01', 'G02', 'I04', 'P01', 'S01'].includes(fiscalData.fiscal_uso_cfdi) && (fiscalData.fiscal_uso_cfdi || t('cd.account.notConfigured'))}
                           </Typography>
                         </Box>
                       </Box>
@@ -3462,7 +3435,7 @@ export default function DashboardClient() {
                       <Box sx={{ textAlign: 'center', py: 2 }}>
                         <ReceiptIcon sx={{ fontSize: 40, color: 'text.disabled', mb: 1 }} />
                         <Typography variant="body2" color="text.secondary" gutterBottom>
-                          Configura tus datos fiscales para generar facturas automáticamente
+                          {t('cd.account.fiscalConfigure')}
                         </Typography>
                         <Button 
                           variant="outlined" 
@@ -3470,7 +3443,7 @@ export default function DashboardClient() {
                           sx={{ mt: 1 }}
                           onClick={() => setFiscalModalOpen(true)}
                         >
-                          Configurar Datos Fiscales
+                          {t('cd.account.configureFiscal')}
                         </Button>
                       </Box>
                     )}
@@ -3482,7 +3455,7 @@ export default function DashboardClient() {
                   <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                       <Typography variant="h6" fontWeight="bold">
-                        📍 Mis Direcciones de Entrega
+                        📍 {t('cd.account.addressesTitle')}
                       </Typography>
                       <Button 
                         variant="contained" 
@@ -3508,7 +3481,7 @@ export default function DashboardClient() {
                           setAddressModalOpen(true);
                         }}
                       >
-                        Nueva Dirección
+                        {t('cd.account.newAddress')}
                       </Button>
                     </Box>
                     <Divider sx={{ mb: 2 }} />
@@ -3516,9 +3489,9 @@ export default function DashboardClient() {
                     {deliveryAddresses.length === 0 ? (
                       <Box sx={{ textAlign: 'center', py: 4 }}>
                         <LocationOnIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-                        <Typography color="text.secondary">No tienes direcciones guardadas</Typography>
+                        <Typography color="text.secondary">{t('cd.account.noAddresses')}</Typography>
                         <Typography variant="body2" color="text.secondary">
-                          Agrega una dirección para asignar a tus envíos
+                          {t('cd.account.addAddressPrompt')}
                         </Typography>
                       </Box>
                     ) : (
@@ -3535,7 +3508,7 @@ export default function DashboardClient() {
                               {addr.is_default && (
                                 <Chip 
                                   icon={<StarIcon />}
-                                  label="Principal" 
+                                  label={t('cd.account.mainChip')} 
                                   size="small" 
                                   color="warning"
                                   sx={{ position: 'absolute', top: 8, right: 8 }}
@@ -3577,10 +3550,10 @@ export default function DashboardClient() {
 
                   {/* DIRECCIONES DE ENVÍO (BODEGAS) */}
                   <Typography variant="h6" fontWeight="bold" gutterBottom sx={{ mb: 2 }}>
-                    📦 Direcciones de Envío (Bodegas)
+                    📦 {t('cd.account.warehouseTitle')}
                   </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                    Usa estas direcciones según el tipo de servicio. Tu Suite/Casillero: <strong>{boxId}</strong>
+                    {t('cd.account.warehouseSubtitle')} <strong>{boxId}</strong>
                   </Typography>
                   
                   <Grid container spacing={2}>
@@ -3611,7 +3584,7 @@ export default function DashboardClient() {
                                 {service.addresses[0]?.alias}
                               </Typography>
                             </Box>
-                            <Tooltip title="¿Cómo enviar?">
+                            <Tooltip title={t('cd.account.howToShip')}>
                               <IconButton 
                                 size="small" 
                                 sx={{ color: ORANGE, bgcolor: '#fff3e0', '&:hover': { bgcolor: '#ffe0b2' } }}
@@ -3640,7 +3613,7 @@ export default function DashboardClient() {
                             }}
                             onClick={() => service.addresses[0] && copyToClipboard(formatAddressForCopy(service.addresses[0], service.serviceType))}
                           >
-                            Copiar
+                            {t('cd.warehouse.copy')}
                           </Button>
                         </Paper>
                       </Grid>
@@ -3650,7 +3623,7 @@ export default function DashboardClient() {
                       <Grid size={12}>
                         <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'grey.50', borderRadius: 2 }}>
                           <CircularProgress size={24} sx={{ mb: 2 }} />
-                          <Typography color="text.secondary">Cargando direcciones...</Typography>
+                          <Typography color="text.secondary">{t('cd.account.loadingAddresses')}</Typography>
                         </Paper>
                       </Grid>
                     )}
@@ -3659,8 +3632,7 @@ export default function DashboardClient() {
                   {/* Nota importante */}
                   <Alert severity="info" sx={{ mt: 3, borderRadius: 2 }}>
                     <Typography variant="body2">
-                      <strong>Importante:</strong> Siempre incluye tu número de Suite/Casillero (<strong>{boxId}</strong>) 
-                      en todos tus envíos para asegurar que lleguen correctamente a tu cuenta.
+                      <strong>{t('cd.account.suiteReminder', { boxId })}</strong>
                     </Typography>
                   </Alert>
                 </Grid>
@@ -3672,18 +3644,18 @@ export default function DashboardClient() {
           {activeTab === 3 && (
             <Box>
               <Typography variant="h6" fontWeight="bold" gutterBottom>
-                🧾 Mis Facturas (CFDI)
+                🧾 {t('cd.invoicesTab.title')}
               </Typography>
               
               <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
                 <Table>
                   <TableHead>
                     <TableRow sx={{ bgcolor: 'grey.100' }}>
-                      <TableCell><strong>Folio</strong></TableCell>
-                      <TableCell><strong>Fecha</strong></TableCell>
-                      <TableCell align="right"><strong>Total</strong></TableCell>
-                      <TableCell><strong>Estado</strong></TableCell>
-                      <TableCell align="center"><strong>Descargar</strong></TableCell>
+                      <TableCell><strong>{t('cd.invoicesTab.folio')}</strong></TableCell>
+                      <TableCell><strong>{t('cd.invoicesTab.date')}</strong></TableCell>
+                      <TableCell align="right"><strong>{t('cd.invoicesTab.total')}</strong></TableCell>
+                      <TableCell><strong>{t('cd.invoicesTab.status')}</strong></TableCell>
+                      <TableCell align="center"><strong>{t('cd.invoicesTab.download')}</strong></TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -3691,7 +3663,7 @@ export default function DashboardClient() {
                       <TableRow>
                         <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                           <ReceiptIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-                          <Typography color="text.secondary">No tienes facturas recientes</Typography>
+                          <Typography color="text.secondary">{t('cd.invoicesTab.noInvoices')}</Typography>
                         </TableCell>
                       </TableRow>
                     ) : (
@@ -3706,19 +3678,19 @@ export default function DashboardClient() {
                           </TableCell>
                           <TableCell>
                             <Chip 
-                              label={inv.status === 'pagada' ? 'Pagada' : 'Pendiente'} 
+                              label={inv.status === 'pagada' ? t('cd.invoicesTab.paid') : t('cd.invoicesTab.pending')} 
                               color={inv.status === 'pagada' ? 'success' : 'warning'}
                               size="small"
                             />
                           </TableCell>
                           <TableCell align="center">
                             <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                              <Tooltip title="Descargar PDF">
+                              <Tooltip title={t('cd.invoicesTab.downloadPdf')}>
                                 <IconButton size="small" color="error">
                                   <DownloadIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
-                              <Tooltip title="Descargar XML">
+                              <Tooltip title={t('cd.invoicesTab.downloadXml')}>
                                 <IconButton size="small" color="primary">
                                   <DownloadIcon fontSize="small" />
                                 </IconButton>
@@ -3738,10 +3710,10 @@ export default function DashboardClient() {
           {activeTab === 4 && (
             <Box>
               <Typography variant="h6" fontWeight="bold" gutterBottom>
-                ❌ Paquetes Sin Instrucciones de Entrega
+                ❌ {t('cd.noInstructions.title')}
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Estos paquetes necesitan que les asignes una dirección de entrega
+                {t('cd.noInstructions.subtitle')}
               </Typography>
 
               {/* Selector de servicio obligatorio - Diseño Corporativo */}
@@ -3823,7 +3795,7 @@ export default function DashboardClient() {
                   {getFilteredPackages().filter(p => !p.has_delivery_instructions && !p.delivery_address_id && !p.assigned_address_id && (!p.destination_address || p.destination_address === 'Pendiente de asignar') && p.status !== 'delivered').length === 0 ? (
                     <Box sx={{ textAlign: 'center', py: 6 }}>
                       <CheckCircleIcon sx={{ fontSize: 64, color: GREEN, mb: 2 }} />
-                      <Typography color="text.secondary">¡Todos tus paquetes tienen instrucciones!</Typography>
+                      <Typography color="text.secondary">{t('cd.instructions.allAssigned')}</Typography>
                     </Box>
                   ) : (
                     getFilteredPackages().filter(p => !p.has_delivery_instructions && !p.delivery_address_id && !p.assigned_address_id && (!p.destination_address || p.destination_address === 'Pendiente de asignar') && p.status !== 'delivered').map((pkg) => (
@@ -3896,7 +3868,7 @@ export default function DashboardClient() {
                           {/* ETA */}
                           <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid #eee' }}>
                             <Typography variant="caption" color="text.secondary">
-                              ⏱ ETA: {pkg.fecha_estimada || 'Por confirmar'}
+                              ⏱ ETA: {pkg.fecha_estimada || t('cd.packages.etaPending')}
                             </Typography>
                           </Box>
 
@@ -3913,14 +3885,14 @@ export default function DashboardClient() {
                                 setDeliveryModalOpen(true);
                               }}
                             >
-                              Asignar Dirección de Entrega
+                              {t('cd.noInstructions.assignAddress')}
                             </Button>
 
                             {/* Chip de Garantía */}
                             {pkg.has_gex ? (
                               <Chip
                                 icon={<SecurityIcon />}
-                                label="Protegido con Garantía Extendida"
+                                label={t('cd.gex.protectedChip')}
                                 size="small"
                                 sx={{
                                   bgcolor: ORANGE,
@@ -3941,7 +3913,7 @@ export default function DashboardClient() {
                                     <Box sx={{ position: 'absolute', width: '120%', height: 2, bgcolor: 'white', transform: 'rotate(-45deg)', borderRadius: 1 }} />
                                   </Box>
                                 }
-                                label="Sin Garantía Extendida - ¡Contratar Aquí!"
+                                label={t('cd.gex.noGexChip')}
                                 size="small"
                                 sx={{
                                   bgcolor: '#D32F2F',
@@ -3971,10 +3943,10 @@ export default function DashboardClient() {
           {activeTab === 5 && (
             <Box>
               <Typography variant="h6" fontWeight="bold" gutterBottom>
-                ✅ Paquetes Con Instrucciones de Entrega
+                ✅ {t('cd.withInstructionsTab.title')}
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                Estos paquetes ya tienen asignada una dirección de entrega
+                {t('cd.withInstructionsTab.subtitle')}
               </Typography>
 
               {/* Selector de servicio obligatorio */}
@@ -3999,7 +3971,7 @@ export default function DashboardClient() {
                       }}
                     >
                       <FlightIcon sx={{ fontSize: 32, color: BLUE, mb: 0.5 }} />
-                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.75rem' }}>Aéreo</Typography>
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.75rem' }}>{t('cd.serviceFilter.air')}</Typography>
                     </Box>
                     <Box 
                       onClick={() => setServiceFilter('china_sea')}
@@ -4012,7 +3984,7 @@ export default function DashboardClient() {
                       }}
                     >
                       <BoatIcon sx={{ fontSize: 32, color: '#00796B', mb: 0.5 }} />
-                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.75rem' }}>Marítimo</Typography>
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.75rem' }}>{t('cd.serviceFilter.sea')}</Typography>
                     </Box>
                     <Box 
                       onClick={() => setServiceFilter('dhl')}
@@ -4025,7 +3997,7 @@ export default function DashboardClient() {
                       }}
                     >
                       <TruckIcon sx={{ fontSize: 32, color: ORANGE, mb: 0.5 }} />
-                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.75rem' }}>MTY</Typography>
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.75rem' }}>{t('cd.serviceFilter.mty')}</Typography>
                     </Box>
                     <Box 
                       onClick={() => setServiceFilter('usa_pobox')}
@@ -4038,7 +4010,7 @@ export default function DashboardClient() {
                       }}
                     >
                       <PostOfficeIcon sx={{ fontSize: 32, color: '#E91E63', mb: 0.5 }} />
-                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.75rem' }}>PO Box</Typography>
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.75rem' }}>{t('cd.serviceFilter.pobox')}</Typography>
                     </Box>
                   </Box>
                 </Box>
@@ -4056,7 +4028,7 @@ export default function DashboardClient() {
                   {getFilteredPackages().filter(p => (p.has_delivery_instructions || p.delivery_address_id || p.assigned_address_id || (p.destination_address && p.destination_address !== 'Pendiente de asignar' && p.destination_contact)) && p.status !== 'delivered').length === 0 ? (
                     <Box sx={{ textAlign: 'center', py: 6 }}>
                       <WarningIcon sx={{ fontSize: 64, color: ORANGE, mb: 2 }} />
-                      <Typography color="text.secondary">No tienes paquetes con instrucciones asignadas</Typography>
+                      <Typography color="text.secondary">{t('cd.withInstructionsTab.noPackages')}</Typography>
                     </Box>
                   ) : (
                     getFilteredPackages().filter(p => (p.has_delivery_instructions || p.delivery_address_id || p.assigned_address_id || (p.destination_address && p.destination_address !== 'Pendiente de asignar' && p.destination_contact)) && p.status !== 'delivered').map((pkg) => (
@@ -4129,7 +4101,7 @@ export default function DashboardClient() {
                           {/* ETA */}
                           <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid #eee' }}>
                             <Typography variant="caption" color="text.secondary">
-                              ⏱ ETA: {pkg.fecha_estimada || 'Por confirmar'}
+                              ⏱ ETA: {pkg.fecha_estimada || t('cd.packages.etaPending')}
                             </Typography>
                           </Box>
 
@@ -4138,7 +4110,7 @@ export default function DashboardClient() {
                             <Box sx={{ display: 'flex', gap: 0.5 }}>
                               <Chip 
                                 icon={<LocationOnIcon />} 
-                                label="✅ Entrega asignada" 
+                                label={t('cd.withInstructionsTab.deliveryAssigned')} 
                                 size="small" 
                                 sx={{ bgcolor: ORANGE, color: 'white', fontWeight: 600 }}
                               />
@@ -4146,7 +4118,7 @@ export default function DashboardClient() {
                               {pkg.has_gex ? (
                                 <Chip
                                   icon={<SecurityIcon />}
-                                  label="Protegido con Garantía Extendida"
+                                  label={t('cd.gex.protectedChip')}
                                   size="small"
                                   sx={{
                                     bgcolor: ORANGE,
@@ -4167,7 +4139,7 @@ export default function DashboardClient() {
                                       <Box sx={{ position: 'absolute', width: '120%', height: 2, bgcolor: 'white', transform: 'rotate(-45deg)', borderRadius: 1 }} />
                                     </Box>
                                   }
-                                  label="Sin Garantía Extendida - ¡Contratar Aquí!"
+                                  label={t('cd.gex.noGexChip')}
                                   size="small"
                                   sx={{
                                     bgcolor: '#D32F2F',
@@ -4193,7 +4165,7 @@ export default function DashboardClient() {
                                 setDeliveryModalOpen(true);
                               }}
                             >
-                              Editar
+                              {t('common.edit')}
                             </Button>
                           </Box>
                         </CardContent>
@@ -4224,7 +4196,7 @@ export default function DashboardClient() {
         }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <LocationOnIcon />
-            <span>Dirección de Envío - {tutorialService?.name}</span>
+            <span>{t('cd.tutorial.title')} - {tutorialService?.name}</span>
           </Box>
           <IconButton size="small" onClick={() => setTutorialOpen(false)} sx={{ color: 'white' }}>
             <CloseIcon />
@@ -4251,7 +4223,7 @@ export default function DashboardClient() {
                     }}
                   >
                     <Typography variant="subtitle2" sx={{ opacity: 0.9, mb: 1 }}>
-                      📍 Envía a esta dirección:
+                      📍 {t('cd.tutorial.sendToAddress')}
                     </Typography>
                     <Typography variant="body1" sx={{ fontFamily: 'monospace', lineHeight: 1.8 }}>
                       {renderFormattedAddress(address, tutorialService.type)}
@@ -4268,70 +4240,70 @@ export default function DashboardClient() {
                       }}
                       onClick={() => {
                         navigator.clipboard.writeText(formatAddressForCopy(address, tutorialService.type));
-                        setSnackbar({ open: true, message: '¡Dirección copiada!', severity: 'success' });
+                        setSnackbar({ open: true, message: t('cd.tutorial.addressCopied'), severity: 'success' });
                       }}
                     >
-                      Copiar Dirección
+                      {t('cd.tutorial.copyAddress')}
                     </Button>
                   </Paper>
                 ) : (
                   <Alert severity="warning" sx={{ mb: 2 }}>
-                    No hay dirección configurada para este servicio. Contacta a soporte.
+                    {t('cd.tutorial.noAddress')}
                   </Alert>
                 )}
 
                 <Alert severity="info" sx={{ mb: 2 }}>
-                  <strong>Tiempo estimado de entrega:</strong> {tutorialService.timeframe}
+                  <strong>{t('cd.tutorial.estimatedTime')}</strong> {tutorialService.timeframe}
                 </Alert>
                 
                 <Divider sx={{ my: 2 }} />
 
                 <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  📋 Instrucciones de Envío:
+                  📋 {t('cd.tutorial.shippingInstructions')}
                 </Typography>
                 <Typography variant="body2" paragraph sx={{ color: 'text.secondary' }}>
                   {tutorialService.tutorial}
                 </Typography>
 
                 <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  ✅ Pasos a seguir:
+                  ✅ {t('cd.tutorial.stepsToFollow')}
                 </Typography>
                 <List dense>
                   {tutorialService.type === 'usa_pobox' && (
                     <>
-                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Copia tu dirección completa con tu Suite" /></ListItem>
-                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Usa esa dirección al comprar en Amazon, eBay, etc." /></ListItem>
-                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Nosotros recibimos y consolidamos tus paquetes" /></ListItem>
-                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Te notificamos cuando lleguen y puedes pagar/enviar" /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={t('cd.tutorial.pobox.step1')} /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={t('cd.tutorial.pobox.step2')} /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={t('cd.tutorial.pobox.step3')} /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={t('cd.tutorial.pobox.step4')} /></ListItem>
                     </>
                   )}
                   {(tutorialService.type === 'china_air' || tutorialService.type === 'china_sea') && (
                     <>
-                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={`Indica a tu proveedor el Shipping Mark: ${boxId}`} /></ListItem>
-                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Envía la mercancía a nuestra bodega en Guangzhou" /></ListItem>
-                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Marca cada caja con tu Shipping Mark claramente visible" /></ListItem>
-                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Te notificamos al recibir y procesamos tu envío" /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={t('cd.tutorial.china.step1', { boxId })} /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={t('cd.tutorial.china.step2')} /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={t('cd.tutorial.china.step3')} /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={t('cd.tutorial.china.step4')} /></ListItem>
                     </>
                   )}
                   {tutorialService.type === 'mx_cedis' && (
                     <>
-                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={`Envía tu paquete DHL a nuestra dirección en Monterrey`} /></ListItem>
-                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={`Incluye en el destinatario: ${userName} (${boxId})`} /></ListItem>
-                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Lo recibimos y liberamos sin trámites de importación complicados" /></ListItem>
-                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary="Te notificamos para coordinar la entrega final" /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={t('cd.tutorial.mty.step1')} /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={t('cd.tutorial.mty.step2', { userName, boxId })} /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={t('cd.tutorial.mty.step3')} /></ListItem>
+                      <ListItem><ListItemIcon><CheckCircleIcon color="success" /></ListItemIcon><ListItemText primary={t('cd.tutorial.mty.step4')} /></ListItem>
                     </>
                   )}
                 </List>
 
                 <Alert severity="warning" sx={{ mt: 2 }}>
-                  <strong>Importante:</strong> Siempre incluye tu Suite/Casillero <strong>{boxId}</strong> para identificar correctamente tu envío.
+                  <strong>{t('cd.tutorial.important')}</strong> {t('cd.tutorial.alwaysIncludeSuite', { boxId })}
                 </Alert>
               </Box>
             );
           })()}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setTutorialOpen(false)}>Cerrar</Button>
+          <Button onClick={() => setTutorialOpen(false)}>{t('common.close')}</Button>
         </DialogActions>
       </Dialog>
 
@@ -4339,7 +4311,7 @@ export default function DashboardClient() {
       <Dialog open={gexModalOpen} onClose={() => setGexModalOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
           <SecurityIcon />
-          Contratar GEX
+          {t('cd.gex.title')}
         </DialogTitle>
         <DialogContent sx={{ p: 0 }}>
           {(() => {
@@ -4353,16 +4325,16 @@ export default function DashboardClient() {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                     <SecurityIcon sx={{ color: ORANGE }} />
                     <Typography variant="subtitle1" fontWeight="bold" sx={{ color: ORANGE }}>
-                      Datos del Seguro
+                      {t('cd.gex.insuranceData')}
                     </Typography>
                   </Box>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Completa la información para proteger tu carga.
+                    {t('cd.gex.completeInfo')}
                   </Typography>
 
                   {/* Nombre del Cliente */}
                   <Box sx={{ mb: 2 }}>
-                    <Typography variant="caption" color="text.secondary">Nombre del Cliente</Typography>
+                    <Typography variant="caption" color="text.secondary">{t('cd.gex.clientName')}</Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
                       <PersonIcon sx={{ color: '#666', fontSize: 20 }} />
                       <Typography variant="body1" fontWeight="bold">{userName.toUpperCase()}</Typography>
@@ -4371,7 +4343,7 @@ export default function DashboardClient() {
 
                   {/* Valor de Factura */}
                   <Box sx={{ mb: 2 }}>
-                    <Typography variant="caption" color="text.secondary">Valor de Factura (USD)</Typography>
+                    <Typography variant="caption" color="text.secondary">{t('cd.gex.invoiceValue')}</Typography>
                     <TextField
                       fullWidth
                       size="small"
@@ -4395,20 +4367,20 @@ export default function DashboardClient() {
                     sx={{ mb: 2.5, bgcolor: '#fff3e0', border: `1px solid ${ORANGE}` }}
                     icon={<WarningIcon />}
                   >
-                    En caso de siniestro, se te solicitará la factura original del embarque para procesar tu reclamación.
+                    {t('cd.gex.claimAlert')}
                   </Alert>
 
                   {/* No. Cajas y Peso Total */}
                   <Grid container spacing={2} sx={{ mb: 2 }}>
                     <Grid size={6}>
-                      <Typography variant="caption" color="text.secondary">No. Cajas</Typography>
+                      <Typography variant="caption" color="text.secondary">{t('cd.gex.numBoxes')}</Typography>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
                         <InventoryIcon sx={{ color: '#666', fontSize: 20 }} />
                         <Typography variant="body1" fontWeight="bold">{selectedPackageIds.length || 1}</Typography>
                       </Box>
                     </Grid>
                     <Grid size={6}>
-                      <Typography variant="caption" color="text.secondary">Peso Total</Typography>
+                      <Typography variant="caption" color="text.secondary">{t('cd.gex.totalWeight')}</Typography>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
                         <ScaleIcon sx={{ color: '#666', fontSize: 20 }} />
                         <Typography variant="body1" fontWeight="bold">
@@ -4428,7 +4400,7 @@ export default function DashboardClient() {
 
                   {/* Ruta de Envío */}
                   <Box sx={{ mb: 2 }}>
-                    <Typography variant="caption" color="text.secondary">Ruta de Envío</Typography>
+                    <Typography variant="caption" color="text.secondary">{t('cd.gex.shippingRoute')}</Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
                       <FlightIcon sx={{ color: '#666', fontSize: 20 }} />
                       <Typography variant="body1">🇺🇸 USA → México 🇲🇽</Typography>
@@ -4438,11 +4410,11 @@ export default function DashboardClient() {
 
                   {/* Descripción de la Carga */}
                   <Box sx={{ mb: 0 }}>
-                    <Typography variant="caption" color="text.secondary">Descripción de la Carga</Typography>
+                    <Typography variant="caption" color="text.secondary">{t('cd.gex.cargoDescription')}</Typography>
                     <TextField
                       fullWidth
                       size="small"
-                      placeholder="Mercancía general"
+                      placeholder={t('cd.gex.cargoPlaceholder')}
                       value={gexDescripcion}
                       onChange={(e) => setGexDescripcion(e.target.value)}
                       sx={{ mt: 0.5 }}
@@ -4481,7 +4453,7 @@ export default function DashboardClient() {
                         <Divider sx={{ borderColor: 'rgba(255,255,255,0.3)', my: 1.5 }} />
 
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
-                          <Typography variant="body2">5% Valor Asegurado:</Typography>
+                          <Typography variant="body2">{t('cd.gex.fivePercent')}</Typography>
                           <Typography variant="body2" fontWeight="600">${porcentajeGEX.toFixed(2)} MXN</Typography>
                         </Box>
 
@@ -4492,7 +4464,7 @@ export default function DashboardClient() {
                             ${porcentajeGEX.toFixed(2)} MXN
                           </Typography>
                           <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                            5% del valor asegurado
+                            {t('cd.gex.fivePercentCaption')}
                           </Typography>
                         </Box>
                       </>
@@ -4504,7 +4476,7 @@ export default function DashboardClient() {
           })()}
         </DialogContent>
         <DialogActions sx={{ p: 2, bgcolor: '#f5f5f5', justifyContent: 'center' }}>
-          <Button onClick={() => setGexModalOpen(false)} sx={{ color: 'text.secondary', mr: 2 }}>Cancelar</Button>
+          <Button onClick={() => setGexModalOpen(false)} sx={{ color: 'text.secondary', mr: 2 }}>{t('common.cancel')}</Button>
           <Button 
             variant="contained" 
             onClick={handleContractGEX}
@@ -4512,7 +4484,7 @@ export default function DashboardClient() {
             startIcon={gexLoading ? <CircularProgress size={20} /> : <SecurityIcon />}
             sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' }, px: 4 }}
           >
-            {gexLoading ? 'Procesando...' : '🛡️ Contratar GEX'}
+            {gexLoading ? t('common.processing') : t('cd.gex.contractButton')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -4521,7 +4493,7 @@ export default function DashboardClient() {
       <Dialog open={deliveryModalOpen} onClose={() => setDeliveryModalOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ bgcolor: BLUE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
           <LocationOnIcon />
-          Instrucciones de Entrega
+          {t('cd.delivery.title')}
         </DialogTitle>
         <DialogContent sx={{ p: 3 }}>
           <Grid container spacing={3}>
@@ -4547,7 +4519,7 @@ export default function DashboardClient() {
                     {selectedPackageIds.length}
                   </Box>
                   <Typography variant="subtitle1" fontWeight="bold">
-                    Paquete{selectedPackageIds.length > 1 ? 's' : ''} Seleccionado{selectedPackageIds.length > 1 ? 's' : ''}
+                    {t('cd.delivery.selectedPackages', { count: selectedPackageIds.length })}
                   </Typography>
                 </Box>
                 
@@ -4561,11 +4533,11 @@ export default function DashboardClient() {
                     </Typography>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Box>
-                        <Typography variant="caption" color="text.secondary">Peso Total</Typography>
+                        <Typography variant="caption" color="text.secondary">{t('cd.delivery.totalWeight')}</Typography>
                         <Typography variant="body2" fontWeight="bold">{pkg.weight || '12'} kg</Typography>
                       </Box>
                       <Box sx={{ textAlign: 'right' }}>
-                        <Typography variant="caption" color="text.secondary">CBM Total</Typography>
+                        <Typography variant="caption" color="text.secondary">{t('cd.delivery.totalCBM')}</Typography>
                         <Typography variant="body2" fontWeight="bold">{pkg.cbm || '0.0017'} m³</Typography>
                       </Box>
                     </Box>
@@ -4578,7 +4550,7 @@ export default function DashboardClient() {
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                   <LocationOnIcon sx={{ color: 'error.main', mr: 1 }} />
                   <Typography variant="subtitle1" fontWeight="bold">
-                    Dirección de Entrega
+                    {t('cd.delivery.deliveryAddress')}
                   </Typography>
                   <Button 
                     size="small" 
@@ -4588,13 +4560,13 @@ export default function DashboardClient() {
                       setAddressModalOpen(true);
                     }}
                   >
-                    Agregar
+                    {t('cd.delivery.addNew')}
                   </Button>
                 </Box>
 
                 {deliveryAddresses.length === 0 ? (
                   <Alert severity="info" sx={{ mb: 2 }}>
-                    No tienes direcciones guardadas. Agrega una para continuar.
+                    {t('cd.delivery.noAddresses')}
                   </Alert>
                 ) : (
                   <FormControl component="fieldset" fullWidth>
@@ -4626,7 +4598,7 @@ export default function DashboardClient() {
                                   <Typography variant="body1" fontWeight="bold">
                                     {addr.alias}
                                     {addr.alias === 'Bodega 1' && (
-                                      <Chip label="Principal" size="small" sx={{ ml: 1, bgcolor: BLUE, color: 'white' }} />
+                                      <Chip label={t('cd.address.primary')} size="small" sx={{ ml: 1, bgcolor: BLUE, color: 'white' }} />
                                     )}
                                   </Typography>
                                   <Typography variant="body2" color="text.secondary">
@@ -4658,11 +4630,11 @@ export default function DashboardClient() {
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                   <Box sx={{ fontSize: '1.5rem', mr: 1 }}>🚛</Box>
                   <Typography variant="subtitle1" fontWeight="bold">
-                    Paquetería de Entrega
+                    {t('cd.delivery.carrierService')}
                   </Typography>
                 </Box>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  Selecciona cómo quieres recibir tus paquetes
+                  {t('cd.delivery.selectCarrier')}
                 </Typography>
 
                 <FormControl component="fieldset" fullWidth>
@@ -4726,7 +4698,7 @@ export default function DashboardClient() {
 
                 {/* Total */}
                 <Box sx={{ mt: 2, pt: 2, borderTop: '2px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="subtitle1" fontWeight="bold">Total:</Typography>
+                  <Typography variant="subtitle1" fontWeight="bold">{t('cd.delivery.total')}</Typography>
                   <Typography variant="h6" fontWeight="bold" sx={{ color: selectedCarrierService === 'local' ? 'success.main' : 'text.primary' }}>
                     {carrierServices.find(s => s.id === selectedCarrierService)?.price || 'GRATIS'}
                   </Typography>
@@ -4738,14 +4710,14 @@ export default function DashboardClient() {
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                   <Box sx={{ fontSize: '1.2rem', mr: 1 }}>📝</Box>
                   <Typography variant="subtitle1" fontWeight="bold">
-                    Notas Adicionales
+                    {t('cd.delivery.additionalNotes')}
                   </Typography>
                 </Box>
                 <TextField
                   fullWidth
                   multiline
                   rows={4}
-                  placeholder="Ej: Dejar en recepción, llamar antes de entregar..."
+                  placeholder={t('cd.delivery.notesPlaceholder')}
                   value={deliveryNotes}
                   onChange={(e) => setDeliveryNotes(e.target.value)}
                   size="small"
@@ -4760,7 +4732,7 @@ export default function DashboardClient() {
             onClick={() => setDeliveryModalOpen(false)}
             size="large"
           >
-            Cancelar
+            {t('common.cancel')}
           </Button>
           <Button 
             variant="contained" 
@@ -4775,7 +4747,7 @@ export default function DashboardClient() {
               fontSize: '1.1rem'
             }}
           >
-            {deliveryLoading ? 'Guardando...' : 'Guardar Instrucciones'}
+            {deliveryLoading ? t('common.saving') : t('cd.delivery.saveInstructions')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -4784,23 +4756,23 @@ export default function DashboardClient() {
       <Dialog open={historyModalOpen} onClose={() => setHistoryModalOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <HistoryIcon color="primary" />
-          Historial de Paquetes Entregados
+          {t('cd.history.title')}
         </DialogTitle>
         <DialogContent>
           {historyPackages.length === 0 ? (
             <Box sx={{ textAlign: 'center', py: 4 }}>
               <InventoryIcon sx={{ fontSize: 64, color: 'text.disabled', mb: 2 }} />
-              <Typography color="text.secondary">No hay paquetes en el historial</Typography>
+              <Typography color="text.secondary">{t('cd.history.noHistory')}</Typography>
             </Box>
           ) : (
             <TableContainer>
               <Table size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell>Tracking</TableCell>
-                    <TableCell>Descripción</TableCell>
-                    <TableCell>Estado</TableCell>
-                    <TableCell align="right">Monto</TableCell>
+                    <TableCell>{t('cd.history.tracking')}</TableCell>
+                    <TableCell>{t('cd.history.description')}</TableCell>
+                    <TableCell>{t('cd.history.status')}</TableCell>
+                    <TableCell align="right">{t('cd.history.amount')}</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -4822,7 +4794,7 @@ export default function DashboardClient() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setHistoryModalOpen(false)}>Cerrar</Button>
+          <Button onClick={() => setHistoryModalOpen(false)}>{t('common.close')}</Button>
         </DialogActions>
       </Dialog>
 
@@ -4830,7 +4802,7 @@ export default function DashboardClient() {
       <Dialog open={addressModalOpen} onClose={() => setAddressModalOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <LocationOnIcon color="primary" />
-          {editingAddress ? 'Editar Dirección' : 'Nueva Dirección de Entrega'}
+          {editingAddress ? t('cd.addressModal.editTitle') : t('cd.addressModal.newTitle')}
         </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
@@ -4838,7 +4810,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Alias (ej: Casa, Oficina)"
+                label={t('cd.addressModal.alias')}
                 value={addressForm.alias}
                 onChange={(e) => setAddressForm({ ...addressForm, alias: e.target.value })}
               />
@@ -4847,7 +4819,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Nombre de contacto"
+                label={t('cd.addressModal.contactName')}
                 value={addressForm.contact_name}
                 onChange={(e) => setAddressForm({ ...addressForm, contact_name: e.target.value })}
               />
@@ -4856,7 +4828,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Teléfono"
+                label={t('cd.addressModal.phone')}
                 value={addressForm.phone}
                 onChange={(e) => setAddressForm({ ...addressForm, phone: e.target.value })}
               />
@@ -4865,7 +4837,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Calle *"
+                label={t('cd.addressModal.street')}
                 required
                 value={addressForm.street}
                 onChange={(e) => setAddressForm({ ...addressForm, street: e.target.value })}
@@ -4875,7 +4847,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Ext."
+                label={t('cd.addressModal.ext')}
                 value={addressForm.exterior_number}
                 onChange={(e) => setAddressForm({ ...addressForm, exterior_number: e.target.value })}
               />
@@ -4884,7 +4856,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Int."
+                label={t('cd.addressModal.int')}
                 value={addressForm.interior_number}
                 onChange={(e) => setAddressForm({ ...addressForm, interior_number: e.target.value })}
               />
@@ -4893,7 +4865,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Colonia"
+                label={t('cd.addressModal.colony')}
                 value={addressForm.colony}
                 onChange={(e) => setAddressForm({ ...addressForm, colony: e.target.value })}
               />
@@ -4902,7 +4874,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Ciudad *"
+                label={t('cd.addressModal.city')}
                 required
                 value={addressForm.city}
                 onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })}
@@ -4912,7 +4884,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Estado *"
+                label={t('cd.addressModal.state')}
                 required
                 value={addressForm.state}
                 onChange={(e) => setAddressForm({ ...addressForm, state: e.target.value })}
@@ -4922,7 +4894,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Código Postal"
+                label={t('cd.addressModal.zipCode')}
                 value={addressForm.zip_code}
                 onChange={(e) => setAddressForm({ ...addressForm, zip_code: e.target.value })}
               />
@@ -4931,18 +4903,18 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Referencia"
+                label={t('cd.addressModal.reference')}
                 multiline
                 rows={2}
                 value={addressForm.reference}
                 onChange={(e) => setAddressForm({ ...addressForm, reference: e.target.value })}
-                placeholder="Ej: Portón negro, frente al parque"
+                placeholder={t('cd.addressModal.referencePlaceholder')}
               />
             </Grid>
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAddressModalOpen(false)}>Cancelar</Button>
+          <Button onClick={() => setAddressModalOpen(false)}>{t('common.cancel')}</Button>
           <Button 
             variant="contained" 
             onClick={handleSaveAddress}
@@ -4950,7 +4922,7 @@ export default function DashboardClient() {
             startIcon={addressSaving ? <CircularProgress size={20} /> : <CheckCircleIcon />}
             sx={{ bgcolor: ORANGE }}
           >
-            {addressSaving ? 'Guardando...' : 'Guardar'}
+            {addressSaving ? t('common.saving') : t('common.save')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -4975,7 +4947,7 @@ export default function DashboardClient() {
         }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <InventoryIcon />
-            <Typography variant="h6" fontWeight="bold">Detalle del Paquete</Typography>
+            <Typography variant="h6" fontWeight="bold">{t('cd.detail.title')}</Typography>
           </Box>
           <IconButton onClick={() => {
             setPackageDetailOpen(false);
@@ -4989,7 +4961,7 @@ export default function DashboardClient() {
             <Box>
               {/* Header con Tracking */}
               <Box sx={{ bgcolor: '#f8f9fa', p: 2, borderBottom: '1px solid #e0e0e0' }}>
-                <Typography variant="caption" color="text.secondary">Número de Rastreo</Typography>
+                <Typography variant="caption" color="text.secondary">{t('cd.detail.trackingNumber')}</Typography>
                 <Typography variant="h5" fontFamily="monospace" fontWeight="bold" sx={{ color: ORANGE }}>
                   {selectedPackage.tracking}
                 </Typography>
@@ -5006,7 +4978,7 @@ export default function DashboardClient() {
                 {selectedPackage.descripcion && (
                   <Box sx={{ mb: 2 }}>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                      📦 Descripción
+                      📦 {t('cd.detail.description')}
                     </Typography>
                     <Typography variant="body1">{selectedPackage.descripcion}</Typography>
                   </Box>
@@ -5016,7 +4988,7 @@ export default function DashboardClient() {
                 <Grid container spacing={2} sx={{ mb: 2 }}>
                   <Grid size={6}>
                     <Paper sx={{ p: 1.5, bgcolor: '#f8f9fa', textAlign: 'center' }}>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>⚖️ Peso</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>⚖️ {t('cd.detail.weight')}</Typography>
                       <Typography variant="h6" fontWeight="bold">
                         {(() => {
                           // Para masters, usar el peso del reempaque o calcular si no existe
@@ -5049,7 +5021,7 @@ export default function DashboardClient() {
                   </Grid>
                   <Grid size={6}>
                     <Paper sx={{ p: 1.5, bgcolor: '#f8f9fa', textAlign: 'center' }}>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>📐 Dimensiones</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>📐 {t('cd.detail.dimensions')}</Typography>
                       <Typography variant="h6" fontWeight="bold" sx={{ fontSize: '0.9rem' }}>
                         {(() => {
                           // Para masters, usar las dimensiones del reempaque (caja final)
@@ -5063,7 +5035,7 @@ export default function DashboardClient() {
                   </Grid>
                   <Grid size={6}>
                     <Paper sx={{ p: 1.5, bgcolor: '#f8f9fa', textAlign: 'center' }}>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>📊 Volumen CBM</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>📊 {t('cd.detail.volumeCBM')}</Typography>
                       <Typography variant="h6" fontWeight="bold">
                         {(() => {
                           // Para masters, usar el CBM de la caja final del reempaque
@@ -5077,7 +5049,7 @@ export default function DashboardClient() {
                   </Grid>
                   <Grid size={6}>
                     <Paper sx={{ p: 1.5, bgcolor: '#f8f9fa', textAlign: 'center' }}>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>💰 Valor Declarado</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>💰 {t('cd.detail.declaredValue')}</Typography>
                       <Typography variant="h6" fontWeight="bold">
                         {(() => {
                           // Para masters, usar el valor declarado total del reempaque
@@ -5095,7 +5067,7 @@ export default function DashboardClient() {
                 {selectedPackage.is_master && selectedPackage.included_guides && selectedPackage.included_guides.length > 0 && (
                   <Box sx={{ mb: 2 }}>
                     <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-                      📋 Guías Incluidas ({selectedPackage.included_guides.length})
+                      📋 {t('cd.detail.includedGuides')} ({selectedPackage.included_guides.length})
                     </Typography>
                     <Paper sx={{ bgcolor: '#f8f9fa' }}>
                       {selectedPackage.included_guides.map((guide, idx) => {
@@ -5146,13 +5118,13 @@ export default function DashboardClient() {
                 {/* Servicios Contratados (GEX) */}
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
-                    🛡️ Servicios Contratados
+                    🛡️ {t('cd.detail.contractedServices')}
                   </Typography>
                   {selectedPackage.has_gex ? (
                     <Paper sx={{ p: 2, bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
                       <SecurityIcon />
                       <Box>
-                        <Typography variant="body2" fontWeight="bold">Garantía Extendida (GEX)</Typography>
+                        <Typography variant="body2" fontWeight="bold">{t('cd.detail.gexActive')}</Typography>
                         {selectedPackage.gex_folio && (
                           <Typography variant="caption">Folio: {selectedPackage.gex_folio}</Typography>
                         )}
@@ -5165,7 +5137,7 @@ export default function DashboardClient() {
                         <Box sx={{ position: 'absolute', width: '100%', height: 2, bgcolor: '#D32F2F', transform: 'rotate(-45deg)' }} />
                       </Box>
                       <Typography variant="body2" color="error.main">
-                        Sin Garantía Extendida
+                        {t('cd.detail.noGex')}
                       </Typography>
                     </Paper>
                   )}
@@ -5174,7 +5146,7 @@ export default function DashboardClient() {
                 {/* Información de Entrega */}
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
-                    🏠 Información de Entrega
+                    🏠 {t('cd.detail.deliveryInfo')}
                   </Typography>
                   {(selectedPackage.delivery_address_id || 
                     selectedPackage.assigned_address_id || 
@@ -5184,22 +5156,22 @@ export default function DashboardClient() {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                         <LocationOnIcon sx={{ color: 'success.main' }} />
                         <Typography variant="body2" fontWeight="bold" color="success.main">
-                          Instrucciones Asignadas
+                          {t('cd.detail.instructionsAssigned')}
                         </Typography>
                       </Box>
                       {selectedPackage.destination_address && (
                         <>
                           <Typography variant="body2" sx={{ mb: 0.5 }}>
-                            <strong>Dirección:</strong> {selectedPackage.destination_address}
+                            <strong>{t('cd.detail.address')}:</strong> {selectedPackage.destination_address}
                           </Typography>
                           {selectedPackage.destination_city && (
                             <Typography variant="body2" sx={{ mb: 0.5 }}>
-                              <strong>Ciudad:</strong> {selectedPackage.destination_city}
+                              <strong>{t('cd.detail.city')}:</strong> {selectedPackage.destination_city}
                             </Typography>
                           )}
                           {selectedPackage.destination_contact && (
                             <Typography variant="body2">
-                              <strong>Contacto:</strong> {selectedPackage.destination_contact}
+                              <strong>{t('cd.detail.contact')}:</strong> {selectedPackage.destination_contact}
                             </Typography>
                           )}
                         </>
@@ -5215,11 +5187,11 @@ export default function DashboardClient() {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                         <WarningIcon sx={{ color: 'error.main' }} />
                         <Typography variant="body2" fontWeight="bold" color="error.main">
-                          Pendiente de Asignar Instrucciones
+                          {t('cd.detail.pendingAssignment')}
                         </Typography>
                       </Box>
                       <Typography variant="body2" color="text.secondary">
-                        Este paquete necesita instrucciones de entrega antes de ser despachado.
+                        {t('cd.detail.needsInstructions')}
                       </Typography>
                     </Paper>
                   )}
@@ -5228,17 +5200,17 @@ export default function DashboardClient() {
                 {/* Estado y Costo */}
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
-                    💵 Costo del Servicio
+                    💵 {t('cd.detail.serviceCost')}
                   </Typography>
                   <Paper sx={{ p: 2, bgcolor: selectedPackage.client_paid ? '#e8f5e9' : '#fff3e0' }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Typography variant="body2">Total a Pagar:</Typography>
+                      <Typography variant="body2">{t('cd.detail.totalToPay')}:</Typography>
                       <Typography variant="h5" fontWeight="bold" color={selectedPackage.client_paid ? 'success.main' : 'warning.main'}>
                         {formatCurrency(selectedPackage.monto)}
                       </Typography>
                     </Box>
                     <Chip 
-                      label={selectedPackage.client_paid ? '✓ PAGADO' : '⏳ Pendiente de Pago'} 
+                      label={selectedPackage.client_paid ? t('cd.detail.paid') : t('cd.detail.pendingPayment')} 
                       size="small" 
                       color={selectedPackage.client_paid ? 'success' : 'warning'}
                       sx={{ mt: 1 }}
@@ -5249,12 +5221,12 @@ export default function DashboardClient() {
                 {/* Fechas */}
                 <Box>
                   <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
-                    📅 Fechas
+                    📅 {t('cd.detail.dates')}
                   </Typography>
                   <Grid container spacing={2}>
                     <Grid size={6}>
                       <Paper sx={{ p: 1.5, bgcolor: '#f8f9fa' }}>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Recibido</Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{t('cd.detail.received')}</Typography>
                         <Typography variant="body2" fontWeight="bold">
                           {selectedPackage.created_at ? new Date(selectedPackage.created_at).toLocaleDateString('es-MX', { 
                             day: '2-digit', 
@@ -5266,7 +5238,7 @@ export default function DashboardClient() {
                     </Grid>
                     <Grid size={6}>
                       <Paper sx={{ p: 1.5, bgcolor: '#f8f9fa' }}>
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Última Actualización</Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{t('cd.detail.lastUpdated')}</Typography>
                         <Typography variant="body2" fontWeight="bold">
                           {selectedPackage.updated_at ? new Date(selectedPackage.updated_at).toLocaleDateString('es-MX', { 
                             day: '2-digit', 
@@ -5306,7 +5278,7 @@ export default function DashboardClient() {
             }}
             sx={{ bgcolor: ORANGE }}
           >
-            Cerrar
+            {t('common.close')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -5321,7 +5293,7 @@ export default function DashboardClient() {
           gap: 1 
         }}>
           <SupportIcon />
-          Centro de Ayuda
+          {t('cd.help.title')}
         </DialogTitle>
         <DialogContent sx={{ p: 0 }}>
           {/* Opción 1: Hablar Ahora */}
@@ -5349,9 +5321,9 @@ export default function DashboardClient() {
               <ChatBubbleIcon sx={{ color: 'white' }} />
             </Box>
             <Box sx={{ flex: 1 }}>
-              <Typography fontWeight="bold">Hablar Ahora</Typography>
+              <Typography fontWeight="bold">{t('cd.help.talkNow')}</Typography>
               <Typography variant="body2" color="text.secondary">
-                Chatea con nuestro asesor virtual para respuestas inmediatas
+                {t('cd.help.talkNowDesc')}
               </Typography>
             </Box>
             <Typography color="text.secondary">›</Typography>
@@ -5382,7 +5354,7 @@ export default function DashboardClient() {
                 {advisorInfo.name?.charAt(0) || 'A'}
               </Avatar>
               <Box sx={{ flex: 1 }}>
-                <Typography variant="caption" color="text.secondary">Tu Asesor</Typography>
+                <Typography variant="caption" color="text.secondary">{t('cd.help.yourAdvisor')}</Typography>
                 <Typography fontWeight="bold">{advisorInfo.name}</Typography>
                 {advisorInfo.phone && (
                   <Typography variant="body2" color="text.secondary">📱 {advisorInfo.phone}</Typography>
@@ -5391,7 +5363,7 @@ export default function DashboardClient() {
               {advisorInfo.phone && (
                 <IconButton
                   component="a"
-                  href={`https://wa.me/${advisorInfo.phone.replace(/\D/g, '')}?text=${encodeURIComponent(`Hola ${advisorInfo.name}, soy cliente EntregaX (Suite ${boxId}).`)}`}
+                  href={`https://wa.me/${advisorInfo.phone.replace(/\D/g, '')}?text=${encodeURIComponent(t('cd.chat.whatsappGreeting', { name: advisorInfo.name, suite: boxId }))}`}
                   target="_blank"
                   sx={{
                     bgcolor: '#25D366',
@@ -5432,9 +5404,9 @@ export default function DashboardClient() {
                 <PersonIcon sx={{ color: 'white' }} />
               </Box>
               <Box sx={{ flex: 1 }}>
-                <Typography fontWeight="bold">Solicitar Asesor</Typography>
+                <Typography fontWeight="bold">{t('cd.help.requestAdvisor')}</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Vincula tu cuenta con un asesor comercial
+                  {t('cd.help.requestAdvisorDesc')}
                 </Typography>
               </Box>
               <Typography color="text.secondary">›</Typography>
@@ -5468,9 +5440,9 @@ export default function DashboardClient() {
               <ConfirmationNumber sx={{ color: 'white' }} />
             </Box>
             <Box sx={{ flex: 1 }}>
-              <Typography fontWeight="bold">Crear Ticket de Servicio</Typography>
+              <Typography fontWeight="bold">{t('cd.help.createTicket')}</Typography>
               <Typography variant="body2" color="text.secondary">
-                Reporta un problema y te responderemos pronto
+                {t('cd.help.createTicketDesc')}
               </Typography>
             </Box>
             <Typography color="text.secondary">›</Typography>
@@ -5479,7 +5451,7 @@ export default function DashboardClient() {
         <Box sx={{ p: 2, borderTop: '1px solid #eee', bgcolor: '#fafafa' }}>
           <Typography variant="body2" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <InfoIcon fontSize="small" />
-            Nuestro equipo de soporte está disponible de Lunes a Viernes, 9:00 AM - 6:00 PM
+            {t('cd.help.supportHours')}
           </Typography>
         </Box>
       </Dialog>
@@ -5494,16 +5466,16 @@ export default function DashboardClient() {
           gap: 1 
         }}>
           <SupportIcon />
-          🎫 Levantar Ticket de Soporte
+          🎫 {t('cd.support.title')}
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
           <Alert severity="info" sx={{ mb: 2 }}>
-            Tu mensaje será atendido por un agente de soporte.
+            {t('cd.support.info')}
           </Alert>
           
           {/* Categoría */}
           <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
-            Categoría *
+            {t('cd.support.category')}
           </Typography>
           <TextField
             select
@@ -5522,11 +5494,11 @@ export default function DashboardClient() {
 
           {/* Número de Guía */}
           <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
-            Número de Guía {supportCategory === 'systemError' ? '(Opcional)' : '*'}
+            {t('cd.support.tracking')} {supportCategory === 'systemError' ? `(${t('cd.support.optional')})` : '*'}
           </Typography>
           <TextField
             fullWidth
-            placeholder="Ingresa el número de guía"
+            placeholder={t('cd.support.trackingPlaceholder')}
             value={supportTracking}
             onChange={(e) => {
               setSupportTracking(e.target.value);
@@ -5557,13 +5529,13 @@ export default function DashboardClient() {
 
           {/* Descripción */}
           <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
-            Descripción del problema *
+            {t('cd.support.description')}
           </Typography>
           <TextField
             fullWidth
             multiline
             rows={4}
-            placeholder="Describe tu consulta o problema..."
+            placeholder={t('cd.support.descriptionPlaceholder')}
             value={supportMessage}
             onChange={(e) => setSupportMessage(e.target.value)}
             sx={{ mb: 2 }}
@@ -5571,10 +5543,10 @@ export default function DashboardClient() {
 
           {/* Sección de Imágenes */}
           <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
-            📷 Fotografías (Opcional)
+            📷 {t('cd.support.photos')}
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-            Adjunta capturas de pantalla o fotos que ayuden a ilustrar el problema
+            {t('cd.support.photosDesc')}
           </Typography>
           
           {/* Input oculto para seleccionar archivos */}
@@ -5613,7 +5585,7 @@ export default function DashboardClient() {
                 }}
               >
                 <AddPhotoIcon sx={{ color: '#999', fontSize: 28 }} />
-                <Typography variant="caption" color="text.secondary">Agregar</Typography>
+                <Typography variant="caption" color="text.secondary">{t('cd.support.addPhoto')}</Typography>
               </Box>
             </label>
             
@@ -5632,7 +5604,7 @@ export default function DashboardClient() {
               >
                 <img
                   src={img.preview}
-                  alt={`Imagen ${index + 1}`}
+                  alt={t('cd.support.imageAlt', { number: index + 1 })}
                   style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                 />
                 <IconButton
@@ -5659,7 +5631,7 @@ export default function DashboardClient() {
           
           {supportImages.length > 0 && (
             <Typography variant="caption" color="success.main" sx={{ display: 'block', mb: 1 }}>
-              ✓ {supportImages.length} imagen{supportImages.length > 1 ? 'es' : ''} adjunta{supportImages.length > 1 ? 's' : ''}
+              {t('cd.support.imagesAttached', { count: supportImages.length })}
             </Typography>
           )}
         </DialogContent>
@@ -5672,7 +5644,7 @@ export default function DashboardClient() {
             // Limpiar previews de imágenes
             supportImages.forEach(img => URL.revokeObjectURL(img.preview));
             setSupportImages([]);
-          }}>Cancelar</Button>
+          }}>{ t('common.cancel')}</Button>
           <Button 
             variant="contained" 
             sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' } }}
@@ -5680,7 +5652,7 @@ export default function DashboardClient() {
             disabled={!isSupportFormValid()}
             startIcon={<SupportIcon />}
           >
-            Crear Ticket
+            {t('cd.support.createTicket')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -5695,27 +5667,27 @@ export default function DashboardClient() {
           gap: 1 
         }}>
           <PersonIcon />
-          ¿Tienes un Asesor?
+          {t('cd.advisor.title')}
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3, textAlign: 'center' }}>
-            Ingresa el número de suite de tu asesor para obtener tarifas preferenciales
+            {t('cd.advisor.description')}
           </Typography>
           
           {/* Tu Suite */}
           <Paper variant="outlined" sx={{ p: 2, mb: 3, bgcolor: '#f5f5f5' }}>
-            <Typography variant="caption" color="text.secondary">Tu Suite (Box ID)</Typography>
+            <Typography variant="caption" color="text.secondary">{t('cd.advisor.yourSuite')}</Typography>
             <Typography variant="h5" fontWeight="bold">{boxId}</Typography>
           </Paper>
 
           <Divider sx={{ mb: 2 }}>
-            <Typography variant="caption" color="text.secondary">Ingresa datos del asesor</Typography>
+            <Typography variant="caption" color="text.secondary">{t('cd.advisor.enterAdvisorData')}</Typography>
           </Divider>
 
           {/* Código del Asesor */}
           <TextField
             fullWidth
-            placeholder="Número ID del Asesor"
+            placeholder={t('cd.advisor.advisorIdPlaceholder')}
             value={advisorCode}
             onChange={(e) => setAdvisorCode(e.target.value)}
             sx={{ mb: 2 }}
@@ -5729,7 +5701,7 @@ export default function DashboardClient() {
           />
 
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
-            * Si no tienes el número de tu asesor, presiona el botón y te ayudaremos a encontrar uno.
+            * {t('cd.advisor.noAdvisorHelp')}
           </Typography>
 
           <Button
@@ -5746,39 +5718,39 @@ export default function DashboardClient() {
               mb: 3
             }}
           >
-            {advisorLoading ? <CircularProgress size={24} color="inherit" /> : 'SOLICITAR ASESOR PERSONALIZADO'}
+            {advisorLoading ? <CircularProgress size={24} color="inherit" /> : t('cd.advisor.requestPersonalAdvisor')}
           </Button>
 
           <Divider sx={{ mb: 2 }} />
 
           {/* Beneficios */}
           <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
-            Beneficios de tener un asesor:
+            {t('cd.advisor.benefits')}
           </Typography>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <StarIcon sx={{ color: ORANGE, fontSize: 20 }} />
-              <Typography variant="body2">Tarifas preferenciales</Typography>
+              <Typography variant="body2">{t('cd.advisor.benefit1')}</Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <SupportIcon sx={{ color: ORANGE, fontSize: 20 }} />
-              <Typography variant="body2">Atención personalizada</Typography>
+              <Typography variant="body2">{t('cd.advisor.benefit2')}</Typography>
             </Box>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <TruckIcon sx={{ color: ORANGE, fontSize: 20 }} />
-              <Typography variant="body2">Soporte prioritario</Typography>
+              <Typography variant="body2">{t('cd.advisor.benefit3')}</Typography>
             </Box>
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setAdvisorModalOpen(false)}>Cancelar</Button>
+          <Button onClick={() => setAdvisorModalOpen(false)}>{t('common.cancel')}</Button>
           <Button 
             variant="contained" 
             sx={{ bgcolor: BLACK, '&:hover': { bgcolor: '#333' } }}
             onClick={handleLinkAdvisor}
             disabled={advisorLoading || !advisorCode.trim()}
           >
-            {advisorLoading ? <CircularProgress size={20} color="inherit" /> : 'Vincular'}
+            {advisorLoading ? <CircularProgress size={20} color="inherit" /> : t('cd.advisor.link')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -5825,10 +5797,10 @@ export default function DashboardClient() {
             </Box>
             <Box>
               <Typography variant="h6" sx={{ color: 'white', fontWeight: 800, lineHeight: 1.2, letterSpacing: '-0.3px' }}>
-                Términos de Vinculación
+                {t('cd.advisorConfirm.title')}
               </Typography>
               <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>
-                Lee cuidadosamente antes de continuar
+                {t('cd.advisorConfirm.subtitle')}
               </Typography>
             </Box>
           </Box>
@@ -5840,13 +5812,13 @@ export default function DashboardClient() {
             color: '#4CAF50', fontWeight: 700, letterSpacing: 1.5, fontSize: '0.65rem',
             display: 'block', mb: 1.5
           }}>
-            Tu asesor podrá
+            {t('cd.advisorConfirm.advisorCan')}
           </Typography>
           
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mb: 2.5 }}>
             {[
-              { text: 'Configurar direcciones de envío', detail: 'en tu cuenta' },
-              { text: 'Asignar instrucciones y paqueterías', detail: 'a tus embarques' },
+              { text: t('cd.advisorConfirm.canDo1'), detail: t('cd.advisorConfirm.canDo1Detail') },
+              { text: t('cd.advisorConfirm.canDo2'), detail: t('cd.advisorConfirm.canDo2Detail') },
             ].map((item, i) => (
               <Box key={i} sx={{ 
                 display: 'flex', alignItems: 'center', gap: 1.5,
@@ -5870,7 +5842,7 @@ export default function DashboardClient() {
             color: '#D32F2F', fontWeight: 700, letterSpacing: 1.5, fontSize: '0.65rem',
             display: 'block', mb: 1.5
           }}>
-            Tu asesor no puede
+            {t('cd.advisorConfirm.advisorCannot')}
           </Typography>
 
           <Box sx={{ 
@@ -5880,8 +5852,8 @@ export default function DashboardClient() {
           }}>
             <BlockIcon sx={{ color: '#D32F2F', fontSize: 22, flexShrink: 0 }} />
             <Typography variant="body2" sx={{ lineHeight: 1.4 }}>
-              <b>Configurar métodos de pago</b>{' '}
-              <span style={{ color: '#666' }}>ni gestionar tus pagos</span>
+              <b>{t('cd.advisorConfirm.cannotDo1')}</b>{' '}
+              <span style={{ color: '#666' }}>{t('cd.advisorConfirm.cannotDo1Detail')}</span>
             </Typography>
           </Box>
 
@@ -5903,10 +5875,10 @@ export default function DashboardClient() {
             </Box>
             <Box>
               <Typography variant="caption" sx={{ fontWeight: 800, color: ORANGE, letterSpacing: 0.5, display: 'block', mb: 0.3 }}>
-                AVISO DE SEGURIDAD
+                {t('cd.advisorConfirm.securityNotice')}
               </Typography>
               <Typography variant="body2" sx={{ color: '#5D4037', fontWeight: 500, lineHeight: 1.5, fontSize: '0.8rem' }}>
-                Por ningún motivo los asesores de EntregaX te solicitarán datos de tu tarjeta de crédito.
+                {t('cd.advisorConfirm.securityNoticeText')}
               </Typography>
             </Box>
           </Box>
@@ -5922,7 +5894,7 @@ export default function DashboardClient() {
               '&:hover': { bgcolor: '#f5f5f5', borderColor: '#bbb' },
             }}
           >
-            Cancelar
+            {t('common.cancel')}
           </Button>
           <Button 
             fullWidth
@@ -5936,7 +5908,7 @@ export default function DashboardClient() {
               '&:hover': { bgcolor: '#d94d1f', boxShadow: `0 6px 20px ${ORANGE}60` },
             }}
           >
-            Acepto y Vincular
+            {t('cd.advisorConfirm.acceptAndLink')}
           </Button>
         </Box>
       </Dialog>
@@ -5973,7 +5945,7 @@ export default function DashboardClient() {
           <Box sx={{ flex: 1 }}>
             <Typography fontWeight="bold"></Typography>
             <Typography variant="caption" sx={{ opacity: 0.9 }}>
-              {chatLoading ? 'Escribiendo...' : 'Servicio al Cliente'}
+              {chatLoading ? t('cd.chat.typing') : t('cd.chat.customerService')}
             </Typography>
           </Box>
           <IconButton 
@@ -6034,7 +6006,7 @@ export default function DashboardClient() {
             <Box sx={{ display: 'flex', justifyContent: 'flex-start' }}>
               <Box sx={{ bgcolor: 'white', borderRadius: 2, px: 2, py: 1, boxShadow: 1 }}>
                 <Typography variant="body2" color="text.secondary">
-                  ⏳ Orlando está escribiendo...
+                  ⏳ {t('cd.chat.isTyping')}
                 </Typography>
               </Box>
             </Box>
@@ -6052,7 +6024,7 @@ export default function DashboardClient() {
         }}>
           <TextField
             fullWidth
-            placeholder="Escribe tu mensaje..."
+            placeholder={t('cd.chat.placeholder')}
             value={chatInput}
             onChange={(e) => setChatInput(e.target.value)}
             onKeyPress={(e) => {
@@ -6105,7 +6077,7 @@ export default function DashboardClient() {
       {/* Carrusel de Servicios */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="h6" fontWeight="bold" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-          🚀 Nuestros Servicios
+          🚀 {t('cd.servicesCarousel.title')}
         </Typography>
         <Box sx={{ display: 'flex', gap: 2, overflowX: 'auto', pb: 1, scrollSnapType: 'x mandatory', '&::-webkit-scrollbar': { height: 6 }, '&::-webkit-scrollbar-thumb': { bgcolor: ORANGE, borderRadius: 3 } }}>
           {SERVICE_CONFIG.map((service) => (
@@ -6164,7 +6136,7 @@ export default function DashboardClient() {
                     setTutorialOpen(true);
                   }}
                 >
-                  Ver Dirección
+                  {t('cd.servicesCarousel.viewAddress')}
                 </Button>
               </CardContent>
             </Card>
@@ -6176,14 +6148,14 @@ export default function DashboardClient() {
       <Dialog open={paymentModalOpen} onClose={() => setPaymentModalOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
           <MoneyIcon />
-          Paquetes a Pagar
+          {t('cd.payment.title')}
         </DialogTitle>
         <DialogContent sx={{ p: 3 }}>
           {/* Paquetes Seleccionados */}
           <Paper sx={{ p: 2, mb: 3, bgcolor: '#f8f9fa' }}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
               <Typography variant="subtitle1" fontWeight="bold" sx={{ color: ORANGE }}>
-                📦 {selectedPackageIds.length} paquete(s)
+                📦 {t('cd.payment.packagesCount', { count: selectedPackageIds.length })}
               </Typography>
             </Box>
             
@@ -6193,7 +6165,7 @@ export default function DashboardClient() {
                   <Box>
                     <Typography variant="body2" fontWeight="bold">{pkg.tracking}</Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {pkg.descripcion || 'Sin descripción'} - 12 lb
+                      {pkg.descripcion || t('cd.payment.noDescription')} - 12 lb
                     </Typography>
                   </Box>
                   <Typography variant="body1" fontWeight="bold" sx={{ color: ORANGE }}>
@@ -6205,7 +6177,7 @@ export default function DashboardClient() {
             
             {selectedPackageIds.length > 3 && (
               <Typography variant="caption" color="text.secondary">
-                +{selectedPackageIds.length - 3} paquetes más
+                +{selectedPackageIds.length - 3} {t('cd.payment.morePackages')}
               </Typography>
             )}
             
@@ -6223,14 +6195,14 @@ export default function DashboardClient() {
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
               <Box sx={{ color: 'error.main', mr: 1 }}>📍</Box>
               <Typography variant="subtitle1" fontWeight="bold">
-                Información de Envío
+                {t('cd.payment.shippingInfo')}
               </Typography>
             </Box>
             <Typography variant="body2" color="text.secondary">
-              <strong>Próximo Destino:</strong> CEDIS Monterrey
+              <strong>{t('cd.payment.nextDestination')}:</strong> CEDIS Monterrey
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              <strong>País:</strong> México
+              <strong>{t('cd.payment.country')}:</strong> México
             </Typography>
           </Paper>
 
@@ -6239,7 +6211,7 @@ export default function DashboardClient() {
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
               <Box sx={{ fontSize: '1.2rem', mr: 1 }}>💳</Box>
               <Typography variant="subtitle1" fontWeight="bold">
-                Selecciona tu método de pago
+                {t('cd.payment.selectMethod')}
               </Typography>
             </Box>
 
@@ -6299,7 +6271,7 @@ export default function DashboardClient() {
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
               <Box sx={{ fontSize: '1.2rem', mr: 1 }}>🧾</Box>
               <Typography variant="subtitle1" fontWeight="bold">
-                ¿Requiero Factura?
+                {t('cd.payment.requireInvoice')}
               </Typography>
               <Switch
                 checked={requiresInvoice}
@@ -6311,14 +6283,14 @@ export default function DashboardClient() {
 
             {selectedPaymentMethod === 'branch' && (
               <Alert severity="info" sx={{ mb: 2 }}>
-                📄 El pago en sucursal no permite generar factura fiscal. Solo se emite comprobante de pago.
+                📄 {t('cd.payment.branchNoInvoice')}
               </Alert>
             )}
 
             {requiresInvoice && selectedPaymentMethod !== 'branch' && (
               <Box sx={{ mt: 2 }}>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                  {!requiresInvoice ? 'No se podrá facturar después' : 'Completa los datos para tu factura fiscal'}
+                  {!requiresInvoice ? t('cd.payment.noInvoiceLater') : t('cd.payment.completeInvoiceData')}
                 </Typography>
 
                 {/* Alert si faltan datos fiscales */}
@@ -6350,8 +6322,8 @@ export default function DashboardClient() {
                 {requiresInvoice && fiscalData && fiscalData.hasCompleteData && (
                   <Alert severity="success" sx={{ mb: 2 }} icon={<CheckCircleIcon />}>
                     <Typography variant="body2">
-                      <strong>Datos fiscales completos</strong><br/>
-                      Se usarán tus datos fiscales guardados para generar la factura.
+                      <strong>{t('cd.payment.fiscalComplete')}</strong><br/>
+                      {t('cd.payment.fiscalCompleteDesc')}
                     </Typography>
                   </Alert>
                 )}
@@ -6361,49 +6333,49 @@ export default function DashboardClient() {
                     <TextField
                       fullWidth
                       size="small"
-                      label="Razón Social *"
+                      label={`${t('cd.fiscal.razonSocial')} *`}
                       value={fiscalData?.fiscal_razon_social || invoiceData.razon_social}
                       onChange={(e) => setInvoiceData({ ...invoiceData, razon_social: e.target.value })}
                       placeholder="Mi Empresa S.A. de C.V."
                       disabled={fiscalData?.hasCompleteData}
-                      helperText={fiscalData?.hasCompleteData ? "Dato tomado de tu perfil fiscal" : ""}
+                      helperText={fiscalData?.hasCompleteData ? t('cd.payment.fromFiscalProfile') : ""}
                     />
                   </Grid>
                   <Grid size={6}>
                     <TextField
                       fullWidth
                       size="small"
-                      label="RFC *"
+                      label={`${t('cd.fiscal.rfc')} *`}
                       value={fiscalData?.fiscal_rfc || invoiceData.rfc}
                       onChange={(e) => setInvoiceData({ ...invoiceData, rfc: e.target.value.toUpperCase() })}
                       placeholder="XAXX010101000"
                       disabled={fiscalData?.hasCompleteData}
-                      helperText={fiscalData?.hasCompleteData ? "Dato tomado de tu perfil fiscal" : ""}
+                      helperText={fiscalData?.hasCompleteData ? t('cd.payment.fromFiscalProfile') : ""}
                     />
                   </Grid>
                   <Grid size={6}>
                     <TextField
                       fullWidth
                       size="small"
-                      label="Código Postal Fiscal *"
+                      label={`${t('cd.fiscal.zipCode')} *`}
                       value={fiscalData?.fiscal_codigo_postal || invoiceData.codigo_postal}
                       onChange={(e) => setInvoiceData({ ...invoiceData, codigo_postal: e.target.value })}
                       placeholder="64000"
                       inputProps={{ maxLength: 5, pattern: '[0-9]*' }}
                       disabled={fiscalData?.hasCompleteData}
-                      helperText={fiscalData?.hasCompleteData ? "Dato tomado de tu perfil fiscal" : ""}
+                      helperText={fiscalData?.hasCompleteData ? t('cd.payment.fromFiscalProfile') : ""}
                     />
                   </Grid>
                   <Grid size={6}>
                     <TextField
                       fullWidth
                       size="small"
-                      label="Régimen Fiscal *"
+                      label={`${t('cd.fiscal.regimenFiscal')} *`}
                       select
                       value={fiscalData?.fiscal_regimen_fiscal || invoiceData.regimen_fiscal}
                       onChange={(e) => setInvoiceData({ ...invoiceData, regimen_fiscal: e.target.value })}
                       disabled={fiscalData?.hasCompleteData}
-                      helperText={fiscalData?.hasCompleteData ? "Dato tomado de tu perfil fiscal" : ""}
+                      helperText={fiscalData?.hasCompleteData ? t('cd.payment.fromFiscalProfile') : ""}
                     >
                       <MenuItem value="601">General de Ley Personas Morales</MenuItem>
                       <MenuItem value="603">Personas Morales con Fines no Lucrativos</MenuItem>
@@ -6428,12 +6400,12 @@ export default function DashboardClient() {
                     <TextField
                       fullWidth
                       size="small"
-                      label="Uso de CFDI *"
+                      label={`${t('cd.fiscal.usoCfdi')} *`}
                       select
                       value={fiscalData?.fiscal_uso_cfdi || invoiceData.uso_cfdi}
                       onChange={(e) => setInvoiceData({ ...invoiceData, uso_cfdi: e.target.value })}
                       disabled={fiscalData?.hasCompleteData}
-                      helperText={fiscalData?.hasCompleteData ? "Dato tomado de tu perfil fiscal" : ""}
+                      helperText={fiscalData?.hasCompleteData ? t('cd.payment.fromFiscalProfile') : ""}
                     >
                       <MenuItem value="G03">Gastos en general</MenuItem>
                       <MenuItem value="G01">Adquisición de mercancías</MenuItem>
@@ -6459,7 +6431,7 @@ export default function DashboardClient() {
                     <TextField
                       fullWidth
                       size="small"
-                      label="Email para factura *"
+                      label={`${t('cd.fiscal.emailInvoice')} *`}
                       type="email"
                       value={invoiceData.email}
                       onChange={(e) => setInvoiceData({ ...invoiceData, email: e.target.value })}
@@ -6476,7 +6448,7 @@ export default function DashboardClient() {
             onClick={() => setPaymentModalOpen(false)}
             size="large"
           >
-            Cancelar
+            {t('common.cancel')}
           </Button>
           <Button 
             variant="contained" 
@@ -6491,7 +6463,7 @@ export default function DashboardClient() {
               fontSize: '1.1rem'
             }}
           >
-            {paymentLoading ? 'Procesando...' : `💳 Pagar ${formatCurrency(getSelectedPackages().reduce((sum, p) => sum + (p.monto || 0), 0))}`}
+            {paymentLoading ? t('common.processing') : `💳 ${t('cd.payment.payButton')} ${formatCurrency(getSelectedPackages().reduce((sum, p) => sum + (p.monto || 0), 0))}`}
           </Button>
         </DialogActions>
       </Dialog>
@@ -6508,7 +6480,7 @@ export default function DashboardClient() {
           zIndex: 1000,
         }}
       >
-        <Tooltip title="Centro de Ayuda" placement="left">
+        <Tooltip title={t('cd.help.title')} placement="left">
           <IconButton
             onClick={() => setHelpCenterOpen(true)}
             sx={{
@@ -6529,11 +6501,11 @@ export default function DashboardClient() {
       <Dialog open={fiscalModalOpen} onClose={() => setFiscalModalOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
           <ReceiptIcon />
-          Configurar Datos Fiscales
+          {t('cd.fiscal.title')}
         </DialogTitle>
         <DialogContent sx={{ p: 3 }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Configura tus datos fiscales una sola vez y tus facturas se generarán automáticamente con cada pago.
+            {t('cd.fiscal.description')}
           </Typography>
           
           <Grid container spacing={2}>
@@ -6541,7 +6513,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Razón Social *"
+                label={`${t('cd.fiscal.razonSocial')} *`}
                 value={invoiceData.razon_social}
                 onChange={(e) => setInvoiceData({ ...invoiceData, razon_social: e.target.value })}
                 placeholder="Mi Empresa S.A. de C.V."
@@ -6551,7 +6523,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="RFC *"
+                label={`${t('cd.fiscal.rfc')} *`}
                 value={invoiceData.rfc}
                 onChange={(e) => setInvoiceData({ ...invoiceData, rfc: e.target.value.toUpperCase() })}
                 placeholder="XAXX010101000"
@@ -6562,7 +6534,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Código Postal Fiscal *"
+                label={`${t('cd.fiscal.zipCode')} *`}
                 value={invoiceData.codigo_postal}
                 onChange={(e) => setInvoiceData({ ...invoiceData, codigo_postal: e.target.value })}
                 placeholder="64000"
@@ -6573,7 +6545,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Régimen Fiscal *"
+                label={`${t('cd.fiscal.regimenFiscal')} *`}
                 select
                 value={invoiceData.regimen_fiscal}
                 onChange={(e) => setInvoiceData({ ...invoiceData, regimen_fiscal: e.target.value })}
@@ -6594,7 +6566,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Uso de CFDI *"
+                label={`${t('cd.fiscal.usoCfdi')} *`}
                 select
                 value={invoiceData.uso_cfdi}
                 onChange={(e) => setInvoiceData({ ...invoiceData, uso_cfdi: e.target.value })}
@@ -6618,14 +6590,14 @@ export default function DashboardClient() {
 
           <Alert severity="info" sx={{ mt: 2 }}>
             <Typography variant="body2">
-              <strong>* Campos obligatorios</strong><br/>
-              Estos datos se usarán para generar tus facturas CFDI 4.0 automáticamente.
+              <strong>{t('cd.fiscal.requiredFields')}</strong><br/>
+              {t('cd.fiscal.cfdiNote')}
             </Typography>
           </Alert>
         </DialogContent>
         <DialogActions sx={{ p: 2, bgcolor: '#f5f5f5' }}>
           <Button onClick={() => setFiscalModalOpen(false)} disabled={fiscalLoading}>
-            Cancelar
+            {t('common.cancel')}
           </Button>
           <Button 
             variant="contained" 
@@ -6634,7 +6606,7 @@ export default function DashboardClient() {
             startIcon={fiscalLoading ? <CircularProgress size={20} /> : <ReceiptIcon />}
             sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' } }}
           >
-            {fiscalLoading ? 'Guardando...' : 'Guardar Datos Fiscales'}
+            {fiscalLoading ? t('common.saving') : t('cd.fiscal.saveButton')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -6647,18 +6619,18 @@ export default function DashboardClient() {
         fullWidth
       >
         <DialogTitle sx={{ bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
-          <CreditCardIcon /> Agregar Método de Pago
+          <CreditCardIcon /> {t('cd.addPayment.title')}
         </DialogTitle>
         <DialogContent sx={{ pt: 3, mt: 2 }}>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-            Agrega una tarjeta, cuenta PayPal o transferencia bancaria para realizar tus pagos.
+            {t('cd.addPayment.description')}
           </Typography>
 
           {/* Selector de tipo */}
           <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
             {[
-              { value: 'card' as const, label: '💳 Tarjeta', icon: <CreditCardIcon /> },
-              { value: 'paypal' as const, label: '🅿️ PayPal', icon: <PaymentIcon /> },
+              { value: 'card' as const, label: `💳 ${t('cd.addPayment.card')}`, icon: <CreditCardIcon /> },
+              { value: 'paypal' as const, label: `🅿️ ${t('cd.addPayment.paypal')}`, icon: <PaymentIcon /> },
             ].map((opt) => (
               <Button
                 key={opt.value}
@@ -6680,8 +6652,8 @@ export default function DashboardClient() {
           <TextField
             fullWidth
             size="small"
-            label="Alias / Nombre descriptivo"
-            placeholder="Ej: Mi Visa Personal"
+            label={t('cd.addPayment.aliasLabel')}
+            placeholder={t('cd.addPayment.aliasPlaceholder')}
             value={newPaymentMethod.alias}
             onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, alias: e.target.value })}
             sx={{ mb: 2 }}
@@ -6693,7 +6665,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Número de tarjeta *"
+                label={t('cd.addPayment.cardNumber')}
                 placeholder="4111 1111 1111 1111"
                 value={newPaymentMethod.cardNumber}
                 onChange={(e) => {
@@ -6710,7 +6682,7 @@ export default function DashboardClient() {
                   <TextField
                     fullWidth
                     size="small"
-                    label="Fecha de expiración *"
+                    label={t('cd.addPayment.expiryDate')}
                     placeholder="MM/AA"
                     value={newPaymentMethod.expiryDate}
                     onChange={(e) => {
@@ -6741,8 +6713,8 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Nombre del titular *"
-                placeholder="Como aparece en la tarjeta"
+                label={t('cd.addPayment.holderName')}
+                placeholder={t('cd.addPayment.holderPlaceholder')}
                 value={newPaymentMethod.holderName}
                 onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, holderName: e.target.value })}
                 sx={{ mt: 2 }}
@@ -6755,7 +6727,7 @@ export default function DashboardClient() {
             <TextField
               fullWidth
               size="small"
-              label="Correo electrónico de PayPal *"
+              label={t('cd.addPayment.paypalEmail')}
               placeholder="correo@paypal.com"
               type="email"
               value={newPaymentMethod.paypalEmail}
@@ -6772,8 +6744,8 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Nombre del banco *"
-                placeholder="Ej: BBVA, Banorte, Santander..."
+                label={t('cd.addPayment.bankName')}
+                placeholder={t('cd.addPayment.bankPlaceholder')}
                 value={newPaymentMethod.bankName}
                 onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, bankName: e.target.value })}
                 sx={{ mb: 2 }}
@@ -6781,7 +6753,7 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="CLABE interbancaria *"
+                label={t('cd.addPayment.clabe')}
                 placeholder="18 dígitos"
                 value={newPaymentMethod.clabe}
                 onChange={(e) => {
@@ -6796,8 +6768,8 @@ export default function DashboardClient() {
               <TextField
                 fullWidth
                 size="small"
-                label="Beneficiario *"
-                placeholder="Nombre completo del titular"
+                label={t('cd.addPayment.beneficiary')}
+                placeholder={t('cd.addPayment.beneficiaryPlaceholder')}
                 value={newPaymentMethod.beneficiary}
                 onChange={(e) => setNewPaymentMethod({ ...newPaymentMethod, beneficiary: e.target.value })}
               />
@@ -6817,8 +6789,8 @@ export default function DashboardClient() {
               type: 'card', alias: '', cardNumber: '', expiryDate: '', cvv: '',
               holderName: '', paypalEmail: '', bankName: '', clabe: '', beneficiary: '',
             });
-          }}>
-            Cancelar
+          }}>  
+            {t('common.cancel')}
           </Button>
           <Button 
             variant="contained" 
@@ -6832,7 +6804,7 @@ export default function DashboardClient() {
             startIcon={<AddIcon />}
             sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' } }}
           >
-            Agregar Método
+            {t('cd.addPayment.addMethod')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -6846,7 +6818,7 @@ export default function DashboardClient() {
       >
         <DialogTitle sx={{ bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <ReceiptIcon /> Mis Cuentas por Pagar
+            <ReceiptIcon /> {t('cd.pending.title')}
           </Box>
           <IconButton onClick={() => setShowPendingPayments(false)} sx={{ color: 'white' }}>
             <CloseIcon />
@@ -6862,7 +6834,7 @@ export default function DashboardClient() {
               borderRadius: 0 
             }}
           >
-            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)' }}>Total Pendiente por Pagar</Typography>
+            <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)' }}>{t('cd.pending.totalPending')}</Typography>
             <Typography variant="h3" fontWeight="bold" sx={{ color: 'white', my: 0.5 }}>
               {formatCurrency(pendingPayments?.totalPending || 0)}
             </Typography>
@@ -6902,11 +6874,11 @@ export default function DashboardClient() {
                             {inv.invoice_number || inv.tracking_internal}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {inv.concept || `Paquete ${inv.invoice_number}`} -
+                            {inv.concept || t('cd.invoices.packageFallback', { number: inv.invoice_number })} -
                           </Typography>
                           {inv.due_date && (
                             <Typography variant="caption" color="error.main" display="block">
-                              Vence: {new Date(inv.due_date).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
+                              {t('cd.invoices.dueDate')}: {new Date(inv.due_date).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
                             </Typography>
                           )}
                         </TableCell>
@@ -6921,7 +6893,7 @@ export default function DashboardClient() {
                             size="small" 
                             sx={{ borderColor: ORANGE, color: ORANGE, fontSize: '0.7rem', '&:hover': { bgcolor: ORANGE + '10' } }}
                           >
-                            VER DETALLES
+                            {t('cd.pending.viewDetails')}
                           </Button>
                         </TableCell>
                       </TableRow>
@@ -6934,17 +6906,17 @@ export default function DashboardClient() {
             <Box sx={{ textAlign: 'center', py: 6 }}>
               <CheckCircleIcon sx={{ fontSize: 60, color: GREEN, mb: 2 }} />
               <Typography variant="h6" color="success.main" fontWeight="bold">
-                ¡Estás al corriente!
+                {t('cd.pending.upToDate')}
               </Typography>
               <Typography variant="body2" color="text.secondary">
-                No tienes cuentas pendientes por pagar
+                {t('cd.pending.noPending')}
               </Typography>
             </Box>
           )}
         </DialogContent>
         <DialogActions sx={{ p: 2, bgcolor: '#f5f5f5' }}>
           <Button onClick={() => setShowPendingPayments(false)}>
-            Cerrar
+            {t('common.close')}
           </Button>
         </DialogActions>
       </Dialog>
