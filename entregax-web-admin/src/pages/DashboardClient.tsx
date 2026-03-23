@@ -5731,71 +5731,161 @@ export default function DashboardClient() {
       </Dialog>
 
       {/* Modal Confirmación Vincular Asesor */}
-      <Dialog open={advisorConfirmOpen} onClose={() => setAdvisorConfirmOpen(false)} maxWidth="xs" fullWidth>
-        <DialogTitle sx={{ 
-          bgcolor: '#1565C0', 
-          color: 'white', 
-          display: 'flex', 
-          alignItems: 'center', 
-          gap: 1,
-          fontSize: '1.1rem'
+      <Dialog 
+        open={advisorConfirmOpen} 
+        onClose={() => setAdvisorConfirmOpen(false)} 
+        maxWidth="xs" 
+        fullWidth
+        PaperProps={{
+          sx: { 
+            borderRadius: 4, 
+            overflow: 'hidden',
+            boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+          }
+        }}
+      >
+        {/* Header con gradiente */}
+        <Box sx={{ 
+          background: `linear-gradient(135deg, ${BLACK} 0%, #2a2a2a 100%)`,
+          px: 3, 
+          py: 3,
+          position: 'relative',
+          overflow: 'hidden',
         }}>
-          <SecurityIcon sx={{ fontSize: 24 }} />
-          Aviso Importante
-        </DialogTitle>
-        <DialogContent sx={{ mt: 2, px: 3 }}>
-          <Typography variant="body1" sx={{ mb: 2, fontWeight: 600 }}>
-            Al vincular un asesor, aceptas lo siguiente:
+          {/* Decoración de fondo */}
+          <Box sx={{ 
+            position: 'absolute', top: -20, right: -20, width: 100, height: 100, 
+            borderRadius: '50%', bgcolor: 'rgba(240,90,40,0.15)' 
+          }} />
+          <Box sx={{ 
+            position: 'absolute', bottom: -30, right: 40, width: 60, height: 60, 
+            borderRadius: '50%', bgcolor: 'rgba(240,90,40,0.1)' 
+          }} />
+          
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, position: 'relative', zIndex: 1 }}>
+            <Box sx={{ 
+              width: 44, height: 44, borderRadius: 2, 
+              bgcolor: ORANGE, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 4px 12px rgba(240,90,40,0.4)',
+            }}>
+              <SecurityIcon sx={{ color: 'white', fontSize: 24 }} />
+            </Box>
+            <Box>
+              <Typography variant="h6" sx={{ color: 'white', fontWeight: 800, lineHeight: 1.2, letterSpacing: '-0.3px' }}>
+                Términos de Vinculación
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.6)', fontWeight: 500 }}>
+                Lee cuidadosamente antes de continuar
+              </Typography>
+            </Box>
+          </Box>
+        </Box>
+
+        <DialogContent sx={{ px: 3, py: 2.5 }}>
+          {/* Sección: Lo que tu asesor PUEDE hacer */}
+          <Typography variant="overline" sx={{ 
+            color: '#4CAF50', fontWeight: 700, letterSpacing: 1.5, fontSize: '0.65rem',
+            display: 'block', mb: 1.5
+          }}>
+            Tu asesor podrá
           </Typography>
           
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="body2" sx={{ mb: 1, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-              <CheckCircleOutlineIcon sx={{ color: '#4CAF50', fontSize: 20, mt: 0.3, flexShrink: 0 }} />
-              Tu asesor podrá <b>configurar direcciones de envío</b> en tu cuenta.
-            </Typography>
-            <Typography variant="body2" sx={{ mb: 1, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-              <CheckCircleOutlineIcon sx={{ color: '#4CAF50', fontSize: 20, mt: 0.3, flexShrink: 0 }} />
-              Tu asesor podrá <b>asignar instrucciones de envío y paqueterías</b> a tus embarques.
-            </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mb: 2.5 }}>
+            {[
+              { text: 'Configurar direcciones de envío', detail: 'en tu cuenta' },
+              { text: 'Asignar instrucciones y paqueterías', detail: 'a tus embarques' },
+            ].map((item, i) => (
+              <Box key={i} sx={{ 
+                display: 'flex', alignItems: 'center', gap: 1.5,
+                p: 1.5, borderRadius: 2, bgcolor: '#F1F8E9', 
+                border: '1px solid #C8E6C9',
+              }}>
+                <CheckCircleOutlineIcon sx={{ color: '#4CAF50', fontSize: 22, flexShrink: 0 }} />
+                <Typography variant="body2" sx={{ lineHeight: 1.4 }}>
+                  <b>{item.text}</b>{' '}
+                  <span style={{ color: '#666' }}>{item.detail}</span>
+                </Typography>
+              </Box>
+            ))}
           </Box>
 
-          <Box sx={{ mb: 2 }}>
-            <Typography variant="body2" sx={{ mb: 1, display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-              <BlockIcon sx={{ color: '#F44336', fontSize: 20, mt: 0.3, flexShrink: 0 }} />
-              Tu asesor <b>NO puede configurar métodos de pago</b> ni gestionar tus pagos.
-            </Typography>
-          </Box>
+          {/* Separador */}
+          <Divider sx={{ mb: 2.5 }} />
 
-          <Paper sx={{ 
-            p: 2, 
-            bgcolor: '#FFF3E0', 
-            border: '1px solid #FFB74D',
-            borderRadius: 2,
-            display: 'flex',
-            alignItems: 'flex-start',
-            gap: 1
+          {/* Sección: Lo que tu asesor NO puede hacer */}
+          <Typography variant="overline" sx={{ 
+            color: '#D32F2F', fontWeight: 700, letterSpacing: 1.5, fontSize: '0.65rem',
+            display: 'block', mb: 1.5
           }}>
-            <WarningAmberIcon sx={{ color: '#E65100', fontSize: 22, mt: 0.2 }} />
-            <Typography variant="body2" sx={{ color: '#E65100', fontWeight: 600 }}>
-              Por ningún motivo los asesores de EntregaX te solicitarán datos de tu tarjeta de crédito.
+            Tu asesor no puede
+          </Typography>
+
+          <Box sx={{ 
+            display: 'flex', alignItems: 'center', gap: 1.5,
+            p: 1.5, borderRadius: 2, bgcolor: '#FFEBEE', 
+            border: '1px solid #FFCDD2', mb: 2.5,
+          }}>
+            <BlockIcon sx={{ color: '#D32F2F', fontSize: 22, flexShrink: 0 }} />
+            <Typography variant="body2" sx={{ lineHeight: 1.4 }}>
+              <b>Configurar métodos de pago</b>{' '}
+              <span style={{ color: '#666' }}>ni gestionar tus pagos</span>
             </Typography>
-          </Paper>
+          </Box>
+
+          {/* Alerta de seguridad */}
+          <Box sx={{ 
+            p: 2, 
+            borderRadius: 2.5,
+            background: `linear-gradient(135deg, #FFF8E1 0%, #FFF3E0 100%)`,
+            border: `2px solid ${ORANGE}30`,
+            display: 'flex',
+            gap: 1.5,
+            alignItems: 'flex-start',
+          }}>
+            <Box sx={{ 
+              width: 36, height: 36, borderRadius: '50%', flexShrink: 0,
+              bgcolor: `${ORANGE}15`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <WarningAmberIcon sx={{ color: ORANGE, fontSize: 20 }} />
+            </Box>
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 800, color: ORANGE, letterSpacing: 0.5, display: 'block', mb: 0.3 }}>
+                AVISO DE SEGURIDAD
+              </Typography>
+              <Typography variant="body2" sx={{ color: '#5D4037', fontWeight: 500, lineHeight: 1.5, fontSize: '0.8rem' }}>
+                Por ningún motivo los asesores de EntregaX te solicitarán datos de tu tarjeta de crédito.
+              </Typography>
+            </Box>
+          </Box>
         </DialogContent>
-        <DialogActions sx={{ p: 2, gap: 1 }}>
+
+        <Box sx={{ px: 3, pb: 3, pt: 1, display: 'flex', gap: 1.5 }}>
           <Button 
+            fullWidth
             onClick={() => setAdvisorConfirmOpen(false)}
-            sx={{ color: '#666' }}
+            sx={{ 
+              color: '#666', border: '1.5px solid #ddd', borderRadius: 2.5, py: 1.2,
+              fontWeight: 600, textTransform: 'none', fontSize: '0.9rem',
+              '&:hover': { bgcolor: '#f5f5f5', borderColor: '#bbb' },
+            }}
           >
             Cancelar
           </Button>
           <Button 
+            fullWidth
             variant="contained" 
             onClick={handleConfirmLinkAdvisor}
-            sx={{ bgcolor: '#1565C0', '&:hover': { bgcolor: '#0D47A1' }, px: 3 }}
+            sx={{ 
+              bgcolor: ORANGE, 
+              borderRadius: 2.5, py: 1.2,
+              fontWeight: 700, textTransform: 'none', fontSize: '0.9rem',
+              boxShadow: `0 4px 14px ${ORANGE}50`,
+              '&:hover': { bgcolor: '#d94d1f', boxShadow: `0 6px 20px ${ORANGE}60` },
+            }}
           >
             Acepto y Vincular
           </Button>
-        </DialogActions>
+        </Box>
       </Dialog>
 
       {/* Modal Chat Virtual con Javier */}
