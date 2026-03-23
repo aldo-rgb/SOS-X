@@ -7,6 +7,7 @@ import {
   Platform,
   ScrollView,
   TouchableOpacity,
+  Modal,
 } from 'react-native';
 import {
   Text,
@@ -43,14 +44,21 @@ export default function RequestAdvisorScreen({ navigation, route }: Props) {
   const { user, token } = route.params;
   const [advisorCode, setAdvisorCode] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
 
-  const handleSubmit = async () => {
-    // Si el campo está vacío, llevar directo al Centro de Ayuda
+  // Paso 1: Validar código y mostrar términos
+  const handleSubmit = () => {
     if (!advisorCode.trim()) {
       navigation.navigate('SupportChat', { user, token });
       return;
     }
+    // Mostrar modal de términos antes de vincular
+    setShowTerms(true);
+  };
 
+  // Paso 2: Confirmar términos y vincular
+  const handleConfirmLink = async () => {
+    setShowTerms(false);
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/advisor/request`, {
@@ -69,21 +77,18 @@ export default function RequestAdvisorScreen({ navigation, route }: Props) {
 
       if (data.success) {
         if (data.type === 'LINKED') {
-          // Vinculado exitosamente
           Alert.alert(
             t('advisor.connected'),
             data.message,
             [{ text: t('advisor.continue'), onPress: () => navigation.goBack() }]
           );
         } else if (data.type === 'PENDING') {
-          // Ya tenía solicitud pendiente
           Alert.alert(
             t('advisor.requestInProgress'),
             data.message,
             [{ text: t('advisor.understood'), onPress: () => navigation.goBack() }]
           );
         } else {
-          // REQUESTED - Nueva solicitud enviada
           Alert.alert(
             t('advisor.requestSent'),
             data.message,
@@ -204,6 +209,103 @@ export default function RequestAdvisorScreen({ navigation, route }: Props) {
           </View>
         </View>
       </ScrollView>
+
+      {/* Modal de Términos de Vinculación */}
+      <Modal
+        visible={showTerms}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowTerms(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {/* Header */}
+              <View style={styles.termsHeader}>
+                <View style={styles.termsIconCircle}>
+                  <Ionicons name="shield-checkmark" size={28} color="#FFF" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.termsTitle}>Términos de Vinculación</Text>
+                  <Text style={styles.termsSubtitle}>Lee cuidadosamente antes de continuar</Text>
+                </View>
+              </View>
+
+              {/* TU ASESOR PODRÁ */}
+              <Text style={styles.termsSectionLabel}>TU ASESOR PODRÁ</Text>
+
+              <View style={styles.termsCard}>
+                <View style={styles.termsCardRow}>
+                  <View style={[styles.termsIconBadge, { backgroundColor: '#E8F5E9' }]}>  
+                    <Ionicons name="checkmark-circle" size={22} color="#4CAF50" />
+                  </View>
+                  <Text style={styles.termsCardText}>
+                    <Text style={{ fontWeight: 'bold' }}>Configurar direcciones de envío</Text>
+                    {' '}en tu cuenta
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.termsCard}>
+                <View style={styles.termsCardRow}>
+                  <View style={[styles.termsIconBadge, { backgroundColor: '#E8F5E9' }]}>  
+                    <Ionicons name="checkmark-circle" size={22} color="#4CAF50" />
+                  </View>
+                  <Text style={styles.termsCardText}>
+                    <Text style={{ fontWeight: 'bold' }}>Asignar instrucciones y paqueterías</Text>
+                    {' '}a tus embarques
+                  </Text>
+                </View>
+              </View>
+
+              {/* TU ASESOR NO PUEDE */}
+              <Text style={[styles.termsSectionLabel, { color: '#D32F2F', marginTop: 20 }]}>TU ASESOR NO PUEDE</Text>
+
+              <View style={[styles.termsCard, { borderLeftColor: '#FFCDD2', borderLeftWidth: 3 }]}>
+                <View style={styles.termsCardRow}>
+                  <View style={[styles.termsIconBadge, { backgroundColor: '#FFEBEE' }]}>  
+                    <Ionicons name="close-circle" size={22} color="#D32F2F" />
+                  </View>
+                  <Text style={styles.termsCardText}>
+                    <Text style={{ fontWeight: 'bold' }}>Configurar métodos de pago</Text>
+                    {' '}ni gestionar tus pagos
+                  </Text>
+                </View>
+              </View>
+
+              {/* AVISO DE SEGURIDAD */}
+              <View style={styles.securityWarning}>
+                <View style={styles.termsCardRow}>
+                  <Ionicons name="warning" size={24} color={ORANGE} />
+                  <View style={{ flex: 1, marginLeft: 10 }}>
+                    <Text style={styles.securityTitle}>AVISO DE SEGURIDAD</Text>
+                    <Text style={styles.securityText}>
+                      Por ningún motivo los asesores de EntregaX te solicitarán datos de tu tarjeta de crédito.
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Botones */}
+              <View style={styles.termsButtons}>
+                <TouchableOpacity
+                  style={styles.termsCancelBtn}
+                  onPress={() => setShowTerms(false)}
+                >
+                  <Text style={styles.termsCancelText}>Cancelar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.termsAcceptBtn}
+                  onPress={handleConfirmLink}
+                >
+                  <Ionicons name="checkmark-circle" size={20} color="#FFF" style={{ marginRight: 6 }} />
+                  <Text style={styles.termsAcceptText}>Acepto y Vincular</Text>
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -343,5 +445,130 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Modal de Términos
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#FFF',
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxHeight: '85%',
+  },
+  termsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: BLACK,
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 20,
+    gap: 12,
+  },
+  termsIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: ORANGE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  termsTitle: {
+    color: '#FFF',
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  termsSubtitle: {
+    color: '#aaa',
+    fontSize: 12,
+    marginTop: 2,
+  },
+  termsSectionLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#4CAF50',
+    letterSpacing: 0.5,
+    marginBottom: 10,
+  },
+  termsCard: {
+    backgroundColor: '#F8F9FA',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 10,
+  },
+  termsCardRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  termsIconBadge: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  termsCardText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#333',
+    lineHeight: 20,
+  },
+  securityWarning: {
+    backgroundColor: '#FFF3E0',
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 16,
+    borderLeftWidth: 3,
+    borderLeftColor: ORANGE,
+  },
+  securityTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: ORANGE,
+    marginBottom: 4,
+  },
+  securityText: {
+    fontSize: 13,
+    color: '#666',
+    lineHeight: 18,
+  },
+  termsButtons: {
+    flexDirection: 'row',
+    marginTop: 24,
+    gap: 12,
+  },
+  termsCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#DDD',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  termsCancelText: {
+    fontSize: 15,
+    color: '#666',
+    fontWeight: '600',
+  },
+  termsAcceptBtn: {
+    flex: 1.5,
+    flexDirection: 'row',
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: GREEN,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  termsAcceptText: {
+    fontSize: 15,
+    color: '#FFF',
+    fontWeight: 'bold',
   },
 });
