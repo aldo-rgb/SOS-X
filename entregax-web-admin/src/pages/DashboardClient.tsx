@@ -312,6 +312,7 @@ export default function DashboardClient() {
   const [supportCategory, setSupportCategory] = useState('');
   const [supportTracking, setSupportTracking] = useState('');
   const [supportImages, setSupportImages] = useState<{ file: File; preview: string }[]>([]);
+  const [trackingValidation, setTrackingValidation] = useState<{ status: 'idle' | 'validating' | 'valid' | 'invalid'; message: string }>({ status: 'idle', message: '' });
   
   // Chat Virtual con Javier (asesor IA)
   const [supportChatOpen, setSupportChatOpen] = useState(false);
@@ -1153,7 +1154,30 @@ export default function DashboardClient() {
     if (!supportMessage.trim()) return false;
     // Tracking obligatorio excepto para Error del Sistema
     if (supportCategory !== 'systemError' && !supportTracking.trim()) return false;
+    // Si hay tracking, debe estar validado
+    if (supportTracking.trim() && trackingValidation.status !== 'valid') return false;
     return true;
+  };
+
+  // Validar guía contra el backend
+  const validateTrackingNumber = async (tracking: string) => {
+    const trimmed = tracking.trim();
+    if (!trimmed) {
+      setTrackingValidation({ status: 'idle', message: '' });
+      return;
+    }
+    setTrackingValidation({ status: 'validating', message: 'Verificando guía...' });
+    try {
+      const response = await api.get(`/support/validate-tracking?tracking=${encodeURIComponent(trimmed)}`);
+      if (response.data?.valid) {
+        setTrackingValidation({ status: 'valid', message: `✅ Guía encontrada: ${response.data.package?.description || response.data.package?.tracking || trimmed}` });
+      } else {
+        setTrackingValidation({ status: 'invalid', message: response.data?.error || 'Guía no encontrada para tu número de cliente.' });
+      }
+    } catch (error: any) {
+      const serverMsg = error?.response?.data?.error;
+      setTrackingValidation({ status: 'invalid', message: serverMsg || 'Error al verificar la guía.' });
+    }
   };
 
   // Enviar mensaje de soporte - Crea ticket directamente en Atención Humana
@@ -1193,6 +1217,7 @@ export default function DashboardClient() {
       setSupportCategory('');
       setSupportTracking('');
       setSupportImages([]);
+      setTrackingValidation({ status: 'idle', message: '' });
       setSupportOpen(false);
     } catch (error) {
       setSnackbar({ open: true, message: '❌ Error al crear ticket', severity: 'error' });
@@ -5503,7 +5528,30 @@ export default function DashboardClient() {
             fullWidth
             placeholder="Ingresa el número de guía"
             value={supportTracking}
-            onChange={(e) => setSupportTracking(e.target.value)}
+            onChange={(e) => {
+              setSupportTracking(e.target.value);
+              if (trackingValidation.status !== 'idle') {
+                setTrackingValidation({ status: 'idle', message: '' });
+              }
+            }}
+            onBlur={() => {
+              if (supportTracking.trim()) {
+                validateTrackingNumber(supportTracking);
+              }
+            }}
+            error={trackingValidation.status === 'invalid'}
+            helperText={
+              trackingValidation.status === 'validating' ? '⏳ Verificando guía...' :
+              trackingValidation.status === 'valid' ? trackingValidation.message :
+              trackingValidation.status === 'invalid' ? trackingValidation.message : ''
+            }
+            FormHelperTextProps={{
+              sx: {
+                color: trackingValidation.status === 'valid' ? '#4CAF50' : 
+                       trackingValidation.status === 'invalid' ? '#D32F2F' : '#666',
+                fontWeight: trackingValidation.status !== 'idle' ? 600 : 400,
+              }
+            }}
             sx={{ mb: 2 }}
           />
 
