@@ -562,22 +562,34 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
             )}
           </Box>
           
-          {/* Solo mostrar botón si NO está verificado y NO está en revisión */}
-          {!profile?.is_verified && profile?.verification_status !== 'pending_review' && (
+          {/* Botón: gris/deshabilitado si está en revisión, oculto si ya verificado */}
+          {!profile?.is_verified && (
             <Button
               variant="contained"
               size="small"
+              disabled={profile?.verification_status === 'pending_review'}
               onClick={openVerificationModal}
               sx={{
-                bgcolor: profile?.verification_status === 'rejected' ? '#f44336' : ORANGE,
-                '&:hover': { bgcolor: profile?.verification_status === 'rejected' ? '#d32f2f' : '#d94d1f' },
+                bgcolor: profile?.verification_status === 'pending_review' 
+                  ? '#bdbdbd' 
+                  : profile?.verification_status === 'rejected' ? '#f44336' : ORANGE,
+                '&:hover': { 
+                  bgcolor: profile?.verification_status === 'pending_review'
+                    ? '#bdbdbd'
+                    : profile?.verification_status === 'rejected' ? '#d32f2f' : '#d94d1f' 
+                },
+                '&.Mui-disabled': { bgcolor: '#bdbdbd', color: '#fff' },
                 borderRadius: 2,
                 textTransform: 'none',
                 fontWeight: 600,
                 px: 2,
               }}
             >
-              {profile?.verification_status === 'rejected' ? 'Reintentar Verificación' : 'Iniciar Verificación'}
+              {profile?.verification_status === 'pending_review' 
+                ? 'En Espera de Revisión' 
+                : profile?.verification_status === 'rejected' 
+                  ? 'Reintentar Verificación' 
+                  : 'Iniciar Verificación'}
             </Button>
           )}
         </Box>
