@@ -896,8 +896,8 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         // 📦 Costo PO Box (para registrar saldo pendiente)
         poboxCost: clientInstructions?.poboxRatesInfo ? {
           totalMxn: costoPOBox?.totalMxn || 0,
-          weightKg: costoPOBox?.weightKg || 0,
-          cbm: costoPOBox?.cbm || 0
+          totalUsd: costoPOBox?.totalUsd || 0,
+          cbmTotal: costoPOBox?.cbmTotal || 0
         } : undefined
       };
 
