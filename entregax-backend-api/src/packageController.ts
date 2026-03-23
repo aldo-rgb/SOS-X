@@ -930,9 +930,14 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 displayLabel = '📋 Procesando Envío';
             }
             
+            // Usar child_no como tracking si está disponible y tiene formato AIR
+            const displayTracking = (pkg.child_no && pkg.child_no.startsWith('AIR')) 
+                ? pkg.child_no 
+                : pkg.tracking_internal;
+            
             return {
                 id: pkg.id,
-                tracking_internal: pkg.tracking_internal,
+                tracking_internal: displayTracking,
                 tracking_provider: pkg.tracking_provider,
                 description: pkg.description || null,
                 weight: pkg.weight ? parseFloat(pkg.weight) : null,

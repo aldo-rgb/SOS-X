@@ -1491,7 +1491,8 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
     const packagesQuery = await pool.query(`
       SELECT 
         id,
-        tracking_internal as tracking,
+        -- Usar child_no como tracking si tiene formato AIR, sino tracking_internal
+        CASE WHEN child_no IS NOT NULL AND child_no LIKE 'AIR%' THEN child_no ELSE tracking_internal END as tracking,
         tracking_provider,
         description as descripcion,
         service_type as servicio,
@@ -1549,14 +1550,14 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         destination_city,
         destination_contact
       FROM packages
-      WHERE user_id = $1
+      WHERE (user_id = $1 OR box_id = $2)
         AND status::text NOT IN ('delivered', 'cancelled', 'returned')
         AND (is_master = true OR master_id IS NULL)
       ORDER BY 
         CASE WHEN status::text = 'ready_pickup' THEN 0 ELSE 1 END,
         created_at DESC
-      LIMIT 20
-    `, [userId]);
+      LIMIT 200
+    `, [userId, boxId]);
 
     // 3b. Obtener órdenes marítimas activas del cliente
     const maritimeOrdersQuery = await pool.query(`
