@@ -96,6 +96,7 @@ import FleetManagementPage from './FleetManagementPage';
 import CajaChicaPage from './CajaChicaPage';
 import FinanceDashboardPage from './FinanceDashboardPage';
 import SuppliersPage from './SuppliersPage';
+import CarrierServiceOptionsPage from './CarrierServiceOptionsPage';
 import LocalAtmIcon from '@mui/icons-material/LocalAtm';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 
@@ -148,6 +149,7 @@ const MODULE_ICONS: Record<string, React.ReactElement> = {
     dhl_rates: <SellIcon />,
     anticipos: <WalletIcon />,
     suppliers: <BranchIcon />,
+    carrier_options: <LocalShippingIcon />,
 };
 
 const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
@@ -157,6 +159,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'pricing', status: 'active' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
+        { key: 'carrier_options', status: 'active' },
         { key: 'inbound_emails_air', status: 'active' },
         { key: 'air_routes', status: 'active' },
         { key: 'air_api', status: 'active' },
@@ -170,6 +173,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'pricing', status: 'active' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
+        { key: 'carrier_options', status: 'active' },
         { key: 'routes', status: 'active' },
         { key: 'consolidations', status: 'active' },
         { key: 'fcl_management', status: 'active' },
@@ -183,6 +187,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'suppliers', status: 'active' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
+        { key: 'carrier_options', status: 'active' },
         { key: 'reports', status: 'pending' },
     ],
     mx_cedis: [
@@ -190,6 +195,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'dhl_rates', status: 'active' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
+        { key: 'carrier_options', status: 'active' },
     ],
     mx_national: [
         { key: 'inventory', status: 'active' },
@@ -197,6 +203,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'last_mile', status: 'active' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
+        { key: 'carrier_options', status: 'active' },
         { key: 'coverage', status: 'pending' },
         { key: 'reports', status: 'pending' },
     ],
@@ -1071,6 +1078,30 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                         serviceName={t(`panels.services.${selectedService}.title`)}
                         serviceColor={serviceColors?.color || '#F05A28'}
                     />
+                </Box>
+            );
+        }
+
+        // Panel de Opciones de Paquetería - disponible para todos los servicios
+        if (selectedModule === 'carrier_options') {
+            return (
+                <Box>
+                    {/* Breadcrumb */}
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    <CarrierServiceOptionsPage />
                 </Box>
             );
         }

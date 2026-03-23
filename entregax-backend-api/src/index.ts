@@ -632,6 +632,14 @@ import {
   quoteShipping
 } from './lastMileController';
 import {
+  getCarrierOptions,
+  getCarrierOptionsByService,
+  createCarrierOption,
+  updateCarrierOption,
+  deleteCarrierOption,
+  toggleCarrierOption
+} from './carrierServiceController';
+import {
   getDhlRates,
   updateDhlRate,
   getClientPricing as getDhlClientPricing,
@@ -2457,6 +2465,15 @@ app.post('/api/admin/last-mile/quote', authenticateToken, requireMinLevel(ROLES.
 app.post('/api/admin/last-mile/quote-direct', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), quoteShipmentDirect);
 app.post('/api/admin/last-mile/dispatch', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), dispatchShipment);
 app.get('/api/admin/last-mile/reprint/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), reprintLabel);
+
+// ========== OPCIONES DE PAQUETERÍA POR SERVICIO ==========
+app.get('/api/admin/carrier-options', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCarrierOptions);
+app.post('/api/admin/carrier-options', authenticateToken, requireMinLevel(ROLES.ADMIN), createCarrierOption);
+app.put('/api/admin/carrier-options/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateCarrierOption);
+app.delete('/api/admin/carrier-options/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteCarrierOption);
+app.patch('/api/admin/carrier-options/:id/toggle', authenticateToken, requireMinLevel(ROLES.ADMIN), toggleCarrierOption);
+// Endpoint público (para clientes) - opciones por tipo de servicio
+app.get('/api/carrier-options/by-service/:serviceType', authenticateToken, getCarrierOptionsByService);
 
 // Endpoint público para cotizar paquetería (app móvil)
 // Devuelve opciones locales + Skydropx (si está habilitado)

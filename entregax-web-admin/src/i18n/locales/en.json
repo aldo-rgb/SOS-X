@@ -610,7 +610,8 @@
       "dhl_operations": "DHL Operations",
       "anticipos": "Advance Control",
       "pobox_rates": "PO Box Rates",
-      "suppliers": "Supplier Costing"
+      "suppliers": "Supplier Costing",
+      "carrier_options": "Carrier Options"
     },
     "moduleFeatures": {
       "clients": {
@@ -1604,5 +1605,40 @@
       "invalidTracking": "Tracking not found for your client number",
       "validating": "Validating..."
     }
+  },
+  "carrierOptions": {
+    "title": "Carrier Options",
+    "subtitle": "Manage available carriers per service type for clients",
+    "refresh": "Refresh",
+    "addNew": "New Carrier",
+    "info": "These options are shown to clients when assigning delivery instructions. You can enable/disable carriers and assign them to specific service types.",
+    "icon": "Icon",
+    "carrierName": "Name",
+    "key": "Key",
+    "description": "Description",
+    "priceLabel": "Price",
+    "services": "Services",
+    "active": "Active",
+    "actions": "Actions",
+    "edit": "Edit",
+    "delete": "Delete",
+    "empty": "No carrier options configured",
+    "serviceTypesLegend": "Service Types",
+    "editTitle": "Edit Carrier",
+    "createTitle": "New Carrier",
+    "iconLabel": "Icon",
+    "keyHelp": "Unique identifier (no spaces)",
+    "priorityLabel": "Priority",
+    "subtextLabel": "Subtext (price per box)",
+    "availableFor": "Available for the following services:",
+    "cancel": "Cancel",
+    "save": "Save",
+    "create": "Create",
+    "confirmDelete": "Delete carrier?",
+    "confirmDeleteText": "This action cannot be undone. Clients will no longer see this option.",
+    "created": "Carrier created successfully",
+    "updated": "Carrier updated successfully",
+    "deleted": "Carrier deleted successfully",
+    "toggled": "Status updated"
   }
 }

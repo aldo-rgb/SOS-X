@@ -622,7 +622,8 @@
       "dhl_operations": "Operaciones DHL",
       "anticipos": "Control de Anticipos",
       "pobox_rates": "Tarifas PO Box",
-      "suppliers": "Costeo Proveedores"
+      "suppliers": "Costeo Proveedores",
+      "carrier_options": "Paqueterías"
     },
     "moduleFeatures": {
       "clients": {
@@ -1799,5 +1800,40 @@
       "invalidTracking": "Guía no encontrada para tu número de cliente",
       "validating": "Validando..."
     }
+  },
+  "carrierOptions": {
+    "title": "Opciones de Paquetería",
+    "subtitle": "Gestiona las paqueterías disponibles por tipo de servicio para los clientes",
+    "refresh": "Actualizar",
+    "addNew": "Nueva Paquetería",
+    "info": "Estas opciones se muestran a los clientes al asignar instrucciones de entrega. Puedes activar/desactivar paqueterías y asignarlas a tipos de servicio específicos.",
+    "icon": "Icono",
+    "carrierName": "Nombre",
+    "key": "Clave",
+    "description": "Descripción",
+    "priceLabel": "Precio",
+    "services": "Servicios",
+    "active": "Activo",
+    "actions": "Acciones",
+    "edit": "Editar",
+    "delete": "Eliminar",
+    "empty": "No hay opciones de paquetería configuradas",
+    "serviceTypesLegend": "Tipos de Servicio",
+    "editTitle": "Editar Paquetería",
+    "createTitle": "Nueva Paquetería",
+    "iconLabel": "Icono",
+    "keyHelp": "Identificador único (sin espacios)",
+    "priorityLabel": "Prioridad",
+    "subtextLabel": "Subtexto (precio por caja)",
+    "availableFor": "Disponible para los siguientes servicios:",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "create": "Crear",
+    "confirmDelete": "¿Eliminar paquetería?",
+    "confirmDeleteText": "Esta acción no se puede deshacer. Los clientes ya no verán esta opción.",
+    "created": "Paquetería creada exitosamente",
+    "updated": "Paquetería actualizada exitosamente",
+    "deleted": "Paquetería eliminada exitosamente",
+    "toggled": "Estado actualizado"
   }
 }

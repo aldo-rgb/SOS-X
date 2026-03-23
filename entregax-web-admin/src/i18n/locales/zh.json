@@ -559,7 +559,8 @@
       "routes": "路线",
       "last_mile": "最后一公里",
       "dhl_rates": "DHL费率",
-      "dhl_operations": "DHL操作"
+      "dhl_operations": "DHL操作",
+      "carrier_options": "物流选项"
     },
     "moduleFeatures": {
       "clients": {
@@ -1435,5 +1436,40 @@
       "invalidTracking": "未找到您客户号对应的追踪号",
       "validating": "验证中..."
     }
+  },
+  "carrierOptions": {
+    "title": "物流选项",
+    "subtitle": "按服务类型管理客户可用的物流选项",
+    "refresh": "刷新",
+    "addNew": "新建物流",
+    "info": "这些选项在客户分配配送指令时显示。您可以启用/禁用物流选项并将其分配给特定服务类型。",
+    "icon": "图标",
+    "carrierName": "名称",
+    "key": "标识",
+    "description": "描述",
+    "priceLabel": "价格",
+    "services": "服务",
+    "active": "激活",
+    "actions": "操作",
+    "edit": "编辑",
+    "delete": "删除",
+    "empty": "未配置物流选项",
+    "serviceTypesLegend": "服务类型",
+    "editTitle": "编辑物流",
+    "createTitle": "新建物流",
+    "iconLabel": "图标",
+    "keyHelp": "唯一标识（无空格）",
+    "priorityLabel": "优先级",
+    "subtextLabel": "副文本（每箱价格）",
+    "availableFor": "适用于以下服务：",
+    "cancel": "取消",
+    "save": "保存",
+    "create": "创建",
+    "confirmDelete": "删除物流选项？",
+    "confirmDeleteText": "此操作不可撤销。客户将不再看到此选项。",
+    "created": "物流选项创建成功",
+    "updated": "物流选项更新成功",
+    "deleted": "物流选项删除成功",
+    "toggled": "状态已更新"
   }
 }
