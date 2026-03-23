@@ -45,6 +45,7 @@ import {
   ListItemText,
   ListItemIcon,
   Switch,
+  Pagination,
 } from '@mui/material';
 import {
   LocalShipping as ShippingIcon,
@@ -313,6 +314,10 @@ export default function DashboardClient() {
 
   // Selección de paquetes para consolidar/pagar
   const [selectedPackageIds, setSelectedPackageIds] = useState<number[]>([]);
+  
+  // Paginación de paquetes
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 25;
   
   // Modal GEX (Garantía Extendida)
   const [gexModalOpen, setGexModalOpen] = useState(false);
@@ -1094,6 +1099,23 @@ export default function DashboardClient() {
     
     return counts;
   }, [packages]);
+
+  // Paquetes paginados (25 por página)
+  const paginatedPackages = useMemo(() => {
+    const filtered = getFilteredPackages();
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    const endIndex = startIndex + ITEMS_PER_PAGE;
+    return filtered.slice(startIndex, endIndex);
+  }, [getFilteredPackages, currentPage]);
+
+  const totalPages = useMemo(() => {
+    return Math.ceil(getFilteredPackages().length / ITEMS_PER_PAGE);
+  }, [getFilteredPackages]);
+
+  // Resetear página cuando cambia el filtro
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [serviceFilter, instructionFilter, searchTerm]);
 
   // Abrir tutorial de dirección
   const handleOpenTutorial = (serviceType: string) => {
@@ -2598,8 +2620,8 @@ export default function DashboardClient() {
                 </Box>
               )}
 
-              {/* Lista de paquetes filtrados */}
-              {getFilteredPackages().map((pkg) => {
+              {/* Lista de paquetes paginados */}
+              {paginatedPackages.map((pkg) => {
                 const isSelectable = !pkg.client_paid && pkg.status !== 'delivered';
                 const isSelected = selectedPackageIds.includes(pkg.id);
                 const hasDeliveryInstructions = pkg.has_delivery_instructions || !!(
@@ -2794,6 +2816,33 @@ export default function DashboardClient() {
                 </Card>
               );
               })}
+
+              {/* Paginación */}
+              {totalPages > 1 && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', mt: 3, mb: 2 }}>
+                  <Pagination 
+                    count={totalPages} 
+                    page={currentPage} 
+                    onChange={(_, page) => setCurrentPage(page)}
+                    color="primary"
+                    size="large"
+                    showFirstButton
+                    showLastButton
+                    sx={{
+                      '& .MuiPaginationItem-root': {
+                        color: ORANGE,
+                      },
+                      '& .Mui-selected': {
+                        bgcolor: `${ORANGE} !important`,
+                        color: 'white !important',
+                      },
+                    }}
+                  />
+                  <Typography variant="body2" color="text.secondary" sx={{ ml: 2 }}>
+                    Mostrando {((currentPage - 1) * ITEMS_PER_PAGE) + 1}-{Math.min(currentPage * ITEMS_PER_PAGE, getFilteredPackages().length)} de {getFilteredPackages().length}
+                  </Typography>
+                </Box>
+              )}
 
               {packages.length === 0 && (
                 <Box sx={{ textAlign: 'center', py: 6 }}>
