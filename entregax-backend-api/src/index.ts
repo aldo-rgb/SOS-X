@@ -1589,19 +1589,19 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         delivery_address_id,
         NULL as assigned_address_id,
         created_at,
-        total_boxes,
-        total_weight_kg as weight,
-        total_cbm as cbm,
+        summary_boxes as total_boxes,
+        summary_weight as weight,
+        summary_volume as cbm,
         NULL as dimensions,
-        declared_value,
+        estimated_cost as declared_value,
         NULL as image_url,
         NULL as destination_address,
         NULL as destination_city,
         NULL as destination_contact,
         false as is_master,
         NULL as master_id,
-        false as has_gex,
-        NULL as gex_folio
+        has_gex,
+        gex_folio
       FROM maritime_orders
       WHERE (user_id = $1 OR UPPER(shipping_mark) = UPPER($2))
         AND status NOT IN ('delivered', 'cancelled')
