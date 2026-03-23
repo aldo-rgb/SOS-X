@@ -864,7 +864,7 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
 
           {/* Preview de cámara */}
           {showCameraPreview && videoStream && (
-            <Box sx={{ p: 2, textAlign: 'center' }}>
+            <Box sx={{ p: 1, textAlign: 'center', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <video
                 id="camera-preview"
                 autoPlay
@@ -875,22 +875,8 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
                     video.srcObject = videoStream;
                   }
                 }}
-                style={{ width: '100%', maxWidth: 400, borderRadius: 12, transform: currentCaptureStep === 'selfie' ? 'scaleX(-1)' : 'none' }}
+                style={{ width: '100%', maxHeight: isMobile ? 'calc(100vh - 220px)' : 400, borderRadius: 12, objectFit: 'cover', transform: currentCaptureStep === 'selfie' ? 'scaleX(-1)' : 'none' }}
               />
-              <Box sx={{ mt: 2, display: 'flex', gap: 2, justifyContent: 'center' }}>
-                <Button variant="outlined" onClick={() => {
-                  if (videoStream) {
-                    videoStream.getTracks().forEach(track => track.stop());
-                    setVideoStream(null);
-                  }
-                  setShowCameraPreview(false);
-                }}>
-                  Cancelar
-                </Button>
-                <Button variant="contained" onClick={takePhoto} sx={{ bgcolor: ORANGE }}>
-                  📸 Tomar Foto
-                </Button>
-              </Box>
             </Box>
           )}
 
@@ -1173,34 +1159,59 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
         </DialogContent>
 
         <DialogActions sx={{ p: 2, borderTop: '1px solid #eee' }}>
-          <Button onClick={closeVerificationModal} sx={{ color: '#666' }}>
-            Cancelar
-          </Button>
-          <Box sx={{ flex: 1 }} />
-          {verificationStep > 0 && (
-            <Button onClick={() => setVerificationStep(s => s - 1)} sx={{ color: '#1a3c5a' }}>
-              Anterior
-            </Button>
-          )}
-          {verificationStep < 4 ? (
-            <Button 
-              variant="contained" 
-              onClick={() => setVerificationStep(s => s + 1)}
-              disabled={!isStepComplete(verificationStep)}
-              sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' } }}
-            >
-              Siguiente →
-            </Button>
+          {showCameraPreview ? (
+            <>
+              <Button onClick={() => {
+                if (videoStream) {
+                  videoStream.getTracks().forEach(track => track.stop());
+                  setVideoStream(null);
+                }
+                setShowCameraPreview(false);
+              }} sx={{ color: '#666' }}>
+                Cancelar
+              </Button>
+              <Box sx={{ flex: 1 }} />
+              <Button 
+                variant="contained" 
+                onClick={takePhoto} 
+                startIcon={<CameraIcon />}
+                sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' }, borderRadius: 2, px: 3 }}
+              >
+                📸 Tomar Foto
+              </Button>
+            </>
           ) : (
-            <Button 
-              variant="contained" 
-              onClick={submitVerification}
-              disabled={!isStepComplete(4) || verifying}
-              startIcon={verifying ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}
-              sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' } }}
-            >
-              {verifying ? 'Verificando...' : 'Completar Verificación'}
-            </Button>
+            <>
+              <Button onClick={closeVerificationModal} sx={{ color: '#666' }}>
+                Cancelar
+              </Button>
+              <Box sx={{ flex: 1 }} />
+              {verificationStep > 0 && (
+                <Button onClick={() => setVerificationStep(s => s - 1)} sx={{ color: '#1a3c5a' }}>
+                  Anterior
+                </Button>
+              )}
+              {verificationStep < 4 ? (
+                <Button 
+                  variant="contained" 
+                  onClick={() => setVerificationStep(s => s + 1)}
+                  disabled={!isStepComplete(verificationStep)}
+                  sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' } }}
+                >
+                  Siguiente →
+                </Button>
+              ) : (
+                <Button 
+                  variant="contained" 
+                  onClick={submitVerification}
+                  disabled={!isStepComplete(4) || verifying}
+                  startIcon={verifying ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}
+                  sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' } }}
+                >
+                  {verifying ? 'Verificando...' : 'Completar Verificación'}
+                </Button>
+              )}
+            </>
           )}
         </DialogActions>
       </Dialog>
