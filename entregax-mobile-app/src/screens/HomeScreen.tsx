@@ -1484,56 +1484,63 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       {/* Header con información del usuario */}
       <Surface style={styles.userHeader}>
         <View style={styles.userInfo}>
-          <Avatar.Text 
-            size={50} 
-            label={user.name?.charAt(0) || 'U'} 
-            style={{ backgroundColor: ORANGE }}
-          />
           <View style={styles.userTextContainer}>
             <Text style={styles.greeting}>{t('home.greeting')}, {user.name?.split(' ')[0]}!</Text>
             <Text style={styles.boxId}>🏠 {t('home.mailbox')}: {user.boxId}</Text>
           </View>
-          {/* 🚀 Botón de Solicitar Envío o Cambiar Método */}
-          <TouchableOpacity
-            style={[
-              styles.requestShipmentButton,
-              selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup') && { backgroundColor: '#00796B' }
-            ]}
-            onPress={() => {
-              if (selectedIds.length > 0) {
-                // Verificar si son paquetes en Pick Up
-                const selectedPkgs = packages.filter(p => selectedIds.includes(p.id));
-                const hasPickupPackages = selectedPkgs.some(p => p.status === 'ready_pickup');
-                
-                if (hasPickupPackages) {
-                  // Navegar a cambiar método de envío (DeliveryInstructions)
-                  navigation.navigate('DeliveryInstructions', {
-                    package: selectedPkgs[0],
-                    packages: selectedPkgs,
-                    user,
-                    token,
-                    isChangingFromPickup: true,
-                  });
+          <View style={styles.headerButtonsRow}>
+            {/* 💰 Botón Pago a Proveedor */}
+            <TouchableOpacity
+              style={styles.supplierPaymentButton}
+              onPress={() => {
+                navigation.navigate('MyPayments' as any, { user, token });
+              }}
+            >
+              <Ionicons name="cash-outline" size={16} color="white" />
+              <Text style={styles.supplierPaymentText}>Pago a Proveedor</Text>
+            </TouchableOpacity>
+            {/* 🚀 Botón ¿Cómo enviar? o Cambiar Método */}
+            <TouchableOpacity
+              style={[
+                styles.requestShipmentButton,
+                selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup') && { backgroundColor: '#00796B' }
+              ]}
+              onPress={() => {
+                if (selectedIds.length > 0) {
+                  // Verificar si son paquetes en Pick Up
+                  const selectedPkgs = packages.filter(p => selectedIds.includes(p.id));
+                  const hasPickupPackages = selectedPkgs.some(p => p.status === 'ready_pickup');
+                  
+                  if (hasPickupPackages) {
+                    // Navegar a cambiar método de envío (DeliveryInstructions)
+                    navigation.navigate('DeliveryInstructions', {
+                      package: selectedPkgs[0],
+                      packages: selectedPkgs,
+                      user,
+                      token,
+                      isChangingFromPickup: true,
+                    });
+                  } else {
+                    handleConsolidate();
+                  }
                 } else {
-                  handleConsolidate();
+                  // Navegar a la guía de servicios (pantalla de marketing con direcciones)
+                  navigation.navigate('ServicesGuide', { user, token });
                 }
-              } else {
-                // Navegar a la guía de servicios (pantalla de marketing con direcciones)
-                navigation.navigate('ServicesGuide', { user, token });
-              }
-            }}
-          >
-            <Ionicons 
-              name={selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup') ? "swap-horizontal" : "arrow-forward"} 
-              size={18} 
-              color="white" 
-            />
-            <Text style={styles.requestShipmentText}>
-              {selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup') 
-                ? 'Cambiar' 
-                : 'Enviar'}
-            </Text>
-          </TouchableOpacity>
+              }}
+            >
+              <Ionicons 
+                name={selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup') ? "swap-horizontal" : "arrow-forward"} 
+                size={16} 
+                color="white" 
+              />
+              <Text style={styles.requestShipmentText}>
+                {selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup') 
+                  ? 'Cambiar' 
+                  : '¿Cómo enviar?'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
         
         {/* 🔍 Botones de Acción - Rastreo, Instrucciones, Historial */}
@@ -2570,12 +2577,10 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   userInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'column',
     marginBottom: 15,
   },
   userTextContainer: {
-    marginLeft: 15,
     flex: 1,
   },
   greeting: {
@@ -2588,14 +2593,38 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 3,
   },
+  headerButtonsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+  },
+  supplierPaymentButton: {
+    backgroundColor: '#00796B',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 25,
+    gap: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  supplierPaymentText: {
+    color: 'white',
+    fontWeight: 'bold',
+    fontSize: 12,
+  },
   requestShipmentButton: {
     backgroundColor: ORANGE,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 25,
-    gap: 6,
+    gap: 5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
@@ -2605,7 +2634,7 @@ const styles = StyleSheet.create({
   requestShipmentText: {
     color: 'white',
     fontWeight: 'bold',
-    fontSize: 14,
+    fontSize: 12,
   },
   // 🎯 Estilos para filtros en el header
   headerServiceFilters: {
