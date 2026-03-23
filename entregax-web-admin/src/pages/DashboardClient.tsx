@@ -1348,6 +1348,15 @@ export default function DashboardClient() {
       return;
     }
     
+    // Si ya hay paquetes seleccionados, validar que sean del mismo tipo de servicio
+    if (selectedPackageIds.length > 0 && !selectedPackageIds.includes(id)) {
+      const currentSelected = packages.find(p => p.id === selectedPackageIds[0]);
+      if (currentSelected && currentSelected.servicio !== pkg.servicio) {
+        setSnackbar({ open: true, message: t('cd.snackbar.cannotMixServices'), severity: 'warning' });
+        return;
+      }
+    }
+    
     setSelectedPackageIds(prev => 
       prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
     );
@@ -3807,13 +3816,7 @@ export default function DashboardClient() {
                               <Checkbox
                                 size="small"
                                 checked={selectedPackageIds.includes(pkg.id)}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedPackageIds([...selectedPackageIds, pkg.id]);
-                                  } else {
-                                    setSelectedPackageIds(selectedPackageIds.filter(id => id !== pkg.id));
-                                  }
-                                }}
+                                onChange={() => togglePackageSelection(pkg.id, pkg)}
                               />
                               <Box>
                                 <Typography variant="body1" fontWeight="bold">{pkg.tracking}</Typography>
@@ -4040,13 +4043,7 @@ export default function DashboardClient() {
                               <Checkbox
                                 size="small"
                                 checked={selectedPackageIds.includes(pkg.id)}
-                                onChange={(e) => {
-                                  if (e.target.checked) {
-                                    setSelectedPackageIds([...selectedPackageIds, pkg.id]);
-                                  } else {
-                                    setSelectedPackageIds(selectedPackageIds.filter(id => id !== pkg.id));
-                                  }
-                                }}
+                                onChange={() => togglePackageSelection(pkg.id, pkg)}
                               />
                               <Box>
                                 <Typography variant="body1" fontWeight="bold">{pkg.tracking}</Typography>

@@ -1423,7 +1423,8 @@
       "selectServiceFirst": "请先选择服务类型进行筛选",
       "selectPackage": "请至少选择一个包裹",
       "selectAddress": "请选择收货地址",
-      "completeBilling": "请填写所有开票信息"
+      "completeBilling": "请填写所有开票信息",
+      "cannotMixServices": "⚠️ 不能混合不同服务类型的包裹。请只选择同一服务的包裹。"
     },
     "validation": {
       "validTracking": "✓ 有效追踪号",

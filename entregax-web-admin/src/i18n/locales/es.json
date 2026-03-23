@@ -1499,7 +1499,7 @@
     },
     "delivery": {
       "title": "Instrucciones de Entrega",
-      "selectedPackages": "Paquete{{plural}} Seleccionado{{plural}}",
+      "selectedPackages": "{{count}} Paquete(s) Seleccionado(s)",
       "totalWeight": "Peso Total",
       "totalCBM": "CBM Total",
       "total": "Total",
@@ -1753,6 +1753,7 @@
       "selectPackage": "Selecciona al menos un paquete",
       "selectAddress": "Selecciona una dirección de entrega",
       "completeBilling": "Completa todos los datos de facturación",
+      "cannotMixServices": "⚠️ No puedes combinar paquetes de diferentes tipos de servicio. Selecciona solo paquetes del mismo servicio.",
       "fiscalRequired": "Debes completar tus datos fiscales para solicitar factura",
       "fiscalSaved": "✅ Datos fiscales guardados exitosamente",
       "paymentMethodAdded": "✅ Método de pago agregado exitosamente",

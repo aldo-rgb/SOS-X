@@ -1410,7 +1410,7 @@
     },
     "delivery": {
       "title": "Delivery Instructions",
-      "selectedPackages": "Selected Package{{plural}}",
+      "selectedPackages": "{{count}} Selected Package(s)",
       "totalWeight": "Total Weight",
       "totalCbm": "Total CBM",
       "addressTitle": "Delivery Address",
@@ -1592,7 +1592,8 @@
       "selectServiceFirst": "First select a service type to filter",
       "selectPackage": "Select at least one package",
       "selectAddress": "Select a delivery address",
-      "completeBilling": "Complete all billing data"
+      "completeBilling": "Complete all billing data",
+      "cannotMixServices": "⚠️ You cannot combine packages from different service types. Select only packages from the same service."
     },
     "validation": {
       "validTracking": "✓ Valid tracking",
