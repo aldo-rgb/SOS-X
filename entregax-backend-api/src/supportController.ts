@@ -99,6 +99,75 @@ TONO: Amigable pero profesional. Como un colega que sabe mucho y quiere ayudar.
 // ============================================================
 
 /**
+ * GET /api/support/validate-tracking
+ * Valida que un número de guía pertenezca al cliente autenticado
+ */
+export const validateTracking = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = (req as any).user?.userId || (req as any).user?.id;
+    const tracking = (req.query.tracking as string || '').trim().toUpperCase();
+
+    if (!tracking) {
+      return res.status(400).json({ success: false, error: 'Número de guía requerido' });
+    }
+
+    // Obtener el box_id del usuario autenticado
+    const userRes = await pool.query('SELECT box_id FROM users WHERE id = $1', [userId]);
+    if (userRes.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
+    }
+    const userBoxId = userRes.rows[0].box_id;
+
+    // Buscar la guía en packages por múltiples campos de tracking
+    const pkgRes = await pool.query(
+      `SELECT id, tracking_internal, child_no, box_id, user_id, description, status
+       FROM packages 
+       WHERE tracking_internal ILIKE $1 
+          OR child_no ILIKE $1
+          OR international_tracking ILIKE $1
+       LIMIT 1`,
+      [tracking]
+    );
+
+    if (pkgRes.rows.length === 0) {
+      return res.json({ 
+        success: false, 
+        valid: false,
+        error: `Guía "${tracking}" no encontrada. Verifica el número e intenta de nuevo.`
+      });
+    }
+
+    const pkg = pkgRes.rows[0];
+
+    // Verificar que pertenezca al usuario (por box_id o user_id)
+    const belongsToUser = 
+      (pkg.box_id && pkg.box_id.toUpperCase() === (userBoxId || '').toUpperCase()) ||
+      (pkg.user_id && pkg.user_id === userId);
+
+    if (!belongsToUser) {
+      return res.json({ 
+        success: false, 
+        valid: false,
+        error: `Guía no encontrada para tu número de cliente ${userBoxId}. Solo puedes crear tickets sobre tus propias guías.`
+      });
+    }
+
+    return res.json({ 
+      success: true, 
+      valid: true,
+      package: {
+        tracking: pkg.tracking_internal,
+        description: pkg.description,
+        status: pkg.status,
+      }
+    });
+  } catch (error) {
+    console.error('Error validando tracking:', error);
+    return res.status(500).json({ success: false, error: 'Error al validar guía' });
+  }
+};
+
+/**
  * Genera un folio único para tickets
  */
 async function generateTicketFolio(): Promise<string> {

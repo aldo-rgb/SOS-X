@@ -347,7 +347,8 @@ import {
   adminReplyTicket,
   resolveTicket,
   assignTicket,
-  uploadSupportImages
+  uploadSupportImages,
+  validateTracking
 } from './supportController';
 import {
   getMyNotifications,
@@ -2636,6 +2637,9 @@ app.get('/api/admin/crm/advisors-list', authenticateToken, requireMinLevel(ROLES
 app.get('/api/admin/crm/team-leaders', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getTeamLeaders);
 
 // ========== SOPORTE AL CLIENTE (AI + HUMANO) ==========
+
+// Cliente: Validar que una guía pertenezca al cliente
+app.get('/api/support/validate-tracking', authenticateToken, validateTracking);
 
 // Cliente: Enviar mensaje al chat de soporte (con soporte para imágenes)
 app.post('/api/support/message', authenticateToken, uploadSupportImages, handleSupportMessage);
