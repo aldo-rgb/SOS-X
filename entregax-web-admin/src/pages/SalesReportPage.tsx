@@ -136,7 +136,7 @@ export default function SalesReportPage() {
 
       setSalesData(res.data.data || []);
       setServiceStats(res.data.serviceStats || []);
-      setTotals(res.data.totals || { shipments: 0, revenue: '0', advisors: 0 });
+      setTotals({ shipments: 0, revenue: '0', advisors: 0, ...res.data.totals });
     } catch (err) {
       console.error('Error fetching sales report:', err);
     } finally {
@@ -235,8 +235,10 @@ export default function SalesReportPage() {
     XLSX.writeFile(wb, `reporte_churn_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  const formatCurrency = (value: string | number) => {
+  const formatCurrency = (value?: string | number | null) => {
+    if (value === undefined || value === null) return '$0.00';
     const num = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(num)) return '$0.00';
     return `$${num.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
