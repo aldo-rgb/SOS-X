@@ -326,7 +326,7 @@ export const getCRMClients = async (req: Request, res: Response): Promise<any> =
         advisor.full_name as advisor_name,
         leader.full_name as team_leader_name,
         (SELECT COUNT(*) FROM packages WHERE user_id = u.id) as total_shipments,
-        (SELECT COALESCE(SUM(shipping_cost), 0) FROM packages WHERE user_id = u.id) as total_spent,
+        (SELECT COALESCE(SUM(assigned_cost_mxn), 0) FROM packages WHERE user_id = u.id) as total_spent,
         CASE 
           WHEN u.last_transaction_date < NOW() - INTERVAL '90 days' THEN 'red'
           WHEN (SELECT COUNT(*) FROM packages WHERE user_id = u.id) = 0 THEN 'yellow'
@@ -423,7 +423,7 @@ export const exportCRMClients = async (req: Request, res: Response): Promise<any
         u.last_transaction_ref as "Ref Última Transacción",
         u.last_transaction_amount as "Monto Última Transacción",
         (SELECT COUNT(*) FROM packages WHERE user_id = u.id) as "Total Envíos",
-        (SELECT COALESCE(SUM(shipping_cost), 0) FROM packages WHERE user_id = u.id) as "Total Gastado MXN",
+        (SELECT COALESCE(SUM(assigned_cost_mxn), 0) FROM packages WHERE user_id = u.id) as "Total Gastado MXN",
         advisor.full_name as "Asesor",
         u.recovery_status as "Estado Recuperación",
         EXTRACT(DAY FROM NOW() - u.last_transaction_date)::INTEGER as "Días Inactivo"
