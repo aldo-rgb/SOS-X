@@ -526,13 +526,13 @@ export default function DashboardClient() {
       } else if (status === 'cancelled' || status === 'failed') {
         setSnackbar({ 
           open: true, 
-          message: `❌ ${status === 'cancelled' ? t('cd.alerts.paymentCancelled') : t('cd.alerts.paymentFailed')}`, 
+          message: status === 'cancelled' ? t('cd.alerts.paymentCancelled') : t('cd.alerts.paymentFailed'), 
           severity: 'error' 
         });
       } else if (status === 'pending') {
         setSnackbar({ 
           open: true, 
-          message: `🕐 ${t('cd.alerts.paymentPending')}`, 
+          message: t('cd.alerts.paymentPending'), 
           severity: 'info' 
         });
       }
@@ -1113,12 +1113,12 @@ export default function DashboardClient() {
 
   // Categorías de soporte
   const supportCategories = [
-    { value: 'tracking', label: `📦 ${t('cd.support.categories.tracking')}` },
-    { value: 'delay', label: `⏰ ${t('cd.support.categories.delay')}` },
-    { value: 'warranty', label: `🛡️ ${t('cd.support.categories.warranty')}` },
-    { value: 'compensation', label: `💰 ${t('cd.support.categories.compensation')}` },
-    { value: 'systemError', label: `⚠️ ${t('cd.support.categories.systemError')}` },
-    { value: 'other', label: `📝 ${t('cd.support.categories.other')}` },
+    { value: 'tracking', label: t('cd.support.categories.tracking') },
+    { value: 'delay', label: t('cd.support.categories.delay') },
+    { value: 'warranty', label: t('cd.support.categories.warranty') },
+    { value: 'compensation', label: t('cd.support.categories.compensation') },
+    { value: 'systemError', label: t('cd.support.categories.systemError') },
+    { value: 'other', label: t('cd.support.categories.other') },
   ];
 
   // Validar formulario de soporte
@@ -2318,7 +2318,7 @@ export default function DashboardClient() {
             <Box>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 2 }}>
                 <Typography variant="h6" fontWeight="bold">
-                  📦 {t('cd.packages.title')}
+                  {t('cd.packages.title')}
                 </Typography>
                 <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                   <TextField
@@ -2959,7 +2959,7 @@ export default function DashboardClient() {
           {activeTab === 1 && (
             <Box>
               <Typography variant="h6" fontWeight="bold" gutterBottom>
-                🧮 {t('cd.quoter.title')}
+                {t('cd.quoter.title')}
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                 {t('cd.quoter.subtitle')}
@@ -3032,7 +3032,7 @@ export default function DashboardClient() {
                   {cbmResult ? (
                     <Paper sx={{ p: 3, borderRadius: 2, border: `2px solid ${BLUE}` }}>
                       <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                        📊 {t('cd.quoter.resultTitle')}
+                        {t('cd.quoter.resultTitle')}
                       </Typography>
                       <Divider sx={{ my: 2 }} />
                       
@@ -3079,7 +3079,7 @@ export default function DashboardClient() {
               {/* Tabla de tarifas de referencia */}
               <Paper sx={{ p: 3, mt: 3, borderRadius: 2 }}>
                 <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  📋 {t('cd.quoter.tariffsTitle')}
+                  {t('cd.quoter.tariffsTitle')}
                 </Typography>
                 <TableContainer>
                   <Table size="small">
@@ -3137,7 +3137,7 @@ export default function DashboardClient() {
                   {/* Wallet / Monedero */}
                   <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
                     <Typography variant="h6" fontWeight="bold" gutterBottom>
-                      💰 {t('cd.account.walletTitle')}
+                      {t('cd.account.walletTitle')}
                     </Typography>
                     <Divider sx={{ my: 2 }} />
                     
@@ -3455,7 +3455,7 @@ export default function DashboardClient() {
                   <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                       <Typography variant="h6" fontWeight="bold">
-                        📍 {t('cd.account.addressesTitle')}
+                        {t('cd.account.addressesTitle')}
                       </Typography>
                       <Button 
                         variant="contained" 
@@ -3550,7 +3550,7 @@ export default function DashboardClient() {
 
                   {/* DIRECCIONES DE ENVÍO (BODEGAS) */}
                   <Typography variant="h6" fontWeight="bold" gutterBottom sx={{ mb: 2 }}>
-                    📦 {t('cd.account.warehouseTitle')}
+                    {t('cd.account.warehouseTitle')}
                   </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                     {t('cd.account.warehouseSubtitle')} <strong>{boxId}</strong>
@@ -3644,7 +3644,7 @@ export default function DashboardClient() {
           {activeTab === 3 && (
             <Box>
               <Typography variant="h6" fontWeight="bold" gutterBottom>
-                🧾 {t('cd.invoicesTab.title')}
+                {t('cd.invoicesTab.title')}
               </Typography>
               
               <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
@@ -4223,7 +4223,7 @@ export default function DashboardClient() {
                     }}
                   >
                     <Typography variant="subtitle2" sx={{ opacity: 0.9, mb: 1 }}>
-                      📍 {t('cd.tutorial.sendToAddress')}
+                      {t('cd.tutorial.sendToAddress')}
                     </Typography>
                     <Typography variant="body1" sx={{ fontFamily: 'monospace', lineHeight: 1.8 }}>
                       {renderFormattedAddress(address, tutorialService.type)}
@@ -4978,7 +4978,7 @@ export default function DashboardClient() {
                 {selectedPackage.descripcion && (
                   <Box sx={{ mb: 2 }}>
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                      📦 {t('cd.detail.description')}
+                      {t('cd.detail.description')}
                     </Typography>
                     <Typography variant="body1">{selectedPackage.descripcion}</Typography>
                   </Box>
@@ -5049,7 +5049,7 @@ export default function DashboardClient() {
                   </Grid>
                   <Grid size={6}>
                     <Paper sx={{ p: 1.5, bgcolor: '#f8f9fa', textAlign: 'center' }}>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>💰 {t('cd.detail.declaredValue')}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{t('cd.detail.declaredValue')}</Typography>
                       <Typography variant="h6" fontWeight="bold">
                         {(() => {
                           // Para masters, usar el valor declarado total del reempaque
@@ -6077,7 +6077,7 @@ export default function DashboardClient() {
       {/* Carrusel de Servicios */}
       <Box sx={{ mb: 3 }}>
         <Typography variant="h6" fontWeight="bold" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-          🚀 {t('cd.servicesCarousel.title')}
+          {t('cd.servicesCarousel.title')}
         </Typography>
         <Box sx={{ display: 'flex', gap: 2, overflowX: 'auto', pb: 1, scrollSnapType: 'x mandatory', '&::-webkit-scrollbar': { height: 6 }, '&::-webkit-scrollbar-thumb': { bgcolor: ORANGE, borderRadius: 3 } }}>
           {SERVICE_CONFIG.map((service) => (
