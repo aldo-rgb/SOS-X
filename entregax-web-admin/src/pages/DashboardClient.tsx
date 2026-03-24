@@ -383,7 +383,15 @@ export default function DashboardClient() {
   const selectedServiceType = useMemo(() => {
     const selected = packages.filter(p => selectedPackageIds.includes(p.id));
     if (selected.length === 0) return 'china_air';
-    return selected[0]?.servicio || 'china_air';
+    const raw = selected[0]?.shipment_type || selected[0]?.servicio || 'china_air';
+    // Mapear los valores internos del DB a los identificadores del carrier system
+    const serviceMap: Record<string, string> = {
+      'AIR_CHN_MX': 'china_air', 'china_air': 'china_air', 'TDI_AEREO': 'china_air',
+      'SEA_CHN_MX': 'china_sea', 'china_sea': 'china_sea', 'maritime': 'china_sea', 'MAR_CHN_MX': 'china_sea', 'fcl': 'china_sea',
+      'POBOX_USA': 'usa_pobox', 'usa_pobox': 'usa_pobox', 'air': 'usa_pobox',
+      'NATIONAL': 'dhl', 'dhl': 'dhl', 'mx_cedis': 'dhl', 'AA_DHL': 'dhl', 'DHL_MTY': 'dhl',
+    };
+    return serviceMap[raw] || 'china_air';
   }, [packages, selectedPackageIds]);
 
   // Opciones de paquetería dinámicas desde la API
