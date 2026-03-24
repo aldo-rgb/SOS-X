@@ -1808,7 +1808,14 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
 
     const allPackages = [
       ...packagesWithChildren,
-      ...maritimeOrdersQuery.rows,
+      ...maritimeOrdersQuery.rows.map((mo: any) => ({
+        ...mo,
+        total_boxes: mo.total_boxes ? parseInt(mo.total_boxes) : null,
+        weight: mo.weight ? parseFloat(mo.weight) : null,
+        cbm: mo.cbm ? parseFloat(mo.cbm) : null,
+        monto: mo.monto ? parseFloat(mo.monto) : 0,
+        declared_value: mo.declared_value ? parseFloat(mo.declared_value) : null,
+      })),
       ...dhlPackagesRows,
       ...dhlShipmentRows
     ].sort((a, b) => {

@@ -353,6 +353,7 @@ export default function DashboardClient() {
   // Modal GEX (Garantía Extendida)
   const [gexModalOpen, setGexModalOpen] = useState(false);
   const [gexLoading, setGexLoading] = useState(false);
+  const [gexTargetPackages, setGexTargetPackages] = useState<PackageTracking[]>([]);
   
   // Datos fiscales para facturación
   const [fiscalData, setFiscalData] = useState<{
@@ -3020,6 +3021,7 @@ export default function DashboardClient() {
                             clickable
                             onClick={() => {
                               setSelectedPackageIds([pkg.id]);
+                              setGexTargetPackages([pkg]);
                               setGexModalOpen(true);
                             }}
                             sx={{ 
@@ -4078,6 +4080,7 @@ export default function DashboardClient() {
                                 }}
                                 onClick={() => {
                                   setSelectedPackageIds([pkg.id]);
+                                  setGexTargetPackages([pkg]);
                                   setGexModalOpen(true);
                                 }}
                               />
@@ -4298,6 +4301,7 @@ export default function DashboardClient() {
                                   }}
                                   onClick={() => {
                                     setSelectedPackageIds([pkg.id]);
+                                    setGexTargetPackages([pkg]);
                                     setGexModalOpen(true);
                                   }}
                                 />
@@ -4524,7 +4528,7 @@ export default function DashboardClient() {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
                         <InventoryIcon sx={{ color: '#666', fontSize: 20 }} />
                         <Typography variant="body1" fontWeight="bold">
-                          {getSelectedPackages().reduce((sum, pkg) => sum + (pkg.total_boxes || 1), 0)}
+                          {gexTargetPackages.reduce((sum, pkg) => sum + (Number(pkg.total_boxes) || 1), 0)}
                         </Typography>
                       </Box>
                     </Grid>
@@ -4533,7 +4537,7 @@ export default function DashboardClient() {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
                         <ScaleIcon sx={{ color: '#666', fontSize: 20 }} />
                         <Typography variant="body1" fontWeight="bold">
-                          {getSelectedPackages().reduce((sum, pkg) => sum + (Number(pkg.weight) || 0), 0).toFixed(1)}
+                          {gexTargetPackages.reduce((sum, pkg) => sum + (Number(pkg.weight) || 0), 0).toFixed(1)}
                         </Typography>
                         <Typography variant="body2" color="text.secondary">kg</Typography>
                       </Box>
@@ -4545,7 +4549,7 @@ export default function DashboardClient() {
                     <Typography variant="caption" color="text.secondary">{t('cd.gex.shippingRoute')}</Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
                       {(() => {
-                        const firstPkg = getSelectedPackages()[0];
+                        const firstPkg = gexTargetPackages[0];
                         const isChina = firstPkg?.servicio === 'SEA_CHN_MX' || firstPkg?.servicio === 'AIR_CHN_MX' || firstPkg?.shipment_type === 'maritime' || firstPkg?.shipment_type === 'china_air';
                         const isMaritime = firstPkg?.servicio === 'SEA_CHN_MX' || firstPkg?.shipment_type === 'maritime';
                         return (
