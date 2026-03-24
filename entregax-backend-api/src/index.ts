@@ -1631,7 +1631,10 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         false as is_master,
         NULL as master_id,
         has_gex,
-        gex_folio
+        gex_folio,
+        assigned_cost_usd as maritime_sale_price_usd,
+        merchandise_type,
+        'USD' as monto_currency
       FROM maritime_orders
       WHERE (user_id = $1 OR UPPER(shipping_mark) = UPPER($2))
         AND status NOT IN ('delivered', 'cancelled')

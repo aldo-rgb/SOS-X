@@ -1084,9 +1084,10 @@ export const assignPriceToMaritimeOrder = async (
             saldo_pendiente = $2,
             cost_assigned_at = NOW(),
             cost_assigned_by = $3,
+            registered_exchange_rate = $5,
             payment_status = 'pending'
         WHERE id = $4
-    `, [finalPriceUsd.toFixed(2), finalPriceMxn.toFixed(2), assignedBy, orderId]);
+    `, [finalPriceUsd.toFixed(2), finalPriceMxn.toFixed(2), assignedBy, orderId, fxRate.toFixed(4)]);
 
     console.log(`💰 AutoPrice: ${order.ordersn} → $${finalPriceUsd.toFixed(2)} USD / $${finalPriceMxn.toFixed(2)} MXN [${appliedCategory}] ${breakdown}`);
 

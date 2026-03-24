@@ -165,6 +165,9 @@ interface PackageTracking {
   product_type?: string;
   monto_currency?: string;
   dhl_sale_price_usd?: number;
+  // Campos marítimo
+  maritime_sale_price_usd?: number;
+  merchandise_type?: string;
 }
 
 interface IncludedGuide {
@@ -2925,9 +2928,27 @@ export default function DashboardClient() {
                         {(() => {
                           const pkgMonto = Number(pkg.monto) || 0;
                           const isDhl = pkg.shipment_type === 'dhl' || pkg.servicio === 'AA_DHL' || pkg.servicio === 'DHL_MTY';
-                          const currency = pkg.monto_currency || (isDhl ? 'USD' : 'MXN');
+                          const isMaritime = pkg.shipment_type === 'maritime' || pkg.servicio === 'SEA_CHN_MX';
+                          const currency = pkg.monto_currency || (isDhl ? 'USD' : isMaritime ? 'USD' : 'MXN');
                           // Mostrar precio asignado o estimado
                           if (pkgMonto > 0 && !pkg.client_paid) {
+                            // Para marítimo, mostrar precio en USD si está disponible
+                            if (isMaritime && pkg.maritime_sale_price_usd && pkg.maritime_sale_price_usd > 0) {
+                              const merchLabel = pkg.merchandise_type === 'sensitive' ? 'Sensible' 
+                                : pkg.merchandise_type === 'logo' ? 'Logotipo' 
+                                : pkg.merchandise_type === 'startup' ? 'StartUp'
+                                : 'Genérico';
+                              return (
+                                <Box sx={{ textAlign: 'right' }}>
+                                  <Typography variant="body2" color="warning.main" fontWeight="bold">
+                                    ${pkg.maritime_sale_price_usd.toFixed(2)} USD
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                                    {merchLabel}
+                                  </Typography>
+                                </Box>
+                              );
+                            }
                             return (
                               <Box sx={{ textAlign: 'right' }}>
                                 <Typography variant="body2" color="warning.main" fontWeight="bold">
@@ -5556,12 +5577,16 @@ export default function DashboardClient() {
                     // Calcular costo estimado para marítimo si monto es 0 y tiene CBM
                     const displayMonto = Number(selectedPackage.monto) || 0;
                     const isDhl = selectedPackage.shipment_type === 'dhl' || selectedPackage.servicio === 'AA_DHL' || selectedPackage.servicio === 'DHL_MTY';
-                    const currency = selectedPackage.monto_currency || (isDhl ? 'USD' : 'MXN');
+                    const isMaritime = selectedPackage.shipment_type === 'maritime' || selectedPackage.servicio === 'SEA_CHN_MX';
+                    const currency = selectedPackage.monto_currency || (isDhl ? 'USD' : isMaritime ? 'USD' : 'MXN');
                     let isEstimated = false;
                     let estimatedUSD = 0;
 
-                    if (displayMonto === 0 && selectedPackage.cbm && Number(selectedPackage.cbm) > 0 && 
-                        (selectedPackage.shipment_type === 'maritime' || selectedPackage.servicio === 'SEA_CHN_MX')) {
+                    // Marítimo con precio congelado en USD
+                    const maritimeSaleUsd = selectedPackage.maritime_sale_price_usd ? Number(selectedPackage.maritime_sale_price_usd) : 0;
+                    const hasMaritimeFrozenPrice = isMaritime && maritimeSaleUsd > 0;
+
+                    if (!hasMaritimeFrozenPrice && displayMonto === 0 && selectedPackage.cbm && Number(selectedPackage.cbm) > 0 && isMaritime) {
                       const cbm = Number(selectedPackage.cbm);
                       if (cbm <= 0.03) estimatedUSD = 39;
                       else if (cbm <= 0.1) estimatedUSD = 79;
@@ -5594,11 +5619,26 @@ export default function DashboardClient() {
                     // Determinar label de tipo para DHL
                     const dhlTypeLabel = selectedPackage.product_type === 'high_value' ? 'Sensible' : 'Accesorios/Mixto';
 
+                    // Determinar label de mercancía para marítimo
+                    const merchLabel = selectedPackage.merchandise_type === 'sensitive' ? 'Sensible' 
+                      : selectedPackage.merchandise_type === 'logo' ? 'Logotipo' 
+                      : selectedPackage.merchandise_type === 'startup' ? 'StartUp'
+                      : 'Genérico';
+
                     return (
                       <Paper sx={{ p: 2, bgcolor: selectedPackage.client_paid ? '#e8f5e9' : '#fff3e0' }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <Typography variant="body2">{t('cd.detail.totalToPay')}:</Typography>
-                          {showAirPrice ? (
+                          {hasMaritimeFrozenPrice ? (
+                            <Box sx={{ textAlign: 'right' }}>
+                              <Typography variant="h5" fontWeight="bold" color={selectedPackage.client_paid ? 'success.main' : 'warning.main'}>
+                                ${maritimeSaleUsd.toFixed(2)} USD
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                {Number(selectedPackage.cbm).toFixed(3)} m³ · {merchLabel}
+                              </Typography>
+                            </Box>
+                          ) : showAirPrice ? (
                             <Box sx={{ textAlign: 'right' }}>
                               <Typography variant="h5" fontWeight="bold" color="warning.main">
                                 ${estimatedUSD.toFixed(2)} USD
@@ -5632,7 +5672,7 @@ export default function DashboardClient() {
                           )}
                         </Box>
                         <Chip 
-                          label={selectedPackage.client_paid ? t('cd.detail.paid') : showAirPrice ? t('cd.detail.pendingPayment') : isEstimated ? 'Pendiente de Cotización' : t('cd.detail.pendingPayment')} 
+                          label={selectedPackage.client_paid ? t('cd.detail.paid') : hasMaritimeFrozenPrice ? t('cd.detail.pendingPayment') : showAirPrice ? t('cd.detail.pendingPayment') : isEstimated ? 'Pendiente de Cotización' : t('cd.detail.pendingPayment')} 
                           size="small" 
                           color={selectedPackage.client_paid ? 'success' : 'warning'}
                           sx={{ mt: 1 }}
