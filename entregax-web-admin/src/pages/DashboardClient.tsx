@@ -2935,7 +2935,7 @@ export default function DashboardClient() {
                             else estUSD = cbm * 100;
                             return (
                               <Typography variant="body2" color="warning.main" fontWeight="bold" sx={{ fontSize: '0.8rem' }}>
-                                ~${estUSD.toFixed(2)} USD
+                                ${estUSD.toFixed(2)} USD
                               </Typography>
                             );
                           }
@@ -5527,7 +5527,7 @@ export default function DashboardClient() {
                           {isEstimated ? (
                             <Box sx={{ textAlign: 'right' }}>
                               <Typography variant="h5" fontWeight="bold" color="warning.main">
-                                ~${estimatedUSD.toFixed(2)} USD
+                                ${estimatedUSD.toFixed(2)} USD
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
                                 Estimado por {Number(selectedPackage.cbm).toFixed(4)} m³
