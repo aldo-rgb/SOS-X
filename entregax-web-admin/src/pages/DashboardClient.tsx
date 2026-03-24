@@ -90,7 +90,10 @@ import {
   CheckCircleOutline as CheckCircleOutlineIcon,
   Block as BlockIcon,
   WarningAmber as WarningAmberIcon,
+  KeyboardArrowDown as KeyboardArrowDownIcon,
+  KeyboardArrowUp as KeyboardArrowUpIcon,
 } from '@mui/icons-material';
+import { Collapse } from '@mui/material';
 import api from '../services/api';
 
 const ORANGE = '#F05A28';
@@ -472,6 +475,7 @@ export default function DashboardClient() {
   const [packageDetailOpen, setPackageDetailOpen] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState<PackageTracking | null>(null);
   const [highlightedGuideTracking, setHighlightedGuideTracking] = useState<string | null>(null);
+  const [boxListExpanded, setBoxListExpanded] = useState(false);
   
   // Mis Direcciones de Entrega (tab)
   const [addressModalOpen, setAddressModalOpen] = useState(false);
@@ -2860,7 +2864,19 @@ export default function DashboardClient() {
                             {pkg.client_paid && pkg.status !== 'delivered' && <Chip label={t('cd.packages.paidChip')} size="small" color="success" sx={{ height: 18, fontSize: '0.65rem' }} />}
                             {hasDeliveryInstructions && <Chip label={t('cd.packages.instructionsChip')} size="small" color="primary" sx={{ height: 18, fontSize: '0.65rem' }} />}
                           </Box>
-                          {pkg.descripcion && <Typography variant="caption" color="text.secondary">{pkg.descripcion}</Typography>}
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                            {pkg.descripcion && <Typography variant="caption" color="text.secondary">{pkg.descripcion}</Typography>}
+                            {pkg.total_boxes && pkg.total_boxes > 0 && (
+                              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold' }}>
+                                • 📦 {pkg.total_boxes} {pkg.total_boxes === 1 ? 'caja' : 'cajas'}
+                              </Typography>
+                            )}
+                            {pkg.weight && Number(pkg.weight) > 0 && (
+                              <Typography variant="caption" color="text.secondary">
+                                • ⚖️ {Number(pkg.weight).toLocaleString()} kg
+                              </Typography>
+                            )}
+                          </Box>
                         </Box>
                       </Box>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -4560,7 +4576,7 @@ export default function DashboardClient() {
 
       {/* Modal Instrucciones de Entrega - Versión Completa */}
       <Dialog open={deliveryModalOpen} onClose={() => { setDeliveryModalOpen(false); setApplyToFullShipment(false); }} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ bgcolor: BLUE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+        <DialogTitle sx={{ bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
           <LocationOnIcon />
           {t('cd.delivery.title')}
         </DialogTitle>
@@ -4573,7 +4589,7 @@ export default function DashboardClient() {
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                   <Box 
                     sx={{ 
-                      bgcolor: BLUE, 
+                      bgcolor: ORANGE, 
                       color: 'white', 
                       width: 24, 
                       height: 24, 
@@ -4642,7 +4658,7 @@ export default function DashboardClient() {
                         />
                       }
                       label={
-                        <Typography variant="body2" fontWeight="bold" sx={{ color: BLUE }}>
+                        <Typography variant="body2" fontWeight="bold" sx={{ color: ORANGE }}>
                           {t('cd.delivery.applyFullShipment', { count: shipmentTotalBoxes })}
                         </Typography>
                       }
@@ -4696,7 +4712,7 @@ export default function DashboardClient() {
                               sx={{ 
                                 p: 2, 
                                 bgcolor: selectedDeliveryAddress === addr.id ? 'primary.50' : 'transparent',
-                                border: selectedDeliveryAddress === addr.id ? `2px solid ${BLUE}` : '1px solid #eee',
+                                border: selectedDeliveryAddress === addr.id ? `2px solid ${ORANGE}` : '1px solid #eee',
                                 borderRadius: 2,
                                 width: '100%',
                                 minHeight: 90,
@@ -4710,7 +4726,7 @@ export default function DashboardClient() {
                                   <Typography variant="body1" fontWeight="bold">
                                     {addr.alias}
                                     {addr.is_default && (
-                                      <Chip label={t('cd.address.primary')} size="small" sx={{ ml: 1, bgcolor: BLUE, color: 'white' }} />
+                                      <Chip label={t('cd.address.primary')} size="small" sx={{ ml: 1, bgcolor: ORANGE, color: 'white' }} />
                                     )}
                                   </Typography>
                                   <Typography variant="body2" color="text.secondary">
@@ -4719,7 +4735,7 @@ export default function DashboardClient() {
                                   <Typography variant="body2" color="text.secondary">
                                     {addr.city}, {addr.state} {addr.zip_code}
                                   </Typography>
-                                  <Typography variant="body2" sx={{ color: BLUE, fontWeight: 'bold', mt: 0.5 }}>
+                                  <Typography variant="body2" sx={{ color: ORANGE, fontWeight: 'bold', mt: 0.5 }}>
                                     📞 {addr.phone}
                                   </Typography>
                                 </Box>
@@ -4771,7 +4787,7 @@ export default function DashboardClient() {
                             sx={{ 
                               p: 2, 
                               bgcolor: selectedCarrierService === service.id ? 'primary.50' : 'transparent',
-                              border: selectedCarrierService === service.id ? `2px solid ${BLUE}` : '1px solid #eee',
+                              border: selectedCarrierService === service.id ? `2px solid ${ORANGE}` : '1px solid #eee',
                               borderRadius: 2,
                               width: '100%'
                             }}
@@ -4889,10 +4905,11 @@ export default function DashboardClient() {
             disabled={deliveryLoading || !selectedDeliveryAddress}
             startIcon={deliveryLoading ? <CircularProgress size={20} /> : <Box sx={{ fontSize: '1.2rem' }}>✅</Box>}
             sx={{ 
-              bgcolor: BLUE, 
+              bgcolor: ORANGE, 
               minWidth: 200,
               py: 1.5,
-              fontSize: '1.1rem'
+              fontSize: '1.1rem',
+              '&:hover': { bgcolor: '#E04A18' }
             }}
           >
             {deliveryLoading ? t('common.saving') : t('cd.delivery.saveInstructions')}
@@ -5081,6 +5098,7 @@ export default function DashboardClient() {
         onClose={() => {
           setPackageDetailOpen(false);
           setHighlightedGuideTracking(null);
+          setBoxListExpanded(false);
         }} 
         maxWidth="sm" 
         fullWidth
@@ -5260,6 +5278,85 @@ export default function DashboardClient() {
                         </Box>
                       )})}
                     </Paper>
+                  </Box>
+                )}
+
+                {/* Desglose de Cajas (para órdenes marítimas con total_boxes) */}
+                {selectedPackage.total_boxes && selectedPackage.total_boxes > 0 && (selectedPackage.shipment_type === 'maritime' || selectedPackage.servicio === 'SEA_CHN_MX') && (
+                  <Box sx={{ mb: 2 }}>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      onClick={() => setBoxListExpanded(!boxListExpanded)}
+                      endIcon={boxListExpanded ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                      sx={{
+                        justifyContent: 'space-between',
+                        borderColor: '#e0e0e0',
+                        color: 'text.primary',
+                        textTransform: 'none',
+                        fontWeight: 'bold',
+                        py: 1.2,
+                        bgcolor: boxListExpanded ? '#f5f5f5' : 'transparent',
+                        '&:hover': { bgcolor: '#f5f5f5', borderColor: ORANGE }
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        📦 Desglose de Cajas ({selectedPackage.total_boxes})
+                      </Box>
+                    </Button>
+                    <Collapse in={boxListExpanded} timeout="auto">
+                      <Paper sx={{ bgcolor: '#fafafa', mt: 0.5, maxHeight: 300, overflow: 'auto', border: '1px solid #e0e0e0' }}>
+                        {/* Header de la tabla */}
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', px: 2, py: 1, bgcolor: '#f0f0f0', borderBottom: '1px solid #e0e0e0', position: 'sticky', top: 0, zIndex: 1 }}>
+                          <Typography variant="caption" fontWeight="bold" color="text.secondary">Caja #</Typography>
+                          <Typography variant="caption" fontWeight="bold" color="text.secondary">Peso Est.</Typography>
+                        </Box>
+                        {Array.from({ length: selectedPackage.total_boxes ?? 0 }, (_, i) => {
+                          const totalBoxes = selectedPackage.total_boxes ?? 0;
+                          const pesoPerBox = selectedPackage.weight ? (Number(selectedPackage.weight) / totalBoxes) : 0;
+                          return (
+                            <Box
+                              key={i}
+                              sx={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                alignItems: 'center',
+                                px: 2,
+                                py: 0.8,
+                                borderBottom: i < totalBoxes - 1 ? '1px solid #f0f0f0' : 'none',
+                                '&:hover': { bgcolor: '#fff3e0' }
+                              }}
+                            >
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Box sx={{
+                                  width: 24, height: 24, borderRadius: '50%',
+                                  bgcolor: ORANGE, color: 'white',
+                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  fontSize: '0.7rem', fontWeight: 'bold'
+                                }}>
+                                  {i + 1}
+                                </Box>
+                                <Typography variant="body2">
+                                  Caja {i + 1} de {totalBoxes}
+                                </Typography>
+                              </Box>
+                              <Typography variant="caption" color="text.secondary">
+                                {pesoPerBox > 0 ? `~${pesoPerBox.toFixed(1)} kg` : '--'}
+                              </Typography>
+                            </Box>
+                          );
+                        })}
+                        {/* Totales */}
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', px: 2, py: 1.2, bgcolor: '#e8f5e9', borderTop: '2px solid #c8e6c9', position: 'sticky', bottom: 0 }}>
+                          <Typography variant="body2" fontWeight="bold">
+                            📊 Total: {selectedPackage.total_boxes ?? 0} cajas
+                          </Typography>
+                          <Typography variant="body2" fontWeight="bold">
+                            {selectedPackage.weight ? `${Number(selectedPackage.weight).toLocaleString()} kg` : '--'}
+                          </Typography>
+                        </Box>
+                      </Paper>
+                    </Collapse>
                   </Box>
                 )}
 
