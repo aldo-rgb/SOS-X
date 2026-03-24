@@ -2939,6 +2939,37 @@ export default function DashboardClient() {
                               </Typography>
                             );
                           }
+                          // Para aéreo China: usar precio congelado del backend si existe, sino estimado
+                          if (pkgMonto === 0 && !pkg.client_paid &&
+                              (pkg.shipment_type === 'china_air' || pkg.servicio === 'AIR_CHN_MX')) {
+                            const airSalePrice = pkg.air_sale_price ? Number(pkg.air_sale_price) : 0;
+                            if (airSalePrice > 0) {
+                              // Precio congelado desde backend (tarifa asignada al llegar a gestión aérea)
+                              const tariffLabel = pkg.air_tariff_type === 'L' ? 'Logo' : pkg.air_tariff_type === 'G' ? 'Genérico' : pkg.air_tariff_type || '';
+                              return (
+                                <Box sx={{ textAlign: 'right' }}>
+                                  <Typography variant="body2" color="warning.main" fontWeight="bold" sx={{ fontSize: '0.8rem' }}>
+                                    ${airSalePrice.toFixed(2)} USD
+                                  </Typography>
+                                  {tariffLabel && (
+                                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                                      {tariffLabel}
+                                    </Typography>
+                                  )}
+                                </Box>
+                              );
+                            }
+                            // Sin precio congelado → mostrar estimado si hay peso
+                            if (pkg.weight && Number(pkg.weight) > 0) {
+                              const weightKg = Number(pkg.weight);
+                              const estUSD = weightKg * 21;
+                              return (
+                                <Typography variant="body2" color="text.secondary" fontWeight="bold" sx={{ fontSize: '0.8rem', fontStyle: 'italic' }}>
+                                  ~${estUSD.toFixed(2)} USD
+                                </Typography>
+                              );
+                            }
+                          }
                           if (pkg.client_paid) {
                             return (
                               <Typography variant="body2" color="success.main" fontWeight="bold" sx={{ fontSize: '0.75rem' }}>
@@ -5520,17 +5551,48 @@ export default function DashboardClient() {
                       isEstimated = true;
                     }
 
+                    // Aéreo China: usar precio congelado del backend si existe, sino estimado
+                    if (displayMonto === 0 && !isEstimated &&
+                        (selectedPackage.shipment_type === 'china_air' || selectedPackage.servicio === 'AIR_CHN_MX')) {
+                      const airSalePrice = selectedPackage.air_sale_price ? Number(selectedPackage.air_sale_price) : 0;
+                      if (airSalePrice > 0) {
+                        estimatedUSD = airSalePrice;
+                        isEstimated = false; // NO es estimado, es precio congelado real
+                      } else if (selectedPackage.weight && Number(selectedPackage.weight) > 0) {
+                        estimatedUSD = Number(selectedPackage.weight) * 21;
+                        isEstimated = true;
+                      }
+                    }
+
+                    // Determinar info de tarifa para aéreo China
+                    const airPricePerKg = selectedPackage.air_price_per_kg ? Number(selectedPackage.air_price_per_kg) : 0;
+                    const airTariffType = selectedPackage.air_tariff_type || '';
+                    const tariffLabel = airTariffType === 'L' ? 'Logo' : airTariffType === 'G' ? 'Genérico' : airTariffType === 'S' ? 'Sensible' : airTariffType === 'F' ? 'Flat' : '';
+                    const hasAirFrozenPrice = selectedPackage.air_sale_price && Number(selectedPackage.air_sale_price) > 0;
+                    const showAirPrice = hasAirFrozenPrice && !isEstimated && displayMonto === 0;
+
                     return (
                       <Paper sx={{ p: 2, bgcolor: selectedPackage.client_paid ? '#e8f5e9' : '#fff3e0' }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <Typography variant="body2">{t('cd.detail.totalToPay')}:</Typography>
-                          {isEstimated ? (
+                          {showAirPrice ? (
                             <Box sx={{ textAlign: 'right' }}>
                               <Typography variant="h5" fontWeight="bold" color="warning.main">
                                 ${estimatedUSD.toFixed(2)} USD
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
-                                Estimado por {Number(selectedPackage.cbm).toFixed(4)} m³
+                                {Number(selectedPackage.weight).toFixed(1)} kg × ${airPricePerKg.toFixed(0)} USD/kg ({tariffLabel})
+                              </Typography>
+                            </Box>
+                          ) : isEstimated ? (
+                            <Box sx={{ textAlign: 'right' }}>
+                              <Typography variant="h5" fontWeight="bold" color="warning.main">
+                                ~${estimatedUSD.toFixed(2)} USD
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Estimado por {(selectedPackage.shipment_type === 'china_air' || selectedPackage.servicio === 'AIR_CHN_MX') 
+                                  ? `${Number(selectedPackage.weight).toFixed(1)} kg × $21 USD/kg`
+                                  : `${Number(selectedPackage.cbm).toFixed(4)} m³`}
                               </Typography>
                             </Box>
                           ) : (
@@ -5540,7 +5602,7 @@ export default function DashboardClient() {
                           )}
                         </Box>
                         <Chip 
-                          label={selectedPackage.client_paid ? t('cd.detail.paid') : isEstimated ? 'Pendiente de Cotización' : t('cd.detail.pendingPayment')} 
+                          label={selectedPackage.client_paid ? t('cd.detail.paid') : showAirPrice ? t('cd.detail.pendingPayment') : isEstimated ? 'Pendiente de Cotización' : t('cd.detail.pendingPayment')} 
                           size="small" 
                           color={selectedPackage.client_paid ? 'success' : 'warning'}
                           sx={{ mt: 1 }}

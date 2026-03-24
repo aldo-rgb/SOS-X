@@ -1574,7 +1574,11 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         image_url,
         destination_address,
         destination_city,
-        destination_contact
+        destination_contact,
+        air_sale_price,
+        air_price_per_kg,
+        air_tariff_type,
+        pro_name
       FROM packages
       WHERE (user_id = $1 OR box_id = $2)
         AND status::text NOT IN ('delivered', 'cancelled', 'returned')

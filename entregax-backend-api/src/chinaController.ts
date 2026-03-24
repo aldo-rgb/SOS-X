@@ -171,30 +171,125 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
                 [item.childNo]
             );
 
+            // === CALCULAR PRECIO DE VENTA ===
+            // Buscar ruta activa
+            const routeRes = await client.query(`
+                SELECT id FROM air_routes WHERE is_active = true LIMIT 1
+            `);
+            const airRouteId = routeRes.rows.length > 0 ? routeRes.rows[0].id : null;
+            
+            // Determinar tipo de tarifa basado en proName/descripción
+            const proNameLower = (item.proName || '').toLowerCase();
+            let tariffType = 'G'; // Por defecto Genérico
+            if (proNameLower.includes('logo') || proNameLower.includes('鞋') || proNameLower.includes('zapato') || proNameLower.includes('shoes')) {
+                tariffType = 'L';
+            } else if (proNameLower.includes('medical') || proNameLower.includes('sensible') || proNameLower.includes('medicina')) {
+                tariffType = 'S';
+            }
+            
+            // Buscar precio: primero tarifa personalizada del cliente, luego general
+            let pricePerKg = 0;
+            let isCustomTariff = false;
+            
+            if (airRouteId && userId) {
+                const customTariffRes = await client.query(`
+                    SELECT price_per_kg FROM air_client_tariffs 
+                    WHERE user_id = $1 AND route_id = $2 AND tariff_type = $3 AND is_active = true
+                    LIMIT 1
+                `, [userId, airRouteId, tariffType]);
+                
+                if (customTariffRes.rows.length > 0) {
+                    pricePerKg = parseFloat(customTariffRes.rows[0].price_per_kg);
+                    isCustomTariff = true;
+                }
+            }
+            
+            if (pricePerKg === 0 && airRouteId) {
+                const generalTariffRes = await client.query(`
+                    SELECT price_per_kg FROM air_tariffs 
+                    WHERE route_id = $1 AND tariff_type = $2 AND is_active = true
+                    LIMIT 1
+                `, [airRouteId, tariffType]);
+                
+                if (generalTariffRes.rows.length > 0) {
+                    pricePerKg = parseFloat(generalTariffRes.rows[0].price_per_kg);
+                }
+            }
+            
+            const itemWeight = parseFloat(String(item.weight || 0)) || 0;
+            const salePrice = itemWeight * pricePerKg;
+            
+            console.log(`   📦 ${item.childNo}: ${tariffType} | ${itemWeight}kg × $${pricePerKg}/kg = $${salePrice.toFixed(2)} (${isCustomTariff ? 'CUSTOM' : 'GENERAL'})`);
+
             if (existingPkg.rows.length > 0) {
                 // ACTUALIZAR caja existente (ej: cuando llega el billNo)
-                await client.query(`
-                    UPDATE packages SET
-                        international_tracking = COALESCE($1, international_tracking),
-                        weight = $2,
-                        pro_name = $3,
-                        customs_bno = $4,
-                        etd = $5,
-                        eta = $6,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE child_no = $7
-                `, [
-                    item.billNo || null,
-                    item.weight,
-                    item.proName,
-                    item.customsBno,
-                    item.etd || null,
-                    item.eta || null,
-                    item.childNo
-                ]);
+                // Si no tiene precio asignado, asignarlo ahora (congelar precio)
+                const existingId = existingPkg.rows[0].id;
+                const hasPriceRes = await client.query(
+                    'SELECT air_sale_price FROM packages WHERE id = $1',
+                    [existingId]
+                );
+                const hasExistingPrice = hasPriceRes.rows.length > 0 && 
+                    hasPriceRes.rows[0].air_sale_price !== null && 
+                    parseFloat(hasPriceRes.rows[0].air_sale_price) > 0;
+
+                if (hasExistingPrice) {
+                    // Ya tiene precio congelado → NO sobrescribir
+                    await client.query(`
+                        UPDATE packages SET
+                            international_tracking = COALESCE($1, international_tracking),
+                            weight = $2,
+                            pro_name = $3,
+                            customs_bno = $4,
+                            etd = $5,
+                            eta = $6,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE child_no = $7
+                    `, [
+                        item.billNo || null,
+                        item.weight,
+                        item.proName,
+                        item.customsBno,
+                        item.etd || null,
+                        item.eta || null,
+                        item.childNo
+                    ]);
+                } else {
+                    // No tiene precio → asignar precio congelado ahora
+                    await client.query(`
+                        UPDATE packages SET
+                            international_tracking = COALESCE($1, international_tracking),
+                            weight = $2,
+                            pro_name = $3,
+                            customs_bno = $4,
+                            etd = $5,
+                            eta = $6,
+                            air_route_id = $8,
+                            air_tariff_type = $9,
+                            air_price_per_kg = $10,
+                            air_sale_price = $11,
+                            air_is_custom_tariff = $12,
+                            air_price_assigned_at = NOW(),
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE child_no = $7
+                    `, [
+                        item.billNo || null,
+                        item.weight,
+                        item.proName,
+                        item.customsBno,
+                        item.etd || null,
+                        item.eta || null,
+                        item.childNo,
+                        airRouteId,
+                        tariffType,
+                        pricePerKg,
+                        salePrice,
+                        isCustomTariff
+                    ]);
+                }
                 packagesUpdated++;
             } else {
-                // CREAR nueva caja
+                // CREAR nueva caja CON PRECIO CONGELADO
                 const trackingInternal = `CN-${item.childNo.slice(-8)}`;
                 const dimensions = `${item.long}x${item.width}x${item.height}`;
                 
@@ -204,8 +299,9 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
                      weight, dimensions, long_cm, width_cm, height_cm,
                      description, pro_name, customs_bno, trajectory_name,
                      single_volume, single_cbm, international_tracking,
-                     etd, eta, service_type, warehouse_location, status)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                     etd, eta, service_type, warehouse_location, status,
+                     air_route_id, air_tariff_type, air_price_per_kg, air_sale_price, air_is_custom_tariff, air_price_assigned_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, NOW())
                 `, [
                     trackingInternal,
                     item.childNo,
@@ -227,7 +323,12 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
                     item.eta || null,
                     'AIR_CHN_MX',
                     'china_air',
-                    'received_china'
+                    'received_china',
+                    airRouteId,
+                    tariffType,
+                    pricePerKg,
+                    salePrice,
+                    isCustomTariff
                 ]);
                 packagesCreated++;
             }
