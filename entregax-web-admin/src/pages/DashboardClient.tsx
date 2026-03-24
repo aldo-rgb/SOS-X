@@ -404,7 +404,7 @@ export default function DashboardClient() {
     // Mapear los valores internos del DB a los identificadores del carrier system
     const serviceMap: Record<string, string> = {
       'AIR_CHN_MX': 'china_air', 'china_air': 'china_air', 'TDI_AEREO': 'china_air',
-      'SEA_CHN_MX': 'china_sea', 'china_sea': 'china_sea', 'maritime': 'china_sea', 'MAR_CHN_MX': 'china_sea', 'fcl': 'china_sea',
+      'SEA_CHN_MX': 'china_sea', 'china_sea': 'china_sea', 'maritime': 'china_sea', 'MAR_CHN_MX': 'china_sea', 'fcl': 'china_sea', 'FCL_CHN_MX': 'china_sea',
       'POBOX_USA': 'usa_pobox', 'usa_pobox': 'usa_pobox', 'air': 'usa_pobox',
       'NATIONAL': 'dhl', 'dhl': 'dhl', 'mx_cedis': 'dhl', 'AA_DHL': 'dhl', 'DHL_MTY': 'dhl',
     };
@@ -1093,7 +1093,7 @@ export default function DashboardClient() {
       filtered = filtered.filter(pkg => {
         const type = pkg.shipment_type || pkg.servicio;
         if (serviceFilter === 'china_air') return type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX';
-        if (serviceFilter === 'china_sea') return type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl';
+        if (serviceFilter === 'china_sea') return type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl' || type === 'FCL_CHN_MX';
         if (serviceFilter === 'usa_pobox') return type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type;
         if (serviceFilter === 'dhl') return type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL' || type === 'AA_DHL' || type === 'DHL_MTY';
         return true;
@@ -1152,7 +1152,7 @@ export default function DashboardClient() {
       const type = pkg.shipment_type || pkg.servicio;
       if (type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX') {
         counts.china_air++;
-      } else if (type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl') {
+      } else if (type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl' || type === 'FCL_CHN_MX') {
         counts.china_sea++;
       } else if (type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type) {
         counts.usa_pobox++;
@@ -2454,7 +2454,7 @@ export default function DashboardClient() {
                         const type = pkg.shipment_type || pkg.servicio;
                         let matchesService = true;
                         if (serviceFilter === 'china_air') matchesService = type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX';
-                        else if (serviceFilter === 'china_sea') matchesService = type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl';
+                        else if (serviceFilter === 'china_sea') matchesService = type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl' || type === 'FCL_CHN_MX';
                         else if (serviceFilter === 'usa_pobox') matchesService = type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type;
                         else if (serviceFilter === 'dhl') matchesService = type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL' || type === 'AA_DHL' || type === 'DHL_MTY';
                         return matchesService && !pkg.has_delivery_instructions && !pkg.delivery_address_id;
@@ -2928,20 +2928,21 @@ export default function DashboardClient() {
                         {(() => {
                           const pkgMonto = Number(pkg.monto) || 0;
                           const isDhl = pkg.shipment_type === 'dhl' || pkg.servicio === 'AA_DHL' || pkg.servicio === 'DHL_MTY';
-                          const isMaritime = pkg.shipment_type === 'maritime' || pkg.servicio === 'SEA_CHN_MX';
+                          const isMaritime = pkg.shipment_type === 'maritime' || pkg.servicio === 'SEA_CHN_MX' || pkg.servicio === 'FCL_CHN_MX';
                           const currency = pkg.monto_currency || (isDhl ? 'USD' : isMaritime ? 'USD' : 'MXN');
                           // Mostrar precio asignado o estimado
                           if (pkgMonto > 0 && !pkg.client_paid) {
-                            // Para marítimo, mostrar precio en USD si está disponible
-                            if (isMaritime && pkg.maritime_sale_price_usd && pkg.maritime_sale_price_usd > 0) {
+                            // Para marítimo/FCL, mostrar precio con label de tipo
+                            if (isMaritime && pkgMonto > 0) {
                               const merchLabel = pkg.merchandise_type === 'sensitive' ? 'Sensible' 
                                 : pkg.merchandise_type === 'logo' ? 'Logotipo' 
                                 : pkg.merchandise_type === 'startup' ? 'StartUp'
+                                : pkg.merchandise_type === 'FCL' ? 'FCL'
                                 : 'Genérico';
                               return (
                                 <Box sx={{ textAlign: 'right' }}>
                                   <Typography variant="body2" color="warning.main" fontWeight="bold">
-                                    ${pkg.maritime_sale_price_usd.toFixed(2)} USD
+                                    {currency === 'USD' ? `$${pkgMonto.toFixed(2)} USD` : formatCurrency(pkgMonto)}
                                   </Typography>
                                   <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
                                     {merchLabel}
@@ -5577,16 +5578,17 @@ export default function DashboardClient() {
                     // Calcular costo estimado para marítimo si monto es 0 y tiene CBM
                     const displayMonto = Number(selectedPackage.monto) || 0;
                     const isDhl = selectedPackage.shipment_type === 'dhl' || selectedPackage.servicio === 'AA_DHL' || selectedPackage.servicio === 'DHL_MTY';
-                    const isMaritime = selectedPackage.shipment_type === 'maritime' || selectedPackage.servicio === 'SEA_CHN_MX';
+                    const isMaritime = selectedPackage.shipment_type === 'maritime' || selectedPackage.servicio === 'SEA_CHN_MX' || selectedPackage.servicio === 'FCL_CHN_MX';
                     const currency = selectedPackage.monto_currency || (isDhl ? 'USD' : isMaritime ? 'USD' : 'MXN');
                     let isEstimated = false;
                     let estimatedUSD = 0;
 
-                    // Marítimo con precio congelado en USD
-                    const maritimeSaleUsd = selectedPackage.maritime_sale_price_usd ? Number(selectedPackage.maritime_sale_price_usd) : 0;
-                    const hasMaritimeFrozenPrice = isMaritime && maritimeSaleUsd > 0;
+                    // Marítimo/FCL con precio asignado
+                    const displayMontoParsed = Number(selectedPackage.monto) || 0;
+                    const isFCL = selectedPackage.servicio === 'FCL_CHN_MX' || selectedPackage.merchandise_type === 'FCL';
+                    const hasMaritimeFrozenPrice = isMaritime && displayMontoParsed > 0;
 
-                    if (!hasMaritimeFrozenPrice && displayMonto === 0 && selectedPackage.cbm && Number(selectedPackage.cbm) > 0 && isMaritime) {
+                    if (!hasMaritimeFrozenPrice && displayMontoParsed === 0 && selectedPackage.cbm && Number(selectedPackage.cbm) > 0 && isMaritime && !isFCL) {
                       const cbm = Number(selectedPackage.cbm);
                       if (cbm <= 0.03) estimatedUSD = 39;
                       else if (cbm <= 0.1) estimatedUSD = 79;
@@ -5619,10 +5621,11 @@ export default function DashboardClient() {
                     // Determinar label de tipo para DHL
                     const dhlTypeLabel = selectedPackage.product_type === 'high_value' ? 'Sensible' : 'Accesorios/Mixto';
 
-                    // Determinar label de mercancía para marítimo
+                    // Determinar label de mercancía para marítimo/FCL
                     const merchLabel = selectedPackage.merchandise_type === 'sensitive' ? 'Sensible' 
                       : selectedPackage.merchandise_type === 'logo' ? 'Logotipo' 
                       : selectedPackage.merchandise_type === 'startup' ? 'StartUp'
+                      : selectedPackage.merchandise_type === 'FCL' ? 'FCL'
                       : 'Genérico';
 
                     return (
@@ -5632,10 +5635,12 @@ export default function DashboardClient() {
                           {hasMaritimeFrozenPrice ? (
                             <Box sx={{ textAlign: 'right' }}>
                               <Typography variant="h5" fontWeight="bold" color={selectedPackage.client_paid ? 'success.main' : 'warning.main'}>
-                                ${maritimeSaleUsd.toFixed(2)} USD
+                                {currency === 'USD' ? `$${displayMontoParsed.toFixed(2)} USD` : formatCurrency(displayMontoParsed)}
                               </Typography>
                               <Typography variant="caption" color="text.secondary">
-                                {Number(selectedPackage.cbm).toFixed(3)} m³ · {merchLabel}
+                                {isFCL 
+                                  ? `Contenedor completo · ${merchLabel}`
+                                  : `${Number(selectedPackage.cbm).toFixed(3)} m³ · ${merchLabel}`}
                               </Typography>
                             </Box>
                           ) : showAirPrice ? (

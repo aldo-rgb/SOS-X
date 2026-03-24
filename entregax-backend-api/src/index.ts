@@ -1472,6 +1472,13 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
     const user = userQuery.rows[0];
     const boxId = user.box_id;
 
+    // Buscar legacy_client_id del usuario (para contenedores FCL)
+    let legacyClientId: number | null = null;
+    if (boxId) {
+      const lcRes = await pool.query('SELECT id FROM legacy_clients WHERE box_id = $1 LIMIT 1', [boxId]);
+      legacyClientId = lcRes.rows[0]?.id || null;
+    }
+
     // 2. Contar paquetes por estado (usando user_id, no box_id)
     const packagesStatsQuery = await pool.query(`
       SELECT 
@@ -1740,6 +1747,72 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
       console.log('DHL shipments query error:', (err as Error).message);
     }
 
+    // 3f. Obtener contenedores FCL del cliente (vinculados por client_user_id o legacy_client_id)
+    let containerRows: any[] = [];
+    try {
+      const containerConditions = ['c.client_user_id = $1'];
+      const containerParams: any[] = [userId];
+      if (legacyClientId) {
+        containerConditions.push(`c.legacy_client_id = $${containerParams.length + 1}`);
+        containerParams.push(legacyClientId);
+      }
+      const containerQuery = await pool.query(`
+        SELECT 
+          c.id,
+          c.container_number as tracking,
+          COALESCE(c.carrier_name, 'MARITIMO') as tracking_provider,
+          COALESCE(c.goods_description, 'Contenedor ' || c.container_number) as descripcion,
+          'FCL_CHN_MX' as servicio,
+          'maritime' as shipment_type,
+          c.status,
+          CASE c.status 
+            WHEN 'in_transit' THEN '🚢 En Tránsito Marítimo'
+            WHEN 'at_port' THEN '⚓ En Puerto'
+            WHEN 'customs_mx' THEN '🛃 Aduana México'
+            WHEN 'in_transit_mx' THEN '🚛 En Ruta México'
+            WHEN 'received_cedis' THEN '✅ En CEDIS'
+            WHEN 'ready_pickup' THEN '📍 Listo para Recoger'
+            WHEN 'delivered' THEN '✅ Entregado'
+            ELSE c.status
+          END as status_label,
+          COALESCE(c.vessel_name, c.bl_number, 'En tránsito') as fecha_estimada,
+          COALESCE(c.sale_price, 0) as monto,
+          false as client_paid,
+          NULL as delivery_address_id,
+          NULL as assigned_address_id,
+          c.created_at,
+          c.total_packages as total_boxes,
+          c.total_weight_kg as weight,
+          c.total_cbm as cbm,
+          NULL as dimensions,
+          NULL as declared_value,
+          NULL as image_url,
+          NULL as destination_address,
+          NULL as destination_city,
+          NULL as destination_contact,
+          false as is_master,
+          NULL as master_id,
+          c.has_gex,
+          c.gex_folio,
+          c.sale_price as maritime_sale_price_usd,
+          'FCL' as merchandise_type,
+          COALESCE(c.sale_price_currency, 'MXN') as monto_currency,
+          c.eta,
+          c.bl_number,
+          c.vessel_name
+        FROM containers c
+        WHERE (${containerConditions.join(' OR ')})
+          AND c.status NOT IN ('delivered', 'cancelled')
+        ORDER BY 
+          CASE WHEN c.status = 'ready_pickup' THEN 0 ELSE 1 END,
+          c.created_at DESC
+        LIMIT 200
+      `, containerParams);
+      containerRows = containerQuery.rows;
+    } catch (err) {
+      console.log('Containers query error:', (err as Error).message);
+    }
+
     // 3d. Cargar paquetes hijos (guías incluidas) para los reempaques/masters
     const masterIds = packagesQuery.rows
       .filter((p: any) => p.is_master === true)
@@ -1826,7 +1899,15 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         declared_value: mo.declared_value ? parseFloat(mo.declared_value) : null,
       })),
       ...dhlPackagesRows,
-      ...dhlShipmentRows
+      ...dhlShipmentRows,
+      ...containerRows.map((c: any) => ({
+        ...c,
+        total_boxes: c.total_boxes ? parseInt(c.total_boxes) : null,
+        weight: c.weight ? parseFloat(c.weight) : null,
+        cbm: c.cbm ? parseFloat(c.cbm) : null,
+        monto: c.monto ? parseFloat(c.monto) : 0,
+        maritime_sale_price_usd: c.maritime_sale_price_usd ? parseFloat(c.maritime_sale_price_usd) : null,
+      })),
     ].sort((a, b) => {
       // Primero los listos para recoger
       if (a.status === 'ready_pickup' && b.status !== 'ready_pickup') return -1;
@@ -1858,6 +1939,18 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
       console.log('Tabla facturas no disponible');
     }
 
+    // Contar contenedores activos para stats
+    const containerStatsInTransit = containerRows.filter((c: any) => 
+      ['in_transit', 'at_port', 'loading'].includes(c.status)
+    ).length;
+    const containerStatsReady = containerRows.filter((c: any) => 
+      ['received_cedis', 'ready_pickup'].includes(c.status)
+    ).length;
+    const containerSaldoPendiente = containerRows.reduce((sum: number, c: any) => {
+      const price = parseFloat(c.monto) || 0;
+      return c.client_paid ? sum : sum + price;
+    }, 0);
+
     // 5. Construir respuesta
     res.json({
       stats: {
@@ -1870,13 +1963,13 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           zip: '78045',
         },
         paquetes: {
-          en_transito: (parseInt(stats.en_transito) || 0) + (parseInt(maritimeStats.en_transito) || 0),
+          en_transito: (parseInt(stats.en_transito) || 0) + (parseInt(maritimeStats.en_transito) || 0) + containerStatsInTransit,
           en_bodega: (parseInt(stats.en_bodega) || 0) + (parseInt(String(dhlStats.en_bodega)) || 0),
-          listos_recoger: (parseInt(stats.listos_recoger) || 0) + (parseInt(maritimeStats.listos_recoger) || 0),
+          listos_recoger: (parseInt(stats.listos_recoger) || 0) + (parseInt(maritimeStats.listos_recoger) || 0) + containerStatsReady,
           entregados_mes: (parseInt(stats.entregados_mes) || 0) + (parseInt(maritimeStats.entregados_mes) || 0),
         },
         financiero: {
-          saldo_pendiente: (parseFloat(stats.saldo_pendiente) || 0) + (parseFloat(maritimeStats.saldo_pendiente) || 0) + (parseFloat(dhlStats.saldo_pendiente as any) || 0),
+          saldo_pendiente: (parseFloat(stats.saldo_pendiente) || 0) + (parseFloat(maritimeStats.saldo_pendiente) || 0) + (parseFloat(dhlStats.saldo_pendiente as any) || 0) + containerSaldoPendiente,
           saldo_favor: parseFloat(user.wallet_balance) || 0,
           credito_disponible: user.has_credit 
             ? (parseFloat(user.credit_limit) - parseFloat(user.used_credit)) 
