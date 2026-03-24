@@ -302,7 +302,7 @@
   },
   "support": {
     "title": "帮助中心",
-    "agentName": "Javier",
+    "agentName": "Orlando",
     "greeting": "您好 {{name}}，我是EntregaX的{{agent}}。👋",
     "howCanIHelp": "今天我可以帮您处理什么运输问题？",
     "typing": "正在输入...",

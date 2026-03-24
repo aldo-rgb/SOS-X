@@ -303,7 +303,7 @@
   },
   "support": {
     "title": "Help Center",
-    "agentName": "Javier",
+    "agentName": "Orlando",
     "greeting": "Hi {{name}}, I'm {{agent}} from EntregaX. 👋",
     "howCanIHelp": "How can I help you with your shipment today?",
     "typing": "typing...",

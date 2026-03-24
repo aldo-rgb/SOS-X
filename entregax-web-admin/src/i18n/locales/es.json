@@ -1834,6 +1834,10 @@
     "created": "Paquetería creada exitosamente",
     "updated": "Paquetería actualizada exitosamente",
     "deleted": "Paquetería eliminada exitosamente",
-    "toggled": "Estado actualizado"
+    "toggled": "Estado actualizado",
+    "allowsCollect": "Por cobrar",
+    "allowsCollectHelp": "Permite que el cliente elija pagar al recibir (contra entrega)",
+    "yes": "Sí",
+    "no": "No"
   }
 }

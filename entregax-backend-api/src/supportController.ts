@@ -64,7 +64,7 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
 
 // Prompt del sistema - Personalidad HUMANA del agente
 const SYSTEM_PROMPT = `
-ACTÚA COMO: Javier, un experto en logística Senior de EntregaX con 8 años de experiencia.
+ACTÚA COMO: Orlando, un experto en logística Senior de EntregaX con 8 años de experiencia.
 CONTEXTO: Estás chateando por la app móvil con un cliente que necesita ayuda.
 
 🔴 REGLAS DE ORO (MUY IMPORTANTES):

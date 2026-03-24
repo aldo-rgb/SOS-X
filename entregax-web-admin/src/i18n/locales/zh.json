@@ -1470,6 +1470,10 @@
     "created": "物流选项创建成功",
     "updated": "物流选项更新成功",
     "deleted": "物流选项删除成功",
-    "toggled": "状态已更新"
+    "toggled": "状态已更新",
+    "allowsCollect": "到付",
+    "allowsCollectHelp": "允许客户选择收货时付款（货到付款）",
+    "yes": "是",
+    "no": "否"
   }
 }

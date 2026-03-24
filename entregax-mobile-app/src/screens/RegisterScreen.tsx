@@ -357,7 +357,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
               📦 ¿Ya tienes número de cliente?
             </Text>
             <Text style={styles.existingClientSubtitle}>
-              Si ya eras cliente de EntregaX antes, activa tu cuenta aquí
+              Si ya eres cliente de EntregaX antes, activa tu cuenta aquí
             </Text>
             <Button
               mode="outlined"

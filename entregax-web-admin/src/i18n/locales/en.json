@@ -1639,6 +1639,10 @@
     "created": "Carrier created successfully",
     "updated": "Carrier updated successfully",
     "deleted": "Carrier deleted successfully",
-    "toggled": "Status updated"
+    "toggled": "Status updated",
+    "allowsCollect": "Collect on delivery",
+    "allowsCollectHelp": "Allows the client to choose to pay upon receiving (cash on delivery)",
+    "yes": "Yes",
+    "no": "No"
   }
 }

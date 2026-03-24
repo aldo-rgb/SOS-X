@@ -387,7 +387,7 @@ export default function DashboardClient() {
   }, [packages, selectedPackageIds]);
 
   // Opciones de paquetería dinámicas desde la API
-  const [carrierServices, setCarrierServices] = useState<{ id: string; name: string; description: string; price: string; subtext?: string; icon: string }[]>([]);
+  const [carrierServices, setCarrierServices] = useState<{ id: string; name: string; description: string; price: string; subtext?: string; icon: string; allowsCollect?: boolean }[]>([]);
   useEffect(() => {
     const fetchCarrierOptions = async () => {
       try {
@@ -397,13 +397,14 @@ export default function DashboardClient() {
         });
         const data = await res.json();
         if (data.success && data.data) {
-          setCarrierServices(data.data.map((c: { carrier_key: string; name: string; description: string; price_label: string; subtext: string; icon: string }) => ({
+          setCarrierServices(data.data.map((c: { carrier_key: string; name: string; description: string; price_label: string; subtext: string; icon: string; allows_collect: boolean }) => ({
             id: c.carrier_key,
             name: c.name,
             description: c.description || '',
             price: c.price_label || '',
             subtext: c.subtext || undefined,
             icon: c.icon || '🚛',
+            allowsCollect: c.allows_collect || false,
           })));
         }
       } catch (err) {

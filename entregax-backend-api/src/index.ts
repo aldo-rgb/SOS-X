@@ -1853,7 +1853,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         },
         paquetes: {
           en_transito: (parseInt(stats.en_transito) || 0) + (parseInt(maritimeStats.en_transito) || 0),
-          en_bodega: (parseInt(stats.en_bodega) || 0) + (parseInt(dhlStats.en_bodega) || 0),
+          en_bodega: (parseInt(stats.en_bodega) || 0) + (parseInt(String(dhlStats.en_bodega)) || 0),
           listos_recoger: (parseInt(stats.listos_recoger) || 0) + (parseInt(maritimeStats.listos_recoger) || 0),
           entregados_mes: (parseInt(stats.entregados_mes) || 0) + (parseInt(maritimeStats.entregados_mes) || 0),
         },

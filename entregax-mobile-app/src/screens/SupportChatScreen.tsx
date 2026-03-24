@@ -35,7 +35,7 @@ const CHAT_BG = '#ECE5DD'; // Fondo tipo WhatsApp
 
 // Avatar del agente (foto realista de stock)
 const AGENT_AVATAR = 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face';
-const AGENT_NAME = 'Javier';
+const AGENT_NAME = 'Orlando';
 
 type RootStackParamList = {
   SupportChat: { user: any; token: string; ticketId?: number };

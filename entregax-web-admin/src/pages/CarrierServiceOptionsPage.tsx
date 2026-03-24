@@ -52,6 +52,7 @@ interface CarrierOption {
   subtext: string | null;
   icon: string;
   is_active: boolean;
+  allows_collect: boolean;
   priority: number;
   service_types: string[];
   created_at: string;
@@ -66,6 +67,7 @@ interface CarrierFormData {
   subtext: string;
   icon: string;
   priority: number;
+  allows_collect: boolean;
   service_types: string[];
 }
 
@@ -84,6 +86,7 @@ const emptyForm: CarrierFormData = {
   subtext: '',
   icon: '🚛',
   priority: 0,
+  allows_collect: false,
   service_types: [],
 };
 
@@ -138,6 +141,7 @@ export default function CarrierServiceOptionsPage() {
       subtext: carrier.subtext || '',
       icon: carrier.icon || '🚛',
       priority: carrier.priority,
+      allows_collect: carrier.allows_collect || false,
       service_types: carrier.service_types || [],
     });
     setDialogOpen(true);
@@ -263,6 +267,7 @@ export default function CarrierServiceOptionsPage() {
                 <TableCell>{t('carrierOptions.description')}</TableCell>
                 <TableCell>{t('carrierOptions.priceLabel')}</TableCell>
                 <TableCell>{t('carrierOptions.services')}</TableCell>
+                <TableCell align="center">{t('carrierOptions.allowsCollect')}</TableCell>
                 <TableCell align="center">{t('carrierOptions.active')}</TableCell>
                 <TableCell align="center">{t('carrierOptions.actions')}</TableCell>
               </TableRow>
@@ -323,6 +328,14 @@ export default function CarrierServiceOptionsPage() {
                     </Box>
                   </TableCell>
                   <TableCell align="center">
+                    <Chip
+                      label={carrier.allows_collect ? t('carrierOptions.yes') : t('carrierOptions.no')}
+                      size="small"
+                      color={carrier.allows_collect ? 'success' : 'default'}
+                      variant={carrier.allows_collect ? 'filled' : 'outlined'}
+                    />
+                  </TableCell>
+                  <TableCell align="center">
                     <Switch
                       checked={carrier.is_active}
                       onChange={() => handleToggle(carrier.id)}
@@ -348,7 +361,7 @@ export default function CarrierServiceOptionsPage() {
               ))}
               {carriers.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                     <ShippingIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
                     <Typography color="text.secondary">{t('carrierOptions.empty')}</Typography>
                   </TableCell>
@@ -442,6 +455,27 @@ export default function CarrierServiceOptionsPage() {
               size="small"
               fullWidth
               placeholder="ej: $350 x 1 caja"
+            />
+
+            {/* Permite por cobrar */}
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={form.allows_collect}
+                  onChange={e => setForm(prev => ({ ...prev, allows_collect: e.target.checked }))}
+                  color="primary"
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight="bold">
+                    {t('carrierOptions.allowsCollect')}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {t('carrierOptions.allowsCollectHelp')}
+                  </Typography>
+                </Box>
+              }
             />
 
             {/* Tipos de servicio */}

@@ -42,7 +42,7 @@ export const getCarrierOptionsByService = async (req: Request, res: Response) =>
     const { serviceType } = req.params;
 
     const result = await pool.query(`
-      SELECT co.carrier_key, co.name, co.description, co.price_label, co.subtext, co.icon, co.priority
+      SELECT co.carrier_key, co.name, co.description, co.price_label, co.subtext, co.icon, co.priority, co.allows_collect
       FROM carrier_service_options co
       INNER JOIN carrier_service_type_map cm ON co.id = cm.carrier_option_id
       WHERE cm.service_type = $1
@@ -63,7 +63,7 @@ export const getCarrierOptionsByService = async (req: Request, res: Response) =>
 // =========================================
 export const createCarrierOption = async (req: Request, res: Response) => {
   try {
-    const { carrier_key, name, description, price_label, subtext, icon, priority, service_types } = req.body;
+    const { carrier_key, name, description, price_label, subtext, icon, priority, service_types, allows_collect } = req.body;
 
     if (!carrier_key || !name) {
       return res.status(400).json({ success: false, error: 'carrier_key y name son requeridos' });
@@ -76,10 +76,10 @@ export const createCarrierOption = async (req: Request, res: Response) => {
     }
 
     const result = await pool.query(`
-      INSERT INTO carrier_service_options (carrier_key, name, description, price_label, subtext, icon, priority)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO carrier_service_options (carrier_key, name, description, price_label, subtext, icon, priority, allows_collect)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
-    `, [carrier_key, name, description || null, price_label || null, subtext || null, icon || '🚛', priority || 0]);
+    `, [carrier_key, name, description || null, price_label || null, subtext || null, icon || '🚛', priority || 0, allows_collect === true]);
 
     const carrierId = result.rows[0].id;
 
@@ -121,7 +121,7 @@ export const createCarrierOption = async (req: Request, res: Response) => {
 export const updateCarrierOption = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { carrier_key, name, description, price_label, subtext, icon, is_active, priority, service_types } = req.body;
+    const { carrier_key, name, description, price_label, subtext, icon, is_active, priority, service_types, allows_collect } = req.body;
 
     // Verificar que exista
     const existing = await pool.query('SELECT id FROM carrier_service_options WHERE id = $1', [id]);
@@ -150,9 +150,10 @@ export const updateCarrierOption = async (req: Request, res: Response) => {
         icon = COALESCE($6, icon),
         is_active = COALESCE($7, is_active),
         priority = COALESCE($8, priority),
+        allows_collect = COALESCE($9, allows_collect),
         updated_at = NOW()
-      WHERE id = $9
-    `, [carrier_key, name, description, price_label, subtext !== undefined ? subtext : null, icon, is_active, priority, id]);
+      WHERE id = $10
+    `, [carrier_key, name, description, price_label, subtext !== undefined ? subtext : null, icon, is_active, priority, allows_collect, id]);
 
     // Actualizar mapeo de servicios si se proporcionan
     if (service_types && Array.isArray(service_types)) {
