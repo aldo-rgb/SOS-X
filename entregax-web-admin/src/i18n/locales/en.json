@@ -1428,7 +1428,9 @@
       "carrierSubtitle": "Select how you want to receive your packages",
       "notesTitle": "Additional Notes",
       "notesPlaceholder": "E.g.: Leave at reception, call before delivering...",
-      "saveInstructions": "Save Instructions"
+      "saveInstructions": "Save Instructions",
+      "applyFullShipment": "Apply instructions to entire shipment ({{count}} boxes)",
+      "fullShipmentNote": "Carrier pricing will be quoted for all {{count}} boxes in the shipment"
     },
     "history": {
       "title": "Delivered Packages History",

@@ -1522,7 +1522,9 @@
       "notesTitle": "Notas Adicionales",
       "additionalNotes": "Notas Adicionales",
       "notesPlaceholder": "Ej: Dejar en recepción, llamar antes de entregar...",
-      "saveInstructions": "Guardar Instrucciones"
+      "saveInstructions": "Guardar Instrucciones",
+      "applyFullShipment": "Asignar instrucciones a todo el embarque ({{count}} cajas)",
+      "fullShipmentNote": "Se cotizará la paquetería para las {{count}} cajas del embarque completo"
     },
     "history": {
       "title": "Historial de Paquetes Entregados",

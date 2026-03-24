@@ -1259,7 +1259,9 @@
       "carrierSubtitle": "选择您希望如何收取包裹",
       "notesTitle": "附加说明",
       "notesPlaceholder": "例如：放在前台，送货前打电话...",
-      "saveInstructions": "保存配送指示"
+      "saveInstructions": "保存配送指示",
+      "applyFullShipment": "将指示应用于整个货运（{{count}}箱）",
+      "fullShipmentNote": "将为货运中的所有{{count}}箱报价物流费用"
     },
     "history": {
       "title": "已送达包裹历史",

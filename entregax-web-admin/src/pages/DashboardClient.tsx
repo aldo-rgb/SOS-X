@@ -378,6 +378,7 @@ export default function DashboardClient() {
   // Nuevos estados para el modal mejorado de instrucciones
   const [selectedCarrierService, setSelectedCarrierService] = useState<string>('local');
   const [deliveryNotes, setDeliveryNotes] = useState<string>('');
+  const [applyToFullShipment, setApplyToFullShipment] = useState<boolean>(false);
   
   // Determinar el tipo de servicio de los paquetes seleccionados
   const selectedServiceType = useMemo(() => {
@@ -392,6 +393,18 @@ export default function DashboardClient() {
       'NATIONAL': 'dhl', 'dhl': 'dhl', 'mx_cedis': 'dhl', 'AA_DHL': 'dhl', 'DHL_MTY': 'dhl',
     };
     return serviceMap[raw] || 'china_air';
+  }, [packages, selectedPackageIds]);
+
+  // Total de cajas del embarque para los paquetes seleccionados
+  const shipmentTotalBoxes = useMemo(() => {
+    const selected = packages.filter(p => selectedPackageIds.includes(p.id));
+    return selected.reduce((sum, p) => sum + (p.total_boxes && p.total_boxes > 1 ? p.total_boxes : 1), 0);
+  }, [packages, selectedPackageIds]);
+
+  // Verificar si algún paquete seleccionado tiene múltiples cajas
+  const hasMultiBoxShipment = useMemo(() => {
+    const selected = packages.filter(p => selectedPackageIds.includes(p.id));
+    return selected.some(p => p.total_boxes && p.total_boxes > 1);
   }, [packages, selectedPackageIds]);
 
   // Opciones de paquetería dinámicas desde la API
@@ -1479,23 +1492,32 @@ export default function DashboardClient() {
 
     setDeliveryLoading(true);
     try {
+      // Calcular total con multiplicador de cajas si aplica
+      const selectedService = carrierServices.find(s => s.id === selectedCarrierService);
+      const totalBoxes = applyToFullShipment ? shipmentTotalBoxes : selectedPackageIds.length;
+
       const response = await api.post('/packages/assign-delivery', {
         packageIds: selectedPackageIds,
         addressId: selectedDeliveryAddress,
         carrierService: selectedCarrierService,
         notes: deliveryNotes,
+        applyToFullShipment,
+        totalBoxes,
         deliveryDetails: {
-          service: carrierServices.find(s => s.id === selectedCarrierService),
+          service: selectedService,
+          applyToFullShipment,
+          totalBoxes,
         }
       });
       
       if (response.data.success) {
-        setSnackbar({ open: true, message: t('cd.snackbar.instructionsAssignedCount', { count: selected.length }), severity: 'success' });
+        setSnackbar({ open: true, message: t('cd.snackbar.instructionsAssignedCount', { count: applyToFullShipment ? totalBoxes : selected.length }), severity: 'success' });
         setDeliveryModalOpen(false);
         setSelectedPackageIds([]);
         setSelectedDeliveryAddress(null);
         setSelectedCarrierService('local');
         setDeliveryNotes('');
+        setApplyToFullShipment(false);
         loadData(); // Recargar paquetes
       }
     } catch (error) {
@@ -1506,6 +1528,7 @@ export default function DashboardClient() {
       setSelectedDeliveryAddress(null);
       setSelectedCarrierService('local');
       setDeliveryNotes('');
+      setApplyToFullShipment(false);
       loadData(); // Recargar paquetes
     } finally {
       setDeliveryLoading(false);
@@ -4536,7 +4559,7 @@ export default function DashboardClient() {
       </Dialog>
 
       {/* Modal Instrucciones de Entrega - Versión Completa */}
-      <Dialog open={deliveryModalOpen} onClose={() => setDeliveryModalOpen(false)} maxWidth="md" fullWidth>
+      <Dialog open={deliveryModalOpen} onClose={() => { setDeliveryModalOpen(false); setApplyToFullShipment(false); }} maxWidth="md" fullWidth>
         <DialogTitle sx={{ bgcolor: BLUE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
           <LocationOnIcon />
           {t('cd.delivery.title')}
@@ -4606,6 +4629,31 @@ export default function DashboardClient() {
                     )}
                   </Box>
                 ))}
+
+                {/* Checkbox para asignar a todo el embarque */}
+                {hasMultiBoxShipment && (
+                  <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid #eee' }}>
+                    <FormControlLabel
+                      control={
+                        <Checkbox
+                          checked={applyToFullShipment}
+                          onChange={(e) => setApplyToFullShipment(e.target.checked)}
+                          color="primary"
+                        />
+                      }
+                      label={
+                        <Typography variant="body2" fontWeight="bold" sx={{ color: BLUE }}>
+                          {t('cd.delivery.applyFullShipment', { count: shipmentTotalBoxes })}
+                        </Typography>
+                      }
+                    />
+                    {applyToFullShipment && (
+                      <Typography variant="caption" color="text.secondary" sx={{ ml: 4, display: 'block' }}>
+                        {t('cd.delivery.fullShipmentNote', { count: shipmentTotalBoxes })}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
               </Paper>
 
               {/* Dirección de Entrega */}
@@ -4742,7 +4790,9 @@ export default function DashboardClient() {
                                 </Typography>
                                 {service.subtext && (
                                   <Typography variant="caption" color="text.secondary">
-                                    {service.subtext}
+                                    {applyToFullShipment && shipmentTotalBoxes > 1
+                                      ? service.subtext.replace(/×\s*\d+\s*caja/, `× ${shipmentTotalBoxes} cajas`)
+                                      : service.subtext}
                                   </Typography>
                                 )}
                               </Box>
@@ -4756,6 +4806,11 @@ export default function DashboardClient() {
                                 >
                                   {service.price}
                                 </Typography>
+                                {applyToFullShipment && shipmentTotalBoxes > 1 && service.price !== 'GRATIS' && (
+                                  <Typography variant="caption" color="primary.main" fontWeight="bold">
+                                    × {shipmentTotalBoxes} {t('cd.delivery.boxes')}
+                                  </Typography>
+                                )}
                               </Box>
                             </Box>
                           </Paper>
@@ -4767,11 +4822,34 @@ export default function DashboardClient() {
                 </FormControl>
 
                 {/* Total */}
-                <Box sx={{ mt: 2, pt: 2, borderTop: '2px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Typography variant="subtitle1" fontWeight="bold">{t('cd.delivery.total')}</Typography>
-                  <Typography variant="h6" fontWeight="bold" sx={{ color: selectedCarrierService === 'local' ? 'success.main' : 'text.primary' }}>
-                    {carrierServices.find(s => s.id === selectedCarrierService)?.price || 'GRATIS'}
-                  </Typography>
+                <Box sx={{ mt: 2, pt: 2, borderTop: '2px solid #eee' }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Typography variant="subtitle1" fontWeight="bold">{t('cd.delivery.total')}</Typography>
+                    <Box sx={{ textAlign: 'right' }}>
+                      <Typography variant="h6" fontWeight="bold" sx={{ color: selectedCarrierService === 'local' ? 'success.main' : 'text.primary' }}>
+                        {(() => {
+                          const selectedService = carrierServices.find(s => s.id === selectedCarrierService);
+                          if (!selectedService) return 'GRATIS';
+                          if (selectedService.price === 'GRATIS') return 'GRATIS';
+                          if (applyToFullShipment && shipmentTotalBoxes > 1) {
+                            // Extraer valor numérico del precio (ej: "$350" -> 350)
+                            const priceMatch = selectedService.price.match(/[\d,.]+/);
+                            if (priceMatch) {
+                              const unitPrice = parseFloat(priceMatch[0].replace(',', ''));
+                              const total = unitPrice * shipmentTotalBoxes;
+                              return `$${total.toLocaleString('es-MX', { minimumFractionDigits: 0 })}`;
+                            }
+                          }
+                          return selectedService.price;
+                        })()}
+                      </Typography>
+                      {applyToFullShipment && shipmentTotalBoxes > 1 && (
+                        <Typography variant="caption" color="text.secondary">
+                          {carrierServices.find(s => s.id === selectedCarrierService)?.price} × {shipmentTotalBoxes} {t('cd.delivery.boxes')}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Box>
                 </Box>
               </Paper>
 
@@ -4799,7 +4877,7 @@ export default function DashboardClient() {
         </DialogContent>
         <DialogActions sx={{ p: 3, bgcolor: '#f8f9fa' }}>
           <Button 
-            onClick={() => setDeliveryModalOpen(false)}
+            onClick={() => { setDeliveryModalOpen(false); setApplyToFullShipment(false); }}
             size="large"
           >
             {t('common.cancel')}
