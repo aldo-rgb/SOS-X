@@ -2913,16 +2913,17 @@ export default function DashboardClient() {
                       </Box>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         {(() => {
+                          const pkgMonto = Number(pkg.monto) || 0;
                           // Mostrar precio asignado o estimado
-                          if (pkg.monto > 0 && !pkg.client_paid) {
+                          if (pkgMonto > 0 && !pkg.client_paid) {
                             return (
                               <Typography variant="body2" color="warning.main" fontWeight="bold">
-                                {formatCurrency(pkg.monto)}
+                                {formatCurrency(pkgMonto)}
                               </Typography>
                             );
                           }
                           // Para marítimo sin precio asignado, mostrar estimado por CBM
-                          if (pkg.monto === 0 && !pkg.client_paid && pkg.cbm && Number(pkg.cbm) > 0 &&
+                          if (pkgMonto === 0 && !pkg.client_paid && pkg.cbm && Number(pkg.cbm) > 0 &&
                               (pkg.shipment_type === 'maritime' || pkg.servicio === 'SEA_CHN_MX')) {
                             const cbm = Number(pkg.cbm);
                             let estUSD = 0;
@@ -5500,11 +5501,11 @@ export default function DashboardClient() {
                   </Typography>
                   {(() => {
                     // Calcular costo estimado para marítimo si monto es 0 y tiene CBM
-                    const displayMonto = selectedPackage.monto || 0;
+                    const displayMonto = Number(selectedPackage.monto) || 0;
                     let isEstimated = false;
                     let estimatedUSD = 0;
 
-                    if (displayMonto === 0 && selectedPackage.cbm && selectedPackage.cbm > 0 && 
+                    if (displayMonto === 0 && selectedPackage.cbm && Number(selectedPackage.cbm) > 0 && 
                         (selectedPackage.shipment_type === 'maritime' || selectedPackage.servicio === 'SEA_CHN_MX')) {
                       const cbm = Number(selectedPackage.cbm);
                       if (cbm <= 0.03) estimatedUSD = 39;
