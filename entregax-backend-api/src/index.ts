@@ -1504,7 +1504,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
       const dhlStatsQuery = await pool.query(`
         SELECT 
           COUNT(*) FILTER (WHERE status IN ('received_mty', 'inspected', 'pending_payment', 'pending_inspection')) as en_bodega,
-          COALESCE(SUM(COALESCE(saldo_pendiente, total_cost_mxn, 0)) FILTER (WHERE paid_at IS NULL AND status NOT IN ('cancelled', 'delivered')), 0) as saldo_pendiente
+          COALESCE(SUM(COALESCE(import_cost_usd, 0)) FILTER (WHERE paid_at IS NULL AND status NOT IN ('cancelled', 'delivered')), 0) as saldo_pendiente
         FROM dhl_shipments
         WHERE user_id = $1 OR box_id = $2
       `, [userId, boxId]);
@@ -1706,7 +1706,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
             ELSE ds.status
           END as status_label,
           'CEDIS MTY' as fecha_estimada,
-          COALESCE(ds.total_cost_mxn, ds.assigned_cost_usd, 0) as monto,
+          COALESCE(ds.import_cost_usd, 0) as monto,
           CASE WHEN ds.paid_at IS NOT NULL THEN true ELSE false END as client_paid,
           ds.delivery_address_id,
           NULL as assigned_address_id,
@@ -1723,7 +1723,9 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           END as dimensions,
           ds.product_type,
           ds.saldo_pendiente,
-          ds.monto_pagado
+          ds.monto_pagado,
+          ds.import_cost_usd as dhl_sale_price_usd,
+          'USD' as monto_currency
         FROM dhl_shipments ds
         WHERE (ds.user_id = $1 OR ds.box_id = $2)
           AND ds.status NOT IN ('delivered', 'cancelled')

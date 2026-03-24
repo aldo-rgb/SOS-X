@@ -156,6 +156,15 @@ interface PackageTracking {
   destination_address?: string;
   destination_city?: string;
   destination_contact?: string;
+  // Campos de precio aéreo China
+  air_sale_price?: number;
+  air_price_per_kg?: number;
+  air_tariff_type?: string;
+  pro_name?: string;
+  // Campos DHL
+  product_type?: string;
+  monto_currency?: string;
+  dhl_sale_price_usd?: number;
 }
 
 interface IncludedGuide {
@@ -2915,12 +2924,21 @@ export default function DashboardClient() {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         {(() => {
                           const pkgMonto = Number(pkg.monto) || 0;
+                          const isDhl = pkg.shipment_type === 'dhl' || pkg.servicio === 'AA_DHL' || pkg.servicio === 'DHL_MTY';
+                          const currency = pkg.monto_currency || (isDhl ? 'USD' : 'MXN');
                           // Mostrar precio asignado o estimado
                           if (pkgMonto > 0 && !pkg.client_paid) {
                             return (
-                              <Typography variant="body2" color="warning.main" fontWeight="bold">
-                                {formatCurrency(pkgMonto)}
-                              </Typography>
+                              <Box sx={{ textAlign: 'right' }}>
+                                <Typography variant="body2" color="warning.main" fontWeight="bold">
+                                  {currency === 'USD' ? `$${pkgMonto.toFixed(2)} USD` : formatCurrency(pkgMonto)}
+                                </Typography>
+                                {isDhl && pkg.product_type && (
+                                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                                    {pkg.product_type === 'high_value' ? 'Sensible' : 'Accesorios/Mixto'}
+                                  </Typography>
+                                )}
+                              </Box>
                             );
                           }
                           // Para marítimo sin precio asignado, mostrar estimado por CBM
@@ -5537,6 +5555,8 @@ export default function DashboardClient() {
                   {(() => {
                     // Calcular costo estimado para marítimo si monto es 0 y tiene CBM
                     const displayMonto = Number(selectedPackage.monto) || 0;
+                    const isDhl = selectedPackage.shipment_type === 'dhl' || selectedPackage.servicio === 'AA_DHL' || selectedPackage.servicio === 'DHL_MTY';
+                    const currency = selectedPackage.monto_currency || (isDhl ? 'USD' : 'MXN');
                     let isEstimated = false;
                     let estimatedUSD = 0;
 
@@ -5571,6 +5591,9 @@ export default function DashboardClient() {
                     const hasAirFrozenPrice = selectedPackage.air_sale_price && Number(selectedPackage.air_sale_price) > 0;
                     const showAirPrice = hasAirFrozenPrice && !isEstimated && displayMonto === 0;
 
+                    // Determinar label de tipo para DHL
+                    const dhlTypeLabel = selectedPackage.product_type === 'high_value' ? 'Sensible' : 'Accesorios/Mixto';
+
                     return (
                       <Paper sx={{ p: 2, bgcolor: selectedPackage.client_paid ? '#e8f5e9' : '#fff3e0' }}>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -5596,9 +5619,16 @@ export default function DashboardClient() {
                               </Typography>
                             </Box>
                           ) : (
-                            <Typography variant="h5" fontWeight="bold" color={selectedPackage.client_paid ? 'success.main' : 'warning.main'}>
-                              {formatCurrency(displayMonto)}
-                            </Typography>
+                            <Box sx={{ textAlign: 'right' }}>
+                              <Typography variant="h5" fontWeight="bold" color={selectedPackage.client_paid ? 'success.main' : 'warning.main'}>
+                                {currency === 'USD' ? `$${displayMonto.toFixed(2)} USD` : formatCurrency(displayMonto)}
+                              </Typography>
+                              {isDhl && selectedPackage.product_type && (
+                                <Typography variant="caption" color="text.secondary">
+                                  {dhlTypeLabel}
+                                </Typography>
+                              )}
+                            </Box>
                           )}
                         </Box>
                         <Chip 
