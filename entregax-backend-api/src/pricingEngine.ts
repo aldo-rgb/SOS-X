@@ -838,6 +838,270 @@ export const calculateMaritimeCost = async (req: Request, res: Response): Promis
     }
 };
 
+// ============================================
+// AUTO-ASIGNAR PRECIO AL CONSOLIDAR EN CONTENEDOR
+// Se ejecuta cuando un LOG se asigna a un contenedor LCL o FCL
+// El precio se guarda y no cambia si la tarifa se actualiza después
+// ============================================
+
+export interface AutoPriceResult {
+    assigned_cost_usd: number;
+    assigned_cost_mxn: number;
+    applied_category: string;
+    applied_rate: string;
+    chargeable_cbm: number;
+    is_flat_fee: boolean;
+    is_vip: boolean;
+    breakdown: string;
+}
+
+/**
+ * Calcula y persiste el precio de un maritime_order al ser asignado a un contenedor.
+ * 
+ * Para LCL: Usa pricing_categories + pricing_tiers por CBM y categoría de mercancía.
+ *   - Respeta reglas StartUp (≤0.75 CBM), redondeo (0.76-0.99→1), VIP, Logotipo surcharge.
+ *   - Soporta tarifas por cliente via price_lists.
+ * Para FCL: Usa fcl_client_rates o tarifa base de la categoría FCL 40 Pies.
+ * 
+ * @param orderId - ID del maritime_order
+ * @param assignedBy - ID del usuario admin que asigna
+ */
+export const assignPriceToMaritimeOrder = async (
+    orderId: number,
+    assignedBy: number
+): Promise<AutoPriceResult | null> => {
+    // 1. Obtener datos de la orden
+    const orderRes = await pool.query(`
+        SELECT mo.id, mo.ordersn, mo.user_id, mo.shipping_mark,
+               mo.summary_volume, mo.summary_weight, mo.summary_boxes,
+               mo.merchandise_type, mo.container_id, mo.route_id,
+               mo.assigned_cost_usd,
+               c.type as container_type
+        FROM maritime_orders mo
+        LEFT JOIN containers c ON mo.container_id = c.id
+        WHERE mo.id = $1
+    `, [orderId]);
+
+    if (orderRes.rows.length === 0) {
+        console.log(`⚠️ AutoPrice: Orden ${orderId} no encontrada`);
+        return null;
+    }
+
+    const order = orderRes.rows[0];
+
+    // Si ya tiene precio asignado, no recalcular (precio congelado)
+    if (order.assigned_cost_usd && parseFloat(order.assigned_cost_usd) > 0) {
+        console.log(`ℹ️ AutoPrice: Orden ${order.ordersn} ya tiene precio asignado: $${order.assigned_cost_usd} USD`);
+        return null;
+    }
+
+    if (!order.container_id) {
+        console.log(`⚠️ AutoPrice: Orden ${order.ordersn} no tiene contenedor asignado`);
+        return null;
+    }
+
+    // 2. Obtener tipo de cambio
+    const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
+    const fxRate = parseFloat(fxRes.rows[0]?.rate || '20.50');
+
+    const containerType = (order.container_type || 'LCL').toUpperCase();
+
+    // 3. Resolver el user_id (puede venir de la orden o del shipping_mark)
+    let userId = order.user_id;
+    if (!userId && order.shipping_mark) {
+        const userByMark = await pool.query(
+            'SELECT id FROM users WHERE UPPER(box_id) = UPPER($1) LIMIT 1',
+            [order.shipping_mark]
+        );
+        userId = userByMark.rows[0]?.id || null;
+    }
+
+    let finalPriceUsd = 0;
+    let appliedCategory = 'Generico';
+    let appliedRate = '0';
+    let chargeableCbm = 0;
+    let isFlatFee = false;
+    let isVip = false;
+    let breakdown = '';
+
+    // ===================== FCL =====================
+    if (containerType === 'FCL') {
+        // Buscar tarifa FCL por cliente
+        if (userId) {
+            // Buscar legacy_client_id del usuario
+            const lcRes = await pool.query(
+                'SELECT id FROM legacy_clients WHERE box_id = (SELECT box_id FROM users WHERE id = $1) LIMIT 1',
+                [userId]
+            );
+            const legacyClientId = lcRes.rows[0]?.id;
+
+            if (legacyClientId) {
+                // Tarifa específica por cliente + ruta
+                const clientRate = await pool.query(`
+                    SELECT custom_price_usd, currency 
+                    FROM fcl_client_rates 
+                    WHERE legacy_client_id = $1 AND (route_id = $2 OR route_id IS NULL)
+                    ORDER BY route_id DESC NULLS LAST LIMIT 1
+                `, [legacyClientId, order.route_id]);
+
+                if (clientRate.rows.length > 0) {
+                    const rate = clientRate.rows[0];
+                    if (rate.currency === 'MXN') {
+                        finalPriceUsd = parseFloat(rate.custom_price_usd) / fxRate;
+                    } else {
+                        finalPriceUsd = parseFloat(rate.custom_price_usd);
+                    }
+                    appliedCategory = 'FCL (Cliente)';
+                    appliedRate = rate.custom_price_usd;
+                    breakdown = `FCL tarifa cliente: $${rate.custom_price_usd} ${rate.currency}`;
+                }
+            }
+        }
+
+        // Si no hay tarifa de cliente, usar tarifa base FCL
+        if (finalPriceUsd === 0) {
+            const fclTier = await pool.query(`
+                SELECT pt.price FROM pricing_tiers pt
+                JOIN pricing_categories pc ON pt.category_id = pc.id
+                WHERE pc.name = 'FCL 40 Pies' AND pt.is_active = TRUE
+                LIMIT 1
+            `);
+            if (fclTier.rows.length > 0) {
+                finalPriceUsd = parseFloat(fclTier.rows[0].price);
+                appliedCategory = 'FCL 40 Pies';
+                appliedRate = fclTier.rows[0].price;
+                breakdown = `FCL tarifa base: $${fclTier.rows[0].price} USD`;
+            }
+        }
+        isFlatFee = true;
+
+    // ===================== LCL =====================
+    } else {
+        const cbm = parseFloat(order.summary_volume || '0');
+        const weightKg = parseFloat(order.summary_weight || '0');
+
+        if (cbm <= 0 && weightKg <= 0) {
+            console.log(`⚠️ AutoPrice: Orden ${order.ordersn} sin volumen ni peso`);
+            return null;
+        }
+
+        // CBM vs Peso Volumétrico (factor marítimo: kg ÷ 600)
+        const volumetricCbm = weightKg / 600;
+        chargeableCbm = Math.max(cbm, volumetricCbm);
+
+        // Mapear merchandise_type → categoría de pricing
+        const typeMap: Record<string, string> = {
+            'generic': 'Generico',
+            'sensitive': 'Sensible',
+            'logo': 'Logotipo',
+            'startup': 'StartUp'
+        };
+        let categoryName = typeMap[order.merchandise_type || 'generic'] || 'Generico';
+
+        // StartUp rule: ≤ 0.75 CBM
+        if (chargeableCbm <= 0.75) {
+            categoryName = 'StartUp';
+        } else if (chargeableCbm >= 0.76 && chargeableCbm < 1) {
+            // Redondeo a 1 CBM
+            chargeableCbm = 1;
+        }
+
+        appliedCategory = categoryName;
+
+        // Buscar la categoría en pricing_categories
+        // Para Logotipo usamos Genérico como base + surcharge
+        const baseCat = categoryName === 'Logotipo' ? 'Generico' : categoryName;
+        const catRes = await pool.query(
+            'SELECT id, surcharge_per_cbm FROM pricing_categories WHERE name = $1',
+            [baseCat]
+        );
+
+        if (catRes.rows.length === 0) {
+            console.log(`⚠️ AutoPrice: Categoría "${baseCat}" no encontrada`);
+            return null;
+        }
+
+        const categoryId = catRes.rows[0].id;
+        const surcharge = categoryName === 'Logotipo' ? 100 : 0; // $100/CBM extra para Logotipo
+
+        // ¿Cliente VIP?
+        if (userId) {
+            const vipRes = await pool.query('SELECT is_vip_pricing FROM users WHERE id = $1', [userId]);
+            isVip = vipRes.rows[0]?.is_vip_pricing === true;
+        }
+
+        // Buscar tier correspondiente
+        let tierQuery: string;
+        let queryParams: (number | string)[];
+
+        if (isVip && categoryName !== 'StartUp') {
+            // VIP: precio más barato sin importar volumen
+            tierQuery = `SELECT * FROM pricing_tiers WHERE category_id = $1 AND is_active = TRUE ORDER BY price ASC LIMIT 1`;
+            queryParams = [categoryId];
+        } else {
+            // Normal: buscar por rango de CBM
+            tierQuery = `SELECT * FROM pricing_tiers WHERE category_id = $1 AND is_active = TRUE AND $2 >= min_cbm AND $2 <= max_cbm`;
+            queryParams = [categoryId, chargeableCbm];
+        }
+
+        const tierRes = await pool.query(tierQuery, queryParams);
+
+        if (tierRes.rows.length === 0) {
+            console.log(`⚠️ AutoPrice: Sin tier para ${chargeableCbm.toFixed(2)} CBM en categoría ${categoryName}`);
+            return null;
+        }
+
+        const tier = tierRes.rows[0];
+
+        if (tier.is_flat_fee) {
+            finalPriceUsd = parseFloat(tier.price);
+            isFlatFee = true;
+            breakdown = `StartUp tarifa plana: $${tier.price} USD (${chargeableCbm.toFixed(3)} m³)`;
+        } else {
+            const ratePerCbm = parseFloat(tier.price) + surcharge;
+            finalPriceUsd = chargeableCbm * ratePerCbm;
+            appliedRate = String(ratePerCbm);
+
+            if (surcharge > 0) {
+                breakdown = `${chargeableCbm.toFixed(3)} m³ × ($${tier.price} + $${surcharge} logo) = $${finalPriceUsd.toFixed(2)} USD`;
+            } else {
+                breakdown = `${chargeableCbm.toFixed(3)} m³ × $${tier.price}/m³ = $${finalPriceUsd.toFixed(2)} USD`;
+            }
+            if (isVip) breakdown += ' (VIP)';
+        }
+
+        appliedRate = appliedRate || tier.price;
+    }
+
+    // 4. Convertir a MXN
+    const finalPriceMxn = finalPriceUsd * fxRate;
+
+    // 5. Guardar en la orden (precio congelado)
+    await pool.query(`
+        UPDATE maritime_orders SET
+            assigned_cost_usd = $1,
+            assigned_cost_mxn = $2,
+            saldo_pendiente = $2,
+            cost_assigned_at = NOW(),
+            cost_assigned_by = $3,
+            payment_status = 'pending'
+        WHERE id = $4
+    `, [finalPriceUsd.toFixed(2), finalPriceMxn.toFixed(2), assignedBy, orderId]);
+
+    console.log(`💰 AutoPrice: ${order.ordersn} → $${finalPriceUsd.toFixed(2)} USD / $${finalPriceMxn.toFixed(2)} MXN [${appliedCategory}] ${breakdown}`);
+
+    return {
+        assigned_cost_usd: parseFloat(finalPriceUsd.toFixed(2)),
+        assigned_cost_mxn: parseFloat(finalPriceMxn.toFixed(2)),
+        applied_category: appliedCategory,
+        applied_rate: appliedRate,
+        chargeable_cbm: chargeableCbm,
+        is_flat_fee: isFlatFee,
+        is_vip: isVip,
+        breakdown
+    };
+};
+
 // PUT /api/admin/users/:id/vip - Toggle VIP pricing
 export const toggleUserVipPricing = async (req: Request, res: Response): Promise<any> => {
     try {

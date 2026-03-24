@@ -369,7 +369,7 @@ export default function DashboardClient() {
   const [fiscalLoading, setFiscalLoading] = useState(false);
   
   const [gexValorFactura, setGexValorFactura] = useState<string>('');
-  const [gexDescripcion, setGexDescripcion] = useState<string>(t('cd.gex.defaultDescription'));
+  const [gexDescripcion, setGexDescripcion] = useState<string>('');
   
   // Modal Instrucciones de Entrega
   const [deliveryModalOpen, setDeliveryModalOpen] = useState(false);
@@ -2433,7 +2433,23 @@ export default function DashboardClient() {
                       setSnackbar({ open: true, message: t('cd.snackbar.selectServiceFirst'), severity: 'warning' });
                       return;
                     }
-                    setInstructionFilter(instructionFilter === 'sin' ? 'all' : 'sin');
+                    const newFilter = instructionFilter === 'sin' ? 'all' : 'sin';
+                    setInstructionFilter(newFilter);
+                    // Auto-seleccionar todos los paquetes filtrados
+                    if (newFilter !== 'all') {
+                      const filtered = packages.filter(pkg => {
+                        const type = pkg.shipment_type || pkg.servicio;
+                        let matchesService = true;
+                        if (serviceFilter === 'china_air') matchesService = type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX';
+                        else if (serviceFilter === 'china_sea') matchesService = type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl';
+                        else if (serviceFilter === 'usa_pobox') matchesService = type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type;
+                        else if (serviceFilter === 'dhl') matchesService = type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL' || type === 'AA_DHL' || type === 'DHL_MTY';
+                        return matchesService && !pkg.has_delivery_instructions && !pkg.delivery_address_id;
+                      }).filter(pkg => !pkg.client_paid && pkg.status !== 'delivered');
+                      setSelectedPackageIds(filtered.map(p => p.id));
+                    } else {
+                      setSelectedPackageIds([]);
+                    }
                   }}
                   sx={{ 
                     fontWeight: 600,
@@ -2450,7 +2466,23 @@ export default function DashboardClient() {
                       setSnackbar({ open: true, message: t('cd.snackbar.selectServiceFirst'), severity: 'warning' });
                       return;
                     }
-                    setInstructionFilter(instructionFilter === 'con' ? 'all' : 'con');
+                    const newFilter = instructionFilter === 'con' ? 'all' : 'con';
+                    setInstructionFilter(newFilter);
+                    // Auto-seleccionar todos los paquetes filtrados
+                    if (newFilter !== 'all') {
+                      const filtered = packages.filter(pkg => {
+                        const type = pkg.shipment_type || pkg.servicio;
+                        let matchesService = true;
+                        if (serviceFilter === 'china_air') matchesService = type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX';
+                        else if (serviceFilter === 'china_sea') matchesService = type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl';
+                        else if (serviceFilter === 'usa_pobox') matchesService = type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type;
+                        else if (serviceFilter === 'dhl') matchesService = type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL' || type === 'AA_DHL' || type === 'DHL_MTY';
+                        return matchesService && (pkg.has_delivery_instructions || pkg.delivery_address_id);
+                      }).filter(pkg => !pkg.client_paid && pkg.status !== 'delivered');
+                      setSelectedPackageIds(filtered.map(p => p.id));
+                    } else {
+                      setSelectedPackageIds([]);
+                    }
                   }}
                   sx={{ 
                     fontWeight: 600,
@@ -2880,11 +2912,40 @@ export default function DashboardClient() {
                         </Box>
                       </Box>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        {pkg.monto > 0 && !pkg.client_paid && (
-                          <Typography variant="body2" color="warning.main" fontWeight="bold">
-                            {formatCurrency(pkg.monto)}
-                          </Typography>
-                        )}
+                        {(() => {
+                          // Mostrar precio asignado o estimado
+                          if (pkg.monto > 0 && !pkg.client_paid) {
+                            return (
+                              <Typography variant="body2" color="warning.main" fontWeight="bold">
+                                {formatCurrency(pkg.monto)}
+                              </Typography>
+                            );
+                          }
+                          // Para marítimo sin precio asignado, mostrar estimado por CBM
+                          if (pkg.monto === 0 && !pkg.client_paid && pkg.cbm && Number(pkg.cbm) > 0 &&
+                              (pkg.shipment_type === 'maritime' || pkg.servicio === 'SEA_CHN_MX')) {
+                            const cbm = Number(pkg.cbm);
+                            let estUSD = 0;
+                            if (cbm <= 0.03) estUSD = 39;
+                            else if (cbm <= 0.1) estUSD = 79;
+                            else if (cbm <= 0.5) estUSD = cbm * 150;
+                            else if (cbm <= 2) estUSD = cbm * 120;
+                            else estUSD = cbm * 100;
+                            return (
+                              <Typography variant="body2" color="warning.main" fontWeight="bold" sx={{ fontSize: '0.8rem' }}>
+                                ~${estUSD.toFixed(2)} USD
+                              </Typography>
+                            );
+                          }
+                          if (pkg.client_paid) {
+                            return (
+                              <Typography variant="body2" color="success.main" fontWeight="bold" sx={{ fontSize: '0.75rem' }}>
+                                ✅ Pagado
+                              </Typography>
+                            );
+                          }
+                          return null;
+                        })()}
                         <Chip 
                           label={pkg.status_label} 
                           color={pkg.status === 'ready_pickup' ? 'warning' : pkg.status === 'in_transit' ? 'info' : 'default'}
@@ -4461,7 +4522,9 @@ export default function DashboardClient() {
                       <Typography variant="caption" color="text.secondary">{t('cd.gex.numBoxes')}</Typography>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
                         <InventoryIcon sx={{ color: '#666', fontSize: 20 }} />
-                        <Typography variant="body1" fontWeight="bold">{selectedPackageIds.length || 1}</Typography>
+                        <Typography variant="body1" fontWeight="bold">
+                          {getSelectedPackages().reduce((sum, pkg) => sum + (pkg.total_boxes || 1), 0)}
+                        </Typography>
                       </Box>
                     </Grid>
                     <Grid size={6}>
@@ -4469,14 +4532,7 @@ export default function DashboardClient() {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
                         <ScaleIcon sx={{ color: '#666', fontSize: 20 }} />
                         <Typography variant="body1" fontWeight="bold">
-                          {(() => {
-                            const totalWeight = getSelectedPackages().reduce((sum, pkg) => {
-                              // Buscar peso en diferentes campos posibles
-                              const weight = pkg.weight || (pkg as unknown as { peso_kg?: number; peso?: number }).peso_kg || (pkg as unknown as { peso?: number }).peso || 12; // Default 12 como en la app
-                              return sum + parseFloat(weight.toString());
-                            }, 0);
-                            return totalWeight.toFixed(1);
-                          })()}
+                          {getSelectedPackages().reduce((sum, pkg) => sum + (Number(pkg.weight) || 0), 0).toFixed(1)}
                         </Typography>
                         <Typography variant="body2" color="text.secondary">kg</Typography>
                       </Box>
@@ -4487,18 +4543,36 @@ export default function DashboardClient() {
                   <Box sx={{ mb: 2 }}>
                     <Typography variant="caption" color="text.secondary">{t('cd.gex.shippingRoute')}</Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
-                      <FlightIcon sx={{ color: '#666', fontSize: 20 }} />
-                      <Typography variant="body1">🇺🇸 USA → México 🇲🇽</Typography>
+                      {(() => {
+                        const firstPkg = getSelectedPackages()[0];
+                        const isChina = firstPkg?.servicio === 'SEA_CHN_MX' || firstPkg?.servicio === 'AIR_CHN_MX' || firstPkg?.shipment_type === 'maritime' || firstPkg?.shipment_type === 'china_air';
+                        const isMaritime = firstPkg?.servicio === 'SEA_CHN_MX' || firstPkg?.shipment_type === 'maritime';
+                        return (
+                          <>
+                            {isMaritime ? (
+                              <BoatIcon sx={{ color: '#666', fontSize: 20 }} />
+                            ) : (
+                              <FlightIcon sx={{ color: '#666', fontSize: 20 }} />
+                            )}
+                            <Typography variant="body1">
+                              {isChina ? '🇨🇳 China → México 🇲🇽' : '🇺🇸 USA → México 🇲🇽'}
+                            </Typography>
+                          </>
+                        );
+                      })()}
                       <LockIcon sx={{ color: '#666', fontSize: 16, ml: 'auto' }} />
                     </Box>
                   </Box>
 
                   {/* Descripción de la Carga */}
                   <Box sx={{ mb: 0 }}>
-                    <Typography variant="caption" color="text.secondary">{t('cd.gex.cargoDescription')}</Typography>
+                    <Typography variant="caption" color="text.secondary">{t('cd.gex.cargoDescription')} *</Typography>
                     <TextField
                       fullWidth
                       size="small"
+                      required
+                      error={gexDescripcion.trim() === ''}
+                      helperText={gexDescripcion.trim() === '' ? 'Describe el contenido de tu carga (obligatorio)' : ''}
                       placeholder={t('cd.gex.cargoPlaceholder')}
                       value={gexDescripcion}
                       onChange={(e) => setGexDescripcion(e.target.value)}
@@ -4565,7 +4639,7 @@ export default function DashboardClient() {
           <Button 
             variant="contained" 
             onClick={handleContractGEX}
-            disabled={gexLoading || !gexValorFactura}
+            disabled={gexLoading || !gexValorFactura || !gexDescripcion.trim()}
             startIcon={gexLoading ? <CircularProgress size={20} /> : <SecurityIcon />}
             sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' }, px: 4 }}
           >
@@ -5424,20 +5498,51 @@ export default function DashboardClient() {
                   <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
                     {t('cd.detail.serviceCost')}
                   </Typography>
-                  <Paper sx={{ p: 2, bgcolor: selectedPackage.client_paid ? '#e8f5e9' : '#fff3e0' }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Typography variant="body2">{t('cd.detail.totalToPay')}:</Typography>
-                      <Typography variant="h5" fontWeight="bold" color={selectedPackage.client_paid ? 'success.main' : 'warning.main'}>
-                        {formatCurrency(selectedPackage.monto)}
-                      </Typography>
-                    </Box>
-                    <Chip 
-                      label={selectedPackage.client_paid ? t('cd.detail.paid') : t('cd.detail.pendingPayment')} 
-                      size="small" 
-                      color={selectedPackage.client_paid ? 'success' : 'warning'}
-                      sx={{ mt: 1 }}
-                    />
-                  </Paper>
+                  {(() => {
+                    // Calcular costo estimado para marítimo si monto es 0 y tiene CBM
+                    const displayMonto = selectedPackage.monto || 0;
+                    let isEstimated = false;
+                    let estimatedUSD = 0;
+
+                    if (displayMonto === 0 && selectedPackage.cbm && selectedPackage.cbm > 0 && 
+                        (selectedPackage.shipment_type === 'maritime' || selectedPackage.servicio === 'SEA_CHN_MX')) {
+                      const cbm = Number(selectedPackage.cbm);
+                      if (cbm <= 0.03) estimatedUSD = 39;
+                      else if (cbm <= 0.1) estimatedUSD = 79;
+                      else if (cbm <= 0.5) estimatedUSD = cbm * 150;
+                      else if (cbm <= 2) estimatedUSD = cbm * 120;
+                      else estimatedUSD = cbm * 100;
+                      isEstimated = true;
+                    }
+
+                    return (
+                      <Paper sx={{ p: 2, bgcolor: selectedPackage.client_paid ? '#e8f5e9' : '#fff3e0' }}>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Typography variant="body2">{t('cd.detail.totalToPay')}:</Typography>
+                          {isEstimated ? (
+                            <Box sx={{ textAlign: 'right' }}>
+                              <Typography variant="h5" fontWeight="bold" color="warning.main">
+                                ~${estimatedUSD.toFixed(2)} USD
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                Estimado por {Number(selectedPackage.cbm).toFixed(4)} m³
+                              </Typography>
+                            </Box>
+                          ) : (
+                            <Typography variant="h5" fontWeight="bold" color={selectedPackage.client_paid ? 'success.main' : 'warning.main'}>
+                              {formatCurrency(displayMonto)}
+                            </Typography>
+                          )}
+                        </Box>
+                        <Chip 
+                          label={selectedPackage.client_paid ? t('cd.detail.paid') : isEstimated ? 'Pendiente de Cotización' : t('cd.detail.pendingPayment')} 
+                          size="small" 
+                          color={selectedPackage.client_paid ? 'success' : 'warning'}
+                          sx={{ mt: 1 }}
+                        />
+                      </Paper>
+                    );
+                  })()}
                 </Box>
 
                 {/* Fechas */}

@@ -550,7 +550,9 @@ import {
   deleteMaritimeRoute,
   // Instrucciones de entrega (cliente)
   updateDeliveryInstructions,
-  getMyMaritimeOrderDetail
+  getMyMaritimeOrderDetail,
+  // Asignación masiva de precios
+  bulkAssignPricing
 } from './maritimeApiController';
 import {
   importLegacyClients,
@@ -3065,6 +3067,9 @@ app.post('/api/maritime-api/orders/:ordersn/assign', authenticateToken, requireM
 app.put('/api/maritime-api/orders/:ordersn/consolidation', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateOrderConsolidation);
 app.put('/api/maritime-api/orders/:ordersn/mark-client', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateMarkClient);
 app.post('/api/maritime-api/orders/:ordersn/packing-list', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), uploadPackingList);
+
+// Asignación masiva de precios a órdenes en contenedores
+app.post('/api/maritime-api/pricing/bulk-assign', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), bulkAssignPricing);
 
 // Monitoreo y estadísticas
 app.get('/api/maritime-api/sync/logs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSyncLogs);

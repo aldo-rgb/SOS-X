@@ -5,6 +5,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { assignPriceToMaritimeOrder } from './pricingEngine';
 
 // Configuración de la API China
 const CHINA_API_BASE = 'https://yajie.uxphp.net/api';
@@ -1167,10 +1168,25 @@ export const updateOrderConsolidation = async (req: Request, res: Response): Pro
             ordersn
         ]);
 
+        const updatedOrder = result.rows[0];
+
+        // Auto-asignar precio si se asignó a un contenedor
+        let priceResult = null;
+        if (containerId && updatedOrder.id) {
+            try {
+                const adminUserId = (req as any).user?.id || (req as any).user?.userId || 0;
+                priceResult = await assignPriceToMaritimeOrder(updatedOrder.id, adminUserId);
+            } catch (priceError: any) {
+                console.error(`⚠️ Error auto-pricing orden ${ordersn}:`, priceError.message);
+                // No fallar la consolidación si falla el pricing
+            }
+        }
+
         res.json({
             success: true,
             message: 'Consolidación actualizada correctamente',
-            order: result.rows[0]
+            order: updatedOrder,
+            pricing: priceResult
         });
 
     } catch (error: any) {
@@ -1608,6 +1624,100 @@ export const getMyMaritimeOrderDetail = async (req: Request, res: Response) => {
     }
 };
 
+// ============================================
+// ASIGNACIÓN MASIVA DE PRECIOS
+// Para órdenes que ya tienen contenedor pero no tienen precio
+// ============================================
+export const bulkAssignPricing = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const adminUserId = (req as any).user?.userId || 'system';
+        const { containerId } = req.query; // Opcional: solo un contenedor específico
+
+        // Buscar órdenes que tienen contenedor pero no tienen precio asignado
+        let query = `
+            SELECT id, ordersn, container_id, summary_volume, summary_boxes
+            FROM maritime_orders 
+            WHERE container_id IS NOT NULL 
+              AND (assigned_cost_usd IS NULL OR assigned_cost_usd = 0)
+        `;
+        const params: any[] = [];
+        
+        if (containerId) {
+            query += ` AND container_id = $1`;
+            params.push(containerId);
+        }
+        
+        query += ` ORDER BY id`;
+        
+        const ordersResult = await pool.query(query, params);
+        
+        if (ordersResult.rows.length === 0) {
+            return res.json({
+                success: true,
+                message: 'No hay órdenes pendientes de asignación de precio',
+                processed: 0,
+                results: []
+            });
+        }
+
+        console.log(`[BULK PRICING] Procesando ${ordersResult.rows.length} órdenes sin precio...`);
+
+        const results: any[] = [];
+        let successCount = 0;
+        let errorCount = 0;
+
+        for (const order of ordersResult.rows) {
+            try {
+                const priceResult = await assignPriceToMaritimeOrder(order.id, adminUserId);
+                if (priceResult) {
+                    results.push({
+                        orderId: order.id,
+                        ordersn: order.ordersn,
+                        success: true,
+                        costUsd: priceResult.assigned_cost_usd,
+                        costMxn: priceResult.assigned_cost_mxn,
+                        category: priceResult.applied_category,
+                        rate: priceResult.applied_rate,
+                        cbm: priceResult.chargeable_cbm,
+                        breakdown: priceResult.breakdown
+                    });
+                    successCount++;
+                } else {
+                    results.push({
+                        orderId: order.id,
+                        ordersn: order.ordersn,
+                        success: false,
+                        error: 'Precio ya asignado o sin datos suficientes'
+                    });
+                    errorCount++;
+                }
+            } catch (err: any) {
+                results.push({
+                    orderId: order.id,
+                    ordersn: order.ordersn,
+                    success: false,
+                    error: err.message
+                });
+                errorCount++;
+            }
+        }
+
+        console.log(`[BULK PRICING] Completado: ${successCount} exitosos, ${errorCount} errores de ${ordersResult.rows.length} total`);
+
+        res.json({
+            success: true,
+            processed: ordersResult.rows.length,
+            successCount,
+            errorCount,
+            results
+        });
+
+    } catch (error: any) {
+        console.error('Error en asignación masiva de precios:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
 export default {
     syncOrdersFromChina,
     updateOrderTracking,
@@ -1633,5 +1743,7 @@ export default {
     deleteMaritimeRoute,
     // Instrucciones de entrega (cliente)
     updateDeliveryInstructions,
-    getMyMaritimeOrderDetail
+    getMyMaritimeOrderDetail,
+    // Asignación masiva de precios
+    bulkAssignPricing
 };
