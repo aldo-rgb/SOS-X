@@ -1861,6 +1861,24 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
       const containerRouteId = containerRouteRes.rows[0]?.route_id || draft.route_id || null;
       console.log(`📍 Ruta del contenedor: ${containerRouteId}`);
 
+      // *** Congelar sale_price si hay cliente y ruta con tarifa FCL ***
+      if (containerLegacyClientId && containerRouteId) {
+        const rateRes = await pool.query(
+          'SELECT custom_price_usd, currency FROM fcl_client_rates WHERE legacy_client_id = $1 AND route_id = $2',
+          [containerLegacyClientId, containerRouteId]
+        );
+        if (rateRes.rows.length > 0) {
+          const rate = rateRes.rows[0];
+          await pool.query(
+            'UPDATE containers SET sale_price = $1, sale_price_currency = $2 WHERE id = $3',
+            [rate.custom_price_usd, rate.currency, containerId]
+          );
+          console.log(`💰 Precio congelado LCL: $${rate.custom_price_usd} ${rate.currency} (legacy_client=${containerLegacyClientId}, ruta=${containerRouteId})`);
+        } else {
+          console.log(`⚠️ Sin tarifa FCL para legacy_client=${containerLegacyClientId}, ruta=${containerRouteId}`);
+        }
+      }
+
       // 2b. Crear registro de costos con documentos del BL y datos de peso/volumen
       const blDocumentPdf = draft.pdf_url;
       const telexReleasePdf = draft.telex_pdf_url;
@@ -2214,6 +2232,24 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         containerClientUserId,  // user_id del cliente (si tiene cuenta)
         containerLegacyClientId  // legacy_client_id directo para tarifas FCL
       ]);
+
+      // *** Congelar sale_price para FCL si hay tarifa configurada ***
+      if (containerRes.rows.length > 0 && containerLegacyClientId && routeId) {
+        const rateRes = await pool.query(
+          'SELECT custom_price_usd, currency FROM fcl_client_rates WHERE legacy_client_id = $1 AND route_id = $2',
+          [containerLegacyClientId, routeId]
+        );
+        if (rateRes.rows.length > 0) {
+          const rate = rateRes.rows[0];
+          await pool.query(
+            'UPDATE containers SET sale_price = $1, sale_price_currency = $2 WHERE id = $3',
+            [rate.custom_price_usd, rate.currency, containerRes.rows[0].id]
+          );
+          console.log(`💰 Precio congelado FCL: $${rate.custom_price_usd} ${rate.currency} (legacy_client=${containerLegacyClientId}, ruta=${routeId})`);
+        } else {
+          console.log(`⚠️ Sin tarifa FCL para legacy_client=${containerLegacyClientId}, ruta=${routeId}`);
+        }
+      }
 
       // Crear o actualizar costos con los documentos oficiales (BL y TELEX) y datos de peso/volumen
       if (containerRes.rows.length > 0) {

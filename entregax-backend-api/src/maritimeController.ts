@@ -145,18 +145,36 @@ export const updateContainer = async (req: AuthRequest, res: Response): Promise<
     let salePriceQuery = '';
     let salePriceParams: any[] = [containerNumber, blNumber, eta, status, notes, routeId, week_number, legacy_client_id, id];
     
-    if (legacy_client_id && routeId) {
-      // Buscar tarifa FCL para este cliente y ruta
-      const rateResult = await pool.query(`
-        SELECT custom_price_usd, currency 
-        FROM fcl_client_rates 
-        WHERE legacy_client_id = $1 AND route_id = $2
-      `, [legacy_client_id, routeId]);
+    // Resolver client y ruta: si solo viene uno, obtener el otro del container existente
+    let effectiveClientId = legacy_client_id;
+    let effectiveRouteId = routeId;
+    if ((legacy_client_id || routeId) && !(legacy_client_id && routeId)) {
+      const existing = await pool.query('SELECT legacy_client_id, route_id, sale_price FROM containers WHERE id = $1', [id]);
+      if (existing.rows.length > 0) {
+        const cur = existing.rows[0];
+        if (!effectiveClientId) effectiveClientId = cur.legacy_client_id;
+        if (!effectiveRouteId) effectiveRouteId = cur.route_id;
+      }
+    }
+
+    // Congelar precio si tenemos ambos y el container aún no tiene precio
+    if (effectiveClientId && effectiveRouteId) {
+      // Verificar si ya tiene precio asignado
+      const curContainer = await pool.query('SELECT sale_price FROM containers WHERE id = $1', [id]);
+      const alreadyHasPrice = curContainer.rows[0]?.sale_price && parseFloat(curContainer.rows[0].sale_price) > 0;
       
-      if (rateResult.rows.length > 0) {
-        const rate = rateResult.rows[0];
-        salePriceQuery = `, sale_price = $10, sale_price_currency = $11`;
-        salePriceParams.push(rate.custom_price_usd, rate.currency);
+      if (!alreadyHasPrice) {
+        const rateResult = await pool.query(`
+          SELECT custom_price_usd, currency 
+          FROM fcl_client_rates 
+          WHERE legacy_client_id = $1 AND route_id = $2
+        `, [effectiveClientId, effectiveRouteId]);
+        
+        if (rateResult.rows.length > 0) {
+          const rate = rateResult.rows[0];
+          salePriceQuery = `, sale_price = $10, sale_price_currency = $11`;
+          salePriceParams.push(rate.custom_price_usd, rate.currency);
+        }
       }
     }
 
