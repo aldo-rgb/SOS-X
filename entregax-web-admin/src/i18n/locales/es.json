@@ -1507,6 +1507,7 @@
       "selectedPackages": "{{count}} Paquete(s) Seleccionado(s)",
       "totalWeight": "Peso Total",
       "totalCBM": "CBM Total",
+      "boxes": "cajas",
       "total": "Total",
       "totalCbm": "CBM Total",
       "addressTitle": "Dirección de Entrega",

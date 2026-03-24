@@ -4574,19 +4574,36 @@ export default function DashboardClient() {
                     <Typography variant="body1" fontWeight="bold" sx={{ mb: 0.5 }}>
                       {pkg.tracking}
                     </Typography>
-                    <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
-                      📦 {pkg.dimensions || '12×12×12 cm'}
-                    </Typography>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">{t('cd.delivery.totalWeight')}</Typography>
-                        <Typography variant="body2" fontWeight="bold">{pkg.weight || '12'} kg</Typography>
+                    {pkg.dimensions && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                        📦 {pkg.dimensions}
+                      </Typography>
+                    )}
+                    {(pkg.total_boxes && pkg.total_boxes > 1) && (
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                        📦 {pkg.total_boxes} {t('cd.delivery.boxes')}
+                      </Typography>
+                    )}
+                    {(pkg.weight || pkg.cbm) && (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        {pkg.weight && (
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              {(pkg.total_boxes && pkg.total_boxes > 1) ? t('cd.delivery.totalWeight') : t('cd.delivery.totalWeight')}
+                            </Typography>
+                            <Typography variant="body2" fontWeight="bold">{Number(pkg.weight).toFixed(2)} kg</Typography>
+                          </Box>
+                        )}
+                        {pkg.cbm && (
+                          <Box sx={{ textAlign: 'right' }}>
+                            <Typography variant="caption" color="text.secondary">
+                              {t('cd.delivery.totalCBM')}
+                            </Typography>
+                            <Typography variant="body2" fontWeight="bold">{Number(pkg.cbm).toFixed(4)} m³</Typography>
+                          </Box>
+                        )}
                       </Box>
-                      <Box sx={{ textAlign: 'right' }}>
-                        <Typography variant="caption" color="text.secondary">{t('cd.delivery.totalCBM')}</Typography>
-                        <Typography variant="body2" fontWeight="bold">{pkg.cbm || '0.0017'} m³</Typography>
-                      </Box>
-                    </Box>
+                    )}
                   </Box>
                 ))}
               </Paper>
@@ -6218,7 +6235,7 @@ export default function DashboardClient() {
                   <Box>
                     <Typography variant="body2" fontWeight="bold">{pkg.tracking}</Typography>
                     <Typography variant="caption" color="text.secondary">
-                      {pkg.descripcion || t('cd.payment.noDescription')} - 12 lb
+                      {pkg.descripcion || t('cd.payment.noDescription')}{pkg.weight ? ` - ${Number(pkg.weight).toFixed(1)} kg` : ''}
                     </Typography>
                   </Box>
                   <Typography variant="body1" fontWeight="bold" sx={{ color: ORANGE }}>
