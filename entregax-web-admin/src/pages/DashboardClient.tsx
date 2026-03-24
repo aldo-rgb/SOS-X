@@ -381,7 +381,7 @@ export default function DashboardClient() {
   // Nuevos estados para el modal mejorado de instrucciones
   const [selectedCarrierService, setSelectedCarrierService] = useState<string>('local');
   const [deliveryNotes, setDeliveryNotes] = useState<string>('');
-  const [applyToFullShipment, setApplyToFullShipment] = useState<boolean>(false);
+  const [applyToFullShipment, setApplyToFullShipment] = useState<boolean>(true);
   
   // Determinar el tipo de servicio de los paquetes seleccionados
   const selectedServiceType = useMemo(() => {
@@ -404,11 +404,11 @@ export default function DashboardClient() {
     return selected.reduce((sum, p) => sum + (p.total_boxes && p.total_boxes > 1 ? p.total_boxes : 1), 0);
   }, [packages, selectedPackageIds]);
 
-  // Verificar si algún paquete seleccionado tiene múltiples cajas
-  const hasMultiBoxShipment = useMemo(() => {
-    const selected = packages.filter(p => selectedPackageIds.includes(p.id));
-    return selected.some(p => p.total_boxes && p.total_boxes > 1);
-  }, [packages, selectedPackageIds]);
+  // Siempre aplica a todo el embarque (preseleccionado)
+  // const hasMultiBoxShipment = useMemo(() => {
+  //   const selected = packages.filter(p => selectedPackageIds.includes(p.id));
+  //   return selected.some(p => p.total_boxes && p.total_boxes > 1);
+  // }, [packages, selectedPackageIds]);
 
   // Opciones de paquetería dinámicas desde la API
   const [carrierServices, setCarrierServices] = useState<{ id: string; name: string; description: string; price: string; subtext?: string; icon: string; allowsCollect?: boolean }[]>([]);
@@ -4646,30 +4646,7 @@ export default function DashboardClient() {
                   </Box>
                 ))}
 
-                {/* Checkbox para asignar a todo el embarque */}
-                {hasMultiBoxShipment && (
-                  <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid #eee' }}>
-                    <FormControlLabel
-                      control={
-                        <Checkbox
-                          checked={applyToFullShipment}
-                          onChange={(e) => setApplyToFullShipment(e.target.checked)}
-                          color="primary"
-                        />
-                      }
-                      label={
-                        <Typography variant="body2" fontWeight="bold" sx={{ color: ORANGE }}>
-                          {t('cd.delivery.applyFullShipment', { count: shipmentTotalBoxes })}
-                        </Typography>
-                      }
-                    />
-                    {applyToFullShipment && (
-                      <Typography variant="caption" color="text.secondary" sx={{ ml: 4, display: 'block' }}>
-                        {t('cd.delivery.fullShipmentNote', { count: shipmentTotalBoxes })}
-                      </Typography>
-                    )}
-                  </Box>
-                )}
+                {/* Siempre aplica a todo el embarque (oculto, preseleccionado) */}
               </Paper>
 
               {/* Dirección de Entrega */}
