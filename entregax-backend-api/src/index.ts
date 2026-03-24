@@ -313,6 +313,13 @@ import {
   searchClients
 } from './warrantyController';
 import {
+  getAdvisorDashboard,
+  getAdvisorClients,
+  saveAdvisorNote,
+  getAdvisorShipments,
+  getAdvisorCommissions
+} from './advisorPanelController';
+import {
   requestAdvisor,
   getCrmLeads,
   getAvailableAdvisors,
@@ -2780,6 +2787,13 @@ app.get('/api/gex/revenue-report', authenticateToken, getRevenueReport);
 
 // Búsqueda de clientes para select
 app.get('/api/gex/clients', authenticateToken, searchClients);
+
+// ========== PANEL DEL ASESOR (self-service) ==========
+app.get('/api/advisor/dashboard', authenticateToken, getAdvisorDashboard);
+app.get('/api/advisor/clients', authenticateToken, getAdvisorClients);
+app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);
+app.get('/api/advisor/shipments', authenticateToken, getAdvisorShipments);
+app.get('/api/advisor/commissions', authenticateToken, getAdvisorCommissions);
 
 // ========== CRM - SOLICITUDES DE ASESOR ==========
 

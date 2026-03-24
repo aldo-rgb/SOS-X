@@ -89,6 +89,7 @@ import DashboardCustomerService from './pages/DashboardCustomerService';
 import DashboardCounterStaff from './pages/DashboardCounterStaff';
 import DashboardOperations from './pages/DashboardOperations';
 import DashboardClient from './pages/DashboardClient';
+import DashboardAdvisor from './pages/DashboardAdvisor';
 import ProfileClient from './pages/ProfileClient';
 import PersonIcon from '@mui/icons-material/Person';
 
@@ -438,6 +439,11 @@ function App() {
       // finanzas: Dashboard, Herramientas (incluye Tesorería), Caja CC
       if (role === 'finanzas') {
         return ['dashboard', 'panels', 'cajaChica'].includes(item.key);
+      }
+      
+      // advisor / sub_advisor: Solo dashboard (panel completo interno)
+      if (role === 'advisor' || role === 'sub_advisor') {
+        return ['dashboard'].includes(item.key);
       }
       
       // Todos los demás: Dashboard, Herramientas
@@ -1252,6 +1258,9 @@ function App() {
           case 'cliente':
           case 'Cliente':
             return <DashboardClient />;
+          case 'advisor':
+          case 'sub_advisor':
+            return <DashboardAdvisor />;
           // super_admin, admin, director, finanzas ven el dashboard general
           default:
             return <Dashboard />;
