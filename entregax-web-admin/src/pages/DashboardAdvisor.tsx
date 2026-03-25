@@ -55,10 +55,8 @@ import {
   Search as SearchIcon,
   VerifiedUser as VerifiedIcon,
   Warning as WarningIcon,
-  FiberNew as NewIcon,
   CheckCircle as CheckCircleIcon,
   HourglassEmpty as PendingIcon,
-  Block as DormantIcon,
   Edit as EditIcon,
   Save as SaveIcon,
   Cancel as CancelIcon,
@@ -419,19 +417,6 @@ export default function DashboardAdvisor() {
   };
 
   // ─── Status Helpers ───
-
-  const getActivityChip = (status: string) => {
-    switch (status) {
-      case 'new':
-        return <Chip icon={<NewIcon />} label={t('advisor.activityNew')} color="info" size="small" />;
-      case 'active':
-        return <Chip icon={<CheckCircleIcon />} label={t('advisor.activityActive')} color="success" size="small" />;
-      case 'dormant':
-        return <Chip icon={<DormantIcon />} label={t('advisor.activityDormant')} color="default" size="small" />;
-      default:
-        return null;
-    }
-  };
 
   const getVerificationChip = (verified: boolean, status: string) => {
     if (verified) return <Chip icon={<VerifiedIcon />} label={t('advisor.verified')} color="success" size="small" variant="outlined" />;
