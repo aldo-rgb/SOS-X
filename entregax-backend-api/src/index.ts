@@ -1495,13 +1495,16 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
     }
 
     // 2. Contar paquetes por estado (usando user_id, no box_id)
+    // Separar PO Box USA de Aéreo China
     const packagesStatsQuery = await pool.query(`
       SELECT 
         COUNT(*) FILTER (WHERE status::text IN ('in_transit')) as en_transito,
         COUNT(*) FILTER (WHERE status::text IN ('received', 'customs', 'reempacado')) as en_bodega,
         COUNT(*) FILTER (WHERE status::text = 'ready_pickup') as listos_recoger,
         COUNT(*) FILTER (WHERE status::text = 'delivered' AND delivered_at >= NOW() - INTERVAL '30 days') as entregados_mes,
-        COALESCE(SUM(COALESCE(assigned_cost_mxn, saldo_pendiente, 0)) FILTER (WHERE client_paid = FALSE AND status::text NOT IN ('cancelled', 'returned', 'delivered')), 0) as saldo_pendiente
+        COALESCE(SUM(COALESCE(assigned_cost_mxn, saldo_pendiente, 0)) FILTER (WHERE client_paid = FALSE AND status::text NOT IN ('cancelled', 'returned', 'delivered')), 0) as saldo_pendiente,
+        COALESCE(SUM(COALESCE(assigned_cost_mxn, saldo_pendiente, 0)) FILTER (WHERE client_paid = FALSE AND status::text NOT IN ('cancelled', 'returned', 'delivered') AND service_type = 'POBOX_USA'), 0) as saldo_pobox,
+        COALESCE(SUM(COALESCE(assigned_cost_mxn, saldo_pendiente, 0)) FILTER (WHERE client_paid = FALSE AND status::text NOT IN ('cancelled', 'returned', 'delivered') AND service_type = 'AIR_CHN_MX'), 0) as saldo_aereo
       FROM packages
       WHERE user_id = $1
     `, [userId]);
@@ -1985,12 +1988,13 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         },
         financiero: {
           saldo_pendiente: (parseFloat(stats.saldo_pendiente) || 0) + (parseFloat(maritimeStats.saldo_pendiente) || 0) + (parseFloat(dhlStats.saldo_pendiente as any) || 0) + containerSaldoPendiente,
-          // Desglose por tipo de servicio
+          // Desglose por tipo de servicio con moneda correcta
           saldo_por_servicio: [
-            { servicio: 'PO Box USA', monto: parseFloat(stats.saldo_pendiente) || 0, icono: '📦' },
-            { servicio: 'Marítimo China', monto: parseFloat(maritimeStats.saldo_pendiente) || 0, icono: '🚢' },
-            { servicio: 'DHL Nacional', monto: parseFloat(dhlStats.saldo_pendiente as any) || 0, icono: '📮' },
-            { servicio: 'Contenedores FCL', monto: containerSaldoPendiente, icono: '🏗️' },
+            { servicio: 'PO Box USA', monto: parseFloat(stats.saldo_pobox) || 0, moneda: 'USD', icono: '📦' },
+            { servicio: 'Aéreo China', monto: parseFloat(stats.saldo_aereo) || 0, moneda: 'USD', icono: '✈️' },
+            { servicio: 'Marítimo China', monto: parseFloat(maritimeStats.saldo_pendiente) || 0, moneda: 'USD', icono: '🚢' },
+            { servicio: 'DHL Nacional', monto: parseFloat(dhlStats.saldo_pendiente as any) || 0, moneda: 'USD', icono: '📮' },
+            { servicio: 'Contenedores FCL', monto: containerSaldoPendiente, moneda: 'USD', icono: '🏗️' },
           ].filter(s => s.monto > 0),
           saldo_favor: parseFloat(user.wallet_balance) || 0,
           credito_disponible: user.has_credit 

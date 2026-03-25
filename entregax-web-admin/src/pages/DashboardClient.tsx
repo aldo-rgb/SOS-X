@@ -130,6 +130,7 @@ interface ClientStats {
     saldo_por_servicio?: Array<{
       servicio: string;
       monto: number;
+      moneda: string;
       icono: string;
     }>;
     saldo_favor: number;
@@ -3612,9 +3613,9 @@ export default function DashboardClient() {
                               </Box>
                               <Box sx={{ textAlign: 'right' }}>
                                 <Typography variant="body2" fontWeight="bold" color="error.main">
-                                  {formatCurrency(item.monto)}
+                                  ${item.monto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </Typography>
-                                <Typography variant="caption" color="text.secondary">MXN</Typography>
+                                <Typography variant="caption" color="text.secondary">{item.moneda || 'USD'}</Typography>
                               </Box>
                             </Box>
                           ))}
