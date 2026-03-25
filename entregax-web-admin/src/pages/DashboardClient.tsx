@@ -5808,20 +5808,20 @@ export default function DashboardClient() {
                               border: selectedCarrierService === service.id ? `2px solid ${ORANGE}` : '1px solid #eee',
                               borderRadius: 2,
                               width: '100%',
-                              minHeight: 80,
+                              minHeight: 90,
                             }}
                           >
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 80, flexShrink: 0 }}>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 100, flexShrink: 0 }}>
                                 {service.icon && (service.icon.startsWith('http') || service.icon.startsWith('/uploads')) ? (
                                   <Box
                                     component="img"
                                     src={service.icon}
                                     alt={service.name}
-                                    sx={{ width: 64, height: 48, objectFit: 'contain' }}
+                                    sx={{ width: 100, height: 60, objectFit: 'contain' }}
                                   />
                                 ) : (
-                                  <Box sx={{ fontSize: '2rem' }}>{service.icon}</Box>
+                                  <Box sx={{ fontSize: '2.5rem' }}>{service.icon}</Box>
                                 )}
                                 <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, textAlign: 'center', lineHeight: 1.2 }}>
                                   ⏱ {service.description}
@@ -5847,7 +5847,7 @@ export default function DashboardClient() {
                             </Box>
                           </Paper>
                         }
-                        sx={{ m: 0, mb: 1, alignItems: 'flex-start' }}
+                        sx={{ m: 0, mb: 1, alignItems: 'flex-start', width: '100%', '& .MuiFormControlLabel-label': { width: '100%' } }}
                       />
                     ))}
                   </RadioGroup>
