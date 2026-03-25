@@ -5809,35 +5809,26 @@ export default function DashboardClient() {
                               width: '100%'
                             }}
                           >
-                            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                               {selectedCarrierService === service.id && (
-                                <Box sx={{ color: 'primary.main', mt: 0.5 }}>✓</Box>
+                                <Box sx={{ color: 'primary.main', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</Box>
                               )}
-                              {service.icon && (service.icon.startsWith('http') || service.icon.startsWith('/uploads')) ? (
-                                <Box
-                                  component="img"
-                                  src={service.icon}
-                                  alt={service.name}
-                                  sx={{ width: 40, height: 40, objectFit: 'contain', borderRadius: 1 }}
-                                />
-                              ) : (
-                                <Box sx={{ fontSize: '1.2rem' }}>{service.icon}</Box>
-                              )}
-                              <Box sx={{ flex: 1 }}>
-                                <Typography variant="body1" fontWeight="bold">
-                                  {service.name}
-                                </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.5 }}>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 70 }}>
+                                {service.icon && (service.icon.startsWith('http') || service.icon.startsWith('/uploads')) ? (
+                                  <Box
+                                    component="img"
+                                    src={service.icon}
+                                    alt={service.name}
+                                    sx={{ width: 64, height: 48, objectFit: 'contain' }}
+                                  />
+                                ) : (
+                                  <Box sx={{ fontSize: '2rem' }}>{service.icon}</Box>
+                                )}
+                                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, textAlign: 'center', lineHeight: 1.2 }}>
                                   ⏱ {service.description}
                                 </Typography>
-                                {service.subtext && (
-                                  <Typography variant="caption" color="text.secondary">
-                                    {applyToFullShipment && shipmentTotalBoxes > 1
-                                      ? service.subtext.replace(/×\s*\d+\s*caja/, `× ${shipmentTotalBoxes} cajas`)
-                                      : service.subtext}
-                                  </Typography>
-                                )}
                               </Box>
+                              <Box sx={{ flex: 1 }} />
                               <Box sx={{ textAlign: 'right' }}>
                                 <Typography 
                                   variant="body1" 
