@@ -415,6 +415,7 @@ export default function DashboardClient() {
   const [selectedCarrierService, setSelectedCarrierService] = useState<string>('local');
   const [deliveryNotes, setDeliveryNotes] = useState<string>('');
   const [applyToFullShipment, setApplyToFullShipment] = useState<boolean>(true);
+  const [pqtxQuoteLoading, setPqtxQuoteLoading] = useState<boolean>(false);
   
   // Determinar el tipo de servicio de los paquetes seleccionados
   const selectedServiceType = useMemo(() => {
@@ -444,7 +445,7 @@ export default function DashboardClient() {
   // }, [packages, selectedPackageIds]);
 
   // Opciones de paquetería dinámicas desde la API
-  const [carrierServices, setCarrierServices] = useState<{ id: string; name: string; description: string; price: string; subtext?: string; icon: string; allowsCollect?: boolean }[]>([]);
+  const [carrierServices, setCarrierServices] = useState<{ id: string; name: string; description: string; price: string; subtext?: string; icon: string; allowsCollect?: boolean; isDynamic?: boolean }[]>([]);
   useEffect(() => {
     const fetchCarrierOptions = async () => {
       try {
@@ -462,6 +463,7 @@ export default function DashboardClient() {
             subtext: c.subtext || undefined,
             icon: c.icon || '🚛',
             allowsCollect: c.allows_collect || false,
+            isDynamic: c.price_label === 'API',
           })));
         }
       } catch (err) {
@@ -479,6 +481,86 @@ export default function DashboardClient() {
     fetchCarrierOptions();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedServiceType]);
+
+  // Cotizar dinámicamente Paquete Express cuando hay carrier con price='API'
+  useEffect(() => {
+    const hasDynamicCarrier = carrierServices.some(s => s.isDynamic);
+    if (!hasDynamicCarrier || !selectedDeliveryAddress || !deliveryModalOpen) return;
+
+    const addr = deliveryAddresses.find(a => a.id === selectedDeliveryAddress);
+    if (!addr?.zip_code) return;
+
+    const selected = packages.filter(p => selectedPackageIds.includes(p.id));
+    if (selected.length === 0) return;
+
+    // Calcular dimensiones promedio y peso total
+    let totalWeight = 0;
+    let sumLength = 0, sumWidth = 0, sumHeight = 0;
+    let parsedCount = 0;
+    selected.forEach(pkg => {
+      totalWeight += Number(pkg.weight) || 1;
+      if (pkg.dimensions) {
+        const parts = pkg.dimensions.replace(/cm/gi, '').split(/[×x]/i).map((s: string) => parseFloat(s.trim()));
+        if (parts.length >= 3 && parts.every((n: number) => !isNaN(n) && n > 0)) {
+          sumLength += parts[0]; sumWidth += parts[1]; sumHeight += parts[2];
+          parsedCount++;
+        }
+      }
+    });
+    const avgLength = parsedCount > 0 ? Math.round(sumLength / parsedCount) : 30;
+    const avgWidth = parsedCount > 0 ? Math.round(sumWidth / parsedCount) : 30;
+    const avgHeight = parsedCount > 0 ? Math.round(sumHeight / parsedCount) : 30;
+
+    const packageCount = selected.reduce((sum, p) => sum + (p.total_boxes && p.total_boxes > 1 ? p.total_boxes : 1), 0);
+
+    const fetchPqtxQuote = async () => {
+      // Reset price to loading state
+      setCarrierServices(prev => prev.map(s =>
+        s.isDynamic ? { ...s, price: 'API' } : s
+      ));
+      setPqtxQuoteLoading(true);
+      try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/api/shipping/pqtx-quote`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            destZipCode: addr.zip_code,
+            packageCount,
+            weight: totalWeight > 0 ? Math.ceil(totalWeight / packageCount) : 1,
+            length: avgLength,
+            width: avgWidth,
+            height: avgHeight,
+          }),
+        });
+        const data = await res.json();
+        if (data.success && data.clientPrice) {
+          setCarrierServices(prev => prev.map(s =>
+            s.isDynamic
+              ? { ...s, price: `$${data.clientPrice.toLocaleString('es-MX')}`, subtext: data.estimatedDays || s.subtext }
+              : s
+          ));
+        } else {
+          // Fallback: mostrar "Cotizar"
+          setCarrierServices(prev => prev.map(s =>
+            s.isDynamic && s.price === 'API' ? { ...s, price: 'Cotizar' } : s
+          ));
+        }
+      } catch (err) {
+        console.warn('Error cotizando Paquete Express:', err);
+        setCarrierServices(prev => prev.map(s =>
+          s.isDynamic && s.price === 'API' ? { ...s, price: 'Cotizar' } : s
+        ));
+      } finally {
+        setPqtxQuoteLoading(false);
+      }
+    };
+    fetchPqtxQuote();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [carrierServices.length, selectedDeliveryAddress, deliveryModalOpen, selectedPackageIds]);
+
+  // Re-fetch carrier options cuando cambia el servicio (reset de precio API)
+  // (ya se maneja en el useEffect anterior de fetchCarrierOptions)
   
   // Modal de Pago
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -5761,10 +5843,10 @@ export default function DashboardClient() {
                                   variant="body1" 
                                   fontWeight="bold"
                                   sx={{ 
-                                    color: service.price === 'GRATIS' ? 'success.main' : 'text.primary'
+                                    color: service.price === 'GRATIS' ? 'success.main' : (service.isDynamic && pqtxQuoteLoading) ? 'text.secondary' : 'text.primary'
                                   }}
                                 >
-                                  {service.price}
+                                  {service.isDynamic && pqtxQuoteLoading ? 'Cotizando...' : service.price === 'API' ? 'Cotizar' : service.price}
                                 </Typography>
                                 {applyToFullShipment && shipmentTotalBoxes > 1 && service.price !== 'GRATIS' && (
                                   <Typography variant="caption" color="primary.main" fontWeight="bold">
@@ -5791,6 +5873,9 @@ export default function DashboardClient() {
                           const selectedService = carrierServices.find(s => s.id === selectedCarrierService);
                           if (!selectedService) return 'GRATIS';
                           if (selectedService.price === 'GRATIS') return 'GRATIS';
+                          if (selectedService.isDynamic && pqtxQuoteLoading) return 'Cotizando...';
+                          if (selectedService.price === 'API') return 'Selecciona dirección';
+                          if (selectedService.price === 'Cotizar') return 'Cotizar';
                           if (applyToFullShipment && shipmentTotalBoxes > 1) {
                             // Extraer valor numérico del precio (ej: "$350" -> 350)
                             const priceMatch = selectedService.price.match(/[\d,.]+/);
