@@ -3969,7 +3969,7 @@ export default function DashboardClient() {
 
                 <Grid size={{ xs: 12, md: 7 }}>
                   {/* MIS DIRECCIONES DE ENTREGA */}
-                  <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
+                  <Paper id="addresses-section" sx={{ p: 3, mb: 3, borderRadius: 2 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                       <Typography variant="h6" fontWeight="bold">
                         {t('cd.account.addressesTitle')}
@@ -7697,11 +7697,21 @@ export default function DashboardClient() {
                 window.open('https://pagos.entregax.com/proveedores', '_blank');
                 return;
               }
-              // Mapear índices: 0=envíos, 2=cotizador, 3=direcciones, 4=facturas, 5=cuenta
+              // newValue 3 es "Direcciones" - ir a Mi Cuenta y scroll a direcciones
+              if (newValue === 3) {
+                setActiveTab(2); // Mi Cuenta
+                setTimeout(() => {
+                  const addressesSection = document.getElementById('addresses-section');
+                  if (addressesSection) {
+                    addressesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }
+                }, 100);
+                return;
+              }
+              // Mapear índices: 0=envíos, 2=cotizador, 4=facturas, 5=cuenta
               const tabMapping: {[key: number]: number} = {
                 0: 0,  // Mis Envíos
                 2: 1,  // Cotizador
-                3: 2,  // Mis direcciones (Mi Cuenta contiene direcciones)
                 4: 3,  // Facturas
                 5: 2,  // Mi Cuenta
               };
