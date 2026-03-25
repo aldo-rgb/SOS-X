@@ -5687,7 +5687,7 @@ export default function DashboardClient() {
                     )}
 
                     {/* Botón para desglosar cajas */}
-                    {pkg.included_guides && pkg.included_guides.length > 0 && (
+                    {((pkg.included_guides && pkg.included_guides.length > 0) || (pkg.total_boxes && pkg.total_boxes > 1)) && (
                       <Box sx={{ mt: 1 }}>
                         <Button
                           size="small"
@@ -5696,7 +5696,7 @@ export default function DashboardClient() {
                           endIcon={boxBreakdownOpen[pkg.id] ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
                           sx={{ fontSize: '0.75rem', textTransform: 'none', color: ORANGE, p: 0 }}
                         >
-                          📋 Ver desglose de {pkg.included_guides.length} cajas
+                          📋 Ver desglose de {pkg.included_guides?.length || pkg.total_boxes} cajas
                         </Button>
                         <Collapse in={boxBreakdownOpen[pkg.id]} timeout="auto">
                           <Box sx={{ mt: 1, bgcolor: 'white', borderRadius: 1, border: '1px solid #e0e0e0', overflow: 'hidden' }}>
@@ -5706,33 +5706,72 @@ export default function DashboardClient() {
                               <Typography variant="caption" fontWeight="bold">Medidas</Typography>
                               <Typography variant="caption" fontWeight="bold">CBM</Typography>
                             </Box>
-                            {pkg.included_guides.map((guide, idx) => (
-                              <Box 
-                                key={guide.id} 
-                                sx={{ 
-                                  display: 'grid', 
-                                  gridTemplateColumns: '50px 1fr 1fr 1fr', 
-                                  px: 1, 
-                                  py: 0.5,
-                                  borderTop: '1px solid #f0f0f0',
-                                  bgcolor: idx % 2 === 0 ? 'white' : '#fafafa',
-                                }}
-                              >
-                                <Typography variant="caption" color="text.secondary">
-                                  {guide.box_number || idx + 1}
-                                </Typography>
-                                <Typography variant="caption">
-                                  {guide.weight ? `${Number(guide.weight).toFixed(2)} kg` : '—'}
-                                </Typography>
-                                <Typography variant="caption">
-                                  {guide.dimensions || '—'}
-                                </Typography>
-                                <Typography variant="caption">
-                                  {guide.cbm ? `${Number(guide.cbm).toFixed(4)}` : '—'}
-                                </Typography>
-                              </Box>
-                            ))}
+                            {pkg.included_guides && pkg.included_guides.length > 0 ? (
+                              pkg.included_guides.map((guide, idx) => (
+                                <Box 
+                                  key={guide.id} 
+                                  sx={{ 
+                                    display: 'grid', 
+                                    gridTemplateColumns: '50px 1fr 1fr 1fr', 
+                                    px: 1, 
+                                    py: 0.5,
+                                    borderTop: '1px solid #f0f0f0',
+                                    bgcolor: idx % 2 === 0 ? 'white' : '#fafafa',
+                                  }}
+                                >
+                                  <Typography variant="caption" color="text.secondary">
+                                    {guide.box_number || idx + 1}
+                                  </Typography>
+                                  <Typography variant="caption">
+                                    {guide.weight ? `${Number(guide.weight).toFixed(2)} kg` : '—'}
+                                  </Typography>
+                                  <Typography variant="caption">
+                                    {guide.dimensions || '—'}
+                                  </Typography>
+                                  <Typography variant="caption">
+                                    {guide.cbm ? `${Number(guide.cbm).toFixed(4)}` : '—'}
+                                  </Typography>
+                                </Box>
+                              ))
+                            ) : (
+                              /* Generar filas estimadas cuando no hay guías individuales pero sí total_boxes */
+                              Array.from({ length: pkg.total_boxes || 0 }, (_, idx) => {
+                                const avgWeight = pkg.weight ? Number(pkg.weight) / (pkg.total_boxes || 1) : null;
+                                const avgCbm = pkg.cbm ? Number(pkg.cbm) / (pkg.total_boxes || 1) : null;
+                                return (
+                                  <Box 
+                                    key={idx} 
+                                    sx={{ 
+                                      display: 'grid', 
+                                      gridTemplateColumns: '50px 1fr 1fr 1fr', 
+                                      px: 1, 
+                                      py: 0.5,
+                                      borderTop: '1px solid #f0f0f0',
+                                      bgcolor: idx % 2 === 0 ? 'white' : '#fafafa',
+                                    }}
+                                  >
+                                    <Typography variant="caption" color="text.secondary">
+                                      {idx + 1}
+                                    </Typography>
+                                    <Typography variant="caption">
+                                      {avgWeight ? `~${avgWeight.toFixed(2)} kg` : '—'}
+                                    </Typography>
+                                    <Typography variant="caption">
+                                      {pkg.dimensions || '—'}
+                                    </Typography>
+                                    <Typography variant="caption">
+                                      {avgCbm ? `~${avgCbm.toFixed(4)}` : '—'}
+                                    </Typography>
+                                  </Box>
+                                );
+                              })
+                            )}
                           </Box>
+                          {!(pkg.included_guides && pkg.included_guides.length > 0) && pkg.total_boxes && pkg.total_boxes > 1 && (
+                            <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block', fontStyle: 'italic' }}>
+                              * Peso y volumen estimado (promedio por caja)
+                            </Typography>
+                          )}
                         </Collapse>
                       </Box>
                     )}
