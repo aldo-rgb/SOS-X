@@ -4,6 +4,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   Dialog,
   DialogTitle,
@@ -87,6 +88,14 @@ const MODULE_ICONS: Record<string, React.ReactNode> = {
   coverage: <TimelineIcon />,
   customs: <AssignmentIcon />,
   suppliers: <CalculateIcon />,
+  // Módulos nuevos admin
+  carrier_options: <LocalShippingIcon />,
+  inbound_emails_air: <EmailIcon />,
+  air_routes: <RouteIcon />,
+  air_management: <BuildIcon />,
+  cajo_management: <BuildIcon />,
+  fcl_management: <BuildIcon />,
+  paquete_express: <ApiIcon />,
   // Módulos de PO Box USA (ops_usa_pobox)
   receive: <InventoryIcon />,
   entry: <InventoryIcon />,
@@ -139,6 +148,7 @@ export default function ModulePermissionsDialog({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const { t } = useTranslation();
 
   const token = localStorage.getItem('token');
 
@@ -335,7 +345,7 @@ export default function ModulePermissionsDialog({
                           </Box>
                           <Box>
                             <Typography fontWeight="medium">
-                              {module.module_name}
+                              {t(`panels.modules.${module.module_key}`, module.module_name)}
                             </Typography>
                             {module.description && (
                               <Typography variant="caption" color="text.secondary">
