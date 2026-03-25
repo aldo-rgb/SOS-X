@@ -1006,10 +1006,15 @@ export default function DashboardClient() {
         api.get('/referidos/mi-codigo').catch(() => null),
         api.get('/referidos/mis-referidos').catch(() => null),
       ]);
-      if (codeRes?.data?.code) setReferralCode(codeRes.data.code);
+      // El backend retorna { success: true, data: { codigo: "XXX", ... } }
+      if (codeRes?.data?.data?.codigo) {
+        setReferralCode(codeRes.data.data.codigo);
+      } else if (codeRes?.data?.codigo) {
+        setReferralCode(codeRes.data.codigo);
+      }
       if (referralsRes?.data) {
-        setMyReferrals(referralsRes.data.referrals || []);
-        setReferralStats(referralsRes.data.stats || { total: 0, validated: 0, pending: 0, earnings: 0 });
+        setMyReferrals(referralsRes.data.referrals || referralsRes.data.data?.referrals || []);
+        setReferralStats(referralsRes.data.stats || referralsRes.data.data?.stats || { total: 0, validated: 0, pending: 0, earnings: 0 });
       }
     } catch (err) {
       console.error('Error cargando referidos:', err);
