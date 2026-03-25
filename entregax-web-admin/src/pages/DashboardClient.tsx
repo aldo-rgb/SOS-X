@@ -99,6 +99,8 @@ import {
   Share as ShareIcon,
   CardGiftcard as GiftIcon,
   People as PeopleIcon,
+  Home as HomeIcon,
+  Payments as PaymentsIcon,
 } from '@mui/icons-material';
 import { Collapse } from '@mui/material';
 import api from '../services/api';
@@ -2507,32 +2509,41 @@ export default function DashboardClient() {
 
       {/* Content area */}
       <Paper sx={{ borderRadius: isMobile ? 2 : 3, overflow: 'hidden', mt: isMobile ? 0 : 0 }}>
-        <Box sx={{ p: isMobile ? 1.5 : 3 }}>
+        <Box sx={{ p: isMobile ? 1 : 3 }}>
           {/* Tab: Mis Envíos */}
           {activeTab === 0 && (
             <Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 2 }}>
-                <Typography variant="h6" fontWeight="bold">
-                  {t('cd.packages.title')}
+              {/* Header y búsqueda - Mobile optimized */}
+              <Box sx={{ 
+                display: 'flex', 
+                justifyContent: 'space-between', 
+                alignItems: 'center', 
+                mb: isMobile ? 1.5 : 2, 
+                flexWrap: 'wrap', 
+                gap: 1 
+              }}>
+                <Typography variant={isMobile ? 'subtitle1' : 'h6'} fontWeight="bold">
+                  {isMobile ? '📦 Mis Paquetes Activos' : t('cd.packages.title')}
                 </Typography>
-                <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
                   <TextField
                     size="small"
-                    placeholder={t('cd.packages.searchPlaceholder')}
+                    placeholder={isMobile ? 'Buscar...' : t('cd.packages.searchPlaceholder')}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     InputProps={{
-                      startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>,
+                      startAdornment: <InputAdornment position="start"><SearchIcon sx={{ fontSize: isMobile ? 18 : 24 }} /></InputAdornment>,
                     }}
-                    sx={{ width: 200 }}
+                    sx={{ width: isMobile ? 140 : 200 }}
                   />
-                  <IconButton onClick={loadData} title="Actualizar">
+                  <IconButton onClick={loadData} title="Actualizar" size={isMobile ? 'small' : 'medium'}>
                     <RefreshIcon />
                   </IconButton>
                 </Box>
               </Box>
 
               {/* Filtros por instrucciones - solo disponibles si hay un servicio seleccionado */}
+              {!isMobile && (
               <Box sx={{ display: 'flex', justifyContent: 'center', gap: 1, mb: 2 }}>
                 <Chip
                   icon={<CloseIcon sx={{ fontSize: 16 }} />}
@@ -2601,14 +2612,20 @@ export default function DashboardClient() {
                   }}
                 />
               </Box>
+              )}
 
-              {/* Filtros por tipo de servicio */}
+              {/* Filtros por tipo de servicio - Horizontal scroll en mobile */}
               <Box sx={{ 
                 display: 'flex', 
-                justifyContent: 'center', 
-                gap: 2, 
-                mb: 3,
-                flexWrap: 'wrap',
+                justifyContent: isMobile ? 'flex-start' : 'center', 
+                gap: isMobile ? 1 : 2, 
+                mb: isMobile ? 2 : 3,
+                flexWrap: isMobile ? 'nowrap' : 'wrap',
+                overflowX: isMobile ? 'auto' : 'visible',
+                pb: isMobile ? 1 : 0,
+                mx: isMobile ? -1 : 0,
+                px: isMobile ? 1 : 0,
+                '&::-webkit-scrollbar': { display: 'none' },
               }}>
                 <Box 
                   onClick={() => {
@@ -2624,18 +2641,19 @@ export default function DashboardClient() {
                     flexDirection: 'column', 
                     alignItems: 'center', 
                     cursor: 'pointer',
-                    p: 1.5,
+                    p: isMobile ? 1 : 1.5,
                     borderRadius: 2,
                     bgcolor: serviceFilter === 'china_air' ? ORANGE : 'white',
                     border: serviceFilter === 'china_air' ? `2px solid ${ORANGE}` : '1px solid #e0e0e0',
                     transition: 'all 0.2s',
                     '&:hover': { borderColor: ORANGE, bgcolor: serviceFilter === 'china_air' ? ORANGE : '#FFF8F5' },
-                    minWidth: 70,
+                    minWidth: isMobile ? 60 : 70,
+                    flexShrink: 0,
                     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                   }}
                 >
                   <Box sx={{ position: 'relative' }}>
-                    <FlightIcon sx={{ fontSize: 28, color: serviceFilter === 'china_air' ? 'white' : '#666', mb: 0.5 }} />
+                    <FlightIcon sx={{ fontSize: isMobile ? 22 : 28, color: serviceFilter === 'china_air' ? 'white' : '#666', mb: 0.5 }} />
                     {serviceCounts.china_air > 0 && (
                       <Box sx={{
                         position: 'absolute',
@@ -2679,18 +2697,19 @@ export default function DashboardClient() {
                     flexDirection: 'column', 
                     alignItems: 'center', 
                     cursor: 'pointer',
-                    p: 1.5,
+                    p: isMobile ? 1 : 1.5,
                     borderRadius: 2,
                     bgcolor: serviceFilter === 'china_sea' ? ORANGE : 'white',
                     border: serviceFilter === 'china_sea' ? `2px solid ${ORANGE}` : '1px solid #e0e0e0',
                     transition: 'all 0.2s',
                     '&:hover': { borderColor: ORANGE, bgcolor: serviceFilter === 'china_sea' ? ORANGE : '#FFF8F5' },
-                    minWidth: 70,
+                    minWidth: isMobile ? 60 : 70,
+                    flexShrink: 0,
                     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                   }}
                 >
                   <Box sx={{ position: 'relative' }}>
-                    <BoatIcon sx={{ fontSize: 28, color: serviceFilter === 'china_sea' ? 'white' : '#666', mb: 0.5 }} />
+                    <BoatIcon sx={{ fontSize: isMobile ? 22 : 28, color: serviceFilter === 'china_sea' ? 'white' : '#666', mb: 0.5 }} />
                     {serviceCounts.china_sea > 0 && (
                       <Box sx={{
                         position: 'absolute',
@@ -2734,18 +2753,19 @@ export default function DashboardClient() {
                     flexDirection: 'column', 
                     alignItems: 'center', 
                     cursor: 'pointer',
-                    p: 1.5,
+                    p: isMobile ? 1 : 1.5,
                     borderRadius: 2,
                     bgcolor: serviceFilter === 'dhl' ? ORANGE : 'white',
                     border: serviceFilter === 'dhl' ? `2px solid ${ORANGE}` : '1px solid #e0e0e0',
                     transition: 'all 0.2s',
                     '&:hover': { borderColor: ORANGE, bgcolor: serviceFilter === 'dhl' ? ORANGE : '#FFF8F5' },
-                    minWidth: 70,
+                    minWidth: isMobile ? 60 : 70,
+                    flexShrink: 0,
                     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                   }}
                 >
                   <Box sx={{ position: 'relative' }}>
-                    <TruckIcon sx={{ fontSize: 28, color: serviceFilter === 'dhl' ? 'white' : '#666', mb: 0.5 }} />
+                    <TruckIcon sx={{ fontSize: isMobile ? 22 : 28, color: serviceFilter === 'dhl' ? 'white' : '#666', mb: 0.5 }} />
                     {serviceCounts.dhl > 0 && (
                       <Box sx={{
                         position: 'absolute',
@@ -2789,18 +2809,19 @@ export default function DashboardClient() {
                     flexDirection: 'column', 
                     alignItems: 'center', 
                     cursor: 'pointer',
-                    p: 1.5,
+                    p: isMobile ? 1 : 1.5,
                     borderRadius: 2,
                     bgcolor: serviceFilter === 'usa_pobox' ? ORANGE : 'white',
                     border: serviceFilter === 'usa_pobox' ? `2px solid ${ORANGE}` : '1px solid #e0e0e0',
                     transition: 'all 0.2s',
                     '&:hover': { borderColor: ORANGE, bgcolor: serviceFilter === 'usa_pobox' ? ORANGE : '#FFF8F5' },
-                    minWidth: 70,
+                    minWidth: isMobile ? 60 : 70,
+                    flexShrink: 0,
                     boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
                   }}
                 >
                   <Box sx={{ position: 'relative' }}>
-                    <PostOfficeIcon sx={{ fontSize: 28, color: serviceFilter === 'usa_pobox' ? 'white' : '#666', mb: 0.5 }} />
+                    <PostOfficeIcon sx={{ fontSize: isMobile ? 22 : 28, color: serviceFilter === 'usa_pobox' ? 'white' : '#666', mb: 0.5 }} />
                     {serviceCounts.usa_pobox > 0 && (
                       <Box sx={{
                         position: 'absolute',
@@ -2858,17 +2879,20 @@ export default function DashboardClient() {
                       bgcolor: ORANGE, 
                       minWidth: 'auto',
                       position: 'fixed',
-                      bottom: 20,
-                      left: 20,
-                      zIndex: 1000
+                      bottom: isMobile ? 70 : 20,
+                      left: isMobile ? 10 : 20,
+                      zIndex: 1000,
+                      fontSize: isMobile ? '0.7rem' : '0.8rem',
+                      px: isMobile ? 1.5 : 2,
                     }}
-                    startIcon={<MoneyIcon />}
+                    startIcon={<MoneyIcon sx={{ fontSize: isMobile ? 16 : 20 }} />}
                     onClick={() => setPaymentModalOpen(true)}
                   >
-                    {t('cd.packages.pay')}
+                    {isMobile ? 'Pagar' : t('cd.packages.pay')}
                   </Button>
 
-                  {/* BOTÓN TEMPORAL DE PRUEBA */}
+                  {/* BOTÓN TEMPORAL DE PRUEBA - Oculto en móvil */}
+                  {!isMobile && (
                   <Button
                     variant="contained"
                     size="small"
@@ -2894,6 +2918,7 @@ export default function DashboardClient() {
                   >
                     {t('cd.packages.testConfirmPayment')}
                   </Button>
+                  )}
 
                   {/* Solo mostrar "Asignar Instrucciones" si hay paquetes sin instrucciones */}
                   {getSelectedPackages().some(pkg => !pkg.has_delivery_instructions && !pkg.assigned_address_id) && (
@@ -2901,17 +2926,19 @@ export default function DashboardClient() {
                       variant="contained"
                       color="primary"
                       size="small"
-                      startIcon={<EditIcon />}
+                      startIcon={<EditIcon sx={{ fontSize: isMobile ? 16 : 20 }} />}
                       onClick={() => setDeliveryModalOpen(true)}
                       sx={{ 
                         position: 'fixed',
-                        bottom: 20,
-                        right: 20,
+                        bottom: isMobile ? 70 : 20,
+                        right: isMobile ? 10 : 20,
                         zIndex: 1000,
-                        minWidth: 'auto'
+                        minWidth: 'auto',
+                        fontSize: isMobile ? '0.7rem' : '0.8rem',
+                        px: isMobile ? 1.5 : 2,
                       }}
                     >
-                      {t('cd.packages.assignInstructions')}
+                      {isMobile ? '📍 Dirección' : t('cd.packages.assignInstructions')}
                     </Button>
                   )}
                 </>
@@ -2960,7 +2987,7 @@ export default function DashboardClient() {
                 <Card 
                   key={pkg.id} 
                   sx={{ 
-                    mb: 1.5, 
+                    mb: isMobile ? 1 : 1.5, 
                     border: isSelected ? `2px solid ${ORANGE}` : pkg.status === 'ready_pickup' ? `2px solid ${ORANGE}` : '1px solid #e0e0e0', 
                     borderRadius: 2,
                     cursor: isSelectable ? 'pointer' : 'default',
@@ -2969,7 +2996,7 @@ export default function DashboardClient() {
                   }}
                   onClick={() => isSelectable && togglePackageSelection(pkg.id, pkg)}
                 >
-                  <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
+                  <CardContent sx={{ py: isMobile ? 1 : 1.5, px: isMobile ? 1.5 : 2, '&:last-child': { pb: isMobile ? 1 : 1.5 } }}>
                     {/* Indicador de guía encontrada dentro del repack */}
                     {matchedChildGuide && (
                       <Alert 
@@ -2983,45 +3010,47 @@ export default function DashboardClient() {
                       </Alert>
                     )}
                     
-                    {/* Header compacto */}
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    {/* Header compacto - Mobile optimized */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: isMobile ? 1 : 1.5, flex: 1, minWidth: 0 }}>
                         {isSelectable && (
                           <Checkbox
                             checked={isSelected}
                             onClick={(e) => e.stopPropagation()}
                             onChange={() => togglePackageSelection(pkg.id, pkg)}
                             size="small"
-                            sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE }, p: 0 }}
+                            sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE }, p: 0, mt: 0.5 }}
                           />
                         )}
+                        {!isMobile && (
                         <Avatar sx={{ bgcolor: 'grey.100', width: 32, height: 32 }}>
                           {getServiceIcon(pkg.servicio)}
                         </Avatar>
-                        <Box>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Typography variant="body2" fontWeight="bold" fontFamily="monospace">{pkg.tracking}</Typography>
-                            {pkg.status === 'delivered' && <Chip label={t('cd.packages.deliveredChip')} size="small" color="success" sx={{ height: 18, fontSize: '0.6rem' }} />}
-                            {pkg.is_master && <Chip label={t('cd.packages.repackChip')} size="small" sx={{ height: 18, fontSize: '0.6rem', bgcolor: '#e3f2fd', color: BLUE }} />}
-                            {pkg.client_paid && pkg.status !== 'delivered' && <Chip label={t('cd.packages.paidChip')} size="small" color="success" sx={{ height: 18, fontSize: '0.65rem' }} />}
-                            {hasDeliveryInstructions && <Chip label={t('cd.packages.instructionsChip')} size="small" color="primary" sx={{ height: 18, fontSize: '0.65rem' }} />}
+                        )}
+                        <Box sx={{ minWidth: 0, flex: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                            <Typography variant={isMobile ? 'caption' : 'body2'} fontWeight="bold" fontFamily="monospace" noWrap>{pkg.tracking}</Typography>
+                            {pkg.status === 'delivered' && <Chip label={t('cd.packages.deliveredChip')} size="small" color="success" sx={{ height: 16, fontSize: '0.55rem' }} />}
+                            {pkg.is_master && <Chip label="📦" size="small" sx={{ height: 16, fontSize: '0.55rem', bgcolor: '#e3f2fd', color: BLUE, minWidth: 'auto' }} />}
+                            {pkg.client_paid && pkg.status !== 'delivered' && <Chip label="✓" size="small" color="success" sx={{ height: 16, fontSize: '0.55rem', minWidth: 'auto' }} />}
+                            {hasDeliveryInstructions && <Chip label="📍" size="small" color="primary" sx={{ height: 16, fontSize: '0.55rem', minWidth: 'auto' }} />}
                           </Box>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
-                            {pkg.descripcion && <Typography variant="caption" color="text.secondary">{pkg.descripcion}</Typography>}
+                            {pkg.descripcion && <Typography variant="caption" color="text.secondary" sx={{ fontSize: isMobile ? '0.65rem' : '0.75rem' }} noWrap>{pkg.descripcion}</Typography>}
                             {pkg.total_boxes && pkg.total_boxes > 0 && (
-                              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold' }}>
-                                • 📦 {pkg.total_boxes} {pkg.total_boxes === 1 ? 'caja' : 'cajas'}
+                              <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold', fontSize: isMobile ? '0.6rem' : '0.7rem' }}>
+                                • 📦{pkg.total_boxes}
                               </Typography>
                             )}
                             {pkg.weight && Number(pkg.weight) > 0 && (
-                              <Typography variant="caption" color="text.secondary">
-                                • ⚖️ {Number(pkg.weight).toLocaleString()} kg
+                              <Typography variant="caption" color="text.secondary" sx={{ fontSize: isMobile ? '0.6rem' : '0.7rem' }}>
+                                • {Number(pkg.weight).toLocaleString()}kg
                               </Typography>
                             )}
                           </Box>
                         </Box>
                       </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
                         {(() => {
                           const pkgMonto = Number(pkg.monto) || 0;
                           const isDhl = pkg.shipment_type === 'dhl' || pkg.servicio === 'AA_DHL' || pkg.servicio === 'DHL_MTY';
@@ -3109,24 +3138,24 @@ export default function DashboardClient() {
                           }
                           if (pkg.client_paid) {
                             return (
-                              <Typography variant="body2" color="success.main" fontWeight="bold" sx={{ fontSize: '0.75rem' }}>
-                                ✅ Pagado
+                              <Typography variant="body2" color="success.main" fontWeight="bold" sx={{ fontSize: isMobile ? '0.65rem' : '0.75rem' }}>
+                                ✅ {isMobile ? '' : 'Pagado'}
                               </Typography>
                             );
                           }
                           return null;
                         })()}
                         <Chip 
-                          label={pkg.status_label} 
+                          label={isMobile ? (pkg.status === 'ready_pickup' ? '🟠' : pkg.status === 'in_transit' ? '🔵' : pkg.status === 'delivered' ? '✅' : '⚪') : pkg.status_label} 
                           color={pkg.status === 'ready_pickup' ? 'warning' : pkg.status === 'in_transit' ? 'info' : 'default'}
                           size="small"
-                          sx={{ height: 24, ...(pkg.status === 'ready_pickup' && { bgcolor: ORANGE, color: 'white' }) }}
+                          sx={{ height: isMobile ? 20 : 24, fontSize: isMobile ? '0.65rem' : '0.8rem', ...(pkg.status === 'ready_pickup' && { bgcolor: ORANGE, color: 'white' }) }}
                         />
                       </Box>
                     </Box>
 
-                    {/* Stepper compacto */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, my: 1 }}>
+                    {/* Stepper compacto - Mobile optimized */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, my: isMobile ? 0.5 : 1 }}>
                       {statusSteps.map((label, idx) => {
                         const activeIdx = getStatusStep(pkg.status);
                         const isCompleted = idx < activeIdx;
@@ -3134,10 +3163,10 @@ export default function DashboardClient() {
                         return (
                           <Box key={label} sx={{ display: 'flex', alignItems: 'center', flex: 1 }}>
                             <Box sx={{ 
-                              width: 20, height: 20, borderRadius: '50%', 
+                              width: isMobile ? 16 : 20, height: isMobile ? 16 : 20, borderRadius: '50%', 
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                               bgcolor: isCompleted ? ORANGE : isActive ? ORANGE : 'grey.300',
-                              color: 'white', fontSize: '0.65rem', fontWeight: 'bold',
+                              color: 'white', fontSize: isMobile ? '0.55rem' : '0.65rem', fontWeight: 'bold',
                             }}>
                               {isCompleted ? '✓' : idx + 1}
                             </Box>
@@ -3148,16 +3177,18 @@ export default function DashboardClient() {
                         );
                       })}
                     </Box>
+                    {!isMobile && (
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem', color: 'text.secondary', px: 0.5 }}>
                       {statusSteps.map((label) => (
                         <Typography key={label} variant="caption" sx={{ fontSize: '0.6rem', textAlign: 'center', flex: 1 }}>{label}</Typography>
                       ))}
                     </Box>
+                    )}
 
-                    {/* Footer compacto */}
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1, pt: 1, borderTop: '1px solid #f0f0f0' }}>
-                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
-                        ⏱ {pkg.fecha_estimada ? t('cd.packages.eta') + ': ' + pkg.fecha_estimada : t('cd.packages.etaPending')}
+                    {/* Footer compacto - Mobile optimized */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: isMobile ? 0.5 : 1, pt: isMobile ? 0.5 : 1, borderTop: '1px solid #f0f0f0', flexWrap: isMobile ? 'wrap' : 'nowrap', gap: isMobile ? 0.5 : 0 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: isMobile ? '0.6rem' : '0.7rem' }}>
+                        ⏱ {pkg.fecha_estimada ? (isMobile ? pkg.fecha_estimada : t('cd.packages.eta') + ': ' + pkg.fecha_estimada) : t('cd.packages.etaPending')}
                       </Typography>
                       
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -7195,8 +7226,8 @@ export default function DashboardClient() {
       <Box
         sx={{
           position: 'fixed',
-          bottom: 24,
-          right: 24,
+          bottom: isMobile ? 80 : 24,
+          right: isMobile ? 16 : 24,
           display: 'flex',
           flexDirection: 'column',
           gap: 1,
@@ -7209,8 +7240,8 @@ export default function DashboardClient() {
             sx={{
               bgcolor: BLUE,
               color: 'white',
-              width: 56,
-              height: 56,
+              width: isMobile ? 48 : 56,
+              height: isMobile ? 48 : 56,
               boxShadow: 3,
               '&:hover': { bgcolor: '#1565C0' },
             }}
@@ -7660,29 +7691,48 @@ export default function DashboardClient() {
         >
           <BottomNavigation
             value={activeTab}
-            onChange={(_, newValue) => setActiveTab(newValue)}
+            onChange={(_, newValue) => {
+              // newValue 1 es "Pago a proveedores" - abre enlace externo
+              if (newValue === 1) {
+                window.open('https://pagos.entregax.com/proveedores', '_blank');
+                return;
+              }
+              // Mapear índices: 0=envíos, 2=cotizador, 3=direcciones, 4=facturas, 5=cuenta
+              const tabMapping: {[key: number]: number} = {
+                0: 0,  // Mis Envíos
+                2: 1,  // Cotizador
+                3: 2,  // Mis direcciones (Mi Cuenta contiene direcciones)
+                4: 3,  // Facturas
+                5: 2,  // Mi Cuenta
+              };
+              setActiveTab(tabMapping[newValue] ?? 0);
+            }}
             showLabels
             sx={{
               height: 64,
               '& .MuiBottomNavigationAction-root': {
                 minWidth: 'auto',
-                px: 1,
+                px: 0.5,
+                py: 0.5,
                 '&.Mui-selected': {
                   color: ORANGE,
                 },
               },
               '& .MuiBottomNavigationAction-label': {
-                fontSize: '0.65rem',
-                mt: 0.5,
+                fontSize: '0.55rem',
+                mt: 0.25,
                 '&.Mui-selected': {
-                  fontSize: '0.7rem',
+                  fontSize: '0.6rem',
                 },
               },
             }}
           >
-            <BottomNavigationAction label={t('cd.tabs.shipments')} icon={<ShippingIcon />} />
-            <BottomNavigationAction label={t('cd.tabs.quoter')} icon={<CalculateIcon />} />
-            <BottomNavigationAction label={t('cd.tabs.account')} icon={<WalletIcon />} />
+            <BottomNavigationAction label="Envíos" icon={<ShippingIcon sx={{ fontSize: 22 }} />} />
+            <BottomNavigationAction label="Pagos" icon={<PaymentsIcon sx={{ fontSize: 22 }} />} />
+            <BottomNavigationAction label="Cotizar" icon={<CalculateIcon sx={{ fontSize: 22 }} />} />
+            <BottomNavigationAction label="Direcciones" icon={<HomeIcon sx={{ fontSize: 22 }} />} />
+            <BottomNavigationAction label="Facturas" icon={<ReceiptIcon sx={{ fontSize: 22 }} />} />
+            <BottomNavigationAction label="Cuenta" icon={<PersonIcon sx={{ fontSize: 22 }} />} />
           </BottomNavigation>
         </Paper>
       )}
