@@ -3934,12 +3934,111 @@ export default function DashboardClient() {
                       ))
                     )}
                   </Paper>
+                </Grid>
+
+                <Grid size={{ xs: 12, md: 7 }}>
+                  {/* MIS DIRECCIONES DE ENTREGA */}
+                  <Paper id="addresses-section" sx={{ p: 3, mb: 3, borderRadius: 2 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                      <Typography variant="h6" fontWeight="bold">
+                        {t('cd.account.addressesTitle')}
+                      </Typography>
+                      <Button 
+                        variant="contained" 
+                        size="small"
+                        startIcon={<AddIcon />}
+                        sx={{ bgcolor: ORANGE }}
+                        onClick={() => {
+                          setEditingAddress(null);
+                          setAddressForm({
+                            alias: '',
+                            contact_name: '',
+                            street: '',
+                            exterior_number: '',
+                            interior_number: '',
+                            colony: '',
+                            city: '',
+                            state: '',
+                            zip_code: '',
+                            country: 'México',
+                            phone: '',
+                            reference: '',
+                          });
+                          setAddressModalOpen(true);
+                        }}
+                      >
+                        {t('cd.account.newAddress')}
+                      </Button>
+                    </Box>
+                    <Divider sx={{ mb: 2 }} />
+
+                    {deliveryAddresses.length === 0 ? (
+                      <Box sx={{ textAlign: 'center', py: 4 }}>
+                        <LocationOnIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+                        <Typography color="text.secondary">{t('cd.account.noAddresses')}</Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {t('cd.account.addAddressPrompt')}
+                        </Typography>
+                      </Box>
+                    ) : (
+                      <Grid container spacing={2}>
+                        {deliveryAddresses.map((addr) => (
+                          <Grid size={{ xs: 12, sm: 6 }} key={addr.id}>
+                            <Card 
+                              variant="outlined" 
+                              sx={{ 
+                                borderColor: addr.is_default ? ORANGE : 'divider',
+                                position: 'relative',
+                              }}
+                            >
+                              {addr.is_default && (
+                                <Chip 
+                                  icon={<StarIcon />}
+                                  label={t('cd.account.mainChip')} 
+                                  size="small" 
+                                  color="warning"
+                                  sx={{ position: 'absolute', top: 8, right: 8 }}
+                                />
+                              )}
+                              <CardContent>
+                                <Typography variant="subtitle1" fontWeight="bold">{addr.alias}</Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                  {addr.contact_name && `${addr.contact_name} • `}{addr.phone}
+                                </Typography>
+                                <Typography variant="body2" sx={{ mt: 1 }}>
+                                  {addr.street} {addr.exterior_number}
+                                  {addr.interior_number && ` Int. ${addr.interior_number}`}
+                                </Typography>
+                                <Typography variant="body2">
+                                  {addr.colony && `${addr.colony}, `}
+                                  {addr.city}, {addr.state} {addr.zip_code}
+                                </Typography>
+                                {addr.reference && (
+                                  <Typography variant="caption" color="text.secondary">
+                                    Ref: {addr.reference}
+                                  </Typography>
+                                )}
+                                <Box sx={{ display: 'flex', gap: 0.5, mt: 1 }}>
+                                  <IconButton size="small" onClick={() => handleEditAddress(addr)}>
+                                    <EditIcon fontSize="small" />
+                                  </IconButton>
+                                  <IconButton size="small" color="error" onClick={() => handleDeleteAddress(addr.id)}>
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </Box>
+                              </CardContent>
+                            </Card>
+                          </Grid>
+                        ))}
+                      </Grid>
+                    )}
+                  </Paper>
 
                   {/* DATOS FISCALES */}
                   <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                       <Typography variant="h6" fontWeight="bold">
-                        {t('cd.account.fiscalTitle')}
+                        📄 {t('cd.account.fiscalTitle')}
                       </Typography>
                       <IconButton 
                         color="primary" 
@@ -4039,105 +4138,6 @@ export default function DashboardClient() {
                           {t('cd.account.configureFiscal')}
                         </Button>
                       </Box>
-                    )}
-                  </Paper>
-                </Grid>
-
-                <Grid size={{ xs: 12, md: 7 }}>
-                  {/* MIS DIRECCIONES DE ENTREGA */}
-                  <Paper id="addresses-section" sx={{ p: 3, mb: 3, borderRadius: 2 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                      <Typography variant="h6" fontWeight="bold">
-                        {t('cd.account.addressesTitle')}
-                      </Typography>
-                      <Button 
-                        variant="contained" 
-                        size="small"
-                        startIcon={<AddIcon />}
-                        sx={{ bgcolor: ORANGE }}
-                        onClick={() => {
-                          setEditingAddress(null);
-                          setAddressForm({
-                            alias: '',
-                            contact_name: '',
-                            street: '',
-                            exterior_number: '',
-                            interior_number: '',
-                            colony: '',
-                            city: '',
-                            state: '',
-                            zip_code: '',
-                            country: 'México',
-                            phone: '',
-                            reference: '',
-                          });
-                          setAddressModalOpen(true);
-                        }}
-                      >
-                        {t('cd.account.newAddress')}
-                      </Button>
-                    </Box>
-                    <Divider sx={{ mb: 2 }} />
-
-                    {deliveryAddresses.length === 0 ? (
-                      <Box sx={{ textAlign: 'center', py: 4 }}>
-                        <LocationOnIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-                        <Typography color="text.secondary">{t('cd.account.noAddresses')}</Typography>
-                        <Typography variant="body2" color="text.secondary">
-                          {t('cd.account.addAddressPrompt')}
-                        </Typography>
-                      </Box>
-                    ) : (
-                      <Grid container spacing={2}>
-                        {deliveryAddresses.map((addr) => (
-                          <Grid size={{ xs: 12, sm: 6 }} key={addr.id}>
-                            <Card 
-                              variant="outlined" 
-                              sx={{ 
-                                borderColor: addr.is_default ? ORANGE : 'divider',
-                                position: 'relative',
-                              }}
-                            >
-                              {addr.is_default && (
-                                <Chip 
-                                  icon={<StarIcon />}
-                                  label={t('cd.account.mainChip')} 
-                                  size="small" 
-                                  color="warning"
-                                  sx={{ position: 'absolute', top: 8, right: 8 }}
-                                />
-                              )}
-                              <CardContent>
-                                <Typography variant="subtitle1" fontWeight="bold">{addr.alias}</Typography>
-                                <Typography variant="body2" color="text.secondary">
-                                  {addr.contact_name && `${addr.contact_name} • `}{addr.phone}
-                                </Typography>
-                                <Typography variant="body2" sx={{ mt: 1 }}>
-                                  {addr.street} {addr.exterior_number}
-                                  {addr.interior_number && ` Int. ${addr.interior_number}`}
-                                </Typography>
-                                <Typography variant="body2">
-                                  {addr.colony && `${addr.colony}, `}
-                                  {addr.city}, {addr.state} {addr.zip_code}
-                                </Typography>
-                                {addr.reference && (
-                                  <Typography variant="caption" color="text.secondary">
-                                    Ref: {addr.reference}
-                                  </Typography>
-                                )}
-                                <Box sx={{ display: 'flex', gap: 0.5, mt: 1 }}>
-                                  <IconButton size="small" onClick={() => handleEditAddress(addr)}>
-                                    <EditIcon fontSize="small" />
-                                  </IconButton>
-                                  <IconButton size="small" color="error" onClick={() => handleDeleteAddress(addr.id)}>
-                                    <DeleteIcon fontSize="small" />
-                                  </IconButton>
-                                </Box>
-                              </CardContent>
-                            </Card>
-                          </Grid>
-                        ))}
-                      </Grid>
                     )}
                   </Paper>
                 </Grid>

@@ -1310,7 +1310,7 @@
       "addAddressPrompt": "Agrega una dirección para asignar a tus envíos",
       "mainChip": "Principal",
       "ref": "Ref:",
-      "warehouseTitle": "📦 Direcciones de Envío (Bodegas)",
+      "warehouseTitle": "Direcciones de Envío (Bodegas)",
       "warehouseSubtitle": "Usa estas direcciones para enviar tus paquetes desde el origen. Siempre incluye tu número de Suite/Casillero.",
       "howToShip": "¿Cómo enviar?",
       "loadingAddresses": "Cargando direcciones...",
