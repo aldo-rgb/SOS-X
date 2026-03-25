@@ -4066,6 +4066,7 @@ export default function DashboardClient() {
                   </Paper>
 
                   {/* DIRECCIONES DE ENVÍO (BODEGAS) */}
+                  <Box id="shipping-addresses-section">
                   <Typography variant="h6" fontWeight="bold" gutterBottom sx={{ mb: 2 }}>
                     {t('cd.account.warehouseTitle')}
                   </Typography>
@@ -4145,6 +4146,7 @@ export default function DashboardClient() {
                       </Grid>
                     )}
                   </Grid>
+                  </Box>
 
                   {/* Nota importante */}
                   <Alert severity="info" sx={{ mt: 3, borderRadius: 2 }}>
@@ -7708,13 +7710,13 @@ export default function DashboardClient() {
                 window.open('https://pagos.entregax.com/proveedores', '_blank');
                 return;
               }
-              // newValue 3 es "Direcciones" - ir a Mi Cuenta y scroll a direcciones
+              // newValue 3 es "Direcciones" - ir a Mi Cuenta y scroll a direcciones de envío
               if (newValue === 3) {
                 setActiveTab(2); // Mi Cuenta
                 setTimeout(() => {
-                  const addressesSection = document.getElementById('addresses-section');
-                  if (addressesSection) {
-                    addressesSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  const shippingSection = document.getElementById('shipping-addresses-section');
+                  if (shippingSection) {
+                    shippingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
                   }
                 }, 100);
                 return;
