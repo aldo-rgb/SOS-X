@@ -1306,9 +1306,10 @@ export default function DashboardClient() {
     return Math.ceil(getFilteredPackages().length / ITEMS_PER_PAGE);
   }, [getFilteredPackages]);
 
-  // Resetear página cuando cambia el filtro
+  // Resetear página y selección cuando cambia el filtro de servicio
   useEffect(() => {
     setCurrentPage(1);
+    setSelectedPackageIds([]);
   }, [serviceFilter, instructionFilter, searchTerm]);
 
   // Abrir tutorial de dirección
