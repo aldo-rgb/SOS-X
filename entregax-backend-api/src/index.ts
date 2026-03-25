@@ -1985,6 +1985,13 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         },
         financiero: {
           saldo_pendiente: (parseFloat(stats.saldo_pendiente) || 0) + (parseFloat(maritimeStats.saldo_pendiente) || 0) + (parseFloat(dhlStats.saldo_pendiente as any) || 0) + containerSaldoPendiente,
+          // Desglose por tipo de servicio
+          saldo_por_servicio: [
+            { servicio: 'PO Box USA', monto: parseFloat(stats.saldo_pendiente) || 0, icono: '📦' },
+            { servicio: 'Marítimo China', monto: parseFloat(maritimeStats.saldo_pendiente) || 0, icono: '🚢' },
+            { servicio: 'DHL Nacional', monto: parseFloat(dhlStats.saldo_pendiente as any) || 0, icono: '📮' },
+            { servicio: 'Contenedores FCL', monto: containerSaldoPendiente, icono: '🏗️' },
+          ].filter(s => s.monto > 0),
           saldo_favor: parseFloat(user.wallet_balance) || 0,
           credito_disponible: user.has_credit 
             ? (parseFloat(user.credit_limit) - parseFloat(user.used_credit)) 

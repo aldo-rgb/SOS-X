@@ -127,6 +127,11 @@ interface ClientStats {
   };
   financiero: {
     saldo_pendiente: number;
+    saldo_por_servicio?: Array<{
+      servicio: string;
+      monto: number;
+      icono: string;
+    }>;
     saldo_favor: number;
     credito_disponible: number;
     ultimo_pago: string;
@@ -3542,19 +3547,84 @@ export default function DashboardClient() {
                       sx={{ 
                         p: 2.5, 
                         mb: 2, 
-                        background: (pendingPayments?.totalPending || 0) > 0 
+                        background: (stats?.financiero?.saldo_pendiente || 0) > 0 
                           ? 'linear-gradient(135deg, #F05A28 0%, #d94d1f 100%)' 
                           : 'linear-gradient(135deg, #4CAF50 0%, #388E3C 100%)',
                         textAlign: 'center', 
                         borderRadius: 2 
                       }}
                     >
-                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)' }}>{t('cd.account.totalPending')}</Typography>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)' }}>Total Pendiente por Pagar</Typography>
                       <Typography variant="h4" fontWeight="bold" sx={{ color: 'white', my: 0.5 }}>
-                        {formatCurrency(pendingPayments?.totalPending || 0)}
+                        {formatCurrency(stats?.financiero?.saldo_pendiente || 0)}
                       </Typography>
                       <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>MXN</Typography>
                     </Paper>
+
+                    {/* Desglose por Tipo de Servicio */}
+                    {stats?.financiero?.saldo_por_servicio && stats.financiero.saldo_por_servicio.length > 0 && (
+                      <Paper sx={{ p: 2, mb: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
+                        <Typography variant="subtitle2" fontWeight="bold" gutterBottom sx={{ color: 'text.secondary' }}>
+                          📊 Pendiente por Tipo de Servicio
+                        </Typography>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                          {stats.financiero.saldo_por_servicio.map((item, index) => (
+                            <Box 
+                              key={index}
+                              sx={{ 
+                                display: 'flex', 
+                                justifyContent: 'space-between', 
+                                alignItems: 'center',
+                                p: 1.5,
+                                bgcolor: 'white',
+                                borderRadius: 1,
+                                border: '1px solid #e0e0e0'
+                              }}
+                            >
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography fontSize="1.2rem">{item.icono}</Typography>
+                                <Typography variant="body2" fontWeight="medium">{item.servicio}</Typography>
+                              </Box>
+                              <Typography variant="body2" fontWeight="bold" color="error.main">
+                                {formatCurrency(item.monto)}
+                              </Typography>
+                            </Box>
+                          ))}
+                        </Box>
+                      </Paper>
+                    )}
+
+                    {/* Cotizaciones Pendientes de Pago */}
+                    {(pendingPayments?.totalPending || 0) > 0 && (
+                      <Paper 
+                        sx={{ 
+                          p: 2, 
+                          mb: 2, 
+                          bgcolor: '#FFF3E0', 
+                          border: '1px solid #FFE0B2',
+                          borderRadius: 2 
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">
+                              📋 Cotizaciones Generadas Pdte. de Pago
+                            </Typography>
+                            <Typography variant="h6" fontWeight="bold" color="warning.dark">
+                              {formatCurrency(pendingPayments?.totalPending || 0)}
+                            </Typography>
+                          </Box>
+                          <Button 
+                            size="small"
+                            variant="outlined"
+                            color="warning"
+                            onClick={() => setShowPendingPayments(true)}
+                          >
+                            Ver ({pendingPayments?.invoices?.length || 0})
+                          </Button>
+                        </Box>
+                      </Paper>
+                    )}
 
                     <Grid container spacing={2}>
                       <Grid size={6}>
@@ -3598,17 +3668,6 @@ export default function DashboardClient() {
                         )}
                       </Box>
                     )}
-
-                    {/* Botón Mis Cuentas por Pagar */}
-                    <Button 
-                      variant="contained" 
-                      fullWidth 
-                      sx={{ mt: 2, bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' } }}
-                      startIcon={<ReceiptIcon />}
-                      onClick={() => setShowPendingPayments(true)}
-                    >
-                      💳 {t('cd.account.pendingPayments', { count: pendingPayments?.invoices?.length || 0 })}
-                    </Button>
 
                     {/* Último pago */}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 2, pt: 1, borderTop: '1px solid #eee' }}>
