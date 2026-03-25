@@ -324,7 +324,8 @@ import {
   saveAdvisorNote,
   getAdvisorShipments,
   getAdvisorCommissions,
-  getRepackChildren
+  getRepackChildren,
+  getClientWallet
 } from './advisorPanelController';
 import {
   requestAdvisor,
@@ -2816,6 +2817,7 @@ app.get('/api/gex/clients', authenticateToken, searchClients);
 // ========== PANEL DEL ASESOR (self-service) ==========
 app.get('/api/advisor/dashboard', authenticateToken, getAdvisorDashboard);
 app.get('/api/advisor/clients', authenticateToken, getAdvisorClients);
+app.get('/api/advisor/clients/:clientId/wallet', authenticateToken, getClientWallet);
 app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);
 app.get('/api/advisor/shipments', authenticateToken, getAdvisorShipments);
 app.get('/api/advisor/shipments/:id/children', authenticateToken, getRepackChildren);

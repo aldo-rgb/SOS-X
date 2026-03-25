@@ -715,11 +715,106 @@ export const getRepackChildren = async (req: Request, res: Response): Promise<an
         clientPaid: c.client_paid,
         weight: c.weight ? parseFloat(c.weight) : null,
         description: c.description,
-        createdAt: c.created_at,
+        createdAt: c.createdAt,
       })),
     });
   } catch (error) {
     console.error('Error fetching repack children:', error);
     res.status(500).json({ error: 'Error al obtener guías del repack' });
+  }
+};
+
+// ─── 6. VER CARTERA DEL CLIENTE (para asesor) ───
+export const getClientWallet = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const advisorId = getAdvisorId(req);
+    if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+
+    const { clientId } = req.params;
+
+    // Verificar que el cliente pertenece al asesor
+    const clientCheck = await pool.query(
+      `SELECT id, full_name, email, box_id, wallet_balance, has_credit, credit_limit, used_credit 
+       FROM users WHERE id = $1 AND referred_by_id = $2 AND role = 'client'`,
+      [clientId, advisorId]
+    );
+    if (clientCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'Cliente no pertenece a este asesor' });
+    }
+    const client = clientCheck.rows[0];
+
+    // Obtener saldos por servicio (similar a dashboard/client)
+    // PO Box USA y Aéreo China
+    const packagesStats = await pool.query(`
+      SELECT 
+        COALESCE(SUM(CASE WHEN service_type = 'POBOX_USA' THEN COALESCE(saldo_pendiente, 0) ELSE 0 END), 0) as saldo_pobox,
+        COALESCE(SUM(CASE WHEN service_type = 'AIR_CHN_MX' THEN COALESCE(saldo_pendiente, 0) ELSE 0 END), 0) as saldo_aereo
+      FROM packages
+      WHERE user_id = $1 AND (is_master = true OR master_id IS NULL)
+    `, [clientId]);
+
+    // Marítimo China
+    const maritimeStats = await pool.query(`
+      SELECT COALESCE(SUM(COALESCE(saldo_pendiente, 0)), 0) as saldo_pendiente
+      FROM maritime_orders WHERE user_id = $1
+    `, [clientId]);
+
+    // DHL Nacional
+    const dhlStats = await pool.query(`
+      SELECT COALESCE(SUM(COALESCE(saldo_pendiente, 0)), 0) as saldo_pendiente
+      FROM dhl_shipments WHERE user_id = $1
+    `, [clientId]);
+
+    // Contenedores FCL
+    const containerStats = await pool.query(`
+      SELECT COALESCE(SUM(CASE WHEN client_paid = false THEN COALESCE(monto, 0) ELSE 0 END), 0) as saldo_pendiente
+      FROM container_shipments WHERE user_id = $1
+    `, [clientId]);
+
+    // Cotizaciones pendientes de pago
+    const quotationsRes = await pool.query(`
+      SELECT COUNT(*) as count, COALESCE(SUM(total_usd), 0) as total
+      FROM quotations 
+      WHERE user_id = $1 AND status = 'pending_payment'
+    `, [clientId]);
+
+    const saldoPobox = parseFloat(packagesStats.rows[0]?.saldo_pobox) || 0;
+    const saldoAereo = parseFloat(packagesStats.rows[0]?.saldo_aereo) || 0;
+    const saldoMaritimo = parseFloat(maritimeStats.rows[0]?.saldo_pendiente) || 0;
+    const saldoDhl = parseFloat(dhlStats.rows[0]?.saldo_pendiente) || 0;
+    const saldoContenedores = parseFloat(containerStats.rows[0]?.saldo_pendiente) || 0;
+    
+    const totalPendiente = saldoPobox + saldoAereo + saldoMaritimo + saldoDhl + saldoContenedores;
+
+    res.json({
+      cliente: {
+        id: client.id,
+        nombre: client.full_name,
+        email: client.email,
+        casillero: client.box_id,
+      },
+      cartera: {
+        total_pendiente: totalPendiente,
+        moneda: 'USD',
+        saldo_por_servicio: [
+          { servicio: 'PO Box USA', monto: saldoPobox, moneda: 'USD', icono: '📦' },
+          { servicio: 'Aéreo China', monto: saldoAereo, moneda: 'USD', icono: '✈️' },
+          { servicio: 'Marítimo China', monto: saldoMaritimo, moneda: 'USD', icono: '🚢' },
+          { servicio: 'DHL Nacional', monto: saldoDhl, moneda: 'USD', icono: '📮' },
+          { servicio: 'Contenedores FCL', monto: saldoContenedores, moneda: 'USD', icono: '🏗️' },
+        ].filter(s => s.monto > 0),
+        cotizaciones_pendientes: {
+          count: parseInt(quotationsRes.rows[0]?.count) || 0,
+          total: parseFloat(quotationsRes.rows[0]?.total) || 0,
+        },
+        saldo_favor: parseFloat(client.wallet_balance) || 0,
+        credito_disponible: client.has_credit 
+          ? (parseFloat(client.credit_limit) - parseFloat(client.used_credit)) 
+          : 0,
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching client wallet:', error);
+    res.status(500).json({ error: 'Error al obtener cartera del cliente' });
   }
 };

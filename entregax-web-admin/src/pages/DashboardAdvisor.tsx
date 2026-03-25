@@ -80,6 +80,7 @@ import {
   Security as SecurityIcon,
   GppBad as GppBadIcon,
   GppGood as GppGoodIcon,
+  AccountBalanceWallet as WalletIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -238,6 +239,32 @@ interface CommissionData {
   conversion: { totalReferred: number; withShipments: number; rate: string };
 }
 
+// Interface para Cartera del Cliente
+interface ClientWallet {
+  cliente: {
+    id: number;
+    nombre: string;
+    email: string;
+    casillero: string;
+  };
+  cartera: {
+    total_pendiente: number;
+    moneda: string;
+    saldo_por_servicio: Array<{
+      servicio: string;
+      monto: number;
+      moneda: string;
+      icono: string;
+    }>;
+    cotizaciones_pendientes: {
+      count: number;
+      total: number;
+    };
+    saldo_favor: number;
+    credito_disponible: number;
+  };
+}
+
 // ─── Helpers ───
 
 const formatMXN = (amount: number) =>
@@ -298,6 +325,11 @@ export default function DashboardAdvisor() {
   // Commissions tab
   const [commissions, setCommissions] = useState<CommissionData | null>(null);
   const [commissionsLoading, setCommissionsLoading] = useState(false);
+
+  // Wallet modal
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const [walletData, setWalletData] = useState<ClientWallet | null>(null);
+  const [walletLoading, setWalletLoading] = useState(false);
 
   // Snackbar
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
@@ -402,6 +434,21 @@ export default function DashboardAdvisor() {
       fetchClients();
     } catch (err) {
       setSnackbar({ open: true, message: t('advisor.noteError'), severity: 'error' });
+    }
+  };
+
+  const handleViewWallet = async (clientId: number) => {
+    try {
+      setWalletLoading(true);
+      setWalletModalOpen(true);
+      const res = await api.get(`/advisor/clients/${clientId}/wallet`);
+      setWalletData(res.data);
+    } catch (err) {
+      console.error('Error loading client wallet:', err);
+      setSnackbar({ open: true, message: 'Error al cargar cartera del cliente', severity: 'error' });
+      setWalletModalOpen(false);
+    } finally {
+      setWalletLoading(false);
     }
   };
 
@@ -811,12 +858,13 @@ export default function DashboardAdvisor() {
                 <TableCell>{t('advisor.lastShipment')}</TableCell>
                 <TableCell align="center">{t('advisor.verification')}</TableCell>
                 <TableCell>{t('advisor.notes')}</TableCell>
+                <TableCell align="center">Cartera</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {clients.length === 0 && !clientsLoading && (
                 <TableRow>
-                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">{t('advisor.noClients')}</Typography>
                   </TableCell>
                 </TableRow>
@@ -939,6 +987,25 @@ export default function DashboardAdvisor() {
                         <EditIcon sx={{ fontSize: 12, ml: 0.5, color: 'text.secondary' }} />
                       </Box>
                     )}
+                  </TableCell>
+                  <TableCell align="center">
+                    <Tooltip title="Ver Cartera">
+                      <Button
+                        variant="contained"
+                        size="small"
+                        onClick={() => handleViewWallet(c.id)}
+                        startIcon={<WalletIcon />}
+                        sx={{
+                          bgcolor: '#F05A28',
+                          '&:hover': { bgcolor: '#d94d1f' },
+                          textTransform: 'none',
+                          fontSize: '0.75rem',
+                          py: 0.5,
+                        }}
+                      >
+                        Ver Cartera
+                      </Button>
+                    </Tooltip>
                   </TableCell>
                 </TableRow>
               ))}
@@ -2030,6 +2097,169 @@ export default function DashboardAdvisor() {
             </>
           );
         })()}
+      </Dialog>
+
+      {/* Modal Cartera del Cliente */}
+      <Dialog 
+        open={walletModalOpen} 
+        onClose={() => { setWalletModalOpen(false); setWalletData(null); }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ 
+          bgcolor: '#F05A28', 
+          color: 'white',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1
+        }}>
+          <WalletIcon />
+          Cartera del Cliente
+          <IconButton 
+            onClick={() => { setWalletModalOpen(false); setWalletData(null); }}
+            sx={{ ml: 'auto', color: 'white' }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {walletLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress sx={{ color: '#F05A28' }} />
+            </Box>
+          ) : walletData ? (
+            <>
+              {/* Info del cliente */}
+              <Paper sx={{ p: 2, m: 2, mb: 0, bgcolor: '#f8f9fa', borderRadius: 2 }}>
+                <Typography variant="subtitle2" fontWeight={700}>
+                  {walletData.cliente.nombre}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {walletData.cliente.email} • Casillero: {walletData.cliente.casillero}
+                </Typography>
+              </Paper>
+
+              {/* Total Pendiente */}
+              <Paper sx={{ 
+                p: 3, 
+                m: 2,
+                background: 'linear-gradient(135deg, #F05A28 0%, #d94d1f 100%)',
+                borderRadius: 3,
+                textAlign: 'center'
+              }}>
+                <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                  Total Pendiente por Pagar
+                </Typography>
+                <Typography variant="h4" fontWeight={800} sx={{ color: 'white' }}>
+                  ${walletData.cartera.total_pendiente.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                </Typography>
+                <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.9)' }}>
+                  {walletData.cartera.moneda}
+                </Typography>
+              </Paper>
+
+              {/* Desglose por servicio */}
+              {walletData.cartera.saldo_por_servicio.length > 0 && (
+                <Box sx={{ px: 2, pb: 2 }}>
+                  <Typography variant="overline" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                    📊 Pendiente por Tipo de Servicio
+                  </Typography>
+                  {walletData.cartera.saldo_por_servicio.map((item, idx) => (
+                    <Paper key={idx} sx={{ 
+                      p: 1.5, 
+                      mb: 1, 
+                      display: 'flex', 
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      borderRadius: 2,
+                      border: '1px solid #eee'
+                    }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography sx={{ fontSize: '1.2rem' }}>{item.icono}</Typography>
+                        <Typography variant="body2" fontWeight={600}>{item.servicio}</Typography>
+                      </Box>
+                      <Box sx={{ textAlign: 'right' }}>
+                        <Typography variant="body1" fontWeight={700} color="error.main">
+                          ${item.monto.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {item.moneda}
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  ))}
+                </Box>
+              )}
+
+              {/* Cotizaciones Pendientes */}
+              {walletData.cartera.cotizaciones_pendientes.count > 0 && (
+                <Paper sx={{ 
+                  p: 2, 
+                  mx: 2, 
+                  mb: 2,
+                  bgcolor: '#fff3cd',
+                  borderRadius: 2,
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <Box>
+                    <Typography variant="body2" fontWeight={600}>
+                      📋 Cotizaciones Pendientes de Pago
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      {walletData.cartera.cotizaciones_pendientes.count} cotización(es)
+                    </Typography>
+                  </Box>
+                  <Typography variant="h6" fontWeight={700} color="warning.dark">
+                    ${walletData.cartera.cotizaciones_pendientes.total.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </Typography>
+                </Paper>
+              )}
+
+              {/* Saldo a favor y Crédito */}
+              <Box sx={{ display: 'flex', gap: 2, px: 2, pb: 2 }}>
+                <Paper sx={{ 
+                  flex: 1, 
+                  p: 2, 
+                  textAlign: 'center',
+                  bgcolor: walletData.cartera.saldo_favor > 0 ? '#e8f5e9' : '#f5f5f5',
+                  borderRadius: 2
+                }}>
+                  <Typography variant="caption" color="text.secondary">Saldo a Favor</Typography>
+                  <Typography variant="h6" fontWeight={700} color="success.main">
+                    ${walletData.cartera.saldo_favor.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </Typography>
+                </Paper>
+                <Paper sx={{ 
+                  flex: 1, 
+                  p: 2, 
+                  textAlign: 'center',
+                  bgcolor: walletData.cartera.credito_disponible > 0 ? '#e3f2fd' : '#f5f5f5',
+                  borderRadius: 2
+                }}>
+                  <Typography variant="caption" color="text.secondary">Crédito Disponible</Typography>
+                  <Typography variant="h6" fontWeight={700} color="primary.main">
+                    ${walletData.cartera.credito_disponible.toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </Typography>
+                </Paper>
+              </Box>
+            </>
+          ) : (
+            <Box sx={{ p: 4, textAlign: 'center' }}>
+              <Typography color="text.secondary">No se pudo cargar la cartera</Typography>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2, bgcolor: '#f5f5f5' }}>
+          <Button 
+            onClick={() => { setWalletModalOpen(false); setWalletData(null); }}
+            variant="outlined"
+            sx={{ borderRadius: 2 }}
+          >
+            Cerrar
+          </Button>
+        </DialogActions>
       </Dialog>
 
       {/* Snackbar */}
