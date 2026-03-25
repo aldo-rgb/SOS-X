@@ -1709,7 +1709,7 @@
       "whatsappGreeting": "Hola {{name}}, soy cliente EntregaX (Suite {{suite}})."
     },
     "servicesCarousel": {
-      "title": "🚀 Nuestros Servicios",
+      "title": "Nuestros Servicios",
       "viewAddress": "Ver Dirección"
     },
     "warehouse": {

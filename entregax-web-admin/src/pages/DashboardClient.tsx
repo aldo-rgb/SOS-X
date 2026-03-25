@@ -7690,7 +7690,18 @@ export default function DashboardClient() {
           elevation={3}
         >
           <BottomNavigation
-            value={activeTab}
+            value={(() => {
+              // Mapear activeTab a índice de BottomNav
+              // activeTab: 0=Envíos, 1=Cotizador, 2=MiCuenta, 3=Facturas
+              // BottomNav: 0=Envíos, 1=Pagos, 2=Cotizar, 3=Direcciones, 4=Facturas, 5=Cuenta
+              const reverseMapping: {[key: number]: number} = {
+                0: 0,  // Envíos → Envíos
+                1: 2,  // Cotizador → Cotizar
+                2: 5,  // Mi Cuenta → Cuenta
+                3: 4,  // Facturas → Facturas
+              };
+              return reverseMapping[activeTab] ?? 0;
+            })()}
             onChange={(_, newValue) => {
               // newValue 1 es "Pago a proveedores" - abre enlace externo
               if (newValue === 1) {
