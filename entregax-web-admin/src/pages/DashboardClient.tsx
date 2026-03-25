@@ -3103,7 +3103,7 @@ export default function DashboardClient() {
                       onClick={() => setDeliveryModalOpen(true)}
                       sx={{ 
                         position: 'fixed',
-                        bottom: isMobile ? 70 : 20,
+                        bottom: isMobile ? 70 : 90,
                         right: isMobile ? 10 : 20,
                         zIndex: 1000,
                         minWidth: 'auto',
@@ -5731,7 +5731,16 @@ export default function DashboardClient() {
                               {selectedCarrierService === service.id && (
                                 <Box sx={{ color: 'primary.main', mt: 0.5 }}>✓</Box>
                               )}
-                              <Box sx={{ fontSize: '1.2rem' }}>{service.icon}</Box>
+                              {service.icon && (service.icon.startsWith('http') || service.icon.startsWith('/uploads')) ? (
+                                <Box
+                                  component="img"
+                                  src={service.icon}
+                                  alt={service.name}
+                                  sx={{ width: 40, height: 40, objectFit: 'contain', borderRadius: 1 }}
+                                />
+                              ) : (
+                                <Box sx={{ fontSize: '1.2rem' }}>{service.icon}</Box>
+                              )}
                               <Box sx={{ flex: 1 }}>
                                 <Typography variant="body1" fontWeight="bold">
                                   {service.name}
