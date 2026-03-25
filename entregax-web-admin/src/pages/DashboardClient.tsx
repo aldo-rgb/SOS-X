@@ -416,6 +416,7 @@ export default function DashboardClient() {
   const [deliveryNotes, setDeliveryNotes] = useState<string>('');
   const [applyToFullShipment, setApplyToFullShipment] = useState<boolean>(true);
   const [pqtxQuoteLoading, setPqtxQuoteLoading] = useState<boolean>(false);
+  const [boxBreakdownOpen, setBoxBreakdownOpen] = useState<Record<number, boolean>>({});
   
   // Determinar el tipo de servicio de los paquetes seleccionados
   const selectedServiceType = useMemo(() => {
@@ -5669,7 +5670,7 @@ export default function DashboardClient() {
                         {pkg.weight && (
                           <Box>
                             <Typography variant="caption" color="text.secondary">
-                              {(pkg.total_boxes && pkg.total_boxes > 1) ? t('cd.delivery.totalWeight') : t('cd.delivery.totalWeight')}
+                              Peso Total
                             </Typography>
                             <Typography variant="body2" fontWeight="bold">{Number(pkg.weight).toFixed(2)} kg</Typography>
                           </Box>
@@ -5677,11 +5678,62 @@ export default function DashboardClient() {
                         {pkg.cbm && (
                           <Box sx={{ textAlign: 'right' }}>
                             <Typography variant="caption" color="text.secondary">
-                              {t('cd.delivery.totalCBM')}
+                              CBM Total
                             </Typography>
                             <Typography variant="body2" fontWeight="bold">{Number(pkg.cbm).toFixed(4)} m³</Typography>
                           </Box>
                         )}
+                      </Box>
+                    )}
+
+                    {/* Botón para desglosar cajas */}
+                    {pkg.included_guides && pkg.included_guides.length > 0 && (
+                      <Box sx={{ mt: 1 }}>
+                        <Button
+                          size="small"
+                          variant="text"
+                          onClick={() => setBoxBreakdownOpen(prev => ({ ...prev, [pkg.id]: !prev[pkg.id] }))}
+                          endIcon={boxBreakdownOpen[pkg.id] ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                          sx={{ fontSize: '0.75rem', textTransform: 'none', color: ORANGE, p: 0 }}
+                        >
+                          📋 Ver desglose de {pkg.included_guides.length} cajas
+                        </Button>
+                        <Collapse in={boxBreakdownOpen[pkg.id]} timeout="auto">
+                          <Box sx={{ mt: 1, bgcolor: 'white', borderRadius: 1, border: '1px solid #e0e0e0', overflow: 'hidden' }}>
+                            <Box sx={{ display: 'grid', gridTemplateColumns: '50px 1fr 1fr 1fr', bgcolor: '#f5f5f5', px: 1, py: 0.5 }}>
+                              <Typography variant="caption" fontWeight="bold">#</Typography>
+                              <Typography variant="caption" fontWeight="bold">Peso</Typography>
+                              <Typography variant="caption" fontWeight="bold">Medidas</Typography>
+                              <Typography variant="caption" fontWeight="bold">CBM</Typography>
+                            </Box>
+                            {pkg.included_guides.map((guide, idx) => (
+                              <Box 
+                                key={guide.id} 
+                                sx={{ 
+                                  display: 'grid', 
+                                  gridTemplateColumns: '50px 1fr 1fr 1fr', 
+                                  px: 1, 
+                                  py: 0.5,
+                                  borderTop: '1px solid #f0f0f0',
+                                  bgcolor: idx % 2 === 0 ? 'white' : '#fafafa',
+                                }}
+                              >
+                                <Typography variant="caption" color="text.secondary">
+                                  {guide.box_number || idx + 1}
+                                </Typography>
+                                <Typography variant="caption">
+                                  {guide.weight ? `${Number(guide.weight).toFixed(2)} kg` : '—'}
+                                </Typography>
+                                <Typography variant="caption">
+                                  {guide.dimensions || '—'}
+                                </Typography>
+                                <Typography variant="caption">
+                                  {guide.cbm ? `${Number(guide.cbm).toFixed(4)}` : '—'}
+                                </Typography>
+                              </Box>
+                            ))}
+                          </Box>
+                        </Collapse>
                       </Box>
                     )}
                   </Box>
