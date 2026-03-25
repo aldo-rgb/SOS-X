@@ -3466,47 +3466,72 @@ export default function DashboardClient() {
                 <TableContainer>
                   <Table size="small">
                     <TableHead>
-                      <TableRow sx={{ bgcolor: 'grey.100' }}>
-                        <TableCell><strong>{t('cd.quoter.service')}</strong></TableCell>
-                        <TableCell><strong>{t('cd.quoter.estimatedTime')}</strong></TableCell>
-                        <TableCell><strong>{t('cd.quoter.from')}</strong></TableCell>
-                        <TableCell><strong>{t('cd.quoter.notes')}</strong></TableCell>
+                      <TableRow sx={{ bgcolor: 'grey.900' }}>
+                        <TableCell sx={{ color: 'white' }}><strong>{t('cd.quoter.service')}</strong></TableCell>
+                        <TableCell sx={{ color: 'white' }}><strong>{t('cd.quoter.estimatedTime')}</strong></TableCell>
+                        <TableCell sx={{ color: 'white' }}><strong>PRECIO</strong></TableCell>
+                        <TableCell sx={{ color: 'white' }}><strong>{t('cd.quoter.notes')}</strong></TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      <TableRow>
+                      <TableRow hover>
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <BoatIcon sx={{ color: '#00BCD4' }} /> {t('cd.quoter.seaChina')}
                           </Box>
                         </TableCell>
                         <TableCell>45-60 días</TableCell>
-                        <TableCell><strong>$39 USD</strong></TableCell>
+                        <TableCell>
+                          <Typography fontWeight="bold" color="primary.main">$39 USD/CBM</Typography>
+                          <Typography variant="caption" color="text.secondary">≈ $780 MXN/CBM</Typography>
+                        </TableCell>
                         <TableCell>{t('cd.quoter.seaNote')}</TableCell>
                       </TableRow>
-                      <TableRow>
+                      <TableRow hover>
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <FlightIcon sx={{ color: ORANGE }} /> {t('cd.quoter.airChina')}
                           </Box>
                         </TableCell>
                         <TableCell>10-15 días</TableCell>
-                        <TableCell><strong>$8 USD/kg</strong></TableCell>
+                        <TableCell>
+                          <Typography fontWeight="bold" color="primary.main">$8 USD/kg</Typography>
+                          <Typography variant="caption" color="text.secondary">≈ $160 MXN/kg</Typography>
+                        </TableCell>
                         <TableCell>{t('cd.quoter.airNote')}</TableCell>
                       </TableRow>
-                      <TableRow>
+                      <TableRow hover>
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <PostOfficeIcon sx={{ color: BLUE }} /> {t('cd.quoter.pobox')}
                           </Box>
                         </TableCell>
                         <TableCell>5-10 días</TableCell>
-                        <TableCell><strong>$3.50 USD/lb</strong></TableCell>
+                        <TableCell>
+                          <Typography fontWeight="bold" color="primary.main">$3.50 USD/lb</Typography>
+                          <Typography variant="caption" color="text.secondary">≈ $70 MXN/lb</Typography>
+                        </TableCell>
                         <TableCell>{t('cd.quoter.poboxNote')}</TableCell>
+                      </TableRow>
+                      <TableRow hover>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <TruckIcon sx={{ color: '#FFCC00' }} /> AA DHL (Liberación)
+                          </Box>
+                        </TableCell>
+                        <TableCell>1-3 días</TableCell>
+                        <TableCell>
+                          <Typography fontWeight="bold" color="primary.main">$35 USD</Typography>
+                          <Typography variant="caption" color="text.secondary">≈ $700 MXN + impuestos</Typography>
+                        </TableCell>
+                        <TableCell>Liberación de paquetes DHL en Monterrey</TableCell>
                       </TableRow>
                     </TableBody>
                   </Table>
                 </TableContainer>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                  * Precios de referencia. Tipo de cambio aproximado: $20 MXN/USD. Consulta cotización exacta.
+                </Typography>
               </Paper>
             </Box>
           )}

@@ -1299,7 +1299,7 @@
       "addMethod": "Agregar Método",
       "defaultLabel": "Predeterminado",
       "setDefault": "Establecer como predeterminado",
-      "fiscalTitle": "📄 Mis Datos Fiscales",
+      "fiscalTitle": "Mis Datos Fiscales",
       "fiscalComplete": "Datos fiscales completos",
       "fiscalAutoInvoice": "Tus facturas se generarán automáticamente con estos datos.",
       "fiscalConfigure": "Configura tus datos fiscales para generar facturas automáticamente",
