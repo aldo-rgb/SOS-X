@@ -91,7 +91,7 @@ interface Props {
 const INVENTORY_MODULES = ['stock_view', 'stock_adjust', 'stock_count', 'transfers', 'reports'];
 
 export default function BranchInventoryPage({ branchId, showBranchSelector = true }: Props) {
-  const { allowedModules, loading: permLoading, canView, canEdit } = useModulePermissions('ops_inventory', INVENTORY_MODULES);
+  const { allowedModules, loading: permLoading, canEdit } = useModulePermissions('ops_inventory', INVENTORY_MODULES);
   const [loading, setLoading] = useState(true);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<number | 'all'>(branchId || 'all');

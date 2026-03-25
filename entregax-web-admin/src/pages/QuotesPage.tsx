@@ -60,7 +60,7 @@ const NATIONAL_MODULES = ['quotes', 'rates', 'coverage', 'tracking'];
 
 export default function QuotesPage({}: QuotesPageProps) {
   const { t, i18n } = useTranslation();
-  const { allowedModules, loading: permLoading, canView, canEdit } = useModulePermissions('ops_mx_national', NATIONAL_MODULES);
+  const { allowedModules, loading: permLoading } = useModulePermissions('ops_mx_national', NATIONAL_MODULES);
   
   // Form state
   const [weight, setWeight] = useState('');
