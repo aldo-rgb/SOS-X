@@ -5807,14 +5807,12 @@ export default function DashboardClient() {
                               bgcolor: selectedCarrierService === service.id ? 'primary.50' : 'transparent',
                               border: selectedCarrierService === service.id ? `2px solid ${ORANGE}` : '1px solid #eee',
                               borderRadius: 2,
-                              width: '100%'
+                              width: '100%',
+                              minHeight: 80,
                             }}
                           >
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                              {selectedCarrierService === service.id && (
-                                <Box sx={{ color: 'primary.main', fontWeight: 'bold', fontSize: '1.1rem' }}>✓</Box>
-                              )}
-                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 70 }}>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 80, flexShrink: 0 }}>
                                 {service.icon && (service.icon.startsWith('http') || service.icon.startsWith('/uploads')) ? (
                                   <Box
                                     component="img"
