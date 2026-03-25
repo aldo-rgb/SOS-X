@@ -2471,24 +2471,39 @@ export default function DashboardClient() {
         </Box>
       )}
 
-      {/* Alertas - Solo en desktop */}
-      {!isMobile && stats && stats.paquetes.listos_recoger > 0 && (
-        <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} icon={<CheckCircleIcon />}>
-          <strong>{t('cd.alerts.readyPickup', { count: stats.paquetes.listos_recoger })}</strong> {t('cd.alerts.visitBranch')}
-        </Alert>
-      )}
-      {!isMobile && stats && stats.financiero.saldo_pendiente > 0 && (
-        <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }} icon={<WarningIcon />}>
-          <strong>{t('cd.alerts.pendingBalance', { amount: formatCurrency(stats.financiero.saldo_pendiente) })}</strong>
-        </Alert>
-      )}
-
       {/* Tabs de navegación - Desktop only */}
       {!isMobile && (
         <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
           <Tabs 
-            value={activeTab} 
-            onChange={(_, v) => setActiveTab(v)}
+            value={(() => {
+              // Mapear activeTab a índice de Tab visual
+              // activeTab: 0=Envíos, 1=Cotizador, 2=MiCuenta, 3=Facturas, 4=Direcciones
+              // Tabs: 0=Envíos, 1=Pagos, 2=Cotizador, 3=MiCuenta, 4=Facturas, 5=Direcciones
+              const reverseMapping: {[key: number]: number} = {
+                0: 0,  // Envíos → Envíos
+                1: 2,  // Cotizador → Cotizador
+                2: 3,  // Mi Cuenta → Mi Cuenta
+                3: 4,  // Facturas → Facturas
+                4: 5,  // Direcciones → Direcciones
+              };
+              return reverseMapping[activeTab] ?? 0;
+            })()}
+            onChange={(_, v) => {
+              // Tab 1 es "Pago a Proveedores" - abre enlace externo
+              if (v === 1) {
+                window.open('https://pagos.entregax.com/proveedores', '_blank');
+                return;
+              }
+              // Ajustar índice para los demás tabs
+              const tabMapping: {[key: number]: number} = {
+                0: 0,  // Mis Envíos
+                2: 1,  // Cotizador
+                3: 2,  // Mi Cuenta
+                4: 3,  // Facturas
+                5: 4,  // Direcciones
+              };
+              setActiveTab(tabMapping[v] ?? 0);
+            }}
             variant="scrollable"
             scrollButtons="auto"
             sx={{ 
@@ -2500,9 +2515,11 @@ export default function DashboardClient() {
             }}
           >
             <Tab icon={<ShippingIcon />} label={t('cd.tabs.shipments')} iconPosition="start" />
+            <Tab icon={<PaymentsIcon />} label="Pago Proveedores" iconPosition="start" />
             <Tab icon={<CalculateIcon />} label={t('cd.tabs.quoter')} iconPosition="start" />
             <Tab icon={<WalletIcon />} label={t('cd.tabs.account')} iconPosition="start" />
             <Tab icon={<ReceiptIcon />} label={t('cd.tabs.invoices')} iconPosition="start" />
+            <Tab icon={<HomeIcon />} label="Direcciones" iconPosition="start" />
           </Tabs>
         </Paper>
       )}
