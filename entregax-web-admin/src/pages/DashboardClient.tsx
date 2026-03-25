@@ -3585,9 +3585,12 @@ export default function DashboardClient() {
                                 <Typography fontSize="1.2rem">{item.icono}</Typography>
                                 <Typography variant="body2" fontWeight="medium">{item.servicio}</Typography>
                               </Box>
-                              <Typography variant="body2" fontWeight="bold" color="error.main">
-                                {formatCurrency(item.monto)}
-                              </Typography>
+                              <Box sx={{ textAlign: 'right' }}>
+                                <Typography variant="body2" fontWeight="bold" color="error.main">
+                                  {formatCurrency(item.monto)}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">MXN</Typography>
+                              </Box>
                             </Box>
                           ))}
                         </Box>
