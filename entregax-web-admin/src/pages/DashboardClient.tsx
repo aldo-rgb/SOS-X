@@ -47,6 +47,10 @@ import {
   ListItemIcon,
   Switch,
   Pagination,
+  useTheme,
+  useMediaQuery,
+  BottomNavigation,
+  BottomNavigationAction,
 } from '@mui/material';
 import {
   LocalShipping as ShippingIcon,
@@ -289,6 +293,8 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 export default function DashboardClient() {
   const { t } = useTranslation();
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
 
   const SERVICE_CONFIG = useMemo<ServiceConfigItem[]>(() => [
     { type: 'china_air', name: t('cd.services.china_air'), icon: '✈️', timeframe: t('cd.services.china_air_time'), tutorial: t('cd.services.china_air_tutorial') },
@@ -2071,18 +2077,23 @@ export default function DashboardClient() {
   }
 
   return (
-    <Box sx={{ p: { xs: 2, md: 4 }, bgcolor: '#f5f5f5', minHeight: 'calc(100vh - 64px)' }}>
-      {/* Header de Bienvenida - Diseño Corporativo EntregaX */}
+    <Box sx={{ 
+      p: { xs: 1.5, md: 4 }, 
+      bgcolor: '#f5f5f5', 
+      minHeight: 'calc(100vh - 64px)',
+      pb: isMobile ? 10 : 4, // Space for bottom nav
+    }}>
+      {/* Header de Bienvenida - Mobile optimized */}
       <Paper 
         sx={{ 
-          mb: 3, 
-          borderRadius: 3,
+          mb: isMobile ? 2 : 3, 
+          borderRadius: isMobile ? 2 : 3,
           overflow: 'hidden',
-          boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
+          boxShadow: isMobile ? '0 2px 8px rgba(0,0,0,0.1)' : '0 4px 20px rgba(0,0,0,0.12)',
         }}
       >
         <Box sx={{ 
-          p: { xs: 2.5, md: 3 }, 
+          p: { xs: 2, md: 3 }, 
           background: 'linear-gradient(135deg, #111111 0%, #1a1a1a 40%, #222222 100%)',
           color: 'white',
           position: 'relative',
@@ -2098,79 +2109,129 @@ export default function DashboardClient() {
             pointerEvents: 'none',
           },
         }}>
-          <Grid container spacing={2} alignItems="center" sx={{ position: 'relative', zIndex: 1 }}>
-            <Grid size={{ xs: 12, md: 7 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          {isMobile ? (
+            /* Mobile Header - Compact */
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative', zIndex: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                 <Box sx={{ 
-                  width: 50, 
-                  height: 50, 
-                  borderRadius: '14px', 
+                  width: 40, 
+                  height: 40, 
+                  borderRadius: '12px', 
                   background: `linear-gradient(135deg, ${ORANGE}, #ff7043)`,
                   display: 'flex', 
                   alignItems: 'center', 
                   justifyContent: 'center',
-                  boxShadow: '0 4px 14px rgba(240,90,40,0.35)',
-                  flexShrink: 0,
+                  boxShadow: '0 3px 10px rgba(240,90,40,0.3)',
                 }}>
-                  <PersonIcon sx={{ fontSize: 28, color: 'white' }} />
+                  <PersonIcon sx={{ fontSize: 22, color: 'white' }} />
                 </Box>
                 <Box>
-                  <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.3px', lineHeight: 1.2, color: 'white' }}>
-                    {t('cd.header.welcome')} {userName}
+                  <Typography variant="subtitle1" sx={{ fontWeight: 700, lineHeight: 1.2, color: 'white' }}>
+                    {t('cd.header.welcome')} {userName?.split(' ')[0]}
                   </Typography>
-                  <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.45)', mt: 0.3, fontWeight: 400 }}>
+                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.5)', fontWeight: 400 }}>
                     {t('cd.header.portal')}
                   </Typography>
                 </Box>
               </Box>
-            </Grid>
-            <Grid size={{ xs: 12, md: 5 }}>
               <Box sx={{ 
-                p: 2, 
-                bgcolor: 'rgba(255,255,255,0.05)', 
-                borderRadius: 2, 
-                border: '1px solid rgba(255,255,255,0.08)',
+                px: 1.5, 
+                py: 0.8, 
+                bgcolor: 'rgba(255,255,255,0.08)', 
+                borderRadius: 1.5, 
                 display: 'flex',
                 alignItems: 'center',
-                gap: 2,
+                gap: 1,
               }}>
-                <Box sx={{ 
-                  width: 40, 
-                  height: 40, 
-                  borderRadius: '10px', 
-                  bgcolor: 'rgba(240,90,40,0.12)',
-                  display: 'flex', 
-                  alignItems: 'center', 
-                  justifyContent: 'center',
-                  flexShrink: 0,
-                }}>
-                  <QrCodeIcon sx={{ fontSize: 22, color: ORANGE }} />
-                </Box>
-                <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', fontWeight: 500, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                    {t('cd.header.suiteLabel')}
-                  </Typography>
-                  <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: '1px', lineHeight: 1.3, color: 'white' }}>
-                    {stats?.casillero || boxId}
-                  </Typography>
-                </Box>
-                <Tooltip title={t('cd.header.copy')}>
-                  <IconButton 
-                    size="small" 
-                    sx={{ 
-                      color: 'rgba(255,255,255,0.4)', 
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      borderRadius: '8px',
-                      '&:hover': { color: ORANGE, borderColor: ORANGE, bgcolor: 'rgba(240,90,40,0.1)' },
-                    }} 
-                    onClick={() => copyToClipboard(stats?.casillero || boxId)}
-                  >
-                    <CopyIcon sx={{ fontSize: 16 }} />
-                  </IconButton>
-                </Tooltip>
+                <QrCodeIcon sx={{ fontSize: 16, color: ORANGE }} />
+                <Typography variant="body2" sx={{ fontWeight: 700, color: 'white' }}>
+                  {stats?.casillero || boxId}
+                </Typography>
+                <IconButton 
+                  size="small" 
+                  sx={{ color: 'rgba(255,255,255,0.5)', p: 0.3 }} 
+                  onClick={() => copyToClipboard(stats?.casillero || boxId)}
+                >
+                  <CopyIcon sx={{ fontSize: 14 }} />
+                </IconButton>
               </Box>
+            </Box>
+          ) : (
+            /* Desktop Header */
+            <Grid container spacing={2} alignItems="center" sx={{ position: 'relative', zIndex: 1 }}>
+              <Grid size={{ xs: 12, md: 7 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <Box sx={{ 
+                    width: 50, 
+                    height: 50, 
+                    borderRadius: '14px', 
+                    background: `linear-gradient(135deg, ${ORANGE}, #ff7043)`,
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    boxShadow: '0 4px 14px rgba(240,90,40,0.35)',
+                    flexShrink: 0,
+                  }}>
+                    <PersonIcon sx={{ fontSize: 28, color: 'white' }} />
+                  </Box>
+                  <Box>
+                    <Typography variant="h5" sx={{ fontWeight: 700, letterSpacing: '-0.3px', lineHeight: 1.2, color: 'white' }}>
+                      {t('cd.header.welcome')} {userName}
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: 'rgba(255,255,255,0.45)', mt: 0.3, fontWeight: 400 }}>
+                      {t('cd.header.portal')}
+                    </Typography>
+                  </Box>
+                </Box>
+              </Grid>
+              <Grid size={{ xs: 12, md: 5 }}>
+                <Box sx={{ 
+                  p: 2, 
+                  bgcolor: 'rgba(255,255,255,0.05)', 
+                  borderRadius: 2, 
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                }}>
+                  <Box sx={{ 
+                    width: 40, 
+                    height: 40, 
+                    borderRadius: '10px', 
+                    bgcolor: 'rgba(240,90,40,0.12)',
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                  }}>
+                    <QrCodeIcon sx={{ fontSize: 22, color: ORANGE }} />
+                  </Box>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', fontWeight: 500, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      {t('cd.header.suiteLabel')}
+                    </Typography>
+                    <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: '1px', lineHeight: 1.3, color: 'white' }}>
+                      {stats?.casillero || boxId}
+                    </Typography>
+                  </Box>
+                  <Tooltip title={t('cd.header.copy')}>
+                    <IconButton 
+                      size="small" 
+                      sx={{ 
+                        color: 'rgba(255,255,255,0.4)', 
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: '8px',
+                        '&:hover': { color: ORANGE, borderColor: ORANGE, bgcolor: 'rgba(240,90,40,0.1)' },
+                      }} 
+                      onClick={() => copyToClipboard(stats?.casillero || boxId)}
+                    >
+                      <CopyIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+              </Grid>
             </Grid>
-          </Grid>
+          )}
         </Box>
       </Paper>
 
@@ -2420,28 +2481,33 @@ export default function DashboardClient() {
         </Alert>
       )}
 
-      {/* Tabs de navegación */}
-      <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
-        <Tabs 
-          value={activeTab} 
-          onChange={(_, v) => setActiveTab(v)}
-          variant="scrollable"
-          scrollButtons="auto"
-          sx={{ 
-            borderBottom: 1, 
-            borderColor: 'divider',
-            '& .MuiTab-root': { fontWeight: 600 },
-            '& .Mui-selected': { color: ORANGE },
-            '& .MuiTabs-indicator': { bgcolor: ORANGE },
-          }}
-        >
-          <Tab icon={<ShippingIcon />} label={t('cd.tabs.shipments')} iconPosition="start" />
-          <Tab icon={<CalculateIcon />} label={t('cd.tabs.quoter')} iconPosition="start" />
-          <Tab icon={<WalletIcon />} label={t('cd.tabs.account')} iconPosition="start" />
-          <Tab icon={<ReceiptIcon />} label={t('cd.tabs.invoices')} iconPosition="start" />
-        </Tabs>
+      {/* Tabs de navegación - Desktop only */}
+      {!isMobile && (
+        <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
+          <Tabs 
+            value={activeTab} 
+            onChange={(_, v) => setActiveTab(v)}
+            variant="scrollable"
+            scrollButtons="auto"
+            sx={{ 
+              borderBottom: 1, 
+              borderColor: 'divider',
+              '& .MuiTab-root': { fontWeight: 600 },
+              '& .Mui-selected': { color: ORANGE },
+              '& .MuiTabs-indicator': { bgcolor: ORANGE },
+            }}
+          >
+            <Tab icon={<ShippingIcon />} label={t('cd.tabs.shipments')} iconPosition="start" />
+            <Tab icon={<CalculateIcon />} label={t('cd.tabs.quoter')} iconPosition="start" />
+            <Tab icon={<WalletIcon />} label={t('cd.tabs.account')} iconPosition="start" />
+            <Tab icon={<ReceiptIcon />} label={t('cd.tabs.invoices')} iconPosition="start" />
+          </Tabs>
+        </Paper>
+      )}
 
-        <Box sx={{ p: 3 }}>
+      {/* Content area */}
+      <Paper sx={{ borderRadius: isMobile ? 2 : 3, overflow: 'hidden', mt: isMobile ? 0 : 0 }}>
+        <Box sx={{ p: isMobile ? 1.5 : 3 }}>
           {/* Tab: Mis Envíos */}
           {activeTab === 0 && (
             <Box>
@@ -7577,6 +7643,49 @@ export default function DashboardClient() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Bottom Navigation - Mobile Only */}
+      {isMobile && (
+        <Paper 
+          sx={{ 
+            position: 'fixed', 
+            bottom: 0, 
+            left: 0, 
+            right: 0, 
+            zIndex: 1200,
+            borderRadius: '16px 16px 0 0',
+            boxShadow: '0 -4px 20px rgba(0,0,0,0.1)',
+          }} 
+          elevation={3}
+        >
+          <BottomNavigation
+            value={activeTab}
+            onChange={(_, newValue) => setActiveTab(newValue)}
+            showLabels
+            sx={{
+              height: 64,
+              '& .MuiBottomNavigationAction-root': {
+                minWidth: 'auto',
+                px: 1,
+                '&.Mui-selected': {
+                  color: ORANGE,
+                },
+              },
+              '& .MuiBottomNavigationAction-label': {
+                fontSize: '0.65rem',
+                mt: 0.5,
+                '&.Mui-selected': {
+                  fontSize: '0.7rem',
+                },
+              },
+            }}
+          >
+            <BottomNavigationAction label={t('cd.tabs.shipments')} icon={<ShippingIcon />} />
+            <BottomNavigationAction label={t('cd.tabs.quoter')} icon={<CalculateIcon />} />
+            <BottomNavigationAction label={t('cd.tabs.account')} icon={<WalletIcon />} />
+          </BottomNavigation>
+        </Paper>
+      )}
     </Box>
   );
 }

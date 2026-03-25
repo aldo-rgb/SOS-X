@@ -38,6 +38,7 @@ import {
   FormControl,
   InputLabel,
   useTheme,
+  useMediaQuery,
   alpha,
   Fade,
   Dialog,
@@ -45,6 +46,8 @@ import {
   DialogContent,
   DialogActions,
   Divider,
+  BottomNavigation,
+  BottomNavigationAction,
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
@@ -260,6 +263,8 @@ const formatMonthLabel = (ym: string) => {
 export default function DashboardAdvisor() {
   const { t } = useTranslation();
   const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const isTablet = useMediaQuery(theme.breakpoints.down('md'));
 
   // ─── State ───
   const [activeTab, setActiveTab] = useState(0);
@@ -455,36 +460,66 @@ export default function DashboardAdvisor() {
     icon: React.ReactNode; color: string; trend?: number;
   }) => (
     <Card sx={{ height: '100%', position: 'relative', overflow: 'visible' }}>
-      <CardContent sx={{ p: 2.5 }}>
+      <CardContent sx={{ p: isMobile ? 1.5 : 2.5 }}>
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <Box>
-            <Typography variant="caption" color="text.secondary" fontWeight={500}>
+          <Box sx={{ flex: 1 }}>
+            <Typography 
+              variant="caption" 
+              color="text.secondary" 
+              fontWeight={500}
+              sx={{ fontSize: isMobile ? '0.65rem' : '0.75rem' }}
+            >
               {title}
             </Typography>
-            <Typography variant="h4" fontWeight={700} sx={{ mt: 0.5, color }}>
+            <Typography 
+              variant={isMobile ? 'h5' : 'h4'} 
+              fontWeight={700} 
+              sx={{ mt: 0.5, color, lineHeight: 1.2 }}
+            >
               {value}
             </Typography>
             {subtitle && (
-              <Typography variant="caption" color="text.secondary">
+              <Typography 
+                variant="caption" 
+                color="text.secondary"
+                sx={{ fontSize: isMobile ? '0.6rem' : '0.75rem' }}
+              >
                 {subtitle}
               </Typography>
             )}
           </Box>
-          <Avatar sx={{ bgcolor: alpha(color, 0.1), color, width: 48, height: 48 }}>
+          <Avatar sx={{ 
+            bgcolor: alpha(color, 0.1), 
+            color, 
+            width: isMobile ? 36 : 48, 
+            height: isMobile ? 36 : 48,
+            '& .MuiSvgIcon-root': {
+              fontSize: isMobile ? '1.2rem' : '1.5rem',
+            },
+          }}>
             {icon}
           </Avatar>
         </Box>
         {trend !== undefined && (
-          <Box sx={{ display: 'flex', alignItems: 'center', mt: 1, gap: 0.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', mt: 0.5, gap: 0.5 }}>
             {trend >= 0 ? (
-              <ArrowUpIcon sx={{ fontSize: 16, color: 'success.main' }} />
+              <ArrowUpIcon sx={{ fontSize: isMobile ? 12 : 16, color: 'success.main' }} />
             ) : (
-              <ArrowDownIcon sx={{ fontSize: 16, color: 'error.main' }} />
+              <ArrowDownIcon sx={{ fontSize: isMobile ? 12 : 16, color: 'error.main' }} />
             )}
-            <Typography variant="caption" color={trend >= 0 ? 'success.main' : 'error.main'} fontWeight={600}>
+            <Typography 
+              variant="caption" 
+              color={trend >= 0 ? 'success.main' : 'error.main'} 
+              fontWeight={600}
+              sx={{ fontSize: isMobile ? '0.6rem' : '0.75rem' }}
+            >
               {Math.abs(trend)}
             </Typography>
-            <Typography variant="caption" color="text.secondary">
+            <Typography 
+              variant="caption" 
+              color="text.secondary"
+              sx={{ fontSize: isMobile ? '0.6rem' : '0.75rem' }}
+            >
               {t('advisor.last7days')}
             </Typography>
           </Box>
@@ -510,66 +545,128 @@ export default function DashboardAdvisor() {
     return (
       <Fade in timeout={400}>
         <Box>
-          {/* Welcome banner */}
+          {/* Welcome banner - Mobile optimized */}
           <Paper
             sx={{
-              p: 3, mb: 3, borderRadius: 3,
+              p: isMobile ? 2 : 3, 
+              mb: isMobile ? 2 : 3, 
+              borderRadius: isMobile ? 2 : 3,
               background: `linear-gradient(135deg, ${theme.palette.primary.main} 0%, ${theme.palette.primary.dark} 100%)`,
               color: 'white',
             }}
           >
-            <Typography variant="h5" fontWeight={700}>
-              {t('advisor.welcome')}, {d.advisor.fullName}! 👋
+            <Typography variant={isMobile ? 'subtitle1' : 'h5'} fontWeight={700}>
+              {t('advisor.welcome')}, {d.advisor.fullName?.split(' ')[0]}! 👋
             </Typography>
-            <Typography variant="body2" sx={{ opacity: 0.85, mt: 0.5 }}>
+            <Typography variant={isMobile ? 'caption' : 'body2'} sx={{ opacity: 0.9, mt: 0.5 }}>
               {t('advisor.yourCode')}: <strong>{d.advisor.referralCode || '—'}</strong>
-              {' · '}
-              {t('advisor.role')}: {d.advisor.role}
+              {!isMobile && (
+                <>
+                  {' · '}
+                  {t('advisor.role')}: {d.advisor.role}
+                </>
+              )}
             </Typography>
           </Paper>
 
-          {/* KPI Cards */}
-          <Grid container spacing={2} sx={{ mb: 3 }}>
-            <Grid size={ { xs: 12, sm: 6, md: 3 } }>
+          {/* KPI Cards - 2x2 grid on mobile */}
+          <Grid container spacing={isMobile ? 1 : 2} sx={{ mb: isMobile ? 2 : 3 }}>
+            <Grid size={ { xs: 6, sm: 6, md: 3 } }>
               <KpiCard
-                title={t('advisor.totalClients')}
+                title={isMobile ? 'Clientes' : t('advisor.totalClients')}
                 value={d.clients.total}
-                subtitle={`${d.clients.verified} ${t('advisor.verifiedLower')}`}
+                subtitle={`${d.clients.verified} ${isMobile ? 'verif.' : t('advisor.verifiedLower')}`}
                 icon={<PeopleIcon />}
                 color={theme.palette.primary.main}
                 trend={d.clients.new7d}
               />
             </Grid>
-            <Grid size={ { xs: 12, sm: 6, md: 3 } }>
+            <Grid size={ { xs: 6, sm: 6, md: 3 } }>
               <KpiCard
-                title={t('advisor.activeClients')}
+                title={isMobile ? 'Activos' : t('advisor.activeClients')}
                 value={d.clients.active}
-                subtitle={`${d.clients.dormant} ${t('advisor.dormantLower')}`}
+                subtitle={`${d.clients.dormant} ${isMobile ? 'dorm.' : t('advisor.dormantLower')}`}
                 icon={<SpeedIcon />}
                 color={theme.palette.success.main}
               />
             </Grid>
-            <Grid size={ { xs: 12, sm: 6, md: 3 } }>
+            <Grid size={ { xs: 6, sm: 6, md: 3 } }>
               <KpiCard
-                title={t('advisor.shipmentsInTransit')}
+                title={isMobile ? 'En Tránsito' : t('advisor.shipmentsInTransit')}
                 value={d.shipments.inTransit}
-                subtitle={`${d.shipments.awaitingPayment} ${t('advisor.awaitingPaymentLower')}`}
+                subtitle={`${d.shipments.awaitingPayment} ${isMobile ? 'x pagar' : t('advisor.awaitingPaymentLower')}`}
                 icon={<ShippingIcon />}
                 color={theme.palette.warning.main}
               />
             </Grid>
-            <Grid size={ { xs: 12, sm: 6, md: 3 } }>
+            <Grid size={ { xs: 6, sm: 6, md: 3 } }>
               <KpiCard
-                title={t('advisor.monthVolume')}
-                value={formatMXN(d.commissions.monthVolumeMxn)}
-                subtitle={`${d.commissions.monthPaidCount} ${t('advisor.paidPackages')}`}
+                title={isMobile ? 'Vol. Mes' : t('advisor.monthVolume')}
+                value={isMobile ? `$${Math.round(d.commissions.monthVolumeMxn / 1000)}k` : formatMXN(d.commissions.monthVolumeMxn)}
+                subtitle={`${d.commissions.monthPaidCount} ${isMobile ? 'paq.' : t('advisor.paidPackages')}`}
                 icon={<MoneyIcon />}
                 color={theme.palette.info.main}
               />
             </Grid>
           </Grid>
 
-          {/* Second row: Quick action cards */}
+          {/* Second row: Quick action cards - Horizontal scroll on mobile */}
+          {isMobile ? (
+            <Box sx={{ 
+              display: 'flex', 
+              gap: 1.5, 
+              overflowX: 'auto', 
+              pb: 2, 
+              mb: 2,
+              mx: -2, 
+              px: 2,
+              '&::-webkit-scrollbar': { display: 'none' },
+              scrollbarWidth: 'none',
+            }}>
+              {/* Pending Verifications */}
+              <Card sx={{ minWidth: 140, flexShrink: 0 }}>
+                <CardActionArea onClick={() => setActiveTab(1)} sx={{ p: 1.5 }}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                    <Avatar sx={{ bgcolor: alpha(theme.palette.warning.main, 0.1), color: 'warning.main', width: 40, height: 40 }}>
+                      <PendingIcon sx={{ fontSize: '1.2rem' }} />
+                    </Avatar>
+                    <Typography variant="h6" fontWeight={700}>{d.clients.pendingVerification}</Typography>
+                    <Typography variant="caption" color="text.secondary" textAlign="center" sx={{ lineHeight: 1.2 }}>
+                      Por verificar
+                    </Typography>
+                  </Box>
+                </CardActionArea>
+              </Card>
+              {/* Awaiting Payment */}
+              <Card sx={{ minWidth: 140, flexShrink: 0 }}>
+                <CardActionArea onClick={() => { setShipmentFilter('awaiting_payment'); setActiveTab(2); }} sx={{ p: 1.5 }}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                    <Avatar sx={{ bgcolor: alpha(theme.palette.error.main, 0.1), color: 'error.main', width: 40, height: 40 }}>
+                      <PaymentIcon sx={{ fontSize: '1.2rem' }} />
+                    </Avatar>
+                    <Typography variant="h6" fontWeight={700}>{d.shipments.awaitingPayment}</Typography>
+                    <Typography variant="caption" color="text.secondary" textAlign="center" sx={{ lineHeight: 1.2 }}>
+                      Por pagar
+                    </Typography>
+                  </Box>
+                </CardActionArea>
+              </Card>
+              {/* Share Referral */}
+              <Card sx={{ minWidth: 140, flexShrink: 0 }}>
+                <CardActionArea onClick={() => setActiveTab(4)} sx={{ p: 1.5 }}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                    <Avatar sx={{ bgcolor: alpha(theme.palette.success.main, 0.1), color: 'success.main', width: 40, height: 40 }}>
+                      <ShareIcon sx={{ fontSize: '1.2rem' }} />
+                    </Avatar>
+                    <Typography variant="body2" fontWeight={700}>{d.advisor.referralCode || '—'}</Typography>
+                    <Typography variant="caption" color="text.secondary" textAlign="center" sx={{ lineHeight: 1.2 }}>
+                      Mi código
+                    </Typography>
+                  </Box>
+                </CardActionArea>
+              </Card>
+            </Box>
+          ) : (
           <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid size={ { xs: 12, sm: 6, md: 4 } }>
               <Card sx={{ height: '100%' }}>
@@ -623,16 +720,17 @@ export default function DashboardAdvisor() {
               </Card>
             </Grid>
           </Grid>
+          )}
 
           {/* Monthly registrations mini chart */}
-          <Paper sx={{ p: 2.5, borderRadius: 2 }}>
-            <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+          <Paper sx={{ p: isMobile ? 1.5 : 2.5, borderRadius: 2 }}>
+            <Typography variant={isMobile ? 'body1' : 'subtitle1'} fontWeight={600} gutterBottom>
               {t('advisor.registrationTrend')}
             </Typography>
             {d.monthlyRegistrations.length === 0 ? (
               <Typography variant="body2" color="text.secondary">{t('advisor.noDataYet')}</Typography>
             ) : (
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 120, mt: 2 }}>
+              <Box sx={{ display: 'flex', gap: isMobile ? 1 : 2, alignItems: 'flex-end', height: isMobile ? 80 : 120, mt: 1 }}>
                 {d.monthlyRegistrations.map((m, i) => {
                   const max = Math.max(...d.monthlyRegistrations.map(r => parseInt(String(r.new_clients))), 1);
                   const h = (parseInt(String(m.new_clients)) / max) * 100;
@@ -1527,57 +1625,121 @@ export default function DashboardAdvisor() {
   // ════════════════════════════════════
 
   const tabConfig = useMemo(() => [
-    { label: t('advisor.tabDashboard'), icon: <DashboardIcon /> },
-    { label: t('advisor.tabClients'), icon: <PeopleIcon /> },
-    { label: t('advisor.tabShipments'), icon: <ShippingIcon /> },
-    { label: t('advisor.tabCommissions'), icon: <MoneyIcon /> },
-    { label: t('advisor.tabTools'), icon: <ToolsIcon /> },
-  ], [t]);
+    { label: isMobile ? 'Inicio' : t('advisor.tabDashboard'), icon: <DashboardIcon />, shortLabel: 'Inicio' },
+    { label: isMobile ? 'Clientes' : t('advisor.tabClients'), icon: <PeopleIcon />, shortLabel: 'Clientes' },
+    { label: isMobile ? 'Envíos' : t('advisor.tabShipments'), icon: <ShippingIcon />, shortLabel: 'Envíos' },
+    { label: isMobile ? '$' : t('advisor.tabCommissions'), icon: <MoneyIcon />, shortLabel: 'Comisiones' },
+    { label: isMobile ? 'Más' : t('advisor.tabTools'), icon: <ToolsIcon />, shortLabel: 'Herramientas' },
+  ], [t, isMobile]);
 
   return (
-    <Box sx={{ width: '100%' }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography variant="h5" fontWeight={700}>
+    <Box sx={{ 
+      width: '100%',
+      pb: isMobile ? 8 : 0, // Space for bottom navigation on mobile
+    }}>
+      {/* Header - Simplified for mobile */}
+      <Box sx={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        mb: isMobile ? 1 : 2,
+        px: isMobile ? 0 : 0,
+      }}>
+        <Typography variant={isMobile ? 'h6' : 'h5'} fontWeight={700}>
           {t('advisor.panelTitle')}
         </Typography>
-        <IconButton onClick={() => {
-          fetchDashboard();
-          if (activeTab === 1) fetchClients();
-          if (activeTab === 2) fetchShipments();
-          if (activeTab === 3) fetchCommissions();
-        }}>
+        <IconButton 
+          onClick={() => {
+            fetchDashboard();
+            if (activeTab === 1) fetchClients();
+            if (activeTab === 2) fetchShipments();
+            if (activeTab === 3) fetchCommissions();
+          }}
+          size={isMobile ? 'small' : 'medium'}
+        >
           <RefreshIcon />
         </IconButton>
       </Box>
 
-      {/* Tab Navigation */}
-      <Paper sx={{ borderRadius: 2, mb: 3 }}>
-        <Tabs
-          value={activeTab}
-          onChange={(_, v) => setActiveTab(v)}
-          variant="scrollable"
-          scrollButtons="auto"
-          sx={{
-            '& .MuiTab-root': {
-              textTransform: 'none',
-              fontWeight: 600,
-              minHeight: 56,
-            },
-          }}
-        >
-          {tabConfig.map((tab, i) => (
-            <Tab key={i} label={tab.label} icon={tab.icon} iconPosition="start" />
-          ))}
-        </Tabs>
-      </Paper>
+      {/* Tab Navigation - Desktop/Tablet */}
+      {!isMobile && (
+        <Paper sx={{ borderRadius: 2, mb: 3 }}>
+          <Tabs
+            value={activeTab}
+            onChange={(_, v) => setActiveTab(v)}
+            variant={isTablet ? 'scrollable' : 'standard'}
+            scrollButtons={isTablet ? 'auto' : false}
+            centered={!isTablet}
+            sx={{
+              '& .MuiTab-root': {
+                textTransform: 'none',
+                fontWeight: 600,
+                minHeight: 56,
+              },
+            }}
+          >
+            {tabConfig.map((tab, i) => (
+              <Tab key={i} label={tab.label} icon={tab.icon} iconPosition="start" />
+            ))}
+          </Tabs>
+        </Paper>
+      )}
 
       {/* Tab Content */}
-      {activeTab === 0 && renderDashboard()}
-      {activeTab === 1 && renderClients()}
-      {activeTab === 2 && renderShipments()}
-      {activeTab === 3 && renderCommissions()}
-      {activeTab === 4 && renderTools()}
+      <Box sx={{ minHeight: isMobile ? 'calc(100vh - 180px)' : 'auto' }}>
+        {activeTab === 0 && renderDashboard()}
+        {activeTab === 1 && renderClients()}
+        {activeTab === 2 && renderShipments()}
+        {activeTab === 3 && renderCommissions()}
+        {activeTab === 4 && renderTools()}
+      </Box>
+
+      {/* Bottom Navigation - Mobile Only */}
+      {isMobile && (
+        <Paper 
+          sx={{ 
+            position: 'fixed', 
+            bottom: 0, 
+            left: 0, 
+            right: 0, 
+            zIndex: 1200,
+            borderRadius: '16px 16px 0 0',
+            boxShadow: '0 -4px 20px rgba(0,0,0,0.1)',
+          }} 
+          elevation={3}
+        >
+          <BottomNavigation
+            value={activeTab}
+            onChange={(_, newValue) => setActiveTab(newValue)}
+            showLabels
+            sx={{
+              height: 64,
+              '& .MuiBottomNavigationAction-root': {
+                minWidth: 'auto',
+                px: 1,
+                '&.Mui-selected': {
+                  color: theme.palette.primary.main,
+                },
+              },
+              '& .MuiBottomNavigationAction-label': {
+                fontSize: '0.65rem',
+                mt: 0.5,
+                '&.Mui-selected': {
+                  fontSize: '0.7rem',
+                },
+              },
+            }}
+          >
+            {tabConfig.map((tab, i) => (
+              <BottomNavigationAction 
+                key={i} 
+                label={tab.shortLabel} 
+                icon={tab.icon} 
+              />
+            ))}
+          </BottomNavigation>
+        </Paper>
+      )}
 
       {/* ── Shipment Detail Dialog ── */}
       <Dialog
@@ -1585,7 +1747,8 @@ export default function DashboardAdvisor() {
         onClose={() => setSelectedShipment(null)}
         maxWidth="sm"
         fullWidth
-        PaperProps={{ sx: { borderRadius: 3 } }}
+        fullScreen={isMobile}
+        PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3 } }}
       >
         {selectedShipment && (() => {
           const s = selectedShipment;
