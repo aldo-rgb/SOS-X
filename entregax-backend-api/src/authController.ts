@@ -556,12 +556,12 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
         const userQuery = await pool.query(
             `SELECT u.id, u.full_name, u.email, u.box_id, u.role, u.warehouse_location, u.created_at,
                     u.is_verified, u.verification_status, u.is_employee_onboarded, u.profile_photo_url,
-                    u.phone, u.rfc, u.advisor_id,
+                    u.phone, u.rfc, u.referred_by_id,
                     a.full_name as advisor_name,
                     a.phone as advisor_phone,
                     a.email as advisor_email
              FROM users u
-             LEFT JOIN users a ON u.advisor_id = a.id
+             LEFT JOIN users a ON u.referred_by_id = a.id
              WHERE u.id = $1`,
             [userId]
         );
@@ -927,6 +927,36 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
     } catch (error) {
         console.error('Error al actualizar perfil:', error);
         res.status(500).json({ error: 'Error al actualizar perfil' });
+    }
+};
+
+// ============ ACTUALIZAR FOTO DE PERFIL ============
+export const updateProfilePhoto = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const authReq = req as any;
+        const userId = authReq.user?.userId;
+        const { photo } = req.body; // base64 string or null
+
+        if (!userId) {
+            res.status(401).json({ error: 'No autenticado' });
+            return;
+        }
+
+        // Validar tamaño si es base64 (máx ~2MB)
+        if (photo && photo.length > 3 * 1024 * 1024) {
+            res.status(400).json({ error: 'La imagen es demasiado grande (máx 2MB)' });
+            return;
+        }
+
+        await pool.query(
+            'UPDATE users SET profile_photo_url = $1 WHERE id = $2',
+            [photo || null, userId]
+        );
+
+        res.json({ success: true, message: 'Foto de perfil actualizada' });
+    } catch (error) {
+        console.error('Error al actualizar foto de perfil:', error);
+        res.status(500).json({ error: 'Error al actualizar foto de perfil' });
     }
 };
 

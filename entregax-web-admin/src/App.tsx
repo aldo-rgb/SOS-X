@@ -91,6 +91,7 @@ import DashboardOperations from './pages/DashboardOperations';
 import DashboardClient from './pages/DashboardClient';
 import DashboardAdvisor from './pages/DashboardAdvisor';
 import ProfileClient from './pages/ProfileClient';
+import MyProfilePage from './pages/MyProfilePage';
 import PersonIcon from '@mui/icons-material/Person';
 
 const drawerWidth = 280;
@@ -264,6 +265,7 @@ function App() {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [langAnchorEl, setLangAnchorEl] = useState<null | HTMLElement>(null);
   const [showClientProfile, setShowClientProfile] = useState(false);
+  const [showMyProfile, setShowMyProfile] = useState(false);
   const [notifAnchorEl, setNotifAnchorEl] = useState<null | HTMLElement>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -1381,6 +1383,10 @@ function App() {
                 </Box>
               </MenuItem>
               <Divider />
+              <MenuItem onClick={() => { setAnchorEl(null); setShowMyProfile(true); }}>
+                <PersonIcon sx={{ mr: 1, fontSize: 20, color: '#F05A28' }} />
+                Mi Perfil
+              </MenuItem>
               <MenuItem onClick={handleLogout} sx={{ color: '#EF4444' }}>
                 <LogoutIcon sx={{ mr: 1, fontSize: 20 }} />
                 {t('auth.logout')}
@@ -1429,7 +1435,11 @@ function App() {
           }}
         >
           <Paper sx={{ p: 4, borderRadius: 2, minHeight: 'calc(100vh - 140px)' }}>
-            {renderContent()}
+            {showMyProfile ? (
+              <MyProfilePage onBack={() => setShowMyProfile(false)} />
+            ) : (
+              renderContent()
+            )}
           </Paper>
         </Box>
       </Box>

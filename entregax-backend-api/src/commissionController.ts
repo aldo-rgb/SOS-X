@@ -141,7 +141,7 @@ export const validateReferralCode = async (req: Request, res: Response): Promise
         
         // Buscar por código exacto o normalizado
         const result = await pool.query(
-            'SELECT id, full_name, role FROM users WHERE referral_code = $1 OR referral_code = $2',
+            'SELECT id, full_name, role, phone, profile_photo_url FROM users WHERE referral_code = $1 OR referral_code = $2',
             [codeUpper, normalizedCode]
         );
         
@@ -154,13 +154,17 @@ export const validateReferralCode = async (req: Request, res: Response): Promise
             valid: true,
             advisor: {
                 name: advisor.full_name,
-                role: advisor.role
+                role: advisor.role,
+                phone: advisor.phone,
+                photoUrl: advisor.profile_photo_url
             },
             // Agregar campos adicionales para compatibilidad
             success: true,
             data: {
                 referidor: advisor.full_name,
-                isAdvisor: advisor.role === 'advisor'
+                isAdvisor: advisor.role === 'advisor',
+                phone: advisor.phone,
+                photoUrl: advisor.profile_photo_url
             }
         });
     } catch (error) {
@@ -449,5 +453,218 @@ export const calculateCommissions = async (
     } catch (error) {
         console.error('Error calculating commissions:', error);
         return { advisorCommission: 0, leaderCommission: 0, advisorId: null, leaderId: null };
+    }
+};
+
+// ============================================
+// ADMIN: GESTIÓN DE COMISIONES GENERADAS
+// ============================================
+
+// 11. ADMIN: Listar comisiones generadas (con filtros)
+export const getAdvisorCommissionsList = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { 
+            advisor_id, service_type, status, 
+            from_date, to_date, 
+            page = '1', limit = '50' 
+        } = req.query;
+
+        const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
+        const conditions: string[] = [];
+        const params: any[] = [];
+        let paramIdx = 1;
+
+        if (advisor_id) {
+            conditions.push(`ac.advisor_id = $${paramIdx++}`);
+            params.push(parseInt(advisor_id as string));
+        }
+        if (service_type) {
+            conditions.push(`ac.service_type = $${paramIdx++}`);
+            params.push(service_type);
+        }
+        if (status) {
+            conditions.push(`ac.status = $${paramIdx++}`);
+            params.push(status);
+        }
+        if (from_date) {
+            conditions.push(`ac.created_at >= $${paramIdx++}`);
+            params.push(from_date);
+        }
+        if (to_date) {
+            conditions.push(`ac.created_at <= $${paramIdx++}::date + interval '1 day'`);
+            params.push(to_date);
+        }
+
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+        // Total count
+        const countRes = await pool.query(
+            `SELECT COUNT(*) as total FROM advisor_commissions ac ${whereClause}`, 
+            params
+        );
+
+        // Paginated list
+        const dataRes = await pool.query(`
+            SELECT 
+                ac.id, ac.advisor_id, ac.advisor_name, ac.leader_id, ac.leader_name,
+                ac.shipment_type, ac.shipment_id, ac.service_type, ac.tracking,
+                ac.client_id, ac.client_name,
+                ac.payment_amount_mxn, ac.commission_rate_pct, ac.commission_amount_mxn,
+                ac.leader_override_pct, ac.leader_override_amount,
+                ac.gex_commission_mxn, ac.status, ac.paid_to_advisor_at,
+                ac.paid_by_admin_id, ac.payment_notes, ac.created_at
+            FROM advisor_commissions ac
+            ${whereClause}
+            ORDER BY ac.created_at DESC
+            LIMIT $${paramIdx++} OFFSET $${paramIdx++}
+        `, [...params, parseInt(limit as string), offset]);
+
+        // Resumen de totales filtrados
+        const summaryRes = await pool.query(`
+            SELECT 
+                COUNT(*) as total_count,
+                COALESCE(SUM(ac.commission_amount_mxn), 0) as total_commission,
+                COALESCE(SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'pending'), 0) as pending_total,
+                COALESCE(SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'paid'), 0) as paid_total,
+                COALESCE(SUM(ac.leader_override_amount), 0) as total_leader_override,
+                COUNT(DISTINCT ac.advisor_id) as advisor_count
+            FROM advisor_commissions ac
+            ${whereClause}
+        `, params);
+
+        const summary = summaryRes.rows[0] || {};
+
+        res.json({
+            data: dataRes.rows.map(r => ({
+                id: r.id,
+                advisorId: r.advisor_id,
+                advisorName: r.advisor_name,
+                leaderId: r.leader_id,
+                leaderName: r.leader_name,
+                shipmentType: r.shipment_type,
+                shipmentId: r.shipment_id,
+                serviceType: r.service_type,
+                tracking: r.tracking,
+                clientId: r.client_id,
+                clientName: r.client_name,
+                paymentAmount: parseFloat(r.payment_amount_mxn) || 0,
+                commissionRate: parseFloat(r.commission_rate_pct) || 0,
+                commissionAmount: parseFloat(r.commission_amount_mxn) || 0,
+                leaderOverridePct: parseFloat(r.leader_override_pct) || 0,
+                leaderOverrideAmount: parseFloat(r.leader_override_amount) || 0,
+                gexCommission: parseFloat(r.gex_commission_mxn) || 0,
+                status: r.status,
+                paidAt: r.paid_to_advisor_at,
+                paidByAdminId: r.paid_by_admin_id,
+                paymentNotes: r.payment_notes,
+                createdAt: r.created_at,
+            })),
+            summary: {
+                totalCount: parseInt(summary.total_count) || 0,
+                totalCommission: parseFloat(summary.total_commission) || 0,
+                pendingTotal: parseFloat(summary.pending_total) || 0,
+                paidTotal: parseFloat(summary.paid_total) || 0,
+                totalLeaderOverride: parseFloat(summary.total_leader_override) || 0,
+                advisorCount: parseInt(summary.advisor_count) || 0,
+            },
+            total: parseInt(countRes.rows[0]?.total) || 0,
+            page: parseInt(page as string),
+            limit: parseInt(limit as string),
+        });
+    } catch (error) {
+        console.error('Error listing advisor commissions:', error);
+        res.status(500).json({ error: 'Error al listar comisiones' });
+    }
+};
+
+// 12. ADMIN: Marcar comisiones como pagadas (batch)
+export const markCommissionsAsPaid = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { commission_ids, notes } = req.body;
+        const adminId = (req as any).user?.userId || (req as any).user?.id;
+
+        if (!commission_ids || !Array.isArray(commission_ids) || commission_ids.length === 0) {
+            return res.status(400).json({ error: 'commission_ids es requerido (array de IDs)' });
+        }
+
+        const result = await pool.query(`
+            UPDATE advisor_commissions 
+            SET status = 'paid', 
+                paid_to_advisor_at = NOW(), 
+                paid_by_admin_id = $1,
+                payment_notes = COALESCE($2, payment_notes),
+                updated_at = NOW()
+            WHERE id = ANY($3) AND status = 'pending'
+            RETURNING id, advisor_name, commission_amount_mxn
+        `, [adminId, notes || null, commission_ids]);
+
+        const totalPaid = result.rows.reduce((sum: number, r: any) => sum + parseFloat(r.commission_amount_mxn), 0);
+
+        res.json({
+            message: `${result.rows.length} comisiones marcadas como pagadas`,
+            paidCount: result.rows.length,
+            totalPaid: totalPaid,
+            details: result.rows,
+        });
+    } catch (error) {
+        console.error('Error marking commissions as paid:', error);
+        res.status(500).json({ error: 'Error al marcar comisiones como pagadas' });
+    }
+};
+
+// 13. ADMIN: Resumen de comisiones por asesor
+export const getCommissionsByAdvisor = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                ac.advisor_id,
+                ac.advisor_name,
+                ac.leader_name,
+                COUNT(*) as total_count,
+                COALESCE(SUM(ac.payment_amount_mxn), 0) as total_volume,
+                COALESCE(SUM(ac.commission_amount_mxn), 0) as total_commission,
+                COALESCE(SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'pending'), 0) as pending_commission,
+                COALESCE(SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'paid'), 0) as paid_commission,
+                COUNT(*) FILTER (WHERE ac.status = 'pending') as pending_count,
+                COUNT(*) FILTER (WHERE ac.status = 'paid') as paid_count,
+                MAX(ac.created_at) as last_commission_at
+            FROM advisor_commissions ac
+            GROUP BY ac.advisor_id, ac.advisor_name, ac.leader_name
+            ORDER BY pending_commission DESC
+        `);
+
+        res.json(result.rows.map(r => ({
+            advisorId: r.advisor_id,
+            advisorName: r.advisor_name,
+            leaderName: r.leader_name,
+            totalCount: parseInt(r.total_count) || 0,
+            totalVolume: parseFloat(r.total_volume) || 0,
+            totalCommission: parseFloat(r.total_commission) || 0,
+            pendingCommission: parseFloat(r.pending_commission) || 0,
+            paidCommission: parseFloat(r.paid_commission) || 0,
+            pendingCount: parseInt(r.pending_count) || 0,
+            paidCount: parseInt(r.paid_count) || 0,
+            lastCommissionAt: r.last_commission_at,
+        })));
+    } catch (error) {
+        console.error('Error getting commissions by advisor:', error);
+        res.status(500).json({ error: 'Error al obtener comisiones por asesor' });
+    }
+};
+
+// 14. ADMIN: Backfill - generar comisiones faltantes para pagos históricos
+export const runCommissionBackfill = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { backfillCommissions } = require('./commissionService');
+        const { limit = 500 } = req.query;
+        const result = await backfillCommissions(parseInt(limit as string));
+        res.json({
+            message: 'Backfill completado',
+            generated: result.generated,
+            skipped: result.skipped,
+        });
+    } catch (error) {
+        console.error('Error running commission backfill:', error);
+        res.status(500).json({ error: 'Error al ejecutar backfill' });
     }
 };

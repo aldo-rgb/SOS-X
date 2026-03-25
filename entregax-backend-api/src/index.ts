@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import multer from 'multer';
 import path from 'path';
 import { pool } from './db';
+import { generateCommissionsForPackages } from './commissionService';
 import { 
   registerUser, 
   loginUser, 
@@ -17,6 +18,7 @@ import {
   getCounterStaffDashboard,
   changePassword,
   updateProfile,
+  updateProfilePhoto,
   getAdvisors as getAdvisorsList,
   getMyAdvisor,
   assignAdvisor,
@@ -88,7 +90,11 @@ import {
   getCommissionStats,
   getMyReferralCode,
   getAdvisors,
-  createAdvisor
+  createAdvisor,
+  getAdvisorCommissionsList,
+  markCommissionsAsPaid,
+  getCommissionsByAdvisor,
+  runCommissionBackfill,
 } from './commissionController';
 import {
   getFiscalEmitters,
@@ -317,7 +323,8 @@ import {
   getAdvisorClients,
   saveAdvisorNote,
   getAdvisorShipments,
-  getAdvisorCommissions
+  getAdvisorCommissions,
+  getRepackChildren
 } from './advisorPanelController';
 import {
   requestAdvisor,
@@ -1377,6 +1384,7 @@ app.post('/api/auth/login', loginUser);
 app.get('/api/auth/profile', authenticateToken, getProfile);
 app.post('/api/auth/change-password', authenticateToken, changePassword);
 app.put('/api/auth/update-profile', authenticateToken, updateProfile);
+app.put('/api/auth/profile-photo', authenticateToken, updateProfilePhoto);
 
 // --- RUTAS DE CLIENTES LEGACY (Migración) ---
 // Públicas (para registro)
@@ -1648,7 +1656,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         gex_folio,
         assigned_cost_usd as maritime_sale_price_usd,
         merchandise_type,
-        'USD' as monto_currency
+        'MXN' as monto_currency
       FROM maritime_orders
       WHERE (user_id = $1 OR UPPER(shipping_mark) = UPPER($2))
         AND status NOT IN ('delivered', 'cancelled')
@@ -2379,6 +2387,12 @@ app.delete('/api/admin/service-types/:id', authenticateToken, requireMinLevel(RO
 // Admin: Estadísticas de referidos
 app.get('/api/admin/commissions/stats', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getCommissionStats);
 
+// Admin: Gestión de comisiones generadas
+app.get('/api/admin/commissions/ledger', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAdvisorCommissionsList);
+app.get('/api/admin/commissions/by-advisor', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getCommissionsByAdvisor);
+app.post('/api/admin/commissions/pay', authenticateToken, requireMinLevel(ROLES.DIRECTOR), markCommissionsAsPaid);
+app.post('/api/admin/commissions/backfill', authenticateToken, requireMinLevel(ROLES.DIRECTOR), runCommissionBackfill);
+
 // Admin: Referidos de un asesor específico
 app.get('/api/admin/referrals/:advisorId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getReferralsByAdvisor);
 
@@ -2793,6 +2807,7 @@ app.get('/api/advisor/dashboard', authenticateToken, getAdvisorDashboard);
 app.get('/api/advisor/clients', authenticateToken, getAdvisorClients);
 app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);
 app.get('/api/advisor/shipments', authenticateToken, getAdvisorShipments);
+app.get('/api/advisor/shipments/:id/children', authenticateToken, getRepackChildren);
 app.get('/api/advisor/commissions', authenticateToken, getAdvisorCommissions);
 
 // ========== CRM - SOLICITUDES DE ASESOR ==========
@@ -4189,6 +4204,11 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
 
         await client.query('COMMIT');
 
+        // Generar comisiones para el paquete pagado
+        generateCommissionsForPackages([pkg.id]).catch(err =>
+          console.error('Error generando comisiones (confirm-payment pick up):', err)
+        );
+
         console.log(`✅ Pago Pick Up confirmado: ${pkg.tracking_internal} - $${montoPendiente} MXN por ${adminName || adminId}`);
 
         return res.json({
@@ -4300,6 +4320,13 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
       }
 
       await client.query('COMMIT');
+
+      // Generar comisiones para paquetes pagados
+      if (packageIds.length > 0) {
+        generateCommissionsForPackages(packageIds).catch(err =>
+          console.error('Error generando comisiones (confirm-payment webhook flow):', err)
+        );
+      }
 
       console.log(`✅ Pago confirmado: ${refStr} - $${payment.monto_recibido} por ${adminName || adminId}`);
 
@@ -4475,6 +4502,21 @@ app.post('/api/admin/finance/confirm-payment-bulk', authenticateToken, requireMi
       }
 
       await client.query('COMMIT');
+
+      // Generar comisiones para paquetes pagados en bulk
+      // Necesitamos los IDs de los paquetes procesados
+      if (processedPackages.length > 0) {
+        const bulkPkgResult = await pool.query(
+          'SELECT id FROM packages WHERE tracking_internal = ANY($1)',
+          [processedPackages]
+        );
+        const bulkPkgIds = bulkPkgResult.rows.map(r => r.id);
+        if (bulkPkgIds.length > 0) {
+          generateCommissionsForPackages(bulkPkgIds).catch(err =>
+            console.error('Error generando comisiones (confirm-payment-bulk):', err)
+          );
+        }
+      }
 
       console.log(`✅ Pago bulk confirmado: ${processedPackages.length} paquetes - $${monto_total_usd || totalMonto} USD por ${adminName}`);
 

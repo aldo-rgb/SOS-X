@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
   Box,
@@ -15,6 +15,7 @@ import {
   Fade,
   Divider,
   Chip,
+  Avatar,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -76,11 +77,14 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [registerPassword, setRegisterPassword] = useState('');
   const [registerConfirmPassword, setRegisterConfirmPassword] = useState('');
   const [referralCode, setReferralCode] = useState('');
+  const [refFromUrl, setRefFromUrl] = useState(false);
   const [validatingCode, setValidatingCode] = useState(false);
   const [codeValidation, setCodeValidation] = useState<{
     valid: boolean;
     referrerName?: string;
     isAdvisor?: boolean;
+    phone?: string;
+    photoUrl?: string;
   } | null>(null);
 
   // Existing client dialog state
@@ -98,8 +102,55 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
     valid: boolean;
     referrerName?: string;
     isAdvisor?: boolean;
+    phone?: string;
+    photoUrl?: string;
   } | null>(null);
   const [existingValidatingCode, setExistingValidatingCode] = useState(false);
+
+  // Leer código de referido desde URL (?ref=XXXX)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const refCode = params.get('ref');
+    if (refCode) {
+      const cleanCode = refCode.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 12);
+      if (cleanCode.length >= 4) {
+        setReferralCode(cleanCode);
+        setExistingReferralCode(cleanCode);
+        setRefFromUrl(true);
+        setTabValue(1); // Cambiar a pestaña de registro
+        // Auto-validar el código
+        validateReferralCodeFromUrl(cleanCode);
+      }
+    }
+  }, []);
+
+  const validateReferralCodeFromUrl = async (code: string) => {
+    setValidatingCode(true);
+    setExistingValidatingCode(true);
+    try {
+      const response = await axios.get(`${API_URL}/referral/validate/${code}`);
+      if (response.data.success && response.data.data) {
+        const validationResult = {
+          valid: true,
+          referrerName: response.data.data.referidor,
+          isAdvisor: response.data.data.isAdvisor,
+          phone: response.data.data.phone,
+          photoUrl: response.data.data.photoUrl,
+        };
+        setCodeValidation(validationResult);
+        setExistingCodeValidation(validationResult);
+      } else {
+        setCodeValidation({ valid: false });
+        setExistingCodeValidation({ valid: false });
+      }
+    } catch {
+      setCodeValidation({ valid: false });
+      setExistingCodeValidation({ valid: false });
+    } finally {
+      setValidatingCode(false);
+      setExistingValidatingCode(false);
+    }
+  };
 
   // Validate referral code
   const validateReferralCode = async (code: string, forExisting = false) => {
@@ -125,6 +176,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           valid: true,
           referrerName: response.data.data.referidor,
           isAdvisor: response.data.data.isAdvisor,
+          phone: response.data.data.phone,
+          photoUrl: response.data.data.photoUrl,
         };
         if (forExisting) {
           setExistingCodeValidation(validationResult);
@@ -637,6 +690,53 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 />
 
                 {/* Referral Code Section */}
+                {refFromUrl && codeValidation?.valid ? (
+                  /* Si viene del link, solo mostrar la tarjeta del asesor */
+                  <Box sx={{ mb: 2 }}>
+                    <Box sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1.5,
+                      mt: 1,
+                      p: 1.5,
+                      borderRadius: 2,
+                      bgcolor: 'rgba(240, 90, 40, 0.08)',
+                      border: '1px solid rgba(240, 90, 40, 0.3)',
+                    }}>
+                      <Avatar
+                        src={codeValidation.photoUrl || undefined}
+                        sx={{
+                          width: 48,
+                          height: 48,
+                          bgcolor: '#F05A28',
+                          fontSize: '1.1rem',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {codeValidation.referrerName?.charAt(0)?.toUpperCase()}
+                      </Avatar>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1 }}>
+                          {codeValidation.isAdvisor ? 'Tu Asesor' : 'Referido por'}
+                        </Typography>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 600, lineHeight: 1.3 }}>
+                          {codeValidation.referrerName}
+                        </Typography>
+                        {codeValidation.phone && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.3 }}>
+                            <PhoneIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                            <Typography variant="caption" color="text.secondary">
+                              {codeValidation.phone}
+                            </Typography>
+                          </Box>
+                        )}
+                      </Box>
+                      <CheckCircleOutlineIcon sx={{ color: '#F05A28', fontSize: 22 }} />
+                    </Box>
+                  </Box>
+                ) : (
+                  /* Si NO viene del link, mostrar sección completa */
+                  <>
                 <Divider sx={{ my: 2 }}>
                   <Typography variant="caption" color="text.secondary">
                     ¿Tienes un código de referido?
@@ -649,7 +749,9 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   fullWidth
                   label="Código de referido (opcional)"
                   value={referralCode}
+                  disabled={refFromUrl}
                   onChange={(e) => {
+                    if (refFromUrl) return;
                     const value = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 12);
                     setReferralCode(value);
                     setCodeValidation(null);
@@ -685,21 +787,54 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 {codeValidation && (
                   <Box sx={{ mb: 2 }}>
                     {codeValidation.valid ? (
-                      <Chip
-                        size="small"
-                        color="success"
-                        label={codeValidation.isAdvisor 
-                          ? `✓ Asesor: ${codeValidation.referrerName}` 
-                          : `✓ Referido por: ${codeValidation.referrerName}`
-                        }
-                        sx={{ mt: 0.5 }}
-                      />
+                      <Box sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1.5,
+                        mt: 1,
+                        p: 1.5,
+                        borderRadius: 2,
+                        bgcolor: 'rgba(240, 90, 40, 0.08)',
+                        border: '1px solid rgba(240, 90, 40, 0.3)',
+                      }}>
+                        <Avatar
+                          src={codeValidation.photoUrl || undefined}
+                          sx={{
+                            width: 48,
+                            height: 48,
+                            bgcolor: '#F05A28',
+                            fontSize: '1.1rem',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {codeValidation.referrerName?.charAt(0)?.toUpperCase()}
+                        </Avatar>
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1 }}>
+                            {codeValidation.isAdvisor ? 'Tu Asesor' : 'Referido por'}
+                          </Typography>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 600, lineHeight: 1.3 }}>
+                            {codeValidation.referrerName}
+                          </Typography>
+                          {codeValidation.phone && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.3 }}>
+                              <PhoneIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                              <Typography variant="caption" color="text.secondary">
+                                {codeValidation.phone}
+                              </Typography>
+                            </Box>
+                          )}
+                        </Box>
+                        <CheckCircleOutlineIcon sx={{ color: '#F05A28', fontSize: 22 }} />
+                      </Box>
                     ) : (
                       <Typography variant="caption" color="error">
                         Código no válido
                       </Typography>
                     )}
                   </Box>
+                )}
+                  </>
                 )}
 
                 <Button
@@ -916,7 +1051,9 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 fullWidth
                 label="Código de asesor o referido (opcional)"
                 value={existingReferralCode}
+                disabled={refFromUrl}
                 onChange={(e) => {
+                  if (refFromUrl) return;
                   const value = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 12);
                   setExistingReferralCode(value);
                   setExistingCodeValidation(null);
@@ -953,15 +1090,46 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
               {existingCodeValidation && (
                 <Box sx={{ mb: 2 }}>
                   {existingCodeValidation.valid ? (
-                    <Chip
-                      size="small"
-                      color="success"
-                      label={existingCodeValidation.isAdvisor 
-                        ? `✓ Asesor: ${existingCodeValidation.referrerName}` 
-                        : `✓ Referido por: ${existingCodeValidation.referrerName}`
-                      }
-                      sx={{ mt: 0.5 }}
-                    />
+                    <Box sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1.5,
+                      mt: 1,
+                      p: 1.5,
+                      borderRadius: 2,
+                      bgcolor: 'rgba(240, 90, 40, 0.08)',
+                      border: '1px solid rgba(240, 90, 40, 0.3)',
+                    }}>
+                      <Avatar
+                        src={existingCodeValidation.photoUrl || undefined}
+                        sx={{
+                          width: 48,
+                          height: 48,
+                          bgcolor: '#F05A28',
+                          fontSize: '1.1rem',
+                          fontWeight: 600,
+                        }}
+                      >
+                        {existingCodeValidation.referrerName?.charAt(0)?.toUpperCase()}
+                      </Avatar>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1 }}>
+                          {existingCodeValidation.isAdvisor ? 'Tu Asesor' : 'Referido por'}
+                        </Typography>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 600, lineHeight: 1.3 }}>
+                          {existingCodeValidation.referrerName}
+                        </Typography>
+                        {existingCodeValidation.phone && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.3 }}>
+                            <PhoneIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                            <Typography variant="caption" color="text.secondary">
+                              {existingCodeValidation.phone}
+                            </Typography>
+                          </Box>
+                        )}
+                      </Box>
+                      <CheckCircleOutlineIcon sx={{ color: '#F05A28', fontSize: 22 }} />
+                    </Box>
                   ) : (
                     <Typography variant="caption" color="error">
                       Código no válido

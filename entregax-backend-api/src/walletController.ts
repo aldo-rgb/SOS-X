@@ -13,9 +13,11 @@ import * as referralService from './referralService';
 
 interface AuthRequest extends Request {
   user?: {
-    id: number;
+    userId: number;
+    id?: number;
     email: string;
-    level: number;
+    role: string;
+    level?: number;
   };
 }
 
@@ -29,7 +31,7 @@ interface AuthRequest extends Request {
  */
 export const getBalance = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user?.userId || req.user?.id);
     
     if (!userId) {
       return res.status(401).json({ error: 'No autorizado' });
@@ -67,7 +69,7 @@ export const getBalance = async (req: AuthRequest, res: Response): Promise<any> 
  */
 export const getSummary = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user?.userId || req.user?.id);
     
     if (!userId) {
       return res.status(401).json({ error: 'No autorizado' });
@@ -91,7 +93,7 @@ export const getSummary = async (req: AuthRequest, res: Response): Promise<any> 
  */
 export const getTransactions = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user?.userId || req.user?.id);
     const limit = parseInt(req.query.limit as string) || 50;
     const offset = parseInt(req.query.offset as string) || 0;
     
@@ -123,7 +125,7 @@ export const getTransactions = async (req: AuthRequest, res: Response): Promise<
  */
 export const applyToPayment = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user?.userId || req.user?.id);
     const { monto_total, orden_id, descripcion } = req.body;
     
     if (!userId) {
@@ -169,9 +171,13 @@ export const applyToPayment = async (req: AuthRequest, res: Response): Promise<a
  */
 export const getMyReferralCode = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const userId = req.user?.id;
+    // Debug: ver qué hay en req.user
+    console.log('[getMyReferralCode] req.user:', JSON.stringify(req.user));
+    
+    const userId = (req.user?.userId || req.user?.id);
     
     if (!userId) {
+      console.log('[getMyReferralCode] userId no encontrado, req.user keys:', req.user ? Object.keys(req.user) : 'undefined');
       return res.status(401).json({ error: 'No autorizado' });
     }
     
@@ -235,7 +241,7 @@ export const validateCode = async (req: Request, res: Response): Promise<any> =>
  */
 export const registerReferral = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user?.userId || req.user?.id);
     const { codigo } = req.body;
     
     if (!userId) {
@@ -282,7 +288,7 @@ export const registerReferral = async (req: AuthRequest, res: Response): Promise
  */
 export const getMyReferrals = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user?.userId || req.user?.id);
     
     if (!userId) {
       return res.status(401).json({ error: 'No autorizado' });
@@ -306,7 +312,7 @@ export const getMyReferrals = async (req: AuthRequest, res: Response): Promise<a
  */
 export const getMyReferrer = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const userId = req.user?.id;
+    const userId = (req.user?.userId || req.user?.id);
     
     if (!userId) {
       return res.status(401).json({ error: 'No autorizado' });
@@ -359,7 +365,7 @@ export const getSettings = async (req: Request, res: Response): Promise<any> => 
  */
 export const adminDeposit = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const adminId = req.user?.id;
+    const adminId = (req.user?.userId || req.user?.id);
     const { usuario_id, monto, concepto } = req.body;
     
     if (!adminId) {
@@ -411,7 +417,7 @@ export const adminDeposit = async (req: AuthRequest, res: Response): Promise<any
  */
 export const adminWithdraw = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const adminId = req.user?.id;
+    const adminId = (req.user?.userId || req.user?.id);
     const { usuario_id, monto, concepto } = req.body;
     
     if (!adminId) {

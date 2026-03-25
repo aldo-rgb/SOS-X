@@ -31,11 +31,11 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         COUNT(DISTINCT u.id) as total_clients,
         COUNT(DISTINCT CASE WHEN u.created_at >= NOW() - INTERVAL '7 days' THEN u.id END) as new_clients_7d,
         COUNT(DISTINCT CASE WHEN u.created_at >= NOW() - INTERVAL '30 days' THEN u.id END) as new_clients_30d,
-        COUNT(DISTINCT CASE WHEN u.identity_verified = true THEN u.id END) as verified_clients,
-        COUNT(DISTINCT CASE WHEN u.verification_status = 'pending_review' THEN u.id END) as pending_verification
+        COUNT(DISTINCT CASE WHEN u.is_verified = true THEN u.id END) as verified_clients,
+        COUNT(DISTINCT CASE WHEN u.verification_status = 'unverified' THEN u.id END) as pending_verification
       FROM users u
       WHERE u.role = 'client'
-        AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+        AND (u.referred_by_id = $1)
     `, [advisorId]);
     const clientStats = clientsRes.rows[0];
 
@@ -45,7 +45,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       FROM packages p
       JOIN users u ON p.user_id = u.id
       WHERE u.role = 'client'
-        AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+        AND (u.referred_by_id = $1)
         AND p.created_at >= NOW() - INTERVAL '30 days'
     `, [advisorId]);
 
@@ -54,7 +54,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       SELECT COUNT(*) as dormant_clients
       FROM users u
       WHERE u.role = 'client'
-        AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+        AND (u.referred_by_id = $1)
         AND NOT EXISTS (
           SELECT 1 FROM packages p 
           WHERE p.user_id = u.id 
@@ -67,25 +67,25 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
     const shipmentsRes = await pool.query(`
       SELECT 
         COUNT(*) as total_in_transit,
-        COUNT(CASE WHEN p.client_paid = false AND p.monto > 0 THEN 1 END) as awaiting_payment,
-        COUNT(CASE WHEN p.delivery_instructions IS NULL OR p.delivery_instructions = '' THEN 1 END) as missing_instructions
+        COUNT(CASE WHEN COALESCE(p.saldo_pendiente, 0) > 0 THEN 1 END) as awaiting_payment,
+        COUNT(CASE WHEN p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar') THEN 1 END) as missing_instructions
       FROM packages p
       JOIN users u ON p.user_id = u.id
       WHERE u.role = 'client'
-        AND (u.advisor_id = $1 OR u.referred_by_id = $1)
-        AND p.status IN ('in_transit', 'china_warehouse', 'usa_warehouse', 'mx_warehouse', 'ready_pickup')
+        AND (u.referred_by_id = $1)
+        AND p.status IN ('in_transit', 'received_china', 'received', 'customs', 'ready_pickup')
     `, [advisorId]);
 
     // Comisiones del mes actual
     // Por ahora calculamos basado en paquetes pagados de sus clientes
     const commissionsRes = await pool.query(`
       SELECT 
-        COALESCE(SUM(CASE WHEN p.client_paid = true AND p.paid_at >= date_trunc('month', NOW()) THEN p.monto END), 0) as month_volume_mxn,
-        COUNT(CASE WHEN p.client_paid = true AND p.paid_at >= date_trunc('month', NOW()) THEN 1 END) as month_paid_count
+        COALESCE(SUM(CASE WHEN COALESCE(p.saldo_pendiente, 0) = 0 AND COALESCE(p.monto_pagado, 0) > 0 AND p.updated_at >= date_trunc('month', NOW()) THEN COALESCE(p.assigned_cost_mxn, 0) END), 0) as month_volume_mxn,
+        COUNT(CASE WHEN COALESCE(p.saldo_pendiente, 0) = 0 AND COALESCE(p.monto_pagado, 0) > 0 AND p.updated_at >= date_trunc('month', NOW()) THEN 1 END) as month_paid_count
       FROM packages p
       JOIN users u ON p.user_id = u.id
       WHERE u.role = 'client'
-        AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+        AND (u.referred_by_id = $1)
     `, [advisorId]);
 
     // Registros mensuales (últimos 6 meses)
@@ -95,7 +95,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         COUNT(*) as new_clients
       FROM users u
       WHERE u.role = 'client'
-        AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+        AND (u.referred_by_id = $1)
         AND u.created_at >= NOW() - INTERVAL '6 months'
       GROUP BY to_char(u.created_at, 'YYYY-MM')
       ORDER BY month
@@ -153,7 +153,7 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
     const { search, status, page = '1', limit = '50' } = req.query as any;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    let whereClause = `u.role = 'client' AND (u.advisor_id = $1 OR u.referred_by_id = $1)`;
+    let whereClause = `u.role = 'client' AND (u.referred_by_id = $1)`;
     const params: any[] = [advisorId];
     let paramIdx = 2;
 
@@ -164,27 +164,54 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
     }
 
     if (status === 'verified') {
-      whereClause += ` AND u.identity_verified = true`;
+      whereClause += ` AND u.is_verified = true`;
     } else if (status === 'pending') {
-      whereClause += ` AND u.verification_status = 'pending_review'`;
+      whereClause += ` AND u.verification_status = 'unverified' AND u.is_verified = false`;
     } else if (status === 'unverified') {
-      whereClause += ` AND u.identity_verified = false AND u.verification_status != 'pending_review'`;
+      whereClause += ` AND u.is_verified = false`;
     }
 
     const clientsRes = await pool.query(`
       SELECT 
         u.id, u.full_name, u.email, u.phone, u.box_id, 
-        u.identity_verified, u.verification_status,
+        u.is_verified, u.verification_status,
         u.created_at, u.recovery_status,
-        u.advisor_notes,
-        -- Último paquete
-        (SELECT MAX(p.created_at) FROM packages p WHERE p.user_id = u.id) as last_shipment_at,
-        -- Total paquetes
-        (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id) as total_packages,
-        -- Paquetes en tránsito
-        (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND p.status IN ('in_transit', 'china_warehouse', 'usa_warehouse')) as in_transit_count,
-        -- Pendientes de pago
-        (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND p.client_paid = false AND p.monto > 0) as pending_payment_count
+        -- Último envío (de las 3 tablas)
+        GREATEST(
+          (SELECT MAX(p.created_at) FROM packages p WHERE p.user_id = u.id),
+          (SELECT MAX(mo.created_at) FROM maritime_orders mo WHERE mo.user_id = u.id),
+          (SELECT MAX(ds.created_at) FROM dhl_shipments ds WHERE ds.user_id = u.id)
+        ) as last_shipment_at,
+        -- Total embarques (packages + maritime_orders + dhl_shipments)
+        (
+          (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id) +
+          (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id) +
+          (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id)
+        ) as total_packages,
+        -- En tránsito (las 3 tablas)
+        (
+          (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND p.status IN ('in_transit', 'received_china', 'received', 'customs')) +
+          (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id AND mo.status IN ('in_transit', 'received_china', 'received', 'customs', 'consolidated', 'at_port')) +
+          (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id AND ds.status IN ('in_transit', 'received_mty', 'inspected', 'dispatched'))
+        ) as in_transit_count,
+        -- Pendientes de pago (count)
+        (
+          (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND COALESCE(p.saldo_pendiente, 0) > 0) +
+          (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id AND COALESCE(mo.saldo_pendiente, 0) > 0) +
+          (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id AND COALESCE(ds.saldo_pendiente, 0) > 0)
+        ) as pending_payment_count,
+        -- Suma total pendiente de pago (MXN)
+        (
+          COALESCE((SELECT SUM(COALESCE(p.saldo_pendiente, 0)) FROM packages p WHERE p.user_id = u.id AND COALESCE(p.saldo_pendiente, 0) > 0), 0) +
+          COALESCE((SELECT SUM(COALESCE(mo.saldo_pendiente, 0)) FROM maritime_orders mo WHERE mo.user_id = u.id AND COALESCE(mo.saldo_pendiente, 0) > 0), 0) +
+          COALESCE((SELECT SUM(COALESCE(ds.saldo_pendiente, 0)) FROM dhl_shipments ds WHERE ds.user_id = u.id AND COALESCE(ds.saldo_pendiente, 0) > 0), 0)
+        ) as pending_payment_total,
+        -- Sin instrucciones (excluye entregados)
+        (
+          (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND p.master_id IS NULL AND p.status::text != 'delivered' AND p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')) +
+          (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id AND mo.status != 'delivered' AND mo.delivery_address_id IS NULL) +
+          (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id AND ds.status != 'delivered' AND ds.delivery_address_id IS NULL)
+        ) as missing_instructions_count
       FROM users u
       WHERE ${whereClause}
       ORDER BY u.created_at DESC
@@ -213,15 +240,17 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
         email: c.email,
         phone: c.phone,
         boxId: c.box_id,
-        identityVerified: c.identity_verified,
+        identityVerified: c.is_verified,
         verificationStatus: c.verification_status,
         createdAt: c.created_at,
         recoveryStatus: c.recovery_status,
-        advisorNotes: c.advisor_notes,
+        advisorNotes: null,
         lastShipmentAt: c.last_shipment_at,
         totalPackages: parseInt(c.total_packages) || 0,
         inTransitCount: parseInt(c.in_transit_count) || 0,
         pendingPaymentCount: parseInt(c.pending_payment_count) || 0,
+        pendingPaymentTotal: parseFloat(c.pending_payment_total) || 0,
+        missingInstructionsCount: parseInt(c.missing_instructions_count) || 0,
         activityStatus,
         daysSinceLastShipment,
       };
@@ -250,17 +279,15 @@ export const saveAdvisorNote = async (req: Request, res: Response): Promise<any>
 
     // Verificar que el cliente pertenece al asesor
     const check = await pool.query(
-      `SELECT id FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2)`,
+      `SELECT id FROM users WHERE id = $1 AND (referred_by_id = $2)`,
       [clientId, advisorId]
     );
     if (check.rows.length === 0) return res.status(403).json({ error: 'Cliente no pertenece a este asesor' });
 
-    await pool.query(
-      `UPDATE users SET advisor_notes = $1 WHERE id = $2`,
-      [note, clientId]
-    );
+    // advisor_notes column pending migration
+    // await pool.query(`UPDATE users SET advisor_notes = $1 WHERE id = $2`, [note, clientId]);
 
-    res.json({ success: true });
+    res.json({ success: true, message: 'Nota guardada (funcionalidad en desarrollo)' });
   } catch (error) {
     console.error('Error saving advisor note:', error);
     res.status(500).json({ error: 'Error al guardar nota' });
@@ -268,75 +295,188 @@ export const saveAdvisorNote = async (req: Request, res: Response): Promise<any>
 };
 
 // ─── 3. EMBARQUES DE MIS CLIENTES ───
+// Combina packages (AIR_CHN_MX, POBOX_USA), maritime_orders (SEA_CHN_MX) y dhl_shipments (AA_DHL)
 export const getAdvisorShipments = async (req: Request, res: Response): Promise<any> => {
   try {
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
-    const { filter, search, page = '1', limit = '50' } = req.query as any;
+    const { filter, search, clientId, page = '1', limit = '50' } = req.query as any;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    let whereClause = `(u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'`;
+    // ── Build dynamic WHERE parts (applied to each sub-query) ──
+    const buildFilterSQL = (statusCol: string, saldoCol: string, _montoCol: string, missingInstrSQL: string, extraInTransit: string[] = []) => {
+      const inTransitStatuses = ["'in_transit'", "'received_china'", "'received'", "'customs'", ...extraInTransit];
+      if (filter === 'awaiting_payment') return ` AND COALESCE(${saldoCol}, 0) > 0`;
+      if (filter === 'in_transit') return ` AND ${statusCol} IN (${inTransitStatuses.join(',')})`;
+      if (filter === 'ready_pickup') return ` AND ${statusCol} = 'ready_pickup'`;
+      if (filter === 'delivered') return ` AND ${statusCol} = 'delivered'`;
+      if (filter === 'missing_instructions') return ` AND (${missingInstrSQL}) AND ${statusCol} != 'delivered'`;
+      return '';
+    };
+
+    // ── UNION sub-queries ──
+    // 1) packages (AIR_CHN_MX, POBOX_USA) — exclude children (master_id IS NOT NULL)
+    const pkgSelect = `
+      SELECT 
+        'PKG-' || p.id::text as uid,
+        p.id, p.tracking_internal as tracking, p.international_tracking, p.child_no,
+        p.status::text as status, p.service_type,
+        COALESCE(p.assigned_cost_mxn, p.saldo_pendiente, p.air_sale_price, p.pobox_venta_usd, 0) as monto,
+        CASE WHEN COALESCE(p.saldo_pendiente, p.air_sale_price, p.pobox_venta_usd, 0) = 0 AND COALESCE(p.monto_pagado, 0) > 0 THEN true ELSE false END as client_paid,
+        p.updated_at as paid_at,
+        p.created_at,
+        u.id as client_id, u.full_name as client_name, u.box_id as client_box_id, u.phone as client_phone,
+        CASE WHEN p.assigned_address_id IS NOT NULL OR (p.destination_address IS NOT NULL AND p.destination_address != 'Pendiente de asignar') THEN true ELSE false END as has_instructions,
+        COALESCE(p.is_master, false) as is_master,
+        (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id)::int as children_count,
+        COALESCE(p.has_gex, false) as has_gex,
+        COALESCE(p.weight, 0) as weight,
+        COALESCE(p.pkg_length, 0) as length_cm,
+        COALESCE(p.pkg_width, 0) as width_cm,
+        COALESCE(p.pkg_height, 0) as height_cm,
+        p.description as description
+      FROM packages p
+      JOIN users u ON p.user_id = u.id
+      WHERE u.referred_by_id = $1 AND u.role = 'client' AND p.master_id IS NULL
+    `;
+
+    // 2) maritime_orders (SEA_CHN_MX)
+    const marSelect = `
+      SELECT 
+        'MAR-' || mo.id::text as uid,
+        mo.id, mo.ordersn as tracking, mo.ship_number as international_tracking, mo.bl_number as child_no,
+        mo.status, 'SEA_CHN_MX' as service_type,
+        COALESCE(mo.assigned_cost_mxn, mo.saldo_pendiente, 0) as monto,
+        CASE WHEN COALESCE(mo.saldo_pendiente, 0) = 0 AND COALESCE(mo.monto_pagado, 0) > 0 THEN true ELSE false END as client_paid,
+        mo.paid_at as paid_at,
+        mo.created_at,
+        u.id as client_id, u.full_name as client_name, u.box_id as client_box_id, u.phone as client_phone,
+        CASE WHEN mo.delivery_address_id IS NOT NULL THEN true ELSE false END as has_instructions,
+        false as is_master,
+        0 as children_count,
+        COALESCE(mo.has_gex, false) as has_gex,
+        COALESCE(mo.weight, 0) as weight,
+        0 as length_cm,
+        0 as width_cm,
+        0 as height_cm,
+        mo.goods_name as description
+      FROM maritime_orders mo
+      JOIN users u ON mo.user_id = u.id
+      WHERE u.referred_by_id = $1 AND u.role = 'client'
+    `;
+
+    // 3) dhl_shipments (AA_DHL)
+    const dhlSelect = `
+      SELECT 
+        'DHL-' || ds.id::text as uid,
+        ds.id, ds.inbound_tracking as tracking, ds.national_tracking as international_tracking, ds.box_id as child_no,
+        ds.status, 'AA_DHL' as service_type,
+        COALESCE(ds.total_cost_mxn, ds.saldo_pendiente, ds.import_cost_mxn, 0) as monto,
+        CASE WHEN COALESCE(ds.saldo_pendiente, ds.import_cost_mxn, 0) = 0 AND COALESCE(ds.monto_pagado, 0) > 0 THEN true ELSE false END as client_paid,
+        ds.paid_at as paid_at,
+        ds.created_at,
+        u.id as client_id, u.full_name as client_name, u.box_id as client_box_id, u.phone as client_phone,
+        CASE WHEN ds.delivery_address_id IS NOT NULL THEN true ELSE false END as has_instructions,
+        false as is_master,
+        0 as children_count,
+        COALESCE(ds.has_gex, false) as has_gex,
+        COALESCE(ds.weight_kg, 0) as weight,
+        COALESCE(ds.length_cm, 0) as length_cm,
+        COALESCE(ds.width_cm, 0) as width_cm,
+        COALESCE(ds.height_cm, 0) as height_cm,
+        ds.description as description
+      FROM dhl_shipments ds
+      JOIN users u ON ds.user_id = u.id
+      WHERE u.referred_by_id = $1 AND u.role = 'client'
+    `;
+
+    // Dynamic filters per sub-query
+    let pkgWhere = buildFilterSQL('p.status', 'p.saldo_pendiente', 'p.monto_pagado', "p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')");
+    let marWhere = buildFilterSQL('mo.status', 'mo.saldo_pendiente', 'mo.monto_pagado', 'mo.delivery_address_id IS NULL');
+    let dhlWhere = buildFilterSQL('ds.status', 'ds.saldo_pendiente', 'ds.monto_pagado', 'ds.delivery_address_id IS NULL', ["'received_mty'"]);
+
+    // Client filter
     const params: any[] = [advisorId];
     let paramIdx = 2;
 
-    // Filters
-    if (filter === 'awaiting_payment') {
-      whereClause += ` AND p.client_paid = false AND p.monto > 0`;
-    } else if (filter === 'missing_instructions') {
-      whereClause += ` AND (p.delivery_instructions IS NULL OR p.delivery_instructions = '')`;
-    } else if (filter === 'in_transit') {
-      whereClause += ` AND p.status IN ('in_transit', 'china_warehouse', 'usa_warehouse')`;
-    } else if (filter === 'ready_pickup') {
-      whereClause += ` AND p.status = 'ready_pickup'`;
-    } else if (filter === 'delivered') {
-      whereClause += ` AND p.status = 'delivered'`;
+    if (clientId) {
+      pkgWhere += ` AND p.user_id = $${paramIdx}`;
+      marWhere += ` AND mo.user_id = $${paramIdx}`;
+      dhlWhere += ` AND ds.user_id = $${paramIdx}`;
+      params.push(parseInt(clientId));
+      paramIdx++;
     }
 
+    // Search filter
     if (search) {
-      whereClause += ` AND (p.tracking_internal ILIKE $${paramIdx} OR p.international_tracking ILIKE $${paramIdx} OR u.full_name ILIKE $${paramIdx} OR u.box_id ILIKE $${paramIdx})`;
+      const searchParam = `$${paramIdx}`;
+      pkgWhere += ` AND (p.tracking_internal ILIKE ${searchParam} OR p.international_tracking ILIKE ${searchParam} OR u.full_name ILIKE ${searchParam} OR u.box_id ILIKE ${searchParam})`;
+      marWhere += ` AND (mo.ordersn ILIKE ${searchParam} OR mo.ship_number ILIKE ${searchParam} OR u.full_name ILIKE ${searchParam} OR u.box_id ILIKE ${searchParam})`;
+      dhlWhere += ` AND (ds.inbound_tracking ILIKE ${searchParam} OR ds.national_tracking ILIKE ${searchParam} OR u.full_name ILIKE ${searchParam} OR u.box_id ILIKE ${searchParam})`;
       params.push(`%${search}%`);
       paramIdx++;
     }
 
-    const shipmentsRes = await pool.query(`
-      SELECT 
-        p.id, p.tracking_internal, p.international_tracking, p.child_no,
-        p.status, p.service_type, p.monto, p.client_paid, p.paid_at,
-        p.delivery_instructions, p.created_at,
-        u.id as client_id, u.full_name as client_name, u.box_id as client_box_id, u.phone as client_phone
-      FROM packages p
-      JOIN users u ON p.user_id = u.id
-      WHERE ${whereClause}
-      ORDER BY p.created_at DESC
+    // Service type filter (optional)
+    const { serviceType } = req.query as any;
+    let unionParts: string[] = [];
+    if (!serviceType || serviceType === 'all') {
+      unionParts = [
+        `${pkgSelect} ${pkgWhere}`,
+        `${marSelect} ${marWhere}`,
+        `${dhlSelect} ${dhlWhere}`,
+      ];
+    } else if (serviceType === 'SEA_CHN_MX') {
+      unionParts = [`${marSelect} ${marWhere}`];
+    } else if (serviceType === 'AA_DHL') {
+      unionParts = [`${dhlSelect} ${dhlWhere}`];
+    } else {
+      // AIR_CHN_MX, POBOX_USA, etc.
+      pkgWhere += ` AND p.service_type = $${paramIdx}`;
+      params.push(serviceType);
+      paramIdx++;
+      unionParts = [`${pkgSelect} ${pkgWhere}`];
+    }
+
+    const unionQuery = unionParts.join(' UNION ALL ');
+
+    // Main data query with pagination
+    const dataSQL = `
+      SELECT * FROM (${unionQuery}) combined
+      ORDER BY created_at DESC
       LIMIT $${paramIdx} OFFSET $${paramIdx + 1}
-    `, [...params, parseInt(limit), offset]);
+    `;
+    const shipmentsRes = await pool.query(dataSQL, [...params, parseInt(limit), offset]);
 
-    const countRes = await pool.query(`
-      SELECT COUNT(*) as total
-      FROM packages p
-      JOIN users u ON p.user_id = u.id
-      WHERE ${whereClause}
-    `, params);
+    // Count query
+    const countSQL = `SELECT COUNT(*) as total FROM (${unionQuery}) combined`;
+    const countRes = await pool.query(countSQL, params);
 
-    // Summary stats
-    const statsRes = await pool.query(`
+    // ── Summary stats (always across ALL types, no filter applied) ──
+    const statsSQL = `
       SELECT 
         COUNT(*) as total,
-        COUNT(CASE WHEN p.status IN ('in_transit', 'china_warehouse', 'usa_warehouse', 'mx_warehouse') THEN 1 END) as in_transit,
-        COUNT(CASE WHEN p.client_paid = false AND p.monto > 0 THEN 1 END) as awaiting_payment,
-        COUNT(CASE WHEN p.delivery_instructions IS NULL OR p.delivery_instructions = '' THEN 1 END) as missing_instructions,
-        COUNT(CASE WHEN p.status = 'ready_pickup' THEN 1 END) as ready_pickup,
-        COUNT(CASE WHEN p.status = 'delivered' THEN 1 END) as delivered
-      FROM packages p
-      JOIN users u ON p.user_id = u.id
-      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
-    `, [advisorId]);
+        COUNT(CASE WHEN status IN ('in_transit','received_china','received','customs','received_mty') THEN 1 END) as in_transit,
+        COUNT(CASE WHEN COALESCE(monto, 0) > 0 AND client_paid = false THEN 1 END) as awaiting_payment,
+        COUNT(CASE WHEN has_instructions = false AND status != 'delivered' THEN 1 END) as missing_instructions,
+        COUNT(CASE WHEN status = 'ready_pickup' THEN 1 END) as ready_pickup,
+        COUNT(CASE WHEN status = 'delivered' THEN 1 END) as delivered
+      FROM (
+        ${pkgSelect}
+        UNION ALL
+        ${marSelect}
+        UNION ALL
+        ${dhlSelect}
+      ) all_shipments
+    `;
+    const statsRes = await pool.query(statsSQL, [advisorId]);
 
     res.json({
       shipments: shipmentsRes.rows.map(s => ({
         id: s.id,
-        tracking: s.tracking_internal,
+        uid: s.uid,
+        tracking: s.tracking,
         internationalTracking: s.international_tracking,
         childNo: s.child_no,
         status: s.status,
@@ -344,11 +484,20 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         amount: parseFloat(s.monto) || 0,
         clientPaid: s.client_paid,
         paidAt: s.paid_at,
-        deliveryInstructions: s.delivery_instructions,
+        hasInstructions: s.has_instructions,
+        isMaster: s.is_master,
+        childrenCount: parseInt(s.children_count) || 0,
+        hasGex: s.has_gex,
         createdAt: s.created_at,
+        clientId: s.client_id,
         clientName: s.client_name,
         clientBoxId: s.client_box_id,
         clientPhone: s.client_phone,
+        weight: parseFloat(s.weight) || 0,
+        lengthCm: parseFloat(s.length_cm) || 0,
+        widthCm: parseFloat(s.width_cm) || 0,
+        heightCm: parseFloat(s.height_cm) || 0,
+        description: s.description || '',
       })),
       stats: {
         total: parseInt(statsRes.rows[0]?.total) || 0,
@@ -374,62 +523,75 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
-    // Obtener la tasa de comisión del asesor
-    const rateRes = await pool.query(`
-      SELECT percentage, leader_override, fixed_fee, is_gex
-      FROM commission_rates 
-      WHERE user_id = $1
+    // ─── Tasas de comisión por tipo de servicio ───
+    const ratesRes = await pool.query(`
+      SELECT service_type, label, percentage, leader_override, fixed_fee, is_gex
+      FROM commission_rates ORDER BY id
+    `);
+
+    // ─── Resumen por tipo de servicio (de advisor_commissions) ───
+    const byServiceRes = await pool.query(`
+      SELECT 
+        ac.service_type,
+        COUNT(*) as total_count,
+        SUM(ac.payment_amount_mxn) as total_volume,
+        SUM(ac.commission_amount_mxn) as total_commission,
+        SUM(ac.leader_override_amount) as total_leader_override,
+        SUM(ac.gex_commission_mxn) as total_gex,
+        COUNT(*) FILTER (WHERE ac.status = 'pending') as pending_count,
+        SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'pending') as pending_commission,
+        COUNT(*) FILTER (WHERE ac.status = 'paid') as paid_count,
+        SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'paid') as paid_commission
+      FROM advisor_commissions ac
+      WHERE ac.advisor_id = $1
+      GROUP BY ac.service_type
     `, [advisorId]);
-    const commissionRate = rateRes.rows[0] || { percentage: 0, leader_override: 0, fixed_fee: 0 };
 
-    // Paquetes pagados de sus clientes (últimos 3 meses)
-    const paidRes = await pool.query(`
+    // ─── Resumen mensual (últimos 6 meses) ───
+    const monthlyRes = await pool.query(`
       SELECT 
-        to_char(p.paid_at, 'YYYY-MM') as month,
-        COUNT(*) as paid_count,
-        SUM(p.monto) as total_volume,
-        SUM(p.monto * $2 / 100) as estimated_commission
-      FROM packages p
-      JOIN users u ON p.user_id = u.id
-      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) 
-        AND u.role = 'client'
-        AND p.client_paid = true
-        AND p.paid_at >= NOW() - INTERVAL '3 months'
-        AND p.paid_at IS NOT NULL
-      GROUP BY to_char(p.paid_at, 'YYYY-MM')
+        to_char(ac.created_at, 'YYYY-MM') as month,
+        COUNT(*) as count,
+        SUM(ac.payment_amount_mxn) as volume,
+        SUM(ac.commission_amount_mxn) as commission,
+        COUNT(*) FILTER (WHERE ac.status = 'pending') as pending_count,
+        SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'pending') as pending_amount,
+        COUNT(*) FILTER (WHERE ac.status = 'paid') as paid_count,
+        SUM(ac.commission_amount_mxn) FILTER (WHERE ac.status = 'paid') as paid_amount
+      FROM advisor_commissions ac
+      WHERE ac.advisor_id = $1
+        AND ac.created_at >= NOW() - INTERVAL '6 months'
+      GROUP BY to_char(ac.created_at, 'YYYY-MM')
       ORDER BY month DESC
-    `, [advisorId, parseFloat(commissionRate.percentage) || 0]);
+    `, [advisorId]);
 
-    // Pendiente (en tránsito, pagado pero no entregado)
-    const pendingRes = await pool.query(`
+    // ─── Totales generales ───
+    const totalsRes = await pool.query(`
       SELECT 
-        COUNT(*) as pending_count,
-        COALESCE(SUM(p.monto), 0) as pending_volume,
-        COALESCE(SUM(p.monto * $2 / 100), 0) as pending_commission
-      FROM packages p
-      JOIN users u ON p.user_id = u.id
-      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1)
-        AND u.role = 'client'
-        AND p.client_paid = true
-        AND p.status NOT IN ('delivered', 'cancelled')
-    `, [advisorId, parseFloat(commissionRate.percentage) || 0]);
+        COUNT(*) as total_count,
+        COALESCE(SUM(commission_amount_mxn), 0) as total_commission,
+        COALESCE(SUM(commission_amount_mxn) FILTER (WHERE status = 'pending'), 0) as pending_commission,
+        COALESCE(SUM(commission_amount_mxn) FILTER (WHERE status = 'paid'), 0) as paid_commission,
+        COUNT(*) FILTER (WHERE status = 'pending') as pending_count,
+        COUNT(*) FILTER (WHERE status = 'paid') as paid_count
+      FROM advisor_commissions
+      WHERE advisor_id = $1
+    `, [advisorId]);
 
-    // Liberado (entregado)
-    const releasedRes = await pool.query(`
+    // ─── Últimas 20 comisiones (detalle) ───
+    const recentRes = await pool.query(`
       SELECT 
-        COUNT(*) as released_count,
-        COALESCE(SUM(p.monto), 0) as released_volume,
-        COALESCE(SUM(p.monto * $2 / 100), 0) as released_commission
-      FROM packages p
-      JOIN users u ON p.user_id = u.id
-      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1)
-        AND u.role = 'client'
-        AND p.client_paid = true
-        AND p.status = 'delivered'
-        AND p.paid_at >= NOW() - INTERVAL '3 months'
-    `, [advisorId, parseFloat(commissionRate.percentage) || 0]);
+        ac.id, ac.shipment_type, ac.service_type, ac.tracking,
+        ac.client_name, ac.payment_amount_mxn, ac.commission_rate_pct,
+        ac.commission_amount_mxn, ac.gex_commission_mxn,
+        ac.status, ac.paid_to_advisor_at, ac.created_at
+      FROM advisor_commissions ac
+      WHERE ac.advisor_id = $1
+      ORDER BY ac.created_at DESC
+      LIMIT 20
+    `, [advisorId]);
 
-    // Tasa de conversión
+    // ─── Tasa de conversión ───
     const conversionRes = await pool.query(`
       SELECT 
         COUNT(DISTINCT u.id) as total_referred,
@@ -437,31 +599,64 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
           SELECT 1 FROM packages p WHERE p.user_id = u.id
         ) THEN u.id END) as with_shipments
       FROM users u
-      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
+      WHERE (u.referred_by_id = $1) AND u.role = 'client'
     `, [advisorId]);
 
+    const totals = totalsRes.rows[0] || {};
+
     res.json({
-      rate: {
-        percentage: parseFloat(commissionRate.percentage) || 0,
-        leaderOverride: parseFloat(commissionRate.leader_override) || 0,
-        fixedFee: parseFloat(commissionRate.fixed_fee) || 0,
-      },
-      monthly: paidRes.rows.map(m => ({
-        month: m.month,
-        paidCount: parseInt(m.paid_count) || 0,
-        totalVolume: parseFloat(m.total_volume) || 0,
-        estimatedCommission: parseFloat(m.estimated_commission) || 0,
+      rates: ratesRes.rows.map(r => ({
+        serviceType: r.service_type,
+        label: r.label,
+        percentage: parseFloat(r.percentage) || 0,
+        leaderOverride: parseFloat(r.leader_override) || 0,
+        fixedFee: parseFloat(r.fixed_fee) || 0,
+        isGex: r.is_gex || false,
       })),
-      pending: {
-        count: parseInt(pendingRes.rows[0]?.pending_count) || 0,
-        volume: parseFloat(pendingRes.rows[0]?.pending_volume) || 0,
-        commission: parseFloat(pendingRes.rows[0]?.pending_commission) || 0,
+      byService: byServiceRes.rows.map(s => ({
+        serviceType: s.service_type,
+        totalCount: parseInt(s.total_count) || 0,
+        totalVolume: parseFloat(s.total_volume) || 0,
+        totalCommission: parseFloat(s.total_commission) || 0,
+        totalLeaderOverride: parseFloat(s.total_leader_override) || 0,
+        totalGex: parseFloat(s.total_gex) || 0,
+        pendingCount: parseInt(s.pending_count) || 0,
+        pendingCommission: parseFloat(s.pending_commission) || 0,
+        paidCount: parseInt(s.paid_count) || 0,
+        paidCommission: parseFloat(s.paid_commission) || 0,
+      })),
+      monthly: monthlyRes.rows.map(m => ({
+        month: m.month,
+        count: parseInt(m.count) || 0,
+        volume: parseFloat(m.volume) || 0,
+        commission: parseFloat(m.commission) || 0,
+        pendingCount: parseInt(m.pending_count) || 0,
+        pendingAmount: parseFloat(m.pending_amount) || 0,
+        paidCount: parseInt(m.paid_count) || 0,
+        paidAmount: parseFloat(m.paid_amount) || 0,
+      })),
+      totals: {
+        totalCount: parseInt(totals.total_count) || 0,
+        totalCommission: parseFloat(totals.total_commission) || 0,
+        pendingCommission: parseFloat(totals.pending_commission) || 0,
+        paidCommission: parseFloat(totals.paid_commission) || 0,
+        pendingCount: parseInt(totals.pending_count) || 0,
+        paidCount: parseInt(totals.paid_count) || 0,
       },
-      released: {
-        count: parseInt(releasedRes.rows[0]?.released_count) || 0,
-        volume: parseFloat(releasedRes.rows[0]?.released_volume) || 0,
-        commission: parseFloat(releasedRes.rows[0]?.released_commission) || 0,
-      },
+      recent: recentRes.rows.map(r => ({
+        id: r.id,
+        shipmentType: r.shipment_type,
+        serviceType: r.service_type,
+        tracking: r.tracking,
+        clientName: r.client_name,
+        paymentAmount: parseFloat(r.payment_amount_mxn) || 0,
+        commissionRate: parseFloat(r.commission_rate_pct) || 0,
+        commissionAmount: parseFloat(r.commission_amount_mxn) || 0,
+        gexCommission: parseFloat(r.gex_commission_mxn) || 0,
+        status: r.status,
+        paidAt: r.paid_to_advisor_at,
+        createdAt: r.created_at,
+      })),
       conversion: {
         totalReferred: parseInt(conversionRes.rows[0]?.total_referred) || 0,
         withShipments: parseInt(conversionRes.rows[0]?.with_shipments) || 0,
@@ -473,5 +668,58 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
   } catch (error) {
     console.error('Error fetching advisor commissions:', error);
     res.status(500).json({ error: 'Error al obtener comisiones' });
+  }
+};
+
+// ─── 5. OBTENER GUÍAS HIJAS DE UN REPACK ───
+export const getRepackChildren = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const advisorId = getAdvisorId(req);
+    if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+
+    const masterId = parseInt(req.params.id as string);
+    if (!masterId) return res.status(400).json({ error: 'ID de repack inválido' });
+
+    // Verify the master package belongs to one of the advisor's clients
+    const verifyRes = await pool.query(`
+      SELECT p.id FROM packages p
+      JOIN users u ON p.user_id = u.id
+      WHERE p.id = $1 AND p.is_master = true AND u.referred_by_id = $2 AND u.role = 'client'
+    `, [masterId, advisorId]);
+
+    if (verifyRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Repack no encontrado' });
+    }
+
+    const childrenRes = await pool.query(`
+      SELECT 
+        p.id, p.tracking_internal as tracking, p.international_tracking,
+        p.status::text as status, p.service_type,
+        COALESCE(p.assigned_cost_mxn, p.saldo_pendiente, p.air_sale_price, p.pobox_venta_usd, 0) as monto,
+        CASE WHEN COALESCE(p.saldo_pendiente, p.air_sale_price, p.pobox_venta_usd, 0) = 0 AND COALESCE(p.monto_pagado, 0) > 0 THEN true ELSE false END as client_paid,
+        p.weight, p.description,
+        p.created_at
+      FROM packages p
+      WHERE p.master_id = $1
+      ORDER BY p.id ASC
+    `, [masterId]);
+
+    res.json({
+      children: childrenRes.rows.map(c => ({
+        id: c.id,
+        tracking: c.tracking,
+        internationalTracking: c.international_tracking,
+        status: c.status,
+        serviceType: c.service_type,
+        amount: parseFloat(c.monto) || 0,
+        clientPaid: c.client_paid,
+        weight: c.weight ? parseFloat(c.weight) : null,
+        description: c.description,
+        createdAt: c.created_at,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching repack children:', error);
+    res.status(500).json({ error: 'Error al obtener guías del repack' });
   }
 };

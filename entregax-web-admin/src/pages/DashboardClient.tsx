@@ -92,6 +92,9 @@ import {
   WarningAmber as WarningAmberIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
   KeyboardArrowUp as KeyboardArrowUpIcon,
+  Share as ShareIcon,
+  CardGiftcard as GiftIcon,
+  People as PeopleIcon,
 } from '@mui/icons-material';
 import { Collapse } from '@mui/material';
 import api from '../services/api';
@@ -532,6 +535,11 @@ export default function DashboardClient() {
   // Wallet Status
   const [walletStatus, setWalletStatus] = useState<WalletStatus | null>(null);
 
+  // Referidos / Invita y Gana
+  const [referralCode, setReferralCode] = useState<string>('');
+  const [myReferrals, setMyReferrals] = useState<any[]>([]);
+  const [referralStats, setReferralStats] = useState<{ total: number; validated: number; pending: number; earnings: number }>({ total: 0, validated: 0, pending: 0, earnings: 0 });
+
   // Cuentas por Pagar
   const [pendingPayments, setPendingPayments] = useState<{
     totalPending: number;
@@ -564,6 +572,7 @@ export default function DashboardClient() {
     loadDeliveryAddresses();
     loadPaymentMethods();
     loadWalletStatus();
+    loadReferralData();
     loadPendingPayments();
     loadCarouselSlides();
     loadAdvisorInfo();
@@ -987,6 +996,23 @@ export default function DashboardClient() {
       }
     } catch (error) {
       console.error('Error cargando monedero:', error);
+    }
+  };
+
+  // Cargar datos de referidos
+  const loadReferralData = async () => {
+    try {
+      const [codeRes, referralsRes] = await Promise.all([
+        api.get('/referidos/mi-codigo').catch(() => null),
+        api.get('/referidos/mis-referidos').catch(() => null),
+      ]);
+      if (codeRes?.data?.code) setReferralCode(codeRes.data.code);
+      if (referralsRes?.data) {
+        setMyReferrals(referralsRes.data.referrals || []);
+        setReferralStats(referralsRes.data.stats || { total: 0, validated: 0, pending: 0, earnings: 0 });
+      }
+    } catch (err) {
+      console.error('Error cargando referidos:', err);
     }
   };
 
@@ -2929,7 +2955,7 @@ export default function DashboardClient() {
                           const pkgMonto = Number(pkg.monto) || 0;
                           const isDhl = pkg.shipment_type === 'dhl' || pkg.servicio === 'AA_DHL' || pkg.servicio === 'DHL_MTY';
                           const isMaritime = pkg.shipment_type === 'maritime' || pkg.servicio === 'SEA_CHN_MX' || pkg.servicio === 'FCL_CHN_MX';
-                          const currency = pkg.monto_currency || (isDhl ? 'USD' : isMaritime ? 'USD' : 'MXN');
+                          const currency = pkg.monto_currency || (isDhl ? 'USD' : 'MXN');
                           // Mostrar precio asignado o estimado
                           if (pkgMonto > 0 && !pkg.client_paid) {
                             // Para marítimo/FCL, mostrar precio con label de tipo
@@ -3470,6 +3496,163 @@ export default function DashboardClient() {
                       <Typography variant="caption" color="text.secondary">{t('cd.account.lastPayment')}</Typography>
                       <Typography variant="caption" fontWeight="bold">{stats?.financiero.ultimo_pago || 'N/A'}</Typography>
                     </Box>
+                  </Paper>
+
+                  {/* 🎁 Invita y Gana $500 */}
+                  <Paper sx={{ p: 3, mb: 3, borderRadius: 2, background: 'linear-gradient(135deg, #FFF8E1 0%, #FFF3E0 100%)', border: '1px solid #FFE0B2' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                      <GiftIcon sx={{ color: ORANGE, fontSize: 28 }} />
+                      <Box>
+                        <Typography variant="h6" fontWeight="bold" sx={{ color: '#E65100' }}>
+                          ¡Invita y Gana $500!
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Por cada amigo que haga su primer envío, ambos ganan $500 MXN
+                        </Typography>
+                      </Box>
+                    </Box>
+                    <Divider sx={{ mb: 2 }} />
+
+                    {/* Código de referido */}
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+                        Tu código de referido
+                      </Typography>
+                      <Paper
+                        variant="outlined"
+                        sx={{
+                          p: 1.5,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          bgcolor: 'white',
+                          borderRadius: 2,
+                          border: '2px dashed',
+                          borderColor: ORANGE,
+                        }}
+                      >
+                        <Typography variant="h5" fontWeight="bold" fontFamily="monospace" sx={{ color: ORANGE, letterSpacing: 2 }}>
+                          {referralCode || '---'}
+                        </Typography>
+                        <Tooltip title="Copiar código">
+                          <IconButton
+                            size="small"
+                            onClick={() => {
+                              if (referralCode) {
+                                navigator.clipboard.writeText(referralCode);
+                                setSnackbar({ open: true, message: '✅ Código copiado', severity: 'success' });
+                              }
+                            }}
+                          >
+                            <CopyIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Paper>
+                    </Box>
+
+                    {/* Botón WhatsApp */}
+                    <Button
+                      variant="contained"
+                      fullWidth
+                      size="large"
+                      onClick={() => {
+                        const baseUrl = window.location.origin;
+                        const shareUrl = `${baseUrl}/?ref=${encodeURIComponent(referralCode)}`;
+                        const msg = `🎁 ¡Te invito a EntregaX! Regístrate con mi código *${referralCode}* y ambos ganamos *$500 MXN* de saldo a favor en tu primer envío.\n\n📦 Envíos desde USA, China y más al mejor precio.\n\n👉 ${shareUrl}`;
+                        window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                      }}
+                      disabled={!referralCode}
+                      sx={{
+                        mb: 1.5,
+                        background: '#25D366',
+                        '&:hover': { background: '#1EBE5A' },
+                        fontWeight: 'bold',
+                        fontSize: '0.95rem',
+                        borderRadius: 2,
+                        textTransform: 'none',
+                      }}
+                      startIcon={
+                        <Box component="img" src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" sx={{ width: 22, height: 22 }} />
+                      }
+                    >
+                      Compartir por WhatsApp
+                    </Button>
+
+                    {/* Botón copiar link */}
+                    <Button
+                      variant="outlined"
+                      fullWidth
+                      size="small"
+                      onClick={() => {
+                        const baseUrl = window.location.origin;
+                        const shareUrl = `${baseUrl}/?ref=${encodeURIComponent(referralCode)}`;
+                        navigator.clipboard.writeText(shareUrl);
+                        setSnackbar({ open: true, message: '✅ Link de invitación copiado', severity: 'success' });
+                      }}
+                      disabled={!referralCode}
+                      startIcon={<ShareIcon />}
+                      sx={{ mb: 2, textTransform: 'none' }}
+                    >
+                      Copiar link de invitación
+                    </Button>
+
+                    {/* Stats mini */}
+                    <Grid container spacing={1} sx={{ mb: 1 }}>
+                      <Grid size={4}>
+                        <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'white', borderRadius: 1.5 }}>
+                          <PeopleIcon sx={{ color: ORANGE, fontSize: 20 }} />
+                          <Typography variant="h6" fontWeight="bold">{referralStats.total}</Typography>
+                          <Typography variant="caption" color="text.secondary">Invitados</Typography>
+                        </Paper>
+                      </Grid>
+                      <Grid size={4}>
+                        <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'white', borderRadius: 1.5 }}>
+                          <CheckCircleIcon sx={{ color: GREEN, fontSize: 20 }} />
+                          <Typography variant="h6" fontWeight="bold" color="success.main">{referralStats.validated}</Typography>
+                          <Typography variant="caption" color="text.secondary">Validados</Typography>
+                        </Paper>
+                      </Grid>
+                      <Grid size={4}>
+                        <Paper sx={{ p: 1, textAlign: 'center', bgcolor: 'white', borderRadius: 1.5 }}>
+                          <MoneyIcon sx={{ color: GREEN, fontSize: 20 }} />
+                          <Typography variant="h6" fontWeight="bold" color="success.main">
+                            {new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(referralStats.earnings)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">Ganado</Typography>
+                        </Paper>
+                      </Grid>
+                    </Grid>
+
+                    {/* Lista de referidos */}
+                    {myReferrals.length > 0 && (
+                      <Box sx={{ mt: 2 }}>
+                        <Typography variant="subtitle2" gutterBottom>Mis Referidos</Typography>
+                        {myReferrals.slice(0, 5).map((ref: any, idx: number) => (
+                          <Box
+                            key={idx}
+                            sx={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              alignItems: 'center',
+                              py: 0.8,
+                              borderBottom: idx < Math.min(myReferrals.length, 5) - 1 ? '1px solid #eee' : 'none',
+                            }}
+                          >
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <PersonIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                              <Typography variant="body2">{ref.nombre || ref.name || 'Usuario'}</Typography>
+                            </Box>
+                            <Chip
+                              label={ref.estado === 'validado' ? '✅ Validado' : ref.estado === 'registrado' ? '⏳ Pendiente' : ref.estado}
+                              size="small"
+                              color={ref.estado === 'validado' ? 'success' : 'warning'}
+                              variant="filled"
+                              sx={{ fontSize: '0.7rem' }}
+                            />
+                          </Box>
+                        ))}
+                      </Box>
+                    )}
                   </Paper>
 
                   {/* Mis Métodos de Pago */}
@@ -5579,7 +5762,7 @@ export default function DashboardClient() {
                     const displayMonto = Number(selectedPackage.monto) || 0;
                     const isDhl = selectedPackage.shipment_type === 'dhl' || selectedPackage.servicio === 'AA_DHL' || selectedPackage.servicio === 'DHL_MTY';
                     const isMaritime = selectedPackage.shipment_type === 'maritime' || selectedPackage.servicio === 'SEA_CHN_MX' || selectedPackage.servicio === 'FCL_CHN_MX';
-                    const currency = selectedPackage.monto_currency || (isDhl ? 'USD' : isMaritime ? 'USD' : 'MXN');
+                    const currency = selectedPackage.monto_currency || (isDhl ? 'USD' : 'MXN');
                     let isEstimated = false;
                     let estimatedUSD = 0;
 

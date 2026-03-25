@@ -40,6 +40,11 @@ import {
   useTheme,
   alpha,
   Fade,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Divider,
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
@@ -66,6 +71,14 @@ import {
   ArrowDownward as ArrowDownIcon,
   Payment as PaymentIcon,
   Speed as SpeedIcon,
+  Visibility as VisibilityIcon,
+  Close as CloseIcon,
+  LocalPhone as LocalPhoneIcon,
+  Inventory as InventoryIcon,
+  UnfoldMore as UnfoldMoreIcon,
+  Security as SecurityIcon,
+  GppBad as GppBadIcon,
+  GppGood as GppGoodIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -118,12 +131,15 @@ interface AdvisorClient {
   totalPackages: number;
   inTransitCount: number;
   pendingPaymentCount: number;
+  pendingPaymentTotal: number;
+  missingInstructionsCount: number;
   activityStatus: 'new' | 'active' | 'dormant';
   daysSinceLastShipment: number | null;
 }
 
 interface AdvisorShipment {
   id: number;
+  uid: string;
   tracking: string;
   internationalTracking: string;
   childNo: string;
@@ -132,11 +148,20 @@ interface AdvisorShipment {
   amount: number;
   clientPaid: boolean;
   paidAt: string | null;
-  deliveryInstructions: string;
+  hasInstructions: boolean;
+  isMaster: boolean;
+  childrenCount: number;
+  hasGex: boolean;
   createdAt: string;
+  clientId: number;
   clientName: string;
   clientBoxId: string;
   clientPhone: string;
+  weight: number;
+  lengthCm: number;
+  widthCm: number;
+  heightCm: number;
+  description: string;
 }
 
 interface ShipmentStats {
@@ -148,11 +173,67 @@ interface ShipmentStats {
   delivered: number;
 }
 
+interface CommissionRate {
+  serviceType: string;
+  label: string;
+  percentage: number;
+  leaderOverride: number;
+  fixedFee: number;
+  isGex: boolean;
+}
+
+interface CommissionByService {
+  serviceType: string;
+  totalCount: number;
+  totalVolume: number;
+  totalCommission: number;
+  totalLeaderOverride: number;
+  totalGex: number;
+  pendingCount: number;
+  pendingCommission: number;
+  paidCount: number;
+  paidCommission: number;
+}
+
+interface CommissionMonthly {
+  month: string;
+  count: number;
+  volume: number;
+  commission: number;
+  pendingCount: number;
+  pendingAmount: number;
+  paidCount: number;
+  paidAmount: number;
+}
+
+interface CommissionRecent {
+  id: number;
+  shipmentType: string;
+  serviceType: string;
+  tracking: string;
+  clientName: string;
+  paymentAmount: number;
+  commissionRate: number;
+  commissionAmount: number;
+  gexCommission: number;
+  status: string;
+  paidAt: string | null;
+  createdAt: string;
+}
+
 interface CommissionData {
-  rate: { percentage: number; leaderOverride: number; fixedFee: number };
-  monthly: { month: string; paidCount: number; totalVolume: number; estimatedCommission: number }[];
-  pending: { count: number; volume: number; commission: number };
-  released: { count: number; volume: number; commission: number };
+  rates: CommissionRate[];
+  byService: CommissionByService[];
+  monthly: CommissionMonthly[];
+  totals: {
+    totalCount: number;
+    totalCommission: number;
+    pendingCommission: number;
+    paidCommission: number;
+    pendingCount: number;
+    paidCount: number;
+  };
+  recent: CommissionRecent[];
   conversion: { totalReferred: number; withShipments: number; rate: string };
 }
 
@@ -205,6 +286,11 @@ export default function DashboardAdvisor() {
   const [shipmentSearch, setShipmentSearch] = useState('');
   const [shipmentFilter, setShipmentFilter] = useState<string>('all');
   const [shipmentPage, setShipmentPage] = useState(0);
+  const [shipmentClientId, setShipmentClientId] = useState<string>('all');
+  const [shipmentServiceType, setShipmentServiceType] = useState<string>('all');
+  const [selectedShipment, setSelectedShipment] = useState<AdvisorShipment | null>(null);
+  const [repackChildren, setRepackChildren] = useState<any[]>([]);
+  const [repackChildrenLoading, setRepackChildrenLoading] = useState(false);
 
   // Commissions tab
   const [commissions, setCommissions] = useState<CommissionData | null>(null);
@@ -220,7 +306,7 @@ export default function DashboardAdvisor() {
   const fetchDashboard = useCallback(async () => {
     try {
       setLoading(true);
-      const res = await api.get('/api/advisor/dashboard');
+      const res = await api.get('/advisor/dashboard');
       setDashboardData(res.data);
     } catch (err) {
       console.error('Error loading advisor dashboard:', err);
@@ -235,10 +321,10 @@ export default function DashboardAdvisor() {
       const params: any = { page: clientPage + 1, limit: 25 };
       if (clientSearch) params.search = clientSearch;
       if (clientFilter !== 'all') params.status = clientFilter;
-      const res = await api.get('/api/advisor/clients', { params });
+      const res = await api.get('/advisor/clients', { params });
       setClients(res.data.clients);
       setClientsTotal(res.data.total);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error loading clients:', err);
     } finally {
       setClientsLoading(false);
@@ -251,7 +337,9 @@ export default function DashboardAdvisor() {
       const params: any = { page: shipmentPage + 1, limit: 25 };
       if (shipmentSearch) params.search = shipmentSearch;
       if (shipmentFilter !== 'all') params.filter = shipmentFilter;
-      const res = await api.get('/api/advisor/shipments', { params });
+      if (shipmentClientId !== 'all') params.clientId = shipmentClientId;
+      if (shipmentServiceType !== 'all') params.serviceType = shipmentServiceType;
+      const res = await api.get('/advisor/shipments', { params });
       setShipments(res.data.shipments);
       setShipmentsTotal(res.data.total);
       setShipmentStats(res.data.stats);
@@ -260,12 +348,12 @@ export default function DashboardAdvisor() {
     } finally {
       setShipmentsLoading(false);
     }
-  }, [shipmentPage, shipmentSearch, shipmentFilter]);
+  }, [shipmentPage, shipmentSearch, shipmentFilter, shipmentClientId, shipmentServiceType]);
 
   const fetchCommissions = useCallback(async () => {
     try {
       setCommissionsLoading(true);
-      const res = await api.get('/api/advisor/commissions');
+      const res = await api.get('/advisor/commissions');
       setCommissions(res.data);
     } catch (err) {
       console.error('Error loading commissions:', err);
@@ -284,8 +372,17 @@ export default function DashboardAdvisor() {
     if (activeTab === 1) fetchClients();
   }, [activeTab, fetchClients]);
 
+  // Load clients for the dropdown when switching to shipments tab
   useEffect(() => {
-    if (activeTab === 2) fetchShipments();
+    if (activeTab === 2) {
+      fetchShipments();
+      // Also fetch ALL clients for the filter dropdown (no pagination)
+      if (clients.length === 0) {
+        api.get('/advisor/clients', { params: { limit: 500 } })
+          .then(res => { setClients(res.data.clients); setClientsTotal(res.data.total); })
+          .catch(() => {});
+      }
+    }
   }, [activeTab, fetchShipments]);
 
   useEffect(() => {
@@ -296,7 +393,7 @@ export default function DashboardAdvisor() {
 
   const handleSaveNote = async (clientId: number) => {
     try {
-      await api.post(`/api/advisor/clients/${clientId}/notes`, { note: noteText });
+      await api.post(`/advisor/clients/${clientId}/notes`, { note: noteText });
       setEditingNoteId(null);
       setSnackbar({ open: true, message: t('advisor.noteSaved'), severity: 'success' });
       fetchClients();
@@ -351,6 +448,16 @@ export default function DashboardAdvisor() {
       'ready_pickup': { label: t('advisor.statusReady'), color: 'success' },
       'delivered': { label: t('advisor.statusDelivered'), color: 'default' },
       'cancelled': { label: t('advisor.statusCancelled'), color: 'error' },
+      'received_china': { label: 'Recibido China', color: 'info' },
+      'received': { label: 'Recibido', color: 'primary' },
+      'customs': { label: 'Aduana', color: 'warning' },
+      'processing': { label: 'Procesando', color: 'info' },
+      'received_mty': { label: 'Recibido MTY', color: 'primary' },
+      'inspected': { label: 'Inspeccionado', color: 'info' },
+      'dispatched': { label: 'Despachado', color: 'warning' },
+      'consolidated': { label: 'Consolidado', color: 'info' },
+      'at_port': { label: 'En Puerto', color: 'warning' },
+      'at_cedis': { label: 'En CEDIS', color: 'primary' },
     };
     const s = map[status] || { label: status, color: 'default' as const };
     return <Chip label={s.label} color={s.color} size="small" />;
@@ -613,19 +720,20 @@ export default function DashboardAdvisor() {
             <TableHead>
               <TableRow>
                 <TableCell>{t('advisor.clientName')}</TableCell>
-                <TableCell>{t('advisor.boxId')}</TableCell>
-                <TableCell align="center">{t('advisor.verification')}</TableCell>
-                <TableCell align="center">{t('advisor.activity')}</TableCell>
-                <TableCell align="center">{t('advisor.packages')}</TableCell>
+                <TableCell>No. de Cliente</TableCell>
+                <TableCell align="center">Sin Instr.</TableCell>
                 <TableCell align="center">{t('advisor.inTransitShort')}</TableCell>
+                <TableCell align="center">Pdte. Pago</TableCell>
+                <TableCell align="right">Saldo Pdte.</TableCell>
                 <TableCell>{t('advisor.lastShipment')}</TableCell>
+                <TableCell align="center">{t('advisor.verification')}</TableCell>
                 <TableCell>{t('advisor.notes')}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {clients.length === 0 && !clientsLoading && (
                 <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">{t('advisor.noClients')}</Typography>
                   </TableCell>
                 </TableRow>
@@ -639,13 +747,33 @@ export default function DashboardAdvisor() {
                       {c.phone && (
                         <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
                           <Tooltip title={t('advisor.callClient')}>
-                            <IconButton size="small" href={`tel:${c.phone}`}>
-                              <PhoneIcon sx={{ fontSize: 14 }} />
+                            <IconButton
+                              size="small"
+                              href={`tel:${c.phone}`}
+                              sx={{
+                                bgcolor: '#e3f2fd',
+                                color: '#1565c0',
+                                '&:hover': { bgcolor: '#1565c0', color: '#fff' },
+                                width: 28,
+                                height: 28,
+                              }}
+                            >
+                              <PhoneIcon sx={{ fontSize: 16 }} />
                             </IconButton>
                           </Tooltip>
                           <Tooltip title="WhatsApp">
-                            <IconButton size="small" onClick={() => window.open(`https://wa.me/${c.phone.replace(/\D/g, '')}`, '_blank')}>
-                              <WhatsAppIcon sx={{ fontSize: 14 }} />
+                            <IconButton
+                              size="small"
+                              onClick={() => window.open(`https://wa.me/${c.phone.replace(/\D/g, '')}`, '_blank')}
+                              sx={{
+                                bgcolor: '#e8f5e9',
+                                color: '#25D366',
+                                '&:hover': { bgcolor: '#25D366', color: '#fff' },
+                                width: 28,
+                                height: 28,
+                              }}
+                            >
+                              <WhatsAppIcon sx={{ fontSize: 16 }} />
                             </IconButton>
                           </Tooltip>
                         </Box>
@@ -656,19 +784,33 @@ export default function DashboardAdvisor() {
                     <Chip label={c.boxId || '—'} size="small" variant="outlined" />
                   </TableCell>
                   <TableCell align="center">
-                    {getVerificationChip(c.identityVerified, c.verificationStatus)}
-                  </TableCell>
-                  <TableCell align="center">
-                    {getActivityChip(c.activityStatus)}
-                  </TableCell>
-                  <TableCell align="center">
-                    <Typography variant="body2" fontWeight={600}>{c.totalPackages}</Typography>
+                    {c.missingInstructionsCount > 0 ? (
+                      <Chip label={c.missingInstructionsCount} color="warning" size="small" />
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">0</Typography>
+                    )}
                   </TableCell>
                   <TableCell align="center">
                     {c.inTransitCount > 0 ? (
                       <Chip label={c.inTransitCount} color="warning" size="small" />
                     ) : (
                       <Typography variant="body2" color="text.secondary">0</Typography>
+                    )}
+                  </TableCell>
+                  <TableCell align="center">
+                    {c.pendingPaymentCount > 0 ? (
+                      <Chip label={c.pendingPaymentCount} color="error" size="small" />
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">0</Typography>
+                    )}
+                  </TableCell>
+                  <TableCell align="right">
+                    {c.pendingPaymentTotal > 0 ? (
+                      <Typography variant="body2" fontWeight={700} color="error.main">
+                        {formatMXN(c.pendingPaymentTotal)}
+                      </Typography>
+                    ) : (
+                      <Typography variant="body2" color="text.secondary">$0</Typography>
                     )}
                   </TableCell>
                   <TableCell>
@@ -680,6 +822,9 @@ export default function DashboardAdvisor() {
                         {c.daysSinceLastShipment} {t('advisor.daysAgo')}
                       </Typography>
                     )}
+                  </TableCell>
+                  <TableCell align="center">
+                    {getVerificationChip(c.identityVerified, c.verificationStatus)}
                   </TableCell>
                   <TableCell sx={{ minWidth: 180, maxWidth: 250 }}>
                     {editingNoteId === c.id ? (
@@ -745,6 +890,7 @@ export default function DashboardAdvisor() {
               { key: 'all', label: t('advisor.allShipments'), count: shipmentStats.total, color: 'default' as const },
               { key: 'in_transit', label: t('advisor.statusInTransit'), count: shipmentStats.inTransit, color: 'warning' as const },
               { key: 'awaiting_payment', label: t('advisor.awaitingPayment'), count: shipmentStats.awaitingPayment, color: 'error' as const },
+              { key: 'missing_instructions', label: 'Sin Instrucciones', count: shipmentStats.missingInstructions, color: 'info' as const },
               { key: 'ready_pickup', label: t('advisor.statusReady'), count: shipmentStats.readyPickup, color: 'success' as const },
               { key: 'delivered', label: t('advisor.statusDelivered'), count: shipmentStats.delivered, color: 'default' as const },
             ].map(s => (
@@ -760,8 +906,8 @@ export default function DashboardAdvisor() {
           </Box>
         )}
 
-        {/* Search */}
-        <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+        {/* Search + Filters */}
+        <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
           <TextField
             placeholder={t('advisor.searchShipments')}
             size="small"
@@ -770,8 +916,37 @@ export default function DashboardAdvisor() {
             InputProps={{
               startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>
             }}
-            sx={{ minWidth: 300 }}
+            sx={{ minWidth: 260 }}
           />
+          {/* Client filter */}
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel>Cliente</InputLabel>
+            <Select
+              value={shipmentClientId}
+              label="Cliente"
+              onChange={(e) => { setShipmentClientId(e.target.value); setShipmentPage(0); }}
+            >
+              <MenuItem value="all">Todos los clientes</MenuItem>
+              {clients.map(c => (
+                <MenuItem key={c.id} value={String(c.id)}>{c.fullName} ({c.boxId})</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          {/* Service type filter */}
+          <FormControl size="small" sx={{ minWidth: 160 }}>
+            <InputLabel>Servicio</InputLabel>
+            <Select
+              value={shipmentServiceType}
+              label="Servicio"
+              onChange={(e) => { setShipmentServiceType(e.target.value); setShipmentPage(0); }}
+            >
+              <MenuItem value="all">Todos</MenuItem>
+              <MenuItem value="AIR_CHN_MX">✈️ Aéreo China</MenuItem>
+              <MenuItem value="SEA_CHN_MX">🚢 Marítimo</MenuItem>
+              <MenuItem value="AA_DHL">📦 DHL Monty</MenuItem>
+              <MenuItem value="POBOX_USA">📮 PO Box USA</MenuItem>
+            </Select>
+          </FormControl>
         </Box>
 
         {shipmentsLoading && <LinearProgress sx={{ mb: 1 }} />}
@@ -786,21 +961,29 @@ export default function DashboardAdvisor() {
                 <TableCell>{t('advisor.service')}</TableCell>
                 <TableCell align="right">{t('advisor.amount')}</TableCell>
                 <TableCell align="center">{t('advisor.paid')}</TableCell>
+                <TableCell align="center">Instrucciones</TableCell>
+                <TableCell align="center">GEX</TableCell>
                 <TableCell>{t('advisor.date')}</TableCell>
+                <TableCell align="center">Acciones</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {shipments.length === 0 && !shipmentsLoading && (
                 <TableRow>
-                  <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">{t('advisor.noShipments')}</Typography>
                   </TableCell>
                 </TableRow>
               )}
               {shipments.map((s) => (
-                <TableRow key={s.id} hover>
+                <TableRow key={s.uid} hover>
                   <TableCell>
-                    <Typography variant="body2" fontWeight={600}>{s.tracking || s.internationalTracking || `#${s.id}`}</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Typography variant="body2" fontWeight={600}>{s.tracking || s.internationalTracking || `#${s.id}`}</Typography>
+                      {s.isMaster && s.childrenCount > 0 && (
+                        <Chip label={`${s.childrenCount} guías`} size="small" color="info" variant="outlined" sx={{ fontSize: '0.65rem', height: 20 }} icon={<UnfoldMoreIcon sx={{ fontSize: 14 }} />} />
+                      )}
+                    </Box>
                     {s.childNo && <Typography variant="caption" color="text.secondary">{s.childNo}</Typography>}
                   </TableCell>
                   <TableCell>
@@ -811,7 +994,24 @@ export default function DashboardAdvisor() {
                     {getStatusLabel(s.status)}
                   </TableCell>
                   <TableCell>
-                    <Typography variant="caption">{s.serviceType || '—'}</Typography>
+                    <Chip 
+                      size="small" 
+                      variant="outlined"
+                      label={
+                        s.serviceType === 'AIR_CHN_MX' ? '✈️ Aéreo' :
+                        s.serviceType === 'SEA_CHN_MX' ? '🚢 Marítimo' :
+                        s.serviceType === 'AA_DHL' ? '📦 DHL' :
+                        s.serviceType === 'POBOX_USA' ? '📮 POBox' :
+                        s.serviceType || '—'
+                      }
+                      color={
+                        s.serviceType === 'AIR_CHN_MX' ? 'primary' :
+                        s.serviceType === 'SEA_CHN_MX' ? 'info' :
+                        s.serviceType === 'AA_DHL' ? 'warning' :
+                        s.serviceType === 'POBOX_USA' ? 'secondary' :
+                        'default'
+                      }
+                    />
                   </TableCell>
                   <TableCell align="right">
                     <Typography variant="body2" fontWeight={600}>
@@ -820,17 +1020,87 @@ export default function DashboardAdvisor() {
                   </TableCell>
                   <TableCell align="center">
                     {s.clientPaid ? (
-                      <Chip icon={<CheckCircleIcon />} label={t('advisor.yes')} color="success" size="small" variant="outlined" />
+                      <Tooltip title="Pagado">
+                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#E8F5E9', color: '#2E7D32', borderRadius: 2, px: 1, py: 0.3 }}>
+                          <GppGoodIcon sx={{ fontSize: 18 }} />
+                          <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.7rem' }}>Pagado</Typography>
+                        </Box>
+                      </Tooltip>
                     ) : (
                       s.amount > 0 ? (
-                        <Chip icon={<PendingIcon />} label={t('advisor.no')} color="error" size="small" variant="outlined" />
+                        <Tooltip title="Pendiente de pago">
+                          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#FFEBEE', color: '#C62828', borderRadius: 2, px: 1, py: 0.3 }}>
+                            <GppBadIcon sx={{ fontSize: 18 }} />
+                            <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.7rem' }}>Pendiente</Typography>
+                          </Box>
+                        </Tooltip>
                       ) : (
                         <Typography variant="caption" color="text.secondary">—</Typography>
                       )
                     )}
                   </TableCell>
+                  <TableCell align="center">
+                    {s.hasInstructions ? (
+                      <Tooltip title="Instrucciones configuradas">
+                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#E8F5E9', color: '#2E7D32', borderRadius: 2, px: 1, py: 0.3 }}>
+                          <CheckCircleIcon sx={{ fontSize: 18 }} />
+                          <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.7rem' }}>Sí</Typography>
+                        </Box>
+                      </Tooltip>
+                    ) : (
+                      <Tooltip title="Sin instrucciones de entrega">
+                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#FFF3E0', color: '#E65100', borderRadius: 2, px: 1, py: 0.3 }}>
+                          <WarningIcon sx={{ fontSize: 18 }} />
+                          <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.7rem' }}>No</Typography>
+                        </Box>
+                      </Tooltip>
+                    )}
+                  </TableCell>
+                  <TableCell align="center">
+                    {s.hasGex ? (
+                      <Tooltip title="Garantía Extendida activa">
+                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#E8F5E9', color: '#2E7D32', borderRadius: 2, px: 1, py: 0.3 }}>
+                          <SecurityIcon sx={{ fontSize: 18 }} />
+                          <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.7rem' }}>GEX</Typography>
+                        </Box>
+                      </Tooltip>
+                    ) : (
+                      <Tooltip title="Sin Garantía Extendida">
+                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#FFEBEE', color: '#C62828', borderRadius: 2, px: 1, py: 0.3 }}>
+                          <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <SecurityIcon sx={{ fontSize: 18 }} />
+                            <Box sx={{ position: 'absolute', width: '140%', height: 2, bgcolor: '#C62828', transform: 'rotate(-45deg)', borderRadius: 1 }} />
+                          </Box>
+                          <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.7rem' }}>No</Typography>
+                        </Box>
+                      </Tooltip>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Typography variant="caption">{formatDate(s.createdAt)}</Typography>
+                  </TableCell>
+                  <TableCell align="center">
+                    <Tooltip title="Ver detalles">
+                      <IconButton
+                        size="small"
+                        onClick={() => {
+                          setSelectedShipment(s);
+                          if (s.isMaster && s.childrenCount > 0) {
+                            setRepackChildrenLoading(true);
+                            setRepackChildren([]);
+                            api.get(`/advisor/shipments/${s.id}/children`)
+                              .then(r => setRepackChildren(r.data.children || []))
+                              .catch(() => setRepackChildren([]))
+                              .finally(() => setRepackChildrenLoading(false));
+                          } else {
+                            setRepackChildren([]);
+                          }
+                        }}
+                        sx={{ color: '#F05A28' }}
+                      >
+                        <VisibilityIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                   </TableCell>
                 </TableRow>
               ))}
@@ -865,89 +1135,187 @@ export default function DashboardAdvisor() {
     }
     const c = commissions;
 
+    const serviceLabels: Record<string, string> = {
+      'pobox_usa_mx': '📦 PO Box USA',
+      'aereo_china_mx': '✈️ Aéreo China',
+      'maritimo_china_mx': '🚢 Marítimo China',
+      'nacional_mx': '🚚 Nacional MX',
+      'liberacion_aa_dhl': '📮 DHL Liberación',
+      'gex_warranty': '🛡️ GEX Garantía',
+    };
+
+    const shipmentTypeLabels: Record<string, string> = {
+      'PKG': '📦',
+      'MAR': '🚢',
+      'DHL': '📮',
+      'GEX': '🛡️',
+    };
+
     return (
       <Fade in timeout={400}>
         <Box>
-          {/* Commission rate info */}
-          <Paper sx={{ p: 2.5, mb: 3, borderRadius: 2, bgcolor: alpha(theme.palette.info.main, 0.04) }}>
-            <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-              {t('advisor.myCommissionRate')}
-            </Typography>
-            <Grid container spacing={2}>
-              <Grid size={ { xs: 4 } }>
-                <Typography variant="caption" color="text.secondary">{t('advisor.percentage')}</Typography>
-                <Typography variant="h5" fontWeight={700} color="info.main">{c.rate.percentage}%</Typography>
-              </Grid>
-              <Grid size={ { xs: 4 } }>
-                <Typography variant="caption" color="text.secondary">{t('advisor.conversionRate')}</Typography>
-                <Typography variant="h5" fontWeight={700}>{c.conversion.rate}%</Typography>
-                <Typography variant="caption" color="text.secondary">
-                  {c.conversion.withShipments}/{c.conversion.totalReferred} {t('advisor.clientsWithShipments')}
-                </Typography>
-              </Grid>
-              <Grid size={ { xs: 4 } }>
-                <Typography variant="caption" color="text.secondary">{t('advisor.leaderOverride')}</Typography>
-                <Typography variant="h5" fontWeight={700}>{c.rate.leaderOverride}%</Typography>
-              </Grid>
-            </Grid>
-          </Paper>
-
-          {/* Pending vs Released */}
+          {/* ── Totales generales ── */}
           <Grid container spacing={2} sx={{ mb: 3 }}>
-            <Grid size={ { xs: 12, md: 6 } }>
-              <Paper sx={{ p: 2.5, borderRadius: 2, borderLeft: 4, borderColor: 'warning.main' }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  {t('advisor.pendingCommissions')}
-                </Typography>
-                <Typography variant="h4" fontWeight={700} color="warning.main">
-                  {formatMXN(c.pending.commission)}
+            <Grid size={{ xs: 6, md: 3 }}>
+              <Paper sx={{ p: 2, borderRadius: 2, borderLeft: 4, borderColor: 'warning.main', textAlign: 'center' }}>
+                <Typography variant="caption" color="text.secondary">Pendiente de Pago</Typography>
+                <Typography variant="h5" fontWeight={700} color="warning.main">
+                  {formatMXN(c.totals.pendingCommission)}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  {c.pending.count} {t('advisor.packagesPending')} · {t('advisor.volume')}: {formatMXN(c.pending.volume)}
+                  {c.totals.pendingCount} comisiones
                 </Typography>
               </Paper>
             </Grid>
-            <Grid size={ { xs: 12, md: 6 } }>
-              <Paper sx={{ p: 2.5, borderRadius: 2, borderLeft: 4, borderColor: 'success.main' }}>
-                <Typography variant="subtitle2" color="text.secondary" gutterBottom>
-                  {t('advisor.releasedCommissions')}
-                </Typography>
-                <Typography variant="h4" fontWeight={700} color="success.main">
-                  {formatMXN(c.released.commission)}
+            <Grid size={{ xs: 6, md: 3 }}>
+              <Paper sx={{ p: 2, borderRadius: 2, borderLeft: 4, borderColor: 'success.main', textAlign: 'center' }}>
+                <Typography variant="caption" color="text.secondary">Ya Pagado</Typography>
+                <Typography variant="h5" fontWeight={700} color="success.main">
+                  {formatMXN(c.totals.paidCommission)}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  {c.released.count} {t('advisor.packagesDelivered')} · {t('advisor.volume')}: {formatMXN(c.released.volume)}
+                  {c.totals.paidCount} comisiones
+                </Typography>
+              </Paper>
+            </Grid>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <Paper sx={{ p: 2, borderRadius: 2, borderLeft: 4, borderColor: 'info.main', textAlign: 'center' }}>
+                <Typography variant="caption" color="text.secondary">Total Acumulado</Typography>
+                <Typography variant="h5" fontWeight={700} color="info.main">
+                  {formatMXN(c.totals.totalCommission)}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {c.totals.totalCount} guías pagadas
+                </Typography>
+              </Paper>
+            </Grid>
+            <Grid size={{ xs: 6, md: 3 }}>
+              <Paper sx={{ p: 2, borderRadius: 2, borderLeft: 4, borderColor: 'secondary.main', textAlign: 'center' }}>
+                <Typography variant="caption" color="text.secondary">Conversión</Typography>
+                <Typography variant="h5" fontWeight={700} color="secondary.main">
+                  {c.conversion.rate}%
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {c.conversion.withShipments}/{c.conversion.totalReferred} con envíos
                 </Typography>
               </Paper>
             </Grid>
           </Grid>
 
-          {/* Monthly breakdown */}
-          <Paper sx={{ p: 2.5, borderRadius: 2 }}>
+          {/* ── Desglose por tipo de servicio ── */}
+          {c.byService.length > 0 && (
+            <Paper sx={{ p: 2.5, mb: 3, borderRadius: 2 }}>
+              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                📊 Desglose por Tipo de Servicio
+              </Typography>
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Servicio</TableCell>
+                      <TableCell align="right">Guías</TableCell>
+                      <TableCell align="right">Volumen</TableCell>
+                      <TableCell align="right">Comisión</TableCell>
+                      <TableCell align="center">Pendiente</TableCell>
+                      <TableCell align="center">Pagado</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {c.byService.map((s, i) => (
+                      <TableRow key={i}>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight={600}>
+                            {serviceLabels[s.serviceType] || s.serviceType}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">{s.totalCount}</TableCell>
+                        <TableCell align="right">{formatMXN(s.totalVolume)}</TableCell>
+                        <TableCell align="right">
+                          <Typography fontWeight={600} color="info.main">{formatMXN(s.totalCommission)}</Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          {s.pendingCommission > 0 ? (
+                            <Chip label={formatMXN(s.pendingCommission)} size="small" color="warning" variant="outlined" />
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">—</Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="center">
+                          {s.paidCommission > 0 ? (
+                            <Chip label={formatMXN(s.paidCommission)} size="small" color="success" variant="outlined" />
+                          ) : (
+                            <Typography variant="caption" color="text.secondary">—</Typography>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+          )}
+
+          {/* ── Tasas de comisión ── */}
+          <Paper sx={{ p: 2.5, mb: 3, borderRadius: 2, bgcolor: alpha(theme.palette.info.main, 0.04) }}>
             <Typography variant="subtitle1" fontWeight={600} gutterBottom>
-              {t('advisor.monthlyBreakdown')}
+              💰 Mis Tasas de Comisión
+            </Typography>
+            <Grid container spacing={2}>
+              {c.rates.map((r, i) => (
+                <Grid key={i} size={{ xs: 6, sm: 4, md: 2 }}>
+                  <Box sx={{ textAlign: 'center', p: 1 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                      {r.label}
+                    </Typography>
+                    <Typography variant="h6" fontWeight={700} color="info.main">
+                      {r.isGex ? formatMXN(r.fixedFee) : `${r.percentage}%`}
+                    </Typography>
+                  </Box>
+                </Grid>
+              ))}
+            </Grid>
+          </Paper>
+
+          {/* ── Resumen mensual ── */}
+          <Paper sx={{ p: 2.5, mb: 3, borderRadius: 2 }}>
+            <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+              📅 Resumen Mensual
             </Typography>
             {c.monthly.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">{t('advisor.noDataYet')}</Typography>
+              <Typography variant="body2" color="text.secondary">Sin datos aún</Typography>
             ) : (
               <TableContainer>
                 <Table size="small">
                   <TableHead>
                     <TableRow>
-                      <TableCell>{t('advisor.month')}</TableCell>
-                      <TableCell align="right">{t('advisor.paidCount')}</TableCell>
-                      <TableCell align="right">{t('advisor.volume')}</TableCell>
-                      <TableCell align="right">{t('advisor.estimatedCommission')}</TableCell>
+                      <TableCell>Mes</TableCell>
+                      <TableCell align="right">Guías</TableCell>
+                      <TableCell align="right">Volumen</TableCell>
+                      <TableCell align="right">Comisión</TableCell>
+                      <TableCell align="center">Pendiente</TableCell>
+                      <TableCell align="center">Pagado</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
                     {c.monthly.map((m, i) => (
                       <TableRow key={i}>
-                        <TableCell><Typography variant="body2" fontWeight={600}>{formatMonthLabel(m.month)}</Typography></TableCell>
-                        <TableCell align="right">{m.paidCount}</TableCell>
-                        <TableCell align="right">{formatMXN(m.totalVolume)}</TableCell>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight={600}>{formatMonthLabel(m.month)}</Typography>
+                        </TableCell>
+                        <TableCell align="right">{m.count}</TableCell>
+                        <TableCell align="right">{formatMXN(m.volume)}</TableCell>
                         <TableCell align="right">
-                          <Typography fontWeight={600} color="success.main">{formatMXN(m.estimatedCommission)}</Typography>
+                          <Typography fontWeight={600} color="info.main">{formatMXN(m.commission)}</Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          {m.pendingAmount > 0 ? (
+                            <Chip label={formatMXN(m.pendingAmount)} size="small" color="warning" variant="outlined" />
+                          ) : '—'}
+                        </TableCell>
+                        <TableCell align="center">
+                          {m.paidAmount > 0 ? (
+                            <Chip label={formatMXN(m.paidAmount)} size="small" color="success" variant="outlined" />
+                          ) : '—'}
                         </TableCell>
                       </TableRow>
                     ))}
@@ -956,6 +1324,71 @@ export default function DashboardAdvisor() {
               </TableContainer>
             )}
           </Paper>
+
+          {/* ── Detalle de comisiones recientes ── */}
+          {c.recent.length > 0 && (
+            <Paper sx={{ p: 2.5, borderRadius: 2 }}>
+              <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                🔍 Últimas Comisiones
+              </Typography>
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Fecha</TableCell>
+                      <TableCell>Tipo</TableCell>
+                      <TableCell>Tracking</TableCell>
+                      <TableCell>Cliente</TableCell>
+                      <TableCell align="right">Monto Base</TableCell>
+                      <TableCell align="right">Tasa</TableCell>
+                      <TableCell align="right">Comisión</TableCell>
+                      <TableCell align="center">Estado</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {c.recent.map((r) => (
+                      <TableRow key={r.id}>
+                        <TableCell>
+                          <Typography variant="caption">{formatDate(r.createdAt)}</Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Tooltip title={serviceLabels[r.serviceType] || r.serviceType}>
+                            <Typography variant="body2">
+                              {shipmentTypeLabels[r.shipmentType] || r.shipmentType}
+                            </Typography>
+                          </Tooltip>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                            {r.tracking || '—'}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" noWrap sx={{ maxWidth: 120 }}>{r.clientName || '—'}</Typography>
+                        </TableCell>
+                        <TableCell align="right">{formatMXN(r.paymentAmount)}</TableCell>
+                        <TableCell align="right">
+                          <Typography variant="caption" color="text.secondary">
+                            {r.gexCommission > 0 ? 'Fijo' : `${r.commissionRate}%`}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography fontWeight={600} color="info.main">{formatMXN(r.commissionAmount)}</Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          {r.status === 'paid' ? (
+                            <Chip label="Pagado" size="small" color="success" variant="filled" sx={{ fontSize: '0.7rem' }} />
+                          ) : (
+                            <Chip label="Pendiente" size="small" color="warning" variant="filled" sx={{ fontSize: '0.7rem' }} />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            </Paper>
+          )}
         </Box>
       </Fade>
     );
@@ -1160,6 +1593,296 @@ export default function DashboardAdvisor() {
       {activeTab === 2 && renderShipments()}
       {activeTab === 3 && renderCommissions()}
       {activeTab === 4 && renderTools()}
+
+      {/* ── Shipment Detail Dialog ── */}
+      <Dialog
+        open={!!selectedShipment}
+        onClose={() => setSelectedShipment(null)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        {selectedShipment && (() => {
+          const s = selectedShipment;
+          const serviceLabel =
+            s.serviceType === 'AIR_CHN_MX' ? '✈️ Aéreo China → México' :
+            s.serviceType === 'SEA_CHN_MX' ? '🚢 Marítimo China → México' :
+            s.serviceType === 'AA_DHL' ? '📦 DHL Monty' :
+            s.serviceType === 'POBOX_USA' ? '📮 PO Box USA' :
+            s.serviceType || 'N/A';
+          return (
+            <>
+              <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <InventoryIcon sx={{ color: '#F05A28' }} />
+                  <Typography variant="h6" fontWeight={700}>Detalle del Embarque</Typography>
+                </Box>
+                <IconButton onClick={() => setSelectedShipment(null)} size="small">
+                  <CloseIcon />
+                </IconButton>
+              </DialogTitle>
+              <DialogContent dividers>
+                {/* Service type banner */}
+                <Box sx={{
+                  bgcolor: s.serviceType === 'SEA_CHN_MX' ? '#e3f2fd' :
+                           s.serviceType === 'AA_DHL' ? '#fff3e0' :
+                           s.serviceType === 'AIR_CHN_MX' ? '#e8eaf6' :
+                           '#f3e5f5',
+                  borderRadius: 2, p: 1.5, mb: 2, textAlign: 'center'
+                }}>
+                  <Typography variant="subtitle1" fontWeight={700}>{serviceLabel}</Typography>
+                </Box>
+
+                {/* Tracking info */}
+                <Typography variant="overline" color="text.secondary" sx={{ mt: 1 }}>Información de Rastreo</Typography>
+                <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>
+                  <Grid container spacing={1.5}>
+                    <Grid size={{ xs: 12 }}>
+                      <Typography variant="caption" color="text.secondary">Tracking</Typography>
+                      <Typography variant="body2" fontWeight={600}>{s.tracking || '—'}</Typography>
+                    </Grid>
+                    {s.childNo && (
+                      <Grid size={{ xs: 12 }}>
+                        <Typography variant="caption" color="text.secondary">Referencia</Typography>
+                        <Typography variant="body2" fontWeight={600}>{s.childNo}</Typography>
+                      </Grid>
+                    )}
+                    {s.description && (
+                      <Grid size={{ xs: 12 }}>
+                        <Typography variant="caption" color="text.secondary">Descripción</Typography>
+                        <Typography variant="body2" fontWeight={600}>{s.description}</Typography>
+                      </Grid>
+                    )}
+                  </Grid>
+                </Paper>
+
+                {/* Peso y Medidas */}
+                <Typography variant="overline" color="text.secondary">Peso y Medidas</Typography>
+                <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>
+                  <Grid container spacing={1.5}>
+                    <Grid size={{ xs: 6 }}>
+                      <Typography variant="caption" color="text.secondary">⚖️ Peso</Typography>
+                      <Typography variant="h6" fontWeight={700} color={s.weight > 0 ? 'text.primary' : 'text.secondary'}>
+                        {s.weight > 0 ? `${s.weight.toFixed(2)} kg` : 'Sin registrar'}
+                      </Typography>
+                    </Grid>
+                    <Grid size={{ xs: 6 }}>
+                      <Typography variant="caption" color="text.secondary">📐 Medidas (L × A × A)</Typography>
+                      <Typography variant="h6" fontWeight={700} color={s.lengthCm > 0 ? 'text.primary' : 'text.secondary'}>
+                        {s.lengthCm > 0 ? `${s.lengthCm} × ${s.widthCm} × ${s.heightCm} cm` : 'Sin registrar'}
+                      </Typography>
+                    </Grid>
+                    {s.lengthCm > 0 && s.widthCm > 0 && s.heightCm > 0 && (
+                      <Grid size={{ xs: 12 }}>
+                        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                          <Chip 
+                            label={`Vol: ${((s.lengthCm * s.widthCm * s.heightCm) / 1000000).toFixed(4)} m³`} 
+                            size="small" 
+                            variant="outlined" 
+                            color="info" 
+                          />
+                          <Chip 
+                            label={`Peso Vol: ${((s.lengthCm * s.widthCm * s.heightCm) / 5000).toFixed(2)} kg`} 
+                            size="small" 
+                            variant="outlined" 
+                            color="warning" 
+                          />
+                        </Box>
+                      </Grid>
+                    )}
+                  </Grid>
+                </Paper>
+
+                {/* Status & Payment */}
+                <Typography variant="overline" color="text.secondary">Estado y Pago</Typography>
+                <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2 }}>
+                  <Grid container spacing={1.5} alignItems="center">
+                    <Grid size={{ xs: 6 }}>
+                      <Typography variant="caption" color="text.secondary">Estado</Typography>
+                      <Box sx={{ mt: 0.5 }}>{getStatusLabel(s.status)}</Box>
+                    </Grid>
+                    <Grid size={{ xs: 6 }}>
+                      <Typography variant="caption" color="text.secondary">Pagado</Typography>
+                      <Box sx={{ mt: 0.5 }}>
+                        {s.clientPaid ? (
+                          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#E8F5E9', color: '#2E7D32', borderRadius: 2, px: 1.5, py: 0.5 }}>
+                            <GppGoodIcon sx={{ fontSize: 20 }} />
+                            <Typography variant="body2" fontWeight={700}>Pagado</Typography>
+                          </Box>
+                        ) : s.amount > 0 ? (
+                          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#FFEBEE', color: '#C62828', borderRadius: 2, px: 1.5, py: 0.5 }}>
+                            <GppBadIcon sx={{ fontSize: 20 }} />
+                            <Typography variant="body2" fontWeight={700}>Pendiente</Typography>
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">—</Typography>
+                        )}
+                      </Box>
+                    </Grid>
+                    <Grid size={{ xs: 6 }}>
+                      <Typography variant="caption" color="text.secondary">Monto</Typography>
+                      <Typography variant="h6" fontWeight={700} color={s.amount > 0 ? '#F05A28' : 'text.secondary'}>
+                        {s.amount > 0 ? formatMXN(s.amount) : '—'}
+                      </Typography>
+                    </Grid>
+                    {s.paidAt && (
+                      <Grid size={{ xs: 6 }}>
+                        <Typography variant="caption" color="text.secondary">Fecha de Pago</Typography>
+                        <Typography variant="body2">{formatDate(s.paidAt)}</Typography>
+                      </Grid>
+                    )}
+                  </Grid>
+                </Paper>
+
+                {/* Client info */}
+                <Typography variant="overline" color="text.secondary">Información del Cliente</Typography>
+                <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+                    <Avatar sx={{ bgcolor: '#F05A28', width: 40, height: 40, fontSize: 16 }}>
+                      {s.clientName?.charAt(0) || '?'}
+                    </Avatar>
+                    <Box>
+                      <Typography variant="body1" fontWeight={600}>{s.clientName}</Typography>
+                      <Typography variant="caption" color="text.secondary">{s.clientBoxId}</Typography>
+                    </Box>
+                  </Box>
+                  {s.clientPhone && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+                      <LocalPhoneIcon fontSize="small" color="action" />
+                      <Typography variant="body2">{s.clientPhone}</Typography>
+                      <Tooltip title="Llamar">
+                        <IconButton size="small" href={`tel:${s.clientPhone}`} sx={{ color: '#F05A28' }}>
+                          <PhoneIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="WhatsApp">
+                        <IconButton size="small" href={`https://wa.me/52${s.clientPhone.replace(/\D/g,'')}`} target="_blank" sx={{ color: '#25D366' }}>
+                          <WhatsAppIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  )}
+                </Paper>
+
+                {/* Repack children */}
+                {s.isMaster && s.childrenCount > 0 && (
+                  <>
+                    <Typography variant="overline" color="text.secondary" sx={{ mt: 2 }}>
+                      📦 Guías en este Repack ({s.childrenCount})
+                    </Typography>
+                    <Paper variant="outlined" sx={{ borderRadius: 2, overflow: 'hidden' }}>
+                      {repackChildrenLoading ? (
+                        <Box sx={{ p: 3, textAlign: 'center' }}>
+                          <CircularProgress size={24} />
+                          <Typography variant="caption" display="block" sx={{ mt: 1 }}>Cargando guías…</Typography>
+                        </Box>
+                      ) : repackChildren.length > 0 ? (
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow sx={{ bgcolor: alpha('#F05A28', 0.06) }}>
+                              <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Tracking</TableCell>
+                              <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Estado</TableCell>
+                              <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Monto</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {repackChildren.map((child: any) => (
+                              <TableRow key={child.id} hover>
+                                <TableCell>
+                                  <Typography variant="body2" fontWeight={600} fontSize="0.8rem">{child.tracking}</Typography>
+                                  {child.description && <Typography variant="caption" color="text.secondary" display="block">{child.description}</Typography>}
+                                </TableCell>
+                                <TableCell>{getStatusLabel(child.status)}</TableCell>
+                                <TableCell>
+                                  <Typography variant="body2" fontWeight={600} fontSize="0.8rem">
+                                    {child.amount > 0 ? formatMXN(child.amount) : '—'}
+                                  </Typography>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      ) : (
+                        <Box sx={{ p: 2, textAlign: 'center' }}>
+                          <Typography variant="caption" color="text.secondary">No se encontraron guías</Typography>
+                        </Box>
+                      )}
+                    </Paper>
+                  </>
+                )}
+
+                <Divider sx={{ my: 2 }} />
+                <Typography variant="caption" color="text.secondary" textAlign="center" display="block">
+                  Fecha de creación: {formatDate(s.createdAt)}
+                </Typography>
+              </DialogContent>
+              <DialogActions sx={{ px: 3, py: 2, flexDirection: 'column', gap: 1 }}>
+                {s.clientPhone && (
+                  <Box sx={{ display: 'flex', gap: 1, width: '100%' }}>
+                    {/* Recordatorio de Pago */}
+                    {!s.clientPaid && s.amount > 0 && (
+                      <Button
+                        variant="contained"
+                        fullWidth
+                        startIcon={<WhatsAppIcon />}
+                        href={`https://wa.me/52${s.clientPhone.replace(/\D/g,'')}?text=${encodeURIComponent(
+                          `¡Hola ${s.clientName?.split(' ')[0] || ''}! 👋\n\n` +
+                          `Te recordamos que tienes un pago pendiente en EntregaX:\n\n` +
+                          `📦 Tracking: ${s.tracking || s.uid}\n` +
+                          `💰 Monto: $${s.amount.toFixed(2)} MXN\n\n` +
+                          `Puedes realizar tu pago desde la app o siguiendo este tutorial:\n` +
+                          `🔗 https://entregax.app/tutoriales#como-pagar\n\n` +
+                          `¿Necesitas ayuda? Estoy para apoyarte. 😊`
+                        )}`}
+                        target="_blank"
+                        sx={{ 
+                          borderRadius: 2, 
+                          bgcolor: '#F05A28', 
+                          '&:hover': { bgcolor: '#d14a1e' },
+                          textTransform: 'none',
+                          fontSize: '0.8rem'
+                        }}
+                      >
+                        💳 Recordatorio de Pago
+                      </Button>
+                    )}
+                    {/* Recordatorio de Instrucciones */}
+                    {!s.hasInstructions && (
+                      <Button
+                        variant="contained"
+                        fullWidth
+                        startIcon={<WhatsAppIcon />}
+                        href={`https://wa.me/52${s.clientPhone.replace(/\D/g,'')}?text=${encodeURIComponent(
+                          `¡Hola ${s.clientName?.split(' ')[0] || ''}! 👋\n\n` +
+                          `Te recordamos que tu paquete necesita instrucciones de entrega:\n\n` +
+                          `📦 Tracking: ${s.tracking || s.uid}\n\n` +
+                          `Para que podamos enviarte tu paquete, necesitas asignar tu dirección de entrega desde la app.\n\n` +
+                          `📋 Tutorial paso a paso:\n` +
+                          `🔗 https://entregax.app/tutoriales#instrucciones-entrega\n\n` +
+                          `¿Necesitas ayuda? Estoy para apoyarte. 😊`
+                        )}`}
+                        target="_blank"
+                        sx={{ 
+                          borderRadius: 2, 
+                          bgcolor: '#25D366', 
+                          '&:hover': { bgcolor: '#1ea952' },
+                          textTransform: 'none',
+                          fontSize: '0.8rem'
+                        }}
+                      >
+                        📋 Recordatorio de Instrucciones
+                      </Button>
+                    )}
+                  </Box>
+                )}
+                <Button onClick={() => setSelectedShipment(null)} variant="outlined" sx={{ borderRadius: 2, width: '100%' }}>
+                  Cerrar
+                </Button>
+              </DialogActions>
+            </>
+          );
+        })()}
+      </Dialog>
 
       {/* Snackbar */}
       <Snackbar

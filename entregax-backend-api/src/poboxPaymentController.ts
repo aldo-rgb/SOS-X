@@ -4,6 +4,7 @@ import axios from 'axios';
 import crypto from 'crypto';
 import { getOpenpayCredentials, ServiceType } from './services/openpayConfig';
 import { createInvoice } from './fiscalController';
+import { generateCommissionsForPackages } from './commissionService';
 
 // ============================================
 // POBOX PAYMENT CONTROLLER - MULTISUCURSAL
@@ -338,6 +339,11 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
                 ]);
 
                 console.log(`✅ Paquetes ${packageIds.join(', ')} marcados como pagados`);
+
+                // Generar comisiones para paquetes pagados via PayPal
+                generateCommissionsForPackages(packageIds).catch(err =>
+                    console.error('Error generando comisiones (PayPal PO Box):', err)
+                );
 
                 // 🧾 FACTURACIÓN AUTOMÁTICA si requiere_factura = true
                 if (payment.requiere_factura) {
@@ -1013,6 +1019,11 @@ export const confirmPoboxCashPayment = async (req: AuthRequest, res: Response): 
 
         await client.query('COMMIT');
 
+        // Generar comisiones para paquetes pagados en efectivo
+        generateCommissionsForPackages(packageIds).catch(err =>
+            console.error('Error generando comisiones (efectivo PO Box):', err)
+        );
+
         console.log(`✅ Pago en efectivo ${paymentId} confirmado por ${adminName} - Registrado en caja chica`);
 
         res.json({ 
@@ -1103,6 +1114,11 @@ export const handlePoboxOpenpayWebhook = async (req: Request, res: Response): Pr
                     ]);
 
                     console.log(`✅ Pago OpenPay ${orderId} completado vía webhook - $${amount} MXN`);
+
+                    // Generar comisiones para paquetes pagados via OpenPay
+                    generateCommissionsForPackages(packageIds).catch(err =>
+                        console.error('Error generando comisiones (OpenPay PO Box):', err)
+                    );
 
                     // 🧾 FACTURACIÓN AUTOMÁTICA si requiere_factura = true
                     if (payment.requiere_factura) {

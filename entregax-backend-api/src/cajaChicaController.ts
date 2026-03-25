@@ -8,6 +8,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { generateCommissionsForPackages } from './commissionService';
 
 interface AuthRequest extends Request {
   user?: {
@@ -1133,6 +1134,17 @@ export const confirmarPagoReferencia = async (req: AuthRequest, res: Response): 
         
         montoRestante -= montoAAplicar;
       }
+    }
+
+    // Generar comisiones para paquetes completamente pagados
+    const paidPackageIds = aplicaciones
+      .filter(a => a.nuevo_status === 'paid')
+      .map(a => packagesResult.rows.find(p => p.tracking_internal === a.tracking)?.id)
+      .filter((id): id is number => !!id);
+    if (paidPackageIds.length > 0) {
+      generateCommissionsForPackages(paidPackageIds).catch(err =>
+        console.error('Error generando comisiones (caja chica):', err)
+      );
     }
     
     res.json({

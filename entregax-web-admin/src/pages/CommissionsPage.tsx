@@ -23,6 +23,8 @@ import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import SupervisorAccountIcon from '@mui/icons-material/SupervisorAccount';
 import SecurityIcon from '@mui/icons-material/Security';
+import PaymentIcon from '@mui/icons-material/Payment';
+import AdvisorCommissionsLedgerPage from './AdvisorCommissionsLedgerPage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 const ORANGE = '#F05A28';
@@ -234,13 +236,19 @@ export default function CommissionsPage() {
       {/* Tabs */}
       <Paper sx={{ mb: 3, borderRadius: 2 }}>
         <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+          <Tab icon={<PaymentIcon />} label={i18n.language === 'es' ? 'Comisiones Generadas' : 'Commissions Ledger'} />
           <Tab icon={<MonetizationOnIcon />} label={i18n.language === 'es' ? 'Tarifas' : 'Rates'} />
           <Tab icon={<AccountTreeIcon />} label={i18n.language === 'es' ? 'Jerarquía' : 'Hierarchy'} />
         </Tabs>
       </Paper>
 
-      {/* Stats Cards */}
+      {/* Tab Comisiones Generadas */}
       {tabValue === 0 && (
+        <AdvisorCommissionsLedgerPage />
+      )}
+
+      {/* Stats Cards */}
+      {tabValue === 1 && (
       <>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, mb: 4 }}>
         <Box sx={{ flex: '1 1 300px', minWidth: 250 }}>
@@ -440,7 +448,7 @@ export default function CommissionsPage() {
       )}
 
       {/* Tab Jerarquía */}
-      {tabValue === 1 && (
+      {tabValue === 2 && (
         <Box>
           <Paper elevation={3} sx={{ borderRadius: 3, overflow: 'hidden' }}>
             <Box sx={{ bgcolor: BLACK, px: 3, py: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

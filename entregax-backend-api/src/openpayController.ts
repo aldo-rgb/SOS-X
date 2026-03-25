@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import axios from 'axios';
 import crypto from 'crypto';
+import { generateCommissionsForPackages } from './commissionService';
 
 // ============================================
 // OPENPAY MULTI-EMPRESA - SPEI AUTOMATIZADO
@@ -702,6 +703,17 @@ export const handleOpenpayWebhook = async (req: Request, res: Response): Promise
 
             saldoDisponible -= montoAplicar;
             console.log(`  ✅ Aplicado $${montoAplicar} a guía ${guia.tracking_internal} (nuevo saldo: $${nuevoSaldo})`);
+        }
+
+        // Generar comisiones para paquetes completamente pagados
+        const paidPkgIds = aplicaciones
+            .filter(a => a.status === 'paid')
+            .map(a => guiasPendientes.rows.find(g => g.tracking_internal === a.guia)?.id)
+            .filter((id): id is number => !!id);
+        if (paidPkgIds.length > 0) {
+            generateCommissionsForPackages(paidPkgIds).catch(err =>
+                console.error('Error generando comisiones (openpay SPEI):', err)
+            );
         }
 
         // Si queda saldo, dejarlo como crédito a favor

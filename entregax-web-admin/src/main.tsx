@@ -5,6 +5,7 @@ import './index.css'
 import './i18n'
 import App from './App.tsx'
 import FirmaAbandonoPage from './pages/FirmaAbandonoPage.tsx'
+import TutorialesPage from './pages/TutorialesPage.tsx'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -12,6 +13,8 @@ createRoot(document.getElementById('root')!).render(
       <Routes>
         {/* Ruta pública para firma de abandono */}
         <Route path="/firma-abandono/:token" element={<FirmaAbandonoPage />} />
+        {/* Ruta pública para tutoriales */}
+        <Route path="/tutoriales" element={<TutorialesPage />} />
         {/* App principal */}
         <Route path="/*" element={<App />} />
       </Routes>
