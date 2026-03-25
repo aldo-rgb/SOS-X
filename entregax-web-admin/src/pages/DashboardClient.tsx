@@ -2522,9 +2522,9 @@ export default function DashboardClient() {
             <Tab icon={<ShippingIcon />} label={t('cd.tabs.shipments')} iconPosition="start" />
             <Tab icon={<PaymentsIcon />} label="Pago Proveedores" iconPosition="start" />
             <Tab icon={<CalculateIcon />} label={t('cd.tabs.quoter')} iconPosition="start" />
-            <Tab icon={<WalletIcon />} label={t('cd.tabs.account')} iconPosition="start" />
+            <Tab icon={<WalletIcon />} label="Mi Cartera" iconPosition="start" />
             <Tab icon={<ReceiptIcon />} label={t('cd.tabs.invoices')} iconPosition="start" />
-            <Tab icon={<HomeIcon />} label="Direcciones" iconPosition="start" />
+            <Tab icon={<HomeIcon />} label="Direcciones de Envío" iconPosition="start" />
           </Tabs>
         </Paper>
       )}
