@@ -61,18 +61,18 @@ interface Address {
 }
 
 // 🚚 Paqueterías disponibles por tipo de servicio
-const CARRIERS_BY_SERVICE: Record<string, { id: string; name: string; icon: string; cost: number }[]> = {
+const CARRIERS_BY_SERVICE: Record<string, { id: string; name: string; icon: string; cost: number; dynamic?: boolean }[]> = {
   usa: [
     { id: 'entregax_local', name: 'Entregax Local', icon: '🚛', cost: 0 },
-    { id: 'paquete_express', name: 'Paquete Express Interno', icon: '📦', cost: 350 },
+    { id: 'paquete_express', name: 'Paquete Express', icon: '📦', cost: 0, dynamic: true },
   ],
   maritime: [
-    { id: 'entregax_terrestre', name: 'Entregax Terrestre', icon: '🚛', cost: 450 },
-    { id: 'fedex_ground', name: 'FedEx Ground', icon: '📦', cost: 550 },
+    { id: 'entregax_local', name: 'Entregax Local', icon: '🚛', cost: 0 },
+    { id: 'paquete_express', name: 'Paquete Express', icon: '📦', cost: 0, dynamic: true },
   ],
   air: [
-    { id: 'entregax_express', name: 'Entregax Express', icon: '✈️', cost: 400 },
-    { id: 'dhl_express', name: 'DHL Express', icon: '📦', cost: 600 },
+    { id: 'entregax_local', name: 'Entregax Local', icon: '🚛', cost: 0 },
+    { id: 'paquete_express', name: 'Paquete Express', icon: '📦', cost: 0, dynamic: true },
   ],
 };
 

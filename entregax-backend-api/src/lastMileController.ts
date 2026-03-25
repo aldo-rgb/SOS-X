@@ -6,6 +6,7 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import * as skydropx from './services/skydropxService';
+import axios from 'axios';
 
 // =========================================
 // GET /api/admin/last-mile/ready-to-dispatch
@@ -739,7 +740,7 @@ export const quoteShipping = async (req: Request, res: Response) => {
     } = req.body;
 
     // Opciones locales siempre disponibles
-    const localOptions = [
+    const localOptions: any[] = [
       {
         id: 'entregax_local',
         name: 'EntregaX Local',
@@ -750,17 +751,63 @@ export const quoteShipping = async (req: Request, res: Response) => {
         isExternal: false,
         description: 'Entrega con nuestra flotilla propia en tu zona'
       },
-      {
+    ];
+
+    // Cotizar Paquete Express dinámicamente vía API interna
+    if (zipCode) {
+      try {
+        const pqtxRes = await axios.post(`http://localhost:${process.env.PORT || 3001}/api/shipping/pqtx-quote`, {
+          destZipCode: zipCode,
+          packageCount,
+          weight: weight || 1,
+          length: dimensions?.length || 30,
+          width: dimensions?.width || 30,
+          height: dimensions?.height || 30,
+        }, {
+          headers: { Authorization: req.headers.authorization || '' },
+          timeout: 25000,
+        });
+        if (pqtxRes.data?.success) {
+          localOptions.push({
+            id: 'paquete_express',
+            name: 'Paquete Express',
+            provider: 'paquete_express',
+            price: pqtxRes.data.clientPrice,
+            pricePerBox: pqtxRes.data.pricePerBox,
+            currency: 'MXN',
+            estimatedDays: pqtxRes.data.estimatedDays || '2-4 días hábiles',
+            isExternal: false,
+            description: `Envío nacional Paquete Express`,
+            pqtxRule: pqtxRes.data.rule,
+          });
+        }
+      } catch (pqtxErr: any) {
+        console.error('[SHIPPING-QUOTE] Error PQTX:', pqtxErr.message);
+        // Fallback a precio fijo si falla
+        localOptions.push({
+          id: 'paquete_express',
+          name: 'Paquete Express',
+          provider: 'paquete_express',
+          price: 400,
+          currency: 'MXN',
+          estimatedDays: '2-4 días hábiles',
+          isExternal: false,
+          description: 'Envío nacional Paquete Express',
+        });
+      }
+    } else {
+      // Sin CP, precio fijo de fallback
+      localOptions.push({
         id: 'paquete_express',
-        name: 'Paquete Express Interno',
-        provider: 'entregax',
-        price: 350, // Precio por caja - el frontend calcula el total
+        name: 'Paquete Express',
+        provider: 'paquete_express',
+        price: 400,
         currency: 'MXN',
         estimatedDays: '2-4 días hábiles',
         isExternal: false,
-        description: 'Envío express por paquetería interna'
-      }
-    ];
+        description: 'Envío nacional Paquete Express',
+      });
+    }
 
     // Si hay API de Skydropx configurada, obtener tarifas externas
     // Se habilita automáticamente si hay API_KEY configurada (sandbox o producción)

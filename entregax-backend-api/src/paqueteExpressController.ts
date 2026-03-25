@@ -6,6 +6,7 @@
 
 import { Request, Response } from 'express';
 import axios from 'axios';
+import { pool } from './db';
 
 // ============================================
 // CONFIGURACIÓN
@@ -46,12 +47,19 @@ async function getJwtToken(): Promise<string> {
     timeout: 15000,
   });
 
-  if (response.data?.header?.staTrans === 'ok' && response.data?.body?.response) {
-    cachedJwtToken = response.data.body.response;
+  // La API PQTX responde con header:null y token en body.response.data.token
+  const respBody = response.data?.body?.response;
+  const token = respBody?.data?.token || respBody;
+
+  if (respBody?.success === true && respBody?.data?.token) {
+    cachedJwtToken = respBody.data.token;
+    return cachedJwtToken!;
+  } else if (response.data?.header?.staTrans === 'ok' && typeof token === 'string') {
+    cachedJwtToken = token;
     return cachedJwtToken!;
   }
 
-  throw new Error(`Error al obtener token PQTX: ${response.data?.header?.desTrans || 'Unknown error'}`);
+  throw new Error(`Error al obtener token PQTX: ${respBody?.messages || response.data?.header?.desTrans || 'Unknown error'}`);
 }
 
 // ============================================
@@ -75,7 +83,17 @@ export async function pqtxLogin(req: Request, res: Response) {
       timeout: 15000,
     });
 
-    if (response.data?.header?.staTrans === 'ok') {
+    // La API PQTX responde con header:null y token en body.response.data.token
+    const respBody = response.data?.body?.response;
+
+    if (respBody?.success === true && respBody?.data?.token) {
+      cachedJwtToken = respBody.data.token;
+      res.json({
+        success: true,
+        token: cachedJwtToken,
+        message: 'Token obtenido correctamente'
+      });
+    } else if (response.data?.header?.staTrans === 'ok') {
       cachedJwtToken = response.data.body?.response || null;
       res.json({
         success: true,
@@ -85,7 +103,7 @@ export async function pqtxLogin(req: Request, res: Response) {
     } else {
       res.status(400).json({
         success: false,
-        error: response.data?.header?.desTrans || 'Error al obtener token'
+        error: respBody?.messages || response.data?.header?.desTrans || 'Error al obtener token'
       });
     }
   } catch (error: any) {
@@ -191,7 +209,20 @@ export async function pqtxQuote(req: Request, res: Response) {
       timeout: 20000,
     });
 
-    if (response.data?.header?.staTrans === 'ok') {
+    // La API PQTX v2 responde con header:null y datos en body.response
+    const respBody = response.data?.body?.response;
+    const quotations = respBody?.data?.quotations;
+
+    if (respBody?.success === true && Array.isArray(quotations)) {
+      res.json({
+        success: true,
+        quotes: quotations,
+        origin: respBody.data?.clientAddrOrig,
+        destination: respBody.data?.clientAddrDest,
+        raw: response.data,
+      });
+    } else if (response.data?.header?.staTrans === 'ok') {
+      // Fallback para formato alternativo
       res.json({
         success: true,
         quotes: response.data.body?.response || [],
@@ -200,7 +231,7 @@ export async function pqtxQuote(req: Request, res: Response) {
     } else {
       res.status(400).json({
         success: false,
-        error: response.data?.header?.desTrans || 'Error en cotización',
+        error: respBody?.messages || response.data?.header?.desTrans || 'Error en cotización',
         raw: response.data,
       });
     }
@@ -353,22 +384,56 @@ export async function pqtxCreateShipment(req: Request, res: Response) {
       timeout: 30000,
     });
 
-    if (response.data?.header?.staTrans === 'ok') {
-      const guiaData = response.data.body?.response;
-      const guiaNo = guiaData?.rhGuiaNo || '';
-      const message = response.data.body?.message || '';
+    // La API PQTX responde con header:null y datos en body.response.data
+    const respBody = response.data?.body?.response;
+    const guiaData = respBody?.data || respBody;
+
+    if (respBody?.success === true && respBody?.data) {
+      // data puede ser string (número de guía) u objeto con propiedades
+      const guiaNo = typeof respBody.data === 'string'
+        ? respBody.data
+        : (respBody.data.rhGuiaNo || respBody.data.guiaNo || '');
+      const folioPorte = typeof respBody.objectDTO === 'string'
+        ? respBody.objectDTO
+        : '';
+      const addData = respBody.additionalData || null;
+
+      // Guardar en DB
+      try {
+        const totalWeight = packages.reduce((s: number, p: any) => s + (Number(p.weight) || 0) * (Number(p.quantity) || 1), 0);
+        const totalPieces = packages.reduce((s: number, p: any) => s + (Number(p.quantity) || 1), 0);
+        const userId = (req as any).user?.userId || (req as any).user?.id || null;
+        await pool.query(
+          `INSERT INTO pqtx_shipments (tracking_number, folio_porte, service_type, origin_name, origin_zip_code, origin_city, dest_name, dest_zip_code, dest_city, weight, pieces, subtotal, total, status, created_by, raw_response)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'generated',$14,$15)`,
+          [guiaNo, folioPorte, serviceType, originName || 'ENTREGAX', originZipCode, originCity || originMunicipality || '', destName || 'CLIENTE', destZipCode, destCity || destMunicipality || '', totalWeight, totalPieces, addData?.subTotlAmnt || null, addData?.totalAmnt || null, userId, JSON.stringify(response.data)]
+        );
+      } catch (dbErr: any) {
+        console.error('Error guardando guía PQTX en DB:', dbErr.message);
+      }
 
       res.json({
         success: true,
         trackingNumber: guiaNo,
-        message,
+        folioPorte,
+        message: respBody.messages || 'Guía generada correctamente',
+        shipment: respBody.data,
+        additionalData: addData,
+        raw: response.data,
+      });
+    } else if (response.data?.header?.staTrans === 'ok') {
+      const guiaNo = guiaData?.rhGuiaNo || '';
+      res.json({
+        success: true,
+        trackingNumber: guiaNo,
+        message: response.data.body?.message || '',
         shipment: guiaData,
         raw: response.data,
       });
     } else {
       res.status(400).json({
         success: false,
-        error: response.data?.header?.desTrans || 'Error al generar envío',
+        error: respBody?.messages || response.data?.header?.desTrans || 'Error al generar envío',
         raw: response.data,
       });
     }
@@ -437,7 +502,17 @@ export async function pqtxSchedulePickup(req: Request, res: Response) {
       timeout: 20000,
     });
 
-    if (response.data?.header?.staTrans === 'ok') {
+    // La API PQTX responde con header:null y datos en body.response.data
+    const respBody = response.data?.body?.response;
+
+    if (respBody?.success === true) {
+      res.json({
+        success: true,
+        message: 'Recolección programada correctamente',
+        data: respBody.data || respBody,
+        raw: response.data,
+      });
+    } else if (response.data?.header?.staTrans === 'ok') {
       res.json({
         success: true,
         message: 'Recolección programada correctamente',
@@ -447,7 +522,7 @@ export async function pqtxSchedulePickup(req: Request, res: Response) {
     } else {
       res.status(400).json({
         success: false,
-        error: response.data?.header?.desTrans || 'Error al programar recolección',
+        error: respBody?.messages || response.data?.header?.desTrans || 'Error al programar recolección',
         raw: response.data,
       });
     }
@@ -493,7 +568,17 @@ export async function pqtxCancel(req: Request, res: Response) {
       timeout: 20000,
     });
 
-    if (response.data?.header?.staTrans === 'ok') {
+    // La API PQTX responde con header:null y datos en body.response.data
+    const respBody = response.data?.body?.response;
+
+    if (respBody?.success === true) {
+      res.json({
+        success: true,
+        message: `${trackingNumbers.length} guía(s) cancelada(s) correctamente`,
+        data: respBody.data || respBody,
+        raw: response.data,
+      });
+    } else if (response.data?.header?.staTrans === 'ok') {
       res.json({
         success: true,
         message: `${trackingNumbers.length} guía(s) cancelada(s) correctamente`,
@@ -503,7 +588,7 @@ export async function pqtxCancel(req: Request, res: Response) {
     } else {
       res.status(400).json({
         success: false,
-        error: response.data?.header?.desTrans || 'Error al cancelar guía(s)',
+        error: respBody?.messages || response.data?.header?.desTrans || 'Error al cancelar guía(s)',
         raw: response.data,
       });
     }
@@ -535,10 +620,22 @@ export async function pqtxTrack(req: Request, res: Response) {
       timeout: 15000,
     });
 
-    res.json({
-      success: true,
-      tracking: response.data,
-    });
+    // Extraer el array de eventos de la estructura PQTX v2: header/body/response/data
+    const pqtxData = response.data;
+    const events = pqtxData?.body?.response?.data;
+
+    if (Array.isArray(events)) {
+      res.json({
+        success: true,
+        tracking: events,
+      });
+    } else {
+      // Fallback: devolver raw data si la estructura es diferente
+      res.json({
+        success: true,
+        tracking: pqtxData,
+      });
+    }
   } catch (error: any) {
     console.error('Error en PQTX trazabilidad:', error.message);
     res.status(500).json({ success: false, error: error.message });
@@ -629,7 +726,16 @@ export async function pqtxLabelZpl(req: Request, res: Response) {
       timeout: 20000,
     });
 
-    if (response.data?.header?.staTrans === 'ok') {
+    // La API PQTX responde con header:null y datos en body.response.data
+    const respBody = response.data?.body?.response;
+
+    if (respBody?.success === true) {
+      res.json({
+        success: true,
+        zpl: respBody.data || respBody,
+        raw: response.data,
+      });
+    } else if (response.data?.header?.staTrans === 'ok') {
       res.json({
         success: true,
         zpl: response.data.body?.response || response.data.body,
@@ -638,7 +744,7 @@ export async function pqtxLabelZpl(req: Request, res: Response) {
     } else {
       res.status(400).json({
         success: false,
-        error: response.data?.header?.desTrans || 'Error al obtener ZPL',
+        error: respBody?.messages || response.data?.header?.desTrans || 'Error al obtener ZPL',
         raw: response.data,
       });
     }
@@ -649,7 +755,50 @@ export async function pqtxLabelZpl(req: Request, res: Response) {
 }
 
 // ============================================
-// 9. CONFIG - Obtener configuración actual
+// 9. LISTAR GUÍAS GENERADAS
+// GET /api/admin/paquete-express/shipments
+// ============================================
+export async function pqtxListShipments(req: Request, res: Response) {
+  try {
+    const { search, status, limit = '50', offset = '0' } = req.query;
+    let where = 'WHERE 1=1';
+    const params: any[] = [];
+    let idx = 1;
+
+    if (search) {
+      where += ` AND (s.tracking_number ILIKE $${idx} OR s.dest_name ILIKE $${idx} OR s.origin_name ILIKE $${idx} OR s.folio_porte ILIKE $${idx})`;
+      params.push(`%${search}%`);
+      idx++;
+    }
+    if (status && status !== 'all') {
+      where += ` AND s.status = $${idx}`;
+      params.push(status);
+      idx++;
+    }
+
+    const countRes = await pool.query(`SELECT COUNT(*) as total FROM pqtx_shipments s ${where}`, params);
+    const total = parseInt(countRes.rows[0].total);
+
+    params.push(Number(limit), Number(offset));
+    const result = await pool.query(
+      `SELECT s.*, u.full_name as created_by_name
+       FROM pqtx_shipments s
+       LEFT JOIN users u ON u.id = s.created_by
+       ${where}
+       ORDER BY s.created_at DESC
+       LIMIT $${idx} OFFSET $${idx + 1}`,
+      params
+    );
+
+    res.json({ success: true, shipments: result.rows, total, limit: Number(limit), offset: Number(offset) });
+  } catch (error: any) {
+    console.error('Error listando guías PQTX:', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+}
+
+// ============================================
+// 10. CONFIG - Obtener configuración actual
 // GET /api/admin/paquete-express/config
 // ============================================
 export async function pqtxGetConfig(req: Request, res: Response) {
@@ -667,5 +816,157 @@ export async function pqtxGetConfig(req: Request, res: Response) {
     });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
+  }
+}
+
+// ============================================
+// 11. COTIZACIÓN PARA CLIENTE (con regla de utilidad)
+// POST /api/shipping/pqtx-quote
+// Body: { destZipCode, packageCount, weight, length, width, height }
+//
+// REGLAS DE PRECIO:
+//   - Si cotización PQTX < $300 → cobrar $400 MXN total
+//   - Si cotización PQTX >= $300 → cotización + $100 MXN por caja
+// ============================================
+const PQTX_ORIGIN_ZIP = process.env.PQTX_ORIGIN_ZIP || '64860'; // Bodega MTY
+
+export async function pqtxClientQuote(req: Request, res: Response) {
+  try {
+    const {
+      destZipCode,
+      packageCount = 1,
+      weight = 1,
+      length = 30,
+      width = 30,
+      height = 30,
+    } = req.body;
+
+    if (!destZipCode) {
+      return res.status(400).json({ success: false, error: 'Se requiere CP destino' });
+    }
+
+    // Construir paquetes para la cotización
+    const shipments = [];
+    for (let i = 0; i < packageCount; i++) {
+      shipments.push({
+        sequence: i + 1,
+        quantity: 1,
+        shpCode: '2', // caja/paquete
+        weight: weight,
+        longShip: length,
+        widthShip: width,
+        highShip: height,
+      });
+    }
+
+    const url = `${PQTX_BASE_URL}/WsQuotePaquetexpress/api/apiQuoter/v2/getQuotation`;
+    const body = {
+      header: {
+        security: {
+          user: PQTX_QUOTE_USER,
+          password: PQTX_QUOTE_PASSWORD,
+          type: 1,
+          token: PQTX_QUOTE_TOKEN,
+        },
+        device: { appName: 'EntregaX', type: 'Web', ip: '', idDevice: '' },
+        target: { module: 'QUOTER', version: '1.0', service: 'quoter', uri: 'quotes', event: 'R' },
+        output: 'JSON',
+        language: null,
+      },
+      body: {
+        request: {
+          data: {
+            clientAddrOrig: { zipCode: PQTX_ORIGIN_ZIP, colonyName: 'CENTRO' },
+            clientAddrDest: { zipCode: destZipCode, colonyName: 'CENTRO' },
+            services: { dlvyType: '1', ackType: 'N', totlDeclVlue: 1000, invType: 'A', radType: '1' },
+            otherServices: { otherServices: [] },
+            shipmentDetail: { shipments },
+            quoteServices: ['ALL'],
+          },
+          objectDTO: null,
+        },
+        response: null,
+      },
+    };
+
+    const response = await axios.post(url, body, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 20000,
+    });
+
+    const respBody = response.data?.body?.response;
+    const quotations = respBody?.data?.quotations;
+
+    if (!respBody?.success || !Array.isArray(quotations) || quotations.length === 0) {
+      // Si no hay cotización disponible, retornar precio fijo de fallback
+      console.log('[PQTX-CLIENT] Sin cotización disponible, usando fallback $400');
+      return res.json({
+        success: true,
+        carrier: 'paquete_express',
+        name: 'Paquete Express',
+        pqtxQuote: null,
+        clientPrice: 400,
+        pricePerBox: Math.round(400 / packageCount),
+        packageCount,
+        currency: 'MXN',
+        rule: 'fallback',
+        estimatedDays: '2-4 días hábiles',
+      });
+    }
+
+    // Tomar la cotización más económica (terrestre normalmente)
+    const cheapest = quotations.reduce((min: any, q: any) => {
+      const qTotal = parseFloat(q.totalAmnt || q.totalAmount || q.total || '0');
+      const mTotal = parseFloat(min.totalAmnt || min.totalAmount || min.total || '0');
+      return qTotal < mTotal ? q : min;
+    }, quotations[0]);
+
+    const pqtxTotal = parseFloat(cheapest.totalAmnt || cheapest.totalAmount || cheapest.total || '0');
+
+    // REGLA DE UTILIDAD
+    let clientPrice: number;
+    let rule: string;
+
+    if (pqtxTotal < 300) {
+      // Si cotización < $300 → cobrar $400 fijo
+      clientPrice = 400;
+      rule = 'min_400';
+    } else {
+      // Si cotización >= $300 → agregar $100 por caja
+      clientPrice = Math.round(pqtxTotal + (100 * packageCount));
+      rule = 'plus_100_per_box';
+    }
+
+    console.log(`[PQTX-CLIENT] ZIP=${destZipCode}, boxes=${packageCount}, pqtxQuote=$${pqtxTotal}, clientPrice=$${clientPrice}, rule=${rule}`);
+
+    res.json({
+      success: true,
+      carrier: 'paquete_express',
+      name: 'Paquete Express',
+      pqtxQuote: pqtxTotal,
+      clientPrice,
+      pricePerBox: Math.round(clientPrice / packageCount),
+      packageCount,
+      currency: 'MXN',
+      rule,
+      estimatedDays: cheapest.dlvyEstDate || '2-4 días hábiles',
+      serviceName: cheapest.zoneName || cheapest.serviceDescription || 'Terrestre',
+    });
+
+  } catch (error: any) {
+    console.error('[PQTX-CLIENT] Error en cotización:', error.message);
+    // En caso de error de API, retornar precio fijo de fallback
+    res.json({
+      success: true,
+      carrier: 'paquete_express',
+      name: 'Paquete Express',
+      pqtxQuote: null,
+      clientPrice: 400,
+      pricePerBox: 400,
+      packageCount: req.body?.packageCount || 1,
+      currency: 'MXN',
+      rule: 'error_fallback',
+      estimatedDays: '2-4 días hábiles',
+    });
   }
 }

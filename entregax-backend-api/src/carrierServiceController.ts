@@ -5,16 +5,71 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
 // Tipos de servicio válidos
 const VALID_SERVICE_TYPES = ['china_air', 'china_sea', 'usa_pobox', 'dhl', 'mx_national'];
 
 // =========================================
+// MULTER CONFIG PARA ICONOS DE PAQUETERÍA
+// =========================================
+const carriersDir = path.join(__dirname, '..', 'uploads', 'carriers');
+if (!fs.existsSync(carriersDir)) {
+  fs.mkdirSync(carriersDir, { recursive: true });
+}
+
+const carrierIconStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, carriersDir),
+  filename: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase() || '.png';
+    const uniqueName = `carrier_${Date.now()}${ext}`;
+    cb(null, uniqueName);
+  },
+});
+
+export const carrierIconUpload = multer({
+  storage: carrierIconStorage,
+  limits: { fileSize: 2 * 1024 * 1024 }, // 2MB max
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowed.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Solo se permiten imágenes (png, jpg, gif, webp, svg)'));
+    }
+  },
+});
+
+// =========================================
+// POST /api/admin/carrier-options/upload-icon
+// Subir imagen de icono para paquetería
+// =========================================
+export const uploadCarrierIcon = async (req: Request, res: Response) => {
+  try {
+    const file = (req as any).file as Express.Multer.File | undefined;
+    if (!file) {
+      return res.status(400).json({ success: false, error: 'No se proporcionó imagen' });
+    }
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+    const iconUrl = `${baseUrl}/uploads/carriers/${file.filename}`;
+    res.json({ success: true, iconUrl });
+  } catch (error: any) {
+    console.error('Error uploading carrier icon:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// =========================================
 // GET /api/admin/carrier-options
 // Lista todas las opciones de paquetería con sus servicios asociados
 // =========================================
-export const getCarrierOptions = async (_req: Request, res: Response) => {
+export const getCarrierOptions = async (req: Request, res: Response) => {
   try {
+    const { carrier_type } = req.query;
+    const typeFilter = carrier_type ? `WHERE co.carrier_type = '${carrier_type === 'collect' ? 'collect' : 'standard'}'` : '';
     const result = await pool.query(`
       SELECT co.*,
         COALESCE(
@@ -23,6 +78,7 @@ export const getCarrierOptions = async (_req: Request, res: Response) => {
            WHERE cm.carrier_option_id = co.id), '[]'
         ) as service_types
       FROM carrier_service_options co
+      ${typeFilter}
       ORDER BY co.priority ASC, co.id ASC
     `);
 
@@ -63,7 +119,7 @@ export const getCarrierOptionsByService = async (req: Request, res: Response) =>
 // =========================================
 export const createCarrierOption = async (req: Request, res: Response) => {
   try {
-    const { carrier_key, name, description, price_label, subtext, icon, priority, service_types, allows_collect } = req.body;
+    const { carrier_key, name, description, price_label, subtext, icon, priority, service_types, allows_collect, carrier_type } = req.body;
 
     if (!carrier_key || !name) {
       return res.status(400).json({ success: false, error: 'carrier_key y name son requeridos' });
@@ -75,11 +131,12 @@ export const createCarrierOption = async (req: Request, res: Response) => {
       return res.status(400).json({ success: false, error: 'Ya existe una paquetería con esa clave' });
     }
 
+    const cType = carrier_type === 'collect' ? 'collect' : 'standard';
     const result = await pool.query(`
-      INSERT INTO carrier_service_options (carrier_key, name, description, price_label, subtext, icon, priority, allows_collect)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      INSERT INTO carrier_service_options (carrier_key, name, description, price_label, subtext, icon, priority, allows_collect, carrier_type)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *
-    `, [carrier_key, name, description || null, price_label || null, subtext || null, icon || '🚛', priority || 0, allows_collect === true]);
+    `, [carrier_key, name, description || null, price_label || null, subtext || null, icon || '🚛', priority || 0, allows_collect === true, cType]);
 
     const carrierId = result.rows[0].id;
 
@@ -121,7 +178,7 @@ export const createCarrierOption = async (req: Request, res: Response) => {
 export const updateCarrierOption = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { carrier_key, name, description, price_label, subtext, icon, is_active, priority, service_types, allows_collect } = req.body;
+    const { carrier_key, name, description, price_label, subtext, icon, is_active, priority, service_types, allows_collect, carrier_type } = req.body;
 
     // Verificar que exista
     const existing = await pool.query('SELECT id FROM carrier_service_options WHERE id = $1', [id]);
@@ -140,6 +197,8 @@ export const updateCarrierOption = async (req: Request, res: Response) => {
       }
     }
 
+    const cType = carrier_type === 'collect' ? 'collect' : carrier_type === 'standard' ? 'standard' : undefined;
+
     await pool.query(`
       UPDATE carrier_service_options SET
         carrier_key = COALESCE($1, carrier_key),
@@ -151,9 +210,10 @@ export const updateCarrierOption = async (req: Request, res: Response) => {
         is_active = COALESCE($7, is_active),
         priority = COALESCE($8, priority),
         allows_collect = COALESCE($9, allows_collect),
+        carrier_type = COALESCE($10, carrier_type),
         updated_at = NOW()
-      WHERE id = $10
-    `, [carrier_key, name, description, price_label, subtext !== undefined ? subtext : null, icon, is_active, priority, allows_collect, id]);
+      WHERE id = $11
+    `, [carrier_key, name, description, price_label, subtext !== undefined ? subtext : null, icon, is_active, priority, allows_collect, cType, id]);
 
     // Actualizar mapeo de servicios si se proporcionan
     if (service_types && Array.isArray(service_types)) {

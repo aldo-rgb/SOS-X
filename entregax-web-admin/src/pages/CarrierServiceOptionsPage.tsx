@@ -4,7 +4,7 @@
 // según el tipo de servicio de sus paquetes
 // ============================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -31,6 +31,8 @@ import {
   TableHead,
   TableRow,
   Tooltip,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -39,6 +41,8 @@ import {
   Refresh as RefreshIcon,
   DragIndicator as DragIcon,
   LocalShipping as ShippingIcon,
+  CloudUpload as UploadIcon,
+  Inventory as CollectIcon,
 } from '@mui/icons-material';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -101,14 +105,47 @@ export default function CarrierServiceOptionsPage() {
     open: false, message: '', severity: 'success'
   });
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null);
+  const [uploadingIcon, setUploadingIcon] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [activeTab, setActiveTab] = useState(0); // 0 = Paquetería (standard), 1 = Por Cobrar (collect)
 
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
 
+  const carrierType = activeTab === 0 ? 'standard' : 'collect';
+
+  const handleIconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingIcon(true);
+    try {
+      const formData = new FormData();
+      formData.append('icon', file);
+      const res = await fetch(`${API_URL}/api/admin/carrier-options/upload-icon`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.success && data.iconUrl) {
+        setForm(prev => ({ ...prev, icon: data.iconUrl }));
+        setSnackbar({ open: true, message: 'Imagen subida correctamente', severity: 'success' });
+      } else {
+        setSnackbar({ open: true, message: data.error || 'Error al subir imagen', severity: 'error' });
+      }
+    } catch (err) {
+      console.error('Error uploading icon:', err);
+      setSnackbar({ open: true, message: 'Error de conexión', severity: 'error' });
+    } finally {
+      setUploadingIcon(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
   const fetchCarriers = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/admin/carrier-options`, { headers });
+      const res = await fetch(`${API_URL}/api/admin/carrier-options?carrier_type=${carrierType}`, { headers });
       const data = await res.json();
       if (data.success) {
         setCarriers(data.data);
@@ -119,7 +156,7 @@ export default function CarrierServiceOptionsPage() {
       setLoading(false);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [carrierType]);
 
   useEffect(() => {
     fetchCarriers();
@@ -127,7 +164,11 @@ export default function CarrierServiceOptionsPage() {
 
   const handleOpenCreate = () => {
     setEditingId(null);
-    setForm(emptyForm);
+    if (carrierType === 'collect') {
+      setForm({ ...emptyForm, price_label: 'Por cobrar', allows_collect: true });
+    } else {
+      setForm(emptyForm);
+    }
     setDialogOpen(true);
   };
 
@@ -157,7 +198,7 @@ export default function CarrierServiceOptionsPage() {
       const res = await fetch(url, {
         method,
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, carrier_type: carrierType }),
       });
       const data = await res.json();
       
@@ -245,9 +286,27 @@ export default function CarrierServiceOptionsPage() {
         </Box>
       </Box>
 
+      {/* Tabs */}
+      <Paper sx={{ mb: 3, borderRadius: 2 }}>
+        <Tabs
+          value={activeTab}
+          onChange={(_, v) => setActiveTab(v)}
+          sx={{
+            '& .MuiTab-root': { fontWeight: 'bold', textTransform: 'none', fontSize: '0.95rem' },
+            '& .Mui-selected': { color: '#F05A28' },
+            '& .MuiTabs-indicator': { backgroundColor: '#F05A28' },
+          }}
+        >
+          <Tab icon={<ShippingIcon />} iconPosition="start" label="Paquetería" />
+          <Tab icon={<CollectIcon />} iconPosition="start" label="Por Cobrar" />
+        </Tabs>
+      </Paper>
+
       {/* Info */}
       <Alert severity="info" sx={{ mb: 3 }}>
-        {t('carrierOptions.info')}
+        {activeTab === 0
+          ? t('carrierOptions.info')
+          : 'Paqueterías de tipo "Por Cobrar". Estas opciones siempre se cotizan a $0 ya que el costo lo cubre el destinatario. El cliente las usa para asignar instrucciones de envío.'}
       </Alert>
 
       {/* Table */}
@@ -285,7 +344,11 @@ export default function CarrierServiceOptionsPage() {
                     <Typography color="text.secondary" fontSize={14}>{carrier.priority}</Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography fontSize={24}>{carrier.icon}</Typography>
+                    {carrier.icon && (carrier.icon.startsWith('http') || carrier.icon.startsWith('/')) ? (
+                      <img src={carrier.icon} alt={carrier.name} style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 4 }} />
+                    ) : (
+                      <Typography fontSize={24}>{carrier.icon}</Typography>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Typography fontWeight="bold">{carrier.name}</Typography>
@@ -405,13 +468,27 @@ export default function CarrierServiceOptionsPage() {
                 placeholder="ej: local, express"
                 helperText={t('carrierOptions.keyHelp')}
               />
-              <TextField
-                label={t('carrierOptions.iconLabel')}
-                value={form.icon}
-                onChange={e => setForm(prev => ({ ...prev, icon: e.target.value }))}
-                size="small"
-                sx={{ width: 80 }}
-              />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="caption" color="text.secondary">Icono</Typography>
+                {form.icon && (form.icon.startsWith('http') || form.icon.startsWith('/')) ? (
+                  <img src={form.icon} alt="icon" style={{ width: 48, height: 48, objectFit: 'contain', borderRadius: 4, border: '1px solid #e0e0e0' }} />
+                ) : (
+                  <Box sx={{ width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #e0e0e0', borderRadius: 1, fontSize: 24 }}>
+                    {form.icon || '🚛'}
+                  </Box>
+                )}
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<UploadIcon />}
+                  component="label"
+                  sx={{ textTransform: 'none' }}
+                >
+                  Subir
+                  <input type="file" hidden accept="image/*" ref={fileInputRef} onChange={handleIconUpload} />
+                </Button>
+                {uploadingIcon && <CircularProgress size={20} />}
+              </Box>
             </Box>
             <TextField
               label={t('carrierOptions.carrierName')}
@@ -433,11 +510,13 @@ export default function CarrierServiceOptionsPage() {
             <Box sx={{ display: 'flex', gap: 2 }}>
               <TextField
                 label={t('carrierOptions.priceLabel')}
-                value={form.price_label}
+                value={carrierType === 'collect' ? 'Por cobrar' : form.price_label}
                 onChange={e => setForm(prev => ({ ...prev, price_label: e.target.value }))}
                 size="small"
                 fullWidth
+                disabled={carrierType === 'collect'}
                 placeholder="ej: GRATIS, $350 MXN"
+                helperText={carrierType === 'collect' ? 'Siempre "Por cobrar" en esta sección' : undefined}
               />
               <TextField
                 label={t('carrierOptions.priorityLabel')}

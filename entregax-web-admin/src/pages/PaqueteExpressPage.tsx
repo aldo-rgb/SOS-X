@@ -4,7 +4,7 @@
 // Cotización, Generación de guías, Etiquetas, Cancelación, Trazabilidad
 // ============================================
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -63,7 +63,8 @@ export default function PaqueteExpressPage() {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <ShippingIcon sx={{ fontSize: 40, color: PQTX_COLOR }} />
           <Box>
-            <Typography variant="h4" fontWeight="bold">API Paquete Express</Typography>
+            <Typography variant="h4" fontWeight="bold">
+                Paquete Express</Typography>
             <Typography variant="body2" color="text.secondary">
               Cotización, generación de guías, impresión y trazabilidad
             </Typography>
@@ -386,28 +387,39 @@ function QuoteTab({ token }: { token: string | null }) {
                   <TableHead>
                     <TableRow>
                       <TableCell sx={{ fontWeight: 'bold' }}>Servicio</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }}>Descripción</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Nombre</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Entrega Estimada</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }} align="right">Flete</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }} align="right">Seguro</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }} align="right">Recolección</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }} align="right">Servicios</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }} align="right">Subtotal</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }} align="right">IVA</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }} align="right">Total</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }}>Entrega Est.</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Días</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {result.quotes.map((q: Record<string, unknown>, i: number) => (
-                      <TableRow key={i} hover>
-                        <TableCell><Chip label={String(q.srvcIdQuoter || q.srvcId || 'N/A')} size="small" color="primary" /></TableCell>
-                        <TableCell>{String(q.srvcDescQuoter || q.srvcDesc || '-')}</TableCell>
-                        <TableCell align="right">${Number(q.amntQuoter || q.amnt || 0).toFixed(2)}</TableCell>
-                        <TableCell align="right">${Number(q.insrAmntQuoter || q.insrAmnt || 0).toFixed(2)}</TableCell>
-                        <TableCell align="right">${Number(q.collAmntQuoter || q.collAmnt || 0).toFixed(2)}</TableCell>
-                        <TableCell align="right" sx={{ fontWeight: 'bold', color: PQTX_COLOR }}>
-                          ${Number(q.totlAmntQuoter || q.totlAmnt || 0).toFixed(2)}
-                        </TableCell>
-                        <TableCell>{String(q.dlvyDateQuoter || q.dlvyDate || '-')}</TableCell>
-                      </TableRow>
-                    ))}
+                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                    {result.quotes.map((q: any, i: number) => {
+                      const amt = q.amount || {};
+                      return (
+                        <TableRow key={i} hover>
+                          <TableCell><Chip label={q.id || q.serviceType || 'N/A'} size="small" color="primary" /></TableCell>
+                          <TableCell>{q.serviceName || '-'}</TableCell>
+                          <TableCell sx={{ fontSize: 12 }}>{q.serviceInfoDescr || q.promiseDate || '-'}</TableCell>
+                          <TableCell align="right">${Number(amt.shpAmnt || 0).toFixed(2)}</TableCell>
+                          <TableCell align="right">${Number(amt.srvcAmnt || 0).toFixed(2)}</TableCell>
+                          <TableCell align="right">${Number(amt.subTotlAmnt || 0).toFixed(2)}</TableCell>
+                          <TableCell align="right">${Number(amt.taxAmnt || 0).toFixed(2)}</TableCell>
+                          <TableCell align="right" sx={{ fontWeight: 'bold', color: PQTX_COLOR }}>
+                            ${Number(amt.totalAmnt || 0).toFixed(2)}
+                          </TableCell>
+                          <TableCell>
+                            <Chip label={`${q.promiseDateDaysQty ?? '?'} día${q.promiseDateDaysQty !== 1 ? 's' : ''}`}
+                              size="small" color={q.promiseDateDaysQty === 0 ? 'success' : q.promiseDateDaysQty <= 1 ? 'info' : 'default'} variant="outlined" />
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </TableContainer>
@@ -560,7 +572,7 @@ function ShipmentTab({ token }: { token: string | null }) {
               <Typography variant="h6">✅ Guía Generada Exitosamente</Typography>
             </Alert>
             {result.trackingNumber && (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, p: 2, bgcolor: '#FFF3E0', borderRadius: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, p: 2, bgcolor: '#FFF3E0', borderRadius: 2, flexWrap: 'wrap' }}>
                 <Typography variant="h5" fontWeight="bold" fontFamily="monospace" color={PQTX_COLOR}>
                   {result.trackingNumber}
                 </Typography>
@@ -575,6 +587,20 @@ function ShipmentTab({ token }: { token: string | null }) {
                 </Button>
               </Box>
             )}
+            {(result.folioPorte || result.additionalData) && (
+              <Box sx={{ display: 'flex', gap: 3, mb: 2, flexWrap: 'wrap' }}>
+                {result.folioPorte && (
+                  <Typography variant="body2" color="text.secondary">
+                    📋 <strong>Folio Carta Porte:</strong> {result.folioPorte.replace('folioLetterPorte:', '')}
+                  </Typography>
+                )}
+                {result.additionalData?.totalAmnt != null && (
+                  <Typography variant="body2" color="text.secondary">
+                    💰 <strong>Total:</strong> ${result.additionalData.totalAmnt.toFixed(2)} MXN (Subtotal: ${result.additionalData.subTotlAmnt?.toFixed(2)})
+                  </Typography>
+                )}
+              </Box>
+            )}
             <Box component="pre" sx={{ p: 2, bgcolor: '#f5f5f5', borderRadius: 1, overflow: 'auto', maxHeight: 300, fontSize: 12, fontFamily: 'monospace' }}>
               {JSON.stringify(result.shipment || result.raw, null, 2)}
             </Box>
@@ -586,7 +612,7 @@ function ShipmentTab({ token }: { token: string | null }) {
 }
 
 // ============================================
-// TAB 3: ETIQUETAS
+// TAB 3: ETIQUETAS + GUÍAS GENERADAS
 // ============================================
 function LabelTab({ token }: { token: string | null }) {
   const [trackingNumber, setTrackingNumber] = useState('');
@@ -595,9 +621,40 @@ function LabelTab({ token }: { token: string | null }) {
   const [zplResult, setZplResult] = useState<any>(null);
   const [error, setError] = useState('');
 
-  const openPdf = (format: string) => {
-    if (!trackingNumber.trim()) return;
-    window.open(`${API_URL}/api/admin/paquete-express/label/pdf/${trackingNumber.trim()}?format=${format}`, '_blank');
+  // Lista de guías generadas
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [shipments, setShipments] = useState<any[]>([]);
+  const [shipmentsLoading, setShipmentsLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [totalShipments, setTotalShipments] = useState(0);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 20;
+
+  const loadShipments = useCallback(async (pageNum = 0, search = searchTerm) => {
+    setShipmentsLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(pageNum * PAGE_SIZE) });
+      if (search.trim()) params.set('search', search.trim());
+      const res = await fetch(`${API_URL}/api/admin/paquete-express/shipments?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShipments(data.shipments || []);
+        setTotalShipments(data.total || 0);
+      }
+    } catch (err) { console.error(err); } finally { setShipmentsLoading(false); }
+  }, [token, searchTerm]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadShipments(0, ''); }, [token]);
+
+  const handleSearch = () => { setPage(0); loadShipments(0, searchTerm); };
+  const handlePageChange = (newPage: number) => { setPage(newPage); loadShipments(newPage, searchTerm); };
+
+  const openPdf = (guia: string, format: string) => {
+    if (!guia.trim()) return;
+    window.open(`${API_URL}/api/admin/paquete-express/label/pdf/${guia.trim()}?format=${format}`, '_blank');
   };
 
   const getZpl = async () => {
@@ -612,27 +669,34 @@ function LabelTab({ token }: { token: string | null }) {
     } catch (err) { setError(String(err)); } finally { setLoading(false); }
   };
 
+  const formatDate = (d: string) => {
+    if (!d) return '-';
+    return new Date(d).toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
   return (
     <Box>
+      {/* Impresión manual por número */}
       <Card sx={{ border: '1px solid #e0e0e0', mb: 3 }}>
         <CardContent>
-          <Typography variant="h6" fontWeight="bold" gutterBottom>🏷️ Impresión de Etiquetas</Typography>
+          <Typography variant="h6" fontWeight="bold" gutterBottom>🏷️ Impresión Manual de Etiqueta</Typography>
           <Divider sx={{ my: 1.5 }} />
           <Box sx={{ display: 'flex', gap: 2, mt: 2, alignItems: 'center', flexWrap: 'wrap' }}>
             <TextField size="small" label="Número de Guía" value={trackingNumber}
-              onChange={e => setTrackingNumber(e.target.value)} placeholder="Ej: 05167923279" sx={{ minWidth: 250 }} />
-            <Button variant="contained" onClick={() => openPdf('4x6')} startIcon={<PrintIcon />}
+              onChange={e => setTrackingNumber(e.target.value)} placeholder="Ej: 05167923279" sx={{ minWidth: 250 }}
+              onKeyDown={e => e.key === 'Enter' && openPdf(trackingNumber, '4x6')} />
+            <Button variant="contained" onClick={() => openPdf(trackingNumber, '4x6')} startIcon={<PrintIcon />}
               sx={{ bgcolor: PQTX_COLOR, '&:hover': { bgcolor: '#BF360C' } }}>
-              PDF 4×6 (Térmica)
+              PDF 4×6
             </Button>
-            <Button variant="outlined" onClick={() => openPdf('carta')} startIcon={<PrintIcon />}
+            <Button variant="outlined" onClick={() => openPdf(trackingNumber, 'carta')} startIcon={<PrintIcon />}
               sx={{ color: PQTX_COLOR, borderColor: PQTX_COLOR }}>
               PDF Carta
             </Button>
             <Button variant="outlined" onClick={getZpl}
               startIcon={loading ? <CircularProgress size={16} /> : <QrCodeIcon />}
               disabled={loading} sx={{ color: PQTX_COLOR, borderColor: PQTX_COLOR }}>
-              Obtener ZPL
+              ZPL
             </Button>
           </Box>
         </CardContent>
@@ -641,19 +705,154 @@ function LabelTab({ token }: { token: string | null }) {
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
       {zplResult && (
-        <Card sx={{ border: '1px solid #e0e0e0' }}>
+        <Card sx={{ border: '1px solid #e0e0e0', mb: 3 }}>
           <CardContent>
             <Typography variant="h6" fontWeight="bold" gutterBottom>Código ZPL</Typography>
             <Button variant="outlined" size="small" startIcon={<CopyIcon />}
               onClick={() => navigator.clipboard.writeText(JSON.stringify(zplResult.zpl))} sx={{ mb: 2 }}>
               Copiar ZPL
             </Button>
-            <Box component="pre" sx={{ p: 2, bgcolor: '#263238', color: '#4CAF50', borderRadius: 1, overflow: 'auto', maxHeight: 400, fontSize: 11, fontFamily: 'monospace' }}>
+            <Box component="pre" sx={{ p: 2, bgcolor: '#263238', color: '#4CAF50', borderRadius: 1, overflow: 'auto', maxHeight: 300, fontSize: 11, fontFamily: 'monospace' }}>
               {typeof zplResult.zpl === 'string' ? zplResult.zpl : JSON.stringify(zplResult.zpl, null, 2)}
             </Box>
           </CardContent>
         </Card>
       )}
+
+      {/* Lista de guías generadas */}
+      <Card sx={{ border: '1px solid #e0e0e0' }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+            <Typography variant="h6" fontWeight="bold">📋 Guías Generadas ({totalShipments})</Typography>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <TextField size="small" placeholder="Buscar guía, destino..." value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                sx={{ minWidth: 220 }} />
+              <Button variant="outlined" onClick={handleSearch} startIcon={<SearchIcon />} size="small"
+                sx={{ color: PQTX_COLOR, borderColor: PQTX_COLOR }}>
+                Buscar
+              </Button>
+              <Tooltip title="Recargar">
+                <IconButton onClick={() => loadShipments(page, searchTerm)} size="small">
+                  <RefreshIcon />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+
+          {shipmentsLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress sx={{ color: PQTX_COLOR }} />
+            </Box>
+          ) : shipments.length === 0 ? (
+            <Alert severity="info">No se encontraron guías generadas. Genera una guía desde la pestaña "Generar Envío".</Alert>
+          ) : (
+            <>
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: '#FFF3E0' }}>
+                      <TableCell sx={{ fontWeight: 'bold' }}>No. Guía</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Fecha</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Servicio</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Origen</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Destino</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }} align="center">Pzas</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }} align="right">Peso</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Estado</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }} align="center">Acciones</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {shipments.map((s) => (
+                      <TableRow key={s.id} hover sx={{ '&:hover': { bgcolor: '#FFF8E1' } }}>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography variant="body2" fontWeight="bold" fontFamily="monospace" color={PQTX_COLOR}>
+                              {s.tracking_number}
+                            </Typography>
+                            <Tooltip title="Copiar">
+                              <IconButton size="small" onClick={() => navigator.clipboard.writeText(s.tracking_number)}>
+                                <CopyIcon sx={{ fontSize: 14 }} />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                          {s.folio_porte && (
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              {s.folio_porte.replace('folioLetterPorte:', 'CP: ')}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2">{formatDate(s.created_at)}</Typography>
+                          {s.created_by_name && <Typography variant="caption" color="text.secondary">{s.created_by_name}</Typography>}
+                        </TableCell>
+                        <TableCell>
+                          <Chip label={s.service_type || 'STD-T'} size="small" variant="outlined"
+                            sx={{ borderColor: PQTX_COLOR, color: PQTX_COLOR, fontWeight: 'bold', fontSize: 11 }} />
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2">{s.origin_name || '-'}</Typography>
+                          <Typography variant="caption" color="text.secondary">CP {s.origin_zip_code}</Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2">{s.dest_name || '-'}</Typography>
+                          <Typography variant="caption" color="text.secondary">CP {s.dest_zip_code}</Typography>
+                        </TableCell>
+                        <TableCell align="center">{s.pieces || 1}</TableCell>
+                        <TableCell align="right">{s.weight ? `${Number(s.weight).toFixed(1)} kg` : '-'}</TableCell>
+                        <TableCell>
+                          <Chip size="small"
+                            label={s.status === 'generated' ? 'Activa' : s.status === 'cancelled' ? 'Cancelada' : s.status}
+                            color={s.status === 'generated' ? 'success' : s.status === 'cancelled' ? 'error' : 'default'}
+                            variant="filled" sx={{ fontSize: 11 }} />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                            <Tooltip title="Imprimir 4×6">
+                              <IconButton size="small" onClick={() => openPdf(s.tracking_number, '4x6')}
+                                sx={{ color: PQTX_COLOR }}>
+                                <PrintIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Imprimir Carta">
+                              <IconButton size="small" onClick={() => openPdf(s.tracking_number, 'carta')}
+                                sx={{ color: '#1976D2' }}>
+                                <PrintIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Copiar guía">
+                              <IconButton size="small" onClick={() => navigator.clipboard.writeText(s.tracking_number)}>
+                                <CopyIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* Paginación */}
+              {totalShipments > PAGE_SIZE && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 2, mt: 2 }}>
+                  <Button size="small" disabled={page === 0} onClick={() => handlePageChange(page - 1)}>
+                    ← Anterior
+                  </Button>
+                  <Typography variant="body2" color="text.secondary">
+                    Página {page + 1} de {Math.ceil(totalShipments / PAGE_SIZE)}
+                  </Typography>
+                  <Button size="small" disabled={(page + 1) * PAGE_SIZE >= totalShipments} onClick={() => handlePageChange(page + 1)}>
+                    Siguiente →
+                  </Button>
+                </Box>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
     </Box>
   );
 }
@@ -743,12 +942,45 @@ function TrackingTab({ token }: { token: string | null }) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState('');
+  const [trackedGuia, setTrackedGuia] = useState('');
 
-  const handleTrack = async () => {
-    if (!trackingNumber.trim()) return;
-    setLoading(true); setError(''); setResult(null);
+  // Lista de guías
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [shipments, setShipments] = useState<any[]>([]);
+  const [shipmentsLoading, setShipmentsLoading] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [totalShipments, setTotalShipments] = useState(0);
+  const [page, setPage] = useState(0);
+  const PAGE_SIZE = 15;
+
+  const loadShipments = useCallback(async (pageNum = 0, search = searchTerm) => {
+    setShipmentsLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/admin/paquete-express/track/${trackingNumber.trim()}`, {
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(pageNum * PAGE_SIZE) });
+      if (search.trim()) params.set('search', search.trim());
+      const res = await fetch(`${API_URL}/api/admin/paquete-express/shipments?${params}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success) {
+        setShipments(data.shipments || []);
+        setTotalShipments(data.total || 0);
+      }
+    } catch (err) { console.error(err); } finally { setShipmentsLoading(false); }
+  }, [token, searchTerm]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadShipments(0, ''); }, [token]);
+
+  const handleSearch = () => { setPage(0); loadShipments(0, searchTerm); };
+  const handlePageChange = (newPage: number) => { setPage(newPage); loadShipments(newPage, searchTerm); };
+
+  const handleTrack = async (guia?: string) => {
+    const num = (guia || trackingNumber).trim();
+    if (!num) return;
+    setLoading(true); setError(''); setResult(null); setTrackedGuia(num);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/paquete-express/track/${num}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -756,17 +988,32 @@ function TrackingTab({ token }: { token: string | null }) {
     } catch (err) { setError(String(err)); } finally { setLoading(false); }
   };
 
+  const formatDate = (d: string) => {
+    if (!d) return '-';
+    return new Date(d).toLocaleString('es-MX', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  const statusColor = (s: string) => {
+    if (!s) return 'default' as const;
+    const sl = s.toLowerCase();
+    if (sl.includes('entrega') || sl === 'delivered') return 'success' as const;
+    if (sl.includes('tránsito') || sl.includes('transit')) return 'info' as const;
+    if (sl.includes('cancel')) return 'error' as const;
+    return 'default' as const;
+  };
+
   return (
     <Box>
+      {/* Búsqueda manual */}
       <Card sx={{ border: '1px solid #e0e0e0', mb: 3 }}>
         <CardContent>
-          <Typography variant="h6" fontWeight="bold" gutterBottom>🔍 Trazabilidad de Envíos</Typography>
+          <Typography variant="h6" fontWeight="bold" gutterBottom>🔍 Rastrear Envío</Typography>
           <Divider sx={{ my: 1.5 }} />
           <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
             <TextField size="small" label="Número de Guía" value={trackingNumber}
               onChange={e => setTrackingNumber(e.target.value)} placeholder="Ej: 05167923279"
               sx={{ minWidth: 300 }} onKeyDown={e => e.key === 'Enter' && handleTrack()} />
-            <Button variant="contained" onClick={handleTrack}
+            <Button variant="contained" onClick={() => handleTrack()}
               startIcon={loading ? <CircularProgress size={16} color="inherit" /> : <SearchIcon />}
               disabled={loading} sx={{ bgcolor: PQTX_COLOR, '&:hover': { bgcolor: '#BF360C' } }}>
               Rastrear
@@ -777,19 +1024,27 @@ function TrackingTab({ token }: { token: string | null }) {
 
       {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
+      {/* Resultado de trazabilidad */}
       {result && (
-        <Card sx={{ border: '1px solid #e0e0e0' }}>
+        <Card sx={{ border: '1px solid #e0e0e0', mb: 3 }}>
           <CardContent>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>📍 Historial de Eventos</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+              <Typography variant="h6" fontWeight="bold">
+                📍 Historial — <span style={{ color: PQTX_COLOR, fontFamily: 'monospace' }}>{trackedGuia}</span>
+              </Typography>
+              <Button size="small" onClick={() => { setResult(null); setTrackedGuia(''); }}>Cerrar</Button>
+            </Box>
             <Divider sx={{ my: 1 }} />
             {Array.isArray(result) ? (
               <TableContainer>
                 <Table size="small">
                   <TableHead>
-                    <TableRow>
+                    <TableRow sx={{ bgcolor: '#FFF3E0' }}>
                       <TableCell sx={{ fontWeight: 'bold' }}>Fecha</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Hora</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Evento</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
-                      <TableCell sx={{ fontWeight: 'bold' }}>Descripción</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Sucursal</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Ubicación</TableCell>
                     </TableRow>
                   </TableHead>
@@ -797,28 +1052,180 @@ function TrackingTab({ token }: { token: string | null }) {
                     {result.map((ev: Record<string, unknown>, i: number) => (
                       <TableRow key={i} hover>
                         <TableCell sx={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-                          {String(ev.date || ev.fecha || ev.eventDate || '-')}
+                          {String(ev.fecha || ev.date || '-')}
                         </TableCell>
-                        <TableCell>
-                          <Chip label={String(ev.status || ev.statusCode || ev.codigo || 'N/A')} size="small"
-                            color={String(ev.status || '').toLowerCase().includes('entrega') ? 'success' :
-                              String(ev.status || '').toLowerCase().includes('tránsito') ? 'info' : 'default'} />
+                        <TableCell sx={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                          {String(ev.hora || '-')}
                         </TableCell>
-                        <TableCell sx={{ fontSize: 13 }}>{String(ev.description || ev.descripcion || ev.eventDescription || '-')}</TableCell>
-                        <TableCell sx={{ fontSize: 12 }}>{String(ev.location || ev.ubicacion || ev.office || '-')}</TableCell>
+                        <TableCell sx={{ fontSize: 12 }}>
+                          <Chip label={String(ev.eventoId || ev.eventoDescripcion || '-')} size="small" variant="outlined" />
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 12 }}>
+                          <Chip label={String(ev.status || 'N/A')} size="small"
+                            color={statusColor(String(ev.status || ''))} />
+                        </TableCell>
+                        <TableCell sx={{ fontSize: 12 }}>{String(ev.sucursal || '-')}</TableCell>
+                        <TableCell sx={{ fontSize: 12 }}>{String(ev.ciudadEvento || ev.ciudadDestino || '-')}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
               </TableContainer>
             ) : (
-              <Box component="pre" sx={{ mt: 1, p: 2, bgcolor: '#f5f5f5', borderRadius: 1, overflow: 'auto', maxHeight: 500, fontSize: 12, fontFamily: 'monospace' }}>
+              <Box component="pre" sx={{ mt: 1, p: 2, bgcolor: '#f5f5f5', borderRadius: 1, overflow: 'auto', maxHeight: 400, fontSize: 12, fontFamily: 'monospace' }}>
                 {JSON.stringify(result, null, 2)}
               </Box>
             )}
           </CardContent>
         </Card>
       )}
+
+      {/* Lista de guías generadas con status y monto */}
+      <Card sx={{ border: '1px solid #e0e0e0' }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+            <Typography variant="h6" fontWeight="bold">📋 Guías Generadas ({totalShipments})</Typography>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <TextField size="small" placeholder="Buscar guía, destino..." value={searchTerm}
+                onChange={e => setSearchTerm(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                sx={{ minWidth: 220 }} />
+              <Button variant="outlined" onClick={handleSearch} startIcon={<SearchIcon />} size="small"
+                sx={{ color: PQTX_COLOR, borderColor: PQTX_COLOR }}>
+                Buscar
+              </Button>
+              <Tooltip title="Recargar">
+                <IconButton onClick={() => loadShipments(page, searchTerm)} size="small">
+                  <RefreshIcon />
+                </IconButton>
+              </Tooltip>
+            </Box>
+          </Box>
+
+          {shipmentsLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress sx={{ color: PQTX_COLOR }} />
+            </Box>
+          ) : shipments.length === 0 ? (
+            <Alert severity="info">No se encontraron guías. Genera una desde la pestaña "Generar Envío".</Alert>
+          ) : (
+            <>
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: '#FFF3E0' }}>
+                      <TableCell sx={{ fontWeight: 'bold' }}>No. Guía</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Fecha</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Servicio</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Origen</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Destino</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }} align="right">Peso</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }} align="right">Monto</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }}>Estado</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }} align="center">Rastrear</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {shipments.map((s) => (
+                      <TableRow key={s.id} hover
+                        sx={{
+                          '&:hover': { bgcolor: '#FFF8E1' },
+                          bgcolor: trackedGuia === s.tracking_number ? '#FFF3E0' : 'inherit',
+                        }}>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography variant="body2" fontWeight="bold" fontFamily="monospace" color={PQTX_COLOR}>
+                              {s.tracking_number}
+                            </Typography>
+                            <Tooltip title="Copiar">
+                              <IconButton size="small" onClick={() => navigator.clipboard.writeText(s.tracking_number)}>
+                                <CopyIcon sx={{ fontSize: 14 }} />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" fontSize={12}>{formatDate(s.created_at)}</Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Chip label={s.service_type || 'STD-T'} size="small" variant="outlined"
+                            sx={{ borderColor: PQTX_COLOR, color: PQTX_COLOR, fontWeight: 'bold', fontSize: 11 }} />
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" fontSize={13}>{s.origin_name || '-'}</Typography>
+                          <Typography variant="caption" color="text.secondary">CP {s.origin_zip_code}</Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" fontSize={13}>{s.dest_name || '-'}</Typography>
+                          <Typography variant="caption" color="text.secondary">CP {s.dest_zip_code}</Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" fontSize={13}>{s.weight ? `${Number(s.weight).toFixed(1)} kg` : '-'}</Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          {s.total ? (
+                            <Typography variant="body2" fontWeight="bold" color={PQTX_COLOR}>
+                              ${Number(s.total).toFixed(2)}
+                            </Typography>
+                          ) : '-'}
+                          {s.subtotal && (
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              Sub: ${Number(s.subtotal).toFixed(2)}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Chip size="small"
+                            label={s.status === 'generated' ? 'Activa' : s.status === 'cancelled' ? 'Cancelada' : s.status === 'delivered' ? 'Entregada' : s.status}
+                            color={s.status === 'generated' ? 'success' : s.status === 'cancelled' ? 'error' : s.status === 'delivered' ? 'info' : 'default'}
+                            variant="filled" sx={{ fontSize: 11 }} />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Tooltip title="Rastrear esta guía">
+                            <IconButton size="small" onClick={() => { setTrackingNumber(s.tracking_number); handleTrack(s.tracking_number); }}
+                              sx={{ color: PQTX_COLOR }}>
+                              <SearchIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+
+              {/* Totales */}
+              <Box sx={{ display: 'flex', gap: 3, mt: 2, p: 1.5, bgcolor: '#FFF3E0', borderRadius: 1, flexWrap: 'wrap' }}>
+                <Typography variant="body2" fontWeight="bold">
+                  📊 Total Guías: {totalShipments}
+                </Typography>
+                <Typography variant="body2" fontWeight="bold" color={PQTX_COLOR}>
+                  💰 Monto Total: ${shipments.reduce((sum, s) => sum + (Number(s.total) || 0), 0).toFixed(2)} MXN
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  📦 Piezas: {shipments.reduce((sum, s) => sum + (s.pieces || 1), 0)} |
+                  ⚖️ Peso: {shipments.reduce((sum, s) => sum + (Number(s.weight) || 0), 0).toFixed(1)} kg
+                </Typography>
+              </Box>
+
+              {/* Paginación */}
+              {totalShipments > PAGE_SIZE && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 2, mt: 2 }}>
+                  <Button size="small" disabled={page === 0} onClick={() => handlePageChange(page - 1)}>
+                    ← Anterior
+                  </Button>
+                  <Typography variant="body2" color="text.secondary">
+                    Página {page + 1} de {Math.ceil(totalShipments / PAGE_SIZE)}
+                  </Typography>
+                  <Button size="small" disabled={(page + 1) * PAGE_SIZE >= totalShipments} onClick={() => handlePageChange(page + 1)}>
+                    Siguiente →
+                  </Button>
+                </Box>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
     </Box>
   );
 }

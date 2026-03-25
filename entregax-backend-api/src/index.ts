@@ -663,6 +663,8 @@ import {
   pqtxLabelPdf,
   pqtxLabelZpl,
   pqtxGetConfig,
+  pqtxListShipments,
+  pqtxClientQuote,
 } from './paqueteExpressController';
 import {
   getCarrierOptions,
@@ -670,7 +672,9 @@ import {
   createCarrierOption,
   updateCarrierOption,
   deleteCarrierOption,
-  toggleCarrierOption
+  toggleCarrierOption,
+  uploadCarrierIcon,
+  carrierIconUpload
 } from './carrierServiceController';
 import {
   getDhlRates,
@@ -2660,11 +2664,13 @@ app.post('/api/admin/paquete-express/shipment', authenticateToken, requireMinLev
 app.post('/api/admin/paquete-express/pickup', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxSchedulePickup);
 app.post('/api/admin/paquete-express/cancel', authenticateToken, requireMinLevel(ROLES.ADMIN), pqtxCancel);
 app.get('/api/admin/paquete-express/track/:trackingNumber', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxTrack);
-app.get('/api/admin/paquete-express/label/pdf/:trackingNumber', authenticateToken, pqtxLabelPdf);
+app.get('/api/admin/paquete-express/label/pdf/:trackingNumber', pqtxLabelPdf); // Sin auth: se abre en nueva pestaña del navegador
 app.get('/api/admin/paquete-express/label/zpl/:trackingNumber', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxLabelZpl);
+app.get('/api/admin/paquete-express/shipments', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxListShipments);
 
 // ========== OPCIONES DE PAQUETERÍA POR SERVICIO ==========
 app.get('/api/admin/carrier-options', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCarrierOptions);
+app.post('/api/admin/carrier-options/upload-icon', authenticateToken, requireMinLevel(ROLES.ADMIN), carrierIconUpload.single('icon'), uploadCarrierIcon);
 app.post('/api/admin/carrier-options', authenticateToken, requireMinLevel(ROLES.ADMIN), createCarrierOption);
 app.put('/api/admin/carrier-options/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateCarrierOption);
 app.delete('/api/admin/carrier-options/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteCarrierOption);
@@ -2675,6 +2681,8 @@ app.get('/api/carrier-options/by-service/:serviceType', authenticateToken, getCa
 // Endpoint público para cotizar paquetería (app móvil)
 // Devuelve opciones locales + Skydropx (si está habilitado)
 app.post('/api/shipping/quote', authenticateToken, quoteShipping);
+// Cotización Paquete Express con regla de utilidad (para app móvil)
+app.post('/api/shipping/pqtx-quote', authenticateToken, pqtxClientQuote);
 
 // ========== PANEL DE BODEGA MULTI-SUCURSAL ==========
 // Info del empleado y su sucursal

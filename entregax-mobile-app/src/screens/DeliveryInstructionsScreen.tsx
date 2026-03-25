@@ -235,23 +235,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
       estimatedDays: 'Recoger en bodega',
       isExternal: false,
     },
-    {
-      id: 'paquete_express',
-      name: 'Paquete Express Interno',
-      price: 350,
-      currency: 'MXN',
-      estimatedDays: '2-4 días hábiles',
-      isExternal: false,
-    },
-    // TODO: Agregar carriers de Skydropx cuando se active la integración
-    // {
-    //   id: 'fedex_ground',
-    //   name: 'FedEx Ground',
-    //   price: 0, // Se calcula dinámicamente con Skydropx
-    //   estimatedDays: '3-5 días hábiles',
-    //   isExternal: true,
-    //   skydropxCarrierId: 'fedex',
-    // },
+    // paquete_express se carga dinámicamente desde la API con cotización PQTX
   ];
 
   const [selectedCarrier, setSelectedCarrier] = useState<string>('entregax_local');
@@ -347,21 +331,22 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.options) {
-          // Mapear opciones externas del API
-          const externalRates: CarrierOption[] = data.options
-            .filter((opt: any) => opt.isExternal) // Solo agregar las externas
+          // Mapear opciones del API (incluye paquete_express con precio dinámico)
+          const apiRates: CarrierOption[] = data.options
+            .filter((opt: any) => opt.id !== 'entregax_local') // No duplicar entregax_local
             .map((opt: any) => ({
               id: opt.id,
               name: opt.name,
-              price: opt.price,
+              price: opt.pricePerBox || opt.price,
+              currency: opt.currency || 'MXN',
               estimatedDays: opt.estimatedDays,
-              isExternal: true,
+              isExternal: opt.isExternal || false,
             }));
-          // Combinar: opciones locales + externas del API
-          setCarrierRates([...CARRIER_OPTIONS, ...externalRates]);
-          console.log(`[SHIPPING] Loaded ${externalRates.length} external carrier options`);
+          // Combinar: opciones locales + opciones del API
+          setCarrierRates([...CARRIER_OPTIONS, ...apiRates]);
+          console.log(`[SHIPPING] Loaded ${apiRates.length} carrier options from API`);
         } else {
-          // No hay opciones externas, mantener locales
+          // No hay opciones del API, mantener locales
           setCarrierRates(CARRIER_OPTIONS);
         }
       } else {

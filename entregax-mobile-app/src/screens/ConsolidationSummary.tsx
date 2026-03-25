@@ -10,10 +10,10 @@ const ORANGE = '#F05A28';
 const BLACK = '#111111';
 const GREEN = '#4CAF50';
 
-// Paqueterías disponibles para envío nacional (hardcodeadas por ahora)
+// Paqueterías disponibles para envío nacional
 const CARRIERS_AVAILABLE = [
   { id: 'entregax_local', name: 'Entregax Local', cost: 0, description: 'Recoger en sucursal (sin costo)', icon: '🚛' },
-  { id: 'paquete_express', name: 'Paquete Express Interno', cost: 350, description: 'Entrega a domicilio en 2-3 días hábiles', icon: '📦' },
+  { id: 'paquete_express', name: 'Paquete Express', cost: 0, description: 'Envío a domicilio - precio según cotización API', icon: '📦', dynamic: true },
 ];
 
 interface Address {
