@@ -4064,96 +4064,6 @@ export default function DashboardClient() {
                       </Grid>
                     )}
                   </Paper>
-
-                  {/* DIRECCIONES DE ENVÍO (BODEGAS) */}
-                  <Box id="shipping-addresses-section">
-                  <Typography variant="h6" fontWeight="bold" gutterBottom sx={{ mb: 2 }}>
-                    {t('cd.account.warehouseTitle')}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                    {t('cd.account.warehouseSubtitle')} <strong>{boxId}</strong>
-                  </Typography>
-                  
-                  <Grid container spacing={2}>
-                    {serviceAddresses.map((service) => (
-                      <Grid size={{ xs: 12, lg: 6 }} key={service.serviceType}>
-                        <Paper 
-                          sx={{ 
-                            p: 2.5, 
-                            background: '#fff', 
-                            border: '1px solid #e0e0e0',
-                            borderRadius: 2,
-                            height: '100%',
-                            display: 'flex',
-                            flexDirection: 'column',
-                            transition: 'border-color 0.2s, box-shadow 0.2s',
-                            '&:hover': {
-                              borderColor: ORANGE,
-                              boxShadow: '0 4px 12px rgba(240,90,40,0.15)',
-                            },
-                          }}
-                        >
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                            <Box>
-                              <Typography variant="subtitle1" fontWeight="bold" sx={{ color: '#333' }}>
-                                {service.serviceName}
-                              </Typography>
-                              <Typography variant="caption" sx={{ color: '#666' }}>
-                                {service.addresses[0]?.alias}
-                              </Typography>
-                            </Box>
-                            <Tooltip title={t('cd.account.howToShip')}>
-                              <IconButton 
-                                size="small" 
-                                sx={{ color: ORANGE, bgcolor: '#fff3e0', '&:hover': { bgcolor: '#ffe0b2' } }}
-                                onClick={() => handleOpenTutorial(service.serviceType)}
-                              >
-                                <HelpIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </Box>
-                          
-                          <Box sx={{ bgcolor: '#f5f5f5', borderRadius: 2, p: 1.5, mb: 2, flex: 1, border: '1px solid #e0e0e0' }}>
-                            <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', lineHeight: 1.6, color: '#333' }}>
-                              {service.addresses[0] && renderFormattedAddress(service.addresses[0], service.serviceType)}
-                            </Typography>
-                          </Box>
-                          
-                          <Button 
-                            startIcon={<CopyIcon />} 
-                            variant="contained" 
-                            size="small"
-                            fullWidth
-                            sx={{ 
-                              bgcolor: ORANGE, 
-                              color: 'white', 
-                              '&:hover': { bgcolor: '#d94d1f' } 
-                            }}
-                            onClick={() => service.addresses[0] && copyToClipboard(formatAddressForCopy(service.addresses[0], service.serviceType))}
-                          >
-                            {t('cd.warehouse.copy')}
-                          </Button>
-                        </Paper>
-                      </Grid>
-                    ))}
-                    
-                    {serviceAddresses.length === 0 && (
-                      <Grid size={12}>
-                        <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'grey.50', borderRadius: 2 }}>
-                          <CircularProgress size={24} sx={{ mb: 2 }} />
-                          <Typography color="text.secondary">{t('cd.account.loadingAddresses')}</Typography>
-                        </Paper>
-                      </Grid>
-                    )}
-                  </Grid>
-                  </Box>
-
-                  {/* Nota importante */}
-                  <Alert severity="info" sx={{ mt: 3, borderRadius: 2 }}>
-                    <Typography variant="body2">
-                      <strong>{t('cd.account.suiteReminder', { boxId })}</strong>
-                    </Typography>
-                  </Alert>
                 </Grid>
               </Grid>
             </Box>
@@ -4225,8 +4135,100 @@ export default function DashboardClient() {
             </Box>
           )}
 
-          {/* Tab: Sin Instrucciones */}
+          {/* Tab: Direcciones de Envío (Bodegas) */}
           {activeTab === 4 && (
+            <Box id="shipping-addresses-section">
+              <Typography variant="h6" fontWeight="bold" gutterBottom sx={{ mb: 1 }}>
+                📦 {t('cd.account.warehouseTitle')}
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                {t('cd.account.warehouseSubtitle')} <strong>{boxId}</strong>
+              </Typography>
+              
+              <Grid container spacing={2}>
+                {serviceAddresses.map((service) => (
+                  <Grid size={{ xs: 12, md: 6 }} key={service.serviceType}>
+                    <Paper 
+                      sx={{ 
+                        p: 2.5, 
+                        background: '#fff', 
+                        border: '1px solid #e0e0e0',
+                        borderRadius: 2,
+                        height: '100%',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        transition: 'border-color 0.2s, box-shadow 0.2s',
+                        '&:hover': {
+                          borderColor: ORANGE,
+                          boxShadow: '0 4px 12px rgba(240,90,40,0.15)',
+                        },
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                        <Box>
+                          <Typography variant="subtitle1" fontWeight="bold" sx={{ color: '#333' }}>
+                            {service.serviceName}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#666' }}>
+                            {service.addresses[0]?.alias}
+                          </Typography>
+                        </Box>
+                        <Tooltip title={t('cd.account.howToShip')}>
+                          <IconButton 
+                            size="small" 
+                            sx={{ color: ORANGE, bgcolor: '#fff3e0', '&:hover': { bgcolor: '#ffe0b2' } }}
+                            onClick={() => handleOpenTutorial(service.serviceType)}
+                          >
+                            <HelpIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                      
+                      <Box sx={{ bgcolor: '#f5f5f5', borderRadius: 2, p: 1.5, mb: 2, flex: 1, border: '1px solid #e0e0e0' }}>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', lineHeight: 1.6, color: '#333' }}>
+                          {service.addresses[0] && renderFormattedAddress(service.addresses[0], service.serviceType)}
+                        </Typography>
+                      </Box>
+                      
+                      <Button 
+                        startIcon={<CopyIcon />} 
+                        variant="contained" 
+                        size="small"
+                        fullWidth
+                        sx={{ 
+                          bgcolor: ORANGE, 
+                          color: 'white', 
+                          '&:hover': { bgcolor: '#d94d1f' } 
+                        }}
+                        onClick={() => service.addresses[0] && copyToClipboard(formatAddressForCopy(service.addresses[0], service.serviceType))}
+                      >
+                        {t('cd.warehouse.copy')}
+                      </Button>
+                    </Paper>
+                  </Grid>
+                ))}
+                
+                {serviceAddresses.length === 0 && (
+                  <Grid size={12}>
+                    <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'grey.50', borderRadius: 2 }}>
+                      <CircularProgress size={24} sx={{ mb: 2 }} />
+                      <Typography color="text.secondary">{t('cd.account.loadingAddresses')}</Typography>
+                    </Paper>
+                  </Grid>
+                )}
+              </Grid>
+
+              {/* Nota importante */}
+              <Alert severity="info" sx={{ mt: 3, borderRadius: 2 }}>
+                <Typography variant="body2">
+                  <strong>{t('cd.account.suiteReminder', { boxId })}</strong>
+                </Typography>
+              </Alert>
+            </Box>
+          )}
+
+          {/* Tab: Sin Instrucciones */}
+          {activeTab === 5 && (
             <Box>
               <Typography variant="h6" fontWeight="bold" gutterBottom>
                 ❌ {t('cd.noInstructions.title')}
@@ -4454,7 +4456,7 @@ export default function DashboardClient() {
           )}
 
           {/* Tab: Con Instrucciones */}
-          {activeTab === 5 && (
+          {activeTab === 6 && (
             <Box>
               <Typography variant="h6" fontWeight="bold" gutterBottom>
                 ✅ {t('cd.withInstructionsTab.title')}
@@ -7696,13 +7698,14 @@ export default function DashboardClient() {
           <BottomNavigation
             value={(() => {
               // Mapear activeTab a índice de BottomNav
-              // activeTab: 0=Envíos, 1=Cotizador, 2=MiCuenta, 3=Facturas
+              // activeTab: 0=Envíos, 1=Cotizador, 2=MiCuenta, 3=Facturas, 4=Direcciones
               // BottomNav: 0=Envíos, 1=Pagos, 2=Cotizar, 3=Direcciones, 4=Facturas, 5=Cuenta
               const reverseMapping: {[key: number]: number} = {
                 0: 0,  // Envíos → Envíos
                 1: 2,  // Cotizador → Cotizar
                 2: 5,  // Mi Cuenta → Cuenta
                 3: 4,  // Facturas → Facturas
+                4: 3,  // Direcciones → Direcciones
               };
               return reverseMapping[activeTab] ?? 0;
             })()}
@@ -7712,21 +7715,11 @@ export default function DashboardClient() {
                 window.open('https://pagos.entregax.com/proveedores', '_blank');
                 return;
               }
-              // newValue 3 es "Direcciones" - ir a Mi Cuenta y scroll a direcciones de envío
-              if (newValue === 3) {
-                setActiveTab(2); // Mi Cuenta
-                setTimeout(() => {
-                  const shippingSection = document.getElementById('shipping-addresses-section');
-                  if (shippingSection) {
-                    shippingSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  }
-                }, 100);
-                return;
-              }
-              // Mapear índices: 0=envíos, 2=cotizador, 4=facturas, 5=cuenta
+              // Mapear índices: 0=envíos, 2=cotizador, 3=direcciones, 4=facturas, 5=cuenta
               const tabMapping: {[key: number]: number} = {
                 0: 0,  // Mis Envíos
                 2: 1,  // Cotizador
+                3: 4,  // Direcciones de Envío
                 4: 3,  // Facturas
                 5: 2,  // Mi Cuenta
               };
