@@ -6830,7 +6830,8 @@ export default function DashboardClient() {
         </Alert>
       </Snackbar>
 
-      {/* Carrusel de Servicios */}
+      {/* Carrusel de Servicios - Solo en tab Envíos */}
+      {activeTab === 0 && (
       <Box sx={{ mb: 3 }}>
         <Typography variant="h6" fontWeight="bold" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
           {t('cd.servicesCarousel.title')}
@@ -6899,6 +6900,7 @@ export default function DashboardClient() {
           ))}
         </Box>
       </Box>
+      )}
 
       {/* Modal de Pago */}
       <Dialog open={paymentModalOpen} onClose={() => setPaymentModalOpen(false)} maxWidth="sm" fullWidth>
