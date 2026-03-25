@@ -4,6 +4,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback } from 'react';
+import useModulePermissions from '../hooks/useModulePermissions';
 import {
   Box,
   Typography,
@@ -111,7 +112,10 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
   dispatched: { label: 'Despachado', color: '#9c27b0', icon: <SendIcon /> },
 };
 
+const CEDIS_MODULES = ['reception', 'storage', 'picking', 'packing', 'dispatch', 'transfers', 'scanning', 'inventory_count'];
+
 export default function DhlOperationsPage() {
+  const { allowedModules, loading: permLoading, canEdit } = useModulePermissions('ops_mx_cedis', CEDIS_MODULES);
   const [tabValue, setTabValue] = useState(0);
   const [shipments, setShipments] = useState<DhlShipment[]>([]);
   const [stats, setStats] = useState<DhlStats | null>(null);
@@ -313,6 +317,24 @@ export default function DhlOperationsPage() {
     });
   };
 
+  if (permLoading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (allowedModules.length === 0) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh" flexDirection="column" gap={2}>
+        <LockIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
+        <Typography variant="h6" color="text.secondary">No tienes acceso a este módulo</Typography>
+        <Typography variant="body2" color="text.disabled">Contacta a tu administrador para solicitar permisos</Typography>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -328,6 +350,7 @@ export default function DhlOperationsPage() {
             </Typography>
           </Box>
         </Box>
+        {canEdit('reception') && (
         <Button
           variant="contained"
           startIcon={<ScanIcon />}
@@ -336,6 +359,7 @@ export default function DhlOperationsPage() {
         >
           Recibir Paquete
         </Button>
+        )}
       </Box>
 
       {/* Stats Cards */}

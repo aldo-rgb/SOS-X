@@ -4,6 +4,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback } from 'react';
+import useModulePermissions from '../hooks/useModulePermissions';
 import {
   Box,
   Typography,
@@ -47,6 +48,7 @@ import {
   Visibility as ViewIcon,
   Search as SearchIcon,
   Description as DocIcon,
+  Lock as LockIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 
@@ -158,9 +160,12 @@ function TabPanel(props: TabPanelProps) {
   );
 }
 
+const CHINA_SEA_MODULES = ['reception', 'container_unload', 'processing', 'customs_release', 'distribution', 'scanning', 'photos', 'damage_report'];
+
 export default function MaritimeWarehousePage() {
   useTranslation(); // Para futuras traducciones
   const token = localStorage.getItem('token');
+  const { allowedModules, loading: permLoading, canEdit } = useModulePermissions('ops_china_sea', CHINA_SEA_MODULES);
   
   // Estado principal
   const [tabValue, setTabValue] = useState(0);
@@ -504,6 +509,24 @@ export default function MaritimeWarehousePage() {
     );
   }
 
+  if (permLoading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (allowedModules.length === 0) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh" flexDirection="column" gap={2}>
+        <LockIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
+        <Typography variant="h6" color="text.secondary">No tienes acceso a este módulo</Typography>
+        <Typography variant="body2" color="text.disabled">Contacta a tu administrador para solicitar permisos</Typography>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -518,6 +541,7 @@ export default function MaritimeWarehousePage() {
           </Typography>
         </Box>
         <Box display="flex" gap={1}>
+          {canEdit('reception') && (
           <Button
             variant="contained"
             color="warning"
@@ -526,6 +550,8 @@ export default function MaritimeWarehousePage() {
           >
             Subir LOG (LCL)
           </Button>
+          )}
+          {canEdit('container_unload') && (
           <Button
             variant="contained"
             color="primary"
@@ -534,6 +560,8 @@ export default function MaritimeWarehousePage() {
           >
             Subir BL (FCL)
           </Button>
+          )}
+          {canEdit('container_unload') && (
           <Button
             variant="outlined"
             startIcon={<AddIcon />}
@@ -541,6 +569,7 @@ export default function MaritimeWarehousePage() {
           >
             Crear FCL Vacío
           </Button>
+          )}
           <IconButton onClick={fetchData}>
             <RefreshIcon />
           </IconButton>

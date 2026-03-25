@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import useModulePermissions from '../hooks/useModulePermissions';
 import {
   Box,
   Paper,
@@ -132,7 +133,10 @@ interface DailyStats {
   }>;
 }
 
+const SCANNER_MODULES = ['scan_receive', 'scan_deliver', 'scan_transfer', 'scan_return', 'batch_scan'];
+
 const UnifiedWarehousePanel: React.FC = () => {
+  const { allowedModules, loading: permLoading, canView } = useModulePermissions('ops_scanner', SCANNER_MODULES);
   const [mode, setMode] = useState<ScanMode>(null);
   const [barcode, setBarcode] = useState('');
   const [branchInfo, setBranchInfo] = useState<BranchInfo | null>(null);
@@ -485,6 +489,24 @@ const UnifiedWarehousePanel: React.FC = () => {
     });
   };
 
+  if (permLoading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="80vh">
+        <CircularProgress size={60} />
+      </Box>
+    );
+  }
+
+  if (allowedModules.length === 0) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh" flexDirection="column" gap={2}>
+        <LockIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
+        <Typography variant="h6" color="text.secondary">No tienes acceso a este módulo</Typography>
+        <Typography variant="body2" color="text.disabled">Contacta a tu administrador para solicitar permisos</Typography>
+      </Box>
+    );
+  }
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="80vh">
@@ -589,6 +611,7 @@ const UnifiedWarehousePanel: React.FC = () => {
             Selecciona el tipo de operación
           </Typography>
           <Grid container spacing={4} justifyContent="center">
+            {canView('scan_receive') && (
             <Grid size={{ xs: 12, sm: 6, md: 5 }}>
               <Button
                 fullWidth
@@ -615,6 +638,8 @@ const UnifiedWarehousePanel: React.FC = () => {
                 </Box>
               </Button>
             </Grid>
+            )}
+            {canView('scan_deliver') && (
             <Grid size={{ xs: 12, sm: 6, md: 5 }}>
               <Button
                 fullWidth
@@ -641,6 +666,7 @@ const UnifiedWarehousePanel: React.FC = () => {
                 </Box>
               </Button>
             </Grid>
+            )}
           </Grid>
         </Box>
       )}

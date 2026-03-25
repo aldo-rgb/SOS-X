@@ -4,6 +4,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import useModulePermissions from '../hooks/useModulePermissions';
 import {
     Box,
     Typography,
@@ -170,6 +171,8 @@ const PAQUETERIAS = [
 
 const ORANGE = '#F05A28';
 
+const POBOX_MODULES = ['receive', 'entry', 'exit', 'collect', 'quote', 'repack', 'inventory'];
+
 // Definición de las opciones del menú - ORDEN: Recibir, Entrada, Salida, Cobrar, Cotizar, Reempaque, Inventario
 const POBOX_MENU_OPTIONS = [
     {
@@ -242,9 +245,8 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const { t } = useTranslation();
     const [selectedOption, setSelectedOption] = useState<string | null>(null);
     
-    // Estados para permisos de módulos
-    const [allowedModules, setAllowedModules] = useState<string[]>([]);
-    const [permissionsLoading, setPermissionsLoading] = useState(true);
+    // Permisos de módulos (hook compartido)
+    const { allowedModules, loading: permissionsLoading } = useModulePermissions('ops_usa_pobox', POBOX_MODULES);
     
     // Estados para modal de cotización
     const [quoteModalOpen, setQuoteModalOpen] = useState(false);
@@ -284,60 +286,6 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const [inventorySearch, setInventorySearch] = useState('');
     const [inventoryPage, setInventoryPage] = useState(0);
     const [inventoryRowsPerPage, setInventoryRowsPerPage] = useState(10);
-
-    const token = localStorage.getItem('token');
-
-    // Cargar permisos de módulos al montar
-    useEffect(() => {
-        const loadModulePermissions = async () => {
-            setPermissionsLoading(true);
-            try {
-                // Obtener rol del usuario
-                const profileRes = await fetch(`${API_URL}/api/auth/profile`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-                
-                let role = '';
-                if (profileRes.ok) {
-                    const profileData = await profileRes.json();
-                    role = profileData.user?.role || profileData.role || '';
-                }
-
-                // Si es super_admin, tiene acceso a todo
-                if (role === 'super_admin') {
-                    setAllowedModules(POBOX_MENU_OPTIONS.map(opt => opt.id));
-                    setPermissionsLoading(false);
-                    return;
-                }
-
-                // Cargar permisos de módulos para ops_usa_pobox
-                const modulesRes = await fetch(`${API_URL}/api/modules/ops_usa_pobox/me`, {
-                    headers: { Authorization: `Bearer ${token}` },
-                });
-
-                if (modulesRes.ok) {
-                    const modulesData = await modulesRes.json();
-                    const allowed = (modulesData.modules || [])
-                        .filter((m: { can_view: boolean }) => m.can_view)
-                        .map((m: { module_key: string }) => m.module_key);
-                    
-                    console.log('📋 Módulos permitidos en PO Box:', allowed);
-                    setAllowedModules(allowed);
-                } else {
-                    // Si no hay endpoint, mostrar todos por defecto
-                    setAllowedModules(POBOX_MENU_OPTIONS.map(opt => opt.id));
-                }
-            } catch (err) {
-                console.error('Error loading module permissions:', err);
-                // En caso de error, mostrar todos
-                setAllowedModules(POBOX_MENU_OPTIONS.map(opt => opt.id));
-            } finally {
-                setPermissionsLoading(false);
-            }
-        };
-
-        loadModulePermissions();
-    }, [token]);
 
     // Filtrar opciones según permisos
     const filteredMenuOptions = POBOX_MENU_OPTIONS.filter(opt => 

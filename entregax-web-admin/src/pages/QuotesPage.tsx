@@ -1,10 +1,12 @@
 import { useState } from 'react';
+import useModulePermissions from '../hooks/useModulePermissions';
 import { useTranslation } from 'react-i18next';
 import {
   Box, Typography, Paper, TextField, Button, Grid, Card, CardContent,
   FormControl, InputLabel, Select, MenuItem, type SelectChangeEvent,
   Divider, Alert, Chip, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, IconButton, Tooltip, InputAdornment, Fade,
+  CircularProgress,
 } from '@mui/material';
 import CalculateIcon from '@mui/icons-material/Calculate';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
@@ -15,6 +17,7 @@ import PrintIcon from '@mui/icons-material/Print';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import HistoryIcon from '@mui/icons-material/History';
 import DeleteIcon from '@mui/icons-material/Delete';
+import LockIcon from '@mui/icons-material/Lock';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111111';
@@ -53,8 +56,11 @@ interface QuotesPageProps {
   // Props if needed
 }
 
+const NATIONAL_MODULES = ['quotes', 'rates', 'coverage', 'tracking'];
+
 export default function QuotesPage({}: QuotesPageProps) {
   const { t, i18n } = useTranslation();
+  const { allowedModules, loading: permLoading, canView, canEdit } = useModulePermissions('ops_mx_national', NATIONAL_MODULES);
   
   // Form state
   const [weight, setWeight] = useState('');
@@ -204,6 +210,24 @@ ${t('quotes.total')}: $${quote.total.toLocaleString()} MXN`;
     { value: 'USA-MX-Sur', label: i18n.language === 'es' ? 'México Sur (Oaxaca, Veracruz, Chiapas)' : 'Mexico South (Oaxaca, Veracruz, Chiapas)' },
     { value: 'USA-MX-Peninsula', label: i18n.language === 'es' ? 'Península (Cancún, Mérida)' : 'Peninsula (Cancun, Merida)' },
   ];
+
+  if (permLoading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (allowedModules.length === 0) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh" flexDirection="column" gap={2}>
+        <LockIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
+        <Typography variant="h6" color="text.secondary">No tienes acceso a este módulo</Typography>
+        <Typography variant="body2" color="text.disabled">Contacta a tu administrador para solicitar permisos</Typography>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ p: 3 }}>

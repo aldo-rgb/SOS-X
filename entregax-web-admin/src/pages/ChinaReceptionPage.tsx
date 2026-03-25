@@ -4,6 +4,7 @@
 // ============================================
 
 import { useState, useEffect, Fragment } from 'react';
+import useModulePermissions from '../hooks/useModulePermissions';
 import {
     Box,
     Typography,
@@ -48,6 +49,7 @@ import {
     Photo as PhotoIcon,
     Assignment as AssignIcon,
     Add as AddIcon,
+    Lock as LockIcon,
 } from '@mui/icons-material';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -344,7 +346,10 @@ function ReceiptRow({
 }
 
 // Componente principal
+const CHINA_AIR_MODULES = ['reception', 'processing', 'customs_release', 'distribution', 'scanning', 'photos'];
+
 export default function ChinaReceptionPage() {
+    const { allowedModules, loading: permLoading, canEdit } = useModulePermissions('ops_china_air', CHINA_AIR_MODULES);
     const [receipts, setReceipts] = useState<ChinaReceipt[]>([]);
     const [stats, setStats] = useState<Stats | null>(null);
     const [loading, setLoading] = useState(true);
@@ -544,6 +549,24 @@ export default function ChinaReceptionPage() {
         r.client_name?.toLowerCase().includes(search.toLowerCase())
     );
 
+    if (permLoading) {
+        return (
+            <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+                <CircularProgress />
+            </Box>
+        );
+    }
+
+    if (allowedModules.length === 0) {
+        return (
+            <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh" flexDirection="column" gap={2}>
+                <LockIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
+                <Typography variant="h6" color="text.secondary">No tienes acceso a este módulo</Typography>
+                <Typography variant="body2" color="text.disabled">Contacta a tu administrador para solicitar permisos</Typography>
+            </Box>
+        );
+    }
+
     return (
         <Box sx={{ p: 3 }}>
             {/* Header */}
@@ -557,6 +580,7 @@ export default function ChinaReceptionPage() {
                     </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', gap: 1 }}>
+                    {canEdit('reception') && (
                     <Button
                         variant="contained"
                         startIcon={<AddIcon />}
@@ -565,6 +589,7 @@ export default function ChinaReceptionPage() {
                     >
                         Captura Manual
                     </Button>
+                    )}
                     <Button
                         variant="outlined"
                         startIcon={<RefreshIcon />}

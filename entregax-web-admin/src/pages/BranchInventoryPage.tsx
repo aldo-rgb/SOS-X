@@ -4,6 +4,7 @@
 // ============================================
 
 import { useState, useEffect } from 'react';
+import useModulePermissions from '../hooks/useModulePermissions';
 import {
   Box,
   Paper,
@@ -30,6 +31,7 @@ import {
   Skeleton,
   InputAdornment,
   Badge,
+  CircularProgress,
 } from '@mui/material';
 import {
   Inventory as InventoryIcon,
@@ -44,6 +46,7 @@ import {
   CheckCircle as InStockIcon,
   ExitToApp as ReleasedIcon,
   Store as StoreIcon,
+  Lock as LockIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -85,7 +88,10 @@ interface Props {
   showBranchSelector?: boolean;
 }
 
+const INVENTORY_MODULES = ['stock_view', 'stock_adjust', 'stock_count', 'transfers', 'reports'];
+
 export default function BranchInventoryPage({ branchId, showBranchSelector = true }: Props) {
+  const { allowedModules, loading: permLoading, canView, canEdit } = useModulePermissions('ops_inventory', INVENTORY_MODULES);
   const [loading, setLoading] = useState(true);
   const [branches, setBranches] = useState<Branch[]>([]);
   const [selectedBranch, setSelectedBranch] = useState<number | 'all'>(branchId || 'all');
@@ -230,6 +236,24 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
     </Box>
   );
 
+  if (permLoading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (allowedModules.length === 0) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh" flexDirection="column" gap={2}>
+        <LockIcon sx={{ fontSize: 64, color: 'text.disabled' }} />
+        <Typography variant="h6" color="text.secondary">No tienes acceso a este módulo</Typography>
+        <Typography variant="body2" color="text.disabled">Contacta a tu administrador para solicitar permisos</Typography>
+      </Box>
+    );
+  }
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -252,6 +276,7 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
           >
             Actualizar
           </Button>
+          {canEdit('reports') && (
           <Button
             variant="outlined"
             startIcon={<DownloadIcon />}
@@ -259,6 +284,7 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
           >
             Exportar
           </Button>
+          )}
         </Box>
       </Box>
 
