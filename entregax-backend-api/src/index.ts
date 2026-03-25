@@ -325,7 +325,12 @@ import {
   getAdvisorShipments,
   getAdvisorCommissions,
   getRepackChildren,
-  getClientWallet
+  getClientWallet,
+  getAdvisorTeam,
+  getAdvisorClientTickets,
+  getAdvisorTicketDetail,
+  getAdvisorNotifications,
+  getAdvisorUnreadCount
 } from './advisorPanelController';
 import {
   requestAdvisor,
@@ -649,6 +654,17 @@ import {
   quoteShipping
 } from './lastMileController';
 import {
+  pqtxLogin,
+  pqtxQuote,
+  pqtxCreateShipment,
+  pqtxSchedulePickup,
+  pqtxCancel,
+  pqtxTrack,
+  pqtxLabelPdf,
+  pqtxLabelZpl,
+  pqtxGetConfig,
+} from './paqueteExpressController';
+import {
   getCarrierOptions,
   getCarrierOptionsByService,
   createCarrierOption,
@@ -681,7 +697,9 @@ import {
 } from './dhlController';
 import {
   getPrivacyNotice,
+  getAdvisorPrivacyNotice,
   acceptPrivacyNotice,
+  acceptAdvisorPrivacyNotice,
   saveEmployeeOnboarding,
   checkIn,
   checkOut,
@@ -1539,6 +1557,30 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
       console.log('DHL stats error:', (err as Error).message);
     }
 
+    // 2d. Contar paquetes TDI Aéreo China (china_receipts)
+    // Los paquetes aéreos tienen saldo_pendiente o assigned_cost_mxn
+    // Si no tienen costo asignado, estimamos con $21 USD/kg (tarifa estándar)
+    let chinaAirStats = { saldo_pendiente: 0, paquetes_pendientes: 0 };
+    try {
+      const chinaAirStatsQuery = await pool.query(`
+        SELECT 
+          COALESCE(SUM(
+            CASE 
+              WHEN saldo_pendiente IS NOT NULL THEN saldo_pendiente
+              WHEN assigned_cost_mxn IS NOT NULL THEN assigned_cost_mxn
+              ELSE COALESCE(total_weight, 0) * 21  -- Estimado $21 USD/kg si no hay costo
+            END
+          ) FILTER (WHERE COALESCE(payment_status, 'pending') != 'paid' AND status NOT IN ('cancelled', 'delivered')), 0) as saldo_pendiente,
+          COUNT(*) FILTER (WHERE COALESCE(payment_status, 'pending') != 'paid' AND status NOT IN ('cancelled', 'delivered')) as paquetes_pendientes
+        FROM china_receipts
+        WHERE user_id = $1 OR UPPER(shipping_mark) = UPPER($2)
+      `, [userId, boxId]);
+      chinaAirStats = chinaAirStatsQuery.rows[0] || chinaAirStats;
+      console.log('[Dashboard] China Air stats:', chinaAirStats, 'for user', userId, 'boxId', boxId);
+    } catch (err) {
+      console.log('China Air stats error:', (err as Error).message);
+    }
+
     // 3. Obtener paquetes activos del cliente (PO Box USA y Aéreo China)
     const packagesQuery = await pool.query(`
       SELECT 
@@ -1988,11 +2030,11 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           entregados_mes: (parseInt(stats.entregados_mes) || 0) + (parseInt(maritimeStats.entregados_mes) || 0),
         },
         financiero: {
-          saldo_pendiente: (parseFloat(stats.saldo_pendiente) || 0) + (parseFloat(maritimeStats.saldo_pendiente) || 0) + (parseFloat(dhlStats.saldo_pendiente as any) || 0) + containerSaldoPendiente,
+          saldo_pendiente: (parseFloat(stats.saldo_pendiente) || 0) + (parseFloat(maritimeStats.saldo_pendiente) || 0) + (parseFloat(dhlStats.saldo_pendiente as any) || 0) + containerSaldoPendiente + (parseFloat(chinaAirStats.saldo_pendiente as any) || 0),
           // Desglose por tipo de servicio con moneda correcta
           saldo_por_servicio: [
             { servicio: 'PO Box USA', monto: parseFloat(stats.saldo_pobox) || 0, moneda: 'USD', icono: '📦' },
-            { servicio: 'Aéreo China', monto: parseFloat(stats.saldo_aereo) || 0, moneda: 'USD', icono: '✈️' },
+            { servicio: 'Aéreo China', monto: (parseFloat(stats.saldo_aereo) || 0) + (parseFloat(chinaAirStats.saldo_pendiente as any) || 0), moneda: 'USD', icono: '✈️' },
             { servicio: 'Marítimo China', monto: parseFloat(maritimeStats.saldo_pendiente) || 0, moneda: 'USD', icono: '🚢' },
             { servicio: 'DHL Nacional', monto: parseFloat(dhlStats.saldo_pendiente as any) || 0, moneda: 'USD', icono: '📮' },
             { servicio: 'Contenedores FCL', monto: containerSaldoPendiente, moneda: 'USD', icono: '🏗️' },
@@ -2610,6 +2652,17 @@ app.post('/api/admin/last-mile/quote-direct', authenticateToken, requireMinLevel
 app.post('/api/admin/last-mile/dispatch', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), dispatchShipment);
 app.get('/api/admin/last-mile/reprint/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), reprintLabel);
 
+// ========== API PAQUETE EXPRESS ==========
+app.get('/api/admin/paquete-express/config', authenticateToken, requireMinLevel(ROLES.ADMIN), pqtxGetConfig);
+app.post('/api/admin/paquete-express/login', authenticateToken, requireMinLevel(ROLES.ADMIN), pqtxLogin);
+app.post('/api/admin/paquete-express/quote', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxQuote);
+app.post('/api/admin/paquete-express/shipment', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxCreateShipment);
+app.post('/api/admin/paquete-express/pickup', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxSchedulePickup);
+app.post('/api/admin/paquete-express/cancel', authenticateToken, requireMinLevel(ROLES.ADMIN), pqtxCancel);
+app.get('/api/admin/paquete-express/track/:trackingNumber', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxTrack);
+app.get('/api/admin/paquete-express/label/pdf/:trackingNumber', authenticateToken, pqtxLabelPdf);
+app.get('/api/admin/paquete-express/label/zpl/:trackingNumber', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxLabelZpl);
+
 // ========== OPCIONES DE PAQUETERÍA POR SERVICIO ==========
 app.get('/api/admin/carrier-options', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCarrierOptions);
 app.post('/api/admin/carrier-options', authenticateToken, requireMinLevel(ROLES.ADMIN), createCarrierOption);
@@ -2822,6 +2875,11 @@ app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorN
 app.get('/api/advisor/shipments', authenticateToken, getAdvisorShipments);
 app.get('/api/advisor/shipments/:id/children', authenticateToken, getRepackChildren);
 app.get('/api/advisor/commissions', authenticateToken, getAdvisorCommissions);
+app.get('/api/advisor/team', authenticateToken, getAdvisorTeam);
+app.get('/api/advisor/client-tickets', authenticateToken, getAdvisorClientTickets);
+app.get('/api/advisor/client-tickets/:ticketId', authenticateToken, getAdvisorTicketDetail);
+app.get('/api/advisor/notifications', authenticateToken, getAdvisorNotifications);
+app.get('/api/advisor/notifications/unread-count', authenticateToken, getAdvisorUnreadCount);
 
 // ========== CRM - SOLICITUDES DE ASESOR ==========
 
@@ -5247,9 +5305,11 @@ app.post('/api/admin/air-email/upload-manual',
 // ========== MÓDULO DE RECURSOS HUMANOS ==========
 // Públicos (empleados)
 app.get('/api/hr/privacy-notice', getPrivacyNotice);
+app.get('/api/hr/advisor-privacy-notice', getAdvisorPrivacyNotice);
 
 // Empleados autenticados
 app.post('/api/hr/accept-privacy', authenticateToken, acceptPrivacyNotice);
+app.post('/api/hr/accept-advisor-privacy', authenticateToken, acceptAdvisorPrivacyNotice);
 app.post('/api/hr/onboarding', authenticateToken, saveEmployeeOnboarding);
 app.get('/api/hr/onboarding-status', authenticateToken, checkOnboardingStatus);
 
@@ -5325,6 +5385,358 @@ app.get('/api/driver/deliveries-today', authenticateToken, requireMinLevel(ROLES
 
 // Verificar paquete antes de entregar
 app.get('/api/driver/verify-package/:barcode', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), verifyPackageForDelivery);
+
+// ============================================
+// COTIZADOR PÚBLICO UNIVERSAL
+// Endpoint para obtener todas las tarifas y calcular cotizaciones
+// ============================================
+
+// GET /api/public/rates - Obtener tarifas de referencia de todos los servicios
+app.get('/api/public/rates', async (_req: Request, res: Response) => {
+  try {
+    // 1. Tipo de cambio actual
+    const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
+    const fxRate = parseFloat(fxRes.rows[0]?.rate || '20.00');
+
+    // 2. Tarifas Marítimo China (precio base por CBM)
+    const maritimoRes = await pool.query(`
+      SELECT pt.min_cbm, pt.max_cbm, pt.price, pt.is_flat_fee
+      FROM pricing_tiers pt
+      JOIN pricing_categories pc ON pt.category_id = pc.id
+      WHERE pc.name = 'Generico' AND pt.is_active = true
+      ORDER BY pt.min_cbm ASC LIMIT 1
+    `);
+    const maritimoBase = parseFloat(maritimoRes.rows[0]?.price || '39');
+
+    // 3. Tarifas Aéreo China (obtener tarifa G - Genérico de la ruta activa)
+    const aereoRes = await pool.query(`
+      SELECT at.price_per_kg
+      FROM air_tariffs at
+      JOIN air_routes ar ON at.route_id = ar.id
+      WHERE ar.is_active = true AND at.tariff_type = 'G' AND at.is_active = true
+      ORDER BY ar.id ASC LIMIT 1
+    `);
+    const aereoBase = parseFloat(aereoRes.rows[0]?.price_per_kg || '8');
+
+    // 4. Tarifas PO Box USA (nivel 1 - precio base)
+    const poboxRes = await pool.query(`
+      SELECT costo FROM pobox_tarifas_volumen
+      WHERE estado = true ORDER BY nivel ASC LIMIT 1
+    `);
+    const poboxBase = parseFloat(poboxRes.rows[0]?.costo || '39');
+    // Convertir a precio por libra aprox ($39 USD / ~11.13 CBM mínimo)
+    const poboxPorLibra = 3.50; // Tarifa fija por libra
+
+    // 5. Tarifas DHL (Standard)
+    const dhlRes = await pool.query(`
+      SELECT price_usd FROM dhl_rates
+      WHERE rate_type = 'STANDARD' AND is_active = true LIMIT 1
+    `);
+    const dhlStandard = parseFloat(dhlRes.rows[0]?.price_usd || '145');
+
+    // DHL High Value
+    const dhlHvRes = await pool.query(`
+      SELECT price_usd FROM dhl_rates
+      WHERE rate_type = 'HIGH_VALUE' AND is_active = true LIMIT 1
+    `);
+    const dhlHighValue = parseFloat(dhlHvRes.rows[0]?.price_usd || '225');
+
+    res.json({
+      tipo_cambio: fxRate,
+      servicios: [
+        {
+          id: 'maritimo',
+          nombre: 'Marítimo China',
+          descripcion: 'Envío por mar desde China. Ideal para volúmenes grandes.',
+          tiempo_estimado: '45-60 días',
+          unidad: 'CBM',
+          precio_base_usd: maritimoBase,
+          precio_base_mxn: maritimoBase * fxRate,
+          icono: '🚢',
+          notas: 'Incluye entrega en Monterrey. Mínimo cobrable: 0.010 m³',
+        },
+        {
+          id: 'aereo',
+          nombre: 'Aéreo China',
+          descripcion: 'Envío por avión desde China. Para envíos urgentes y pequeños.',
+          tiempo_estimado: '10-15 días',
+          unidad: 'kg',
+          precio_base_usd: aereoBase,
+          precio_base_mxn: aereoBase * fxRate,
+          icono: '✈️',
+          notas: 'Precio por kilogramo. Se usa el mayor entre peso real y volumétrico.',
+        },
+        {
+          id: 'pobox',
+          nombre: 'PO Box USA',
+          descripcion: 'Casillero en USA para compras en Amazon, eBay, tiendas online.',
+          tiempo_estimado: '5-10 días',
+          unidad: 'paquete',
+          precio_base_usd: 39,
+          precio_base_mxn: 39 * fxRate,
+          icono: '📦',
+          notas: 'Compras en Amazon, eBay y tiendas USA. Precio base desde $39 USD.',
+        },
+        {
+          id: 'dhl',
+          nombre: 'DHL Nacional',
+          descripcion: 'Liberación de paquetes DHL en Monterrey.',
+          tiempo_estimado: '1-3 días',
+          unidad: 'liberación',
+          precio_base_usd: dhlStandard,
+          precio_base_mxn: dhlStandard * fxRate,
+          icono: '📮',
+          notas: 'Liberación + entrega local. High Value: $' + dhlHighValue + ' USD',
+        },
+      ],
+    });
+  } catch (error: any) {
+    console.error('Error obteniendo tarifas públicas:', error);
+    res.status(500).json({ error: 'Error al obtener tarifas' });
+  }
+});
+
+// POST /api/public/quote - Cotizador universal
+app.post('/api/public/quote', async (req: Request, res: Response) => {
+  try {
+    const { servicio, largo, ancho, alto, peso, cantidad = 1, categoria } = req.body;
+
+    if (!servicio) {
+      return res.status(400).json({ error: 'El tipo de servicio es requerido' });
+    }
+
+    // Tipo de cambio
+    const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
+    const fxRate = parseFloat(fxRes.rows[0]?.rate || '20.00');
+
+    let resultado: any = {
+      servicio,
+      tipo_cambio: fxRate,
+      moneda: 'USD',
+    };
+
+    switch (servicio) {
+      case 'maritimo': {
+        if (!largo || !ancho || !alto) {
+          return res.status(400).json({ error: 'Dimensiones (largo, ancho, alto en cm) son requeridas' });
+        }
+        
+        // Calcular CBM
+        let cbm = (parseFloat(largo) * parseFloat(ancho) * parseFloat(alto)) / 1000000;
+        const cbmOriginal = cbm;
+        
+        // Mínimo cobrable
+        if (cbm < 0.01) cbm = 0.01;
+        
+        // Redondeo 0.76-0.99 → 1
+        const decimal = cbm - Math.floor(cbm);
+        if (decimal >= 0.76) cbm = Math.ceil(cbm);
+        
+        cbm *= cantidad;
+
+        // Obtener tarifa
+        const cat = categoria || 'Generico';
+        const tierRes = await pool.query(`
+          SELECT pt.price, pt.is_flat_fee
+          FROM pricing_tiers pt
+          JOIN pricing_categories pc ON pt.category_id = pc.id
+          WHERE pc.name ILIKE $1 AND pt.is_active = true
+            AND $2 >= pt.min_cbm AND ($2 <= pt.max_cbm OR pt.max_cbm IS NULL)
+          ORDER BY pt.min_cbm ASC LIMIT 1
+        `, [cat, cbm]);
+
+        let precioUsd = 0;
+        let tipoCalculo = 'por_cbm';
+        if (tierRes.rows.length > 0) {
+          const tier = tierRes.rows[0];
+          if (!tier.is_flat_fee) {
+            precioUsd = cbm * parseFloat(tier.price);
+          } else {
+            precioUsd = parseFloat(tier.price);
+            tipoCalculo = 'precio_fijo';
+          }
+        } else {
+          // Fallback
+          precioUsd = cbm * 39;
+        }
+
+        resultado = {
+          ...resultado,
+          cbm_calculado: cbmOriginal.toFixed(4),
+          cbm_cobrable: cbm.toFixed(4),
+          cantidad,
+          categoria: cat,
+          tipo_calculo: tipoCalculo,
+          precio_usd: precioUsd.toFixed(2),
+          precio_mxn: (precioUsd * fxRate).toFixed(2),
+          tiempo_estimado: '45-60 días',
+        };
+        break;
+      }
+
+      case 'aereo': {
+        if (!peso && (!largo || !ancho || !alto)) {
+          return res.status(400).json({ error: 'Peso o dimensiones son requeridas' });
+        }
+
+        // Calcular peso volumétrico
+        const pesoReal = parseFloat(peso) || 0;
+        const pesoVol = largo && ancho && alto 
+          ? (parseFloat(largo) * parseFloat(ancho) * parseFloat(alto)) / 5000 
+          : 0;
+        const pesoCobrable = Math.max(pesoReal, pesoVol) * cantidad;
+
+        // Obtener tarifa
+        const tariffType = categoria || 'G'; // G = Genérico
+        const tariffRes = await pool.query(`
+          SELECT at.price_per_kg
+          FROM air_tariffs at
+          JOIN air_routes ar ON at.route_id = ar.id
+          WHERE ar.is_active = true AND at.tariff_type = $1 AND at.is_active = true
+          ORDER BY ar.id ASC LIMIT 1
+        `, [tariffType]);
+
+        const precioPorKg = parseFloat(tariffRes.rows[0]?.price_per_kg || '8');
+        const precioUsd = pesoCobrable * precioPorKg;
+
+        resultado = {
+          ...resultado,
+          peso_real: pesoReal.toFixed(2),
+          peso_volumetrico: pesoVol.toFixed(2),
+          peso_cobrable: pesoCobrable.toFixed(2),
+          cantidad,
+          categoria: tariffType === 'L' ? 'Logotipo' : tariffType === 'S' ? 'Sensible' : tariffType === 'F' ? 'Flat' : 'Genérico',
+          precio_por_kg: precioPorKg,
+          precio_usd: precioUsd.toFixed(2),
+          precio_mxn: (precioUsd * fxRate).toFixed(2),
+          tiempo_estimado: '10-15 días',
+        };
+        break;
+      }
+
+      case 'pobox': {
+        // PO Box se cotiza SOLO por dimensiones (CBM)
+        if (!largo || !ancho || !alto) {
+          return res.status(400).json({ error: 'Dimensiones (largo, ancho, alto en cm) son requeridas para PO Box' });
+        }
+
+        // Calcular CBM
+        let cbm = (parseFloat(largo) * parseFloat(ancho) * parseFloat(alto)) / 1000000;
+        if (cbm < 0.010) cbm = 0.010;
+
+        let precioUsd = 0;
+        let nivel = 1;
+
+        // Buscar tarifa por CBM
+        const tarifaRes = await pool.query(`
+          SELECT nivel, costo, tipo_cobro FROM pobox_tarifas_volumen
+          WHERE estado = true AND $1 >= cbm_min AND ($1 <= cbm_max OR cbm_max IS NULL)
+          ORDER BY nivel ASC LIMIT 1
+        `, [cbm]);
+
+        if (tarifaRes.rows.length > 0) {
+          const t = tarifaRes.rows[0];
+          nivel = t.nivel;
+          if (t.tipo_cobro === 'fijo') {
+            precioUsd = parseFloat(t.costo);
+          } else {
+            precioUsd = cbm * parseFloat(t.costo);
+          }
+        } else {
+          precioUsd = 39; // Fallback - precio base mínimo
+        }
+
+        precioUsd *= cantidad;
+
+        // Obtener tipo de cambio específico para PO Box
+        const tcRes = await pool.query(`
+          SELECT tipo_cambio_final FROM exchange_rate_config
+          WHERE servicio = 'pobox_usa' AND estado = TRUE LIMIT 1
+        `);
+        const tcPobox = parseFloat(tcRes.rows[0]?.tipo_cambio_final || fxRate.toString());
+
+        resultado = {
+          ...resultado,
+          cbm_calculado: cbm.toFixed(4),
+          nivel_tarifa: nivel,
+          cantidad,
+          precio_usd: precioUsd.toFixed(2),
+          precio_mxn: (precioUsd * tcPobox).toFixed(2),
+          tipo_cambio: tcPobox,
+          tiempo_estimado: '5-10 días',
+        };
+        break;
+      }
+
+      case 'dhl': {
+        // DHL requiere peso y dimensiones, máximo 40 kg por caja
+        if (!peso) {
+          return res.status(400).json({ error: 'Peso (kg) es requerido para DHL' });
+        }
+
+        const pesoKg = parseFloat(peso);
+        if (pesoKg > 40) {
+          return res.status(400).json({ 
+            error: '⚠️ El peso excede 40 kg por caja. Este embarque no puede enviarse por DHL.',
+            sugerencia: 'Te recomendamos usar el servicio Aéreo desde China para embarques mayores a 40 kg.',
+            alternativa: 'aereo'
+          });
+        }
+
+        const tipo = categoria || 'STANDARD';
+        
+        const rateRes = await pool.query(`
+          SELECT price_usd, rate_name, description FROM dhl_rates
+          WHERE rate_type = $1 AND is_active = true LIMIT 1
+        `, [tipo]);
+
+        // Si no hay tarifa, usar fallback
+        let rate;
+        if (rateRes.rows.length === 0) {
+          // Tarifa por defecto
+          rate = {
+            price_usd: tipo === 'HIGH_VALUE' ? 225 : 145,
+            rate_name: tipo === 'HIGH_VALUE' ? 'Alto Valor' : 'Estándar',
+            description: tipo === 'HIGH_VALUE' ? 'Paquetes de alto valor (refacciones)' : 'Paquetes estándar (accesorios/mixtos)',
+          };
+        } else {
+          rate = rateRes.rows[0];
+        }
+
+        const precioUsd = parseFloat(rate.price_usd) * cantidad;
+
+        // Calcular peso volumétrico si hay dimensiones
+        let pesoVol = 0;
+        if (largo && ancho && alto) {
+          pesoVol = (parseFloat(largo) * parseFloat(ancho) * parseFloat(alto)) / 5000;
+        }
+
+        resultado = {
+          ...resultado,
+          tipo_tarifa: tipo,
+          nombre_tarifa: rate.rate_name,
+          descripcion: rate.description,
+          cantidad,
+          peso_real: pesoKg.toFixed(2),
+          peso_volumetrico: pesoVol > 0 ? pesoVol.toFixed(2) : null,
+          precio_usd: precioUsd.toFixed(2),
+          precio_mxn: (precioUsd * fxRate).toFixed(2),
+          tiempo_estimado: '1-3 días',
+          nota: 'Máximo 40 kg por caja. No incluye impuestos de importación.',
+        };
+        break;
+      }
+
+      default:
+        return res.status(400).json({ error: `Servicio "${servicio}" no reconocido. Use: maritimo, aereo, pobox, dhl` });
+    }
+
+    res.json(resultado);
+  } catch (error: any) {
+    console.error('Error en cotización pública:', error);
+    res.status(500).json({ error: 'Error al calcular cotización' });
+  }
+});
 
 // ============================================
 // TARIFAS PO BOX USA

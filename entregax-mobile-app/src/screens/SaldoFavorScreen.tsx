@@ -256,7 +256,7 @@ export default function SaldoFavorScreen({ navigation }: any) {
               <View style={styles.referralInfo}>
                 <Text style={styles.referralTitle}>¡Gana $500 por cada amigo!</Text>
                 <Text style={styles.referralSubtitle}>
-                  Invita amigos y ambos ganan cuando hagan su primer envío
+                  Invita amigos y gana cuando hagan su primer envío
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={24} color="#FFF" />

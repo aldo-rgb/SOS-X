@@ -189,7 +189,7 @@ export default function ReferidosScreen({ navigation }: any) {
           </View>
           <Text style={styles.headerTitle}>¡Gana $500 por cada amigo!</Text>
           <Text style={styles.headerSubtitle}>
-            Comparte tu código y ambos ganan cuando hagan su primer envío
+            Comparte tu código y gana cuando hagan su primer envío
           </Text>
           
           {/* Código para compartir */}
@@ -277,9 +277,9 @@ export default function ReferidosScreen({ navigation }: any) {
               <Ionicons name="checkmark" size={16} color="#FFF" />
             </View>
             <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>¡Ambos ganan!</Text>
+              <Text style={styles.stepTitle}>¡Tú ganas!</Text>
               <Text style={styles.stepDescription}>
-                Tú ganas ${referidoData?.bonos.al_referir || 500} y tu amigo gana ${referidoData?.bonos.al_registrarse || 500}
+                Ganas ${referidoData?.bonos.al_referir || 500} MXN de saldo a favor cuando tu amigo haga su primer envío
               </Text>
             </View>
           </View>

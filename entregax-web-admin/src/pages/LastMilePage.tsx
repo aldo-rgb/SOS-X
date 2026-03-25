@@ -357,7 +357,7 @@ export default function LastMilePage() {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <TruckIcon sx={{ fontSize: 40, color: LAST_MILE_COLOR }} />
           <Box>
-            <Typography variant="h4" fontWeight="bold">Última Milla</Typography>
+            <Typography variant="h4" fontWeight="bold">Skydropx</Typography>
             <Typography variant="body2" color="text.secondary">
               Generación de guías nacionales con Skydropx
             </Typography>

@@ -51,6 +51,8 @@ import {
   useMediaQuery,
   BottomNavigation,
   BottomNavigationAction,
+  Select,
+  InputLabel,
 } from '@mui/material';
 import {
   LocalShipping as ShippingIcon,
@@ -96,6 +98,7 @@ import {
   WarningAmber as WarningAmberIcon,
   KeyboardArrowDown as KeyboardArrowDownIcon,
   KeyboardArrowUp as KeyboardArrowUpIcon,
+  ChevronRight as ChevronRightIcon,
   Share as ShareIcon,
   CardGiftcard as GiftIcon,
   People as PeopleIcon,
@@ -562,18 +565,18 @@ export default function DashboardClient() {
   } | null>(null);
   const [showPendingPayments, setShowPendingPayments] = useState(false);
 
-  // Cotizador CBM
+  // Cotizador Universal
+  const [quoteService, setQuoteService] = useState<string>('');
   const [cbmLargo, setCbmLargo] = useState('');
   const [cbmAncho, setCbmAncho] = useState('');
   const [cbmAlto, setCbmAlto] = useState('');
   const [cbmPeso, setCbmPeso] = useState('');
-  const [cbmResult, setCbmResult] = useState<{
-    cbm: number;
-    peso_volumetrico: number;
-    costo_maritimo: number;
-    costo_aereo: number;
-    servicio_recomendado: string;
-  } | null>(null);
+  const [quoteCantidad, setQuoteCantidad] = useState('1');
+  const [quoteCategoria, setQuoteCategoria] = useState('');
+  const [quoteLoading, setQuoteLoading] = useState(false);
+  const [quoteResult, setQuoteResult] = useState<any>(null);
+  const [publicRates, setPublicRates] = useState<any>(null);
+  const [ratesLoading, setRatesLoading] = useState(false);
 
   useEffect(() => {
     // Limpiar datos en caché al montar el componente
@@ -1935,59 +1938,102 @@ export default function DashboardClient() {
     setSnackbar({ open: true, message: t('cd.snackbar.clabeCopied'), severity: 'success' });
   };
 
-  // Calcular CBM y costos
-  const handleCalculateCBM = useCallback(() => {
+  // Cargar tarifas de referencia
+  const loadPublicRates = useCallback(async () => {
+    try {
+      setRatesLoading(true);
+      const res = await api.get('/public/rates');
+      setPublicRates(res.data);
+    } catch (err) {
+      console.error('Error cargando tarifas:', err);
+    } finally {
+      setRatesLoading(false);
+    }
+  }, []);
+
+  // Cargar tarifas cuando se selecciona el tab de cotizador
+  useEffect(() => {
+    if (activeTab === 1 && !publicRates) {
+      loadPublicRates();
+    }
+  }, [activeTab, publicRates, loadPublicRates]);
+
+  // Calcular cotización usando la API
+  const handleCalculateQuote = useCallback(async () => {
+    if (!quoteService) {
+      setSnackbar({ open: true, message: 'Selecciona un tipo de servicio', severity: 'warning' });
+      return;
+    }
+
     const largo = parseFloat(cbmLargo) || 0;
     const ancho = parseFloat(cbmAncho) || 0;
     const alto = parseFloat(cbmAlto) || 0;
     const peso = parseFloat(cbmPeso) || 0;
+    const cantidad = parseInt(quoteCantidad) || 1;
 
-    if (largo <= 0 || ancho <= 0 || alto <= 0) {
-      setCbmResult(null);
+    // Validaciones según servicio
+    if (quoteService === 'pobox') {
+      // PO Box requiere dimensiones
+      if (largo <= 0 || ancho <= 0 || alto <= 0) {
+        setSnackbar({ open: true, message: 'Ingresa las dimensiones del paquete (largo, ancho, alto)', severity: 'warning' });
+        return;
+      }
+    } else if (quoteService === 'dhl') {
+      // DHL requiere peso y dimensiones, máximo 40 kg
+      if (largo <= 0 || ancho <= 0 || alto <= 0) {
+        setSnackbar({ open: true, message: 'Ingresa las dimensiones del paquete (largo, ancho, alto)', severity: 'warning' });
+        return;
+      }
+      if (peso <= 0) {
+        setSnackbar({ open: true, message: 'Ingresa el peso del paquete en kg', severity: 'warning' });
+        return;
+      }
+      if (peso > 40) {
+        setSnackbar({ open: true, message: '⚠️ El peso excede 40 kg. Este embarque no puede enviarse por DHL. Te recomendamos usar el servicio Aéreo desde China.', severity: 'error' });
+        return;
+      }
+    } else if (largo <= 0 || ancho <= 0 || alto <= 0) {
+      setSnackbar({ open: true, message: 'Ingresa las dimensiones del paquete', severity: 'warning' });
       return;
     }
 
-    // CBM = (L × A × H) / 1,000,000 (cm a m³)
-    const cbm = (largo * ancho * alto) / 1000000;
-    
-    // Peso volumétrico marítimo (1 CBM = 500 kg)
-    const pesoVolMetrico = cbm * 500;
-    const pesoVolAereo = (largo * ancho * alto) / 5000;
-
-    // Tarifas marítimo según CBM (aproximadas)
-    let costoMaritimo = 0;
-    if (cbm <= 0.03) {
-      costoMaritimo = 39; // Tarifa mínima
-    } else if (cbm <= 0.1) {
-      costoMaritimo = 79;
-    } else if (cbm <= 0.5) {
-      costoMaritimo = cbm * 150; // $150 USD/CBM primeros 0.5
-    } else if (cbm <= 2) {
-      costoMaritimo = cbm * 120; // $120 USD/CBM
-    } else {
-      costoMaritimo = cbm * 100; // Descuento mayoreo
+    try {
+      setQuoteLoading(true);
+      const res = await api.post('/public/quote', {
+        servicio: quoteService,
+        largo,
+        ancho,
+        alto,
+        peso,
+        cantidad,
+        categoria: quoteCategoria || undefined,
+      });
+      setQuoteResult(res.data);
+    } catch (err: unknown) {
+      console.error('Error calculando cotización:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Error al calcular cotización';
+      const axiosError = err as { response?: { data?: { error?: string } } };
+      setSnackbar({ 
+        open: true, 
+        message: axiosError.response?.data?.error || errorMessage, 
+        severity: 'error' 
+      });
+    } finally {
+      setQuoteLoading(false);
     }
+  }, [quoteService, cbmLargo, cbmAncho, cbmAlto, cbmPeso, quoteCantidad, quoteCategoria]);
 
-    // Tarifa aérea según peso (el mayor entre real y volumétrico)
-    const pesoFacturable = Math.max(peso, pesoVolAereo);
-    const costoAereo = pesoFacturable * 8; // $8 USD/kg aproximado
-
-    // Recomendar servicio
-    let recomendado = 'Marítimo';
-    if (pesoFacturable < 10 && cbm < 0.05) {
-      recomendado = 'Aéreo (paquetes pequeños)';
-    } else if (costoAereo < costoMaritimo * 1.3) {
-      recomendado = 'Aéreo (más rápido)';
-    }
-
-    setCbmResult({
-      cbm: parseFloat(cbm.toFixed(4)),
-      peso_volumetrico: parseFloat(pesoVolMetrico.toFixed(2)),
-      costo_maritimo: parseFloat(costoMaritimo.toFixed(2)),
-      costo_aereo: parseFloat(costoAereo.toFixed(2)),
-      servicio_recomendado: recomendado,
-    });
-  }, [cbmLargo, cbmAncho, cbmAlto, cbmPeso]);
+  // Reset cotizador al cambiar servicio
+  const handleServiceChange = useCallback((service: string) => {
+    setQuoteService(service);
+    setQuoteResult(null);
+    setCbmLargo('');
+    setCbmAncho('');
+    setCbmAlto('');
+    setCbmPeso('');
+    setQuoteCantidad('1');
+    setQuoteCategoria('');
+  }, []);
 
   const getStatusStep = (status: string): number => {
     switch (status) {
@@ -2142,26 +2188,66 @@ export default function DashboardClient() {
                   </Typography>
                 </Box>
               </Box>
-              <Box sx={{ 
-                px: 1.5, 
-                py: 0.8, 
-                bgcolor: 'rgba(255,255,255,0.08)', 
-                borderRadius: 1.5, 
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-              }}>
-                <QrCodeIcon sx={{ fontSize: 16, color: ORANGE }} />
-                <Typography variant="body2" sx={{ fontWeight: 700, color: 'white' }}>
-                  {stats?.casillero || boxId}
-                </Typography>
-                <IconButton 
-                  size="small" 
-                  sx={{ color: 'rgba(255,255,255,0.5)', p: 0.3 }} 
-                  onClick={() => copyToClipboard(stats?.casillero || boxId)}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, alignItems: 'flex-end' }}>
+                {/* Casillero */}
+                <Box sx={{ 
+                  px: 1.5, 
+                  py: 0.5, 
+                  bgcolor: 'rgba(255,255,255,0.08)', 
+                  borderRadius: 1.5, 
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  cursor: 'pointer',
+                }}
+                onClick={() => setActiveTab(4)}
                 >
-                  <CopyIcon sx={{ fontSize: 14 }} />
-                </IconButton>
+                  <QrCodeIcon sx={{ fontSize: 14, color: ORANGE }} />
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: 'white' }}>
+                    {stats?.casillero || boxId}
+                  </Typography>
+                  <ChevronRightIcon sx={{ fontSize: 14, color: 'rgba(255,255,255,0.5)' }} />
+                </Box>
+                {/* Código de referido */}
+                <Box sx={{ 
+                  px: 1.5, 
+                  py: 0.5, 
+                  bgcolor: 'rgba(240,90,40,0.15)', 
+                  borderRadius: 1.5, 
+                  border: '1px dashed rgba(240,90,40,0.5)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.8,
+                }}>
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: ORANGE, fontFamily: 'monospace', letterSpacing: 1 }}>
+                    {referralCode || '---'}
+                  </Typography>
+                  <IconButton 
+                    size="small" 
+                    sx={{ color: ORANGE, p: 0.2 }} 
+                    onClick={() => {
+                      if (referralCode) {
+                        navigator.clipboard.writeText(referralCode);
+                        setSnackbar({ open: true, message: '✅ Código copiado', severity: 'success' });
+                      }
+                    }}
+                  >
+                    <CopyIcon sx={{ fontSize: 12 }} />
+                  </IconButton>
+                  <IconButton 
+                    size="small" 
+                    sx={{ color: '#25D366', p: 0.2 }} 
+                    onClick={() => {
+                      const baseUrl = window.location.origin;
+                      const shareUrl = `${baseUrl}/?ref=${encodeURIComponent(referralCode)}`;
+                      const msg = `🎁 ¡Te invito a EntregaX! Regístrate con mi código *${referralCode}* para que yo gane *$500 MXN* de saldo cuando hagas tu primer envío.\n\n📦 Los mejores precios en envíos desde USA, China y más.\n\n👉 ${shareUrl}`;
+                      window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                    }}
+                    disabled={!referralCode}
+                  >
+                    <Box component="img" src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" sx={{ width: 12, height: 12 }} />
+                  </IconButton>
+                </Box>
               </Box>
             </Box>
           ) : (
@@ -2193,49 +2279,113 @@ export default function DashboardClient() {
                 </Box>
               </Grid>
               <Grid size={{ xs: 12, md: 5 }}>
-                <Box sx={{ 
-                  p: 2, 
-                  bgcolor: 'rgba(255,255,255,0.05)', 
-                  borderRadius: 2, 
-                  border: '1px solid rgba(255,255,255,0.08)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 2,
-                }}>
+                <Box sx={{ display: 'flex', gap: 1.5 }}>
+                  {/* Casillero */}
+                  <Box 
+                    onClick={() => setActiveTab(4)}
+                    sx={{ 
+                      flex: 1,
+                      p: 1.5, 
+                      bgcolor: 'rgba(255,255,255,0.05)', 
+                      borderRadius: 2, 
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: 1.5,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s',
+                      '&:hover': { bgcolor: 'rgba(255,255,255,0.08)', borderColor: ORANGE },
+                    }}
+                  >
+                    <Box sx={{ 
+                      width: 36, 
+                      height: 36, 
+                      borderRadius: '10px', 
+                      bgcolor: 'rgba(240,90,40,0.12)',
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}>
+                      <QrCodeIcon sx={{ fontSize: 20, color: ORANGE }} />
+                    </Box>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', fontWeight: 500, fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        {t('cd.header.suiteLabel')}
+                      </Typography>
+                      <Typography variant="body1" sx={{ fontWeight: 700, letterSpacing: '1px', lineHeight: 1.2, color: 'white' }}>
+                        {stats?.casillero || boxId}
+                      </Typography>
+                    </Box>
+                    <ChevronRightIcon sx={{ fontSize: 18, color: 'rgba(255,255,255,0.3)' }} />
+                  </Box>
+                  {/* Código de referido */}
                   <Box sx={{ 
-                    width: 40, 
-                    height: 40, 
-                    borderRadius: '10px', 
-                    bgcolor: 'rgba(240,90,40,0.12)',
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'center',
-                    flexShrink: 0,
+                    flex: 1,
+                    p: 1.5, 
+                    bgcolor: 'rgba(255,255,255,0.05)', 
+                    borderRadius: 2, 
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1.5,
                   }}>
-                    <QrCodeIcon sx={{ fontSize: 22, color: ORANGE }} />
+                    <Box sx={{ 
+                      width: 36, 
+                      height: 36, 
+                      borderRadius: '10px', 
+                      bgcolor: 'rgba(240,90,40,0.12)',
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      justifyContent: 'center',
+                      flexShrink: 0,
+                    }}>
+                      <GiftIcon sx={{ fontSize: 20, color: ORANGE }} />
+                    </Box>
+                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', fontWeight: 500, fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Tu código de referido
+                      </Typography>
+                      <Typography variant="body1" sx={{ fontWeight: 700, letterSpacing: '1px', lineHeight: 1.2, color: 'white' }}>
+                        {referralCode || '---'}
+                      </Typography>
+                    </Box>
+                    <Tooltip title="Copiar código">
+                      <IconButton 
+                        size="small" 
+                        sx={{ 
+                          color: 'rgba(255,255,255,0.4)', 
+                          '&:hover': { color: ORANGE },
+                        }} 
+                        onClick={() => {
+                          if (referralCode) {
+                            navigator.clipboard.writeText(referralCode);
+                            setSnackbar({ open: true, message: '✅ Código copiado', severity: 'success' });
+                          }
+                        }}
+                      >
+                        <CopyIcon sx={{ fontSize: 14 }} />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Compartir por WhatsApp">
+                      <IconButton 
+                        size="small" 
+                        sx={{ 
+                          color: '#25D366', 
+                          '&:hover': { bgcolor: 'rgba(37,211,102,0.15)' },
+                        }} 
+                        onClick={() => {
+                          const baseUrl = window.location.origin;
+                          const shareUrl = `${baseUrl}/?ref=${encodeURIComponent(referralCode)}`;
+                          const msg = `🎁 ¡Te invito a EntregaX! Regístrate con mi código *${referralCode}* para que yo gane *$500 MXN* de saldo cuando hagas tu primer envío.\n\n📦 Los mejores precios en envíos desde USA, China y más.\n\n👉 ${shareUrl}`;
+                          window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+                        }}
+                        disabled={!referralCode}
+                      >
+                        <Box component="img" src="https://upload.wikimedia.org/wikipedia/commons/6/6b/WhatsApp.svg" sx={{ width: 14, height: 14 }} />
+                      </IconButton>
+                    </Tooltip>
                   </Box>
-                  <Box sx={{ flex: 1, minWidth: 0 }}>
-                    <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.4)', fontWeight: 500, fontSize: '0.68rem', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                      {t('cd.header.suiteLabel')}
-                    </Typography>
-                    <Typography variant="h6" sx={{ fontWeight: 700, letterSpacing: '1px', lineHeight: 1.3, color: 'white' }}>
-                      {stats?.casillero || boxId}
-                    </Typography>
-                  </Box>
-                  <Tooltip title={t('cd.header.copy')}>
-                    <IconButton 
-                      size="small" 
-                      sx={{ 
-                        color: 'rgba(255,255,255,0.4)', 
-                        border: '1px solid rgba(255,255,255,0.08)',
-                        borderRadius: '8px',
-                        '&:hover': { color: ORANGE, borderColor: ORANGE, bgcolor: 'rgba(240,90,40,0.1)' },
-                      }} 
-                      onClick={() => copyToClipboard(stats?.casillero || boxId)}
-                    >
-                      <CopyIcon sx={{ fontSize: 16 }} />
-                    </IconButton>
-                  </Tooltip>
                 </Box>
               </Grid>
             </Grid>
@@ -2495,9 +2645,9 @@ export default function DashboardClient() {
               return reverseMapping[activeTab] ?? 0;
             })()}
             onChange={(_, v) => {
-              // Tab 1 es "Pago a Proveedores" - abre enlace externo
+              // Tab 1 es "Pago a Proveedores" - mostrar en construcción
               if (v === 1) {
-                window.open('https://pagos.entregax.com/proveedores', '_blank');
+                setSnackbar({ open: true, message: '🚧 Pago a Proveedores: Próximamente disponible', severity: 'info' });
                 return;
               }
               // Ajustar índice para los demás tabs
@@ -3338,200 +3488,464 @@ export default function DashboardClient() {
             </Box>
           )}
 
-          {/* Tab: Cotizador CBM */}
+          {/* Tab: Cotizador Universal */}
           {activeTab === 1 && (
             <Box>
               <Typography variant="h6" fontWeight="bold" gutterBottom>
-                {t('cd.quoter.title')}
+                🧮 Cotizador de Envíos
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                {t('cd.quoter.subtitle')}
+                Selecciona el tipo de servicio y calcula el costo estimado de tu envío
               </Typography>
 
-              <Grid container spacing={3}>
-                <Grid size={{ xs: 12, md: 6 }}>
-                  <Paper sx={{ p: 3, bgcolor: 'grey.50', borderRadius: 2 }}>
-                    <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                      {t('cd.quoter.dimensionsTitle')}
-                    </Typography>
-                    <Grid container spacing={2}>
-                      <Grid size={4}>
-                        <TextField
-                          fullWidth
-                          size="small"
-                          label={t('cd.quoter.length')}
-                          type="number"
-                          value={cbmLargo}
-                          onChange={(e) => setCbmLargo(e.target.value)}
-                        />
-                      </Grid>
-                      <Grid size={4}>
-                        <TextField
-                          fullWidth
-                          size="small"
-                          label={t('cd.quoter.width')}
-                          type="number"
-                          value={cbmAncho}
-                          onChange={(e) => setCbmAncho(e.target.value)}
-                        />
-                      </Grid>
-                      <Grid size={4}>
-                        <TextField
-                          fullWidth
-                          size="small"
-                          label={t('cd.quoter.height')}
-                          type="number"
-                          value={cbmAlto}
-                          onChange={(e) => setCbmAlto(e.target.value)}
-                        />
-                      </Grid>
-                      <Grid size={12}>
-                        <TextField
-                          fullWidth
-                          size="small"
-                          label={t('cd.quoter.realWeight')}
-                          type="number"
-                          value={cbmPeso}
-                          onChange={(e) => setCbmPeso(e.target.value)}
-                          helperText={t('cd.quoter.weightHelper')}
-                        />
-                      </Grid>
-                      <Grid size={12}>
-                        <Button 
-                          variant="contained" 
-                          fullWidth 
-                          onClick={handleCalculateCBM}
-                          sx={{ bgcolor: ORANGE }}
-                          startIcon={<CalculateIcon />}
-                        >
-                          {t('cd.quoter.calculate')}
-                        </Button>
-                      </Grid>
+              {/* Selector de Servicio */}
+              <Paper sx={{ p: 3, mb: 3, borderRadius: 2 }}>
+                <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                  1️⃣ Selecciona el Tipo de Servicio
+                </Typography>
+                <Grid container spacing={2}>
+                  {[
+                    { id: 'maritimo', icono: '🚢', nombre: 'Marítimo China', desc: '45-60 días', color: '#00BCD4' },
+                    { id: 'aereo', icono: '✈️', nombre: 'Aéreo China', desc: '10-15 días', color: ORANGE },
+                    { id: 'pobox', icono: '📦', nombre: 'PO Box USA', desc: '5-10 días', color: BLUE },
+                    { id: 'dhl', icono: '📮', nombre: 'DHL Nacional', desc: '1-3 días', color: '#FFCC00' },
+                  ].map((svc) => (
+                    <Grid size={{ xs: 6, md: 3 }} key={svc.id}>
+                      <Paper 
+                        sx={{ 
+                          p: 2, 
+                          textAlign: 'center', 
+                          cursor: 'pointer',
+                          border: quoteService === svc.id ? `3px solid ${svc.color}` : '1px solid #ddd',
+                          bgcolor: quoteService === svc.id ? `${svc.color}10` : 'white',
+                          transition: 'all 0.2s',
+                          '&:hover': { borderColor: svc.color, transform: 'scale(1.02)' },
+                        }}
+                        onClick={() => handleServiceChange(svc.id)}
+                      >
+                        <Typography sx={{ fontSize: '2rem' }}>{svc.icono}</Typography>
+                        <Typography variant="subtitle2" fontWeight="bold">{svc.nombre}</Typography>
+                        <Typography variant="caption" color="text.secondary">{svc.desc}</Typography>
+                      </Paper>
                     </Grid>
-                  </Paper>
+                  ))}
                 </Grid>
+              </Paper>
 
-                <Grid size={{ xs: 12, md: 6 }}>
-                  {cbmResult ? (
-                    <Paper sx={{ p: 3, borderRadius: 2, border: `2px solid ${BLUE}` }}>
+              {/* Formulario de Dimensiones */}
+              {quoteService && (
+                <Grid container spacing={3}>
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    <Paper sx={{ p: 3, bgcolor: 'grey.50', borderRadius: 2 }}>
                       <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                        {t('cd.quoter.resultTitle')}
+                        2️⃣ {quoteService === 'dhl' ? 'Selecciona el Tipo de Paquete' : 'Ingresa las Dimensiones'}
                       </Typography>
-                      <Divider sx={{ my: 2 }} />
                       
-                      <Grid container spacing={2}>
-                        <Grid size={6}>
-                          <Typography variant="caption" color="text.secondary">{t('cd.quoter.volume')}</Typography>
-                          <Typography variant="h5" fontWeight="bold">{cbmResult.cbm} m³</Typography>
+                      {quoteService === 'dhl' ? (
+                        // Para DHL: peso y dimensiones con límite de 40 kg
+                        <Box>
+                          <Alert severity="info" sx={{ mb: 2 }}>
+                            <Typography variant="body2">
+                              📦 <strong>Límite DHL:</strong> Máximo 40 kg por caja. Para embarques mayores, usa Aéreo China.
+                            </Typography>
+                          </Alert>
+                          <FormControl fullWidth sx={{ mb: 2 }}>
+                            <InputLabel>Tipo de Paquete</InputLabel>
+                            <Select
+                              value={quoteCategoria}
+                              label="Tipo de Paquete"
+                              onChange={(e) => setQuoteCategoria(e.target.value)}
+                            >
+                              <MenuItem value="STANDARD">Standard (Accesorios/Mixtos)</MenuItem>
+                              <MenuItem value="HIGH_VALUE">High Value (Refacciones)</MenuItem>
+                            </Select>
+                          </FormControl>
+                          <Grid container spacing={2}>
+                            <Grid size={4}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Largo (cm)"
+                                type="number"
+                                value={cbmLargo}
+                                onChange={(e) => setCbmLargo(e.target.value)}
+                              />
+                            </Grid>
+                            <Grid size={4}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Ancho (cm)"
+                                type="number"
+                                value={cbmAncho}
+                                onChange={(e) => setCbmAncho(e.target.value)}
+                              />
+                            </Grid>
+                            <Grid size={4}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Alto (cm)"
+                                type="number"
+                                value={cbmAlto}
+                                onChange={(e) => setCbmAlto(e.target.value)}
+                              />
+                            </Grid>
+                            <Grid size={6}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Peso (kg)"
+                                type="number"
+                                value={cbmPeso}
+                                onChange={(e) => setCbmPeso(e.target.value)}
+                                error={parseFloat(cbmPeso) > 40}
+                                helperText={parseFloat(cbmPeso) > 40 ? '⚠️ Excede 40 kg. Usa Aéreo China.' : 'Máximo 40 kg por caja'}
+                              />
+                            </Grid>
+                            <Grid size={6}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Cantidad de cajas"
+                                type="number"
+                                value={quoteCantidad}
+                                onChange={(e) => setQuoteCantidad(e.target.value)}
+                              />
+                            </Grid>
+                          </Grid>
+                        </Box>
+                      ) : quoteService === 'pobox' ? (
+                        // Para PO Box: dimensiones (se cotiza por volumen)
+                        <Box>
+                          <Alert severity="info" sx={{ mb: 2 }}>
+                            <Typography variant="body2">
+                              📦 PO Box se cotiza por dimensiones. Ingresa las medidas de tu paquete.
+                            </Typography>
+                          </Alert>
+                          <Grid container spacing={2}>
+                            <Grid size={4}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Largo (cm)"
+                                type="number"
+                                value={cbmLargo}
+                                onChange={(e) => setCbmLargo(e.target.value)}
+                              />
+                            </Grid>
+                            <Grid size={4}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Ancho (cm)"
+                                type="number"
+                                value={cbmAncho}
+                                onChange={(e) => setCbmAncho(e.target.value)}
+                              />
+                            </Grid>
+                            <Grid size={4}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Alto (cm)"
+                                type="number"
+                                value={cbmAlto}
+                                onChange={(e) => setCbmAlto(e.target.value)}
+                              />
+                            </Grid>
+                            <Grid size={12}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Cantidad de paquetes"
+                                type="number"
+                                value={quoteCantidad}
+                                onChange={(e) => setQuoteCantidad(e.target.value)}
+                              />
+                            </Grid>
+                          </Grid>
+                        </Box>
+                      ) : (
+                        // Para otros servicios, dimensiones
+                        <Grid container spacing={2}>
+                          <Grid size={4}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label="Largo (cm)"
+                              type="number"
+                              value={cbmLargo}
+                              onChange={(e) => setCbmLargo(e.target.value)}
+                            />
+                          </Grid>
+                          <Grid size={4}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label="Ancho (cm)"
+                              type="number"
+                              value={cbmAncho}
+                              onChange={(e) => setCbmAncho(e.target.value)}
+                            />
+                          </Grid>
+                          <Grid size={4}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label="Alto (cm)"
+                              type="number"
+                              value={cbmAlto}
+                              onChange={(e) => setCbmAlto(e.target.value)}
+                            />
+                          </Grid>
+                          {(quoteService === 'aereo') && (
+                            <Grid size={12}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Peso Real (kg)"
+                                type="number"
+                                value={cbmPeso}
+                                onChange={(e) => setCbmPeso(e.target.value)}
+                                helperText="Se usará el mayor entre peso real y volumétrico"
+                              />
+                            </Grid>
+                          )}
+                          {quoteService === 'aereo' && (
+                            <Grid size={12}>
+                              <FormControl fullWidth size="small">
+                                <InputLabel>Tipo de Mercancía</InputLabel>
+                                <Select
+                                  value={quoteCategoria}
+                                  label="Tipo de Mercancía"
+                                  onChange={(e) => setQuoteCategoria(e.target.value)}
+                                >
+                                  <MenuItem value="G">Genérico</MenuItem>
+                                  <MenuItem value="L">Logotipo (+$9/kg)</MenuItem>
+                                  <MenuItem value="S">Sensible (precio especial)</MenuItem>
+                                  <MenuItem value="F">Flat (+$7/kg)</MenuItem>
+                                </Select>
+                              </FormControl>
+                            </Grid>
+                          )}
+                          {quoteService === 'maritimo' && (
+                            <Grid size={12}>
+                              <FormControl fullWidth size="small">
+                                <InputLabel>Categoría de Mercancía</InputLabel>
+                                <Select
+                                  value={quoteCategoria}
+                                  label="Categoría de Mercancía"
+                                  onChange={(e) => setQuoteCategoria(e.target.value)}
+                                >
+                                  <MenuItem value="Generico">Genérico</MenuItem>
+                                  <MenuItem value="Sensible">Sensible</MenuItem>
+                                  <MenuItem value="Logotipo">Logotipo</MenuItem>
+                                  <MenuItem value="StartUp">StartUp (≤0.75 CBM)</MenuItem>
+                                </Select>
+                              </FormControl>
+                            </Grid>
+                          )}
+                          <Grid size={12}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label="Cantidad"
+                              type="number"
+                              value={quoteCantidad}
+                              onChange={(e) => setQuoteCantidad(e.target.value)}
+                            />
+                          </Grid>
                         </Grid>
-                        <Grid size={6}>
-                          <Typography variant="caption" color="text.secondary">{t('cd.quoter.volWeight')}</Typography>
-                          <Typography variant="h5" fontWeight="bold">{cbmResult.peso_volumetrico} kg</Typography>
-                        </Grid>
-                        <Grid size={6}>
-                          <Typography variant="caption" color="text.secondary">{t('cd.quoter.seaCost')}</Typography>
-                          <Typography variant="h4" fontWeight="bold" color={BLUE}>${cbmResult.costo_maritimo} USD</Typography>
-                          <Typography variant="caption">{t('cd.quoter.seaDays')}</Typography>
-                        </Grid>
-                        <Grid size={6}>
-                          <Typography variant="caption" color="text.secondary">{t('cd.quoter.airCost')}</Typography>
-                          <Typography variant="h4" fontWeight="bold" color={ORANGE}>${cbmResult.costo_aereo} USD</Typography>
-                          <Typography variant="caption">{t('cd.quoter.airDays')}</Typography>
-                        </Grid>
-                      </Grid>
-
-                      <Alert severity="info" sx={{ mt: 3 }}>
-                        <strong>{t('cd.quoter.recommended')}:</strong> {cbmResult.servicio_recomendado}
-                      </Alert>
-
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
-                        {t('cd.quoter.disclaimer')}
-                      </Typography>
+                      )}
+                      
+                      <Button 
+                        variant="contained" 
+                        fullWidth 
+                        onClick={handleCalculateQuote}
+                        disabled={quoteLoading}
+                        sx={{ bgcolor: ORANGE, mt: 2 }}
+                        startIcon={quoteLoading ? <CircularProgress size={20} color="inherit" /> : <CalculateIcon />}
+                      >
+                        {quoteLoading ? 'Calculando...' : 'Calcular Cotización'}
+                      </Button>
                     </Paper>
-                  ) : (
-                    <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'grey.50', borderRadius: 2 }}>
-                      <InfoIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
-                      <Typography color="text.secondary">
-                        {t('cd.quoter.placeholder')}
-                      </Typography>
-                    </Paper>
-                  )}
+                  </Grid>
+
+                  <Grid size={{ xs: 12, md: 6 }}>
+                    {quoteResult ? (
+                      <Paper sx={{ p: 3, borderRadius: 2, border: `2px solid ${ORANGE}` }}>
+                        <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
+                          ✅ Cotización Estimada
+                        </Typography>
+                        <Divider sx={{ my: 2 }} />
+                        
+                        {/* Precio Principal */}
+                        <Box sx={{ textAlign: 'center', mb: 3 }}>
+                          <Typography variant="caption" color="text.secondary">Costo Estimado</Typography>
+                          <Typography variant="h3" fontWeight="bold" color={ORANGE}>
+                            ${quoteResult.precio_usd} USD
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            ≈ ${quoteResult.precio_mxn} MXN
+                          </Typography>
+                        </Box>
+
+                        {/* Detalles según servicio */}
+                        <Box sx={{ bgcolor: 'grey.50', p: 2, borderRadius: 2, mb: 2 }}>
+                          {quoteResult.cbm_cobrable && (
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                              <Typography variant="body2">Volumen (CBM):</Typography>
+                              <Typography variant="body2" fontWeight="bold">{quoteResult.cbm_cobrable} m³</Typography>
+                            </Box>
+                          )}
+                          {quoteResult.peso_cobrable && (
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                              <Typography variant="body2">Peso Cobrable:</Typography>
+                              <Typography variant="body2" fontWeight="bold">{quoteResult.peso_cobrable} kg</Typography>
+                            </Box>
+                          )}
+                          {quoteResult.precio_por_kg && (
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                              <Typography variant="body2">Tarifa por kg:</Typography>
+                              <Typography variant="body2" fontWeight="bold">${quoteResult.precio_por_kg} USD/kg</Typography>
+                            </Box>
+                          )}
+                          {quoteResult.categoria && (
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                              <Typography variant="body2">Categoría:</Typography>
+                              <Chip label={quoteResult.categoria} size="small" />
+                            </Box>
+                          )}
+                          {quoteResult.tiempo_estimado && (
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <Typography variant="body2">Tiempo Estimado:</Typography>
+                              <Typography variant="body2" fontWeight="bold">{quoteResult.tiempo_estimado}</Typography>
+                            </Box>
+                          )}
+                        </Box>
+
+                        <Alert severity="info" sx={{ mt: 2 }}>
+                          <Typography variant="caption">
+                            * Precio de referencia. El costo final puede variar según dimensiones exactas, peso real y tipo de mercancía.
+                            Tipo de cambio: ${quoteResult.tipo_cambio} MXN/USD
+                          </Typography>
+                        </Alert>
+                      </Paper>
+                    ) : (
+                      <Paper sx={{ p: 3, textAlign: 'center', bgcolor: 'grey.50', borderRadius: 2, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                        <InfoIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 2 }} />
+                        <Typography color="text.secondary">
+                          Ingresa las dimensiones para ver la cotización estimada
+                        </Typography>
+                      </Paper>
+                    )}
+                  </Grid>
                 </Grid>
-              </Grid>
+              )}
 
               {/* Tabla de tarifas de referencia */}
               <Paper sx={{ p: 3, mt: 3, borderRadius: 2 }}>
                 <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  {t('cd.quoter.tariffsTitle')}
+                  📋 Tarifas de Referencia
                 </Typography>
-                <TableContainer>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow sx={{ bgcolor: 'grey.900' }}>
-                        <TableCell sx={{ color: 'white' }}><strong>{t('cd.quoter.service')}</strong></TableCell>
-                        <TableCell sx={{ color: 'white' }}><strong>{t('cd.quoter.estimatedTime')}</strong></TableCell>
-                        <TableCell sx={{ color: 'white' }}><strong>PRECIO</strong></TableCell>
-                        <TableCell sx={{ color: 'white' }}><strong>{t('cd.quoter.notes')}</strong></TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      <TableRow hover>
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <BoatIcon sx={{ color: '#00BCD4' }} /> {t('cd.quoter.seaChina')}
-                          </Box>
-                        </TableCell>
-                        <TableCell>45-60 días</TableCell>
-                        <TableCell>
-                          <Typography fontWeight="bold" color="primary.main">$39 USD/CBM</Typography>
-                          <Typography variant="caption" color="text.secondary">≈ $780 MXN/CBM</Typography>
-                        </TableCell>
-                        <TableCell>{t('cd.quoter.seaNote')}</TableCell>
-                      </TableRow>
-                      <TableRow hover>
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <FlightIcon sx={{ color: ORANGE }} /> {t('cd.quoter.airChina')}
-                          </Box>
-                        </TableCell>
-                        <TableCell>10-15 días</TableCell>
-                        <TableCell>
-                          <Typography fontWeight="bold" color="primary.main">$8 USD/kg</Typography>
-                          <Typography variant="caption" color="text.secondary">≈ $160 MXN/kg</Typography>
-                        </TableCell>
-                        <TableCell>{t('cd.quoter.airNote')}</TableCell>
-                      </TableRow>
-                      <TableRow hover>
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <PostOfficeIcon sx={{ color: BLUE }} /> {t('cd.quoter.pobox')}
-                          </Box>
-                        </TableCell>
-                        <TableCell>5-10 días</TableCell>
-                        <TableCell>
-                          <Typography fontWeight="bold" color="primary.main">$3.50 USD/lb</Typography>
-                          <Typography variant="caption" color="text.secondary">≈ $70 MXN/lb</Typography>
-                        </TableCell>
-                        <TableCell>{t('cd.quoter.poboxNote')}</TableCell>
-                      </TableRow>
-                      <TableRow hover>
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <TruckIcon sx={{ color: '#FFCC00' }} /> AA DHL (Liberación)
-                          </Box>
-                        </TableCell>
-                        <TableCell>1-3 días</TableCell>
-                        <TableCell>
-                          <Typography fontWeight="bold" color="primary.main">$35 USD</Typography>
-                          <Typography variant="caption" color="text.secondary">≈ $700 MXN + impuestos</Typography>
-                        </TableCell>
-                        <TableCell>Liberación de paquetes DHL en Monterrey</TableCell>
-                      </TableRow>
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+                {ratesLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                    <CircularProgress />
+                  </Box>
+                ) : (
+                  <TableContainer>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow sx={{ bgcolor: 'grey.900' }}>
+                          <TableCell sx={{ color: 'white' }}><strong>SERVICIO</strong></TableCell>
+                          <TableCell sx={{ color: 'white' }}><strong>TIEMPO ESTIMADO</strong></TableCell>
+                          <TableCell sx={{ color: 'white' }}><strong>PRECIO</strong></TableCell>
+                          <TableCell sx={{ color: 'white' }}><strong>NOTAS</strong></TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {publicRates?.servicios?.map((svc: { id: string; nombre: string; icono: string; tiempo_estimado: string; precio_base_usd: number; precio_base_mxn: number; unidad: string; notas: string }) => (
+                          <TableRow hover key={svc.id}>
+                            <TableCell>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography sx={{ fontSize: '1.2rem' }}>{svc.icono}</Typography>
+                                <Typography fontWeight="bold">{svc.nombre}</Typography>
+                              </Box>
+                            </TableCell>
+                            <TableCell>{svc.tiempo_estimado}</TableCell>
+                            <TableCell>
+                              <Typography fontWeight="bold" color="primary.main">
+                                ${svc.precio_base_usd.toFixed(2)} USD/{svc.unidad}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary">
+                                ≈ ${svc.precio_base_mxn.toFixed(2)} MXN/{svc.unidad}
+                              </Typography>
+                            </TableCell>
+                            <TableCell>
+                              <Typography variant="body2" color="text.secondary">
+                                {svc.notas}
+                              </Typography>
+                            </TableCell>
+                          </TableRow>
+                        )) || (
+                          <>
+                            <TableRow hover>
+                              <TableCell>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <BoatIcon sx={{ color: '#00BCD4' }} /> Marítimo China
+                                </Box>
+                              </TableCell>
+                              <TableCell>45-60 días</TableCell>
+                              <TableCell>
+                                <Typography fontWeight="bold" color="primary.main">Desde $39 USD/CBM</Typography>
+                              </TableCell>
+                              <TableCell>Ideal para volúmenes grandes</TableCell>
+                            </TableRow>
+                            <TableRow hover>
+                              <TableCell>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <FlightIcon sx={{ color: ORANGE }} /> Aéreo China
+                                </Box>
+                              </TableCell>
+                              <TableCell>10-15 días</TableCell>
+                              <TableCell>
+                                <Typography fontWeight="bold" color="primary.main">Desde $8 USD/kg</Typography>
+                              </TableCell>
+                              <TableCell>Para envíos urgentes</TableCell>
+                            </TableRow>
+                            <TableRow hover>
+                              <TableCell>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <PostOfficeIcon sx={{ color: BLUE }} /> PO Box USA
+                                </Box>
+                              </TableCell>
+                              <TableCell>5-10 días</TableCell>
+                              <TableCell>
+                                <Typography fontWeight="bold" color="primary.main">Desde $3.50 USD/lb</Typography>
+                              </TableCell>
+                              <TableCell>Compras Amazon, eBay</TableCell>
+                            </TableRow>
+                            <TableRow hover>
+                              <TableCell>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                  <TruckIcon sx={{ color: '#FFCC00' }} /> DHL Nacional
+                                </Box>
+                              </TableCell>
+                              <TableCell>1-3 días</TableCell>
+                              <TableCell>
+                                <Typography fontWeight="bold" color="primary.main">Desde $145 USD</Typography>
+                              </TableCell>
+                              <TableCell>Liberación en Monterrey</TableCell>
+                            </TableRow>
+                          </>
+                        )}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                  * Precios de referencia. Tipo de cambio aproximado: $20 MXN/USD. Consulta cotización exacta.
+                  * Precios de referencia. Tipo de cambio: ${publicRates?.tipo_cambio || '20.00'} MXN/USD. Consulta cotización exacta.
                 </Typography>
               </Paper>
             </Box>
@@ -3714,7 +4128,7 @@ export default function DashboardClient() {
                           ¡Invita y Gana $500!
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
-                          Por cada amigo que haga su primer envío, ambos ganan $500 MXN
+                          Por cada amigo que haga su primer envío, tú ganas $500 MXN
                         </Typography>
                       </Box>
                     </Box>
@@ -3765,7 +4179,7 @@ export default function DashboardClient() {
                       onClick={() => {
                         const baseUrl = window.location.origin;
                         const shareUrl = `${baseUrl}/?ref=${encodeURIComponent(referralCode)}`;
-                        const msg = `🎁 ¡Te invito a EntregaX! Regístrate con mi código *${referralCode}* y ambos ganamos *$500 MXN* de saldo a favor en tu primer envío.\n\n📦 Envíos desde USA, China y más al mejor precio.\n\n👉 ${shareUrl}`;
+                        const msg = `🎁 ¡Te invito a EntregaX! Regístrate con mi código *${referralCode}* para que yo gane *$500 MXN* de saldo cuando hagas tu primer envío.\n\n📦 Los mejores precios en envíos desde USA, China y más.\n\n👉 ${shareUrl}`;
                         window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
                       }}
                       disabled={!referralCode}
@@ -7815,9 +8229,9 @@ export default function DashboardClient() {
               return reverseMapping[activeTab] ?? 0;
             })()}
             onChange={(_, newValue) => {
-              // newValue 1 es "Pago a proveedores" - abre enlace externo
+              // newValue 1 es "Pago a proveedores" - mostrar en construcción
               if (newValue === 1) {
-                window.open('https://pagos.entregax.com/proveedores', '_blank');
+                setSnackbar({ open: true, message: '🚧 Pago a Proveedores: Próximamente disponible', severity: 'info' });
                 return;
               }
               // Mapear índices: 0=envíos, 2=cotizador, 3=direcciones, 4=facturas, 5=cuenta

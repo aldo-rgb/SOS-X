@@ -336,8 +336,36 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
 
         await client.query('COMMIT');
         
+        // === ACTUALIZAR SALDO EN CHINA_RECEIPTS ===
+        // Calcular el total de air_sale_price de los paquetes asociados
+        const totalSaleRes = await pool.query(`
+            SELECT COALESCE(SUM(air_sale_price), 0) as total_sale
+            FROM packages 
+            WHERE china_receipt_id = $1 AND air_sale_price IS NOT NULL
+        `, [receiptId]);
+        const totalSale = parseFloat(totalSaleRes.rows[0].total_sale) || 0;
+        
+        // Si no hay precios en packages, usar estimado basado en peso del receipt
+        if (totalSale > 0) {
+            await pool.query(`
+                UPDATE china_receipts 
+                SET assigned_cost_mxn = $1, saldo_pendiente = $1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $2 AND (assigned_cost_mxn IS NULL OR assigned_cost_mxn != $1)
+            `, [totalSale, receiptId]);
+            console.log(`  💰 Saldo asignado: $${totalSale.toFixed(2)} USD`);
+        } else if (payload.totalWeight > 0) {
+            // Usar tarifa general $21/kg si no hay paquetes con precio
+            const estimatedCost = payload.totalWeight * 21;
+            await pool.query(`
+                UPDATE china_receipts 
+                SET assigned_cost_mxn = $1, saldo_pendiente = $1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $2 AND assigned_cost_mxn IS NULL
+            `, [estimatedCost, receiptId]);
+            console.log(`  💰 Saldo estimado: $${estimatedCost.toFixed(2)} USD (${payload.totalWeight}kg × $21/kg)`);
+        }
+
         // Marcar log como exitoso
-        await client.query(`
+        await pool.query(`
             UPDATE china_callback_logs 
             SET success = true 
             WHERE id = (
@@ -474,14 +502,17 @@ export const createChinaReceipt = async (req: Request, res: Response): Promise<a
         }
 
         // Insertar recepción
+        // Calcular costo estimado basado en peso × $21/kg (tarifa estándar)
+        const estimatedCost = (total_weight || 0) * 21;
+        
         const result = await pool.query(`
             INSERT INTO china_receipts 
-            (fno, user_id, shipping_mark, total_qty, total_weight, total_cbm, notes, status)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'received_origin')
+            (fno, user_id, shipping_mark, total_qty, total_weight, total_cbm, notes, status, assigned_cost_mxn, saldo_pendiente)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'received_origin', $8, $8)
             RETURNING *
-        `, [fno, userId, shipping_mark, total_qty || 1, total_weight || 0, total_cbm || 0, notes || 'Captura manual']);
+        `, [fno, userId, shipping_mark, total_qty || 1, total_weight || 0, total_cbm || 0, notes || 'Captura manual', estimatedCost]);
 
-        console.log(`✅ Recepción manual creada: ${fno} por usuario admin`);
+        console.log(`✅ Recepción manual creada: ${fno} - $${estimatedCost.toFixed(2)} USD (${total_weight || 0}kg × $21/kg)`);
 
         res.status(201).json({
             success: true,
@@ -1585,6 +1616,17 @@ export const pullFromMJCustomer = async (req: Request, res: Response): Promise<a
                 }
             }
 
+            // === ACTUALIZAR SALDO EN CHINA_RECEIPTS ===
+            const totalWeight = parseFloat(String(order.totalWeight || 0)) || 0;
+            if (totalWeight > 0) {
+                const estimatedCost = totalWeight * 21; // $21 USD/kg tarifa estándar
+                await client.query(`
+                    UPDATE china_receipts 
+                    SET assigned_cost_mxn = $1, saldo_pendiente = $1, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = $2 AND (assigned_cost_mxn IS NULL OR assigned_cost_mxn = 0)
+                `, [estimatedCost, receiptId]);
+            }
+
             results.push({
                 fno,
                 receiptId,
@@ -2278,6 +2320,33 @@ async function processCallbackPayload(
                     packagesCreated++;
                 }
             }
+        }
+        
+        // === ACTUALIZAR SALDO EN CHINA_RECEIPTS ===
+        // Calcular el total de air_sale_price de los paquetes asociados
+        const totalSaleRes = await client.query(`
+            SELECT COALESCE(SUM(air_sale_price), 0) as total_sale
+            FROM packages 
+            WHERE china_receipt_id = $1 AND air_sale_price IS NOT NULL
+        `, [receiptId]);
+        const totalSale = parseFloat(totalSaleRes.rows[0].total_sale) || 0;
+        
+        // Actualizar con el total de precios o estimar con peso
+        if (totalSale > 0) {
+            await client.query(`
+                UPDATE china_receipts 
+                SET assigned_cost_mxn = $1, saldo_pendiente = $1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $2
+            `, [totalSale, receiptId]);
+            console.log(`   💰 Saldo asignado: $${totalSale.toFixed(2)} USD`);
+        } else if (payload.totalWeight > 0) {
+            const estimatedCost = payload.totalWeight * 21;
+            await client.query(`
+                UPDATE china_receipts 
+                SET assigned_cost_mxn = $1, saldo_pendiente = $1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = $2 AND assigned_cost_mxn IS NULL
+            `, [estimatedCost, receiptId]);
+            console.log(`   💰 Saldo estimado: $${estimatedCost.toFixed(2)} USD`);
         }
         
         await client.query('COMMIT');

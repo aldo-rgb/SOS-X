@@ -70,6 +70,7 @@ import FinancialManagementPage from './FinancialManagementPage';
 // import PaymentInvoicesPage from './PaymentInvoicesPage'; // ELIMINADO
 import NationalFreightRatesPage from './NationalFreightRatesPage';
 import LastMilePage from './LastMilePage';
+import PaqueteExpressPage from './PaqueteExpressPage';
 import DhlRatesPage from './DhlRatesPage';
 import DhlCostingPage from './DhlCostingPage';
 import POBoxRatesPage from './POBoxRatesPage';
@@ -146,6 +147,7 @@ const MODULE_ICONS: Record<string, React.ReactElement> = {
     air_management: <FlightIcon />,
     cajo_management: <FlightIcon />,
     last_mile: <LocalShippingIcon />,
+    paquete_express: <ApiIcon />,
     dhl_rates: <SellIcon />,
     anticipos: <WalletIcon />,
     suppliers: <BranchIcon />,
@@ -201,6 +203,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'inventory', status: 'active' },
         { key: 'pricing', status: 'active' },
         { key: 'last_mile', status: 'active' },
+        { key: 'paquete_express', status: 'active' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
         { key: 'carrier_options', status: 'active' },
@@ -857,6 +860,30 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                     </Box>
                     {/* Panel de Última Milla - Skydropx */}
                     <LastMilePage />
+                </Box>
+            );
+        }
+
+        // Panel API Paquete Express - solo mx_national
+        if (selectedModule === 'paquete_express' && selectedService === 'mx_national') {
+            return (
+                <Box>
+                    {/* Breadcrumb */}
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    <PaqueteExpressPage />
                 </Box>
             );
         }

@@ -1805,7 +1805,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     if (modalType === 'referral') {
                       Alert.alert(
                         '🎁 Programa de Referidos',
-                        `¡Comparte tu código y gana!\n\nTu código: ${user.boxId}\n\nPor cada amigo que haga su primer envío, ambos reciben $500 MXN de crédito.`,
+                        `¡Comparte tu código y gana!\n\nTu código: ${user.boxId}\n\nPor cada amigo que haga su primer envío, tú ganas $500 MXN de crédito.`,
                         [
                           { text: 'Cerrar', style: 'cancel' },
                           { text: 'Compartir Código', onPress: () => {} }

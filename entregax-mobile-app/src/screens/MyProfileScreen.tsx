@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,12 @@ import {
   Switch,
   Modal,
   FlatList,
+  Image,
+  ActionSheetIOS,
+  Platform,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import {
   Appbar,
   Card,
@@ -136,8 +141,163 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   const [showRegimenPicker, setShowRegimenPicker] = useState(false);
   const [showUsoCFDIPicker, setShowUsoCFDIPicker] = useState(false);
   
+  // 📸 Estado para foto de perfil
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(user.profilePhotoUrl || null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
   // Verificar si el usuario puede tener PIN de supervisor
   const canHaveSupervisorPin = SUPERVISOR_ROLES.includes(user.role);
+
+  // 📸 Cargar foto de perfil al montar
+  useEffect(() => {
+    fetchProfilePhoto();
+  }, []);
+
+  const fetchProfilePhoto = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/auth/profile`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.profile_photo_url) {
+          setProfilePhoto(data.profile_photo_url);
+        }
+      }
+    } catch (error) {
+      console.log('Error fetching profile photo:', error);
+    }
+  };
+
+  const handlePickProfilePhoto = () => {
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ['Cancelar', '📷 Tomar Foto', '🖼️ Elegir de Galería', '🗑️ Eliminar Foto'],
+          destructiveButtonIndex: 3,
+          cancelButtonIndex: 0,
+        },
+        async (buttonIndex) => {
+          if (buttonIndex === 1) {
+            await pickImage('camera');
+          } else if (buttonIndex === 2) {
+            await pickImage('gallery');
+          } else if (buttonIndex === 3) {
+            await removeProfilePhoto();
+          }
+        }
+      );
+    } else {
+      Alert.alert(
+        'Foto de Perfil',
+        'Elige una opción',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: '📷 Tomar Foto', onPress: () => pickImage('camera') },
+          { text: '🖼️ Galería', onPress: () => pickImage('gallery') },
+          ...(profilePhoto ? [{ text: '🗑️ Eliminar', style: 'destructive' as const, onPress: removeProfilePhoto }] : []),
+        ]
+      );
+    }
+  };
+
+  const pickImage = async (source: 'camera' | 'gallery') => {
+    try {
+      let permResult;
+      if (source === 'camera') {
+        permResult = await ImagePicker.requestCameraPermissionsAsync();
+      } else {
+        permResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      }
+
+      if (permResult.status !== 'granted') {
+        Alert.alert('Permisos requeridos', 'Necesitamos acceso para seleccionar una foto.');
+        return;
+      }
+
+      const pickerFn = source === 'camera'
+        ? ImagePicker.launchCameraAsync
+        : ImagePicker.launchImageLibraryAsync;
+
+      const result = await pickerFn({
+        mediaTypes: 'images',
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.6,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const uri = result.assets[0].uri;
+        await uploadProfilePhoto(uri);
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'No se pudo obtener la imagen');
+    }
+  };
+
+  const uploadProfilePhoto = async (uri: string) => {
+    setUploadingPhoto(true);
+    try {
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const photoData = `data:image/jpeg;base64,${base64}`;
+
+      // Verificar tamaño (máx ~2MB)
+      if (photoData.length > 3 * 1024 * 1024) {
+        Alert.alert('Error', 'La imagen es demasiado grande. Intenta con una foto más pequeña.');
+        return;
+      }
+
+      const response = await fetch(`${API_URL}/api/auth/profile-photo`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ photo: photoData }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setProfilePhoto(photoData);
+        Alert.alert('✅ Listo', 'Foto de perfil actualizada');
+      } else {
+        Alert.alert('Error', data.error || 'No se pudo actualizar la foto');
+      }
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      Alert.alert('Error', 'No se pudo subir la foto');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const removeProfilePhoto = async () => {
+    setUploadingPhoto(true);
+    try {
+      const response = await fetch(`${API_URL}/api/auth/profile-photo`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ photo: null }),
+      });
+
+      if (response.ok) {
+        setProfilePhoto(null);
+        Alert.alert('✅ Listo', 'Foto de perfil eliminada');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo eliminar la foto');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
 
   const refreshVerificationStatus = async () => {
     setRefreshingStatus(true);
@@ -601,11 +761,26 @@ export default function MyProfileScreen({ navigation, route }: Props) {
         <Card style={styles.card}>
           <Card.Content>
             <View style={styles.profileHeader}>
-              <View style={styles.avatarContainer}>
-                <Text style={styles.avatarText}>
-                  {user.name?.charAt(0)?.toUpperCase() || 'U'}
-                </Text>
-              </View>
+              <TouchableOpacity onPress={handlePickProfilePhoto} activeOpacity={0.7} disabled={uploadingPhoto}>
+                <View style={styles.avatarContainer}>
+                  {profilePhoto ? (
+                    <Image source={{ uri: profilePhoto }} style={styles.avatarImage} />
+                  ) : (
+                    <Text style={styles.avatarText}>
+                      {user.name?.charAt(0)?.toUpperCase() || 'U'}
+                    </Text>
+                  )}
+                  {uploadingPhoto ? (
+                    <View style={styles.avatarOverlay}>
+                      <ActivityIndicator color="white" size="small" />
+                    </View>
+                  ) : (
+                    <View style={styles.cameraIconContainer}>
+                      <Ionicons name="camera" size={14} color="white" />
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
               <View style={styles.profileInfo}>
                 <Text style={styles.profileName}>{user.name}</Text>
                 <Text style={styles.profileEmail}>{user.email}</Text>
@@ -1247,11 +1422,38 @@ const styles = StyleSheet.create({
     backgroundColor: ORANGE,
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  avatarImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
   },
   avatarText: {
     fontSize: 28,
     fontWeight: 'bold',
     color: 'white',
+  },
+  avatarOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 35,
+  },
+  cameraIconContainer: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#333',
+    borderRadius: 12,
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'white',
   },
   profileInfo: {
     marginLeft: 16,

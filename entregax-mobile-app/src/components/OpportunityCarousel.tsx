@@ -97,7 +97,7 @@ const DEFAULT_OPPORTUNITIES: Opportunity[] = [
     id: 'referral_program',
     type: 'promo',
     title: 'Invita y gana $500 MXN',
-    subtitle: 'Por cada amigo que haga su primer envío, ambos ganan.',
+    subtitle: 'Por cada amigo que haga su primer envío, tú ganas.',
     ctaText: '🎁 Compartir mi Código',
     ctaAction: 'modal:referral',
     badge: 'Exclusivo',

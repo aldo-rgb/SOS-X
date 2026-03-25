@@ -47,6 +47,14 @@ import POBoxExitScreen from './src/screens/POBoxExitScreen';
 import POBoxCollectScreen from './src/screens/POBoxCollectScreen';
 import POBoxQuoteScreen from './src/screens/POBoxQuoteScreen';
 import POBoxRepackScreen from './src/screens/POBoxRepackScreen';
+// Advisor Screens
+import AdvisorDashboardScreen from './src/screens/AdvisorDashboardScreen';
+import AdvisorClientsScreen from './src/screens/AdvisorClientsScreen';
+import AdvisorCommissionsScreen from './src/screens/AdvisorCommissionsScreen';
+import AdvisorReferralScreen from './src/screens/AdvisorReferralScreen';
+import AdvisorTeamScreen from './src/screens/AdvisorTeamScreen';
+import AdvisorClientTicketsScreen from './src/screens/AdvisorClientTicketsScreen';
+import AdvisorNotificationsScreen from './src/screens/AdvisorNotificationsScreen';
 
 import { Package } from './src/services/api';
 import { EMPLOYEE_ROLES } from './src/constants/roles';
@@ -103,6 +111,14 @@ export type RootStackParamList = {
   POBoxCollect: { user: any; token: string };
   POBoxQuote: { user: any; token: string };
   POBoxRepack: { user: any; token: string };
+  // Advisor Screens
+  AdvisorDashboard: { user: any; token: string };
+  AdvisorClients: { user: any; token: string };
+  AdvisorCommissions: { user: any; token: string };
+  AdvisorReferral: { user: any; token: string };
+  AdvisorTeam: { user: any; token: string };
+  AdvisorClientTickets: { user: any; token: string };
+  AdvisorNotifications: { user: any; token: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -134,7 +150,11 @@ export default function App() {
           <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
           <Stack.Screen name="Verification" component={VerificationScreen} />
           <Stack.Screen name="Home" component={HomeScreen} />
-          <Stack.Screen name="EmployeeHome" component={EmployeeHomeScreen} />
+          <Stack.Screen 
+            name="EmployeeHome" 
+            component={EmployeeHomeScreen}
+            options={{ headerTitle: 'Home' }}
+          />
           <Stack.Screen 
             name="ConsolidationSummary" 
             component={ConsolidationSummary}
@@ -267,6 +287,68 @@ export default function App() {
           <Stack.Screen name="POBoxCollect" component={POBoxCollectScreen} />
           <Stack.Screen name="POBoxQuote" component={POBoxQuoteScreen} />
           <Stack.Screen name="POBoxRepack" component={POBoxRepackScreen} />
+          {/* Advisor Screens */}
+          <Stack.Screen 
+            name="AdvisorDashboard" 
+            component={AdvisorDashboardScreen}
+            options={{
+              headerShown: false,
+            }}
+          />
+          <Stack.Screen 
+            name="AdvisorClients" 
+            component={AdvisorClientsScreen}
+            options={{
+              headerShown: true,
+              headerTitle: 'Mis Clientes',
+              headerTintColor: '#F05A28',
+            }}
+          />
+          <Stack.Screen 
+            name="AdvisorCommissions" 
+            component={AdvisorCommissionsScreen}
+            options={{
+              headerShown: true,
+              headerTitle: 'Mis Comisiones',
+              headerTintColor: '#F05A28',
+            }}
+          />
+          <Stack.Screen 
+            name="AdvisorReferral" 
+            component={AdvisorReferralScreen}
+            options={{
+              headerShown: true,
+              headerTitle: 'Referir Cliente',
+              headerTintColor: '#F05A28',
+            }}
+          />
+          <Stack.Screen 
+            name="AdvisorTeam" 
+            component={AdvisorTeamScreen}
+            options={{
+              headerShown: true,
+              headerTitle: 'Mi Equipo',
+              headerTintColor: '#9C27B0',
+            }}
+          />
+          <Stack.Screen 
+            name="AdvisorClientTickets" 
+            component={AdvisorClientTicketsScreen}
+            options={{
+              headerShown: true,
+              headerTitle: 'Tickets de Clientes',
+              headerTintColor: '#E91E63',
+            }}
+          />
+          <Stack.Screen 
+            name="AdvisorNotifications" 
+            component={AdvisorNotificationsScreen}
+            options={{
+              headerShown: true,
+              headerTitle: 'Centro de Notificaciones',
+              headerTintColor: '#F05A28',
+            }}
+          />
         </Stack.Navigator>
       </NavigationContainer>
     </PaperProvider>

@@ -1003,7 +1003,7 @@ export default function DashboardAdvisor() {
                           py: 0.5,
                         }}
                       >
-                        Ver Cartera
+                        Ver
                       </Button>
                     </Tooltip>
                   </TableCell>

@@ -557,7 +557,8 @@
       "maritime_api": "中国海运API",
       "air_api": "中国空运API",
       "routes": "路线",
-      "last_mile": "最后一公里",
+      "last_mile": "Skydropx",
+      "paquete_express": "Paquete Express API",
       "dhl_rates": "DHL费率",
       "dhl_operations": "DHL操作",
       "carrier_options": "物流选项"

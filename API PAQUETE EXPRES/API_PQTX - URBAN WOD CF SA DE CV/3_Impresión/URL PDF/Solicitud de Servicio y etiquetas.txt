@@ -1,0 +1,21 @@
+
+===============  PRUEBAS    ============================================================================================
+
+
+*****  1.  FORMATO PDF 4X6 PULGADAS   *******
+
+https://qaglp.paquetexpress.com.mx/wsReportPaquetexpress/GenCartaPorte?trackingNoGen={trackingNumber}&measure=4x6
+
+
+
+
+*****  2.  FORMATO PDF CARTA   *******
+
+
+https://qaglp.paquetexpress.com.mx/wsReportPaquetexpress/GenCartaPorte?trackingNoGen={trackingNumber}
+
+
+
+
+
+=========================================================================================================================

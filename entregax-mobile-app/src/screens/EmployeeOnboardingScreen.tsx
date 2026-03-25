@@ -41,8 +41,10 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
   const user = route?.params?.user;
   const token = route?.params?.token;
   const isDriver = user?.role === 'repartidor';
+  const ADVISOR_ROLES = ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'];
+  const isAdvisor = ADVISOR_ROLES.includes(user?.role || '');
   
-  // Total de pasos: 6 si es repartidor, 5 si no
+  // Total de pasos: 6 si es repartidor, 5 si no, solo 1 (aviso) si es asesor
   const totalSteps = isDriver ? 6 : 5;
   
   // Form data
@@ -75,7 +77,8 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
   useEffect(() => {
     const loadPrivacy = async () => {
       try {
-        const response = await api.get('/api/hr/privacy-notice');
+        const endpoint = isAdvisor ? '/api/hr/advisor-privacy-notice' : '/api/hr/privacy-notice';
+        const response = await api.get(endpoint);
         setPrivacyNotice(response.data);
       } catch (error) {
         console.error('Error cargando aviso de privacidad:', error);
@@ -177,23 +180,44 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
     );
   };
 
-  // Aceptar aviso de privacidad Y solicitar ubicación
+  // Aceptar aviso de privacidad Y solicitar ubicación (o solo aceptar para asesores)
   const handleAcceptPrivacy = async () => {
     setLoading(true);
     try {
-      // Primero solicitar permiso de ubicación
-      const locationGranted = await requestLocationPermission();
-      if (!locationGranted) {
-        setLoading(false);
-        return; // No continuar si no se otorga el permiso
+      if (isAdvisor) {
+        // Asesores NO requieren permiso de ubicación
+        await api.post('/api/hr/accept-advisor-privacy', {}, { 
+          headers: { Authorization: `Bearer ${token}` } 
+        });
+        setPrivacyAccepted(true);
+        // Los asesores solo necesitan aceptar el aviso, luego ir al home
+        Alert.alert(
+          '✅ Términos Aceptados',
+          'Has aceptado el aviso de privacidad y los términos de comisiones. Ya puedes comenzar a usar la plataforma.',
+          [{ 
+            text: 'Continuar', 
+            onPress: () => {
+              if (onComplete) {
+                onComplete();
+              } else if (navigation) {
+                navigation.replace('EmployeeHome', { user, token: route?.params?.token });
+              }
+            }
+          }]
+        );
+      } else {
+        // Empleados regulares requieren permiso de ubicación
+        const locationGranted = await requestLocationPermission();
+        if (!locationGranted) {
+          setLoading(false);
+          return;
+        }
+        await api.post('/api/hr/accept-privacy', {}, { 
+          headers: { Authorization: `Bearer ${token}` } 
+        });
+        setPrivacyAccepted(true);
+        setStep(1);
       }
-
-      // Registrar aceptación del aviso de privacidad
-      await api.post('/api/hr/accept-privacy', {}, { 
-        headers: { Authorization: `Bearer ${token}` } 
-      });
-      setPrivacyAccepted(true);
-      setStep(1);
     } catch (error) {
       console.error('Error aceptando privacidad:', error);
       Alert.alert('Error', 'No se pudo registrar la aceptación. Intenta de nuevo.');
@@ -400,16 +424,20 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
               <>
                 <Ionicons name="checkmark-circle" size={24} color="#fff" />
                 <Text style={styles.acceptButtonText}>
-                  Aviso de Privacidad y Activar Localizacion
+                  {isAdvisor 
+                    ? 'Acepto los Términos y Aviso de Privacidad' 
+                    : 'Aviso de Privacidad y Activar Localizacion'
+                  }
                 </Text>
               </>
             )}
           </TouchableOpacity>
 
           <Text style={styles.legalNote}>
-            Al presionar "", confirmas que has leído y entendido el aviso de privacidad,
-            y autorizas a EntregaX a tratar tus datos personales y rastrear tu ubicación
-            durante tu jornada laboral.
+            {isAdvisor 
+              ? 'Al presionar "", confirmas que has leído y entendido el aviso de privacidad y los términos de comisiones, y autorizas a EntregaX a tratar tus datos personales para la gestión de tu actividad como asesor comercial.'
+              : 'Al presionar "", confirmas que has leído y entendido el aviso de privacidad, y autorizas a EntregaX a tratar tus datos personales y rastrear tu ubicación durante tu jornada laboral.'
+            }
           </Text>
         </ScrollView>
       </SafeAreaView>

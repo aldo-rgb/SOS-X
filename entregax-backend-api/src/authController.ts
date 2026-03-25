@@ -319,6 +319,8 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
                 verificationStatus: user.verification_status || 'not_started',
                 // 👷 Campo para onboarding de empleados
                 isEmployeeOnboarded: user.is_employee_onboarded || false,
+                // 📋 Aceptación de aviso de privacidad
+                privacyAcceptedAt: user.privacy_accepted_at || null,
                 // 📸 Foto de perfil del empleado (limitada para no sobrecargar localStorage)
                 // Si es base64 muy grande, solo enviamos los primeros 1000 chars como indicador
                 profilePhotoUrl: user.profile_photo_url && user.profile_photo_url.length > 10000 
@@ -556,7 +558,7 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
         const userQuery = await pool.query(
             `SELECT u.id, u.full_name, u.email, u.box_id, u.role, u.warehouse_location, u.created_at,
                     u.is_verified, u.verification_status, u.is_employee_onboarded, u.profile_photo_url,
-                    u.phone, u.rfc, u.referred_by_id,
+                    u.phone, u.rfc, u.referred_by_id, u.privacy_accepted_at,
                     a.full_name as advisor_name,
                     a.phone as advisor_phone,
                     a.email as advisor_email

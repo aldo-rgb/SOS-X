@@ -21,15 +21,56 @@ import {
   Modal,
   Alert,
   Image,
+  Share,
+  Clipboard,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Appbar, Avatar, Divider, Icon } from 'react-native-paper';
+import { Appbar, Avatar, Divider, Icon, Chip, Surface } from 'react-native-paper';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { api, API_URL } from '../services/api';
+import { changeLanguage, getCurrentLanguage } from '../i18n';
+import { useTranslation } from 'react-i18next';
 
+const { width } = Dimensions.get('window');
 const ORANGE = '#F05A28';
 const BLACK = '#111111';
+
+// Roles de asesor
+const ADVISOR_ROLES = ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'];
+
+// Interface para datos del asesor
+interface AdvisorDashboardData {
+  advisor: {
+    id: number;
+    fullName: string;
+    email: string;
+    referralCode: string;
+    boxId: string;
+    role: string;
+    joinedAt: string;
+  };
+  clients: {
+    total: number;
+    new7d: number;
+    new30d: number;
+    verified: number;
+    pendingVerification: number;
+    active: number;
+    dormant: number;
+  };
+  shipments: {
+    inTransit: number;
+    awaitingPayment: number;
+    missingInstructions: number;
+  };
+  commissions: {
+    monthVolumeMxn: number;
+    monthPaidCount: number;
+  };
+  subAdvisors: number;
+}
 
 interface ModuleCard {
   id: string;
@@ -251,7 +292,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#3F51B5',
     screen: 'SupportTickets',
-    roles: ['customer_service', 'branch_manager', 'admin', 'super_admin', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor'],
+    roles: ['customer_service', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: false,
   },
   {
@@ -262,7 +303,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#795548',
     screen: 'ClientLookup',
-    roles: ['customer_service', 'branch_manager', 'admin', 'super_admin', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor'],
+    roles: ['customer_service', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: false,
     hideIfPOBox: true, // El personal de mostrador usa los módulos PO Box
   },
@@ -305,48 +346,16 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
   },
   
   // === ASESORES ===
+  // Solo mostramos Panel de Asesor - las demás opciones están dentro del panel
   {
-    id: 'advisor_clients',
-    title: 'Mis Clientes',
-    subtitle: 'Ver y gestionar mis clientes referidos',
-    icon: 'people-outline',
+    id: 'advisor_dashboard',
+    title: 'Panel de Asesor',
+    subtitle: 'Clientes, comisiones y referidos',
+    icon: 'analytics-outline',
     iconFamily: 'ionicons',
     color: '#F05A28',
-    screen: 'AdvisorClients',
+    screen: 'AdvisorDashboard',
     roles: ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'],
-    requiresOnboarding: false,
-  },
-  {
-    id: 'advisor_commissions',
-    title: 'Mis Comisiones',
-    subtitle: 'Ver historial de comisiones',
-    icon: 'cash-outline',
-    iconFamily: 'ionicons',
-    color: '#4CAF50',
-    screen: 'AdvisorCommissions',
-    roles: ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'],
-    requiresOnboarding: false,
-  },
-  {
-    id: 'advisor_referral',
-    title: 'Referir Cliente',
-    subtitle: 'Compartir mi código de referido',
-    icon: 'share-social-outline',
-    iconFamily: 'ionicons',
-    color: '#2196F3',
-    screen: 'AdvisorReferral',
-    roles: ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'],
-    requiresOnboarding: false,
-  },
-  {
-    id: 'advisor_team',
-    title: 'Mi Equipo',
-    subtitle: 'Ver sub-asesores y su rendimiento',
-    icon: 'people-circle-outline',
-    iconFamily: 'ionicons',
-    color: '#9C27B0',
-    screen: 'AdvisorTeam',
-    roles: ['asesor_lider'],
     requiresOnboarding: false,
   },
 ];
@@ -369,12 +378,109 @@ const ROLE_LABELS: Record<string, string> = {
 
 export default function EmployeeHomeScreen({ navigation, route }: any) {
   const { user: initialUser, token } = route.params;
+  const { t } = useTranslation();
   const [user, setUser] = useState(initialUser);
   const [refreshing, setRefreshing] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [stats, setStats] = useState<any>(null);
   const [poboxPermissions, setPOBoxPermissions] = useState<string[]>([]);
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+  
+  // Estados para el panel del asesor
+  const [advisorData, setAdvisorData] = useState<AdvisorDashboardData | null>(null);
+  const [advisorLoading, setAdvisorLoading] = useState(false);
+  const isAdvisor = ADVISOR_ROLES.includes(user.role);
+
+  // Estados para idioma y notificaciones
+  const [showLanguageModal, setShowLanguageModal] = useState(false);
+  const [currentLang, setCurrentLang] = useState(getCurrentLanguage());
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
+
+  // Cargar datos del asesor
+  const loadAdvisorData = useCallback(async () => {
+    if (!isAdvisor) return;
+    
+    try {
+      setAdvisorLoading(true);
+      const response = await fetch(`${API_URL}/api/advisor/dashboard`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        setAdvisorData(result);
+      }
+    } catch (err) {
+      console.error('Error loading advisor dashboard:', err);
+    } finally {
+      setAdvisorLoading(false);
+    }
+  }, [token, isAdvisor]);
+
+  // 🔔 Obtener conteo de notificaciones no leídas
+  const fetchUnreadNotifications = useCallback(async () => {
+    try {
+      const endpoint = isAdvisor 
+        ? `${API_URL}/api/advisor/notifications/unread-count`
+        : `${API_URL}/api/notifications/unread-count`;
+      const response = await fetch(endpoint, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        let count = data.count || data.unreadCount || 0;
+        // Si el asesor no está verificado, asegurar que al menos haya 1 notificación
+        if (isAdvisor && !user.isVerified) {
+          count = Math.max(count, 1);
+        }
+        setUnreadNotifications(count);
+      } else if (isAdvisor && !user.isVerified) {
+        // Incluso si falla el endpoint, mostrar badge si no está verificado
+        setUnreadNotifications(1);
+      }
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+      if (isAdvisor && !user.isVerified) {
+        setUnreadNotifications(1);
+      }
+    }
+  }, [token, isAdvisor, user.isVerified]);
+
+  // 🌐 Cambiar idioma
+  const handleChangeLanguage = async (lang: string) => {
+    await changeLanguage(lang);
+    setCurrentLang(lang);
+    setShowLanguageModal(false);
+  };
+
+  const getLanguageFlag = (lang: string) => {
+    switch (lang) {
+      case 'es': return '🇲🇽';
+      case 'en': return '🇺🇸';
+      case 'zh': return '🇨🇳';
+      default: return '🌐';
+    }
+  };
+
+  // Funciones del asesor
+  const copyReferralCode = () => {
+    if (advisorData?.advisor.referralCode) {
+      Clipboard.setString(advisorData.advisor.referralCode);
+      Alert.alert(`✅ ${t('advisorPanel.copied')}`, t('advisorPanel.codeCopied'));
+    }
+  };
+
+  const shareReferralCode = async () => {
+    if (advisorData?.advisor.referralCode) {
+      try {
+        await Share.share({
+          message: `¡Únete a EntregaX con mi código ${advisorData.advisor.referralCode} y obtén beneficios exclusivos! 📦✈️ Descarga la app: https://entregax.com/app`,
+        });
+      } catch (err) {
+        console.error('Error sharing:', err);
+      }
+    }
+  };
 
   // Cargar permisos de módulos PO Box desde el API
   const loadModulePermissions = useCallback(async () => {
@@ -449,6 +555,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
           verificationStatus: data.verification_status,
           isEmployeeOnboarded: data.is_employee_onboarded,
           profilePhotoUrl: data.profile_photo_url,
+          privacyAcceptedAt: data.privacy_accepted_at,
         }));
       }
     } catch (error) {
@@ -477,13 +584,22 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       if (isOnboarded) {
         loadStats();
       }
-    }, [refreshUserData, loadStats, isOnboarded])
+      // Cargar datos del asesor si es asesor
+      if (isAdvisor) {
+        loadAdvisorData();
+      }
+      fetchUnreadNotifications();
+    }, [refreshUserData, loadStats, isOnboarded, isAdvisor, loadAdvisorData, fetchUnreadNotifications])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
     refreshUserData();
     loadStats();
+    fetchUnreadNotifications();
+    if (isAdvisor) {
+      loadAdvisorData();
+    }
     setTimeout(() => setRefreshing(false), 1000);
   };
 
@@ -521,9 +637,9 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
 
   const getGreeting = () => {
     const hour = new Date().getHours();
-    if (hour < 12) return '¡Buenos días!';
-    if (hour < 18) return '¡Buenas tardes!';
-    return '¡Buenas noches!';
+    if (hour < 12) return t('advisorPanel.goodMorning');
+    if (hour < 18) return t('advisorPanel.goodAfternoon');
+    return t('advisorPanel.goodEvening');
   };
 
   const renderModuleCard = (module: ModuleCard) => {
@@ -566,11 +682,38 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
     <SafeAreaView style={styles.container} edges={['top']}>
       {/* Header */}
       <Appbar.Header style={styles.appbar}>
-        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingLeft: 16 }}>
+        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingLeft: 12 }}>
           <Image 
             source={require('../../assets/logo.png')} 
-            style={{ width: 130, height: 40, resizeMode: 'contain' }}
+            style={{ width: 110, height: 30, resizeMode: 'contain' }}
           />
+        </View>
+        <TouchableOpacity 
+          onPress={() => setShowLanguageModal(true)}
+          style={styles.languageButton}
+        >
+          <Text style={styles.languageFlag}>{getLanguageFlag(currentLang)}</Text>
+        </TouchableOpacity>
+        {/* 🔔 Notificaciones */}
+        <View style={{ position: 'relative' }}>
+          <Appbar.Action 
+            icon="bell-outline" 
+            onPress={() => {
+              if (isAdvisor) {
+                navigation.navigate('AdvisorNotifications', { user, token });
+              } else {
+                navigation.navigate('Notifications', { user, token });
+              }
+            }} 
+            color="white" 
+          />
+          {unreadNotifications > 0 && (
+            <View style={styles.notificationBadge}>
+              <Text style={styles.notificationBadgeText}>
+                {unreadNotifications <= 9 ? unreadNotifications : '9+'}
+              </Text>
+            </View>
+          )}
         </View>
         <Appbar.Action icon="menu" onPress={() => setShowMenu(true)} color="white" />
       </Appbar.Header>
@@ -589,12 +732,12 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
           <View style={styles.userRow}>
             {user.profilePhotoUrl ? (
               <Avatar.Image 
-                size={60} 
+                size={48} 
                 source={{ uri: user.profilePhotoUrl }}
               />
             ) : (
               <Avatar.Text 
-                size={60} 
+                size={48} 
                 label={user.name?.charAt(0) || 'E'} 
                 style={{ backgroundColor: ORANGE }}
               />
@@ -610,17 +753,34 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             </View>
           </View>
 
-          {/* Banner de Onboarding Pendiente */}
-          {!isOnboarded && (
+          {/* Banner de Onboarding Pendiente - No aplica para asesores */}
+          {!isOnboarded && !isAdvisor && (
             <TouchableOpacity 
               style={styles.onboardingBanner}
               onPress={() => navigation.navigate('EmployeeOnboarding', { user, token })}
             >
               <Ionicons name="warning" size={24} color="#fff" />
               <View style={styles.onboardingContent}>
-                <Text style={styles.onboardingTitle}>⚠️ Alta de Empleado Pendiente</Text>
+                <Text style={styles.onboardingTitle}>⚠️ {t('advisorPanel.pendingOnboarding')}</Text>
                 <Text style={styles.onboardingSubtitle}>
-                  Completa tu registro para acceder a tus módulos de trabajo
+                  {t('advisorPanel.completeRegistration')}
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color="#fff" />
+            </TouchableOpacity>
+          )}
+
+          {/* Banner de Aviso de Privacidad Pendiente para Asesores */}
+          {isAdvisor && !user.privacyAcceptedAt && (
+            <TouchableOpacity 
+              style={[styles.onboardingBanner, { backgroundColor: '#F59E0B' }]}
+              onPress={() => navigation.navigate('EmployeeOnboarding', { user, token })}
+            >
+              <Ionicons name="document-text" size={24} color="#fff" />
+              <View style={styles.onboardingContent}>
+                <Text style={styles.onboardingTitle}>📋 {t('advisorPanel.acceptTerms')}</Text>
+                <Text style={styles.onboardingSubtitle}>
+                  {t('advisorPanel.acceptPrivacyNotice')}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={24} color="#fff" />
@@ -632,96 +792,365 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             <View style={styles.statsContainer}>
               <View style={styles.statItem}>
                 <Text style={styles.statNumber}>{stats.totalAssigned || 0}</Text>
-                <Text style={styles.statLabel}>Asignados</Text>
+                <Text style={styles.statLabel}>{t('advisorPanel.assigned')}</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
                 <Text style={[styles.statNumber, { color: '#2196F3' }]}>
                   {stats.loadedToday || 0}
                 </Text>
-                <Text style={styles.statLabel}>Cargados</Text>
+                <Text style={styles.statLabel}>{t('advisorPanel.loaded')}</Text>
               </View>
               <View style={styles.statDivider} />
               <View style={styles.statItem}>
                 <Text style={[styles.statNumber, { color: '#4CAF50' }]}>
                   {stats.deliveredToday || 0}
                 </Text>
-                <Text style={styles.statLabel}>Entregados</Text>
+                <Text style={styles.statLabel}>{t('advisorPanel.delivered')}</Text>
               </View>
             </View>
           )}
         </View>
 
-        {/* Módulos Disponibles */}
-        <View style={styles.modulesSection}>
-          <Text style={styles.sectionTitle}>📱 Mis Módulos</Text>
-          {!permissionsLoaded ? (
-            <View style={styles.noModules}>
-              <Ionicons name="sync-outline" size={48} color={ORANGE} />
-              <Text style={styles.noModulesText}>
-                Cargando módulos...
-              </Text>
-            </View>
-          ) : availableModules.length === 0 ? (
-            <View style={styles.noModules}>
-              <Ionicons name="construct-outline" size={48} color="#ccc" />
-              <Text style={styles.noModulesText}>
-                No hay módulos disponibles para tu rol aún.
-              </Text>
-              <Text style={styles.noModulesSubtext}>
-                Contacta a tu supervisor.
-              </Text>
-            </View>
-          ) : (
-            availableModules.map(renderModuleCard)
-          )}
-        </View>
-
-        {/* Botón de Checar Entrada/Salida para roles operativos */}
-        {['repartidor', 'warehouse_ops', 'counter_staff'].includes(user.role) && isOnboarded && (
-          <View style={styles.attendanceSection}>
-            <TouchableOpacity 
-              style={styles.attendanceButton}
-              onPress={() => navigation.navigate('AttendanceChecker', { user, token })}
-              activeOpacity={0.8}
-            >
-              <View style={styles.attendanceIconCircle}>
-                <Ionicons name="time" size={40} color="#4CAF50" />
+        {/* =============== CONTENIDO PARA ASESORES =============== */}
+        {isAdvisor && advisorData ? (
+          <View style={{ paddingHorizontal: 16 }}>
+            {/* Código de Referido - solo visible después de aceptar términos Y verificación */}
+            {user.privacyAcceptedAt && user.isVerified ? (
+              <View style={advStyles.referralCard}>
+                <View style={advStyles.referralHeader}>
+                  <Ionicons name="gift-outline" size={24} color={ORANGE} />
+                  <Text style={advStyles.referralLabel}>{t('advisorPanel.referralCode')}</Text>
+                </View>
+                <Text style={advStyles.referralCode}>{advisorData.advisor.referralCode || t('advisorPanel.noCode')}</Text>
+                <View style={advStyles.referralActions}>
+                  <TouchableOpacity style={advStyles.referralButton} onPress={copyReferralCode}>
+                    <Ionicons name="copy-outline" size={20} color="#fff" />
+                    <Text style={advStyles.referralButtonText}>{t('advisorPanel.copy')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[advStyles.referralButton, advStyles.shareButton]} onPress={shareReferralCode}>
+                    <Ionicons name="share-social-outline" size={20} color={ORANGE} />
+                    <Text style={[advStyles.referralButtonText, { color: ORANGE }]}>{t('advisorPanel.share')}</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-              <Text style={styles.attendanceTitle}>Checar Asistencia</Text>
-              <Ionicons name="chevron-forward" size={28} color="#4CAF50" />
-            </TouchableOpacity>
+            ) : (
+              <TouchableOpacity 
+                style={[advStyles.referralCard, { alignItems: 'center', paddingVertical: 16 }]}
+                onPress={() => {
+                  if (!user.privacyAcceptedAt) {
+                    navigation.navigate('EmployeeOnboarding', { user, token });
+                  } else {
+                    navigation.navigate('MyProfile', { user, token });
+                  }
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="lock-closed" size={28} color="#999" />
+                <Text style={{ fontSize: 14, fontWeight: '600', color: '#666', marginTop: 6, textAlign: 'center' }}>
+                  🔒 Código de Referido Bloqueado
+                </Text>
+                <Text style={{ fontSize: 12, color: '#999', marginTop: 3, textAlign: 'center', paddingHorizontal: 10 }}>
+                  {!user.privacyAcceptedAt 
+                    ? 'Acepta los Términos y Condiciones para continuar'
+                    : 'Completa tu verificación de identidad para desbloquear tu código'}
+                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, backgroundColor: !user.privacyAcceptedAt ? '#F59E0B' : ORANGE, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 7 }}>
+                  <Ionicons name={!user.privacyAcceptedAt ? 'document-text' : 'shield-checkmark'} size={16} color="#fff" />
+                  <Text style={{ color: '#fff', fontWeight: '600', marginLeft: 6, fontSize: 13 }}>
+                    {!user.privacyAcceptedAt ? 'Aceptar Términos' : 'Iniciar Verificación'}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+
+            {/* Mis Clientes */}
+            <Text style={styles.sectionTitle}>👥 {t('advisorPanel.myClients')}</Text>
+            <View style={advStyles.statsGrid}>
+              <TouchableOpacity style={advStyles.statCard} onPress={() => navigation.navigate('AdvisorClients', { user, token })}>
+                <Ionicons name="people" size={24} color={ORANGE} />
+                <Text style={advStyles.statValue}>{advisorData.clients.total}</Text>
+                <Text style={advStyles.statLabel}>{t('advisorPanel.totalClients')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={advStyles.statCard} onPress={() => navigation.navigate('AdvisorClients', { user, token })}>
+                <Ionicons name="person-add" size={24} color="#4CAF50" />
+                <Text style={advStyles.statValue}>{advisorData.clients.new7d}</Text>
+                <Text style={advStyles.statLabel}>{t('advisorPanel.new7d')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={advStyles.statCard} onPress={() => navigation.navigate('AdvisorClients', { user, token })}>
+                <Ionicons name="checkmark-circle" size={24} color="#2196F3" />
+                <Text style={advStyles.statValue}>{advisorData.clients.active}</Text>
+                <Text style={advStyles.statLabel}>{t('advisorPanel.active')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={advStyles.statCard} onPress={() => navigation.navigate('AdvisorClients', { user, token })}>
+                <Ionicons name="moon" size={24} color="#9E9E9E" />
+                <Text style={advStyles.statValue}>{advisorData.clients.dormant}</Text>
+                <Text style={advStyles.statLabel}>{t('advisorPanel.dormant')}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Embarques de Clientes */}
+            <Text style={styles.sectionTitle}>📦 {t('advisorPanel.clientShipments')}</Text>
+            <View style={advStyles.shipmentStats}>
+              <View style={advStyles.shipmentStatItem}>
+                <View style={[advStyles.shipmentIcon, { backgroundColor: '#2196F320' }]}>
+                  <Ionicons name="airplane" size={20} color="#2196F3" />
+                </View>
+                <Text style={advStyles.shipmentValue}>{advisorData.shipments.inTransit}</Text>
+                <Text style={advStyles.shipmentLabel}>{t('advisorPanel.inTransit')}</Text>
+              </View>
+              <View style={advStyles.shipmentStatItem}>
+                <View style={[advStyles.shipmentIcon, { backgroundColor: '#FF980020' }]}>
+                  <Ionicons name="card" size={20} color="#FF9800" />
+                </View>
+                <Text style={advStyles.shipmentValue}>{advisorData.shipments.awaitingPayment}</Text>
+                <Text style={advStyles.shipmentLabel}>{t('advisorPanel.awaitingPayment')}</Text>
+              </View>
+              <View style={advStyles.shipmentStatItem}>
+                <View style={[advStyles.shipmentIcon, { backgroundColor: '#f4433620' }]}>
+                  <Ionicons name="alert-circle" size={20} color="#f44336" />
+                </View>
+                <Text style={advStyles.shipmentValue}>{advisorData.shipments.missingInstructions}</Text>
+                <Text style={advStyles.shipmentLabel}>{t('advisorPanel.noInstructions')}</Text>
+              </View>
+            </View>
+
+            {/* Comisiones del Mes */}
+            <Text style={styles.sectionTitle}>💰 {t('advisorPanel.monthCommissions')}</Text>
+            <View style={advStyles.commissionsCard}>
+              <View style={advStyles.commissionRow}>
+                <View>
+                  <Text style={advStyles.commissionLabel}>{t('advisorPanel.billedVolume')}</Text>
+                  <Text style={advStyles.commissionValue}>
+                    ${advisorData.commissions.monthVolumeMxn.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+                  </Text>
+                </View>
+                <Chip icon="receipt" mode="outlined" textStyle={{ color: ORANGE }}>
+                  {advisorData.commissions.monthPaidCount} {t('advisorPanel.payments')}
+                </Chip>
+              </View>
+              <TouchableOpacity 
+                style={advStyles.viewCommissionsButton}
+                onPress={() => navigation.navigate('AdvisorCommissions', { user, token })}
+              >
+                <Text style={advStyles.viewCommissionsText}>{t('advisorPanel.viewCommissionHistory')}</Text>
+                <Ionicons name="chevron-forward" size={20} color={ORANGE} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Acciones Rápidas del Asesor */}
+            <Text style={styles.sectionTitle}>⚡ {t('advisorPanel.quickActions')}</Text>
+            <View style={advStyles.quickActions}>
+              <TouchableOpacity 
+                style={advStyles.quickAction}
+                onPress={() => navigation.navigate('AdvisorClients', { user, token })}
+              >
+                <View style={[advStyles.quickActionIcon, { backgroundColor: ORANGE + '20' }]}>
+                  <Ionicons name="people" size={24} color={ORANGE} />
+                </View>
+                <Text style={advStyles.quickActionText}>{t('advisorPanel.myClients')}</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={advStyles.quickAction}
+                onPress={() => navigation.navigate('AdvisorCommissions', { user, token })}
+              >
+                <View style={[advStyles.quickActionIcon, { backgroundColor: '#4CAF50' + '20' }]}>
+                  <Ionicons name="cash" size={24} color="#4CAF50" />
+                </View>
+                <Text style={advStyles.quickActionText}>{t('advisorPanel.commissions')}</Text>
+              </TouchableOpacity>
+              
+              {advisorData.subAdvisors > 0 && (
+                <TouchableOpacity 
+                  style={advStyles.quickAction}
+                  onPress={() => navigation.navigate('AdvisorTeam', { user, token })}
+                >
+                  <View style={[advStyles.quickActionIcon, { backgroundColor: '#9C27B0' + '20' }]}>
+                    <Ionicons name="people-circle" size={24} color="#9C27B0" />
+                  </View>
+                  <Text style={advStyles.quickActionText}>{t('advisorPanel.myTeam')} ({advisorData.subAdvisors})</Text>
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity 
+                style={advStyles.quickAction}
+                onPress={() => navigation.navigate('SupportTickets', { user, token })}
+              >
+                <View style={[advStyles.quickActionIcon, { backgroundColor: '#FF9800' + '20' }]}>
+                  <Ionicons name="headset" size={24} color="#FF9800" />
+                </View>
+                <Text style={advStyles.quickActionText}>{t('advisorPanel.support')}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={advStyles.quickAction}
+                onPress={() => navigation.navigate('MyProfile', { user, token })}
+              >
+                <View style={[advStyles.quickActionIcon, { backgroundColor: '#607D8B' + '20' }]}>
+                  <Ionicons name="person" size={24} color="#607D8B" />
+                </View>
+                <Text style={advStyles.quickActionText}>{t('advisorPanel.myProfile')}</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={advStyles.quickAction}
+                onPress={() => navigation.navigate('AdvisorClientTickets', { user, token })}
+              >
+                <View style={[advStyles.quickActionIcon, { backgroundColor: '#E91E63' + '20' }]}>
+                  <Ionicons name="document-text" size={24} color="#E91E63" />
+                </View>
+                <Text style={advStyles.quickActionText}>{t('advisorPanel.reports')}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Alerta de Clientes Pendientes */}
+            {advisorData.clients.pendingVerification > 0 && (
+              <TouchableOpacity 
+                style={advStyles.alertCard}
+                onPress={() => navigation.navigate('AdvisorClients', { user, token, filter: 'pending' })}
+              >
+                <Ionicons name="alert-circle" size={24} color="#FF9800" />
+                <View style={advStyles.alertContent}>
+                  <Text style={advStyles.alertTitle}>{t('advisorPanel.pendingClients')}</Text>
+                  <Text style={advStyles.alertText}>
+                    {advisorData.clients.pendingVerification} {t('advisorPanel.clientsAwaitingVerification')}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={24} color="#666" />
+              </TouchableOpacity>
+            )}
+
+            <View style={{ height: 40 }} />
           </View>
+        ) : isAdvisor && advisorLoading ? (
+          <View style={{ padding: 40, alignItems: 'center' }}>
+            <Ionicons name="sync-outline" size={48} color={ORANGE} />
+            <Text style={{ marginTop: 12, color: '#666' }}>Cargando panel...</Text>
+          </View>
+        ) : (
+          <>
+            {/* =============== CONTENIDO PARA OTROS EMPLEADOS =============== */}
+            {/* Módulos Disponibles */}
+            <View style={styles.modulesSection}>
+              <Text style={styles.sectionTitle}>📱 Mis Módulos</Text>
+              {!permissionsLoaded ? (
+                <View style={styles.noModules}>
+                  <Ionicons name="sync-outline" size={48} color={ORANGE} />
+                  <Text style={styles.noModulesText}>
+                    Cargando módulos...
+                  </Text>
+                </View>
+              ) : availableModules.length === 0 ? (
+                <View style={styles.noModules}>
+                  <Ionicons name="construct-outline" size={48} color="#ccc" />
+                  <Text style={styles.noModulesText}>
+                    No hay módulos disponibles para tu rol aún.
+                  </Text>
+                  <Text style={styles.noModulesSubtext}>
+                    Contacta a tu supervisor.
+                  </Text>
+                </View>
+              ) : (
+                availableModules.map(renderModuleCard)
+              )}
+            </View>
+
+            {/* Botón de Checar Entrada/Salida para roles operativos */}
+            {['repartidor', 'warehouse_ops', 'counter_staff'].includes(user.role) && isOnboarded && (
+              <View style={styles.attendanceSection}>
+                <TouchableOpacity 
+                  style={styles.attendanceButton}
+                  onPress={() => navigation.navigate('AttendanceChecker', { user, token })}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.attendanceIconCircle}>
+                    <Ionicons name="time" size={40} color="#4CAF50" />
+                  </View>
+                  <Text style={styles.attendanceTitle}>Checar Asistencia</Text>
+                  <Ionicons name="chevron-forward" size={28} color="#4CAF50" />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Acciones Rápidas */}
+            <View style={styles.quickActions}>
+              <Text style={styles.sectionTitle}>⚡ {t('advisorPanel.quickActions')}</Text>
+              <View style={styles.quickActionRow}>
+                <TouchableOpacity 
+                  style={styles.quickActionBtn}
+                  onPress={() => navigation.navigate('SupportChat', { user, token })}
+                >
+                  <Ionicons name="chatbubble-outline" size={24} color={ORANGE} />
+                  <Text style={styles.quickActionText}>{t('advisorPanel.support')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.quickActionBtn}
+                  onPress={() => navigation.navigate('MyProfile', { user, token })}
+                >
+                  <Ionicons name="person-outline" size={24} color={ORANGE} />
+                  <Text style={styles.quickActionText}>{t('advisorPanel.myProfile')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.quickActionBtn}
+                  onPress={() => Alert.alert('📋', t('advisorPanel.reportsComingSoon'))
+                }
+                >
+                  <Ionicons name="document-text-outline" size={24} color={ORANGE} />
+                  <Text style={styles.quickActionText}>{t('advisorPanel.reports')}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </>
         )}
+      </ScrollView>
 
-        {/* Acciones Rápidas */}
-        <View style={styles.quickActions}>
-          <Text style={styles.sectionTitle}>⚡ Acciones Rápidas</Text>
-          <View style={styles.quickActionRow}>
+      {/* 🌐 Modal de Idioma */}
+      <Modal visible={showLanguageModal} animationType="fade" transparent>
+        <TouchableOpacity 
+          style={styles.menuOverlay}
+          activeOpacity={1}
+          onPress={() => setShowLanguageModal(false)}
+        >
+          <View style={styles.languageModalContainer}>
+            <Text style={styles.languageModalTitle}>{t('advisorPanel.selectLanguage')}</Text>
+            <Divider style={{ marginVertical: 10 }} />
+            
             <TouchableOpacity 
-              style={styles.quickActionBtn}
-              onPress={() => navigation.navigate('SupportChat', { user, token })}
+              style={[styles.languageOption, currentLang === 'es' && styles.languageOptionActive]}
+              onPress={() => handleChangeLanguage('es')}
             >
-              <Ionicons name="chatbubble-outline" size={24} color={ORANGE} />
-              <Text style={styles.quickActionText}>Soporte</Text>
+              <Text style={styles.languageOptionFlag}>🇲🇽</Text>
+              <Text style={[styles.languageOptionText, currentLang === 'es' && styles.languageOptionTextActive]}>
+                Español
+              </Text>
+              {currentLang === 'es' && <Ionicons name="checkmark" size={20} color={ORANGE} />}
             </TouchableOpacity>
+
             <TouchableOpacity 
-              style={styles.quickActionBtn}
-              onPress={() => navigation.navigate('MyProfile', { user, token })}
+              style={[styles.languageOption, currentLang === 'en' && styles.languageOptionActive]}
+              onPress={() => handleChangeLanguage('en')}
             >
-              <Ionicons name="person-outline" size={24} color={ORANGE} />
-              <Text style={styles.quickActionText}>Mi Perfil</Text>
+              <Text style={styles.languageOptionFlag}>🇺🇸</Text>
+              <Text style={[styles.languageOptionText, currentLang === 'en' && styles.languageOptionTextActive]}>
+                English
+              </Text>
+              {currentLang === 'en' && <Ionicons name="checkmark" size={20} color={ORANGE} />}
             </TouchableOpacity>
+
             <TouchableOpacity 
-              style={styles.quickActionBtn}
-              onPress={() => Alert.alert('📋', 'Módulo de reportes próximamente')}
+              style={[styles.languageOption, currentLang === 'zh' && styles.languageOptionActive]}
+              onPress={() => handleChangeLanguage('zh')}
             >
-              <Ionicons name="document-text-outline" size={24} color={ORANGE} />
-              <Text style={styles.quickActionText}>Reportes</Text>
+              <Text style={styles.languageOptionFlag}>🇨🇳</Text>
+              <Text style={[styles.languageOptionText, currentLang === 'zh' && styles.languageOptionTextActive]}>
+                中文
+              </Text>
+              {currentLang === 'zh' && <Ionicons name="checkmark" size={20} color={ORANGE} />}
             </TouchableOpacity>
           </View>
-        </View>
-      </ScrollView>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Menú Modal */}
       <Modal visible={showMenu} transparent animationType="fade">
@@ -756,7 +1185,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               <Ionicons name="chevron-forward" size={20} color="#999" />
             </TouchableOpacity>
 
-            {!isOnboarded && (
+            {!isOnboarded && !isAdvisor && (
               <TouchableOpacity 
                 style={styles.menuItem}
                 onPress={() => {
@@ -809,6 +1238,7 @@ const styles = StyleSheet.create({
   appbar: {
     backgroundColor: BLACK,
     elevation: 0,
+    height: 44,
   },
   appbarTitle: {
     color: 'white',
@@ -819,26 +1249,27 @@ const styles = StyleSheet.create({
   // User Header
   userHeader: {
     backgroundColor: '#fff',
-    padding: 20,
-    marginBottom: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    marginBottom: 6,
   },
   userRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   userInfo: {
-    marginLeft: 15,
+    marginLeft: 12,
     flex: 1,
   },
   greeting: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
   },
   userName: {
-    fontSize: 22,
+    fontSize: 18,
     fontWeight: 'bold',
     color: BLACK,
-    marginVertical: 4,
+    marginVertical: 1,
   },
   roleChip: {
     backgroundColor: '#f5f5f5',
@@ -858,10 +1289,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FF9800',
-    padding: 15,
-    borderRadius: 12,
-    marginTop: 15,
-    gap: 12,
+    padding: 10,
+    borderRadius: 10,
+    marginTop: 8,
+    gap: 10,
   },
   onboardingContent: {
     flex: 1,
@@ -910,10 +1341,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   sectionTitle: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: 'bold',
     color: BLACK,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   moduleCard: {
     flexDirection: 'row',
@@ -1102,5 +1533,281 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#333',
     marginLeft: 16,
+  },
+  // 🌐 Language styles
+  languageButton: {
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  languageFlag: {
+    fontSize: 22,
+  },
+  languageModalContainer: {
+    backgroundColor: 'white',
+    marginTop: 100,
+    marginHorizontal: 40,
+    borderRadius: 16,
+    padding: 20,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  languageModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: BLACK,
+    textAlign: 'center',
+  },
+  languageOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 10,
+    marginVertical: 4,
+  },
+  languageOptionActive: {
+    backgroundColor: '#FFF3E0',
+  },
+  languageOptionFlag: {
+    fontSize: 28,
+    marginRight: 12,
+  },
+  languageOptionText: {
+    flex: 1,
+    fontSize: 16,
+    color: BLACK,
+  },
+  languageOptionTextActive: {
+    fontWeight: 'bold',
+    color: ORANGE,
+  },
+  // 🔔 Notification badge
+  notificationBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#FF3B30',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: BLACK,
+  },
+  notificationBadgeText: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+});
+
+// ========== ESTILOS DEL PANEL DEL ASESOR ==========
+const advStyles = StyleSheet.create({
+  referralCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 14,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  referralHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  referralLabel: {
+    fontSize: 13,
+    color: '#666',
+    marginLeft: 8,
+  },
+  referralCode: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: '#111',
+    letterSpacing: 2,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  referralActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  referralButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: ORANGE,
+    paddingVertical: 10,
+    borderRadius: 8,
+    gap: 6,
+  },
+  shareButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: ORANGE,
+  },
+  referralButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 14,
+  },
+  statCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    width: (width - 44) / 2,
+    alignItems: 'center',
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+  },
+  statValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#111',
+    marginTop: 8,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  shipmentStats: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    elevation: 1,
+  },
+  shipmentStatItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  shipmentIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  shipmentValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111',
+  },
+  shipmentLabel: {
+    fontSize: 11,
+    color: '#666',
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  commissionsCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    elevation: 1,
+  },
+  commissionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  commissionLabel: {
+    fontSize: 12,
+    color: '#666',
+  },
+  commissionValue: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: ORANGE,
+    marginTop: 4,
+  },
+  viewCommissionsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+  },
+  viewCommissionsText: {
+    color: ORANGE,
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  quickActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 20,
+  },
+  quickAction: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    width: (width - 44) / 2,
+    elevation: 1,
+  },
+  quickActionIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  quickActionText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#333',
+    textAlign: 'center',
+  },
+  alertCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    elevation: 1,
+  },
+  alertContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  alertTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#E65100',
+  },
+  alertText: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 2,
   },
 });

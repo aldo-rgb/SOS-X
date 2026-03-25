@@ -1,0 +1,379 @@
+{
+  "info": {
+    "_postman_id": "1dbb768d-1876-4a86-9f2c-2b91695cc40c",
+    "name": "QA WS URBAN WOD CF SA DE CV",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "18144087"
+  },
+  "item": [
+    {
+      "name": "Token",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "{\"header\":{\"staTrans\":\"ok\",\"desTrans\":\"\",\"ipCustomer\":\"\",\"imei\":\"\",\"objectDTO\":\"\",\"typeEvent\":\"GET\"},\"body\":{\"message\":\"RH_GUIA_NO=0110205034\",\"response\":{\"rhOrgnBrncId\":\"LMM01\",\"rhDestBrncId\":\"CUL01\",\"rhBillBrncId\":\"LMM01\",\"rhGuiaNo\":\"0110205034\",\"rhGuiaType\":\"H\",\"rhGuiaAmnt\":20,\"rhPymtMode\":\"PAID\",\"rhPymtType\":\"N\",\"rhRadStus\":\"BOK\",\"rhIsseDate\":1450567713000,\"rhComt\":\"PRUEBAS\",\"rhBookUserId\":\"12952\",\"rhBookContId\":\"12952\",\"crtdOn\":1450567828000,\"crtdBy\":\"12942\",\"mdfdOn\":1450567805000,\"mdfdBy\":\"12942\",\"rhRadSubFlag\":\"N\",\"rhConvFlag\":\"N\",\"rhOrgnSlmnId\":null,\"rhDestSlmnId\":null,\"rhUsedDate\":null,\"rhRadRefrNo\":null,\"rhNoTrif\":\"N\",\"rhExpyDate\":null,\"rhDefaRout\":null,\"rhConvUserId\":null,\"rhPrepBrncId\":\"LMM01\",\"rhActvFlag\":\"A\",\"rhDocuType\":\"T\",\"rhNumbPack\":1,\"rhEadFlag\":\"0\",\"rhRadFlag\":\"1\",\"rhAnmoExst\":null,\"rhPlanCollDate\":null,\"rhActlCollDate\":null,\"rhTotlWght\":null,\"rhTotlVlum\":null,\"rhTotlDeclVlue\":null,\"rhCurrTrip\":null,\"rhPediNumb\":null,\"rhCustAgnt\":null,\"rhFormNo\":null,\"rhConcIdenType\":null,\"rhConcIdenNo\":null,\"rhEadDefaRout\":null,\"rhRcptRef\":null,\"rhRcptRefCod\":null,\"rhCurTrpTrlrRef\":null,\"rhDeleteFlag\":null,\"radGuiaSrvcDTOList\":[{\"radGuiaSrvcEOPK\":null,\"rsDisc\":0.0,\"rsTax\":0.0,\"rsTaxRet\":0.0,\"rsSubTotl\":15.0,\"rsStusFlag\":\"A\",\"crtdOn\":1450545496000,\"crtdBy\":\"1794\",\"mdfdOn\":1450545506000,\"mdfdBy\":\"JANAYA\",\"rsAddPymtFlag\":\"A\",\"rsSrvcType\":\"A\",\"rsDiscSlabNo\":\"0\",\"radGuiaHeadDTO\":null}],\"radGuiaAddrDTOList\":[{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"2\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"GUASAVE\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"EL MEZQUITE\",\"raAddrLin6\":\"CUBILETE\",\"raAddrLin7\":\"CONOCIDA \",\"crtdOn\":1289545200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"CONOCIDA\",\"raDrnr\":\"120\",\"raPhno1\":\"8699636\",\"raFlorNo\":\"113\",\"raSuitNo\":\"3\",\"raZipCode\":\"69811\",\"raAddrCod1\":\"3\",\"raAddrCod2\":\"1\",\"raAddrCod3\":\"1\",\"raAddrCod4\":\"1\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"1\",\"raAddrCod7\":\"1\",\"raClntName\":\"ALLIANZ RENTAS VITALICIAS SA DE CV\",\"raClntId\":\"3290\",\"radGuiaHeadDTO\":null},{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"2\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"GUASAVE\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"EL MEZQUITE\",\"raAddrLin6\":\"CUBILETE\",\"raAddrLin7\":\"CONOCIDA\",\"crtdOn\":1289545200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"CONOCIDA\",\"raDrnr\":\"120\",\"raPhno1\":\"5645656\",\"raFlorNo\":\"113\",\"raSuitNo\":\"3\",\"raZipCode\":\"121321\",\"raAddrCod1\":\"3\",\"raAddrCod2\":\"1\",\"raAddrCod3\":\"1\",\"raAddrCod4\":\"1\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"1\",\"raAddrCod7\":\"1\",\"raClntName\":\"ALLIANZ RENTAS VITALICIAS SA DE CV\",\"raClntId\":\"3290\",\"radGuiaHeadDTO\":null},{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"1\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"SINALOA\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"LOS MOCHIS\",\"raAddrLin6\":\"LOS MOCHIS\",\"raAddrLin7\":\"PRADO BONITO\",\"crtdOn\":1292137200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"ZARAGOZA\",\"raDrnr\":\"99\",\"raPhno1\":\"8630373\",\"raFlorNo\":\"99\",\"raSuitNo\":\"0\",\"raZipCode\":\"80102\",\"raAddrCod1\":\"1\",\"raAddrCod2\":\"1\",\"raAddrCod3\":\"1\",\"raAddrCod4\":\"1\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"1\",\"raAddrCod7\":\"1\",\"raClntName\":\"CONFECCIONES XOCONGO SA DE CV\",\"raClntId\":\"1187\",\"radGuiaHeadDTO\":null},{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"1\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"SINALOA\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"AHOME\",\"raAddrLin6\":\"VILLA DE AHOME\",\"raAddrLin7\":\"PRADO BONITO\",\"crtdOn\":1292137200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"PRADO GRANDE\",\"raDrnr\":\"1360\",\"raPhno1\":\"8243485\",\"raFlorNo\":\"1360\",\"raSuitNo\":\"0\",\"raZipCode\":\"81290\",\"raAddrCod1\":\"3\",\"raAddrCod2\":\"01\",\"raAddrCod3\":\"01\",\"raAddrCod4\":\"01\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"01\",\"raAddrCod7\":\"01\",\"raClntName\":\"MEDICINAS MONTERREY SA DE CV\",\"raClntId\":\"1196\",\"radGuiaHeadDTO\":null}],\"radSrvcItemDTOList\":[{\"radSrvcItemEOPK\":null,\"rlSrvcId\":\"ENVELOPES\",\"rlRefrSrvcId\":\"SHP-E\",\"rlDesc\":\"1\",\"rlArmcCode\":\"BORRAR_CAMPO\",\"rlCstmVlue\":1,\"rlVolL\":0.1,\"rlVolW\":24.2,\"rlVolH\":7.8,\"rlManfCtry\":null,\"rlWeight\":2.4,\"rlVolume\":0.001,\"rlSeqNo\":2,\"rlRadType\":null,\"rlCont\":null,\"rlQunt\":null,\"rlSrvcChrg\":null,\"rlStusFlag\":null,\"crtdOn\":null,\"crtdBy\":null,\"mdfdOn\":null,\"mdfdBy\":null,\"radGuiaHeadDTO\":null},{\"radSrvcItemEOPK\":null,\"rlSrvcId\":\"PACKETS\",\"rlRefrSrvcId\":\"SHP-G\",\"rlDesc\":\"1\",\"rlArmcCode\":\"BORRAR_CAMPO\",\"rlCstmVlue\":1,\"rlVolL\":30.6,\"rlVolW\":24.2,\"rlVolH\":7.8,\"rlManfCtry\":null,\"rlWeight\":2.4,\"rlVolume\":0.006,\"rlSeqNo\":1,\"rlRadType\":null,\"rlCont\":null,\"rlQunt\":null,\"rlSrvcChrg\":null,\"rlStusFlag\":null,\"crtdOn\":null,\"crtdBy\":null,\"mdfdOn\":null,\"mdfdBy\":null,\"radGuiaHeadDTO\":null}],\"radSrvcItemReqmDTOList\":[],\"cbxStatusBuzon\":null}},\"footer\":{\"timeInSeconds\":115}}"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"header\": {\r\n        \"security\": {\r\n            \"user\": \"WSQURBANWOD\",\r\n            \"password\": \"UWEyNzczNjI1MCQ=\"\r\n        }\r\n    }\r\n}"
+        },
+        "url": {
+          "raw": "https://qaglp.paquetexpress.com.mx/RadRestFul/api/rad/loginv1/login",
+          "protocol": "https",
+          "host": [
+            "qaglp",
+            "paquetexpress",
+            "com",
+            "mx"
+          ],
+          "path": [
+            "RadRestFul",
+            "api",
+            "rad",
+            "loginv1",
+            "login"
+          ]
+        },
+        "description": "OK - Login para APIS"
+      },
+      "response": []
+    },
+    {
+      "name": "Generar envío",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "{\"header\":{\"staTrans\":\"ok\",\"desTrans\":\"\",\"ipCustomer\":\"\",\"imei\":\"\",\"objectDTO\":\"\",\"typeEvent\":\"GET\"},\"body\":{\"message\":\"RH_GUIA_NO=0110205034\",\"response\":{\"rhOrgnBrncId\":\"LMM01\",\"rhDestBrncId\":\"CUL01\",\"rhBillBrncId\":\"LMM01\",\"rhGuiaNo\":\"0110205034\",\"rhGuiaType\":\"H\",\"rhGuiaAmnt\":20,\"rhPymtMode\":\"PAID\",\"rhPymtType\":\"N\",\"rhRadStus\":\"BOK\",\"rhIsseDate\":1450567713000,\"rhComt\":\"PRUEBAS\",\"rhBookUserId\":\"12952\",\"rhBookContId\":\"12952\",\"crtdOn\":1450567828000,\"crtdBy\":\"12942\",\"mdfdOn\":1450567805000,\"mdfdBy\":\"12942\",\"rhRadSubFlag\":\"N\",\"rhConvFlag\":\"N\",\"rhOrgnSlmnId\":null,\"rhDestSlmnId\":null,\"rhUsedDate\":null,\"rhRadRefrNo\":null,\"rhNoTrif\":\"N\",\"rhExpyDate\":null,\"rhDefaRout\":null,\"rhConvUserId\":null,\"rhPrepBrncId\":\"LMM01\",\"rhActvFlag\":\"A\",\"rhDocuType\":\"T\",\"rhNumbPack\":1,\"rhEadFlag\":\"0\",\"rhRadFlag\":\"1\",\"rhAnmoExst\":null,\"rhPlanCollDate\":null,\"rhActlCollDate\":null,\"rhTotlWght\":null,\"rhTotlVlum\":null,\"rhTotlDeclVlue\":null,\"rhCurrTrip\":null,\"rhPediNumb\":null,\"rhCustAgnt\":null,\"rhFormNo\":null,\"rhConcIdenType\":null,\"rhConcIdenNo\":null,\"rhEadDefaRout\":null,\"rhRcptRef\":null,\"rhRcptRefCod\":null,\"rhCurTrpTrlrRef\":null,\"rhDeleteFlag\":null,\"radGuiaSrvcDTOList\":[{\"radGuiaSrvcEOPK\":null,\"rsDisc\":0.0,\"rsTax\":0.0,\"rsTaxRet\":0.0,\"rsSubTotl\":15.0,\"rsStusFlag\":\"A\",\"crtdOn\":1450545496000,\"crtdBy\":\"1794\",\"mdfdOn\":1450545506000,\"mdfdBy\":\"JANAYA\",\"rsAddPymtFlag\":\"A\",\"rsSrvcType\":\"A\",\"rsDiscSlabNo\":\"0\",\"radGuiaHeadDTO\":null}],\"radGuiaAddrDTOList\":[{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"2\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"GUASAVE\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"EL MEZQUITE\",\"raAddrLin6\":\"CUBILETE\",\"raAddrLin7\":\"CONOCIDA \",\"crtdOn\":1289545200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"CONOCIDA\",\"raDrnr\":\"120\",\"raPhno1\":\"8699636\",\"raFlorNo\":\"113\",\"raSuitNo\":\"3\",\"raZipCode\":\"69811\",\"raAddrCod1\":\"3\",\"raAddrCod2\":\"1\",\"raAddrCod3\":\"1\",\"raAddrCod4\":\"1\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"1\",\"raAddrCod7\":\"1\",\"raClntName\":\"ALLIANZ RENTAS VITALICIAS SA DE CV\",\"raClntId\":\"3290\",\"radGuiaHeadDTO\":null},{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"2\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"GUASAVE\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"EL MEZQUITE\",\"raAddrLin6\":\"CUBILETE\",\"raAddrLin7\":\"CONOCIDA\",\"crtdOn\":1289545200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"CONOCIDA\",\"raDrnr\":\"120\",\"raPhno1\":\"5645656\",\"raFlorNo\":\"113\",\"raSuitNo\":\"3\",\"raZipCode\":\"121321\",\"raAddrCod1\":\"3\",\"raAddrCod2\":\"1\",\"raAddrCod3\":\"1\",\"raAddrCod4\":\"1\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"1\",\"raAddrCod7\":\"1\",\"raClntName\":\"ALLIANZ RENTAS VITALICIAS SA DE CV\",\"raClntId\":\"3290\",\"radGuiaHeadDTO\":null},{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"1\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"SINALOA\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"LOS MOCHIS\",\"raAddrLin6\":\"LOS MOCHIS\",\"raAddrLin7\":\"PRADO BONITO\",\"crtdOn\":1292137200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"ZARAGOZA\",\"raDrnr\":\"99\",\"raPhno1\":\"8630373\",\"raFlorNo\":\"99\",\"raSuitNo\":\"0\",\"raZipCode\":\"80102\",\"raAddrCod1\":\"1\",\"raAddrCod2\":\"1\",\"raAddrCod3\":\"1\",\"raAddrCod4\":\"1\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"1\",\"raAddrCod7\":\"1\",\"raClntName\":\"CONFECCIONES XOCONGO SA DE CV\",\"raClntId\":\"1187\",\"radGuiaHeadDTO\":null},{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"1\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"SINALOA\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"AHOME\",\"raAddrLin6\":\"VILLA DE AHOME\",\"raAddrLin7\":\"PRADO BONITO\",\"crtdOn\":1292137200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"PRADO GRANDE\",\"raDrnr\":\"1360\",\"raPhno1\":\"8243485\",\"raFlorNo\":\"1360\",\"raSuitNo\":\"0\",\"raZipCode\":\"81290\",\"raAddrCod1\":\"3\",\"raAddrCod2\":\"01\",\"raAddrCod3\":\"01\",\"raAddrCod4\":\"01\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"01\",\"raAddrCod7\":\"01\",\"raClntName\":\"MEDICINAS MONTERREY SA DE CV\",\"raClntId\":\"1196\",\"radGuiaHeadDTO\":null}],\"radSrvcItemDTOList\":[{\"radSrvcItemEOPK\":null,\"rlSrvcId\":\"ENVELOPES\",\"rlRefrSrvcId\":\"SHP-E\",\"rlDesc\":\"1\",\"rlArmcCode\":\"BORRAR_CAMPO\",\"rlCstmVlue\":1,\"rlVolL\":0.1,\"rlVolW\":24.2,\"rlVolH\":7.8,\"rlManfCtry\":null,\"rlWeight\":2.4,\"rlVolume\":0.001,\"rlSeqNo\":2,\"rlRadType\":null,\"rlCont\":null,\"rlQunt\":null,\"rlSrvcChrg\":null,\"rlStusFlag\":null,\"crtdOn\":null,\"crtdBy\":null,\"mdfdOn\":null,\"mdfdBy\":null,\"radGuiaHeadDTO\":null},{\"radSrvcItemEOPK\":null,\"rlSrvcId\":\"PACKETS\",\"rlRefrSrvcId\":\"SHP-G\",\"rlDesc\":\"1\",\"rlArmcCode\":\"BORRAR_CAMPO\",\"rlCstmVlue\":1,\"rlVolL\":30.6,\"rlVolW\":24.2,\"rlVolH\":7.8,\"rlManfCtry\":null,\"rlWeight\":2.4,\"rlVolume\":0.006,\"rlSeqNo\":1,\"rlRadType\":null,\"rlCont\":null,\"rlQunt\":null,\"rlSrvcChrg\":null,\"rlStusFlag\":null,\"crtdOn\":null,\"crtdBy\":null,\"mdfdOn\":null,\"mdfdBy\":null,\"radGuiaHeadDTO\":null}],\"radSrvcItemReqmDTOList\":[],\"cbxStatusBuzon\":null}},\"footer\":{\"timeInSeconds\":115}}"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"header\": {\r\n        \"security\": {\r\n            \"user\": \"WSQURBANWOD\",\r\n            \"type\": 0,\r\n            \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJXU1FVUkJBTldPRCJ9.QB1AF6qH3z3H82MD9mtzM1S_eBCyrIOVemQsdI5fSXs\"\r\n        },\r\n        \"device\": {\r\n            \"appName\": null,\r\n            \"type\": null,\r\n            \"ip\": \"barracuda\",\r\n            \"idDevice\": null\r\n        },\r\n        \"target\": null,\r\n        \"output\": null,\r\n        \"language\": null\r\n    },\r\n    \"body\": {\r\n        \"request\": {\r\n            \"data\": [\r\n                {\r\n                    \"billRad\": \"REQUEST\",\r\n                    \"billClntId\": \"27736250\",\r\n                    \"pymtMode\": \"PAID\",\r\n                    \"pymtType\": \"C\",\r\n                    \"comt\": \"COMENTARIO/FACTURA/REFERENCIA\",\r\n                    \"radGuiaAddrDTOList\": [\r\n                        {\r\n                            \"addrLin1\": \"MEXICO\",\r\n                            \"addrLin3\": \"SINALOA\",\r\n                            \"addrLin4\": \"AHOME\",\r\n                            \"addrLin5\": \"LOS MOCHIS\",\r\n                            \"addrLin6\": \"CENTRO\",\r\n                            \"zipCode\": \"81200\",\r\n                            \"strtName\": \"INDEPENDENCIA\",\r\n                            \"drnr\": \"123\",\r\n                            \"phno1\": \"1234567890\",\r\n                            \"clntName\": \"CLIENTE ORIGEN\",\r\n                            \"email\": \"1@ORIGEN.COM\",\r\n                            \"contacto\": \"CONTACTO QUIEN ENTREGA\",\r\n                            \"addrType\": \"ORIGIN\"\r\n                        },\r\n                        {\r\n                            \"addrLin1\": \"MEXICO\",\r\n                            \"addrLin3\": \" \",\r\n                            \"addrLin4\": \" \",\r\n                            \"addrLin5\": \" \",\r\n                            \"addrLin6\": \"Oriente 1ra. Sección\",\r\n                            \"zipCode\": \"88000\",\r\n                            \"strtName\": \"HACIENDA BUENAVISTA\",\r\n                            \"drnr\": \"9856\",\r\n                            \"phno1\": \"123456780\",\r\n                            \"clntName\": \"CLIENTE DESTINO SIR\",\r\n                            \"email\": \"SIR@DESTINO.COM\",\r\n                            \"contacto\": \"CONTACTO QUIEN RECIBE\",\r\n                            \"addrType\": \"DESTINATION\"\r\n                        }\r\n                    ],\r\n                    \"radSrvcItemDTOList\": [\r\n                        {\r\n                            \"srvcId\": \"PACKETS\",\r\n                            \"productIdSAT\": \"01010101\",\r\n                            \"weight\": \"1\",\r\n                            \"volL\": \"35\",\r\n                            \"volW\": \"24\",\r\n                            \"volH\": \"14\",\r\n                            \"cont\": \"CONTENIDO CAJA\",\r\n                            \"qunt\": \"1\"\r\n                        }\r\n                    ],\r\n                    \"listSrvcItemDTO\": [\r\n                        {\r\n                            \"srvcId\": \"EAD\",\r\n                            \"value1\": \"\"\r\n                        },\r\n                        {\r\n                            \"srvcId\": \"RAD\",\r\n                            \"value1\": \"\"\r\n                        }\r\n                    ],\r\n                    \"typeSrvcId\": \"STD-T\",\r\n                    \"listRefs\": [\r\n                        {\r\n                            \"grGuiaRefr\": \"ABC123\"\r\n                        }\r\n                    ]\r\n                }\r\n            ],\r\n            \"objectDTO\": null\r\n        },\r\n        \"response\": null\r\n    }\r\n}"
+        },
+        "url": {
+          "raw": "https://qaglp.paquetexpress.com.mx/RadRestFul/api/rad/v1/guia",
+          "protocol": "https",
+          "host": [
+            "qaglp",
+            "paquetexpress",
+            "com",
+            "mx"
+          ],
+          "path": [
+            "RadRestFul",
+            "api",
+            "rad",
+            "v1",
+            "guia"
+          ]
+        },
+        "description": "Create_RAD_Conekta_LIGHT - KTC"
+      },
+      "response": []
+    },
+    {
+      "name": "Cancelación",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "{\"header\":{\"staTrans\":\"ok\",\"desTrans\":\"\",\"ipCustomer\":\"\",\"imei\":\"\",\"objectDTO\":\"\",\"typeEvent\":\"GET\"},\"body\":{\"message\":\"RH_GUIA_NO=0110205034\",\"response\":{\"rhOrgnBrncId\":\"LMM01\",\"rhDestBrncId\":\"CUL01\",\"rhBillBrncId\":\"LMM01\",\"rhGuiaNo\":\"0110205034\",\"rhGuiaType\":\"H\",\"rhGuiaAmnt\":20,\"rhPymtMode\":\"PAID\",\"rhPymtType\":\"N\",\"rhRadStus\":\"BOK\",\"rhIsseDate\":1450567713000,\"rhComt\":\"PRUEBAS\",\"rhBookUserId\":\"12952\",\"rhBookContId\":\"12952\",\"crtdOn\":1450567828000,\"crtdBy\":\"12942\",\"mdfdOn\":1450567805000,\"mdfdBy\":\"12942\",\"rhRadSubFlag\":\"N\",\"rhConvFlag\":\"N\",\"rhOrgnSlmnId\":null,\"rhDestSlmnId\":null,\"rhUsedDate\":null,\"rhRadRefrNo\":null,\"rhNoTrif\":\"N\",\"rhExpyDate\":null,\"rhDefaRout\":null,\"rhConvUserId\":null,\"rhPrepBrncId\":\"LMM01\",\"rhActvFlag\":\"A\",\"rhDocuType\":\"T\",\"rhNumbPack\":1,\"rhEadFlag\":\"0\",\"rhRadFlag\":\"1\",\"rhAnmoExst\":null,\"rhPlanCollDate\":null,\"rhActlCollDate\":null,\"rhTotlWght\":null,\"rhTotlVlum\":null,\"rhTotlDeclVlue\":null,\"rhCurrTrip\":null,\"rhPediNumb\":null,\"rhCustAgnt\":null,\"rhFormNo\":null,\"rhConcIdenType\":null,\"rhConcIdenNo\":null,\"rhEadDefaRout\":null,\"rhRcptRef\":null,\"rhRcptRefCod\":null,\"rhCurTrpTrlrRef\":null,\"rhDeleteFlag\":null,\"radGuiaSrvcDTOList\":[{\"radGuiaSrvcEOPK\":null,\"rsDisc\":0.0,\"rsTax\":0.0,\"rsTaxRet\":0.0,\"rsSubTotl\":15.0,\"rsStusFlag\":\"A\",\"crtdOn\":1450545496000,\"crtdBy\":\"1794\",\"mdfdOn\":1450545506000,\"mdfdBy\":\"JANAYA\",\"rsAddPymtFlag\":\"A\",\"rsSrvcType\":\"A\",\"rsDiscSlabNo\":\"0\",\"radGuiaHeadDTO\":null}],\"radGuiaAddrDTOList\":[{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"2\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"GUASAVE\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"EL MEZQUITE\",\"raAddrLin6\":\"CUBILETE\",\"raAddrLin7\":\"CONOCIDA \",\"crtdOn\":1289545200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"CONOCIDA\",\"raDrnr\":\"120\",\"raPhno1\":\"8699636\",\"raFlorNo\":\"113\",\"raSuitNo\":\"3\",\"raZipCode\":\"69811\",\"raAddrCod1\":\"3\",\"raAddrCod2\":\"1\",\"raAddrCod3\":\"1\",\"raAddrCod4\":\"1\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"1\",\"raAddrCod7\":\"1\",\"raClntName\":\"ALLIANZ RENTAS VITALICIAS SA DE CV\",\"raClntId\":\"3290\",\"radGuiaHeadDTO\":null},{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"2\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"GUASAVE\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"EL MEZQUITE\",\"raAddrLin6\":\"CUBILETE\",\"raAddrLin7\":\"CONOCIDA\",\"crtdOn\":1289545200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"CONOCIDA\",\"raDrnr\":\"120\",\"raPhno1\":\"5645656\",\"raFlorNo\":\"113\",\"raSuitNo\":\"3\",\"raZipCode\":\"121321\",\"raAddrCod1\":\"3\",\"raAddrCod2\":\"1\",\"raAddrCod3\":\"1\",\"raAddrCod4\":\"1\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"1\",\"raAddrCod7\":\"1\",\"raClntName\":\"ALLIANZ RENTAS VITALICIAS SA DE CV\",\"raClntId\":\"3290\",\"radGuiaHeadDTO\":null},{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"1\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"SINALOA\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"LOS MOCHIS\",\"raAddrLin6\":\"LOS MOCHIS\",\"raAddrLin7\":\"PRADO BONITO\",\"crtdOn\":1292137200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"ZARAGOZA\",\"raDrnr\":\"99\",\"raPhno1\":\"8630373\",\"raFlorNo\":\"99\",\"raSuitNo\":\"0\",\"raZipCode\":\"80102\",\"raAddrCod1\":\"1\",\"raAddrCod2\":\"1\",\"raAddrCod3\":\"1\",\"raAddrCod4\":\"1\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"1\",\"raAddrCod7\":\"1\",\"raClntName\":\"CONFECCIONES XOCONGO SA DE CV\",\"raClntId\":\"1187\",\"radGuiaHeadDTO\":null},{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"1\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"SINALOA\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"AHOME\",\"raAddrLin6\":\"VILLA DE AHOME\",\"raAddrLin7\":\"PRADO BONITO\",\"crtdOn\":1292137200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"PRADO GRANDE\",\"raDrnr\":\"1360\",\"raPhno1\":\"8243485\",\"raFlorNo\":\"1360\",\"raSuitNo\":\"0\",\"raZipCode\":\"81290\",\"raAddrCod1\":\"3\",\"raAddrCod2\":\"01\",\"raAddrCod3\":\"01\",\"raAddrCod4\":\"01\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"01\",\"raAddrCod7\":\"01\",\"raClntName\":\"MEDICINAS MONTERREY SA DE CV\",\"raClntId\":\"1196\",\"radGuiaHeadDTO\":null}],\"radSrvcItemDTOList\":[{\"radSrvcItemEOPK\":null,\"rlSrvcId\":\"ENVELOPES\",\"rlRefrSrvcId\":\"SHP-E\",\"rlDesc\":\"1\",\"rlArmcCode\":\"BORRAR_CAMPO\",\"rlCstmVlue\":1,\"rlVolL\":0.1,\"rlVolW\":24.2,\"rlVolH\":7.8,\"rlManfCtry\":null,\"rlWeight\":2.4,\"rlVolume\":0.001,\"rlSeqNo\":2,\"rlRadType\":null,\"rlCont\":null,\"rlQunt\":null,\"rlSrvcChrg\":null,\"rlStusFlag\":null,\"crtdOn\":null,\"crtdBy\":null,\"mdfdOn\":null,\"mdfdBy\":null,\"radGuiaHeadDTO\":null},{\"radSrvcItemEOPK\":null,\"rlSrvcId\":\"PACKETS\",\"rlRefrSrvcId\":\"SHP-G\",\"rlDesc\":\"1\",\"rlArmcCode\":\"BORRAR_CAMPO\",\"rlCstmVlue\":1,\"rlVolL\":30.6,\"rlVolW\":24.2,\"rlVolH\":7.8,\"rlManfCtry\":null,\"rlWeight\":2.4,\"rlVolume\":0.006,\"rlSeqNo\":1,\"rlRadType\":null,\"rlCont\":null,\"rlQunt\":null,\"rlSrvcChrg\":null,\"rlStusFlag\":null,\"crtdOn\":null,\"crtdBy\":null,\"mdfdOn\":null,\"mdfdBy\":null,\"radGuiaHeadDTO\":null}],\"radSrvcItemReqmDTOList\":[],\"cbxStatusBuzon\":null}},\"footer\":{\"timeInSeconds\":115}}"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"header\": {\r\n        \"security\": {\r\n            \"user\": \"WSQURBANWOD\",\r\n            \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJXU1FVUkJBTldPRCJ9.QB1AF6qH3z3H82MD9mtzM1S_eBCyrIOVemQsdI5fSXs\"\r\n        }\r\n    },\r\n    \"body\": {\r\n        \"request\": {\r\n            \"data\": [\r\n                \"05168421625\"\r\n            ]\r\n        }\r\n    }\r\n}"
+        },
+        "url": {
+          "raw": "https://qaglp.paquetexpress.com.mx/RadRestFul/api/rad/v1/cancelguia",
+          "protocol": "https",
+          "host": [
+            "qaglp",
+            "paquetexpress",
+            "com",
+            "mx"
+          ],
+          "path": [
+            "RadRestFul",
+            "api",
+            "rad",
+            "v1",
+            "cancelguia"
+          ]
+        },
+        "description": "Create_RAD_Conekta_LIGHT - KTC"
+      },
+      "response": []
+    },
+    {
+      "name": "Programar recolección",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "{\"header\":{\"staTrans\":\"ok\",\"desTrans\":\"\",\"ipCustomer\":\"\",\"imei\":\"\",\"objectDTO\":\"\",\"typeEvent\":\"GET\"},\"body\":{\"message\":\"RH_GUIA_NO=0110205034\",\"response\":{\"rhOrgnBrncId\":\"LMM01\",\"rhDestBrncId\":\"CUL01\",\"rhBillBrncId\":\"LMM01\",\"rhGuiaNo\":\"0110205034\",\"rhGuiaType\":\"H\",\"rhGuiaAmnt\":20,\"rhPymtMode\":\"PAID\",\"rhPymtType\":\"N\",\"rhRadStus\":\"BOK\",\"rhIsseDate\":1450567713000,\"rhComt\":\"PRUEBAS\",\"rhBookUserId\":\"12952\",\"rhBookContId\":\"12952\",\"crtdOn\":1450567828000,\"crtdBy\":\"12942\",\"mdfdOn\":1450567805000,\"mdfdBy\":\"12942\",\"rhRadSubFlag\":\"N\",\"rhConvFlag\":\"N\",\"rhOrgnSlmnId\":null,\"rhDestSlmnId\":null,\"rhUsedDate\":null,\"rhRadRefrNo\":null,\"rhNoTrif\":\"N\",\"rhExpyDate\":null,\"rhDefaRout\":null,\"rhConvUserId\":null,\"rhPrepBrncId\":\"LMM01\",\"rhActvFlag\":\"A\",\"rhDocuType\":\"T\",\"rhNumbPack\":1,\"rhEadFlag\":\"0\",\"rhRadFlag\":\"1\",\"rhAnmoExst\":null,\"rhPlanCollDate\":null,\"rhActlCollDate\":null,\"rhTotlWght\":null,\"rhTotlVlum\":null,\"rhTotlDeclVlue\":null,\"rhCurrTrip\":null,\"rhPediNumb\":null,\"rhCustAgnt\":null,\"rhFormNo\":null,\"rhConcIdenType\":null,\"rhConcIdenNo\":null,\"rhEadDefaRout\":null,\"rhRcptRef\":null,\"rhRcptRefCod\":null,\"rhCurTrpTrlrRef\":null,\"rhDeleteFlag\":null,\"radGuiaSrvcDTOList\":[{\"radGuiaSrvcEOPK\":null,\"rsDisc\":0.0,\"rsTax\":0.0,\"rsTaxRet\":0.0,\"rsSubTotl\":15.0,\"rsStusFlag\":\"A\",\"crtdOn\":1450545496000,\"crtdBy\":\"1794\",\"mdfdOn\":1450545506000,\"mdfdBy\":\"JANAYA\",\"rsAddPymtFlag\":\"A\",\"rsSrvcType\":\"A\",\"rsDiscSlabNo\":\"0\",\"radGuiaHeadDTO\":null}],\"radGuiaAddrDTOList\":[{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"2\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"GUASAVE\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"EL MEZQUITE\",\"raAddrLin6\":\"CUBILETE\",\"raAddrLin7\":\"CONOCIDA \",\"crtdOn\":1289545200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"CONOCIDA\",\"raDrnr\":\"120\",\"raPhno1\":\"8699636\",\"raFlorNo\":\"113\",\"raSuitNo\":\"3\",\"raZipCode\":\"69811\",\"raAddrCod1\":\"3\",\"raAddrCod2\":\"1\",\"raAddrCod3\":\"1\",\"raAddrCod4\":\"1\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"1\",\"raAddrCod7\":\"1\",\"raClntName\":\"ALLIANZ RENTAS VITALICIAS SA DE CV\",\"raClntId\":\"3290\",\"radGuiaHeadDTO\":null},{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"2\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"GUASAVE\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"EL MEZQUITE\",\"raAddrLin6\":\"CUBILETE\",\"raAddrLin7\":\"CONOCIDA\",\"crtdOn\":1289545200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"CONOCIDA\",\"raDrnr\":\"120\",\"raPhno1\":\"5645656\",\"raFlorNo\":\"113\",\"raSuitNo\":\"3\",\"raZipCode\":\"121321\",\"raAddrCod1\":\"3\",\"raAddrCod2\":\"1\",\"raAddrCod3\":\"1\",\"raAddrCod4\":\"1\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"1\",\"raAddrCod7\":\"1\",\"raClntName\":\"ALLIANZ RENTAS VITALICIAS SA DE CV\",\"raClntId\":\"3290\",\"radGuiaHeadDTO\":null},{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"1\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"SINALOA\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"LOS MOCHIS\",\"raAddrLin6\":\"LOS MOCHIS\",\"raAddrLin7\":\"PRADO BONITO\",\"crtdOn\":1292137200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"ZARAGOZA\",\"raDrnr\":\"99\",\"raPhno1\":\"8630373\",\"raFlorNo\":\"99\",\"raSuitNo\":\"0\",\"raZipCode\":\"80102\",\"raAddrCod1\":\"1\",\"raAddrCod2\":\"1\",\"raAddrCod3\":\"1\",\"raAddrCod4\":\"1\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"1\",\"raAddrCod7\":\"1\",\"raClntName\":\"CONFECCIONES XOCONGO SA DE CV\",\"raClntId\":\"1187\",\"radGuiaHeadDTO\":null},{\"radGuiaAddrEOPK\":null,\"raAddrStat\":\"1\",\"raAddrLin1\":\"MEXICO\",\"raAddrLin2\":\"A\",\"raAddrLin3\":\"SINALOA\",\"raAddrLin4\":\"SINALOA\",\"raAddrLin5\":\"AHOME\",\"raAddrLin6\":\"VILLA DE AHOME\",\"raAddrLin7\":\"PRADO BONITO\",\"crtdOn\":1292137200000,\"crtdBy\":\"MDIMAS\",\"mdfdOn\":1449903600000,\"mdfdBy\":\"MDIMAS\",\"raAddrCode\":\"12\",\"raStrtName\":\"PRADO GRANDE\",\"raDrnr\":\"1360\",\"raPhno1\":\"8243485\",\"raFlorNo\":\"1360\",\"raSuitNo\":\"0\",\"raZipCode\":\"81290\",\"raAddrCod1\":\"3\",\"raAddrCod2\":\"01\",\"raAddrCod3\":\"01\",\"raAddrCod4\":\"01\",\"raAddrCod5\":\"1\",\"raAddrCod6\":\"01\",\"raAddrCod7\":\"01\",\"raClntName\":\"MEDICINAS MONTERREY SA DE CV\",\"raClntId\":\"1196\",\"radGuiaHeadDTO\":null}],\"radSrvcItemDTOList\":[{\"radSrvcItemEOPK\":null,\"rlSrvcId\":\"ENVELOPES\",\"rlRefrSrvcId\":\"SHP-E\",\"rlDesc\":\"1\",\"rlArmcCode\":\"BORRAR_CAMPO\",\"rlCstmVlue\":1,\"rlVolL\":0.1,\"rlVolW\":24.2,\"rlVolH\":7.8,\"rlManfCtry\":null,\"rlWeight\":2.4,\"rlVolume\":0.001,\"rlSeqNo\":2,\"rlRadType\":null,\"rlCont\":null,\"rlQunt\":null,\"rlSrvcChrg\":null,\"rlStusFlag\":null,\"crtdOn\":null,\"crtdBy\":null,\"mdfdOn\":null,\"mdfdBy\":null,\"radGuiaHeadDTO\":null},{\"radSrvcItemEOPK\":null,\"rlSrvcId\":\"PACKETS\",\"rlRefrSrvcId\":\"SHP-G\",\"rlDesc\":\"1\",\"rlArmcCode\":\"BORRAR_CAMPO\",\"rlCstmVlue\":1,\"rlVolL\":30.6,\"rlVolW\":24.2,\"rlVolH\":7.8,\"rlManfCtry\":null,\"rlWeight\":2.4,\"rlVolume\":0.006,\"rlSeqNo\":1,\"rlRadType\":null,\"rlCont\":null,\"rlQunt\":null,\"rlSrvcChrg\":null,\"rlStusFlag\":null,\"crtdOn\":null,\"crtdBy\":null,\"mdfdOn\":null,\"mdfdBy\":null,\"radGuiaHeadDTO\":null}],\"radSrvcItemReqmDTOList\":[],\"cbxStatusBuzon\":null}},\"footer\":{\"timeInSeconds\":115}}"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"header\": {\n        \"security\": {\n            \"user\": \"WSQURBANWOD\",\n            \"type\": 0,\n            \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJXU1FVUkJBTldPRCJ9.QB1AF6qH3z3H82MD9mtzM1S_eBCyrIOVemQsdI5fSXs\"\n        },\n        \"device\": null,\n        \"target\": null,\n        \"output\": null,\n        \"language\": null\n    },\n    \"body\": {\n        \"request\": {\n            \"data\": [\n                {\n                    \"numbPack\": \"3\",\n                    \"planCollDate\": 1735660800000,\n                    \"hourFrom\": 1509732689690,\n                    \"hourTo\": 0,\n                    \"guiaNo\": \"05167923279\",\n                    \"radGuiaAddrDTOList\": []\n                }\n            ]\n        }\n    }\n}"
+        },
+        "url": {
+          "raw": "https://qaglp.paquetexpress.com.mx/RadRestFul/api/rad/v1/order",
+          "protocol": "https",
+          "host": [
+            "qaglp",
+            "paquetexpress",
+            "com",
+            "mx"
+          ],
+          "path": [
+            "RadRestFul",
+            "api",
+            "rad",
+            "v1",
+            "order"
+          ]
+        },
+        "description": "Genera solo ordenes de recolecciones"
+      },
+      "response": []
+    },
+    {
+      "name": "Cotizador",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"header\": {\r\n        \"security\": {\r\n            \"user\": \"WSQURBANWOD\",\r\n            \"password\": \"1234\",\r\n            \"type\": 1,\r\n            \"token\": \"4DB7391907B749C5E063350AA8C0215D\"\r\n        },\r\n        \"device\": {\r\n            \"appName\": \"Customer\",\r\n            \"type\": \"Web\",\r\n            \"ip\": \"\",\r\n            \"idDevice\": \"\"\r\n        },\r\n        \"target\": {\r\n            \"module\": \"QUOTER\",\r\n            \"version\": \"1.0\",\r\n            \"service\": \"quoter\",\r\n            \"uri\": \"quotes\",\r\n            \"event\": \"R\"\r\n        },\r\n        \"output\": \"JSON\",\r\n        \"language\": null\r\n    },\r\n    \"body\": {\r\n        \"request\": {\r\n            \"data\": {\r\n                \"clientAddrOrig\": {\r\n                    \"zipCode\": \"81200\",\r\n                    \"colonyName\": \"CENTRO\"\r\n                },\r\n                \"clientAddrDest\": {\r\n                    \"zipCode\": \"80000\",\r\n                    \"colonyName\": \"CENTRO\"\r\n                },\r\n                \"services\": {\r\n                    \"dlvyType\": \"1\",\r\n                    \"ackType\": \"N\",\r\n                    \"totlDeclVlue\": 1000,\r\n                    \"invType\": \"A\",\r\n                    \"radType\": \"1\"\r\n                },\r\n                \"otherServices\": {\r\n                    \"otherServices\": []\r\n                },\r\n                \"shipmentDetail\": {\r\n                    \"shipments\": [\r\n                        {\r\n                            \"sequence\": 1,\r\n                            \"quantity\": 1,\r\n                            \"shpCode\": \"2\",\r\n                            \"weight\": 50,\r\n                            \"longShip\": 80,\r\n                            \"widthShip\": 80,\r\n                            \"highShip\": 49\r\n                        }\r\n                    ]\r\n                },\r\n                \"quoteServices\": [\r\n                    \"ALL\"\r\n                ]\r\n            },\r\n            \"objectDTO\": null\r\n        },\r\n        \"response\": null\r\n    }\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://qaglp.paquetexpress.com.mx/WsQuotePaquetexpress/api/apiQuoter/v2/getQuotation",
+          "protocol": "https",
+          "host": [
+            "qaglp",
+            "paquetexpress",
+            "com",
+            "mx"
+          ],
+          "path": [
+            "WsQuotePaquetexpress",
+            "api",
+            "apiQuoter",
+            "v2",
+            "getQuotation"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "IMPRESION EN ZPL",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n    \"header\": {\r\n        \"security\": {\r\n            \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJXU1FVUkJBTldPRCJ9.QB1AF6qH3z3H82MD9mtzM1S_eBCyrIOVemQsdI5fSXs\",\r\n            \"user\": \"WSQURBANWOD\"\r\n        }\r\n    },\r\n    \"body\": {\r\n        \"request\": {\r\n            \"data\": {\r\n                \"header\": {},\r\n                \"solicitudEnvio\": {\r\n                    \"datosAdicionales\": {\r\n                        \"datoAdicional\": [\r\n                            {\r\n                                \"claveDataAd\": \"getZPL\",\r\n                                \"valorDataAd\": \"1\"\r\n                            }\r\n                        ]\r\n                    },\r\n                    \"rastreo\": \"05167886408\"\r\n                }\r\n            }\r\n        }\r\n    }\r\n}"
+        },
+        "url": {
+          "raw": "https://qaglp.paquetexpress.com.mx/RadRestFul/api/rad/v1/infotrack",
+          "protocol": "https",
+          "host": [
+            "qaglp",
+            "paquetexpress",
+            "com",
+            "mx"
+          ],
+          "path": [
+            "RadRestFul",
+            "api",
+            "rad",
+            "v1",
+            "infotrack"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "IMPRESION PDF 4X6",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": ""
+        },
+        "url": {
+          "raw": "https://qaglp.paquetexpress.com.mx/wsReportPaquetexpress/GenCartaPorte?trackingNoGen=05167886408&measure=4x6",
+          "protocol": "https",
+          "host": [
+            "qaglp",
+            "paquetexpress",
+            "com",
+            "mx"
+          ],
+          "path": [
+            "wsReportPaquetexpress",
+            "GenCartaPorte"
+          ],
+          "query": [
+            {
+              "key": "trackingNoGen",
+              "value": "05167886408"
+            },
+            {
+              "key": "measure",
+              "value": "4x6"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "TRAZABILIDAD",
+      "protocolProfileBehavior": {
+        "disableBodyPruning": true
+      },
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": ""
+        },
+        "url": {
+          "raw": "https://qaglp.paquetexpress.com.mx/ptxws/rest/api/v3/guia/historico/05167915535/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJXU1FVUkJBTldPRCJ9.QB1AF6qH3z3H82MD9mtzM1S_eBCyrIOVemQsdI5fSXs",
+          "protocol": "https",
+          "host": [
+            "qaglp",
+            "paquetexpress",
+            "com",
+            "mx"
+          ],
+          "path": [
+            "ptxws",
+            "rest",
+            "api",
+            "v3",
+            "guia",
+            "historico",
+            "05167915535",
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJXU1FVUkJBTldPRCJ9.QB1AF6qH3z3H82MD9mtzM1S_eBCyrIOVemQsdI5fSXs"
+          ]
+        }
+      },
+      "response": []
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          ""
+        ]
+      }
+    }
+  ]
+}

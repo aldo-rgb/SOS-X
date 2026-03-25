@@ -617,7 +617,8 @@
       "air_management": "Gestión Aérea",
       "cajo_management": "Gestión CAJO",
       "routes": "Rutas",
-      "last_mile": "Última Milla",
+      "last_mile": "Skydropx",
+      "paquete_express": "API Paquete Express",
       "dhl_rates": "Tarifas DHL",
       "dhl_operations": "Operaciones DHL",
       "anticipos": "Control de Anticipos",
@@ -1338,7 +1339,7 @@
       "packageFallback": "Paquete {{number}}"
     },
     "noInstructions": {
-      "title": "❌ Paquetes Sin Instrucciones de Entrega",
+      "title": "Paquetes Sin Instrucciones de Entrega",
       "subtitle": "Estos paquetes necesitan que les asignes una dirección de entrega",
       "selectService": "Selecciona un servicio para filtrar",
       "selectServicePrompt": "Primero selecciona un tipo de servicio para filtrar",
@@ -1349,7 +1350,7 @@
       "allAssigned": "¡Todos tus paquetes tienen instrucciones!"
     },
     "withInstructionsTab": {
-      "title": "✅ Paquetes Con Instrucciones de Entrega",
+      "title": " Paquetes Con Instrucciones de Entrega",
       "subtitle": "Estos paquetes ya tienen asignada una dirección de entrega",
       "noPackages": "No tienes paquetes con instrucciones asignadas",
       "deliveryAssigned": "✅ Entrega asignada"

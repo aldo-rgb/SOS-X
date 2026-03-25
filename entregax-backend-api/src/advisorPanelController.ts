@@ -734,7 +734,11 @@ export const getClientWallet = async (req: Request, res: Response): Promise<any>
 
     // Verificar que el cliente pertenece al asesor
     const clientCheck = await pool.query(
-      `SELECT id, full_name, email, box_id, wallet_balance, has_credit, credit_limit, used_credit 
+      `SELECT id, full_name, email, box_id, 
+              COALESCE(wallet_balance, 0) as wallet_balance, 
+              COALESCE(has_credit, false) as has_credit, 
+              COALESCE(credit_limit, 0) as credit_limit, 
+              COALESCE(used_credit, 0) as used_credit 
        FROM users WHERE id = $1 AND referred_by_id = $2 AND role = 'client'`,
       [clientId, advisorId]
     );
@@ -743,46 +747,74 @@ export const getClientWallet = async (req: Request, res: Response): Promise<any>
     }
     const client = clientCheck.rows[0];
 
-    // Obtener saldos por servicio (similar a dashboard/client)
-    // PO Box USA y Aéreo China
-    const packagesStats = await pool.query(`
-      SELECT 
-        COALESCE(SUM(CASE WHEN service_type = 'POBOX_USA' THEN COALESCE(saldo_pendiente, 0) ELSE 0 END), 0) as saldo_pobox,
-        COALESCE(SUM(CASE WHEN service_type = 'AIR_CHN_MX' THEN COALESCE(saldo_pendiente, 0) ELSE 0 END), 0) as saldo_aereo
-      FROM packages
-      WHERE user_id = $1 AND (is_master = true OR master_id IS NULL)
-    `, [clientId]);
+    // Obtener saldos por servicio - usar columnas que sabemos que existen
+    // PO Box USA y Aéreo China - usar total_mxn si saldo_pendiente no existe
+    let saldoPobox = 0;
+    let saldoAereo = 0;
+    try {
+      const packagesStats = await pool.query(`
+        SELECT 
+          COALESCE(SUM(CASE WHEN service_type = 'POBOX_USA' AND pagado = false THEN COALESCE(total_mxn, 0) ELSE 0 END), 0) as saldo_pobox,
+          COALESCE(SUM(CASE WHEN service_type = 'AIR_CHN_MX' AND pagado = false THEN COALESCE(total_mxn, 0) ELSE 0 END), 0) as saldo_aereo
+        FROM packages
+        WHERE user_id = $1 AND (is_master = true OR master_id IS NULL)
+      `, [clientId]);
+      saldoPobox = parseFloat(packagesStats.rows[0]?.saldo_pobox) || 0;
+      saldoAereo = parseFloat(packagesStats.rows[0]?.saldo_aereo) || 0;
+    } catch (e) {
+      console.log('Packages query fallback');
+    }
 
     // Marítimo China
-    const maritimeStats = await pool.query(`
-      SELECT COALESCE(SUM(COALESCE(saldo_pendiente, 0)), 0) as saldo_pendiente
-      FROM maritime_orders WHERE user_id = $1
-    `, [clientId]);
+    let saldoMaritimo = 0;
+    try {
+      const maritimeStats = await pool.query(`
+        SELECT COALESCE(SUM(CASE WHEN pagado = false THEN COALESCE(total_mxn, 0) ELSE 0 END), 0) as saldo_pendiente
+        FROM maritime_orders WHERE user_id = $1
+      `, [clientId]);
+      saldoMaritimo = parseFloat(maritimeStats.rows[0]?.saldo_pendiente) || 0;
+    } catch (e) {
+      console.log('Maritime query fallback');
+    }
 
     // DHL Nacional
-    const dhlStats = await pool.query(`
-      SELECT COALESCE(SUM(COALESCE(saldo_pendiente, 0)), 0) as saldo_pendiente
-      FROM dhl_shipments WHERE user_id = $1
-    `, [clientId]);
+    let saldoDhl = 0;
+    try {
+      const dhlStats = await pool.query(`
+        SELECT COALESCE(SUM(CASE WHEN pagado = false THEN COALESCE(total_mxn, 0) ELSE 0 END), 0) as saldo_pendiente
+        FROM dhl_shipments WHERE user_id = $1
+      `, [clientId]);
+      saldoDhl = parseFloat(dhlStats.rows[0]?.saldo_pendiente) || 0;
+    } catch (e) {
+      console.log('DHL query fallback');
+    }
 
     // Contenedores FCL
-    const containerStats = await pool.query(`
-      SELECT COALESCE(SUM(CASE WHEN client_paid = false THEN COALESCE(monto, 0) ELSE 0 END), 0) as saldo_pendiente
-      FROM container_shipments WHERE user_id = $1
-    `, [clientId]);
+    let saldoContenedores = 0;
+    try {
+      const containerStats = await pool.query(`
+        SELECT COALESCE(SUM(CASE WHEN client_paid = false THEN COALESCE(monto, 0) ELSE 0 END), 0) as saldo_pendiente
+        FROM container_shipments WHERE user_id = $1
+      `, [clientId]);
+      saldoContenedores = parseFloat(containerStats.rows[0]?.saldo_pendiente) || 0;
+    } catch (e) {
+      console.log('Containers query fallback');
+    }
 
     // Cotizaciones pendientes de pago
-    const quotationsRes = await pool.query(`
-      SELECT COUNT(*) as count, COALESCE(SUM(total_usd), 0) as total
-      FROM quotations 
-      WHERE user_id = $1 AND status = 'pending_payment'
-    `, [clientId]);
-
-    const saldoPobox = parseFloat(packagesStats.rows[0]?.saldo_pobox) || 0;
-    const saldoAereo = parseFloat(packagesStats.rows[0]?.saldo_aereo) || 0;
-    const saldoMaritimo = parseFloat(maritimeStats.rows[0]?.saldo_pendiente) || 0;
-    const saldoDhl = parseFloat(dhlStats.rows[0]?.saldo_pendiente) || 0;
-    const saldoContenedores = parseFloat(containerStats.rows[0]?.saldo_pendiente) || 0;
+    let cotizacionesCount = 0;
+    let cotizacionesTotal = 0;
+    try {
+      const quotationsRes = await pool.query(`
+        SELECT COUNT(*) as count, COALESCE(SUM(total_usd), 0) as total
+        FROM quotations 
+        WHERE user_id = $1 AND status = 'pending_payment'
+      `, [clientId]);
+      cotizacionesCount = parseInt(quotationsRes.rows[0]?.count) || 0;
+      cotizacionesTotal = parseFloat(quotationsRes.rows[0]?.total) || 0;
+    } catch (e) {
+      console.log('Quotations query fallback');
+    }
     
     const totalPendiente = saldoPobox + saldoAereo + saldoMaritimo + saldoDhl + saldoContenedores;
 
@@ -795,17 +827,17 @@ export const getClientWallet = async (req: Request, res: Response): Promise<any>
       },
       cartera: {
         total_pendiente: totalPendiente,
-        moneda: 'USD',
+        moneda: 'MXN',
         saldo_por_servicio: [
-          { servicio: 'PO Box USA', monto: saldoPobox, moneda: 'USD', icono: '📦' },
-          { servicio: 'Aéreo China', monto: saldoAereo, moneda: 'USD', icono: '✈️' },
-          { servicio: 'Marítimo China', monto: saldoMaritimo, moneda: 'USD', icono: '🚢' },
-          { servicio: 'DHL Nacional', monto: saldoDhl, moneda: 'USD', icono: '📮' },
-          { servicio: 'Contenedores FCL', monto: saldoContenedores, moneda: 'USD', icono: '🏗️' },
+          { servicio: 'PO Box USA', monto: saldoPobox, moneda: 'MXN', icono: '📦' },
+          { servicio: 'Aéreo China', monto: saldoAereo, moneda: 'MXN', icono: '✈️' },
+          { servicio: 'Marítimo China', monto: saldoMaritimo, moneda: 'MXN', icono: '🚢' },
+          { servicio: 'DHL Nacional', monto: saldoDhl, moneda: 'MXN', icono: '📮' },
+          { servicio: 'Contenedores FCL', monto: saldoContenedores, moneda: 'MXN', icono: '🏗️' },
         ].filter(s => s.monto > 0),
         cotizaciones_pendientes: {
-          count: parseInt(quotationsRes.rows[0]?.count) || 0,
-          total: parseFloat(quotationsRes.rows[0]?.total) || 0,
+          count: cotizacionesCount,
+          total: cotizacionesTotal,
         },
         saldo_favor: parseFloat(client.wallet_balance) || 0,
         credito_disponible: client.has_credit 
@@ -816,5 +848,497 @@ export const getClientWallet = async (req: Request, res: Response): Promise<any>
   } catch (error) {
     console.error('Error fetching client wallet:', error);
     res.status(500).json({ error: 'Error al obtener cartera del cliente' });
+  }
+};
+
+// ─── 7. VER EQUIPO (para asesor líder) ───
+export const getAdvisorTeam = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const advisorId = getAdvisorId(req);
+    if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+
+    // Verificar que es un asesor líder
+    const advisorCheck = await pool.query(
+      `SELECT id, role, referral_code FROM users WHERE id = $1`,
+      [advisorId]
+    );
+    
+    if (advisorCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    
+    const advisor = advisorCheck.rows[0];
+    const isLeader = ['asesor_lider', 'admin', 'super_admin', 'director'].includes(advisor.role);
+    
+    if (!isLeader) {
+      return res.status(403).json({ error: 'Solo asesores líderes pueden ver el equipo' });
+    }
+
+    // Buscar sub-asesores (los que fueron referidos por este asesor líder y son asesores)
+    const teamRes = await pool.query(`
+      SELECT 
+        u.id,
+        u.full_name as name,
+        u.email,
+        u.phone,
+        u.referral_code,
+        u.role,
+        u.created_at,
+        CASE WHEN u.is_verified = true THEN 'active' ELSE 'inactive' END as status,
+        (SELECT COUNT(*) FROM users c WHERE c.referred_by_id = u.id AND c.role = 'client') as total_clients,
+        (SELECT COUNT(*) FROM users c WHERE c.referred_by_id = u.id AND c.role = 'client' 
+         AND c.created_at >= date_trunc('month', NOW())) as monthly_clients,
+        COALESCE((
+          SELECT SUM(COALESCE(p.monto_pagado, p.assigned_cost_mxn, 0))
+          FROM packages p 
+          JOIN users c ON p.user_id = c.id 
+          WHERE c.referred_by_id = u.id AND c.role = 'client'
+            AND COALESCE(p.saldo_pendiente, 0) = 0 
+            AND COALESCE(p.monto_pagado, 0) > 0
+        ), 0) as total_revenue,
+        COALESCE((
+          SELECT SUM(COALESCE(p.monto_pagado, p.assigned_cost_mxn, 0))
+          FROM packages p 
+          JOIN users c ON p.user_id = c.id 
+          WHERE c.referred_by_id = u.id AND c.role = 'client'
+            AND COALESCE(p.saldo_pendiente, 0) = 0 
+            AND COALESCE(p.monto_pagado, 0) > 0
+            AND p.updated_at >= date_trunc('month', NOW())
+        ), 0) as monthly_revenue
+      FROM users u
+      WHERE u.referred_by_id = $1
+        AND u.role IN ('advisor', 'asesor', 'sub_advisor')
+      ORDER BY total_clients DESC, u.created_at DESC
+    `, [advisorId]);
+
+    // Calcular mi comisión del equipo (% de lo que generan mis sub-asesores)
+    // Por defecto: 5% de las comisiones de los sub-asesores
+    const teamCommission = teamRes.rows.reduce((sum, member) => {
+      return sum + (parseFloat(member.total_revenue) * 0.05);
+    }, 0);
+
+    res.json({
+      team: teamRes.rows.map(m => ({
+        id: m.id,
+        name: m.name,
+        email: m.email,
+        phone: m.phone,
+        referral_code: m.referral_code,
+        total_clients: parseInt(m.total_clients) || 0,
+        monthly_clients: parseInt(m.monthly_clients) || 0,
+        total_revenue: parseFloat(m.total_revenue) || 0,
+        monthly_revenue: parseFloat(m.monthly_revenue) || 0,
+        status: m.status,
+        created_at: m.created_at,
+      })),
+      my_commission: teamCommission,
+    });
+  } catch (error) {
+    console.error('Error fetching advisor team:', error);
+    res.status(500).json({ error: 'Error al obtener equipo' });
+  }
+};
+
+// ─── 8. TICKETS DE CLIENTES DEL ASESOR ───
+export const getAdvisorClientTickets = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const advisorId = getAdvisorId(req);
+    if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+
+    const { status, client_id } = req.query;
+
+    let query = `
+      SELECT 
+        t.id,
+        t.ticket_folio,
+        t.category,
+        t.subject,
+        t.status,
+        t.priority,
+        t.sentiment,
+        t.created_at,
+        t.updated_at,
+        t.resolved_at,
+        u.id as client_id,
+        u.full_name as client_name,
+        u.email as client_email,
+        u.box_id as client_box_id,
+        (SELECT COUNT(*) FROM ticket_messages WHERE ticket_id = t.id) as message_count,
+        (SELECT message FROM ticket_messages WHERE ticket_id = t.id ORDER BY created_at DESC LIMIT 1) as last_message,
+        (SELECT sender_type FROM ticket_messages WHERE ticket_id = t.id ORDER BY created_at DESC LIMIT 1) as last_sender
+      FROM support_tickets t
+      JOIN users u ON t.user_id = u.id
+      WHERE u.referred_by_id = $1
+    `;
+    const params: any[] = [advisorId];
+
+    if (status && status !== 'all') {
+      params.push(status);
+      query += ` AND t.status = $${params.length}`;
+    }
+
+    if (client_id) {
+      params.push(client_id);
+      query += ` AND t.user_id = $${params.length}`;
+    }
+
+    query += ` ORDER BY 
+      CASE t.status 
+        WHEN 'escalated_human' THEN 1 
+        WHEN 'open_ai' THEN 2 
+        WHEN 'waiting_client' THEN 3 
+        ELSE 4 
+      END,
+      t.updated_at DESC
+      LIMIT 100`;
+
+    const result = await pool.query(query, params);
+
+    // Stats
+    const statsRes = await pool.query(`
+      SELECT 
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE t.status = 'open_ai') as open_ai,
+        COUNT(*) FILTER (WHERE t.status = 'escalated_human') as escalated,
+        COUNT(*) FILTER (WHERE t.status = 'waiting_client') as waiting,
+        COUNT(*) FILTER (WHERE t.status = 'resolved') as resolved,
+        COUNT(*) FILTER (WHERE t.created_at >= NOW() - INTERVAL '7 days') as last_7_days
+      FROM support_tickets t
+      JOIN users u ON t.user_id = u.id
+      WHERE u.referred_by_id = $1
+    `, [advisorId]);
+
+    res.json({
+      success: true,
+      tickets: result.rows,
+      stats: statsRes.rows[0],
+    });
+  } catch (error) {
+    console.error('Error fetching advisor client tickets:', error);
+    res.status(500).json({ error: 'Error al obtener tickets de clientes' });
+  }
+};
+
+// ─── 9. DETALLE DE TICKET CON MENSAJES (para asesor) ───
+export const getAdvisorTicketDetail = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const advisorId = getAdvisorId(req);
+    if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+
+    const { ticketId } = req.params;
+
+    // Verificar que el ticket pertenece a un cliente del asesor
+    const ticketRes = await pool.query(`
+      SELECT 
+        t.*,
+        u.full_name as client_name,
+        u.email as client_email,
+        u.box_id as client_box_id,
+        u.phone as client_phone
+      FROM support_tickets t
+      JOIN users u ON t.user_id = u.id
+      WHERE t.id = $1 AND u.referred_by_id = $2
+    `, [ticketId, advisorId]);
+
+    if (ticketRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Ticket no encontrado o no pertenece a tus clientes' });
+    }
+
+    const ticket = ticketRes.rows[0];
+
+    // Obtener mensajes
+    const messagesRes = await pool.query(`
+      SELECT id, sender_type, message, attachment_url, attachments, created_at
+      FROM ticket_messages
+      WHERE ticket_id = $1
+      ORDER BY created_at ASC
+    `, [ticketId]);
+
+    res.json({
+      success: true,
+      ticket,
+      messages: messagesRes.rows,
+    });
+  } catch (error) {
+    console.error('Error fetching ticket detail:', error);
+    res.status(500).json({ error: 'Error al obtener detalle del ticket' });
+  }
+};
+
+// ─── 9. NOTIFICACIONES DEL ASESOR (movimientos de sus clientes) ───
+export const getAdvisorNotifications = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const advisorId = getAdvisorId(req);
+    const { limit = 50, offset = 0, unreadOnly } = req.query;
+
+    // Obtener notificaciones propias del asesor
+    let ownQuery = `
+      SELECT id, title, message, type, icon, is_read, action_url, data, created_at,
+             'own' as source
+      FROM notifications
+      WHERE user_id = $1
+    `;
+    if (unreadOnly === 'true') {
+      ownQuery += ' AND is_read = false';
+    }
+
+    // Obtener actividad reciente de los clientes del asesor
+    // 1. Paquetes recibidos/en tránsito/entregados de sus clientes
+    const clientActivityQuery = `
+      SELECT 
+        'client_package' as source,
+        p.id,
+        CASE 
+          WHEN p.status = 'received' THEN '📦 Paquete Recibido'
+          WHEN p.status = 'received_china' THEN '📦 Recibido en China'
+          WHEN p.status = 'processing' THEN '⚙️ En Proceso'
+          WHEN p.status = 'reempacado' THEN '📋 Reempacado'
+          WHEN p.status = 'in_transit' THEN '🚚 Paquete en Tránsito'
+          WHEN p.status = 'delivered' THEN '✅ Paquete Entregado'
+          WHEN p.status = 'customs' THEN '🛃 En Aduana'
+          WHEN p.status = 'ready_pickup' THEN '📍 Listo para Recoger'
+          ELSE '📦 Actualización de Paquete'
+        END as title,
+        CONCAT(u.full_name, ' - ', COALESCE(p.tracking_internal, 'Sin tracking'), ' (', p.status, ')') as message,
+        'info' as type,
+        'package-variant' as icon,
+        false as is_read,
+        NULL as action_url,
+        json_build_object('client_id', u.id, 'package_id', p.id, 'tracking', p.tracking_internal) as data,
+        COALESCE(p.updated_at, p.created_at) as created_at
+      FROM packages p
+      JOIN users u ON p.user_id = u.id
+      WHERE u.referred_by_id = $1
+        AND COALESCE(p.updated_at, p.created_at) >= NOW() - INTERVAL '30 days'
+      ORDER BY COALESCE(p.updated_at, p.created_at) DESC
+      LIMIT 30
+    `;
+
+    // 2. Pagos recientes de sus clientes
+    const clientPaymentsQuery = `
+      SELECT 
+        'client_payment' as source,
+        pay.id,
+        '💰 Pago Registrado' as title,
+        CONCAT(u.full_name, ' - $', ROUND(pay.amount::numeric, 2), ' ', COALESCE(pay.currency, 'MXN')) as message,
+        'success' as type,
+        'cash-check' as icon,
+        false as is_read,
+        NULL as action_url,
+        json_build_object('client_id', u.id, 'payment_id', pay.id) as data,
+        pay.created_at
+      FROM payment_invoices pay
+      JOIN users u ON pay.user_id = u.id
+      WHERE u.referred_by_id = $1
+        AND pay.created_at >= NOW() - INTERVAL '30 days'
+      ORDER BY pay.created_at DESC
+      LIMIT 20
+    `;
+
+    // 3. Nuevos clientes registrados
+    const newClientsQuery = `
+      SELECT 
+        'new_client' as source,
+        u.id,
+        '🎉 Nuevo Cliente Referido' as title,
+        CONCAT(u.full_name, ' se registró con tu código') as message,
+        'success' as type,
+        'account-plus' as icon,
+        false as is_read,
+        NULL as action_url,
+        json_build_object('client_id', u.id) as data,
+        u.created_at
+      FROM users u
+      WHERE u.referred_by_id = $1
+        AND u.role = 'client'
+        AND u.created_at >= NOW() - INTERVAL '30 days'
+      ORDER BY u.created_at DESC
+      LIMIT 10
+    `;
+
+    // 4. Tickets de soporte de sus clientes
+    const clientTicketsQuery = `
+      SELECT 
+        'client_ticket' as source,
+        t.id,
+        CASE 
+          WHEN t.status = 'escalated_human' THEN '🚨 Ticket Escalado'
+          WHEN t.status = 'resolved' THEN '✅ Ticket Resuelto'
+          ELSE '🎫 Ticket de Soporte'
+        END as title,
+        CONCAT(u.full_name, ' - ', COALESCE(t.subject, t.category::text)) as message,
+        CASE WHEN t.status = 'escalated_human' THEN 'error' ELSE 'info' END as type,
+        'headset' as icon,
+        false as is_read,
+        NULL as action_url,
+        json_build_object('client_id', u.id, 'ticket_id', t.id) as data,
+        COALESCE(t.updated_at, t.created_at) as created_at
+      FROM support_tickets t
+      JOIN users u ON t.user_id = u.id
+      WHERE u.referred_by_id = $1
+        AND COALESCE(t.updated_at, t.created_at) >= NOW() - INTERVAL '30 days'
+      ORDER BY COALESCE(t.updated_at, t.created_at) DESC
+      LIMIT 10
+    `;
+
+    // 5. Clientes pendientes de verificación (persistente - no expira)
+    const pendingVerificationQuery = `
+      SELECT 
+        'pending_verification' as source,
+        u.id,
+        '⚠️ Cliente Pendiente de Verificación' as title,
+        CONCAT(u.full_name, ' aún no ha completado su verificación') as message,
+        'warning' as type,
+        'alert-circle' as icon,
+        false as is_read,
+        NULL as action_url,
+        json_build_object('client_id', u.id) as data,
+        u.created_at
+      FROM users u
+      WHERE u.referred_by_id = $1
+        AND u.role = 'client'
+        AND (u.verification_status = 'unverified' OR u.verification_status IS NULL)
+        AND u.is_verified = false
+      ORDER BY u.created_at DESC
+    `;
+
+    // 6. Verificación propia del asesor
+    const ownVerificationQuery = `
+      SELECT 
+        'own_verification' as source,
+        u.id,
+        '🔴 Tu Verificación está Pendiente' as title,
+        'Completa tu verificación de identidad para operar al 100%' as message,
+        'error' as type,
+        'alert-circle' as icon,
+        false as is_read,
+        NULL as action_url,
+        json_build_object('action', 'verify_self') as data,
+        u.created_at
+      FROM users u
+      WHERE u.id = $1
+        AND (u.verification_status = 'unverified' OR u.verification_status IS NULL)
+        AND u.is_verified = false
+    `;
+
+    const [ownRes, packagesRes, paymentsRes, clientsRes, ticketsRes, pendingVerifRes, ownVerifRes] = await Promise.all([
+      pool.query(ownQuery, [advisorId]),
+      pool.query(clientActivityQuery, [advisorId]),
+      pool.query(clientPaymentsQuery, [advisorId]),
+      pool.query(newClientsQuery, [advisorId]),
+      pool.query(clientTicketsQuery, [advisorId]),
+      pool.query(pendingVerificationQuery, [advisorId]),
+      pool.query(ownVerificationQuery, [advisorId]),
+    ]);
+
+    // Combinar todas las notificaciones y ordenar por fecha
+    const allNotifications = [
+      ...ownVerifRes.rows,  // Prioridad: verificación propia arriba
+      ...ownRes.rows.map(n => ({ ...n, source: 'own' })),
+      ...packagesRes.rows,
+      ...paymentsRes.rows,
+      ...clientsRes.rows,
+      ...ticketsRes.rows,
+      ...pendingVerifRes.rows,
+    ]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .slice(Number(offset), Number(offset) + Number(limit));
+
+    // Contar no leídas propias
+    const unreadCount = await pool.query(
+      'SELECT COUNT(*) as count FROM notifications WHERE user_id = $1 AND is_read = false',
+      [advisorId]
+    );
+
+    // Contar actividad reciente (últimos 7 días) de clientes
+    const recentActivity = await pool.query(`
+      SELECT COUNT(*) as count FROM (
+        SELECT p.id FROM packages p 
+        JOIN users u ON p.user_id = u.id
+        WHERE u.referred_by_id = $1 AND COALESCE(p.updated_at, p.created_at) >= NOW() - INTERVAL '7 days'
+        UNION ALL
+        SELECT pay.id FROM payment_invoices pay
+        JOIN users u ON pay.user_id = u.id
+        WHERE u.referred_by_id = $1 AND pay.created_at >= NOW() - INTERVAL '7 days'
+      ) activity
+    `, [advisorId]);
+
+    const pendingVerifCount = pendingVerifRes.rows.length;
+    const ownVerifPending = ownVerifRes.rows.length > 0 ? 1 : 0;
+    const totalUnread = parseInt(unreadCount.rows[0].count) + parseInt(recentActivity.rows[0].count) + pendingVerifCount + ownVerifPending;
+
+    res.json({
+      success: true,
+      notifications: allNotifications,
+      unreadCount: totalUnread,
+      ownUnread: parseInt(unreadCount.rows[0].count),
+      clientActivity: parseInt(recentActivity.rows[0].count),
+      pendingVerification: pendingVerifCount,
+      ownVerificationPending: ownVerifPending > 0,
+    });
+  } catch (error) {
+    console.error('Error fetching advisor notifications:', error);
+    res.status(500).json({ error: 'Error al obtener notificaciones' });
+  }
+};
+
+// Obtener conteo de no leídas para el asesor
+export const getAdvisorUnreadCount = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const advisorId = getAdvisorId(req);
+
+    // Notificaciones propias no leídas
+    const ownUnread = await pool.query(
+      'SELECT COUNT(*) as count FROM notifications WHERE user_id = $1 AND is_read = false',
+      [advisorId]
+    );
+
+    // Actividad reciente de clientes (últimos 3 días como "nuevas")
+    const clientActivity = await pool.query(`
+      SELECT COUNT(*) as count FROM (
+        SELECT p.id FROM packages p 
+        JOIN users u ON p.user_id = u.id
+        WHERE u.referred_by_id = $1 AND COALESCE(p.updated_at, p.created_at) >= NOW() - INTERVAL '3 days'
+        UNION ALL
+        Select pay.id FROM payment_invoices pay
+        JOIN users u ON pay.user_id = u.id
+        WHERE u.referred_by_id = $1 AND pay.created_at >= NOW() - INTERVAL '3 days'
+        UNION ALL
+        SELECT u.id FROM users u
+        WHERE u.referred_by_id = $1 AND u.role = 'client' AND u.created_at >= NOW() - INTERVAL '3 days'
+      ) activity
+    `, [advisorId]);
+
+    // Clientes pendientes de verificación (SIEMPRE se cuentan hasta que se verifiquen)
+    const pendingVerification = await pool.query(`
+      SELECT COUNT(*) as count FROM users u
+      WHERE u.referred_by_id = $1 
+        AND u.role = 'client' 
+        AND (u.verification_status = 'unverified' OR u.verification_status IS NULL)
+        AND u.is_verified = false
+    `, [advisorId]);
+
+    // Verificación propia del asesor pendiente
+    const ownVerification = await pool.query(`
+      SELECT 1 FROM users WHERE id = $1 
+        AND (verification_status = 'unverified' OR verification_status IS NULL)
+        AND is_verified = false
+    `, [advisorId]);
+
+    const pendingCount = parseInt(pendingVerification.rows[0].count) || 0;
+    const ownVerifPending = ownVerification.rows.length > 0 ? 1 : 0;
+    const total = parseInt(ownUnread.rows[0].count) + parseInt(clientActivity.rows[0].count) + pendingCount + ownVerifPending;
+
+    res.json({
+      success: true,
+      count: total,
+      ownUnread: parseInt(ownUnread.rows[0].count),
+      clientActivity: parseInt(clientActivity.rows[0].count),
+      pendingVerification: pendingCount,
+      ownVerificationPending: ownVerifPending > 0,
+    });
+  } catch (error) {
+    console.error('Error fetching advisor unread count:', error);
+    res.status(500).json({ success: false, count: 0 });
   }
 };

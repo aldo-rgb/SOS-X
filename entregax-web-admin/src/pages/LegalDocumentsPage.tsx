@@ -152,6 +152,8 @@ export default function LegalDocumentsPage() {
     switch (type) {
       case 'privacy_notice':
         return 'Aviso de Privacidad (Empleados)';
+      case 'advisor_privacy_notice':
+        return 'Aviso de Privacidad (Asesores)';
       case 'service_contract':
         return 'Contrato de Servicios (Clientes)';
       default:
@@ -163,6 +165,8 @@ export default function LegalDocumentsPage() {
     switch (type) {
       case 'privacy_notice':
         return '🔒';
+      case 'advisor_privacy_notice':
+        return '🤝';
       case 'service_contract':
         return '📄';
       default:
