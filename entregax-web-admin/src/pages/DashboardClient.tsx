@@ -2471,13 +2471,13 @@ export default function DashboardClient() {
         </Box>
       )}
 
-      {/* Alertas */}
-      {stats && stats.paquetes.listos_recoger > 0 && (
+      {/* Alertas - Solo en desktop */}
+      {!isMobile && stats && stats.paquetes.listos_recoger > 0 && (
         <Alert severity="success" sx={{ mb: 2, borderRadius: 2 }} icon={<CheckCircleIcon />}>
           <strong>{t('cd.alerts.readyPickup', { count: stats.paquetes.listos_recoger })}</strong> {t('cd.alerts.visitBranch')}
         </Alert>
       )}
-      {stats && stats.financiero.saldo_pendiente > 0 && (
+      {!isMobile && stats && stats.financiero.saldo_pendiente > 0 && (
         <Alert severity="warning" sx={{ mb: 2, borderRadius: 2 }} icon={<WarningIcon />}>
           <strong>{t('cd.alerts.pendingBalance', { amount: formatCurrency(stats.financiero.saldo_pendiente) })}</strong>
         </Alert>
