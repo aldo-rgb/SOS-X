@@ -417,6 +417,31 @@ export default function DashboardClient() {
   const [applyToFullShipment, setApplyToFullShipment] = useState<boolean>(true);
   const [pqtxQuoteLoading, setPqtxQuoteLoading] = useState<boolean>(false);
   const [boxBreakdownOpen, setBoxBreakdownOpen] = useState<Record<number, boolean>>({});
+  // Por cobrar (collect) carrier states
+  const [selectedCollectCarrier, setSelectedCollectCarrier] = useState<string>('');
+  const [collectDocsExpanded, setCollectDocsExpanded] = useState<boolean>(false);
+  const [facturaFile, setFacturaFile] = useState<File | null>(null);
+  const [constanciaFile, setConstanciaFile] = useState<File | null>(null);
+  const [guiaExternaFile, setGuiaExternaFile] = useState<File | null>(null);
+  const [saveConstancia, setSaveConstancia] = useState<boolean>(false);
+  const [wantsFacturaPaqueteria, setWantsFacturaPaqueteria] = useState<boolean>(false);
+  const [savedConstanciaUrl, setSavedConstanciaUrl] = useState<string | null>(null);
+  const [savedConstanciaName, setSavedConstanciaName] = useState<string | null>(null);
+  
+  // Load saved constancia when delivery modal opens
+  useEffect(() => {
+    if (!deliveryModalOpen) return;
+    const loadSavedConstancia = async () => {
+      try {
+        const res = await api.get('/packages/saved-constancia');
+        if (res.data.success && res.data.saved) {
+          setSavedConstanciaUrl(res.data.file_url);
+          setSavedConstanciaName(res.data.original_filename);
+        }
+      } catch { /* ignore */ }
+    };
+    loadSavedConstancia();
+  }, [deliveryModalOpen]);
   
   // Determinar el tipo de servicio de los paquetes seleccionados
   const selectedServiceType = useMemo(() => {
@@ -446,7 +471,7 @@ export default function DashboardClient() {
   // }, [packages, selectedPackageIds]);
 
   // Opciones de paquetería dinámicas desde la API
-  const [carrierServices, setCarrierServices] = useState<{ id: string; name: string; description: string; price: string; subtext?: string; icon: string; allowsCollect?: boolean; isDynamic?: boolean }[]>([]);
+  const [carrierServices, setCarrierServices] = useState<{ id: string; name: string; description: string; price: string; subtext?: string; icon: string; allowsCollect?: boolean; isDynamic?: boolean; isTotalPrice?: boolean; isCollect?: boolean }[]>([]);
   useEffect(() => {
     const fetchCarrierOptions = async () => {
       try {
@@ -456,7 +481,7 @@ export default function DashboardClient() {
         });
         const data = await res.json();
         if (data.success && data.data) {
-          setCarrierServices(data.data.map((c: { carrier_key: string; name: string; description: string; price_label: string; subtext: string; icon: string; allows_collect: boolean }) => ({
+          setCarrierServices(data.data.map((c: { carrier_key: string; name: string; description: string; price_label: string; subtext: string; icon: string; allows_collect: boolean; carrier_type: string }) => ({
             id: c.carrier_key,
             name: c.name,
             description: c.description || '',
@@ -465,6 +490,8 @@ export default function DashboardClient() {
             icon: c.icon || '🚛',
             allowsCollect: c.allows_collect || false,
             isDynamic: c.price_label === 'API',
+            isTotalPrice: c.price_label === 'API',
+            isCollect: c.carrier_type === 'collect' || c.allows_collect,
           })));
         }
       } catch (err) {
@@ -538,7 +565,7 @@ export default function DashboardClient() {
         if (data.success && data.clientPrice) {
           setCarrierServices(prev => prev.map(s =>
             s.isDynamic
-              ? { ...s, price: `$${data.clientPrice.toLocaleString('es-MX')}`, subtext: data.estimatedDays || s.subtext }
+              ? { ...s, price: `$${data.clientPrice.toLocaleString('es-MX')}`, subtext: data.estimatedDays || s.subtext, isTotalPrice: true }
               : s
           ));
         } else {
@@ -1645,18 +1672,33 @@ export default function DashboardClient() {
       const selectedService = carrierServices.find(s => s.id === selectedCarrierService);
       const totalBoxes = applyToFullShipment ? shipmentTotalBoxes : selectedPackageIds.length;
 
-      const response = await api.post('/packages/assign-delivery', {
-        packageIds: selectedPackageIds,
-        addressId: selectedDeliveryAddress,
-        carrierService: selectedCarrierService,
-        notes: deliveryNotes,
-        applyToFullShipment,
-        totalBoxes,
-        deliveryDetails: {
-          service: selectedService,
-          applyToFullShipment,
-          totalBoxes,
-        }
+      // If "por_cobrar" is selected, use the actual collect carrier key
+      if (selectedCarrierService === 'por_cobrar' && !selectedCollectCarrier) {
+        setSnackbar({ open: true, message: 'Selecciona una paquetería para envío por cobrar', severity: 'warning' });
+        setDeliveryLoading(false);
+        return;
+      }
+      const actualCarrier = selectedCarrierService === 'por_cobrar' ? selectedCollectCarrier : selectedCarrierService;
+
+      // Use FormData to send files along with data
+      const formData = new FormData();
+      formData.append('packageIds', JSON.stringify(selectedPackageIds));
+      formData.append('addressId', String(selectedDeliveryAddress));
+      formData.append('carrierService', actualCarrier);
+      formData.append('notes', deliveryNotes);
+      formData.append('applyToFullShipment', String(applyToFullShipment));
+      formData.append('totalBoxes', String(totalBoxes));
+      formData.append('isCollect', String(selectedCarrierService === 'por_cobrar'));
+      formData.append('wantsFacturaPaqueteria', String(wantsFacturaPaqueteria));
+      formData.append('saveConstancia', String(saveConstancia));
+
+      // Attach files if present
+      if (facturaFile) formData.append('factura', facturaFile);
+      if (constanciaFile) formData.append('constancia', constanciaFile);
+      if (guiaExternaFile) formData.append('guiaExterna', guiaExternaFile);
+
+      const response = await api.post('/packages/assign-delivery', formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
       });
       
       if (response.data.success) {
@@ -1667,17 +1709,19 @@ export default function DashboardClient() {
         setSelectedCarrierService('local');
         setDeliveryNotes('');
         setApplyToFullShipment(false);
+        setSelectedCollectCarrier(''); setCollectDocsExpanded(false); setFacturaFile(null); setConstanciaFile(null); setGuiaExternaFile(null); setSaveConstancia(false); setWantsFacturaPaqueteria(false);
         loadData(); // Recargar paquetes
       }
     } catch (error) {
       console.error('Error assigning delivery:', error);
-      setSnackbar({ open: true, message: t('cd.snackbar.instructionsAssigned'), severity: 'success' });
+      setSnackbar({ open: true, message: 'Error al guardar instrucciones de entrega', severity: 'error' });
       setDeliveryModalOpen(false);
       setSelectedPackageIds([]);
       setSelectedDeliveryAddress(null);
       setSelectedCarrierService('local');
       setDeliveryNotes('');
       setApplyToFullShipment(false);
+      setSelectedCollectCarrier(''); setCollectDocsExpanded(false); setFacturaFile(null); setConstanciaFile(null); setGuiaExternaFile(null); setSaveConstancia(false); setWantsFacturaPaqueteria(false);
       loadData(); // Recargar paquetes
     } finally {
       setDeliveryLoading(false);
@@ -5880,12 +5924,24 @@ export default function DashboardClient() {
                   {t('cd.delivery.selectCarrier')}
                 </Typography>
 
+                {(() => {
+                  const standardCarriers = carrierServices.filter(s => !s.isCollect);
+                  const collectCarriers = carrierServices.filter(s => s.isCollect);
+                  return (
                 <FormControl component="fieldset" fullWidth>
                   <RadioGroup
                     value={selectedCarrierService}
-                    onChange={(e) => setSelectedCarrierService(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setSelectedCarrierService(val);
+                      if (val !== 'por_cobrar') {
+                        setSelectedCollectCarrier('');
+                        setCollectDocsExpanded(false);
+                      }
+                    }}
                   >
-                    {carrierServices.map((service) => (
+                    {/* Standard carriers (Gratis, PQTX, etc.) */}
+                    {standardCarriers.map((service) => (
                       <FormControlLabel
                         key={service.id}
                         value={service.id}
@@ -5905,12 +5961,7 @@ export default function DashboardClient() {
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 100, flexShrink: 0 }}>
                                 {service.icon && (service.icon.startsWith('http') || service.icon.startsWith('/uploads')) ? (
-                                  <Box
-                                    component="img"
-                                    src={service.icon}
-                                    alt={service.name}
-                                    sx={{ width: 100, height: 60, objectFit: 'contain' }}
-                                  />
+                                  <Box component="img" src={service.icon} alt={service.name} sx={{ width: 100, height: 60, objectFit: 'contain' }} />
                                 ) : (
                                   <Box sx={{ fontSize: '2.5rem' }}>{service.icon}</Box>
                                 )}
@@ -5920,18 +5971,17 @@ export default function DashboardClient() {
                               </Box>
                               <Box sx={{ flex: 1 }} />
                               <Box sx={{ textAlign: 'right' }}>
-                                <Typography 
-                                  variant="body1" 
-                                  fontWeight="bold"
-                                  sx={{ 
-                                    color: service.price === 'GRATIS' ? 'success.main' : (service.isDynamic && pqtxQuoteLoading) ? 'text.secondary' : 'text.primary'
-                                  }}
-                                >
+                                <Typography variant="body1" fontWeight="bold" sx={{ color: service.price === 'GRATIS' ? 'success.main' : (service.isDynamic && pqtxQuoteLoading) ? 'text.secondary' : 'text.primary' }}>
                                   {service.isDynamic && pqtxQuoteLoading ? 'Cotizando...' : service.price === 'API' ? 'Cotizar' : service.price}
                                 </Typography>
-                                {applyToFullShipment && shipmentTotalBoxes > 1 && service.price !== 'GRATIS' && (
+                                {applyToFullShipment && shipmentTotalBoxes > 1 && service.price !== 'GRATIS' && !service.isTotalPrice && (
                                   <Typography variant="caption" color="primary.main" fontWeight="bold">
                                     × {shipmentTotalBoxes} {t('cd.delivery.boxes')}
+                                  </Typography>
+                                )}
+                                {service.isTotalPrice && shipmentTotalBoxes > 1 && (
+                                  <Typography variant="caption" color="text.secondary">
+                                    {shipmentTotalBoxes} {t('cd.delivery.boxes')} incluidas
                                   </Typography>
                                 )}
                               </Box>
@@ -5941,24 +5991,186 @@ export default function DashboardClient() {
                         sx={{ m: 0, mb: 1, alignItems: 'flex-start', width: '100%', '& .MuiFormControlLabel-label': { width: '100%' } }}
                       />
                     ))}
+
+                    {/* Grouped "Por cobrar" card */}
+                    {collectCarriers.length > 0 && (
+                      <FormControlLabel
+                        value="por_cobrar"
+                        control={<Radio color="primary" />}
+                        label={
+                          <Paper 
+                            elevation={selectedCarrierService === 'por_cobrar' ? 2 : 0}
+                            sx={{ 
+                              p: 2, 
+                              bgcolor: selectedCarrierService === 'por_cobrar' ? 'primary.50' : 'transparent',
+                              border: selectedCarrierService === 'por_cobrar' ? `2px solid ${ORANGE}` : '1px solid #eee',
+                              borderRadius: 2,
+                              width: '100%',
+                            }}
+                          >
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 100, flexShrink: 0 }}>
+                                <Box sx={{ fontSize: '2.5rem' }}>🚚</Box>
+                                <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, textAlign: 'center', lineHeight: 1.2 }}>
+                                  Otra paquetería
+                                </Typography>
+                              </Box>
+                              <Box sx={{ flex: 1 }} />
+                              <Box sx={{ textAlign: 'right' }}>
+                                <Typography variant="body1" fontWeight="bold">Por cobrar</Typography>
+                                {applyToFullShipment && shipmentTotalBoxes > 1 && (
+                                  <Typography variant="caption" color="primary.main" fontWeight="bold">
+                                    × {shipmentTotalBoxes} {t('cd.delivery.boxes')}
+                                  </Typography>
+                                )}
+                              </Box>
+                            </Box>
+
+                            {/* Expandable collect carrier sub-options */}
+                            <Collapse in={selectedCarrierService === 'por_cobrar'} timeout="auto">
+                              <Box sx={{ mt: 2, pt: 2, borderTop: '1px solid #e0e0e0' }}>
+                                <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>Selecciona paquetería:</Typography>
+                                {collectCarriers.map((cc) => (
+                                  <Paper
+                                    key={cc.id}
+                                    onClick={() => { setSelectedCollectCarrier(cc.id); setCollectDocsExpanded(true); }}
+                                    sx={{
+                                      p: 1.5, mb: 1, cursor: 'pointer',
+                                      border: selectedCollectCarrier === cc.id ? `2px solid ${ORANGE}` : '1px solid #e0e0e0',
+                                      bgcolor: selectedCollectCarrier === cc.id ? '#FFF3EE' : 'white',
+                                      borderRadius: 1.5,
+                                      display: 'flex', alignItems: 'center', gap: 1.5,
+                                      '&:hover': { bgcolor: '#f5f5f5' },
+                                    }}
+                                  >
+                                    {cc.icon && (cc.icon.startsWith('http') || cc.icon.startsWith('/uploads')) ? (
+                                      <Box component="img" src={cc.icon} alt={cc.name} sx={{ width: 70, height: 40, objectFit: 'contain' }} />
+                                    ) : (
+                                      <Box sx={{ fontSize: '1.5rem' }}>{cc.icon}</Box>
+                                    )}
+                                    <Box sx={{ flex: 1 }}>
+                                      <Typography variant="body2" fontWeight="bold">{cc.name}</Typography>
+                                      <Typography variant="caption" color="text.secondary">{cc.description}</Typography>
+                                    </Box>
+                                    {selectedCollectCarrier === cc.id && (
+                                      <Box sx={{ color: ORANGE, fontWeight: 'bold' }}>✓</Box>
+                                    )}
+                                  </Paper>
+                                ))}
+
+                                {/* Document uploads - shown after selecting a collect carrier */}
+                                <Collapse in={collectDocsExpanded && !!selectedCollectCarrier} timeout="auto">
+                                  <Box sx={{ mt: 2, pt: 2, borderTop: '1px dashed #ccc' }}>
+                                    <Typography variant="body2" fontWeight="bold" sx={{ mb: 1.5, color: ORANGE }}>📄 Documentos requeridos</Typography>
+
+                                    {/* 1. Factura del embarque */}
+                                    <Box sx={{ mb: 2 }}>
+                                      <Typography variant="body2" fontWeight="bold" sx={{ mb: 0.5 }}>Factura del embarque</Typography>
+                                      <Button
+                                        variant="outlined"
+                                        component="label"
+                                        size="small"
+                                        fullWidth
+                                        startIcon={<AddPhotoIcon />}
+                                        sx={{ justifyContent: 'flex-start', textTransform: 'none', borderColor: facturaFile ? GREEN : '#ccc', color: facturaFile ? GREEN : 'text.secondary' }}
+                                      >
+                                        {facturaFile ? `✓ ${facturaFile.name}` : 'Subir factura (PDF o imagen)'}
+                                        <input type="file" hidden accept="image/*,.pdf" onChange={(e) => setFacturaFile(e.target.files?.[0] || null)} />
+                                      </Button>
+                                    </Box>
+
+                                    {/* 2. Factura de paquetería + constancia */}
+                                    <Box sx={{ mb: 2 }}>
+                                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                                        <Typography variant="body2" fontWeight="bold">¿Requiere factura de la paquetería?</Typography>
+                                      </Box>
+                                      <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+                                        <Button size="small" variant={wantsFacturaPaqueteria ? 'contained' : 'outlined'} onClick={() => setWantsFacturaPaqueteria(true)} sx={wantsFacturaPaqueteria ? { bgcolor: ORANGE, '&:hover': { bgcolor: '#E04A18' } } : {}}>Sí</Button>
+                                        <Button size="small" variant={!wantsFacturaPaqueteria ? 'contained' : 'outlined'} onClick={() => { setWantsFacturaPaqueteria(false); setConstanciaFile(null); setSaveConstancia(false); }} sx={!wantsFacturaPaqueteria ? { bgcolor: '#666', '&:hover': { bgcolor: '#555' } } : {}}>No</Button>
+                                      </Box>
+                                      <Collapse in={wantsFacturaPaqueteria}>
+                                        <Box sx={{ pl: 1, borderLeft: `3px solid ${ORANGE}` }}>
+                                          <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5, display: 'block' }}>
+                                            Adjunta tu Constancia de Situación Fiscal
+                                          </Typography>
+                                          {/* Show saved constancia option if available */}
+                                          {savedConstanciaUrl && !constanciaFile && (
+                                            <Box sx={{ mb: 1, p: 1, bgcolor: '#f0faf0', borderRadius: 1, border: `1px solid ${GREEN}` }}>
+                                              <Typography variant="caption" color="success.main" fontWeight="bold" sx={{ display: 'block', mb: 0.5 }}>
+                                                💾 Constancia guardada: {savedConstanciaName}
+                                              </Typography>
+                                              <Typography variant="caption" color="text.secondary">
+                                                Se usará automáticamente. O sube una nueva para reemplazarla.
+                                              </Typography>
+                                            </Box>
+                                          )}
+                                          <Button
+                                            variant="outlined"
+                                            component="label"
+                                            size="small"
+                                            fullWidth
+                                            startIcon={<AddPhotoIcon />}
+                                            sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 1, borderColor: (constanciaFile || savedConstanciaUrl) ? GREEN : '#ccc', color: (constanciaFile || savedConstanciaUrl) ? GREEN : 'text.secondary' }}
+                                          >
+                                            {constanciaFile ? `✓ ${constanciaFile.name}` : savedConstanciaUrl ? 'Cambiar constancia' : 'Subir constancia (PDF o imagen)'}
+                                            <input type="file" hidden accept="image/*,.pdf" onChange={(e) => setConstanciaFile(e.target.files?.[0] || null)} />
+                                          </Button>
+                                          {constanciaFile && (
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                              <input type="checkbox" checked={saveConstancia} onChange={(e) => setSaveConstancia(e.target.checked)} id="save-constancia" />
+                                              <label htmlFor="save-constancia" style={{ fontSize: '0.75rem', color: '#666' }}>Guardar para futuros envíos</label>
+                                            </Box>
+                                          )}
+                                        </Box>
+                                      </Collapse>
+                                    </Box>
+
+                                    {/* 3. Guía de otra paquetería */}
+                                    <Box sx={{ mb: 1 }}>
+                                      <Typography variant="body2" fontWeight="bold" sx={{ mb: 0.5 }}>Guía de paquetería (opcional)</Typography>
+                                      <Button
+                                        variant="outlined"
+                                        component="label"
+                                        size="small"
+                                        fullWidth
+                                        startIcon={<AddPhotoIcon />}
+                                        sx={{ justifyContent: 'flex-start', textTransform: 'none', borderColor: guiaExternaFile ? GREEN : '#ccc', color: guiaExternaFile ? GREEN : 'text.secondary' }}
+                                      >
+                                        {guiaExternaFile ? `✓ ${guiaExternaFile.name}` : 'Subir guía (PDF o imagen)'}
+                                        <input type="file" hidden accept="image/*,.pdf" onChange={(e) => setGuiaExternaFile(e.target.files?.[0] || null)} />
+                                      </Button>
+                                    </Box>
+                                  </Box>
+                                </Collapse>
+                              </Box>
+                            </Collapse>
+                          </Paper>
+                        }
+                        sx={{ m: 0, mb: 1, alignItems: 'flex-start', width: '100%', '& .MuiFormControlLabel-label': { width: '100%' } }}
+                      />
+                    )}
                   </RadioGroup>
                 </FormControl>
+                  );
+                })()}
 
                 {/* Total */}
                 <Box sx={{ mt: 2, pt: 2, borderTop: '2px solid #eee' }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Typography variant="subtitle1" fontWeight="bold">{t('cd.delivery.total')}</Typography>
                     <Box sx={{ textAlign: 'right' }}>
-                      <Typography variant="h6" fontWeight="bold" sx={{ color: selectedCarrierService === 'local' ? 'success.main' : 'text.primary' }}>
+                      <Typography variant="h6" fontWeight="bold" sx={{ color: (selectedCarrierService === 'local' || carrierServices.find(s => s.id === selectedCarrierService)?.price === 'GRATIS') ? 'success.main' : 'text.primary' }}>
                         {(() => {
+                          if (selectedCarrierService === 'por_cobrar') return 'Por cobrar';
                           const selectedService = carrierServices.find(s => s.id === selectedCarrierService);
                           if (!selectedService) return 'GRATIS';
                           if (selectedService.price === 'GRATIS') return 'GRATIS';
                           if (selectedService.isDynamic && pqtxQuoteLoading) return 'Cotizando...';
                           if (selectedService.price === 'API') return 'Selecciona dirección';
                           if (selectedService.price === 'Cotizar') return 'Cotizar';
+                          // If isTotalPrice, the price already includes all boxes
+                          if (selectedService.isTotalPrice) return selectedService.price;
                           if (applyToFullShipment && shipmentTotalBoxes > 1) {
-                            // Extraer valor numérico del precio (ej: "$350" -> 350)
                             const priceMatch = selectedService.price.match(/[\d,.]+/);
                             if (priceMatch) {
                               const unitPrice = parseFloat(priceMatch[0].replace(',', ''));
@@ -5969,11 +6181,12 @@ export default function DashboardClient() {
                           return selectedService.price;
                         })()}
                       </Typography>
-                      {applyToFullShipment && shipmentTotalBoxes > 1 && (
-                        <Typography variant="caption" color="text.secondary">
-                          {carrierServices.find(s => s.id === selectedCarrierService)?.price} × {shipmentTotalBoxes} {t('cd.delivery.boxes')}
-                        </Typography>
-                      )}
+                      {selectedCarrierService !== 'por_cobrar' && applyToFullShipment && shipmentTotalBoxes > 1 && (() => {
+                        const svc = carrierServices.find(s => s.id === selectedCarrierService);
+                        if (!svc || svc.price === 'GRATIS') return null;
+                        if (svc.isTotalPrice) return <Typography variant="caption" color="text.secondary">{shipmentTotalBoxes} cajas incluidas</Typography>;
+                        return <Typography variant="caption" color="text.secondary">{svc.price} × {shipmentTotalBoxes} {t('cd.delivery.boxes')}</Typography>;
+                      })()}
                     </Box>
                   </Box>
                 </Box>
@@ -6012,7 +6225,7 @@ export default function DashboardClient() {
             variant="contained" 
             size="large"
             onClick={handleAssignDelivery}
-            disabled={deliveryLoading || !selectedDeliveryAddress}
+            disabled={deliveryLoading || !selectedDeliveryAddress || (selectedCarrierService === 'por_cobrar' && !selectedCollectCarrier)}
             startIcon={deliveryLoading ? <CircularProgress size={20} /> : <Box sx={{ fontSize: '1.2rem' }}>✅</Box>}
             sx={{ 
               bgcolor: ORANGE, 

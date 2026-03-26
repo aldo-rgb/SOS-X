@@ -1,6 +1,9 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import { PoolClient, Pool } from 'pg';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 
 // ============ TIPOS ============
 type PackageStatus = 'received' | 'in_transit' | 'customs' | 'ready_pickup' | 'delivered' | 'reempacado' | 'processing';
@@ -2353,4 +2356,202 @@ export const getRepackInstructions = async (_req: Request, res: Response): Promi
         console.error('❌ Error obteniendo instrucciones de reempaque:', error);
         res.status(500).json({ error: 'Error al obtener instrucciones', details: error.message });
     }
+};
+
+// ============================================================
+// BULK ASSIGN DELIVERY WITH DOCUMENT UPLOADS
+// ============================================================
+
+const deliveryUploadsDir = path.join(__dirname, '..', 'uploads', 'delivery');
+try {
+  if (!fs.existsSync(deliveryUploadsDir)) {
+    fs.mkdirSync(deliveryUploadsDir, { recursive: true });
+  }
+} catch (e) {
+  console.warn('⚠️ No se pudo crear directorio de uploads delivery:', e);
+}
+
+const deliveryStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, deliveryUploadsDir);
+  },
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, `delivery-${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+const deliveryUpload = multer({
+  storage: deliveryStorage,
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
+  fileFilter: (_req, file, cb) => {
+    const allowedTypes = /jpeg|jpg|png|gif|webp|pdf/;
+    const extOk = allowedTypes.test(path.extname(file.originalname).toLowerCase());
+    const mimeOk = /image\/|application\/pdf/.test(file.mimetype);
+    cb(null, extOk || mimeOk);
+  }
+}).fields([
+  { name: 'factura', maxCount: 1 },
+  { name: 'constancia', maxCount: 1 },
+  { name: 'guiaExterna', maxCount: 1 },
+]);
+
+export const uploadDeliveryDocs = (req: Request, res: Response, next: Function) => {
+  deliveryUpload(req, res, (err: any) => {
+    if (err) {
+      console.warn('⚠️ Error multer delivery (continuando sin archivos):', err.message || err);
+    }
+    next();
+  });
+};
+
+export const bulkAssignDelivery = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = (req as any).user.userId;
+    const {
+      packageIds,
+      addressId,
+      carrierService,
+      notes,
+      applyToFullShipment,
+      totalBoxes,
+      isCollect,
+      wantsFacturaPaqueteria,
+      saveConstancia: saveConstanciaFlag,
+    } = req.body;
+
+    // Parse packageIds (might be string from FormData)
+    const pkgIds: number[] = typeof packageIds === 'string' ? JSON.parse(packageIds) : packageIds;
+    const addrId = parseInt(addressId, 10);
+    const isCollectBool = isCollect === 'true' || isCollect === true;
+    const wantsFacturaBool = wantsFacturaPaqueteria === 'true' || wantsFacturaPaqueteria === true;
+    const saveConstanciaBool = saveConstanciaFlag === 'true' || saveConstanciaFlag === true;
+
+    console.log(`📦 [Bulk Assign Delivery] User ${userId}: ${pkgIds.length} packages, carrier=${carrierService}, isCollect=${isCollectBool}`);
+
+    // Get uploaded files
+    const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+    const baseUrl = `${req.protocol}://${req.get('host')}`;
+
+    // Build document URLs
+    const facturaUrl = files?.factura?.[0] ? `${baseUrl}/uploads/delivery/${files.factura[0].filename}` : null;
+    const constanciaUrl = files?.constancia?.[0] ? `${baseUrl}/uploads/delivery/${files.constancia[0].filename}` : null;
+    const guiaExternaUrl = files?.guiaExterna?.[0] ? `${baseUrl}/uploads/delivery/${files.guiaExterna[0].filename}` : null;
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Verify address belongs to user
+      if (addrId) {
+        const addrCheck = await client.query('SELECT id FROM addresses WHERE id = $1 AND user_id = $2', [addrId, userId]);
+        if (addrCheck.rows.length === 0) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({ success: false, error: 'Dirección no válida' });
+        }
+      }
+
+      // Update all selected packages
+      let updatedCount = 0;
+      for (const pkgId of pkgIds) {
+        const result = await client.query(`
+          UPDATE packages 
+          SET assigned_address_id = $1,
+              carrier = $2,
+              notes = COALESCE($3, notes),
+              needs_instructions = false,
+              is_collect = $4,
+              collect_carrier = $5,
+              wants_factura_paqueteria = $6,
+              updated_at = CURRENT_TIMESTAMP
+          WHERE id = $7 AND user_id = $8
+          RETURNING id
+        `, [addrId, carrierService, notes || null, isCollectBool, isCollectBool ? carrierService : null, wantsFacturaBool, pkgId, userId]);
+        
+        if (result.rowCount && result.rowCount > 0) {
+          updatedCount++;
+
+          // Save document references for this package
+          if (facturaUrl) {
+            await client.query(`
+              INSERT INTO delivery_documents (package_id, user_id, document_type, file_url, original_filename)
+              VALUES ($1, $2, 'factura_embarque', $3, $4)
+            `, [pkgId, userId, facturaUrl, files?.factura?.[0]?.originalname || 'factura']);
+          }
+          if (constanciaUrl) {
+            await client.query(`
+              INSERT INTO delivery_documents (package_id, user_id, document_type, file_url, original_filename)
+              VALUES ($1, $2, 'constancia_fiscal', $3, $4)
+            `, [pkgId, userId, constanciaUrl, files?.constancia?.[0]?.originalname || 'constancia']);
+          }
+          if (guiaExternaUrl) {
+            await client.query(`
+              INSERT INTO delivery_documents (package_id, user_id, document_type, file_url, original_filename)
+              VALUES ($1, $2, 'guia_externa', $3, $4)
+            `, [pkgId, userId, guiaExternaUrl, files?.guiaExterna?.[0]?.originalname || 'guia']);
+          }
+        }
+      }
+
+      // If user wants to save constancia for future use
+      if (saveConstanciaBool && constanciaUrl) {
+        await client.query(`
+          INSERT INTO user_saved_documents (user_id, document_type, file_url, original_filename)
+          VALUES ($1, 'constancia_fiscal', $2, $3)
+          ON CONFLICT (user_id, document_type) DO UPDATE SET
+            file_url = EXCLUDED.file_url,
+            original_filename = EXCLUDED.original_filename,
+            updated_at = CURRENT_TIMESTAMP
+        `, [userId, constanciaUrl, files?.constancia?.[0]?.originalname || 'constancia']);
+        console.log(`💾 Constancia guardada para usuario ${userId}`);
+      }
+
+      await client.query('COMMIT');
+
+      console.log(`✅ [Bulk Assign] Updated ${updatedCount}/${pkgIds.length} packages`);
+      if (facturaUrl) console.log(`  📄 Factura: ${facturaUrl}`);
+      if (constanciaUrl) console.log(`  📄 Constancia: ${constanciaUrl}`);
+      if (guiaExternaUrl) console.log(`  📄 Guía externa: ${guiaExternaUrl}`);
+
+      return res.json({
+        success: true,
+        message: `Instrucciones asignadas a ${updatedCount} paquete(s)`,
+        updatedCount,
+        documents: {
+          factura: facturaUrl,
+          constancia: constanciaUrl,
+          guiaExterna: guiaExternaUrl,
+          constanciaSaved: saveConstanciaBool && !!constanciaUrl,
+        }
+      });
+
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+
+  } catch (error: any) {
+    console.error('❌ Error bulk assign delivery:', error);
+    return res.status(500).json({ success: false, error: 'Error al asignar instrucciones', details: error.message });
+  }
+};
+
+// Get user's saved constancia
+export const getSavedConstancia = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = (req as any).user.userId;
+    const result = await pool.query(
+      `SELECT file_url, original_filename, updated_at FROM user_saved_documents WHERE user_id = $1 AND document_type = 'constancia_fiscal'`,
+      [userId]
+    );
+    if (result.rows.length > 0) {
+      return res.json({ success: true, saved: true, ...result.rows[0] });
+    }
+    return res.json({ success: true, saved: false });
+  } catch (error: any) {
+    console.error('❌ Error getting saved constancia:', error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
 };

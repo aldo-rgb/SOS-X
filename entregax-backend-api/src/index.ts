@@ -39,6 +39,9 @@ import {
   getAdminConsolidations,
   dispatchConsolidation,
   assignDeliveryInstructions,
+  bulkAssignDelivery,
+  uploadDeliveryDocs,
+  getSavedConstancia,
   getPackageById,
   requestRepack,
   getOutboundReadyPackages,
@@ -2241,6 +2244,10 @@ app.post('/api/packages/create-outbound', authenticateToken, requireMinLevel(ROL
 
 // Obtener instrucciones de reempaque pendientes (Staff o superior)
 app.get('/api/packages/repack-instructions', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getRepackInstructions);
+
+// Bulk assign delivery with document uploads (client-facing)
+app.post('/api/packages/assign-delivery', authenticateToken, uploadDeliveryDocs, bulkAssignDelivery);
+app.get('/api/packages/saved-constancia', authenticateToken, getSavedConstancia);
 
 // Obtener detalle de paquete por ID (usuario dueño o staff+)
 app.get('/api/packages/:id', authenticateToken, getPackageById);
