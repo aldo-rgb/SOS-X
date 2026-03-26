@@ -1702,7 +1702,7 @@ export default function DashboardClient() {
       });
       
       if (response.data.success) {
-        setSnackbar({ open: true, message: t('cd.snackbar.instructionsAssignedCount', { count: applyToFullShipment ? totalBoxes : selected.length }), severity: 'success' });
+        setSnackbar({ open: true, message: `📍 Instrucciones asignadas exitosamente para ${applyToFullShipment ? totalBoxes : selected.length} paquete(s)`, severity: 'success' });
         setDeliveryModalOpen(false);
         setSelectedPackageIds([]);
         setSelectedDeliveryAddress(null);
