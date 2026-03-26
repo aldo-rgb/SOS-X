@@ -1668,8 +1668,6 @@ export default function DashboardClient() {
 
     setDeliveryLoading(true);
     try {
-      // Calcular total con multiplicador de cajas si aplica
-      const selectedService = carrierServices.find(s => s.id === selectedCarrierService);
       const totalBoxes = applyToFullShipment ? shipmentTotalBoxes : selectedPackageIds.length;
 
       // If "por_cobrar" is selected, use the actual collect carrier key
