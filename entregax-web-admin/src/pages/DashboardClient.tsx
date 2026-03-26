@@ -186,6 +186,10 @@ interface PackageTracking {
   // Campos marítimo
   maritime_sale_price_usd?: number;
   merchandise_type?: string;
+  // PO Box
+  pobox_venta_usd?: number;
+  // TC registrado al asignar costo
+  registered_exchange_rate?: number;
 }
 
 interface IncludedGuide {
@@ -342,6 +346,27 @@ export default function DashboardClient() {
   // Centro de Ayuda
   const [helpCenterOpen, setHelpCenterOpen] = useState(false);
   
+  // Tipos de cambio USD → MXN por servicio
+  const [tipoCambioPorServicio, setTipoCambioPorServicio] = useState<Record<string, number>>({});
+  const [tipoCambioBase, setTipoCambioBase] = useState<number>(18.00);
+  
+  // Helper: obtener TC Final según tipo de servicio del paquete
+  const getTipoCambio = (servicio?: string, shipmentType?: string): number => {
+    if (shipmentType === 'maritime' || servicio === 'SEA_CHN_MX' || servicio === 'FCL_CHN_MX') {
+      return tipoCambioPorServicio['maritimo'] || tipoCambioBase;
+    }
+    if (shipmentType === 'china_air' || servicio === 'AIR_CHN_MX') {
+      return tipoCambioPorServicio['tdi'] || tipoCambioBase;
+    }
+    if (servicio === 'POBOX_USA' || shipmentType === 'air') {
+      return tipoCambioPorServicio['pobox_usa'] || tipoCambioBase;
+    }
+    if (shipmentType === 'dhl' || servicio === 'AA_DHL' || servicio === 'DHL_MTY') {
+      return tipoCambioPorServicio['dhl_monterrey'] || tipoCambioBase;
+    }
+    return tipoCambioBase;
+  };
+  
   // Info del asesor asignado
   const [advisorInfo, setAdvisorInfo] = useState<{
     id: number;
@@ -442,6 +467,13 @@ export default function DashboardClient() {
     };
     loadSavedConstancia();
   }, [deliveryModalOpen]);
+
+  // Reset applyToFullShipment when modal opens
+  useEffect(() => {
+    if (deliveryModalOpen) {
+      setApplyToFullShipment(true);
+    }
+  }, [deliveryModalOpen]);
   
   // Determinar el tipo de servicio de los paquetes seleccionados
   const selectedServiceType = useMemo(() => {
@@ -490,7 +522,7 @@ export default function DashboardClient() {
             icon: c.icon || '🚛',
             allowsCollect: c.allows_collect || false,
             isDynamic: c.price_label === 'API',
-            isTotalPrice: c.price_label === 'API',
+            isTotalPrice: false,
             isCollect: c.carrier_type === 'collect' || c.allows_collect,
           })));
         }
@@ -562,10 +594,11 @@ export default function DashboardClient() {
           }),
         });
         const data = await res.json();
-        if (data.success && data.clientPrice) {
+        if (data.success && (data.pricePerBox || data.clientPrice)) {
+          const perBox = data.pricePerBox || data.clientPrice;
           setCarrierServices(prev => prev.map(s =>
             s.isDynamic
-              ? { ...s, price: `$${data.clientPrice.toLocaleString('es-MX')}`, subtext: data.estimatedDays || s.subtext, isTotalPrice: true }
+              ? { ...s, price: `$${perBox.toLocaleString('es-MX')}`, subtext: data.estimatedDays || s.subtext, isTotalPrice: false }
               : s
           ));
         } else {
@@ -1212,6 +1245,12 @@ export default function DashboardClient() {
         );
         setPackages(validPackages);
         setInvoices(response.data.invoices || []);
+        if (response.data.tipo_cambio_por_servicio) {
+          setTipoCambioPorServicio(response.data.tipo_cambio_por_servicio);
+        }
+        if (response.data.tipo_cambio_base) {
+          setTipoCambioBase(parseFloat(response.data.tipo_cambio_base));
+        }
       }
     } catch (error) {
       console.error('Error cargando dashboard:', error);
@@ -5971,12 +6010,21 @@ export default function DashboardClient() {
                               <Box sx={{ textAlign: 'right' }}>
                                 <Typography variant="body1" fontWeight="bold" sx={{ color: service.price === 'GRATIS' ? 'success.main' : (service.isDynamic && pqtxQuoteLoading) ? 'text.secondary' : 'text.primary' }}>
                                   {service.isDynamic && pqtxQuoteLoading ? 'Cotizando...' : service.price === 'API' ? 'Cotizar' : service.price}
+                                  {service.price !== 'GRATIS' && service.price !== 'API' && service.price !== 'Cotizar' && !service.isTotalPrice && !(service.isDynamic && pqtxQuoteLoading) && (
+                                    <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.3 }}>/caja</Typography>
+                                  )}
                                 </Typography>
-                                {applyToFullShipment && shipmentTotalBoxes > 1 && service.price !== 'GRATIS' && !service.isTotalPrice && (
-                                  <Typography variant="caption" color="primary.main" fontWeight="bold">
-                                    × {shipmentTotalBoxes} {t('cd.delivery.boxes')}
-                                  </Typography>
-                                )}
+                                {applyToFullShipment && shipmentTotalBoxes > 1 && service.price !== 'GRATIS' && !service.isTotalPrice && (() => {
+                                  const priceMatch = service.price.match(/[\d,.]+/);
+                                  if (!priceMatch) return null;
+                                  const unitPrice = parseFloat(priceMatch[0].replace(',', ''));
+                                  const total = unitPrice * shipmentTotalBoxes;
+                                  return (
+                                    <Typography variant="caption" color="primary.main" fontWeight="bold">
+                                      {shipmentTotalBoxes} cajas = ${total.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
+                                    </Typography>
+                                  );
+                                })()}
                                 {service.isTotalPrice && shipmentTotalBoxes > 1 && (
                                   <Typography variant="caption" color="text.secondary">
                                     {shipmentTotalBoxes} {t('cd.delivery.boxes')} incluidas
@@ -6183,7 +6231,7 @@ export default function DashboardClient() {
                         const svc = carrierServices.find(s => s.id === selectedCarrierService);
                         if (!svc || svc.price === 'GRATIS') return null;
                         if (svc.isTotalPrice) return <Typography variant="caption" color="text.secondary">{shipmentTotalBoxes} cajas incluidas</Typography>;
-                        return <Typography variant="caption" color="text.secondary">{svc.price} × {shipmentTotalBoxes} {t('cd.delivery.boxes')}</Typography>;
+                        return <Typography variant="caption" color="text.secondary">{svc.price}/caja × {shipmentTotalBoxes} {t('cd.delivery.boxes')}</Typography>;
                       })()}
                     </Box>
                   </Box>
@@ -6725,28 +6773,76 @@ export default function DashboardClient() {
                           {t('cd.detail.instructionsAssigned')}
                         </Typography>
                       </Box>
-                      {selectedPackage.destination_address && (
-                        <>
-                          <Typography variant="body2" sx={{ mb: 0.5 }}>
-                            <strong>{t('cd.detail.address')}:</strong> {selectedPackage.destination_address}
+                      {(() => {
+                        // Resolver dirección completa desde deliveryAddresses
+                        const addrId = selectedPackage.delivery_address_id || selectedPackage.assigned_address_id;
+                        const resolvedAddr = addrId ? deliveryAddresses.find(a => a.id === addrId) : null;
+                        
+                        if (resolvedAddr) {
+                          return (
+                            <>
+                              {resolvedAddr.alias && (
+                                <Typography variant="body2" fontWeight="bold" sx={{ mb: 0.5 }}>
+                                  📍 {resolvedAddr.alias}
+                                </Typography>
+                              )}
+                              <Typography variant="body2" sx={{ mb: 0.3, color: 'text.secondary' }}>
+                                {resolvedAddr.street} {resolvedAddr.exterior_number}{resolvedAddr.interior_number ? `, Int. ${resolvedAddr.interior_number}` : ''}
+                              </Typography>
+                              {resolvedAddr.colony && (
+                                <Typography variant="body2" sx={{ mb: 0.3, color: 'text.secondary' }}>
+                                  Col. {resolvedAddr.colony}
+                                </Typography>
+                              )}
+                              <Typography variant="body2" sx={{ mb: 0.3, color: 'text.secondary' }}>
+                                {resolvedAddr.city}, {resolvedAddr.state} C.P. {resolvedAddr.zip_code}
+                              </Typography>
+                              {resolvedAddr.contact_name && (
+                                <Typography variant="body2" sx={{ mb: 0.3, color: 'text.secondary' }}>
+                                  👤 {resolvedAddr.contact_name}
+                                </Typography>
+                              )}
+                              {resolvedAddr.phone && (
+                                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                  📞 {resolvedAddr.phone}
+                                </Typography>
+                              )}
+                              {resolvedAddr.reference && (
+                                <Typography variant="body2" sx={{ mt: 0.5, fontStyle: 'italic', color: 'text.secondary', fontSize: '0.75rem' }}>
+                                  Ref: {resolvedAddr.reference}
+                                </Typography>
+                              )}
+                            </>
+                          );
+                        }
+                        
+                        // Fallback: mostrar destination_address del paquete
+                        if (selectedPackage.destination_address) {
+                          return (
+                            <>
+                              <Typography variant="body2" sx={{ mb: 0.5 }}>
+                                {selectedPackage.destination_address}
+                              </Typography>
+                              {selectedPackage.destination_city && (
+                                <Typography variant="body2" sx={{ mb: 0.5, color: 'text.secondary' }}>
+                                  {selectedPackage.destination_city}
+                                </Typography>
+                              )}
+                              {selectedPackage.destination_contact && (
+                                <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+                                  👤 {selectedPackage.destination_contact}
+                                </Typography>
+                              )}
+                            </>
+                          );
+                        }
+                        
+                        return (
+                          <Typography variant="body2" color="text.secondary">
+                            Dirección asignada (ID: {addrId})
                           </Typography>
-                          {selectedPackage.destination_city && (
-                            <Typography variant="body2" sx={{ mb: 0.5 }}>
-                              <strong>{t('cd.detail.city')}:</strong> {selectedPackage.destination_city}
-                            </Typography>
-                          )}
-                          {selectedPackage.destination_contact && (
-                            <Typography variant="body2">
-                              <strong>{t('cd.detail.contact')}:</strong> {selectedPackage.destination_contact}
-                            </Typography>
-                          )}
-                        </>
-                      )}
-                      {(selectedPackage.delivery_address_id || selectedPackage.assigned_address_id) && !selectedPackage.destination_address && (
-                        <Typography variant="body2" color="text.secondary">
-                          Dirección ID: {selectedPackage.delivery_address_id || selectedPackage.assigned_address_id}
-                        </Typography>
-                      )}
+                        );
+                      })()}
                     </Paper>
                   ) : (
                     <Paper sx={{ p: 2, bgcolor: '#ffebee' }}>
@@ -6766,115 +6862,158 @@ export default function DashboardClient() {
                 {/* Estado y Costo */}
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
-                    {t('cd.detail.serviceCost')}
+                    💰 {t('cd.detail.serviceCost')}
                   </Typography>
                   {(() => {
-                    // Calcular costo estimado para marítimo si monto es 0 y tiene CBM
                     const displayMonto = Number(selectedPackage.monto) || 0;
                     const isDhl = selectedPackage.shipment_type === 'dhl' || selectedPackage.servicio === 'AA_DHL' || selectedPackage.servicio === 'DHL_MTY';
                     const isMaritime = selectedPackage.shipment_type === 'maritime' || selectedPackage.servicio === 'SEA_CHN_MX' || selectedPackage.servicio === 'FCL_CHN_MX';
-                    const currency = selectedPackage.monto_currency || (isDhl ? 'USD' : 'MXN');
+                    const isAirChina = selectedPackage.shipment_type === 'china_air' || selectedPackage.servicio === 'AIR_CHN_MX';
+                    const isPobox = selectedPackage.servicio === 'POBOX_USA';
                     let isEstimated = false;
-                    let estimatedUSD = 0;
+                    let costoUSD = 0;
+                    let montoMXN = 0;
+                    let detailLine = '';
+                    let tcToShow = 0; // TC que se muestra al cliente
 
-                    // Marítimo/FCL con precio asignado
-                    const displayMontoParsed = Number(selectedPackage.monto) || 0;
                     const isFCL = selectedPackage.servicio === 'FCL_CHN_MX' || selectedPackage.merchandise_type === 'FCL';
-                    const hasMaritimeFrozenPrice = isMaritime && displayMontoParsed > 0;
 
-                    if (!hasMaritimeFrozenPrice && displayMontoParsed === 0 && selectedPackage.cbm && Number(selectedPackage.cbm) > 0 && isMaritime && !isFCL) {
-                      const cbm = Number(selectedPackage.cbm);
-                      if (cbm <= 0.03) estimatedUSD = 39;
-                      else if (cbm <= 0.1) estimatedUSD = 79;
-                      else if (cbm <= 0.5) estimatedUSD = cbm * 150;
-                      else if (cbm <= 2) estimatedUSD = cbm * 120;
-                      else estimatedUSD = cbm * 100;
-                      isEstimated = true;
-                    }
+                    // TC específico por servicio (desde exchange_rate_config)
+                    const tcConfig = getTipoCambio(selectedPackage.servicio, selectedPackage.shipment_type);
+                    tcToShow = tcConfig; // Por defecto usar el TC de configuración
 
-                    // Aéreo China: usar precio congelado del backend si existe, sino estimado
-                    if (displayMonto === 0 && !isEstimated &&
-                        (selectedPackage.shipment_type === 'china_air' || selectedPackage.servicio === 'AIR_CHN_MX')) {
-                      const airSalePrice = selectedPackage.air_sale_price ? Number(selectedPackage.air_sale_price) : 0;
-                      if (airSalePrice > 0) {
-                        estimatedUSD = airSalePrice;
-                        isEstimated = false; // NO es estimado, es precio congelado real
-                      } else if (selectedPackage.weight && Number(selectedPackage.weight) > 0) {
-                        estimatedUSD = Number(selectedPackage.weight) * 21;
-                        isEstimated = true;
-                      }
-                    }
-
-                    // Determinar info de tarifa para aéreo China
-                    const airPricePerKg = selectedPackage.air_price_per_kg ? Number(selectedPackage.air_price_per_kg) : 0;
-                    const airTariffType = selectedPackage.air_tariff_type || '';
-                    const tariffLabel = airTariffType === 'L' ? 'Logo' : airTariffType === 'G' ? 'Genérico' : airTariffType === 'S' ? 'Sensible' : airTariffType === 'F' ? 'Flat' : '';
-                    const hasAirFrozenPrice = selectedPackage.air_sale_price && Number(selectedPackage.air_sale_price) > 0;
-                    const showAirPrice = hasAirFrozenPrice && !isEstimated && displayMonto === 0;
-
-                    // Determinar label de tipo para DHL
-                    const dhlTypeLabel = selectedPackage.product_type === 'high_value' ? 'Sensible' : 'Accesorios/Mixto';
-
-                    // Determinar label de mercancía para marítimo/FCL
+                    // Determinar labels
                     const merchLabel = selectedPackage.merchandise_type === 'sensitive' ? 'Sensible' 
                       : selectedPackage.merchandise_type === 'logo' ? 'Logotipo' 
                       : selectedPackage.merchandise_type === 'startup' ? 'StartUp'
                       : selectedPackage.merchandise_type === 'FCL' ? 'FCL'
                       : 'Genérico';
+                    const airPricePerKg = selectedPackage.air_price_per_kg ? Number(selectedPackage.air_price_per_kg) : 0;
+                    const airTariffType = selectedPackage.air_tariff_type || '';
+                    const tariffLabel = airTariffType === 'L' ? 'Logo' : airTariffType === 'G' ? 'Genérico' : airTariffType === 'S' ? 'Sensible' : airTariffType === 'F' ? 'Flat' : '';
+                    const hasAirFrozenPrice = selectedPackage.air_sale_price && Number(selectedPackage.air_sale_price) > 0;
+                    const dhlTypeLabel = selectedPackage.product_type === 'high_value' ? 'Sensible' : 'Accesorios/Mixto';
+
+                    // ========================
+                    // LÓGICA POR TIPO DE SERVICIO
+                    // ========================
+                    
+                    if (isMaritime && displayMonto > 0) {
+                      // MARÍTIMO: monto = assigned_cost_mxn (YA es MXN)
+                      // maritime_sale_price_usd = assigned_cost_usd (USD)
+                      montoMXN = displayMonto;
+                      if (selectedPackage.maritime_sale_price_usd && Number(selectedPackage.maritime_sale_price_usd) > 0) {
+                        costoUSD = Number(selectedPackage.maritime_sale_price_usd);
+                        // TC real = MXN / USD (el que se usó al asignar)
+                        tcToShow = costoUSD > 0 ? montoMXN / costoUSD : tcConfig;
+                      } else {
+                        costoUSD = tcConfig > 0 ? displayMonto / tcConfig : 0;
+                        tcToShow = tcConfig;
+                      }
+                      detailLine = isFCL 
+                        ? `Contenedor completo · ${merchLabel}`
+                        : `${Number(selectedPackage.cbm || 0).toFixed(3)} m³ · ${merchLabel}`;
+                    } else if (isPobox && selectedPackage.pobox_venta_usd && Number(selectedPackage.pobox_venta_usd) > 0) {
+                      // PO BOX: pobox_venta_usd es el precio USD del cliente
+                      // assigned_cost_mxn es costo interno, NO el precio al cliente
+                      costoUSD = Number(selectedPackage.pobox_venta_usd);
+                      montoMXN = costoUSD * tcConfig;
+                      tcToShow = tcConfig;
+                      detailLine = 'PO Box USA';
+                    } else if (isDhl && selectedPackage.monto_currency === 'USD' && displayMonto > 0) {
+                      // AA DHL: monto = import_cost_usd (es USD)
+                      costoUSD = displayMonto;
+                      montoMXN = costoUSD * tcConfig;
+                      tcToShow = tcConfig;
+                      if (selectedPackage.product_type) detailLine = dhlTypeLabel;
+                    } else if (hasAirFrozenPrice) {
+                      // AÉREO CHINA: air_sale_price es USD
+                      costoUSD = Number(selectedPackage.air_sale_price);
+                      montoMXN = costoUSD * tcConfig;
+                      tcToShow = tcConfig;
+                      detailLine = `${Number(selectedPackage.weight || 0).toFixed(1)} kg × $${airPricePerKg.toFixed(0)} USD/kg (${tariffLabel})`;
+                    } else if (isAirChina && selectedPackage.weight && Number(selectedPackage.weight) > 0) {
+                      // AÉREO CHINA estimado
+                      costoUSD = Number(selectedPackage.weight) * 21;
+                      montoMXN = costoUSD * tcConfig;
+                      tcToShow = tcConfig;
+                      detailLine = `${Number(selectedPackage.weight).toFixed(1)} kg × $21 USD/kg (estimado)`;
+                      isEstimated = true;
+                    } else if (isMaritime && !isFCL && selectedPackage.cbm && Number(selectedPackage.cbm) > 0) {
+                      // MARÍTIMO estimado por CBM
+                      const cbm = Number(selectedPackage.cbm);
+                      if (cbm <= 0.03) costoUSD = 39;
+                      else if (cbm <= 0.1) costoUSD = 79;
+                      else if (cbm <= 0.5) costoUSD = cbm * 150;
+                      else if (cbm <= 2) costoUSD = cbm * 120;
+                      else costoUSD = cbm * 100;
+                      montoMXN = costoUSD * tcConfig;
+                      tcToShow = tcConfig;
+                      detailLine = `${cbm.toFixed(4)} m³ · ${merchLabel} (estimado)`;
+                      isEstimated = true;
+                    } else if (isDhl && displayMonto > 0) {
+                      // DHL MTY: monto es MXN
+                      montoMXN = displayMonto;
+                      costoUSD = tcConfig > 0 ? displayMonto / tcConfig : 0;
+                      tcToShow = tcConfig;
+                      if (selectedPackage.product_type) detailLine = dhlTypeLabel;
+                    } else if (displayMonto > 0) {
+                      // Otros con monto: verificar moneda
+                      if (selectedPackage.monto_currency === 'USD') {
+                        costoUSD = displayMonto;
+                        montoMXN = costoUSD * tcConfig;
+                      } else {
+                        montoMXN = displayMonto;
+                        costoUSD = tcConfig > 0 ? displayMonto / tcConfig : 0;
+                      }
+                      tcToShow = tcConfig;
+                    }
+
+                    const isPaid = selectedPackage.client_paid;
+                    const accentColor = isPaid ? 'success.main' : 'warning.main';
 
                     return (
-                      <Paper sx={{ p: 2, bgcolor: selectedPackage.client_paid ? '#e8f5e9' : '#fff3e0' }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Typography variant="body2">{t('cd.detail.totalToPay')}:</Typography>
-                          {hasMaritimeFrozenPrice ? (
-                            <Box sx={{ textAlign: 'right' }}>
-                              <Typography variant="h5" fontWeight="bold" color={selectedPackage.client_paid ? 'success.main' : 'warning.main'}>
-                                {currency === 'USD' ? `$${displayMontoParsed.toFixed(2)} USD` : formatCurrency(displayMontoParsed)}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {isFCL 
-                                  ? `Contenedor completo · ${merchLabel}`
-                                  : `${Number(selectedPackage.cbm).toFixed(3)} m³ · ${merchLabel}`}
-                              </Typography>
-                            </Box>
-                          ) : showAirPrice ? (
-                            <Box sx={{ textAlign: 'right' }}>
-                              <Typography variant="h5" fontWeight="bold" color="warning.main">
-                                ${estimatedUSD.toFixed(2)} USD
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {Number(selectedPackage.weight).toFixed(1)} kg × ${airPricePerKg.toFixed(0)} USD/kg ({tariffLabel})
-                              </Typography>
-                            </Box>
-                          ) : isEstimated ? (
-                            <Box sx={{ textAlign: 'right' }}>
-                              <Typography variant="h5" fontWeight="bold" color="warning.main">
-                                ~${estimatedUSD.toFixed(2)} USD
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                Estimado por {(selectedPackage.shipment_type === 'china_air' || selectedPackage.servicio === 'AIR_CHN_MX') 
-                                  ? `${Number(selectedPackage.weight).toFixed(1)} kg × $21 USD/kg`
-                                  : `${Number(selectedPackage.cbm).toFixed(4)} m³`}
-                              </Typography>
-                            </Box>
-                          ) : (
-                            <Box sx={{ textAlign: 'right' }}>
-                              <Typography variant="h5" fontWeight="bold" color={selectedPackage.client_paid ? 'success.main' : 'warning.main'}>
-                                {currency === 'USD' ? `$${displayMonto.toFixed(2)} USD` : formatCurrency(displayMonto)}
-                              </Typography>
-                              {isDhl && selectedPackage.product_type && (
-                                <Typography variant="caption" color="text.secondary">
-                                  {dhlTypeLabel}
-                                </Typography>
-                              )}
-                            </Box>
-                          )}
+                      <Paper sx={{ p: 2, bgcolor: isPaid ? '#e8f5e9' : '#fff3e0' }}>
+                        {/* Costo de Envío en USD */}
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                          <Typography variant="body2" color="text.secondary">📦 Costo de envío:</Typography>
+                          <Typography variant="body1" fontWeight="bold" color={accentColor}>
+                            {isEstimated ? '~' : ''}${costoUSD.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                          </Typography>
                         </Box>
+                        
+                        {/* Detalle de cálculo */}
+                        {detailLine && (
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, textAlign: 'right' }}>
+                            {detailLine}
+                          </Typography>
+                        )}
+
+                        <Divider sx={{ my: 1 }} />
+
+                        {/* Tipo de cambio */}
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                          <Typography variant="body2" color="text.secondary">💱 Tipo de cambio:</Typography>
+                          <Typography variant="body2" fontWeight="medium">
+                            $1 USD = ${tcToShow.toFixed(2)} MXN
+                          </Typography>
+                        </Box>
+
+                        <Divider sx={{ my: 1 }} />
+
+                        {/* Total en pesos */}
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <Typography variant="body2" fontWeight="bold">🇲🇽 Total en pesos:</Typography>
+                          <Typography variant="h5" fontWeight="bold" color={accentColor}>
+                            {isEstimated ? '~' : ''}${montoMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                          </Typography>
+                        </Box>
+
                         <Chip 
-                          label={selectedPackage.client_paid ? t('cd.detail.paid') : hasMaritimeFrozenPrice ? t('cd.detail.pendingPayment') : showAirPrice ? t('cd.detail.pendingPayment') : isEstimated ? 'Pendiente de Cotización' : t('cd.detail.pendingPayment')} 
+                          label={isPaid ? t('cd.detail.paid') : isEstimated ? 'Pendiente de Cotización' : t('cd.detail.pendingPayment')} 
                           size="small" 
-                          color={selectedPackage.client_paid ? 'success' : 'warning'}
-                          sx={{ mt: 1 }}
+                          color={isPaid ? 'success' : 'warning'}
+                          sx={{ mt: 1.5 }}
                         />
                       </Paper>
                     );

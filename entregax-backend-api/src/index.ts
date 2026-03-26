@@ -779,6 +779,11 @@ import {
   firmarDocumentoAbandono,
   // Resumen Financiero
   getResumenFinancieroGuia,
+  // Solicitudes de Descuento
+  createDiscountRequest,
+  getDiscountRequests,
+  getDiscountStats,
+  resolveDiscountRequest,
   // Cron helpers
   actualizarCarteraVencida,
   sincronizarCartera
@@ -1639,6 +1644,10 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         gex_folio,
         weight,
         CASE 
+          WHEN dimensions IS NOT NULL AND dimensions != '' 
+            THEN REPLACE(dimensions, 'x', ' × ') || ' cm'
+          WHEN long_cm IS NOT NULL AND width_cm IS NOT NULL AND height_cm IS NOT NULL 
+            THEN CONCAT(long_cm, ' × ', width_cm, ' × ', height_cm, ' cm')
           WHEN pkg_length IS NOT NULL AND pkg_width IS NOT NULL AND pkg_height IS NOT NULL 
             THEN CONCAT(pkg_length, ' × ', pkg_width, ' × ', pkg_height, ' cm')
           ELSE NULL
@@ -1653,7 +1662,9 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         air_sale_price,
         air_price_per_kg,
         air_tariff_type,
-        pro_name
+        pro_name,
+        pobox_venta_usd,
+        registered_exchange_rate
       FROM packages
       WHERE (user_id = $1 OR box_id = $2)
         AND status::text NOT IN ('delivered', 'cancelled', 'returned')
@@ -1709,7 +1720,8 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         gex_folio,
         assigned_cost_usd as maritime_sale_price_usd,
         merchandise_type,
-        'MXN' as monto_currency
+        'MXN' as monto_currency,
+        registered_exchange_rate
       FROM maritime_orders
       WHERE (user_id = $1 OR UPPER(shipping_mark) = UPPER($2))
         AND status NOT IN ('delivered', 'cancelled')
@@ -2019,7 +2031,20 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
       return c.client_paid ? sum : sum + price;
     }, 0);
 
-    // 5. Construir respuesta
+    // 5. Obtener tipos de cambio por servicio desde exchange_rate_config
+    const tipoCambioPorServicio: Record<string, number> = {};
+    let tipoCambioBase = 18.00;
+    try {
+      const fxConfigRes = await pool.query('SELECT servicio, tipo_cambio_final, ultimo_tc_api FROM exchange_rate_config WHERE estado = true');
+      for (const row of fxConfigRes.rows) {
+        tipoCambioPorServicio[row.servicio] = parseFloat(row.tipo_cambio_final) || 18.00;
+        if (row.ultimo_tc_api) tipoCambioBase = parseFloat(row.ultimo_tc_api) || tipoCambioBase;
+      }
+    } catch (err) {
+      console.log('Exchange rate config not available, using defaults');
+    }
+
+    // 6. Construir respuesta
     res.json({
       stats: {
         casillero: boxId,
@@ -2055,6 +2080,8 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
       },
       packages: allPackages,
       invoices: invoicesRows,
+      tipo_cambio_por_servicio: tipoCambioPorServicio,
+      tipo_cambio_base: tipoCambioBase,
     });
   } catch (error: any) {
     console.error('Error en dashboard cliente:', error);
@@ -2092,6 +2119,10 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
         destination_city as branch_name,
         weight,
         CASE 
+          WHEN dimensions IS NOT NULL AND dimensions != '' 
+            THEN REPLACE(dimensions, 'x', ' × ') || ' cm'
+          WHEN long_cm IS NOT NULL AND width_cm IS NOT NULL AND height_cm IS NOT NULL 
+            THEN CONCAT(long_cm, ' × ', width_cm, ' × ', height_cm, ' cm')
           WHEN pkg_length IS NOT NULL AND pkg_width IS NOT NULL AND pkg_height IS NOT NULL 
             THEN CONCAT(pkg_length, ' × ', pkg_width, ' × ', pkg_height, ' cm')
           ELSE NULL
@@ -2105,7 +2136,12 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
         has_gex,
         gex_folio,
         client_paid,
-        image_url
+        image_url,
+        air_sale_price,
+        air_price_per_kg,
+        air_tariff_type,
+        pobox_venta_usd,
+        registered_exchange_rate
       FROM packages
       WHERE user_id = $1
         AND status = 'delivered'
@@ -5973,6 +6009,12 @@ app.get('/api/cs/guia/:servicio/:tracking/resumen', authenticateToken, getResume
 
 // Abandono y Firma Digital
 app.post('/api/cs/abandono/generar', authenticateToken, generarDocumentoAbandono);
+
+// Solicitudes de Descuento
+app.post('/api/cs/descuentos/solicitar', authenticateToken, createDiscountRequest);
+app.get('/api/cs/descuentos/pendientes', authenticateToken, getDiscountRequests);
+app.get('/api/cs/descuentos/stats', authenticateToken, getDiscountStats);
+app.post('/api/cs/descuentos/:id/resolver', authenticateToken, resolveDiscountRequest);
 app.get('/api/firma-abandono/:token', getDocumentoAbandono); // Público
 app.post('/api/firma-abandono/:token', firmarDocumentoAbandono); // Público
 

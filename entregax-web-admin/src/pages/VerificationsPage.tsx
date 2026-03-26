@@ -5,7 +5,8 @@ import {
   Box, Typography, Paper, Card, CardContent, Avatar,
   Button, CircularProgress, Alert, Snackbar, Tooltip, IconButton,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions,
-  TextField, Divider, Badge
+  TextField, Divider, Badge, Tabs, Tab, InputAdornment, Table,
+  TableHead, TableBody, TableRow, TableCell
 } from '@mui/material';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -20,6 +21,8 @@ import DrawIcon from '@mui/icons-material/Draw';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import CloseIcon from '@mui/icons-material/Close';
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
+import DiscountIcon from '@mui/icons-material/LocalOffer';
+import ReceiptIcon from '@mui/icons-material/Receipt';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 const ORANGE = '#F05A28';
@@ -54,8 +57,33 @@ interface Stats {
   not_started: number;
 }
 
+interface DiscountRequest {
+  id: number;
+  guia_tracking: string;
+  servicio: string;
+  source_type: string;
+  monto: number;
+  moneda: string;
+  concepto: string;
+  notas: string;
+  cliente_id: number;
+  cliente_nombre: string;
+  solicitado_por: number;
+  solicitante_nombre: string;
+  estado: 'pendiente' | 'aprobado' | 'rechazado';
+  created_at: string;
+}
+
+interface DiscountStats {
+  pendientes: number;
+  aprobados: number;
+  rechazados: number;
+  monto_pendiente: number;
+}
+
 export default function VerificationsPage() {
   const { i18n } = useTranslation();
+  const [activeTab, setActiveTab] = useState(0);
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -65,6 +93,17 @@ export default function VerificationsPage() {
   const [rejectReason, setRejectReason] = useState('');
   const [processing, setProcessing] = useState(false);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+
+  // Discount verification state
+  const [discountRequests, setDiscountRequests] = useState<DiscountRequest[]>([]);
+  const [discountStats, setDiscountStats] = useState<DiscountStats | null>(null);
+  const [discountLoading, setDiscountLoading] = useState(false);
+  const [discountPinDialog, setDiscountPinDialog] = useState(false);
+  const [selectedDiscount, setSelectedDiscount] = useState<DiscountRequest | null>(null);
+  const [discountAction, setDiscountAction] = useState<'aprobar' | 'rechazar'>('aprobar');
+  const [discountPin, setDiscountPin] = useState('');
+  const [discountPinError, setDiscountPinError] = useState('');
+  const [discountRejectReason, setDiscountRejectReason] = useState('');
 
   const getToken = () => localStorage.getItem('token');
 
@@ -96,6 +135,61 @@ export default function VerificationsPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Load discount requests
+  const loadDiscountData = useCallback(async () => {
+    setDiscountLoading(true);
+    const token = getToken();
+    if (!token) return;
+    try {
+      const [reqRes, statsRes] = await Promise.all([
+        axios.get(`${API_URL}/cs/descuentos/pendientes`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_URL}/cs/descuentos/stats`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      setDiscountRequests(reqRes.data.descuentos || []);
+      setDiscountStats(statsRes.data);
+    } catch (error: any) {
+      console.error('Error loading discount data:', error?.response?.data || error.message);
+    }
+    setDiscountLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 1) {
+      loadDiscountData();
+    }
+  }, [activeTab, loadDiscountData]);
+
+  // Handle discount approval/rejection
+  const handleResolveDiscount = async () => {
+    if (!selectedDiscount || !discountPin) return;
+    setDiscountPinError('');
+    setProcessing(true);
+    try {
+      await axios.post(
+        `${API_URL}/cs/descuentos/${selectedDiscount.id}/resolver`,
+        {
+          accion: discountAction,
+          pin: discountPin,
+          motivo_rechazo: discountAction === 'rechazar' ? discountRejectReason : undefined,
+        },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setSnackbar({
+        open: true,
+        message: discountAction === 'aprobar' ? '✅ Descuento aprobado' : '❌ Descuento rechazado',
+        severity: 'success',
+      });
+      setDiscountPinDialog(false);
+      setDiscountPin('');
+      setDiscountRejectReason('');
+      setSelectedDiscount(null);
+      loadDiscountData();
+    } catch (error: any) {
+      setDiscountPinError(error?.response?.data?.error || 'PIN inválido');
+    }
+    setProcessing(false);
+  };
 
   const handleApprove = async (userId: number) => {
     // Verificar si es repartidor con licencia vencida
@@ -168,24 +262,41 @@ export default function VerificationsPage() {
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
         <Box>
           <Typography variant="h4" fontWeight="bold" sx={{ color: BLACK }}>
-            🔐 {i18n.language === 'es' ? 'Verificación de Identidad' : 'Identity Verification'}
+            🔐 {i18n.language === 'es' ? 'Verificaciones' : 'Verifications'}
           </Typography>
           <Typography variant="body2" color="text.secondary">
             {i18n.language === 'es' 
-              ? 'Revisa y aprueba manualmente las verificaciones pendientes' 
-              : 'Review and manually approve pending verifications'}
+              ? 'Verificación de identidad y aprobación de descuentos' 
+              : 'Identity verification and discount approvals'}
           </Typography>
         </Box>
         <Tooltip title={i18n.language === 'es' ? 'Actualizar' : 'Refresh'}>
-          <IconButton onClick={loadData} sx={{ bgcolor: 'grey.100' }}>
+          <IconButton onClick={() => { loadData(); if (activeTab === 1) loadDiscountData(); }} sx={{ bgcolor: 'grey.100' }}>
             <RefreshIcon />
           </IconButton>
         </Tooltip>
       </Box>
 
+      {/* Tabs */}
+      <Paper sx={{ mb: 3 }}>
+        <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)}>
+          <Tab
+            icon={<Badge badgeContent={stats?.pending || 0} color="warning"><VerifiedUserIcon /></Badge>}
+            label={i18n.language === 'es' ? 'Verificar Identidad' : 'Identity Verification'}
+          />
+          <Tab
+            icon={<Badge badgeContent={discountStats?.pendientes || 0} color="error"><DiscountIcon /></Badge>}
+            label={i18n.language === 'es' ? 'Verificar Descuento' : 'Discount Verification'}
+          />
+        </Tabs>
+      </Paper>
+
+      {/* Tab 0: Identity Verification */}
+      {activeTab === 0 && (
+      <>
       {/* Stats Cards */}
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, mb: 4 }}>
         <Box sx={{ flex: '1 1 200px', minWidth: 180 }}>
@@ -341,6 +452,149 @@ export default function VerificationsPage() {
           </Box>
         )}
       </Paper>
+      </>
+      )}
+
+      {/* Tab 1: Discount Verification */}
+      {activeTab === 1 && (
+        <Box>
+          {/* Discount Stats */}
+          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, mb: 4 }}>
+            <Box sx={{ flex: '1 1 200px', minWidth: 180 }}>
+              <Card sx={{ background: 'linear-gradient(135deg, #ff9800 0%, #ffb74d 100%)', color: 'white' }}>
+                <CardContent sx={{ py: 2 }}>
+                  <Typography variant="h3" fontWeight="bold">{discountStats?.pendientes || 0}</Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Pendientes</Typography>
+                </CardContent>
+              </Card>
+            </Box>
+            <Box sx={{ flex: '1 1 200px', minWidth: 180 }}>
+              <Card sx={{ background: 'linear-gradient(135deg, #4caf50 0%, #81c784 100%)', color: 'white' }}>
+                <CardContent sx={{ py: 2 }}>
+                  <Typography variant="h3" fontWeight="bold">{discountStats?.aprobados || 0}</Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Aprobados</Typography>
+                </CardContent>
+              </Card>
+            </Box>
+            <Box sx={{ flex: '1 1 200px', minWidth: 180 }}>
+              <Card sx={{ background: 'linear-gradient(135deg, #f44336 0%, #e57373 100%)', color: 'white' }}>
+                <CardContent sx={{ py: 2 }}>
+                  <Typography variant="h3" fontWeight="bold">{discountStats?.rechazados || 0}</Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Rechazados</Typography>
+                </CardContent>
+              </Card>
+            </Box>
+            <Box sx={{ flex: '1 1 200px', minWidth: 180 }}>
+              <Card sx={{ background: 'linear-gradient(135deg, #9c27b0 0%, #ce93d8 100%)', color: 'white' }}>
+                <CardContent sx={{ py: 2 }}>
+                  <Typography variant="h3" fontWeight="bold">
+                    ${(discountStats?.monto_pendiente || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                  </Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Monto Pendiente</Typography>
+                </CardContent>
+              </Card>
+            </Box>
+          </Box>
+
+          {/* Discount Requests Table */}
+          <Paper elevation={3} sx={{ borderRadius: 3, overflow: 'hidden' }}>
+            <Box sx={{ bgcolor: '#9c27b0', px: 3, py: 2 }}>
+              <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
+                🏷️ Solicitudes de Descuento Pendientes
+                {discountRequests.length > 0 && (
+                  <Chip label={discountRequests.length} size="small" sx={{ ml: 2, bgcolor: 'white', color: '#9c27b0' }} />
+                )}
+              </Typography>
+            </Box>
+
+            {discountLoading ? (
+              <Box sx={{ textAlign: 'center', py: 6 }}>
+                <CircularProgress />
+              </Box>
+            ) : discountRequests.length === 0 ? (
+              <Box sx={{ textAlign: 'center', py: 6 }}>
+                <DiscountIcon sx={{ fontSize: 64, color: '#4caf50', mb: 2 }} />
+                <Typography variant="h6" color="text.secondary">¡Todo al día!</Typography>
+                <Typography variant="body2" color="text.secondary">No hay descuentos pendientes de aprobación</Typography>
+              </Box>
+            ) : (
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Guía</TableCell>
+                    <TableCell>Cliente</TableCell>
+                    <TableCell>Concepto</TableCell>
+                    <TableCell align="right">Monto</TableCell>
+                    <TableCell>Solicitante</TableCell>
+                    <TableCell>Fecha</TableCell>
+                    <TableCell align="center">Acciones</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {discountRequests.map((req) => (
+                    <TableRow key={req.id} hover>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={600}>{req.guia_tracking}</Typography>
+                        <Typography variant="caption" color="text.secondary">{req.servicio}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2">{req.cliente_nombre || `ID: ${req.cliente_id}`}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2">{req.concepto}</Typography>
+                        {req.notas && <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{req.notas}</Typography>}
+                      </TableCell>
+                      <TableCell align="right">
+                        <Typography variant="body2" fontWeight={700} color="success.main">
+                          -${Number(req.monto).toLocaleString('en-US', { minimumFractionDigits: 2 })} {req.moneda || 'MXN'}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2">{req.solicitante_nombre || `ID: ${req.solicitado_por}`}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="caption">
+                          {new Date(req.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="center">
+                        <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            color="success"
+                            startIcon={<CheckCircleIcon />}
+                            onClick={() => {
+                              setSelectedDiscount(req);
+                              setDiscountAction('aprobar');
+                              setDiscountPinDialog(true);
+                            }}
+                          >
+                            Aprobar
+                          </Button>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            color="error"
+                            startIcon={<CancelIcon />}
+                            onClick={() => {
+                              setSelectedDiscount(req);
+                              setDiscountAction('rechazar');
+                              setDiscountPinDialog(true);
+                            }}
+                          >
+                            Rechazar
+                          </Button>
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </Paper>
+        </Box>
+      )}
 
       {/* View Documents Dialog */}
       <Dialog open={viewDialog} onClose={() => setViewDialog(false)} maxWidth="lg" fullWidth>
@@ -603,6 +857,70 @@ export default function VerificationsPage() {
             startIcon={processing ? <CircularProgress size={20} color="inherit" /> : <CancelIcon />}
           >
             {i18n.language === 'es' ? 'Confirmar Rechazo' : 'Confirm Rejection'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Discount PIN Authorization Dialog */}
+      <Dialog open={discountPinDialog} onClose={() => { setDiscountPinDialog(false); setDiscountPin(''); setDiscountPinError(''); setDiscountRejectReason(''); }} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ color: discountAction === 'aprobar' ? '#4caf50' : '#f44336' }}>
+          {discountAction === 'aprobar' ? '✅ Aprobar Descuento' : '❌ Rechazar Descuento'}
+        </DialogTitle>
+        <DialogContent>
+          {selectedDiscount && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+              <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
+                <Typography variant="body2"><strong>Guía:</strong> {selectedDiscount.guia_tracking}</Typography>
+                <Typography variant="body2"><strong>Cliente:</strong> {selectedDiscount.cliente_nombre}</Typography>
+                <Typography variant="body2"><strong>Monto:</strong> <span style={{ color: '#4caf50', fontWeight: 700 }}>-${Number(selectedDiscount.monto).toLocaleString('en-US', { minimumFractionDigits: 2 })} {selectedDiscount.moneda || 'MXN'}</span></Typography>
+                <Typography variant="body2"><strong>Concepto:</strong> {selectedDiscount.concepto}</Typography>
+                {selectedDiscount.notas && <Typography variant="body2"><strong>Notas:</strong> {selectedDiscount.notas}</Typography>}
+                <Typography variant="body2"><strong>Solicitado por:</strong> {selectedDiscount.solicitante_nombre}</Typography>
+              </Paper>
+
+              <Alert severity="warning">
+                Se requiere el PIN de un Director o Super Admin para {discountAction === 'aprobar' ? 'aprobar' : 'rechazar'} este descuento.
+              </Alert>
+
+              {discountAction === 'rechazar' && (
+                <TextField
+                  label="Motivo del rechazo"
+                  multiline
+                  rows={2}
+                  value={discountRejectReason}
+                  onChange={(e) => setDiscountRejectReason(e.target.value)}
+                  placeholder="Explica por qué se rechaza el descuento..."
+                />
+              )}
+
+              <TextField
+                label="PIN de Director"
+                type="password"
+                value={discountPin}
+                onChange={(e) => { setDiscountPin(e.target.value); setDiscountPinError(''); }}
+                autoFocus
+                onKeyDown={(e) => e.key === 'Enter' && handleResolveDiscount()}
+                error={!!discountPinError}
+                helperText={discountPinError}
+                InputProps={{
+                  startAdornment: <InputAdornment position="start">🔑</InputAdornment>,
+                }}
+              />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => { setDiscountPinDialog(false); setDiscountPin(''); setDiscountPinError(''); setDiscountRejectReason(''); }}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            color={discountAction === 'aprobar' ? 'success' : 'error'}
+            onClick={handleResolveDiscount}
+            disabled={!discountPin || processing}
+            startIcon={processing ? <CircularProgress size={20} color="inherit" /> : discountAction === 'aprobar' ? <CheckCircleIcon /> : <CancelIcon />}
+          >
+            {discountAction === 'aprobar' ? 'Autorizar Descuento' : 'Confirmar Rechazo'}
           </Button>
         </DialogActions>
       </Dialog>

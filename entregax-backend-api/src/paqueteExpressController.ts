@@ -899,14 +899,14 @@ export async function pqtxClientQuote(req: Request, res: Response) {
 
     if (!respBody?.success || !Array.isArray(quotations) || quotations.length === 0) {
       // Si no hay cotización disponible, retornar precio fijo de fallback
-      console.log('[PQTX-CLIENT] Sin cotización disponible, usando fallback $400');
+      console.log('[PQTX-CLIENT] Sin cotización disponible, usando fallback $400/caja');
       return res.json({
         success: true,
         carrier: 'paquete_express',
         name: 'Paquete Express',
         pqtxQuote: null,
-        clientPrice: 400,
-        pricePerBox: Math.round(400 / packageCount),
+        clientPrice: 400 * packageCount,
+        pricePerBox: 400,
         packageCount,
         currency: 'MXN',
         rule: 'fallback',
@@ -923,21 +923,25 @@ export async function pqtxClientQuote(req: Request, res: Response) {
 
     const pqtxTotal = parseFloat(cheapest.totalAmnt || cheapest.totalAmount || cheapest.total || '0');
 
-    // REGLA DE UTILIDAD
+    // REGLA DE UTILIDAD (precio POR CAJA)
+    const pqtxPerBox = packageCount > 1 ? pqtxTotal / packageCount : pqtxTotal;
+    let pricePerBox: number;
     let clientPrice: number;
     let rule: string;
 
-    if (pqtxTotal < 300) {
-      // Si cotización < $300 → cobrar $400 fijo
-      clientPrice = 400;
-      rule = 'min_400';
+    if (pqtxPerBox < 300) {
+      // Si cotización por caja < $300 → cobrar $400 por caja
+      pricePerBox = 400;
+      clientPrice = 400 * packageCount;
+      rule = 'min_400_per_box';
     } else {
-      // Si cotización >= $300 → agregar $100 por caja
-      clientPrice = Math.round(pqtxTotal + (100 * packageCount));
+      // Si cotización por caja >= $300 → agregar $100 por caja
+      pricePerBox = Math.round(pqtxPerBox + 100);
+      clientPrice = pricePerBox * packageCount;
       rule = 'plus_100_per_box';
     }
 
-    console.log(`[PQTX-CLIENT] ZIP=${destZipCode}, boxes=${packageCount}, pqtxQuote=$${pqtxTotal}, clientPrice=$${clientPrice}, rule=${rule}`);
+    console.log(`[PQTX-CLIENT] ZIP=${destZipCode}, boxes=${packageCount}, pqtxQuote=$${pqtxTotal}, pricePerBox=$${pricePerBox}, clientTotal=$${clientPrice}, rule=${rule}`);
 
     res.json({
       success: true,
@@ -945,7 +949,7 @@ export async function pqtxClientQuote(req: Request, res: Response) {
       name: 'Paquete Express',
       pqtxQuote: pqtxTotal,
       clientPrice,
-      pricePerBox: Math.round(clientPrice / packageCount),
+      pricePerBox,
       packageCount,
       currency: 'MXN',
       rule,
@@ -956,14 +960,15 @@ export async function pqtxClientQuote(req: Request, res: Response) {
   } catch (error: any) {
     console.error('[PQTX-CLIENT] Error en cotización:', error.message);
     // En caso de error de API, retornar precio fijo de fallback
+    const fallbackCount = req.body?.packageCount || 1;
     res.json({
       success: true,
       carrier: 'paquete_express',
       name: 'Paquete Express',
       pqtxQuote: null,
-      clientPrice: 400,
+      clientPrice: 400 * fallbackCount,
       pricePerBox: 400,
-      packageCount: req.body?.packageCount || 1,
+      packageCount: fallbackCount,
       currency: 'MXN',
       rule: 'error_fallback',
       estimatedDays: '2-4 días hábiles',
