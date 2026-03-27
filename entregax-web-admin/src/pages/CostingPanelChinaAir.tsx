@@ -195,7 +195,40 @@ export default function CostingPanelChinaAir() {
         total_pieces: 0, total_s_packages: 0, total_cajo_packages: 0,
     });
 
+    // Filtros Tab 1 - Guías Registradas
+    const [filterDateFrom, setFilterDateFrom] = useState('');
+    const [filterDateTo, setFilterDateTo] = useState('');
+    const [filterClient, setFilterClient] = useState('');
+
+    // Modal de detalles de guía
+    const [detailDialog, setDetailDialog] = useState<{
+        open: boolean;
+        guide: MasterAwbListItem | null;
+        packages: any[];
+        loading: boolean;
+    }>({ open: false, guide: null, packages: [], loading: false });
+
     const token = localStorage.getItem('token');
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+    // Función para cargar detalles de la guía y sus paquetes hijos
+    const loadGuideDetails = async (guide: MasterAwbListItem) => {
+        setDetailDialog({ open: true, guide, packages: [], loading: true });
+        try {
+            const res = await fetch(`${API_URL}/api/master-cost/china-receipts/${guide.id}/packages`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.ok) {
+                const json = await res.json();
+                setDetailDialog(prev => ({ ...prev, packages: json.data || [], loading: false }));
+            } else {
+                setDetailDialog(prev => ({ ...prev, loading: false }));
+            }
+        } catch (err) {
+            console.error('Error loading packages:', err);
+            setDetailDialog(prev => ({ ...prev, loading: false }));
+        }
+    };
 
     // ============================================
     // CALCULADORA EN VIVO
@@ -240,8 +273,14 @@ export default function CostingPanelChinaAir() {
 
     const loadMasterList = useCallback(async () => {
         try {
+            // Construir query params con filtros
+            const params = new URLSearchParams({ limit: '200' });
+            if (filterDateFrom) params.append('dateFrom', filterDateFrom);
+            if (filterDateTo) params.append('dateTo', filterDateTo);
+            if (filterClient) params.append('client', filterClient);
+            
             // Cargar guías de china_receipts (TDI Aéreo China)
-            const res = await fetch(`${API_URL}/api/master-cost/china-receipts?limit=50`, {
+            const res = await fetch(`${API_URL}/api/master-cost/china-receipts?${params.toString()}`, {
                 headers: { Authorization: `Bearer ${token}` },
             });
             if (res.ok) {
@@ -267,7 +306,7 @@ export default function CostingPanelChinaAir() {
         } catch (err) {
             console.error('Error loading list:', err);
         }
-    }, [token]);
+    }, [token, filterDateFrom, filterDateTo, filterClient]);
 
     const loadProfitReport = useCallback(async () => {
         try {
@@ -516,7 +555,6 @@ export default function CostingPanelChinaAir() {
             {/* Tabs */}
             <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
                 <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} variant="scrollable" scrollButtons="auto">
-                    <Tab icon={<CalculateIcon />} label={t('costing.tabs.capture')} />
                     <Tab icon={<BoxIcon />} label={t('costing.tabs.registered')} />
                     <Tab icon={<TrendingUpIcon />} label={t('costing.tabs.profit')} />
                     <Tab
@@ -526,360 +564,8 @@ export default function CostingPanelChinaAir() {
                 </Tabs>
             </Box>
 
-            {/* TAB 0: CAPTURA DE COSTOS */}
+            {/* TAB 0: GUÍAS REGISTRADAS */}
             {tabValue === 0 && (
-                <Box>
-                    {/* Mensaje */}
-                    {message && (
-                        <Alert severity={message.type} sx={{ mb: 2 }} onClose={() => setMessage(null)}>
-                            {message.text}
-                        </Alert>
-                    )}
-
-                    {/* Buscador */}
-                    <Card sx={{ mb: 3 }}>
-                        <CardContent>
-                            <Typography variant="subtitle2" gutterBottom>
-                                🔍 {t('costing.searchOrCreate')}
-                            </Typography>
-                            <Box sx={{ display: 'flex', gap: 2 }}>
-                                <TextField
-                                    fullWidth
-                                    placeholder={t('costing.searchPlaceholder')}
-                                    value={awbSearch}
-                                    onChange={(e) => setAwbSearch(e.target.value)}
-                                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                                    InputProps={{
-                                        startAdornment: (
-                                            <InputAdornment position="start">
-                                                <FlightIcon color="action" />
-                                            </InputAdornment>
-                                        ),
-                                    }}
-                                    size="small"
-                                />
-                                <Button
-                                    variant="contained"
-                                    onClick={handleSearch}
-                                    disabled={loading}
-                                    startIcon={loading ? <CircularProgress size={20} /> : <SearchIcon />}
-                                    sx={{ minWidth: 150 }}
-                                >
-                                    {t('costing.searchCreate')}
-                                </Button>
-                            </Box>
-                        </CardContent>
-                    </Card>
-
-                    {/* Contenido principal - Solo si hay guía cargada */}
-                    {data.master_awb_number && (
-                        <>
-                            {/* Progreso */}
-                            <Box sx={{ mb: 2 }}>
-                                <Typography variant="body2" color="text.secondary" gutterBottom>
-                                    {t('costing.captureProgress')}: {Math.round(calculateProgress())}%
-                                </Typography>
-                                <LinearProgress
-                                    variant="determinate"
-                                    value={calculateProgress()}
-                                    sx={{ height: 8, borderRadius: 4 }}
-                                    color={calculateProgress() === 100 ? 'success' : 'primary'}
-                                />
-                            </Box>
-
-                            <Grid container spacing={3}>
-                                {/* Columna izquierda - Datos generales */}
-                                <Grid size={{ xs: 12, md: 6 }}>
-                                    <Card sx={{ mb: 2 }}>
-                                        <CardContent>
-                                            <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                <FlightIcon fontSize="small" /> {t('costing.generalData')}
-                                            </Typography>
-                                            <Grid container spacing={2}>
-                                                <Grid size={{ xs: 12 }}>
-                                                    <TextField
-                                                        fullWidth
-                                                        label={t('costing.guideNumber')}
-                                                        value={data.master_awb_number}
-                                                        disabled
-                                                        size="small"
-                                                    />
-                                                </Grid>
-                                                <Grid size={{ xs: 6 }}>
-                                                    <TextField
-                                                        fullWidth
-                                                        label={t('costing.airline')}
-                                                        value={data.airline}
-                                                        onChange={(e) => setData({ ...data, airline: e.target.value })}
-                                                        size="small"
-                                                    />
-                                                </Grid>
-                                                <Grid size={{ xs: 6 }}>
-                                                    <TextField
-                                                        fullWidth
-                                                        label={t('costing.date')}
-                                                        type="date"
-                                                        value={data.creation_date}
-                                                        onChange={(e) => setData({ ...data, creation_date: e.target.value })}
-                                                        size="small"
-                                                        InputLabelProps={{ shrink: true }}
-                                                    />
-                                                </Grid>
-                                                <Grid size={{ xs: 6 }}>
-                                                    <TextField
-                                                        fullWidth
-                                                        label={t('costing.origin')}
-                                                        value="China"
-                                                        disabled
-                                                        size="small"
-                                                    />
-                                                </Grid>
-                                                <Grid size={{ xs: 6 }}>
-                                                    <TextField
-                                                        fullWidth
-                                                        label={t('costing.destination')}
-                                                        value={data.destination}
-                                                        onChange={(e) => setData({ ...data, destination: e.target.value })}
-                                                        size="small"
-                                                    />
-                                                </Grid>
-                                                <Grid size={{ xs: 6 }}>
-                                                    <TextField
-                                                        fullWidth
-                                                        label={t('costing.totalBoxes')}
-                                                        type="number"
-                                                        value={data.total_boxes}
-                                                        onChange={(e) => setData({ ...data, total_boxes: Number(e.target.value) })}
-                                                        size="small"
-                                                    />
-                                                </Grid>
-                                                <Grid size={{ xs: 6 }}>
-                                                    <TextField
-                                                        fullWidth
-                                                        label={t('costing.totalWeight')}
-                                                        type="number"
-                                                        value={data.total_weight_kg}
-                                                        onChange={(e) => setData({ ...data, total_weight_kg: Number(e.target.value) })}
-                                                        size="small"
-                                                        InputProps={{
-                                                            endAdornment: <InputAdornment position="end">kg</InputAdornment>,
-                                                        }}
-                                                    />
-                                                </Grid>
-                                            </Grid>
-                                        </CardContent>
-                                    </Card>
-
-                                    {/* Paquetes vinculados */}
-                                    {linkedPackages.length > 0 && (
-                                        <Card>
-                                            <CardContent>
-                                                <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                    <BoxIcon fontSize="small" /> {t('costing.linkedPackages')} ({linkedPackages.length})
-                                                </Typography>
-                                                <TableContainer sx={{ maxHeight: 200 }}>
-                                                    <Table size="small" stickyHeader>
-                                                        <TableHead>
-                                                            <TableRow>
-                                                                <TableCell>{t('costing.tracking')}</TableCell>
-                                                                <TableCell align="right">{t('costing.weight')}</TableCell>
-                                                                <TableCell align="right">{t('costing.assignedCost')}</TableCell>
-                                                            </TableRow>
-                                                        </TableHead>
-                                                        <TableBody>
-                                                            {linkedPackages.map((pkg) => (
-                                                                <TableRow key={pkg.id}>
-                                                                    <TableCell>{pkg.tracking_internal}</TableCell>
-                                                                    <TableCell align="right">{pkg.weight} kg</TableCell>
-                                                                    <TableCell align="right">
-                                                                        {pkg.assigned_cost_mxn
-                                                                            ? `$${Number(pkg.assigned_cost_mxn).toFixed(2)}`
-                                                                            : '-'}
-                                                                    </TableCell>
-                                                                </TableRow>
-                                                            ))}
-                                                        </TableBody>
-                                                    </Table>
-                                                </TableContainer>
-                                            </CardContent>
-                                        </Card>
-                                    )}
-                                </Grid>
-
-                                {/* Columna derecha - Costos y Resultados */}
-                                <Grid size={{ xs: 12, md: 6 }}>
-                                    {/* Captura de costos */}
-                                    <Card sx={{ mb: 2, borderLeft: 4, borderColor: 'warning.main' }}>
-                                        <CardContent>
-                                            <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                <MoneyIcon fontSize="small" color="warning" /> {t('costing.operationalCosts')}
-                                            </Typography>
-                                            <Grid container spacing={2}>
-                                                <Grid size={{ xs: 6 }}>
-                                                    <TextField
-                                                        fullWidth
-                                                        label={t('costing.freightPerKg')}
-                                                        type="number"
-                                                        value={data.freight_price_per_kg ?? ''}
-                                                        onChange={(e) => setData({ ...data, freight_price_per_kg: Number(e.target.value) || null })}
-                                                        size="small"
-                                                        InputProps={{
-                                                            startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                                                        }}
-                                                    />
-                                                </Grid>
-                                                <Grid size={{ xs: 6 }}>
-                                                    <TextField
-                                                        fullWidth
-                                                        label={t('costing.clearanceBase')}
-                                                        type="number"
-                                                        value={data.clearance_cost_base ?? ''}
-                                                        onChange={(e) => setData({ ...data, clearance_cost_base: Number(e.target.value) || null })}
-                                                        size="small"
-                                                        InputProps={{
-                                                            startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                                                        }}
-                                                    />
-                                                </Grid>
-                                            </Grid>
-
-                                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2, mb: 1 }}>
-                                                {t('costing.flatFees')}
-                                            </Typography>
-                                            <Grid container spacing={2}>
-                                                <Grid size={{ xs: 4 }}>
-                                                    <TextField
-                                                        fullWidth
-                                                        label={t('costing.custodyFee')}
-                                                        type="number"
-                                                        value={data.custody_fee ?? ''}
-                                                        onChange={(e) => setData({ ...data, custody_fee: Number(e.target.value) || null })}
-                                                        size="small"
-                                                        InputProps={{
-                                                            startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                                                        }}
-                                                    />
-                                                </Grid>
-                                                <Grid size={{ xs: 4 }}>
-                                                    <TextField
-                                                        fullWidth
-                                                        label={t('costing.aaExpenses')}
-                                                        type="number"
-                                                        value={data.aa_expenses_fee ?? ''}
-                                                        onChange={(e) => setData({ ...data, aa_expenses_fee: Number(e.target.value) || null })}
-                                                        size="small"
-                                                        InputProps={{
-                                                            startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                                                        }}
-                                                    />
-                                                </Grid>
-                                                <Grid size={{ xs: 4 }}>
-                                                    <TextField
-                                                        fullWidth
-                                                        label={t('costing.additionalExpenses')}
-                                                        type="number"
-                                                        value={data.additional_expenses ?? ''}
-                                                        onChange={(e) => setData({ ...data, additional_expenses: Number(e.target.value) || null })}
-                                                        size="small"
-                                                        InputProps={{
-                                                            startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                                                        }}
-                                                    />
-                                                </Grid>
-                                            </Grid>
-
-                                            {/* Botones de PDF */}
-                                            <Box sx={{ display: 'flex', gap: 1, mt: 2, flexWrap: 'wrap' }}>
-                                                <Button
-                                                    size="small"
-                                                    startIcon={<PdfIcon />}
-                                                    variant={data.pdf_awb_url ? 'contained' : 'outlined'}
-                                                    color={data.pdf_awb_url ? 'success' : 'inherit'}
-                                                >
-                                                    {t('costing.pdfGuide')}
-                                                </Button>
-                                                <Button
-                                                    size="small"
-                                                    startIcon={<PdfIcon />}
-                                                    variant={data.pdf_aa_expenses_url ? 'contained' : 'outlined'}
-                                                    color={data.pdf_aa_expenses_url ? 'success' : 'inherit'}
-                                                >
-                                                    {t('costing.pdfAA')}
-                                                </Button>
-                                                <Button
-                                                    size="small"
-                                                    startIcon={<PdfIcon />}
-                                                    variant={data.pdf_custody_url ? 'contained' : 'outlined'}
-                                                    color={data.pdf_custody_url ? 'success' : 'inherit'}
-                                                >
-                                                    {t('costing.pdfCustody')}
-                                                </Button>
-                                            </Box>
-                                        </CardContent>
-                                    </Card>
-
-                                    {/* Resultados calculados */}
-                                    <Card sx={{ bgcolor: '#FFFDE7' }}>
-                                        <CardContent>
-                                            <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                <CalculateIcon fontSize="small" /> {t('costing.autoResults')}
-                                            </Typography>
-
-                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                                                <Typography variant="body2">{t('costing.totalWeightGuide')}:</Typography>
-                                                <Typography variant="body2" fontWeight="bold">
-                                                    {data.total_weight_kg} kg
-                                                </Typography>
-                                            </Box>
-                                            <Divider sx={{ my: 1 }} />
-
-                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                                                <Typography variant="body2">{t('costing.clearanceTotalPerKg')}:</Typography>
-                                                <Typography variant="body2" fontWeight="bold" color="warning.main">
-                                                    ${results.clearanceTotalPerKg.toFixed(2)}
-                                                </Typography>
-                                            </Box>
-
-                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                                                <Typography variant="body2">{t('costing.finalPricePerKg')}:</Typography>
-                                                <Typography variant="body1" fontWeight="bold">
-                                                    ${results.finalPricePerKg.toFixed(2)}
-                                                </Typography>
-                                            </Box>
-
-                                            <Divider sx={{ my: 1 }} />
-                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                <Typography variant="subtitle1" fontWeight="bold">
-                                                    {t('costing.grandTotal').toUpperCase()}:
-                                                </Typography>
-                                                <Typography variant="h5" fontWeight="bold" color="success.main">
-                                                    ${results.grandTotal.toFixed(2)}
-                                                </Typography>
-                                            </Box>
-                                        </CardContent>
-                                    </Card>
-
-                                    {/* Botón guardar */}
-                                    <Button
-                                        fullWidth
-                                        variant="contained"
-                                        size="large"
-                                        onClick={handleSave}
-                                        disabled={saving || !data.master_awb_number}
-                                        startIcon={saving ? <CircularProgress size={20} /> : <SaveIcon />}
-                                        sx={{ mt: 2, py: 1.5, bgcolor: '#111', '&:hover': { bgcolor: '#333' } }}
-                                    >
-                                        {saving ? t('costing.saving') : t('costing.save').toUpperCase()}
-                                    </Button>
-                                </Grid>
-                            </Grid>
-                        </>
-                    )}
-                </Box>
-            )}
-
-            {/* TAB 1: GUÍAS REGISTRADAS */}
-            {tabValue === 1 && (
                 <Box>
                     <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Typography variant="h6">{t('costing.registeredGuides')}</Typography>
@@ -887,6 +573,65 @@ export default function CostingPanelChinaAir() {
                             {t('costing.refresh')}
                         </Button>
                     </Box>
+
+                    {/* Filtros */}
+                    <Paper sx={{ p: 2, mb: 2 }}>
+                        <Grid container spacing={2} alignItems="center">
+                            <Grid item xs={12} sm={3}>
+                                <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Fecha Desde"
+                                    type="date"
+                                    value={filterDateFrom}
+                                    onChange={(e) => setFilterDateFrom(e.target.value)}
+                                    InputLabelProps={{ shrink: true }}
+                                />
+                            </Grid>
+                            <Grid item xs={12} sm={3}>
+                                <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="Fecha Hasta"
+                                    type="date"
+                                    value={filterDateTo}
+                                    onChange={(e) => setFilterDateTo(e.target.value)}
+                                    InputLabelProps={{ shrink: true }}
+                                />
+                            </Grid>
+                            <Grid item xs={12} sm={3}>
+                                <TextField
+                                    fullWidth
+                                    size="small"
+                                    label="# Cliente / Marca"
+                                    placeholder="Ej: S-123, MARCA..."
+                                    value={filterClient}
+                                    onChange={(e) => setFilterClient(e.target.value)}
+                                />
+                            </Grid>
+                            <Grid item xs={12} sm={3}>
+                                <Box sx={{ display: 'flex', gap: 1 }}>
+                                    <Button
+                                        variant="contained"
+                                        onClick={loadMasterList}
+                                        startIcon={<SearchIcon />}
+                                    >
+                                        Buscar
+                                    </Button>
+                                    <Button
+                                        variant="outlined"
+                                        onClick={() => {
+                                            setFilterDateFrom('');
+                                            setFilterDateTo('');
+                                            setFilterClient('');
+                                        }}
+                                    >
+                                        Limpiar
+                                    </Button>
+                                </Box>
+                            </Grid>
+                        </Grid>
+                    </Paper>
 
                     <TableContainer component={Paper}>
                         <Table>
@@ -898,7 +643,6 @@ export default function CostingPanelChinaAir() {
                                     <TableCell align="right">{t('costing.boxes')}</TableCell>
                                     <TableCell align="right">{t('costing.weight')} (kg)</TableCell>
                                     <TableCell align="right">{t('costing.grandTotal')}</TableCell>
-                                    <TableCell align="center">{t('costing.status')}</TableCell>
                                     <TableCell align="center">{t('costing.actions')}</TableCell>
                                 </TableRow>
                             </TableHead>
@@ -930,34 +674,12 @@ export default function CostingPanelChinaAir() {
                                             ${Number(item.calc_grand_total || 0).toFixed(2)}
                                         </TableCell>
                                         <TableCell align="center">
-                                            <Chip
-                                                size="small"
-                                                icon={item.is_fully_costed ? <CheckIcon /> : <WarningIcon />}
-                                                label={item.is_fully_costed ? t('costing.completed') : t('costing.pending')}
-                                                color={item.is_fully_costed ? 'success' : 'warning'}
-                                                variant="outlined"
-                                            />
-                                        </TableCell>
-                                        <TableCell align="center">
-                                            <Tooltip title="Editar">
+                                            <Tooltip title="Ver Detalles">
                                                 <IconButton
                                                     size="small"
-                                                    onClick={() => {
-                                                        setAwbSearch(item.master_awb_number);
-                                                        setTabValue(0);
-                                                        handleSearch();
-                                                    }}
+                                                    onClick={() => loadGuideDetails(item)}
                                                 >
                                                     <SearchIcon fontSize="small" />
-                                                </IconButton>
-                                            </Tooltip>
-                                            <Tooltip title="Eliminar">
-                                                <IconButton
-                                                    size="small"
-                                                    color="error"
-                                                    onClick={() => setDeleteDialog({ open: true, id: item.id! })}
-                                                >
-                                                    <DeleteIcon fontSize="small" />
                                                 </IconButton>
                                             </Tooltip>
                                         </TableCell>
@@ -976,8 +698,8 @@ export default function CostingPanelChinaAir() {
                 </Box>
             )}
 
-            {/* TAB 2: REPORTE DE UTILIDAD */}
-            {tabValue === 2 && (
+            {/* TAB 1: REPORTE DE UTILIDAD */}
+            {tabValue === 1 && (
                 <Box>
                     <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Typography variant="h6">📊 {t('costing.profitReport.title')}</Typography>
@@ -986,11 +708,58 @@ export default function CostingPanelChinaAir() {
                         </Button>
                     </Box>
 
+                    {/* Totales del reporte */}
+                    {profitReport.length > 0 && (
+                        <Grid container spacing={2} sx={{ mb: 2 }}>
+                            <Grid item xs={6} sm={3}>
+                                <Card sx={{ bgcolor: '#E3F2FD' }}>
+                                    <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
+                                        <Typography variant="h5" fontWeight="bold" color="primary">
+                                            {profitReport.length}
+                                        </Typography>
+                                        <Typography variant="caption">Guías</Typography>
+                                    </CardContent>
+                                </Card>
+                            </Grid>
+                            <Grid item xs={6} sm={3}>
+                                <Card sx={{ bgcolor: '#FFF3E0' }}>
+                                    <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
+                                        <Typography variant="h6" fontWeight="bold" color="warning.main">
+                                            ${profitReport.reduce((acc, r) => acc + Number(r.costo_total_operativo || 0), 0).toLocaleString()}
+                                        </Typography>
+                                        <Typography variant="caption">Costo Total</Typography>
+                                    </CardContent>
+                                </Card>
+                            </Grid>
+                            <Grid item xs={6} sm={3}>
+                                <Card sx={{ bgcolor: '#E8F5E9' }}>
+                                    <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
+                                        <Typography variant="h6" fontWeight="bold" color="success.main">
+                                            ${profitReport.reduce((acc, r) => acc + Number(r.venta_total || 0), 0).toLocaleString()}
+                                        </Typography>
+                                        <Typography variant="caption">Venta Total</Typography>
+                                    </CardContent>
+                                </Card>
+                            </Grid>
+                            <Grid item xs={6} sm={3}>
+                                <Card sx={{ bgcolor: '#F3E5F5' }}>
+                                    <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
+                                        <Typography variant="h6" fontWeight="bold" color={profitReport.reduce((acc, r) => acc + Number(r.utilidad_mxn || 0), 0) >= 0 ? 'success.main' : 'error.main'}>
+                                            ${profitReport.reduce((acc, r) => acc + Number(r.utilidad_mxn || 0), 0).toLocaleString()}
+                                        </Typography>
+                                        <Typography variant="caption">Utilidad Total</Typography>
+                                    </CardContent>
+                                </Card>
+                            </Grid>
+                        </Grid>
+                    )}
+
                     <TableContainer component={Paper}>
                         <Table>
                             <TableHead>
                                 <TableRow sx={{ bgcolor: 'grey.100' }}>
                                     <TableCell>{t('costing.guideAwb')}</TableCell>
+                                    <TableCell>Cliente</TableCell>
                                     <TableCell>{t('costing.date')}</TableCell>
                                     <TableCell align="right">{t('costing.boxes')}</TableCell>
                                     <TableCell align="right">{t('costing.weight')} (kg)</TableCell>
@@ -1008,9 +777,13 @@ export default function CostingPanelChinaAir() {
                                                 {item.master_awb_number}
                                             </Typography>
                                         </TableCell>
-                                        <TableCell>{item.creation_date}</TableCell>
+                                        <TableCell>
+                                            <Typography variant="body2">{item.client_name || '-'}</Typography>
+                                            <Typography variant="caption" color="primary">{item.client_box_id}</Typography>
+                                        </TableCell>
+                                        <TableCell>{item.creation_date ? new Date(item.creation_date).toLocaleDateString() : '-'}</TableCell>
                                         <TableCell align="right">{item.total_boxes}</TableCell>
-                                        <TableCell align="right">{item.total_weight_kg}</TableCell>
+                                        <TableCell align="right">{Number(item.total_weight_kg || 0).toFixed(2)}</TableCell>
                                         <TableCell align="right">
                                             ${Number(item.costo_total_operativo || 0).toFixed(2)}
                                         </TableCell>
@@ -1036,7 +809,7 @@ export default function CostingPanelChinaAir() {
                                 ))}
                                 {profitReport.length === 0 && (
                                     <TableRow>
-                                        <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                                        <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                                             <Typography color="text.secondary">
                                                 {t('costing.noGuides')}
                                             </Typography>
@@ -1065,8 +838,152 @@ export default function CostingPanelChinaAir() {
                 </DialogActions>
             </Dialog>
 
-            {/* TAB 3: COSTEO AWB (estilo marítimo) */}
-            {tabValue === 3 && (
+            {/* Dialog de detalles de guía */}
+            <Dialog 
+                open={detailDialog.open} 
+                onClose={() => setDetailDialog({ open: false, guide: null, packages: [], loading: false })}
+                maxWidth="lg"
+                fullWidth
+            >
+                <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Box>
+                        📦 Detalles de Guía: {detailDialog.guide?.master_awb_number}
+                        <Typography variant="body2" color="text.secondary">
+                            {detailDialog.guide?.client_name || '-'} • {detailDialog.guide?.client_box_id}
+                        </Typography>
+                    </Box>
+                    <IconButton onClick={() => setDetailDialog({ open: false, guide: null, packages: [], loading: false })}>
+                        ✕
+                    </IconButton>
+                </DialogTitle>
+                <DialogContent dividers>
+                    {/* Resumen de la guía */}
+                    <Grid container spacing={2} sx={{ mb: 3 }}>
+                        <Grid item xs={6} sm={3}>
+                            <Card sx={{ bgcolor: '#E3F2FD' }}>
+                                <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
+                                    <Typography variant="h5" fontWeight="bold" color="primary">
+                                        {detailDialog.guide?.total_boxes || 0}
+                                    </Typography>
+                                    <Typography variant="caption">Cajas</Typography>
+                                </CardContent>
+                            </Card>
+                        </Grid>
+                        <Grid item xs={6} sm={3}>
+                            <Card sx={{ bgcolor: '#E8F5E9' }}>
+                                <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
+                                    <Typography variant="h5" fontWeight="bold" color="success.main">
+                                        {Number(detailDialog.guide?.total_weight_kg || 0).toFixed(2)} kg
+                                    </Typography>
+                                    <Typography variant="caption">Peso Total</Typography>
+                                </CardContent>
+                            </Card>
+                        </Grid>
+                        <Grid item xs={6} sm={3}>
+                            <Card sx={{ bgcolor: '#FFF3E0' }}>
+                                <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
+                                    <Typography variant="h5" fontWeight="bold" color="warning.main">
+                                        ${Number(detailDialog.guide?.calc_grand_total || 0).toFixed(2)}
+                                    </Typography>
+                                    <Typography variant="caption">Costo Total</Typography>
+                                </CardContent>
+                            </Card>
+                        </Grid>
+                        <Grid item xs={6} sm={3}>
+                            <Card sx={{ bgcolor: '#F3E5F5' }}>
+                                <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
+                                    <Typography variant="h5" fontWeight="bold" color="secondary">
+                                        {detailDialog.packages.length}
+                                    </Typography>
+                                    <Typography variant="caption">Guías Hijas</Typography>
+                                </CardContent>
+                            </Card>
+                        </Grid>
+                    </Grid>
+
+                    {/* Tabla de guías hijas */}
+                    <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>
+                        📋 Guías Hijas (Paquetes)
+                    </Typography>
+                    
+                    {detailDialog.loading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                            <CircularProgress />
+                        </Box>
+                    ) : (
+                        <TableContainer component={Paper} sx={{ maxHeight: 400 }}>
+                            <Table size="small" stickyHeader>
+                                <TableHead>
+                                    <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                        <TableCell>#</TableCell>
+                                        <TableCell>AIR Tracking</TableCell>
+                                        <TableCell>Cliente</TableCell>
+                                        <TableCell align="right">Peso (kg)</TableCell>
+                                        <TableCell align="right">Precio Venta</TableCell>
+                                        <TableCell>Estado</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {detailDialog.packages.map((pkg, idx) => (
+                                        <TableRow key={pkg.id} hover>
+                                            <TableCell>{idx + 1}</TableCell>
+                                            <TableCell>
+                                                <Typography variant="body2" fontWeight="bold" color="primary">
+                                                    {pkg.air_tracking || pkg.tracking_internal}
+                                                </Typography>
+                                                {pkg.child_no && (
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        Caja #{pkg.child_no}
+                                                    </Typography>
+                                                )}
+                                            </TableCell>
+                                            <TableCell>
+                                                <Typography variant="body2">{pkg.client_name || '-'}</Typography>
+                                                <Typography variant="caption" color="primary">{pkg.box_id}</Typography>
+                                            </TableCell>
+                                            <TableCell align="right">{Number(pkg.weight || 0).toFixed(2)}</TableCell>
+                                            <TableCell align="right">
+                                                <Typography 
+                                                    variant="body2" 
+                                                    fontWeight="bold"
+                                                    color={Number(pkg.air_sale_price || pkg.assigned_cost_mxn || 0) > 0 ? 'success.main' : 'text.secondary'}
+                                                >
+                                                    ${Number(pkg.air_sale_price || pkg.assigned_cost_mxn || 0).toFixed(2)}
+                                                </Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Chip 
+                                                    size="small" 
+                                                    label={pkg.status || 'pending'} 
+                                                    color={pkg.status === 'delivered' ? 'success' : 'default'}
+                                                    variant="outlined"
+                                                />
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                    {detailDialog.packages.length === 0 && !detailDialog.loading && (
+                                        <TableRow>
+                                            <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                                                <Typography color="text.secondary">
+                                                    No hay guías hijas registradas
+                                                </Typography>
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setDetailDialog({ open: false, guide: null, packages: [], loading: false })}>
+                        Cerrar
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* TAB 2: COSTEO AWB (estilo marítimo) */}
+            {tabValue === 2 && (
                 <Box>
                     {/* Stats cards */}
                     <Grid container spacing={2} sx={{ mb: 3 }}>

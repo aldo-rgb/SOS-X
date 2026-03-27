@@ -321,17 +321,52 @@ export const getMasterAwbStats = async (req: Request, res: Response): Promise<vo
 // ============================================
 export const getChinaReceiptsList = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { limit = 50, status } = req.query;
+        const { limit = 200, status, dateFrom, dateTo, client } = req.query;
         
-        let whereClause = '';
-        const params: any[] = [limit];
+        const conditions: string[] = [];
+        const params: any[] = [];
+        let paramIndex = 1;
         
+        // Filtro por status
         if (status && status !== 'all') {
-            whereClause = 'WHERE cr.status = $2';
+            conditions.push(`cr.status = $${paramIndex++}`);
             params.push(status);
         }
+        
+        // Filtro por fecha desde
+        if (dateFrom) {
+            conditions.push(`cr.created_at >= $${paramIndex++}::date`);
+            params.push(dateFrom);
+        }
+        
+        // Filtro por fecha hasta
+        if (dateTo) {
+            conditions.push(`cr.created_at < ($${paramIndex++}::date + interval '1 day')`);
+            params.push(dateTo);
+        }
+        
+        // Filtro por cliente (box_id, nombre, shipping_mark o guía hija)
+        if (client) {
+            conditions.push(`(
+                cr.shipping_mark ILIKE $${paramIndex} OR
+                cr.fno ILIKE $${paramIndex} OR
+                cr.id IN (
+                    SELECT china_receipt_id FROM packages 
+                    WHERE tracking_internal ILIKE $${paramIndex} 
+                    AND china_receipt_id IS NOT NULL
+                )
+            )`);
+            params.push(`%${client}%`);
+            paramIndex++;
+        }
+        
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+        
+        // Agregar limit al final
+        params.push(Number(limit));
+        const limitParam = `$${paramIndex}`;
 
-        const result = await pool.query(`
+        const query = `
             SELECT 
                 cr.id,
                 cr.fno as tracking,
@@ -343,14 +378,17 @@ export const getChinaReceiptsList = async (req: Request, res: Response): Promise
                 cr.assigned_cost_mxn,
                 cr.created_at,
                 cr.updated_at,
-                u.full_name as client_name,
-                u.box_id as client_box_id
+                COALESCE(u.full_name, u2.full_name) as client_name,
+                COALESCE(u.box_id, u2.box_id, cr.shipping_mark) as client_box_id
             FROM china_receipts cr
             LEFT JOIN users u ON cr.user_id = u.id
+            LEFT JOIN users u2 ON UPPER(cr.shipping_mark) = UPPER(u2.box_id)
             ${whereClause}
             ORDER BY cr.created_at DESC
-            LIMIT $1
-        `, params);
+            LIMIT ${limitParam}
+        `;
+        
+        const result = await pool.query(query, params);
 
         res.json({
             success: true,
@@ -364,41 +402,90 @@ export const getChinaReceiptsList = async (req: Request, res: Response): Promise
 };
 
 // ============================================
+// 5.2 OBTENER PAQUETES DE UN CHINA RECEIPT
+// ============================================
+export const getChinaReceiptPackages = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { id } = req.params;
+        
+        const result = await pool.query(`
+            SELECT 
+                p.id,
+                p.tracking_internal,
+                p.tracking_internal as air_tracking,
+                p.child_no,
+                p.weight,
+                p.air_sale_price,
+                COALESCE(p.assigned_cost_mxn, p.air_sale_price) as assigned_cost_mxn,
+                p.status,
+                p.created_at,
+                u.full_name as client_name,
+                u.box_id
+            FROM packages p
+            LEFT JOIN users u ON p.user_id = u.id
+            WHERE p.china_receipt_id = $1
+            ORDER BY p.child_no ASC, p.tracking_internal ASC
+        `, [id]);
+
+        res.json({
+            success: true,
+            data: result.rows,
+            count: result.rows.length
+        });
+    } catch (error) {
+        console.error('Error getChinaReceiptPackages:', error);
+        res.status(500).json({ error: 'Error al obtener paquetes' });
+    }
+};
+
+// ============================================
 // 6. REPORTE DE UTILIDAD (GET /api/master-cost/profit-report)
 // ============================================
 export const getProfitReport = async (req: Request, res: Response): Promise<void> => {
     try {
         const { startDate, endDate, limit = 100 } = req.query;
 
-        let query = `
-            SELECT 
-                m.id,
-                m.master_awb_number,
-                m.creation_date,
-                m.airline,
-                m.total_boxes,
-                m.total_weight_kg,
-                m.calc_grand_total as costo_total_operativo,
-                COALESCE(SUM(p.assigned_cost_mxn), 0) as venta_total,
-                (COALESCE(SUM(p.assigned_cost_mxn), 0) - m.calc_grand_total) as utilidad_mxn,
-                CASE WHEN m.calc_grand_total > 0 THEN 
-                    ROUND(((COALESCE(SUM(p.assigned_cost_mxn), 0) - m.calc_grand_total) / m.calc_grand_total) * 100, 2)
-                ELSE 0 END as margen_porcentaje,
-                COUNT(p.id) as packages_linked
-            FROM master_air_waybills m
-            LEFT JOIN packages p ON p.international_tracking = m.master_awb_number
-            WHERE m.status = 'completed'
-        `;
+        const conditions: string[] = [];
+        const params: any[] = [];
+        let paramIndex = 1;
 
-        const params: (string | number)[] = [];
-        if (startDate && endDate) {
-            query += ` AND m.creation_date BETWEEN $1 AND $2`;
-            params.push(startDate as string, endDate as string);
+        if (startDate) {
+            conditions.push(`cr.created_at >= $${paramIndex++}::date`);
+            params.push(startDate);
+        }
+        if (endDate) {
+            conditions.push(`cr.created_at < ($${paramIndex++}::date + interval '1 day')`);
+            params.push(endDate);
         }
 
-        query += ' GROUP BY m.id ORDER BY m.creation_date DESC';
-        query += ` LIMIT $${params.length + 1}`;
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
         params.push(Number(limit));
+
+        const query = `
+            SELECT 
+                cr.id,
+                cr.fno as master_awb_number,
+                cr.created_at as creation_date,
+                cr.shipping_mark,
+                cr.total_qty as total_boxes,
+                cr.total_weight as total_weight_kg,
+                COALESCE(cr.assigned_cost_mxn, 0) as costo_total_operativo,
+                COALESCE(SUM(p.air_sale_price), 0) as venta_total,
+                (COALESCE(SUM(p.air_sale_price), 0) - COALESCE(cr.assigned_cost_mxn, 0)) as utilidad_mxn,
+                CASE WHEN COALESCE(cr.assigned_cost_mxn, 0) > 0 THEN 
+                    ROUND(((COALESCE(SUM(p.air_sale_price), 0) - cr.assigned_cost_mxn) / cr.assigned_cost_mxn) * 100, 2)
+                ELSE 0 END as margen_porcentaje,
+                COUNT(p.id) as packages_linked,
+                u.full_name as client_name,
+                COALESCE(u.box_id, cr.shipping_mark) as client_box_id
+            FROM china_receipts cr
+            LEFT JOIN packages p ON p.china_receipt_id = cr.id
+            LEFT JOIN users u ON cr.user_id = u.id
+            ${whereClause}
+            GROUP BY cr.id, u.full_name, u.box_id
+            ORDER BY cr.created_at DESC
+            LIMIT $${paramIndex}
+        `;
 
         const result = await pool.query(query, params);
 
