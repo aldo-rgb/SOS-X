@@ -579,7 +579,7 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                             {/* Packages S */}
                                             <Card variant="outlined" sx={{ mb: 2 }}>
                                                 <CardContent>
-                                                    <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                                                         <BoxIcon fontSize="small" color="primary" />
                                                         Paquetes Gestión Aérea (S) ({packagesS.length}) 
                                                         <Chip 
@@ -587,6 +587,12 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                             label={`${((packagesS.length / (packagesS.length + cajoGuides.length)) * 100 || 0).toFixed(0)}%`}
                                                             color="primary"
                                                             sx={{ ml: 1, fontSize: '0.7rem', height: 20 }}
+                                                        />
+                                                        <Chip 
+                                                            size="small" 
+                                                            label={`${packagesS.reduce((sum, p) => sum + (Number(p.weight) || 0), 0).toFixed(2)} kg`}
+                                                            variant="outlined"
+                                                            sx={{ fontSize: '0.7rem', height: 20 }}
                                                         />
                                                     </Typography>
                                                     {packagesS.length > 0 ? (
@@ -627,7 +633,7 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                             {/* CAJO Guides */}
                                             <Card variant="outlined">
                                                 <CardContent>
-                                                    <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                                                         <BoxIcon fontSize="small" color="warning" />
                                                         Guías CAJO ({cajoGuides.length})
                                                         <Chip 
@@ -635,6 +641,12 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                             label={`${((cajoGuides.length / (packagesS.length + cajoGuides.length)) * 100 || 0).toFixed(0)}%`}
                                                             color="warning"
                                                             sx={{ ml: 1, fontSize: '0.7rem', height: 20 }}
+                                                        />
+                                                        <Chip 
+                                                            size="small" 
+                                                            label={`${cajoGuides.reduce((sum, g) => sum + (Number(g.peso_kg) || 0), 0).toFixed(2)} kg`}
+                                                            variant="outlined"
+                                                            sx={{ fontSize: '0.7rem', height: 20 }}
                                                         />
                                                     </Typography>
                                                     {cajoGuides.length > 0 ? (

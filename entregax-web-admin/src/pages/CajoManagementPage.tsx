@@ -52,6 +52,7 @@ import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import WarehouseIcon from '@mui/icons-material/Warehouse';
 import PeopleIcon from '@mui/icons-material/People';
 import ScaleIcon from '@mui/icons-material/Scale';
+import SettingsIcon from '@mui/icons-material/Settings';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const CAJO_COLOR = '#FF6F00';
@@ -146,6 +147,11 @@ const CajoManagementPage: React.FC<Props> = ({ onBack }) => {
   // Batch status dialog
   const [batchOpen, setBatchOpen] = useState(false);
   const [batchStatus, setBatchStatus] = useState('in_transit');
+
+  // Overfee dialog
+  const [overfeeOpen, setOverfeeOpen] = useState(false);
+  const [overfeeValue, setOverfeeValue] = useState('');
+  const [savingOverfee, setSavingOverfee] = useState(false);
 
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
@@ -275,6 +281,45 @@ const CajoManagementPage: React.FC<Props> = ({ onBack }) => {
     catch { return d; }
   };
 
+  // ========== OVERFEE ==========
+  const loadOverfee = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/cajo/overfee`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setOverfeeValue(data.overfee_per_kg?.toString() || '0');
+      }
+    } catch (err) {
+      console.error('Error cargando overfee:', err);
+    }
+  };
+
+  const saveOverfee = async () => {
+    setSavingOverfee(true);
+    try {
+      const res = await fetch(`${API_URL}/api/cajo/overfee`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ overfee_per_kg: parseFloat(overfeeValue) || 0 }),
+      });
+      if (res.ok) {
+        setSnackbar({ open: true, message: '✅ Overfee guardado correctamente', severity: 'success' });
+        setOverfeeOpen(false);
+      } else {
+        const err = await res.json();
+        setSnackbar({ open: true, message: `Error: ${err.error}`, severity: 'error' });
+      }
+    } catch {
+      setSnackbar({ open: true, message: 'Error al guardar overfee', severity: 'error' });
+    }
+    setSavingOverfee(false);
+  };
+
+  const openOverfeeDialog = () => {
+    loadOverfee();
+    setOverfeeOpen(true);
+  };
+
   return (
     <Box sx={{ p: 3 }}>
       {/* Header */}
@@ -291,6 +336,14 @@ const CajoManagementPage: React.FC<Props> = ({ onBack }) => {
             Guías de clientes que no inician con S (procesadas desde extracción AWB)
           </Typography>
         </Box>
+        <Button
+          variant="outlined"
+          startIcon={<SettingsIcon />}
+          onClick={openOverfeeDialog}
+          sx={{ mr: 1, borderColor: CAJO_COLOR, color: CAJO_COLOR }}
+        >
+          Overfee
+        </Button>
         <Button
           variant="contained"
           startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <RefreshIcon />}
@@ -681,6 +734,42 @@ const CajoManagementPage: React.FC<Props> = ({ onBack }) => {
             sx={{ bgcolor: CAJO_COLOR, '&:hover': { bgcolor: '#E65100' }, textTransform: 'none' }}
           >
             Aplicar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ====== OVERFEE CONFIG DIALOG ====== */}
+      <Dialog open={overfeeOpen} onClose={() => setOverfeeOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ bgcolor: CAJO_COLOR, color: 'white' }}>
+          ⚙️ Configurar Overfee CAJO
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Este valor se agregará como fee adicional por cada kilogramo en las guías CAJO.
+          </Alert>
+          <TextField
+            fullWidth
+            label="Overfee por KG (MXN)"
+            type="number"
+            value={overfeeValue}
+            onChange={e => setOverfeeValue(e.target.value)}
+            InputProps={{
+              startAdornment: <InputAdornment position="start">$</InputAdornment>,
+              endAdornment: <InputAdornment position="end">/kg</InputAdornment>,
+            }}
+            sx={{ mt: 1 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setOverfeeOpen(false)} sx={{ textTransform: 'none' }}>Cancelar</Button>
+          <Button
+            variant="contained"
+            onClick={saveOverfee}
+            disabled={savingOverfee}
+            startIcon={savingOverfee ? <CircularProgress size={16} color="inherit" /> : null}
+            sx={{ bgcolor: CAJO_COLOR, '&:hover': { bgcolor: '#E65100' }, textTransform: 'none' }}
+          >
+            Guardar
           </Button>
         </DialogActions>
       </Dialog>

@@ -407,7 +407,8 @@ import {
   deleteMasterAwb,
   getMasterAwbStats,
   getProfitReport,
-  getChinaReceiptsList
+  getChinaReceiptsList,
+  getChinaReceiptPackages
 } from './masterCostController';
 import {
   verifyWebhook,
@@ -527,7 +528,9 @@ import {
   updateCajoGuide,
   batchUpdateCajoStatus,
   deleteCajoGuide,
-  getCajoByMawb
+  getCajoByMawb,
+  getCajoOverfee,
+  saveCajoOverfee
 } from './cajoController';
 import {
   listAwbCosts,
@@ -3040,6 +3043,9 @@ app.get('/api/master-cost/stats', authenticateToken, requireMinLevel(ROLES.COUNT
 // Admin: Listar guías de china_receipts (TDI Aéreo China)
 app.get('/api/master-cost/china-receipts', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getChinaReceiptsList);
 
+// Admin: Obtener paquetes de un china_receipt específico
+app.get('/api/master-cost/china-receipts/:id/packages', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getChinaReceiptPackages);
+
 // Admin: Reporte de utilidad
 app.get('/api/master-cost/profit-report', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getProfitReport);
 
@@ -5326,6 +5332,8 @@ app.delete('/api/admin/air-client-tariffs/:id', authenticateToken, requireMinLev
 // ========== GESTIÓN CAJO ==========
 app.get('/api/cajo/guides', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCajoGuides);
 app.get('/api/cajo/stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCajoStats);
+app.get('/api/cajo/overfee', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCajoOverfee);
+app.post('/api/cajo/overfee', authenticateToken, requireMinLevel(ROLES.ADMIN), saveCajoOverfee);
 app.get('/api/cajo/guides/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCajoGuideById);
 app.put('/api/cajo/guides/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateCajoGuide);
 app.put('/api/cajo/guides/batch-status', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), batchUpdateCajoStatus);

@@ -225,3 +225,43 @@ export const getCajoByMawb = async (req: AuthRequest, res: Response): Promise<vo
     res.status(500).json({ error: 'Error al buscar por MAWB' });
   }
 };
+
+// ============================================
+// 8. GET OVERFEE CONFIG (GET /api/cajo/overfee)
+// ============================================
+export const getCajoOverfee = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const result = await pool.query(`
+      SELECT value FROM system_config WHERE key = 'cajo_overfee_per_kg'
+    `);
+
+    const overfee = result.rows.length > 0 ? parseFloat(result.rows[0].value) : 0;
+    res.json({ success: true, overfee_per_kg: overfee });
+  } catch (error: any) {
+    console.error('📦 [CAJO] Error obteniendo overfee:', error.message);
+    res.status(500).json({ error: 'Error al obtener configuración' });
+  }
+};
+
+// ============================================
+// 9. SAVE OVERFEE CONFIG (POST /api/cajo/overfee)
+// ============================================
+export const saveCajoOverfee = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { overfee_per_kg } = req.body;
+    const value = parseFloat(overfee_per_kg) || 0;
+
+    // Upsert en system_config
+    await pool.query(`
+      INSERT INTO system_config (key, value, description, updated_at)
+      VALUES ('cajo_overfee_per_kg', $1, 'Overfee por kg para guías CAJO (MXN)', NOW())
+      ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()
+    `, [value.toString()]);
+
+    console.log(`📦 [CAJO] Overfee actualizado a $${value}/kg por usuario ${req.user?.userId}`);
+    res.json({ success: true, overfee_per_kg: value, message: 'Overfee guardado correctamente' });
+  } catch (error: any) {
+    console.error('📦 [CAJO] Error guardando overfee:', error.message);
+    res.status(500).json({ error: 'Error al guardar configuración' });
+  }
+};
