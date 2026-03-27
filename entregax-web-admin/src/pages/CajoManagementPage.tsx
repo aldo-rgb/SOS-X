@@ -749,13 +749,13 @@ const CajoManagementPage: React.FC<Props> = ({ onBack }) => {
           </Alert>
           <TextField
             fullWidth
-            label="Overfee por KG (USD)"
+            label="Overfee por KG (MXN)"
             type="number"
             value={overfeeValue}
             onChange={e => setOverfeeValue(e.target.value)}
             InputProps={{
               startAdornment: <InputAdornment position="start">$</InputAdornment>,
-              endAdornment: <InputAdornment position="end">/kg</InputAdornment>,
+              endAdornment: <InputAdornment position="end">MXN/kg</InputAdornment>,
             }}
             sx={{ mt: 1 }}
           />

@@ -361,6 +361,148 @@ export const deleteAwbCost = async (req: AuthRequest, res: Response): Promise<vo
 };
 
 // ============================================
+// 6.5 CALCULAR GASTOS DE LIBERACIÓN AUTOMÁTICOS (GET /api/awb-costs/:id/calc-release-costs)
+// ============================================
+export const calcReleaseCosts = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    // Obtener AWB
+    const costRes = await pool.query('SELECT * FROM air_waybill_costs WHERE id = $1', [id]);
+    if (costRes.rows.length === 0) {
+      res.status(404).json({ error: 'Registro de costeo no encontrado' });
+      return;
+    }
+    const awbCost = costRes.rows[0];
+
+    // Obtener paquetes S vinculados con sus pesos y tipo (Logo/Genérico)
+    const packagesS = await pool.query(`
+      SELECT p.id, p.tracking_internal, p.weight, p.cajo_tariff_type as tariff_type
+      FROM packages p
+      WHERE p.awb_cost_id = $1 OR p.international_tracking = $2
+    `, [id, awbCost.awb_number]);
+
+    // Obtener guías CAJO vinculadas
+    const cajoGuides = await pool.query(`
+      SELECT id, guia_air, cliente, peso_kg, tipo
+      FROM cajo_guides 
+      WHERE mawb = $1
+    `, [awbCost.awb_number]);
+
+    // Obtener overfee CAJO de la configuración
+    const overfeeRes = await pool.query(`
+      SELECT value FROM system_config WHERE key = 'cajo_overfee_per_kg'
+    `);
+    const cajoOverfeePerKg = overfeeRes.rows.length > 0 ? parseFloat(overfeeRes.rows[0].value) : 0;
+
+    // Calcular peso total del AWB
+    const pesoS = packagesS.rows.reduce((sum: number, p: any) => sum + (parseFloat(p.weight) || 0), 0);
+    const pesoCajo = cajoGuides.rows.reduce((sum: number, g: any) => sum + (parseFloat(g.peso_kg) || 0), 0);
+    const pesoTotalAwb = pesoS + pesoCajo;
+
+    // Clasificar paquetes S por tipo (Logo o Genérico)
+    let pesoLogo = 0;
+    let pesoGenerico = 0;
+    for (const pkg of packagesS.rows) {
+      const tipo = (pkg.tariff_type || 'G').toUpperCase();
+      const peso = parseFloat(pkg.weight) || 0;
+      if (tipo === 'L' || tipo === 'LOGO') {
+        pesoLogo += peso;
+      } else {
+        pesoGenerico += peso;
+      }
+    }
+
+    // Determinar el tipo predominante para obtener la tarifa del proveedor
+    // El peso total del AWB determina el bracket
+    const tipoPredominante = pesoLogo > pesoGenerico ? 'L' : 'G';
+
+    // Obtener la ruta aérea (asumimos AIFA = HKG -> MEX, route_id = 1)
+    // Por ahora buscamos la ruta activa o la primera
+    const routeRes = await pool.query(`
+      SELECT id FROM air_routes WHERE is_active = true ORDER BY id ASC LIMIT 1
+    `);
+    const routeId = routeRes.rows.length > 0 ? routeRes.rows[0].id : 1;
+
+    // Obtener los brackets de costo del proveedor para este tipo y buscar el aplicable por peso
+    const bracketsRes = await pool.query(`
+      SELECT min_kg, cost_per_kg
+      FROM air_cost_brackets
+      WHERE route_id = $1 AND tariff_type = $2
+      ORDER BY min_kg DESC
+    `, [routeId, tipoPredominante]);
+
+    let costPerKgProveedor = 0;
+    for (const bracket of bracketsRes.rows) {
+      if (pesoTotalAwb >= parseFloat(bracket.min_kg)) {
+        costPerKgProveedor = parseFloat(bracket.cost_per_kg);
+        break;
+      }
+    }
+
+    // Si no hay bracket, usar el primero (el más bajo)
+    if (costPerKgProveedor === 0 && bracketsRes.rows.length > 0) {
+      costPerKgProveedor = parseFloat(bracketsRes.rows[bracketsRes.rows.length - 1].cost_per_kg);
+    }
+
+    // === CÁLCULO DE GASTOS DE LIBERACIÓN ===
+    // Gastos de liberación para paquetes S: peso_S * tarifa_proveedor (MXN)
+    const gastosLiberacionS = pesoS * costPerKgProveedor;
+
+    // Gastos de liberación para CAJO: peso_CAJO * (tarifa_proveedor + overfee) (MXN)
+    const gastosLiberacionCajo = pesoCajo * (costPerKgProveedor + cajoOverfeePerKg);
+
+    // Total gastos de liberación
+    const gastosLiberacionTotal = gastosLiberacionS + gastosLiberacionCajo;
+
+    // Costo por kg calculado
+    const calcCostoLiberacionPerKg = pesoTotalAwb > 0 ? (gastosLiberacionTotal / pesoTotalAwb) : 0;
+
+    console.log(`✈️ [AWB-COST] Cálculo automático AWB ${awbCost.awb_number}:
+      - Peso S: ${pesoS.toFixed(2)} kg (Logo: ${pesoLogo.toFixed(2)}, Gen: ${pesoGenerico.toFixed(2)})
+      - Peso CAJO: ${pesoCajo.toFixed(2)} kg
+      - Peso Total: ${pesoTotalAwb.toFixed(2)} kg
+      - Tipo predominante: ${tipoPredominante}
+      - Tarifa proveedor: $${costPerKgProveedor.toFixed(2)} MXN/kg
+      - Overfee CAJO: $${cajoOverfeePerKg.toFixed(2)} MXN/kg
+      - Liberación S: $${gastosLiberacionS.toFixed(2)} MXN
+      - Liberación CAJO: $${gastosLiberacionCajo.toFixed(2)} MXN
+      - Total Liberación: $${gastosLiberacionTotal.toFixed(2)} MXN`);
+
+    res.json({
+      success: true,
+      calculation: {
+        // Pesos
+        peso_s: pesoS,
+        peso_s_logo: pesoLogo,
+        peso_s_generico: pesoGenerico,
+        peso_cajo: pesoCajo,
+        peso_total: pesoTotalAwb,
+        
+        // Configuración usada
+        tipo_predominante: tipoPredominante,
+        tarifa_proveedor_per_kg: costPerKgProveedor,
+        overfee_cajo_per_kg: cajoOverfeePerKg,
+        route_id: routeId,
+        
+        // Cálculos
+        gastos_liberacion_s: gastosLiberacionS,
+        gastos_liberacion_cajo: gastosLiberacionCajo,
+        gastos_liberacion_total: gastosLiberacionTotal,
+        costo_liberacion_per_kg: calcCostoLiberacionPerKg,
+        
+        // Conteos
+        count_packages_s: packagesS.rows.length,
+        count_cajo_guides: cajoGuides.rows.length,
+      },
+    });
+  } catch (error: any) {
+    console.error('✈️ [AWB-COST] Error calculando gastos de liberación:', error.message);
+    res.status(500).json({ error: 'Error al calcular gastos de liberación' });
+  }
+};
+
+// ============================================
 // 7. SUBIR DOCUMENTO AWB COST (POST /api/awb-costs/:id/upload-document)
 // ============================================
 import multer from 'multer';

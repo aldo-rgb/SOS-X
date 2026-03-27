@@ -102,6 +102,11 @@ interface ResumenFinanciero {
     telefono: string;
     casillero: string;
   };
+  deliveryAddress?: {
+    full_address?: string;
+    contact_name?: string;
+    contact_phone?: string;
+  };
   ajustes: Ajuste[];
   resumen: {
     costo_base: number;

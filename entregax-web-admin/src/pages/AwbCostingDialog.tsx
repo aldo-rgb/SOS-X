@@ -166,6 +166,24 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
     const [packagesS, setPackagesS] = useState<PackageS[]>([]);
     const [cajoGuides, setCajoGuides] = useState<CajoGuide[]>([]);
     const [profitData, setProfitData] = useState<ProfitData | null>(null);
+    
+    // Cálculo automático de gastos de liberación
+    const [releaseCalc, setReleaseCalc] = useState<{
+        peso_s: number;
+        peso_s_logo: number;
+        peso_s_generico: number;
+        peso_cajo: number;
+        peso_total: number;
+        tipo_predominante: string;
+        tarifa_proveedor_per_kg: number;
+        overfee_cajo_per_kg: number;
+        gastos_liberacion_s: number;
+        gastos_liberacion_cajo: number;
+        gastos_liberacion_total: number;
+        count_packages_s: number;
+        count_cajo_guides: number;
+    } | null>(null);
+    const [loadingRelease, setLoadingRelease] = useState(false);
 
     // Form fields (editable costs)
     const [form, setForm] = useState({
@@ -262,14 +280,44 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
         }
     }, [awbCostId]);
 
+    // ===== Load release costs calculation =====
+    const loadReleaseCosts = useCallback(async () => {
+        if (!awbCostId) return;
+        setLoadingRelease(true);
+        try {
+            const res = await fetch(`${API_URL}/api/awb-costs/${awbCostId}/calc-release-costs`, {
+                headers: { Authorization: `Bearer ${getToken()}` },
+            });
+            const data = await res.json();
+            if (data.success && data.calculation) {
+                setReleaseCalc(data.calculation);
+            }
+        } catch (err) {
+            console.error('Error loading release costs:', err);
+        } finally {
+            setLoadingRelease(false);
+        }
+    }, [awbCostId]);
+
+    // Aplicar cálculo automático a los campos del formulario
+    const applyAutoCalc = () => {
+        if (!releaseCalc) return;
+        setForm(prev => ({
+            ...prev,
+            customs_clearance: releaseCalc.gastos_liberacion_total,
+        }));
+        setMessage({ type: 'success', text: 'Gastos de liberación aplicados automáticamente' });
+    };
+
     // ===== Effects =====
     useEffect(() => {
         if (open && awbCostId) {
             setTabValue(0);
             setMessage(null);
             loadDetail();
+            loadReleaseCosts();
         }
-    }, [open, awbCostId, loadDetail]);
+    }, [open, awbCostId, loadDetail, loadReleaseCosts]);
 
     useEffect(() => {
         if (open && tabValue === 5) {
@@ -738,9 +786,99 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                     <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                         <GavelIcon color="secondary" /> Gastos de Liberación
                                     </Typography>
-                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                                         Costos aduanales y de liberación en destino
                                     </Typography>
+
+                                    {/* Cálculo Automático basado en tarifario */}
+                                    {releaseCalc && (
+                                        <Card variant="outlined" sx={{ mb: 3, p: 2, bgcolor: '#fff8e1', border: '2px solid #ff9800' }}>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                                                <Typography variant="subtitle1" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    ⚡ Cálculo Automático (Tarifario Proveedor)
+                                                </Typography>
+                                                <Button
+                                                    variant="contained"
+                                                    color="warning"
+                                                    size="small"
+                                                    onClick={applyAutoCalc}
+                                                    sx={{ textTransform: 'none' }}
+                                                >
+                                                    Aplicar a Despacho
+                                                </Button>
+                                            </Box>
+                                            
+                                            <Grid container spacing={2}>
+                                                {/* Paquetes S */}
+                                                <Grid size={{ xs: 12, md: 6 }}>
+                                                    <Card variant="outlined" sx={{ p: 1.5, bgcolor: 'primary.50' }}>
+                                                        <Typography variant="subtitle2" fontWeight="bold" color="primary.main" gutterBottom>
+                                                            📦 Gestión Aérea (S) - {releaseCalc.count_packages_s} paquetes
+                                                        </Typography>
+                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                                                            <Typography variant="body2">Peso:</Typography>
+                                                            <Typography variant="body2" fontWeight="bold">{releaseCalc.peso_s.toFixed(2)} kg</Typography>
+                                                        </Box>
+                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                                                            <Typography variant="body2" color="text.secondary">
+                                                                ({releaseCalc.tipo_predominante === 'L' ? 'Logo' : 'Genérico'}: ${releaseCalc.tarifa_proveedor_per_kg.toFixed(2)}/kg)
+                                                            </Typography>
+                                                        </Box>
+                                                        <Divider sx={{ my: 1 }} />
+                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                            <Typography variant="body2" fontWeight="bold">Costo:</Typography>
+                                                            <Typography variant="body1" fontWeight="bold" color="primary.main">
+                                                                ${releaseCalc.gastos_liberacion_s.toLocaleString('en-US', { minimumFractionDigits: 2 })} MXN
+                                                            </Typography>
+                                                        </Box>
+                                                    </Card>
+                                                </Grid>
+
+                                                {/* Guías CAJO */}
+                                                <Grid size={{ xs: 12, md: 6 }}>
+                                                    <Card variant="outlined" sx={{ p: 1.5, bgcolor: 'warning.50' }}>
+                                                        <Typography variant="subtitle2" fontWeight="bold" color="warning.main" gutterBottom>
+                                                            📦 Guías CAJO - {releaseCalc.count_cajo_guides} guías
+                                                        </Typography>
+                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                                                            <Typography variant="body2">Peso:</Typography>
+                                                            <Typography variant="body2" fontWeight="bold">{releaseCalc.peso_cajo.toFixed(2)} kg</Typography>
+                                                        </Box>
+                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                                                            <Typography variant="body2" color="text.secondary">
+                                                                (${releaseCalc.tarifa_proveedor_per_kg.toFixed(2)} + ${releaseCalc.overfee_cajo_per_kg.toFixed(2)} overfee = ${(releaseCalc.tarifa_proveedor_per_kg + releaseCalc.overfee_cajo_per_kg).toFixed(2)}/kg)
+                                                            </Typography>
+                                                        </Box>
+                                                        <Divider sx={{ my: 1 }} />
+                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                                                            <Typography variant="body2" fontWeight="bold">Costo:</Typography>
+                                                            <Typography variant="body1" fontWeight="bold" color="warning.main">
+                                                                ${releaseCalc.gastos_liberacion_cajo.toLocaleString('en-US', { minimumFractionDigits: 2 })} MXN
+                                                            </Typography>
+                                                        </Box>
+                                                    </Card>
+                                                </Grid>
+                                            </Grid>
+
+                                            <Card sx={{ mt: 2, p: 1.5, bgcolor: '#ff9800', color: 'white' }}>
+                                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <Typography variant="subtitle1" fontWeight="bold">
+                                                        💰 TOTAL LIBERACIÓN CALCULADO:
+                                                    </Typography>
+                                                    <Typography variant="h5" fontWeight="bold">
+                                                        ${releaseCalc.gastos_liberacion_total.toLocaleString('en-US', { minimumFractionDigits: 2 })} MXN
+                                                    </Typography>
+                                                </Box>
+                                            </Card>
+                                        </Card>
+                                    )}
+
+                                    {loadingRelease && (
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                                            <CircularProgress size={20} />
+                                            <Typography variant="body2" color="text.secondary">Calculando gastos de liberación...</Typography>
+                                        </Box>
+                                    )}
 
                                     <Card variant="outlined" sx={{ p: 2 }}>
                                         <CostField label="Despacho Aduanal" field="customs_clearance" icon={<GavelIcon fontSize="small" />} />

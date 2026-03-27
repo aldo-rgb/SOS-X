@@ -538,6 +538,7 @@ import {
   saveAwbCosts,
   getAwbCostStats,
   getAwbCostProfit,
+  calcReleaseCosts,
   deleteAwbCost,
   uploadAwbDocument,
   handleAwbDocumentUpload
@@ -5346,6 +5347,7 @@ app.get('/api/awb-costs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF
 app.get('/api/awb-costs/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAwbCostDetail);
 app.put('/api/awb-costs/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), saveAwbCosts);
 app.get('/api/awb-costs/:id/profit', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAwbCostProfit);
+app.get('/api/awb-costs/:id/calc-release-costs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), calcReleaseCosts);
 app.post('/api/awb-costs/:id/upload-document', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), uploadAwbDocument, handleAwbDocumentUpload);
 app.delete('/api/awb-costs/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteAwbCost);
 
