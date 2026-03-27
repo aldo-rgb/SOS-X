@@ -550,7 +550,9 @@ export default function CostingPanelChinaAir() {
                                         <TableCell align="right">{item.total_boxes}</TableCell>
                                         <TableCell align="right">{Number(item.total_weight_kg || 0).toFixed(2)}</TableCell>
                                         <TableCell align="right">
-                                            ${Number(item.calc_grand_total || 0).toFixed(2)}
+                                            {Number(item.calc_grand_total || 0) > 0
+                                                ? <Typography fontWeight="bold" variant="body2">${Number(item.calc_grand_total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
+                                                : <Chip size="small" label="Sin costear" color="default" variant="outlined" />}
                                         </TableCell>
                                         <TableCell align="center">
                                             <Tooltip title="Ver Detalles">
@@ -762,7 +764,9 @@ export default function CostingPanelChinaAir() {
                             <Card sx={{ bgcolor: '#FFF3E0' }}>
                                 <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
                                     <Typography variant="h5" fontWeight="bold" color="warning.main">
-                                        ${Number(detailDialog.guide?.calc_grand_total || 0).toFixed(2)}
+                                        {Number(detailDialog.guide?.calc_grand_total || 0) > 0
+                                            ? `$${Number(detailDialog.guide?.calc_grand_total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+                                            : 'Pendiente'}
                                     </Typography>
                                     <Typography variant="caption">Costo Total</Typography>
                                 </CardContent>
@@ -945,12 +949,14 @@ export default function CostingPanelChinaAir() {
                                             <Chip size="small" label={item.packages_cajo_count || 0} color="warning" variant="outlined" />
                                         </TableCell>
                                         <TableCell align="right">
-                                            <Typography fontWeight="bold">
-                                                ${Number(item.calc_grand_total || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-                                            </Typography>
+                                            {Number(item.calc_grand_total || 0) > 0
+                                                ? <Typography fontWeight="bold">${Number(item.calc_grand_total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
+                                                : <Chip size="small" label="Sin costear" color="default" variant="outlined" />}
                                         </TableCell>
                                         <TableCell align="right">
-                                            ${Number(item.calc_cost_per_kg || 0).toFixed(2)}
+                                            {Number(item.calc_cost_per_kg || 0) > 0
+                                                ? `$${Number(item.calc_cost_per_kg).toFixed(2)}`
+                                                : '-'}
                                         </TableCell>
                                         <TableCell align="center">
                                             <Chip
