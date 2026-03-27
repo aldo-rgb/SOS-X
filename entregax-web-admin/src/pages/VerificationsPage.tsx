@@ -22,7 +22,6 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import CloseIcon from '@mui/icons-material/Close';
 import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import DiscountIcon from '@mui/icons-material/LocalOffer';
-import ReceiptIcon from '@mui/icons-material/Receipt';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 const ORANGE = '#F05A28';

@@ -511,6 +511,7 @@ import {
   deleteAirRoute,
   getAirTariffs,
   saveAirTariffs,
+  getRoutePriceHistory,
   getAirCostBrackets,
   saveAirCostBrackets,
   // Tarifas personalizadas por cliente
@@ -5317,6 +5318,7 @@ app.delete('/api/admin/air-routes/:id', authenticateToken, requireMinLevel(ROLES
 // Tarifas aéreas (pricing por ruta y tipo)
 app.get('/api/admin/air-tariffs', authenticateToken, getAirTariffs);
 app.post('/api/admin/air-tariffs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), saveAirTariffs);
+app.get('/api/admin/air-tariffs/:routeId/history', authenticateToken, getRoutePriceHistory);
 
 // Brackets de costo proveedor por ruta (lo que nos cobran)
 app.get('/api/admin/air-cost-brackets/:routeId', authenticateToken, getAirCostBrackets);

@@ -33,12 +33,7 @@ import {
 } from '@mui/material';
 import {
     Search as SearchIcon,
-    Save as SaveIcon,
     Flight as FlightIcon,
-    AttachMoney as MoneyIcon,
-    Calculate as CalculateIcon,
-    Description as PdfIcon,
-    Delete as DeleteIcon,
     Refresh as RefreshIcon,
     CheckCircle as CheckIcon,
     Warning as WarningIcon,
@@ -48,8 +43,6 @@ import {
     OpenInNew as OpenCostIcon,
 } from '@mui/icons-material';
 import AwbCostingDialog from './AwbCostingDialog';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 interface MasterAwbData {
     id?: number;
@@ -73,17 +66,6 @@ interface MasterAwbData {
     pdf_custody_url: string | null;
     is_fully_costed: boolean;
     status: string;
-}
-
-interface LinkedPackage {
-    id: number;
-    tracking_internal: string;
-    weight: number;
-    international_tracking: string;
-    description: string;
-    user_id: number;
-    assigned_cost_mxn: number | null;
-    shipping_cost: number | null;
 }
 
 interface CalculatedResults {
@@ -111,6 +93,8 @@ interface ProfitReportItem {
     utilidad_mxn: number;
     margen_porcentaje: number;
     packages_linked: number;
+    client_name?: string;
+    client_box_id?: string;
 }
 
 interface AwbCostListItem {
@@ -119,6 +103,7 @@ interface AwbCostListItem {
     carrier: string | null;
     origin_airport: string | null;
     destination_airport: string | null;
+    route_code: string | null;
     flight_number: string | null;
     flight_date: string | null;
     pieces: number | null;
@@ -137,13 +122,10 @@ interface AwbCostListItem {
 export default function CostingPanelChinaAir() {
     const { t } = useTranslation();
     const [tabValue, setTabValue] = useState(0);
-    const [loading, setLoading] = useState(false);
-    const [saving, setSaving] = useState(false);
-    const [awbSearch, setAwbSearch] = useState('');
-    const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+    const [, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
     // Datos de la guía actual
-    const [data, setData] = useState<MasterAwbData>({
+    const [data,] = useState<MasterAwbData>({
         master_awb_number: '',
         airline: '',
         creation_date: new Date().toISOString().split('T')[0],
@@ -163,8 +145,7 @@ export default function CostingPanelChinaAir() {
         status: 'pending_cost',
     });
 
-    const [linkedPackages, setLinkedPackages] = useState<LinkedPackage[]>([]);
-    const [results, setResults] = useState<CalculatedResults>({
+    const [, setResults] = useState<CalculatedResults>({
         clearanceTotalPerKg: 0,
         finalPricePerKg: 0,
         grandTotal: 0,
@@ -350,91 +331,6 @@ export default function CostingPanelChinaAir() {
     }, [loadStats, loadMasterList, loadProfitReport, loadAwbCostList]);
 
     // ============================================
-    // BUSCAR GUÍA
-    // ============================================
-    const handleSearch = async () => {
-        if (!awbSearch.trim()) {
-            setMessage({ type: 'error', text: 'Ingresa un número de guía' });
-            return;
-        }
-
-        setLoading(true);
-        setMessage(null);
-        try {
-            const res = await fetch(`${API_URL}/api/master-cost/${encodeURIComponent(awbSearch)}`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-
-            if (res.ok) {
-                const json = await res.json();
-                setData({
-                    ...data,
-                    ...json.data,
-                    freight_price_per_kg: json.data.freight_price_per_kg ?? null,
-                    clearance_cost_base: json.data.clearance_cost_base ?? null,
-                    custody_fee: json.data.custody_fee ?? null,
-                    aa_expenses_fee: json.data.aa_expenses_fee ?? null,
-                    additional_expenses: json.data.additional_expenses ?? null,
-                });
-                setLinkedPackages(json.linkedPackages || []);
-                setMessage({
-                    type: json.exists ? 'info' : 'success',
-                    text: json.exists
-                        ? `Guía encontrada - ${json.linkedPackages?.length || 0} paquetes vinculados`
-                        : `Nueva guía - ${json.linkedPackages?.length || 0} paquetes encontrados`,
-                });
-            } else {
-                setMessage({ type: 'error', text: 'Error al buscar la guía' });
-            }
-        } catch {
-            setMessage({ type: 'error', text: 'Error de conexión' });
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    // ============================================
-    // GUARDAR COSTOS
-    // ============================================
-    const handleSave = async () => {
-        if (!data.master_awb_number) {
-            setMessage({ type: 'error', text: 'Primero busca una guía' });
-            return;
-        }
-
-        setSaving(true);
-        setMessage(null);
-        try {
-            const res = await fetch(`${API_URL}/api/master-cost`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                    ...data,
-                    ...results,
-                }),
-            });
-
-            if (res.ok) {
-                const json = await res.json();
-                setMessage({ type: 'success', text: json.message });
-                // Recargar datos
-                loadStats();
-                loadMasterList();
-                loadProfitReport();
-            } else {
-                setMessage({ type: 'error', text: 'Error al guardar' });
-            }
-        } catch {
-            setMessage({ type: 'error', text: 'Error de conexión' });
-        } finally {
-            setSaving(false);
-        }
-    };
-
-    // ============================================
     // ELIMINAR GUÍA
     // ============================================
     const handleDelete = async () => {
@@ -458,19 +354,6 @@ export default function CostingPanelChinaAir() {
         } finally {
             setDeleteDialog({ open: false, id: null });
         }
-    };
-
-    // ============================================
-    // CALCULAR PROGRESO
-    // ============================================
-    const calculateProgress = () => {
-        const fields = [
-            data.freight_price_per_kg,
-            data.clearance_cost_base,
-            data.total_weight_kg,
-        ];
-        const filled = fields.filter((f) => f && Number(f) > 0).length;
-        return (filled / fields.length) * 100;
     };
 
     // ============================================
@@ -551,17 +434,17 @@ export default function CostingPanelChinaAir() {
             {/* Tabs */}
             <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
                 <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} variant="scrollable" scrollButtons="auto">
-                    <Tab icon={<BoxIcon />} label={t('costing.tabs.registered')} />
-                    <Tab icon={<TrendingUpIcon />} label={t('costing.tabs.profit')} />
                     <Tab
                         icon={<ReceiptIcon />}
                         label={`Costeo AWB (${awbCostList.length})`}
                     />
+                    <Tab icon={<BoxIcon />} label={t('costing.tabs.registered')} />
+                    <Tab icon={<TrendingUpIcon />} label={t('costing.tabs.profit')} />
                 </Tabs>
             </Box>
 
-            {/* TAB 0: GUÍAS REGISTRADAS */}
-            {tabValue === 0 && (
+            {/* TAB 1: GUÍAS REGISTRADAS */}
+            {tabValue === 1 && (
                 <Box>
                     <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Typography variant="h6">{t('costing.registeredGuides')}</Typography>
@@ -573,7 +456,7 @@ export default function CostingPanelChinaAir() {
                     {/* Filtros */}
                     <Paper sx={{ p: 2, mb: 2 }}>
                         <Grid container spacing={2} alignItems="center">
-                            <Grid item xs={12} sm={3}>
+                            <Grid size={{ xs: 12, sm: 3 }}>
                                 <TextField
                                     fullWidth
                                     size="small"
@@ -584,7 +467,7 @@ export default function CostingPanelChinaAir() {
                                     InputLabelProps={{ shrink: true }}
                                 />
                             </Grid>
-                            <Grid item xs={12} sm={3}>
+                            <Grid size={{ xs: 12, sm: 3 }}>
                                 <TextField
                                     fullWidth
                                     size="small"
@@ -595,7 +478,7 @@ export default function CostingPanelChinaAir() {
                                     InputLabelProps={{ shrink: true }}
                                 />
                             </Grid>
-                            <Grid item xs={12} sm={3}>
+                            <Grid size={{ xs: 12, sm: 3 }}>
                                 <TextField
                                     fullWidth
                                     size="small"
@@ -605,7 +488,7 @@ export default function CostingPanelChinaAir() {
                                     onChange={(e) => setFilterClient(e.target.value)}
                                 />
                             </Grid>
-                            <Grid item xs={12} sm={3}>
+                            <Grid size={{ xs: 12, sm: 3 }}>
                                 <Box sx={{ display: 'flex', gap: 1 }}>
                                     <Button
                                         variant="contained"
@@ -694,8 +577,8 @@ export default function CostingPanelChinaAir() {
                 </Box>
             )}
 
-            {/* TAB 1: REPORTE DE UTILIDAD */}
-            {tabValue === 1 && (
+            {/* TAB 2: REPORTE DE UTILIDAD */}
+            {tabValue === 2 && (
                 <Box>
                     <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Typography variant="h6">📊 {t('costing.profitReport.title')}</Typography>
@@ -707,7 +590,7 @@ export default function CostingPanelChinaAir() {
                     {/* Totales del reporte */}
                     {profitReport.length > 0 && (
                         <Grid container spacing={2} sx={{ mb: 2 }}>
-                            <Grid item xs={6} sm={3}>
+                            <Grid size={{ xs: 6, sm: 3 }}>
                                 <Card sx={{ bgcolor: '#E3F2FD' }}>
                                     <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
                                         <Typography variant="h5" fontWeight="bold" color="primary">
@@ -717,7 +600,7 @@ export default function CostingPanelChinaAir() {
                                     </CardContent>
                                 </Card>
                             </Grid>
-                            <Grid item xs={6} sm={3}>
+                            <Grid size={{ xs: 6, sm: 3 }}>
                                 <Card sx={{ bgcolor: '#FFF3E0' }}>
                                     <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
                                         <Typography variant="h6" fontWeight="bold" color="warning.main">
@@ -727,7 +610,7 @@ export default function CostingPanelChinaAir() {
                                     </CardContent>
                                 </Card>
                             </Grid>
-                            <Grid item xs={6} sm={3}>
+                            <Grid size={{ xs: 6, sm: 3 }}>
                                 <Card sx={{ bgcolor: '#E8F5E9' }}>
                                     <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
                                         <Typography variant="h6" fontWeight="bold" color="success.main">
@@ -737,7 +620,7 @@ export default function CostingPanelChinaAir() {
                                     </CardContent>
                                 </Card>
                             </Grid>
-                            <Grid item xs={6} sm={3}>
+                            <Grid size={{ xs: 6, sm: 3 }}>
                                 <Card sx={{ bgcolor: '#F3E5F5' }}>
                                     <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
                                         <Typography variant="h6" fontWeight="bold" color={profitReport.reduce((acc, r) => acc + Number(r.utilidad_mxn || 0), 0) >= 0 ? 'success.main' : 'error.main'}>
@@ -855,7 +738,7 @@ export default function CostingPanelChinaAir() {
                 <DialogContent dividers>
                     {/* Resumen de la guía */}
                     <Grid container spacing={2} sx={{ mb: 3 }}>
-                        <Grid item xs={6} sm={3}>
+                        <Grid size={{ xs: 6, sm: 3 }}>
                             <Card sx={{ bgcolor: '#E3F2FD' }}>
                                 <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
                                     <Typography variant="h5" fontWeight="bold" color="primary">
@@ -865,7 +748,7 @@ export default function CostingPanelChinaAir() {
                                 </CardContent>
                             </Card>
                         </Grid>
-                        <Grid item xs={6} sm={3}>
+                        <Grid size={{ xs: 6, sm: 3 }}>
                             <Card sx={{ bgcolor: '#E8F5E9' }}>
                                 <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
                                     <Typography variant="h5" fontWeight="bold" color="success.main">
@@ -875,7 +758,7 @@ export default function CostingPanelChinaAir() {
                                 </CardContent>
                             </Card>
                         </Grid>
-                        <Grid item xs={6} sm={3}>
+                        <Grid size={{ xs: 6, sm: 3 }}>
                             <Card sx={{ bgcolor: '#FFF3E0' }}>
                                 <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
                                     <Typography variant="h5" fontWeight="bold" color="warning.main">
@@ -885,7 +768,7 @@ export default function CostingPanelChinaAir() {
                                 </CardContent>
                             </Card>
                         </Grid>
-                        <Grid item xs={6} sm={3}>
+                        <Grid size={{ xs: 6, sm: 3 }}>
                             <Card sx={{ bgcolor: '#F3E5F5' }}>
                                 <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
                                     <Typography variant="h5" fontWeight="bold" color="secondary">
@@ -978,8 +861,8 @@ export default function CostingPanelChinaAir() {
                 </DialogActions>
             </Dialog>
 
-            {/* TAB 2: COSTEO AWB (estilo marítimo) */}
-            {tabValue === 2 && (
+            {/* TAB 0: COSTEO AWB (estilo marítimo) */}
+            {tabValue === 0 && (
                 <Box>
                     {/* Stats cards */}
                     <Grid container spacing={2} sx={{ mb: 3 }}>
@@ -1018,6 +901,7 @@ export default function CostingPanelChinaAir() {
                                     <TableCell>AWB Number</TableCell>
                                     <TableCell>Carrier</TableCell>
                                     <TableCell>Ruta</TableCell>
+                                    <TableCell>Aeropuerto</TableCell>
                                     <TableCell>Vuelo</TableCell>
                                     <TableCell align="right">Piezas</TableCell>
                                     <TableCell align="right">Peso (kg)</TableCell>
@@ -1047,6 +931,9 @@ export default function CostingPanelChinaAir() {
                                             <Typography variant="body2">
                                                 {item.origin_airport || '?'} → {item.destination_airport || '?'}
                                             </Typography>
+                                        </TableCell>
+                                        <TableCell>
+                                            <Chip size="small" label={item.route_code || 'N/A'} color="error" sx={{ fontWeight: 'bold' }} />
                                         </TableCell>
                                         <TableCell>{item.flight_number || '-'}</TableCell>
                                         <TableCell align="right">{item.pieces || 0}</TableCell>

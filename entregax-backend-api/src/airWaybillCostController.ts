@@ -38,9 +38,11 @@ export const listAwbCosts = async (req: AuthRequest, res: Response): Promise<voi
     const dataQuery = `
       SELECT 
         ac.*,
+        ar.code as route_code,
         (SELECT COUNT(*) FROM packages p WHERE p.awb_cost_id = ac.id) as packages_s_count,
         (SELECT COUNT(*) FROM cajo_guides cg WHERE cg.mawb = ac.awb_number) as packages_cajo_count
       FROM air_waybill_costs ac
+      LEFT JOIN air_routes ar ON ar.id = ac.route_id
       ${whereClause}
       ORDER BY ac.created_at DESC
       LIMIT $${paramIdx++} OFFSET $${paramIdx++}
@@ -69,7 +71,12 @@ export const getAwbCostDetail = async (req: AuthRequest, res: Response): Promise
   try {
     const { id } = req.params;
 
-    const costRes = await pool.query('SELECT * FROM air_waybill_costs WHERE id = $1', [id]);
+    const costRes = await pool.query(`
+      SELECT ac.*, ar.code as route_code 
+      FROM air_waybill_costs ac
+      LEFT JOIN air_routes ar ON ar.id = ac.route_id
+      WHERE ac.id = $1
+    `, [id]);
     if (costRes.rows.length === 0) {
       res.status(404).json({ error: 'Registro de costeo no encontrado' });
       return;
@@ -106,12 +113,21 @@ export const getAwbCostDetail = async (req: AuthRequest, res: Response): Promise
       draftInfo = draftRes.rows[0] || null;
     }
 
+    // Otros gastos múltiples
+    const otherCostsRes = await pool.query(`
+      SELECT id, description, amount, created_at
+      FROM air_waybill_other_costs
+      WHERE awb_cost_id = $1
+      ORDER BY created_at
+    `, [id]);
+
     res.json({
       success: true,
       cost: awbCost,
       packagesS: packagesS.rows,
       cajoGuides: cajoGuides.rows,
       draftInfo,
+      otherCosts: otherCostsRes.rows,
     });
   } catch (error: any) {
     console.error('✈️ [AWB-COST] Error detalle:', error.message);
@@ -130,9 +146,20 @@ export const saveAwbCosts = async (req: AuthRequest, res: Response): Promise<voi
     const { id } = req.params;
     const body = req.body;
 
+    // Peso bruto
+    const grossWeightKg = parseFloat(body.gross_weight_kg) || 0;
+
+    // Costo por kg en origen (MXN) - campo simplificado
+    const originCostPerKg = parseFloat(body.origin_cost_per_kg) || 0;
+
     // Calcular totales
-    const freightCost = parseFloat(body.freight_cost) || 0;
-    const originHandling = parseFloat(body.origin_handling) || 0;
+    // Gastos de Origen = costo_por_kg * peso_bruto
+    const calcTotalOrigin = originCostPerKg * grossWeightKg;
+
+    // Mantener campos legacy por compatibilidad (ya no se usan en UI)
+    const freightCost = calcTotalOrigin; // Se guarda el total calculado en freight_cost
+    const originHandling = 0; // Ya no se usa
+
     const customsClearance = parseFloat(body.customs_clearance) || 0;
     const custodyFee = parseFloat(body.custody_fee) || 0;
     const aaExpenses = parseFloat(body.aa_expenses) || 0;
@@ -140,17 +167,20 @@ export const saveAwbCosts = async (req: AuthRequest, res: Response): Promise<voi
     const transportCost = parseFloat(body.transport_cost) || 0;
     const otherCost = parseFloat(body.other_cost) || 0;
 
-    const calcTotalOrigin = freightCost + originHandling;
+    // Sumar otros gastos múltiples de la lista
+    const otherCostsTotal = Array.isArray(body.otherCosts)
+      ? body.otherCosts.reduce((sum: number, oc: any) => sum + (parseFloat(oc.amount) || 0), 0)
+      : 0;
+
     const calcTotalRelease = customsClearance + custodyFee + aaExpenses + storageFee;
-    const calcTotalLogistics = transportCost + otherCost;
+    const calcTotalLogistics = transportCost + otherCost + otherCostsTotal;
     const calcGrandTotal = calcTotalOrigin + calcTotalRelease + calcTotalLogistics;
 
-    const grossWeightKg = parseFloat(body.gross_weight_kg) || 0;
     const calcCostPerKg = grossWeightKg > 0 ? (calcGrandTotal / grossWeightKg) : 0;
 
-    // Verificar completitud
+    // Verificar completitud (ahora usa origin_cost_per_kg en lugar de freight_cost)
     const isFullyCosted = (
-      freightCost > 0 &&
+      originCostPerKg > 0 &&
       customsClearance > 0 &&
       grossWeightKg > 0
     );
@@ -158,36 +188,38 @@ export const saveAwbCosts = async (req: AuthRequest, res: Response): Promise<voi
 
     const result = await client.query(`
       UPDATE air_waybill_costs SET
-        freight_cost = $1,
-        freight_cost_pdf = $2,
-        origin_handling = $3,
-        origin_handling_pdf = $4,
-        customs_clearance = $5,
-        customs_clearance_pdf = $6,
-        custody_fee = $7,
-        custody_fee_pdf = $8,
-        aa_expenses = $9,
-        aa_expenses_pdf = $10,
-        storage_fee = $11,
-        storage_fee_pdf = $12,
-        transport_cost = $13,
-        transport_cost_pdf = $14,
-        other_cost = $15,
-        other_cost_pdf = $16,
-        other_cost_description = $17,
-        calc_total_origin = $18,
-        calc_total_release = $19,
-        calc_total_logistics = $20,
-        calc_grand_total = $21,
-        calc_cost_per_kg = $22,
-        is_fully_costed = $23,
-        status = $24,
-        notes = $25,
-        gross_weight_kg = $26,
+        origin_cost_per_kg = $1,
+        freight_cost = $2,
+        freight_cost_pdf = $3,
+        origin_handling = $4,
+        origin_handling_pdf = $5,
+        customs_clearance = $6,
+        customs_clearance_pdf = $7,
+        custody_fee = $8,
+        custody_fee_pdf = $9,
+        aa_expenses = $10,
+        aa_expenses_pdf = $11,
+        storage_fee = $12,
+        storage_fee_pdf = $13,
+        transport_cost = $14,
+        transport_cost_pdf = $15,
+        other_cost = $16,
+        other_cost_pdf = $17,
+        other_cost_description = $18,
+        calc_total_origin = $19,
+        calc_total_release = $20,
+        calc_total_logistics = $21,
+        calc_grand_total = $22,
+        calc_cost_per_kg = $23,
+        is_fully_costed = $24,
+        status = $25,
+        notes = $26,
+        gross_weight_kg = $27,
         updated_at = NOW()
-      WHERE id = $27
+      WHERE id = $28
       RETURNING *
     `, [
+      originCostPerKg,
       freightCost, body.freight_cost_pdf || null,
       originHandling, body.origin_handling_pdf || null,
       customsClearance, body.customs_clearance_pdf || null,
@@ -223,6 +255,22 @@ export const saveAwbCosts = async (req: AuthRequest, res: Response): Promise<voi
           AND weight IS NOT NULL AND weight > 0
       `, [calcCostPerKg, id, awbNumber]);
       packagesUpdated = updateRes.rowCount || 0;
+    }
+
+    // Guardar otros gastos múltiples
+    if (body.otherCosts && Array.isArray(body.otherCosts)) {
+      // Eliminar los existentes
+      await client.query('DELETE FROM air_waybill_other_costs WHERE awb_cost_id = $1', [id]);
+      
+      // Insertar los nuevos
+      for (const oc of body.otherCosts) {
+        if (oc.description && oc.amount > 0) {
+          await client.query(`
+            INSERT INTO air_waybill_other_costs (awb_cost_id, description, amount)
+            VALUES ($1, $2, $3)
+          `, [id, oc.description, oc.amount]);
+        }
+      }
     }
 
     await client.query('COMMIT');
@@ -291,10 +339,11 @@ export const getAwbCostProfit = async (req: AuthRequest, res: Response): Promise
 
     const awbCost = costRes.rows[0];
 
-    // Ingresos de paquetes S (usando air_sale_price para aéreo)
+    // Ingresos de paquetes S (usando air_sale_price para aéreo - valor en USD)
     const revenueS = await pool.query(`
       SELECT 
-        COALESCE(SUM(air_sale_price), 0) as revenue_s,
+        COALESCE(SUM(air_sale_price), 0) as revenue_usd,
+        COALESCE(SUM(weight), 0) as weight_s,
         COUNT(*) as count_s
       FROM packages 
       WHERE (awb_cost_id = $1 OR international_tracking = $2)
@@ -309,24 +358,35 @@ export const getAwbCostProfit = async (req: AuthRequest, res: Response): Promise
         AND (air_sale_price IS NULL OR air_sale_price = 0)
     `, [id, awbCost.awb_number]);
 
-    // TODO: Ingresos de CAJO (si aplica) 
-    const totalRevenue = parseFloat(revenueS.rows[0].revenue_s) || 0;
+    // Tipo de cambio guardado en la guía
+    const exchangeRate = parseFloat(awbCost.exchange_rate) || 18.37;
+    
+    // Ingresos: air_sale_price está en USD, convertir a MXN
+    const totalRevenueUSD = parseFloat(revenueS.rows[0].revenue_usd) || 0;
+    const totalRevenueMXN = totalRevenueUSD * exchangeRate;
+    const weightS = parseFloat(revenueS.rows[0].weight_s) || 0;
+    
     const totalCost = parseFloat(awbCost.calc_grand_total) || 0;
-    const profit = totalRevenue - totalCost;
+    const profit = totalRevenueMXN - totalCost;
     const margin = totalCost > 0 ? ((profit / totalCost) * 100) : 0;
 
     res.json({
       success: true,
       profit: {
         totalCost,
-        totalRevenue,
+        totalRevenueUSD,
+        totalRevenueMXN,
+        totalRevenue: totalRevenueMXN, // backward compat
+        exchangeRate,
+        weightS,
         profit,
         margin: margin.toFixed(2),
         packagesS: parseInt(revenueS.rows[0].count_s),
         packagesPendingPrice: parseInt(pendingPrice.rows[0].count),
         breakdown: {
           origin: parseFloat(awbCost.calc_total_origin) || 0,
-          release: parseFloat(awbCost.calc_total_release) || 0,
+          release: parseFloat(awbCost.customs_clearance) || 0,
+          custodyAndRelease: (parseFloat(awbCost.custody_fee) || 0) + (parseFloat(awbCost.aa_expenses) || 0) + (parseFloat(awbCost.storage_fee) || 0),
           logistics: parseFloat(awbCost.calc_total_logistics) || 0,
         },
       },
@@ -375,9 +435,9 @@ export const calcReleaseCosts = async (req: AuthRequest, res: Response): Promise
     }
     const awbCost = costRes.rows[0];
 
-    // Obtener paquetes S vinculados con sus pesos y tipo (Logo/Genérico)
+    // Obtener paquetes S vinculados con sus pesos (tipo se asume Logo por defecto)
     const packagesS = await pool.query(`
-      SELECT p.id, p.tracking_internal, p.weight, p.cajo_tariff_type as tariff_type
+      SELECT p.id, p.tracking_internal, p.weight, COALESCE(p.cajo_tariff_type, 'L') as tariff_type
       FROM packages p
       WHERE p.awb_cost_id = $1 OR p.international_tracking = $2
     `, [id, awbCost.awb_number]);

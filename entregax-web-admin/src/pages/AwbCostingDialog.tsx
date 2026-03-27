@@ -29,7 +29,6 @@ import {
     Card,
     CardContent,
     IconButton,
-    Tooltip,
     InputAdornment,
     LinearProgress,
 } from '@mui/material';
@@ -66,6 +65,7 @@ interface AwbCostData {
     carrier: string | null;
     origin_airport: string | null;
     destination_airport: string | null;
+    route_code: string | null;
     flight_number: string | null;
     flight_date: string | null;
     pieces: number | null;
@@ -131,12 +131,17 @@ interface CajoGuide {
 interface ProfitData {
     totalCost: number;
     totalRevenue: number;
+    totalRevenueUSD: number;
+    totalRevenueMXN: number;
+    exchangeRate: number;
+    weightS: number;
     profit: number;
     margin: string;
     packagesS: number;
     breakdown: {
         origin: number;
         release: number;
+        custodyAndRelease: number;
         logistics: number;
     };
 }
@@ -152,6 +157,10 @@ interface AwbCostingDialogProps {
 const fmt = (val: number | null | undefined): string => {
     const n = Number(val) || 0;
     return n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+};
+const fmtUSD = (val: number | null | undefined): string => {
+    const n = Number(val) || 0;
+    return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 };
 
 // ===== Component =====
@@ -185,11 +194,20 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
     } | null>(null);
     const [loadingRelease, setLoadingRelease] = useState(false);
 
+    // Otros gastos múltiples
+    interface OtherCostItem {
+        id?: number;
+        description: string;
+        amount: number;
+    }
+    const [otherCostsList, setOtherCostsList] = useState<OtherCostItem[]>([]);
+
     // Form fields (editable costs)
     const [form, setForm] = useState({
-        freight_cost: 0,
+        origin_cost_per_kg: 0,  // Nuevo campo simplificado para costo por kg en origen
+        freight_cost: 0,       // Legacy, se calcula automáticamente
         freight_cost_pdf: '',
-        origin_handling: 0,
+        origin_handling: 0,    // Legacy, ya no se usa
         origin_handling_pdf: '',
         customs_clearance: 0,
         customs_clearance_pdf: '',
@@ -209,13 +227,16 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
     });
 
     // ===== Calculated totals (live) =====
-    const calcTotalOrigin = (form.freight_cost || 0) + (form.origin_handling || 0);
+    // Gastos Origen = costo_por_kg * peso_bruto
+    const calcTotalOrigin = (form.origin_cost_per_kg || 0) * (form.gross_weight_kg || 0);
     const calcTotalRelease = (form.customs_clearance || 0) + (form.custody_fee || 0) + (form.aa_expenses || 0) + (form.storage_fee || 0);
-    const calcTotalLogistics = (form.transport_cost || 0) + (form.other_cost || 0);
+    // Incluir suma de otros gastos múltiples
+    const totalOtherCosts = otherCostsList.reduce((sum, item) => sum + (item.amount || 0), 0);
+    const calcTotalLogistics = (form.transport_cost || 0) + totalOtherCosts;
     const calcGrandTotal = calcTotalOrigin + calcTotalRelease + calcTotalLogistics;
     const calcCostPerKg = form.gross_weight_kg > 0 ? (calcGrandTotal / form.gross_weight_kg) : 0;
     const completionPercent = [
-        form.freight_cost > 0,
+        form.origin_cost_per_kg > 0,
         form.customs_clearance > 0,
         form.gross_weight_kg > 0,
     ].filter(Boolean).length / 3 * 100;
@@ -238,6 +259,7 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                 setPackagesS(data.packagesS || []);
                 setCajoGuides(data.cajoGuides || []);
                 setForm({
+                    origin_cost_per_kg: Number(c.origin_cost_per_kg) || 0,
                     freight_cost: Number(c.freight_cost) || 0,
                     freight_cost_pdf: c.freight_cost_pdf || '',
                     origin_handling: Number(c.origin_handling) || 0,
@@ -258,6 +280,16 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                     notes: c.notes || '',
                     gross_weight_kg: Number(c.gross_weight_kg) || 0,
                 });
+                // Cargar otros gastos múltiples
+                if (data.otherCosts && data.otherCosts.length > 0) {
+                    setOtherCostsList(data.otherCosts.map((oc: { id: number; description: string; amount: number }) => ({
+                        id: oc.id,
+                        description: oc.description,
+                        amount: Number(oc.amount) || 0,
+                    })));
+                } else {
+                    setOtherCostsList([]);
+                }
             }
         } catch (err: unknown) {
             setMessage({ type: 'error', text: 'Error cargando detalle: ' + (err instanceof Error ? err.message : String(err)) });
@@ -299,16 +331,6 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
         }
     }, [awbCostId]);
 
-    // Aplicar cálculo automático a los campos del formulario
-    const applyAutoCalc = () => {
-        if (!releaseCalc) return;
-        setForm(prev => ({
-            ...prev,
-            customs_clearance: releaseCalc.gastos_liberacion_total,
-        }));
-        setMessage({ type: 'success', text: 'Gastos de liberación aplicados automáticamente' });
-    };
-
     // ===== Effects =====
     useEffect(() => {
         if (open && awbCostId) {
@@ -318,6 +340,16 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
             loadReleaseCosts();
         }
     }, [open, awbCostId, loadDetail, loadReleaseCosts]);
+
+    // Aplicar automáticamente el cálculo cuando releaseCalc cambia
+    useEffect(() => {
+        if (releaseCalc && releaseCalc.gastos_liberacion_total > 0) {
+            setForm(prev => ({
+                ...prev,
+                customs_clearance: releaseCalc.gastos_liberacion_total,
+            }));
+        }
+    }, [releaseCalc]);
 
     useEffect(() => {
         if (open && tabValue === 5) {
@@ -337,7 +369,10 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                     'Content-Type': 'application/json',
                     Authorization: `Bearer ${getToken()}`,
                 },
-                body: JSON.stringify(form),
+                body: JSON.stringify({
+                    ...form,
+                    otherCosts: otherCostsList.filter(oc => oc.description && oc.amount > 0),
+                }),
             });
             const data = await res.json();
             if (data.success) {
@@ -357,101 +392,6 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
     // ===== Field updater =====
     const updateField = (field: string, value: number | string) => {
         setForm(prev => ({ ...prev, [field]: value }));
-    };
-
-    // ===== Upload file handler =====
-    const handleUploadFile = async (field: string, file: File) => {
-        if (!awbCostId) return;
-        
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('field', `${field}_pdf`);
-        
-        try {
-            const res = await fetch(`${API_URL}/api/awb-costs/${awbCostId}/upload-document`, {
-                method: 'POST',
-                headers: {
-                    Authorization: `Bearer ${getToken()}`,
-                },
-                body: formData,
-            });
-            const data = await res.json();
-            if (data.success && data.url) {
-                updateField(`${field}_pdf`, data.url);
-                setMessage({ type: 'success', text: `✅ ${file.name} subido correctamente` });
-            } else {
-                setMessage({ type: 'error', text: data.error || 'Error subiendo archivo' });
-            }
-        } catch (err) {
-            setMessage({ type: 'error', text: 'Error subiendo archivo' });
-        }
-    };
-
-    // ===== Render cost field row =====
-    const CostField = ({ label, field, icon }: { label: string; field: string; icon?: React.ReactNode }) => {
-        const formRec = form as Record<string, string | number>;
-        const pdfUrl = formRec[`${field}_pdf`] as string;
-        
-        return (
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 1.5 }}>
-                {icon && <Box sx={{ color: 'text.secondary', display: 'flex' }}>{icon}</Box>}
-                <TextField
-                    fullWidth
-                    label={label}
-                    type="number"
-                    value={formRec[field] || ''}
-                    onChange={(e) => updateField(field, Number(e.target.value) || 0)}
-                    size="small"
-                    InputProps={{
-                        startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                    }}
-                />
-                {pdfUrl ? (
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
-                        <Tooltip title="Ver comprobante">
-                            <IconButton 
-                                size="small" 
-                                color="primary"
-                                onClick={() => window.open(pdfUrl.startsWith('http') ? pdfUrl : `${API_URL}${pdfUrl}`, '_blank')}
-                            >
-                                <OpenIcon fontSize="small" />
-                            </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Eliminar comprobante">
-                            <IconButton 
-                                size="small" 
-                                color="error"
-                                onClick={() => updateField(`${field}_pdf`, '')}
-                            >
-                                <DeleteIcon fontSize="small" />
-                            </IconButton>
-                        </Tooltip>
-                    </Box>
-                ) : (
-                    <Tooltip title="Subir comprobante PDF/Imagen">
-                        <Button
-                            component="label"
-                            variant="outlined"
-                            size="small"
-                            startIcon={<UploadIcon />}
-                            sx={{ minWidth: 130, textTransform: 'none' }}
-                        >
-                            Subir PDF
-                            <input
-                                type="file"
-                                hidden
-                                accept=".pdf,.jpg,.jpeg,.png"
-                                onChange={(e) => {
-                                    const file = e.target.files?.[0];
-                                    if (file) handleUploadFile(field, file);
-                                    e.target.value = '';
-                                }}
-                            />
-                        </Button>
-                    </Tooltip>
-                )}
-            </Box>
-        );
     };
 
     if (!open) return null;
@@ -588,10 +528,19 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                             <TextField fullWidth label="Vuelo" value={cost.flight_number || '-'} disabled size="small" />
                                                         </Grid>
                                                         <Grid size={{ xs: 6 }}>
-                                                            <TextField fullWidth label="Origen" value={cost.origin_airport || '-'} disabled size="small" />
+                                                            <TextField fullWidth label="Ruta" value={`${cost.origin_airport || '?'} → ${cost.destination_airport || '?'}`} disabled size="small" />
                                                         </Grid>
                                                         <Grid size={{ xs: 6 }}>
-                                                            <TextField fullWidth label="Destino" value={cost.destination_airport || '-'} disabled size="small" />
+                                                            <TextField 
+                                                                fullWidth 
+                                                                label="Aeropuerto" 
+                                                                value={cost.route_code || 'N/A'} 
+                                                                disabled 
+                                                                size="small"
+                                                                InputProps={{
+                                                                    sx: { fontWeight: 'bold', color: 'error.main' }
+                                                                }}
+                                                            />
                                                         </Grid>
                                                         <Grid size={{ xs: 4 }}>
                                                             <TextField fullWidth label="Fecha Vuelo" value={cost.flight_date ? new Date(cost.flight_date).toLocaleDateString() : '-'} disabled size="small" />
@@ -759,12 +708,54 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                         <ShippingIcon color="primary" /> Gastos en Origen
                                     </Typography>
                                     <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
-                                        Costos de flete aéreo y manejo en origen (aeropuerto de salida)
+                                        Costo por kilogramo del flete aéreo en origen (MXN)
                                     </Typography>
 
-                                    <Card variant="outlined" sx={{ p: 2 }}>
-                                        <CostField label="Flete Aéreo" field="freight_cost" icon={<FlightIcon fontSize="small" />} />
-                                        <CostField label="Manejo en Origen" field="origin_handling" icon={<ShippingIcon fontSize="small" />} />
+                                    {/* Peso de paquetes S */}
+                                    <Card variant="outlined" sx={{ mb: 2, p: 2, bgcolor: '#f5f5f5' }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                <FlightIcon color="primary" />
+                                                <Typography variant="subtitle2" color="text.secondary">Peso Paquetes S ({packagesS.length}):</Typography>
+                                            </Box>
+                                            <Typography variant="h5" fontWeight="bold" color="primary.main">
+                                                {packagesS.length > 0 ? `${packagesS.reduce((sum, p) => sum + (Number(p.weight) || 0), 0).toLocaleString('en-US', { minimumFractionDigits: 2 })} kg` : '— Sin paquetes S'}
+                                            </Typography>
+                                        </Box>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mt: 1 }}>
+                                            <Typography variant="caption" color="text.secondary">Peso Bruto Guía (AWB):</Typography>
+                                            <Typography variant="caption" color="text.secondary">{form.gross_weight_kg > 0 ? `${form.gross_weight_kg.toLocaleString('en-US', { minimumFractionDigits: 2 })} kg` : '—'}</Typography>
+                                        </Box>
+                                    </Card>
+
+                                    <Card variant="outlined" sx={{ p: 3 }}>
+                                        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                                            <FlightIcon color="primary" />
+                                            <TextField
+                                                fullWidth
+                                                label="Costo por KG (MXN)"
+                                                type="number"
+                                                value={form.origin_cost_per_kg || ''}
+                                                onChange={(e) => updateField('origin_cost_per_kg', parseFloat(e.target.value) || 0)}
+                                                InputProps={{
+                                                    startAdornment: <Box sx={{ color: 'text.secondary', mr: 1 }}>$</Box>,
+                                                    endAdornment: <Box sx={{ color: 'text.secondary', ml: 1 }}>MXN/kg</Box>,
+                                                }}
+                                                sx={{ maxWidth: 300 }}
+                                            />
+                                        </Box>
+                                        
+                                        {packagesS.length > 0 && (() => {
+                                            const weightSLocal = packagesS.reduce((sum, p) => sum + (Number(p.weight) || 0), 0);
+                                            const totalOriginCalc = (form.origin_cost_per_kg || 0) * weightSLocal;
+                                            return (
+                                                <Box sx={{ mt: 2, p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        ${(form.origin_cost_per_kg || 0).toFixed(2)} MXN/kg × {weightSLocal.toFixed(2)} kg (S) = <strong>{fmt(totalOriginCalc)}</strong>
+                                                    </Typography>
+                                                </Box>
+                                            );
+                                        })()}
                                     </Card>
 
                                     <Card sx={{ mt: 2, bgcolor: '#e3f2fd', p: 2 }}>
@@ -790,101 +781,135 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                         Costos aduanales y de liberación en destino
                                     </Typography>
 
-                                    {/* Cálculo Automático basado en tarifario */}
-                                    {releaseCalc && (
-                                        <Card variant="outlined" sx={{ mb: 3, p: 2, bgcolor: '#fff8e1', border: '2px solid #ff9800' }}>
-                                            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
-                                                <Typography variant="subtitle1" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                    ⚡ Cálculo Automático (Tarifario Proveedor)
-                                                </Typography>
-                                                <Button
-                                                    variant="contained"
-                                                    color="warning"
-                                                    size="small"
-                                                    onClick={applyAutoCalc}
-                                                    sx={{ textTransform: 'none' }}
-                                                >
-                                                    Aplicar a Despacho
-                                                </Button>
-                                            </Box>
-                                            
-                                            <Grid container spacing={2}>
-                                                {/* Paquetes S */}
-                                                <Grid size={{ xs: 12, md: 6 }}>
-                                                    <Card variant="outlined" sx={{ p: 1.5, bgcolor: 'primary.50' }}>
-                                                        <Typography variant="subtitle2" fontWeight="bold" color="primary.main" gutterBottom>
-                                                            📦 Gestión Aérea (S) - {releaseCalc.count_packages_s} paquetes
-                                                        </Typography>
-                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                                                            <Typography variant="body2">Peso:</Typography>
-                                                            <Typography variant="body2" fontWeight="bold">{releaseCalc.peso_s.toFixed(2)} kg</Typography>
-                                                        </Box>
-                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                                                            <Typography variant="body2" color="text.secondary">
-                                                                ({releaseCalc.tipo_predominante === 'L' ? 'Logo' : 'Genérico'}: ${releaseCalc.tarifa_proveedor_per_kg.toFixed(2)}/kg)
-                                                            </Typography>
-                                                        </Box>
-                                                        <Divider sx={{ my: 1 }} />
-                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                            <Typography variant="body2" fontWeight="bold">Costo:</Typography>
-                                                            <Typography variant="body1" fontWeight="bold" color="primary.main">
-                                                                ${releaseCalc.gastos_liberacion_s.toLocaleString('en-US', { minimumFractionDigits: 2 })} MXN
-                                                            </Typography>
-                                                        </Box>
-                                                    </Card>
-                                                </Grid>
-
-                                                {/* Guías CAJO */}
-                                                <Grid size={{ xs: 12, md: 6 }}>
-                                                    <Card variant="outlined" sx={{ p: 1.5, bgcolor: 'warning.50' }}>
-                                                        <Typography variant="subtitle2" fontWeight="bold" color="warning.main" gutterBottom>
-                                                            📦 Guías CAJO - {releaseCalc.count_cajo_guides} guías
-                                                        </Typography>
-                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                                                            <Typography variant="body2">Peso:</Typography>
-                                                            <Typography variant="body2" fontWeight="bold">{releaseCalc.peso_cajo.toFixed(2)} kg</Typography>
-                                                        </Box>
-                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                                                            <Typography variant="body2" color="text.secondary">
-                                                                (${releaseCalc.tarifa_proveedor_per_kg.toFixed(2)} + ${releaseCalc.overfee_cajo_per_kg.toFixed(2)} overfee = ${(releaseCalc.tarifa_proveedor_per_kg + releaseCalc.overfee_cajo_per_kg).toFixed(2)}/kg)
-                                                            </Typography>
-                                                        </Box>
-                                                        <Divider sx={{ my: 1 }} />
-                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                                                            <Typography variant="body2" fontWeight="bold">Costo:</Typography>
-                                                            <Typography variant="body1" fontWeight="bold" color="warning.main">
-                                                                ${releaseCalc.gastos_liberacion_cajo.toLocaleString('en-US', { minimumFractionDigits: 2 })} MXN
-                                                            </Typography>
-                                                        </Box>
-                                                    </Card>
-                                                </Grid>
-                                            </Grid>
-
-                                            <Card sx={{ mt: 2, p: 1.5, bgcolor: '#ff9800', color: 'white' }}>
-                                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                                    <Typography variant="subtitle1" fontWeight="bold">
-                                                        💰 TOTAL LIBERACIÓN CALCULADO:
-                                                    </Typography>
-                                                    <Typography variant="h5" fontWeight="bold">
-                                                        ${releaseCalc.gastos_liberacion_total.toLocaleString('en-US', { minimumFractionDigits: 2 })} MXN
-                                                    </Typography>
-                                                </Box>
-                                            </Card>
-                                        </Card>
-                                    )}
-
-                                    {loadingRelease && (
-                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                                            <CircularProgress size={20} />
-                                            <Typography variant="body2" color="text.secondary">Calculando gastos de liberación...</Typography>
+                                    {/* Despacho Aduanal - Cálculo Automático */}
+                                    <Card variant="outlined" sx={{ mb: 3, p: 2 }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                                            <Typography variant="subtitle1" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                <GavelIcon fontSize="small" color="secondary" /> Despacho Aduanal
+                                            </Typography>
+                                            {loadingRelease && <CircularProgress size={20} />}
                                         </Box>
-                                    )}
 
+                                        {releaseCalc ? (
+                                            <Box>
+                                                {/* Desglose del cálculo */}
+                                                <Grid container spacing={2} sx={{ mb: 2 }}>
+                                                    <Grid size={{ xs: 12, md: 6 }}>
+                                                        <Card variant="outlined" sx={{ p: 1.5, bgcolor: 'primary.50' }}>
+                                                            <Typography variant="subtitle2" fontWeight="bold" color="primary.main" gutterBottom>
+                                                                📦 Paquetes S ({releaseCalc.count_packages_s})
+                                                            </Typography>
+                                                            <Typography variant="body2">
+                                                                {releaseCalc.peso_s.toFixed(2)} kg × ${releaseCalc.tarifa_proveedor_per_kg.toFixed(2)}/kg
+                                                            </Typography>
+                                                            <Typography variant="body1" fontWeight="bold" color="primary.main">
+                                                                = ${releaseCalc.gastos_liberacion_s.toLocaleString('en-US', { minimumFractionDigits: 2 })} MXN
+                                                            </Typography>
+                                                        </Card>
+                                                    </Grid>
+                                                    <Grid size={{ xs: 12, md: 6 }}>
+                                                        <Card variant="outlined" sx={{ p: 1.5, bgcolor: 'warning.50' }}>
+                                                            <Typography variant="subtitle2" fontWeight="bold" color="warning.main" gutterBottom>
+                                                                📦 Guías CAJO ({releaseCalc.count_cajo_guides})
+                                                            </Typography>
+                                                            <Typography variant="body2">
+                                                                {releaseCalc.peso_cajo.toFixed(2)} kg × ${(releaseCalc.tarifa_proveedor_per_kg + releaseCalc.overfee_cajo_per_kg).toFixed(2)}/kg
+                                                            </Typography>
+                                                            <Typography variant="body1" fontWeight="bold" color="warning.main">
+                                                                = ${releaseCalc.gastos_liberacion_cajo.toLocaleString('en-US', { minimumFractionDigits: 2 })} MXN
+                                                            </Typography>
+                                                        </Card>
+                                                    </Grid>
+                                                </Grid>
+
+                                                {/* Total calculado - Se aplica automáticamente */}
+                                                <Card sx={{ p: 2, bgcolor: '#e8f5e9' }}>
+                                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                        <Box>
+                                                            <Typography variant="body2" color="text.secondary">
+                                                                Cálculo automático (tarifas proveedor) - Aplicado ✓
+                                                            </Typography>
+                                                            <Typography variant="h5" fontWeight="bold" color="success.main">
+                                                                ${releaseCalc.gastos_liberacion_total.toLocaleString('en-US', { minimumFractionDigits: 2 })} MXN
+                                                            </Typography>
+                                                        </Box>
+                                                        <Chip label="Auto" color="success" size="small" />
+                                                    </Box>
+                                                </Card>
+                                            </Box>
+                                        ) : (
+                                            <Box>
+                                                <Alert severity="info" sx={{ mb: 2 }}>
+                                                    No hay paquetes vinculados para calcular automáticamente.
+                                                </Alert>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Despacho Aduanal"
+                                                    type="number"
+                                                    value={form.customs_clearance || ''}
+                                                    onChange={(e) => updateField('customs_clearance', parseFloat(e.target.value) || 0)}
+                                                    InputProps={{
+                                                        startAdornment: <Box sx={{ color: 'text.secondary', mr: 1 }}>$</Box>,
+                                                    }}
+                                                    size="small"
+                                                />
+                                            </Box>
+                                        )}
+                                    </Card>
+
+                                    {/* Otros gastos - Captura manual sin botones PDF */}
                                     <Card variant="outlined" sx={{ p: 2 }}>
-                                        <CostField label="Despacho Aduanal" field="customs_clearance" icon={<GavelIcon fontSize="small" />} />
-                                        <CostField label="Custodia" field="custody_fee" icon={<CostIcon fontSize="small" />} />
-                                        <CostField label="Gastos AA (Agente Aduanal)" field="aa_expenses" icon={<DocIcon fontSize="small" />} />
-                                        <CostField label="Almacenaje" field="storage_fee" icon={<BoxIcon fontSize="small" />} />
+                                        <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
+                                            Otros gastos (captura manual)
+                                        </Typography>
+                                        <Grid container spacing={2}>
+                                            <Grid size={{ xs: 12, sm: 4 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Custodia"
+                                                    type="number"
+                                                    value={form.custody_fee || ''}
+                                                    onChange={(e) => updateField('custody_fee', parseFloat(e.target.value) || 0)}
+                                                    InputProps={{
+                                                        startAdornment: <Box sx={{ color: 'text.secondary', mr: 1 }}>$</Box>,
+                                                    }}
+                                                    size="small"
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, sm: 4 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Gastos AA"
+                                                    type="number"
+                                                    value={form.aa_expenses || ''}
+                                                    onChange={(e) => updateField('aa_expenses', parseFloat(e.target.value) || 0)}
+                                                    InputProps={{
+                                                        startAdornment: <Box sx={{ color: 'text.secondary', mr: 1 }}>$</Box>,
+                                                    }}
+                                                    size="small"
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, sm: 4 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Almacenaje"
+                                                    type="number"
+                                                    value={form.storage_fee || ''}
+                                                    onChange={(e) => updateField('storage_fee', parseFloat(e.target.value) || 0)}
+                                                    InputProps={{
+                                                        startAdornment: <Box sx={{ color: 'text.secondary', mr: 1 }}>$</Box>,
+                                                    }}
+                                                    size="small"
+                                                />
+                                            </Grid>
+                                        </Grid>
+
+                                        {/* Subtotal Custodia y Liberación */}
+                                        <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 2, mt: 2, borderTop: '1px solid #eee' }}>
+                                            <Typography variant="body2" fontWeight="bold">
+                                                Subtotal Custodia y Liberación: {fmt((form.custody_fee || 0) + (form.aa_expenses || 0) + (form.storage_fee || 0))}
+                                            </Typography>
+                                        </Box>
                                     </Card>
 
                                     <Card sx={{ mt: 2, bgcolor: '#f3e5f5', p: 2 }}>
@@ -910,19 +935,92 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                         Transporte terrestre y otros gastos operativos
                                     </Typography>
 
-                                    <Card variant="outlined" sx={{ p: 2 }}>
-                                        <CostField label="Transporte Terrestre" field="transport_cost" icon={<ShippingIcon fontSize="small" />} />
-                                        <CostField label="Otros Gastos" field="other_cost" icon={<CostIcon fontSize="small" />} />
+                                    {/* Transporte Terrestre */}
+                                    <Card variant="outlined" sx={{ p: 2, mb: 2 }}>
                                         <TextField
                                             fullWidth
-                                            label="Descripción de otros gastos"
-                                            value={form.other_cost_description}
-                                            onChange={(e) => updateField('other_cost_description', e.target.value)}
+                                            label="Transporte Terrestre"
+                                            type="number"
+                                            value={form.transport_cost || ''}
+                                            onChange={(e) => updateField('transport_cost', parseFloat(e.target.value) || 0)}
+                                            InputProps={{
+                                                startAdornment: <Box sx={{ color: 'text.secondary', mr: 1 }}>$</Box>,
+                                            }}
                                             size="small"
-                                            multiline
-                                            rows={2}
-                                            sx={{ mt: 1 }}
                                         />
+                                    </Card>
+
+                                    {/* Otros Gastos Múltiples */}
+                                    <Card variant="outlined" sx={{ p: 2, mb: 2 }}>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                                            <Typography variant="subtitle2" fontWeight="bold">
+                                                Otros Gastos
+                                            </Typography>
+                                            <Button
+                                                size="small"
+                                                variant="outlined"
+                                                startIcon={<UploadIcon />}
+                                                onClick={() => setOtherCostsList([...otherCostsList, { description: '', amount: 0 }])}
+                                            >
+                                                Agregar Gasto
+                                            </Button>
+                                        </Box>
+
+                                        {otherCostsList.length === 0 ? (
+                                            <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>
+                                                No hay otros gastos. Haz clic en "Agregar Gasto" para añadir uno.
+                                            </Typography>
+                                        ) : (
+                                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                                                {otherCostsList.map((item, index) => (
+                                                    <Box key={index} sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+                                                        <TextField
+                                                            label="Descripción"
+                                                            value={item.description}
+                                                            onChange={(e) => {
+                                                                const newList = [...otherCostsList];
+                                                                newList[index].description = e.target.value;
+                                                                setOtherCostsList(newList);
+                                                            }}
+                                                            size="small"
+                                                            sx={{ flex: 2 }}
+                                                        />
+                                                        <TextField
+                                                            label="Monto"
+                                                            type="number"
+                                                            value={item.amount || ''}
+                                                            onChange={(e) => {
+                                                                const newList = [...otherCostsList];
+                                                                newList[index].amount = parseFloat(e.target.value) || 0;
+                                                                setOtherCostsList(newList);
+                                                            }}
+                                                            InputProps={{
+                                                                startAdornment: <Box sx={{ color: 'text.secondary', mr: 1 }}>$</Box>,
+                                                            }}
+                                                            size="small"
+                                                            sx={{ flex: 1 }}
+                                                        />
+                                                        <IconButton
+                                                            color="error"
+                                                            onClick={() => {
+                                                                const newList = otherCostsList.filter((_, i) => i !== index);
+                                                                setOtherCostsList(newList);
+                                                            }}
+                                                            size="small"
+                                                        >
+                                                            <DeleteIcon />
+                                                        </IconButton>
+                                                    </Box>
+                                                ))}
+                                                {otherCostsList.length > 0 && (
+                                                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 1, borderTop: '1px solid #eee' }}>
+                                                        <Typography variant="body2" fontWeight="bold">
+                                                            Subtotal Otros: {fmt(totalOtherCosts)}
+                                                        </Typography>
+                                                    </Box>
+                                                )}
+                                            </Box>
+                                        )}
                                     </Card>
 
                                     <Card sx={{ mt: 2, bgcolor: '#e0f7fa', p: 2 }}>
@@ -961,7 +1059,7 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                             <Button
                                                                 variant="contained"
                                                                 startIcon={<OpenIcon />}
-                                                                onClick={() => window.open(`${API_URL}${cost.awb_pdf_url}`, '_blank')}
+                                                                onClick={() => window.open(cost.awb_pdf_url.startsWith('http') ? cost.awb_pdf_url : `${API_URL}${cost.awb_pdf_url}`, '_blank')}
                                                                 fullWidth
                                                                 sx={{ mb: 1 }}
                                                             >
@@ -996,7 +1094,7 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                                 variant="contained"
                                                                 color="success"
                                                                 startIcon={<OpenIcon />}
-                                                                onClick={() => window.open(`${API_URL}${cost.packing_list_url}`, '_blank')}
+                                                                onClick={() => window.open(cost.packing_list_url.startsWith('http') ? cost.packing_list_url : `${API_URL}${cost.packing_list_url}`, '_blank')}
                                                                 fullWidth
                                                                 sx={{ mb: 1 }}
                                                             >
@@ -1019,33 +1117,7 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                         </Grid>
                                     </Grid>
 
-                                    {/* PDF comprobantes de costos */}
-                                    <Typography variant="subtitle2" sx={{ mt: 3, mb: 1 }}>
-                                        📎 Comprobantes de Costos
-                                    </Typography>
-                                    <Grid container spacing={1}>
-                                        {[
-                                            { label: 'Flete', url: form.freight_cost_pdf },
-                                            { label: 'Manejo Origen', url: form.origin_handling_pdf },
-                                            { label: 'Despacho', url: form.customs_clearance_pdf },
-                                            { label: 'Custodia', url: form.custody_fee_pdf },
-                                            { label: 'Gastos AA', url: form.aa_expenses_pdf },
-                                            { label: 'Almacenaje', url: form.storage_fee_pdf },
-                                            { label: 'Transporte', url: form.transport_cost_pdf },
-                                            { label: 'Otros', url: form.other_cost_pdf },
-                                        ].map(({ label, url }) => (
-                                            <Grid size={{ xs: 6, md: 3 }} key={label}>
-                                                <Chip
-                                                    icon={url ? <CheckIcon /> : <WarningIcon />}
-                                                    label={label}
-                                                    color={url ? 'success' : 'default'}
-                                                    variant={url ? 'filled' : 'outlined'}
-                                                    onClick={url ? () => window.open(url, '_blank') : undefined}
-                                                    sx={{ width: '100%', cursor: url ? 'pointer' : 'default' }}
-                                                />
-                                            </Grid>
-                                        ))}
-                                    </Grid>
+
                                 </Box>
                             )}
 
@@ -1092,6 +1164,18 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                         variant="outlined"
                                                         label={`${packagesS.reduce((sum, p) => sum + (Number(p.weight) || 0), 0).toFixed(2)} kg`}
                                                     />
+                                                    {profitData && (() => {
+                                                        const total = packagesS.length + cajoGuides.length;
+                                                        const pctS = total > 0 ? packagesS.length / total : 0;
+                                                        const sharedCost = (profitData.breakdown.custodyAndRelease || 0) + profitData.breakdown.logistics;
+                                                        return (
+                                                            <Chip 
+                                                                size="small" 
+                                                                label={`Pago: ${fmt(pctS * sharedCost)}`}
+                                                                sx={{ fontWeight: 'bold', bgcolor: '#e3f2fd', color: 'primary.main' }}
+                                                            />
+                                                        );
+                                                    })()}
                                                 </Box>
 
                                                 {/* Separador */}
@@ -1126,6 +1210,18 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                         variant="outlined"
                                                         label={`${cajoGuides.reduce((sum, g) => sum + (Number(g.peso_kg) || 0), 0).toFixed(2)} kg`}
                                                     />
+                                                    {profitData && (() => {
+                                                        const total = packagesS.length + cajoGuides.length;
+                                                        const pctCajo = total > 0 ? cajoGuides.length / total : 0;
+                                                        const sharedCost = (profitData.breakdown.custodyAndRelease || 0) + profitData.breakdown.logistics;
+                                                        return (
+                                                            <Chip 
+                                                                size="small" 
+                                                                label={`Pago: ${fmt(pctCajo * sharedCost)}`}
+                                                                sx={{ fontWeight: 'bold', bgcolor: '#fff3e0', color: 'warning.dark' }}
+                                                            />
+                                                        );
+                                                    })()}
                                                 </Box>
 
                                                 {/* Separador */}
@@ -1154,8 +1250,21 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                         variant="outlined"
                                                         label={`${(packagesS.reduce((sum, p) => sum + (Number(p.weight) || 0), 0) + cajoGuides.reduce((sum, g) => sum + (Number(g.peso_kg) || 0), 0)).toFixed(2)} kg`}
                                                     />
+                                                    {profitData && (
+                                                        <Chip 
+                                                            size="small" 
+                                                            variant="outlined"
+                                                            label={`Base: ${fmt((profitData.breakdown.custodyAndRelease || 0) + profitData.breakdown.logistics)}`}
+                                                            sx={{ fontWeight: 'bold' }}
+                                                        />
+                                                    )}
                                                 </Box>
                                             </Box>
+                                            {profitData && (
+                                                <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                                                    * El monto a pagar se calcula proporcionalmente sobre Custodia y Almacenaje ({fmt(profitData.breakdown.custodyAndRelease || 0)}) + Gastos Logísticos ({fmt(profitData.breakdown.logistics)})
+                                                </Typography>
+                                            )}
                                         </CardContent>
                                     </Card>
 
@@ -1172,8 +1281,12 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                             <Typography variant="body2" fontWeight="bold">{fmt(profitData.breakdown.origin)}</Typography>
                                                         </Box>
                                                         <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between' }}>
-                                                            <Typography variant="body2">Gastos Liberación:</Typography>
+                                                            <Typography variant="body2">Despacho Aduanal:</Typography>
                                                             <Typography variant="body2" fontWeight="bold">{fmt(profitData.breakdown.release)}</Typography>
+                                                        </Box>
+                                                        <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between' }}>
+                                                            <Typography variant="body2">Custodia y Almacenaje:</Typography>
+                                                            <Typography variant="body2" fontWeight="bold">{fmt(profitData.breakdown.custodyAndRelease || 0)}</Typography>
                                                         </Box>
                                                         <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between' }}>
                                                             <Typography variant="body2">Gastos Logísticos:</Typography>
@@ -1206,8 +1319,26 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                             <Typography variant="body2">
                                                                 Ingresos ({profitData.packagesS} paquetes S):
                                                             </Typography>
+                                                            <Typography variant="body2" fontWeight="bold" color="info.main">
+                                                                {fmtUSD(profitData.totalRevenueUSD || 0)} USD
+                                                            </Typography>
+                                                        </Box>
+
+                                                        <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between', bgcolor: '#f5f5f5', p: 0.5, borderRadius: 1 }}>
+                                                            <Typography variant="caption" color="text.secondary">
+                                                                Tipo de Cambio (TDI):
+                                                            </Typography>
+                                                            <Typography variant="caption" fontWeight="bold">
+                                                                ${(profitData.exchangeRate || 0).toFixed(4)} MXN/USD
+                                                            </Typography>
+                                                        </Box>
+
+                                                        <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between' }}>
+                                                            <Typography variant="body2">
+                                                                Ingresos MXN:
+                                                            </Typography>
                                                             <Typography variant="body2" fontWeight="bold" color="primary.main">
-                                                                {fmt(profitData.totalRevenue)}
+                                                                {fmt(profitData.totalRevenueMXN || profitData.totalRevenue)}
                                                             </Typography>
                                                         </Box>
 

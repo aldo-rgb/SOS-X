@@ -1134,7 +1134,14 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
       }
     }
 
-    // 3. Crear/actualizar línea en air_waybill_costs (Costeo AWB)
+    // 3. Obtener tipo de cambio TDI vigente para guardar en el costeo
+    const tcRes = await client.query(`
+      SELECT COALESCE(tipo_cambio_final, COALESCE(tipo_cambio_manual, ultimo_tc_api, 17.77) + COALESCE(sobreprecio, 0)) as tc_final
+      FROM exchange_rate_config WHERE servicio = 'tdi' AND estado = true LIMIT 1
+    `);
+    const exchangeRate = tcRes.rows.length > 0 ? parseFloat(tcRes.rows[0].tc_final) : 18.37;
+
+    // 4. Crear/actualizar línea en air_waybill_costs (Costeo AWB)
     await client.query(`
       INSERT INTO air_waybill_costs (
         awb_number, awb_draft_id,
@@ -1145,8 +1152,9 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
         total_cost_amount, total_cost_currency,
         awb_pdf_url, packing_list_url,
         total_packages_s, total_packages_cajo,
+        exchange_rate,
         status, created_at, updated_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, 'pending', NOW(), NOW())
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'pending', NOW(), NOW())
       ON CONFLICT (awb_number) DO UPDATE SET
         awb_draft_id = COALESCE(EXCLUDED.awb_draft_id, air_waybill_costs.awb_draft_id),
         shipper_name = COALESCE(EXCLUDED.shipper_name, air_waybill_costs.shipper_name),
@@ -1164,6 +1172,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
         packing_list_url = COALESCE(EXCLUDED.packing_list_url, air_waybill_costs.packing_list_url),
         total_packages_s = EXCLUDED.total_packages_s,
         total_packages_cajo = EXCLUDED.total_packages_cajo,
+        exchange_rate = COALESCE(EXCLUDED.exchange_rate, air_waybill_costs.exchange_rate),
         updated_at = NOW()
     `, [
       mawb,
@@ -1183,6 +1192,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
       draft.packing_list_excel_url || null,
       countS,
       countCajo,
+      exchangeRate,
     ]);
 
     // 4. Vincular paquetes S al awb_cost_id
@@ -1716,10 +1726,37 @@ export async function getAirTariffs(req: AuthRequest, res: Response) {
   }
 }
 
+// ========== GET ROUTE PRICE HISTORY ==========
+export async function getRoutePriceHistory(req: AuthRequest, res: Response) {
+  try {
+    const { routeId } = req.params;
+
+    const result = await pool.query(`
+      SELECT 
+        h.id,
+        h.cost_per_kg_usd,
+        h.changed_at,
+        h.notes,
+        u.full_name as changed_by_name
+      FROM air_route_price_history h
+      LEFT JOIN users u ON u.id = h.changed_by
+      WHERE h.route_id = $1
+      ORDER BY h.changed_at DESC
+      LIMIT 50
+    `, [routeId]);
+
+    res.json({ success: true, history: result.rows });
+  } catch (error: any) {
+    console.error('✈️ [AIR-TARIFFS] Error obteniendo historial:', error.message);
+    res.status(500).json({ error: 'Error obteniendo historial de precios' });
+  }
+}
+
 // ========== SAVE AIR TARIFFS (bulk upsert for a route) ==========
 export async function saveAirTariffs(req: AuthRequest, res: Response) {
   try {
     const { route_id, tariffs, cost_per_kg_usd } = req.body;
+    const userId = req.user?.userId;
 
     if (!route_id) {
       return res.status(400).json({ error: 'route_id es requerido' });
@@ -1727,10 +1764,28 @@ export async function saveAirTariffs(req: AuthRequest, res: Response) {
 
     // Update route's cost_per_kg_usd if provided
     if (cost_per_kg_usd !== undefined) {
+      // Obtener el precio anterior para comparar
+      const prevResult = await pool.query(
+        'SELECT cost_per_kg_usd FROM air_routes WHERE id = $1',
+        [route_id]
+      );
+      const prevPrice = prevResult.rows[0]?.cost_per_kg_usd;
+      const newPrice = parseFloat(cost_per_kg_usd);
+
+      // Actualizar el precio
       await pool.query(
         'UPDATE air_routes SET cost_per_kg_usd = $1, updated_at = NOW() WHERE id = $2',
-        [cost_per_kg_usd, route_id]
+        [newPrice, route_id]
       );
+
+      // Guardar en historial si el precio cambió
+      if (prevPrice !== newPrice) {
+        await pool.query(
+          `INSERT INTO air_route_price_history (route_id, cost_per_kg_usd, changed_by, changed_at, notes)
+           VALUES ($1, $2, $3, NOW(), $4)`,
+          [route_id, newPrice, userId, `Cambio de $${prevPrice || 0} a $${newPrice}`]
+        );
+      }
     }
 
     // Upsert each tariff type (price 0 => is_active = false)

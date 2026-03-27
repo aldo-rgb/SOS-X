@@ -33,6 +33,7 @@ import {
     List,
     ListItem,
     ListItemText,
+    Card,
 } from '@mui/material';
 import {
     Flight as FlightIcon,
@@ -50,6 +51,8 @@ import {
     Person as PersonIcon,
     Search as SearchIcon,
     Edit as EditIcon,
+    History as HistoryIcon,
+    TrendingUp as TrendingUpIcon,
 } from '@mui/icons-material';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -87,6 +90,7 @@ interface RouteTariff {
     destination_airport: string;
     destination_city: string;
     cost_per_kg_usd: number | null;
+    updated_at: string | null;
     is_active: boolean;
     tariffs: {
         L: { id: number | null; price_per_kg: number; is_active: boolean };
@@ -128,6 +132,14 @@ interface ClientTariff {
     default_price: number;
 }
 
+interface PriceHistoryItem {
+    id: number;
+    cost_per_kg_usd: number;
+    changed_at: string;
+    notes: string | null;
+    changed_by_name: string | null;
+}
+
 interface ClientWithTariffs {
     user_id: number;
     legacy_client_id: number;
@@ -167,6 +179,12 @@ export default function AirPricingPage() {
     const [editingClientTariffs, setEditingClientTariffs] = useState<Record<string, string>>({});
     const [clientTab, setClientTab] = useState(0); // 0 = buscar, 1 = ver clientes con tarifas
 
+    // Price history dialog state
+    const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+    const [historyRoute, setHistoryRoute] = useState<RouteTariff | null>(null);
+    const [priceHistory, setPriceHistory] = useState<PriceHistoryItem[]>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
+
     const token = localStorage.getItem('token');
 
     // ========== LOAD DATA ==========
@@ -201,6 +219,30 @@ export default function AirPricingPage() {
             setLoading(false);
         }
     }, [token]);
+
+    // ========== LOAD PRICE HISTORY ==========
+    const loadPriceHistory = useCallback(async (routeId: number) => {
+        try {
+            setHistoryLoading(true);
+            const res = await fetch(`${API_URL}/api/admin/air-tariffs/${routeId}/history`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            const data = await res.json();
+            if (data.success) {
+                setPriceHistory(data.history || []);
+            }
+        } catch (error) {
+            console.error('Error cargando historial:', error);
+        } finally {
+            setHistoryLoading(false);
+        }
+    }, [token]);
+
+    const openHistoryDialog = (route: RouteTariff) => {
+        setHistoryRoute(route);
+        setHistoryDialogOpen(true);
+        loadPriceHistory(route.id);
+    };
 
     useEffect(() => {
         loadData();
@@ -778,22 +820,43 @@ export default function AirPricingPage() {
 
                                         {/* Costo Ruta (price from air_routes) */}
                                         <TableCell align="center" sx={{ bgcolor: '#F5F5F5' }}>
-                                            <TextField
-                                                value={row.costPerKg}
-                                                onChange={(e) => handleFieldChange(route.id, 'costPerKg', e.target.value)}
-                                                type="number"
-                                                size="small"
-                                                sx={{
-                                                    width: 100,
-                                                    '& .MuiOutlinedInput-root': {
-                                                        bgcolor: 'white',
-                                                    },
-                                                }}
-                                                InputProps={{
-                                                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                                                }}
-                                                inputProps={{ style: { textAlign: 'right', fontWeight: 'bold' }, step: '0.01' }}
-                                            />
+                                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                                                <TextField
+                                                    value={row.costPerKg}
+                                                    onChange={(e) => handleFieldChange(route.id, 'costPerKg', e.target.value)}
+                                                    type="number"
+                                                    size="small"
+                                                    sx={{
+                                                        width: 100,
+                                                        '& .MuiOutlinedInput-root': {
+                                                            bgcolor: 'white',
+                                                        },
+                                                    }}
+                                                    InputProps={{
+                                                        startAdornment: <InputAdornment position="start">$</InputAdornment>,
+                                                    }}
+                                                    inputProps={{ style: { textAlign: 'right', fontWeight: 'bold' }, step: '0.01' }}
+                                                />
+                                                {route.updated_at && (
+                                                    <Tooltip title="Ver historial de precios">
+                                                        <Box 
+                                                            sx={{ 
+                                                                display: 'flex', 
+                                                                alignItems: 'center', 
+                                                                gap: 0.5, 
+                                                                cursor: 'pointer',
+                                                                '&:hover': { color: 'primary.main' }
+                                                            }}
+                                                            onClick={() => openHistoryDialog(route)}
+                                                        >
+                                                            <HistoryIcon sx={{ fontSize: 12, color: 'text.secondary' }} />
+                                                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                                                                {new Date(route.updated_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' })} {new Date(route.updated_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                                                            </Typography>
+                                                        </Box>
+                                                    </Tooltip>
+                                                )}
+                                            </Box>
                                         </TableCell>
 
                                         {/* Tariff type columns */}
@@ -1338,6 +1401,160 @@ export default function AirPricingPage() {
                             {clientTariffsSaving ? 'Guardando...' : 'Guardar Tarifas'}
                         </Button>
                     )}
+                </DialogActions>
+            </Dialog>
+
+            {/* ========== PRICE HISTORY DIALOG ========== */}
+            <Dialog
+                open={historyDialogOpen}
+                onClose={() => setHistoryDialogOpen(false)}
+                maxWidth="md"
+                fullWidth
+            >
+                <DialogTitle sx={{ bgcolor: '#F5F5F5', borderBottom: '1px solid #ddd' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <HistoryIcon color="primary" />
+                        <Typography variant="h6">
+                            Historial de Precios - Ruta {historyRoute?.code}
+                        </Typography>
+                    </Box>
+                    <Typography variant="body2" color="text.secondary">
+                        {historyRoute?.origin_airport} → {historyRoute?.destination_airport}
+                    </Typography>
+                </DialogTitle>
+                <DialogContent sx={{ pt: 3 }}>
+                    {historyLoading ? (
+                        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                            <CircularProgress />
+                        </Box>
+                    ) : priceHistory.length === 0 ? (
+                        <Alert severity="info">No hay historial de cambios de precio registrado.</Alert>
+                    ) : (
+                        <Box>
+                            {/* Mini gráfica de tendencia */}
+                            <Card variant="outlined" sx={{ mb: 3, p: 2 }}>
+                                <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <TrendingUpIcon color="primary" /> Tendencia de Precio
+                                </Typography>
+                                <Box sx={{ 
+                                    display: 'flex', 
+                                    alignItems: 'flex-end', 
+                                    gap: 1, 
+                                    height: 100, 
+                                    mt: 2,
+                                    borderBottom: '2px solid #e0e0e0',
+                                    pb: 1
+                                }}>
+                                    {[...priceHistory].reverse().slice(-15).map((item, idx, arr) => {
+                                        const maxPrice = Math.max(...arr.map(h => Number(h.cost_per_kg_usd)));
+                                        const minPrice = Math.min(...arr.map(h => Number(h.cost_per_kg_usd)));
+                                        const range = maxPrice - minPrice || 1;
+                                        const height = ((Number(item.cost_per_kg_usd) - minPrice) / range * 70) + 20;
+                                        const isLast = idx === arr.length - 1;
+                                        return (
+                                            <Tooltip key={item.id} title={`$${item.cost_per_kg_usd} - ${new Date(item.changed_at).toLocaleDateString('es-MX')}`}>
+                                                <Box
+                                                    sx={{
+                                                        flex: 1,
+                                                        height: `${height}%`,
+                                                        bgcolor: isLast ? 'primary.main' : 'primary.light',
+                                                        borderRadius: '4px 4px 0 0',
+                                                        minWidth: 20,
+                                                        transition: 'all 0.2s',
+                                                        '&:hover': { 
+                                                            bgcolor: 'primary.dark',
+                                                            transform: 'scaleY(1.05)'
+                                                        },
+                                                        display: 'flex',
+                                                        alignItems: 'flex-start',
+                                                        justifyContent: 'center',
+                                                        pt: 0.5
+                                                    }}
+                                                >
+                                                    <Typography variant="caption" sx={{ color: 'white', fontWeight: 'bold', fontSize: '0.6rem' }}>
+                                                        ${item.cost_per_kg_usd}
+                                                    </Typography>
+                                                </Box>
+                                            </Tooltip>
+                                        );
+                                    })}
+                                </Box>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
+                                    <Typography variant="caption" color="text.secondary">
+                                        {priceHistory.length > 0 && new Date([...priceHistory].reverse()[0]?.changed_at).toLocaleDateString('es-MX')}
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                        {priceHistory.length > 0 && new Date(priceHistory[0]?.changed_at).toLocaleDateString('es-MX')}
+                                    </Typography>
+                                </Box>
+                            </Card>
+
+                            {/* Tabla de historial */}
+                            <Typography variant="subtitle2" gutterBottom>
+                                Registro de Cambios ({priceHistory.length})
+                            </Typography>
+                            <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 300 }}>
+                                <Table size="small" stickyHeader>
+                                    <TableHead>
+                                        <TableRow>
+                                            <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Fecha y Hora</TableCell>
+                                            <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Precio (USD)</TableCell>
+                                            <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Cambio</TableCell>
+                                            <TableCell sx={{ fontWeight: 'bold', bgcolor: '#f5f5f5' }}>Usuario</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {priceHistory.map((item, idx) => {
+                                            const prevItem = priceHistory[idx + 1];
+                                            const diff = prevItem ? Number(item.cost_per_kg_usd) - Number(prevItem.cost_per_kg_usd) : 0;
+                                            return (
+                                                <TableRow key={item.id} hover>
+                                                    <TableCell>
+                                                        <Typography variant="body2">
+                                                            {new Date(item.changed_at).toLocaleDateString('es-MX', { 
+                                                                day: '2-digit', month: 'short', year: 'numeric' 
+                                                            })}
+                                                        </Typography>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            {new Date(item.changed_at).toLocaleTimeString('es-MX', { 
+                                                                hour: '2-digit', minute: '2-digit' 
+                                                            })}
+                                                        </Typography>
+                                                    </TableCell>
+                                                    <TableCell align="right">
+                                                        <Typography variant="body2" fontWeight="bold" color="primary">
+                                                            ${Number(item.cost_per_kg_usd).toFixed(2)}
+                                                        </Typography>
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        {diff !== 0 && (
+                                                            <Chip
+                                                                size="small"
+                                                                label={`${diff > 0 ? '+' : ''}$${diff.toFixed(2)}`}
+                                                                color={diff > 0 ? 'error' : 'success'}
+                                                                sx={{ fontSize: '0.7rem', height: 20 }}
+                                                            />
+                                                        )}
+                                                        {idx === priceHistory.length - 1 && (
+                                                            <Chip size="small" label="Inicial" variant="outlined" sx={{ fontSize: '0.7rem', height: 20 }} />
+                                                        )}
+                                                    </TableCell>
+                                                    <TableCell>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            {item.changed_by_name || 'Sistema'}
+                                                        </Typography>
+                                                    </TableCell>
+                                                </TableRow>
+                                            );
+                                        })}
+                                    </TableBody>
+                                </Table>
+                            </TableContainer>
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setHistoryDialogOpen(false)}>Cerrar</Button>
                 </DialogActions>
             </Dialog>
 
