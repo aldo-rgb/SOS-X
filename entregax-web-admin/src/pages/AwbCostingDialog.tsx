@@ -918,6 +918,109 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                         <ProfitIcon color="success" /> Utilidades y Rentabilidad
                                     </Typography>
 
+                                    {/* Desglose de Cajas */}
+                                    <Card variant="outlined" sx={{ mb: 3, bgcolor: '#fafafa' }}>
+                                        <CardContent sx={{ py: 2 }}>
+                                            <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                📦 Composición del AWB
+                                            </Typography>
+                                            <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', mt: 1 }}>
+                                                {/* Paquetes S */}
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                                    <Box sx={{ 
+                                                        width: 40, height: 40, borderRadius: 2, 
+                                                        bgcolor: 'primary.main', color: 'white',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        fontWeight: 'bold', fontSize: 18
+                                                    }}>
+                                                        S
+                                                    </Box>
+                                                    <Box>
+                                                        <Typography variant="h5" fontWeight="bold" color="primary.main">
+                                                            {packagesS.length}
+                                                        </Typography>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            Gestión Aérea
+                                                        </Typography>
+                                                    </Box>
+                                                    <Chip 
+                                                        size="small" 
+                                                        label={`${((packagesS.length / (packagesS.length + cajoGuides.length)) * 100 || 0).toFixed(0)}%`}
+                                                        color="primary"
+                                                        sx={{ fontWeight: 'bold' }}
+                                                    />
+                                                    <Chip 
+                                                        size="small" 
+                                                        variant="outlined"
+                                                        label={`${packagesS.reduce((sum, p) => sum + (Number(p.weight) || 0), 0).toFixed(2)} kg`}
+                                                    />
+                                                </Box>
+
+                                                {/* Separador */}
+                                                <Divider orientation="vertical" flexItem />
+
+                                                {/* Guías CAJO */}
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                                    <Box sx={{ 
+                                                        width: 40, height: 40, borderRadius: 2, 
+                                                        bgcolor: 'warning.main', color: 'white',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        fontWeight: 'bold', fontSize: 14
+                                                    }}>
+                                                        CAJO
+                                                    </Box>
+                                                    <Box>
+                                                        <Typography variant="h5" fontWeight="bold" color="warning.main">
+                                                            {cajoGuides.length}
+                                                        </Typography>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            Guías CAJO
+                                                        </Typography>
+                                                    </Box>
+                                                    <Chip 
+                                                        size="small" 
+                                                        label={`${((cajoGuides.length / (packagesS.length + cajoGuides.length)) * 100 || 0).toFixed(0)}%`}
+                                                        color="warning"
+                                                        sx={{ fontWeight: 'bold' }}
+                                                    />
+                                                    <Chip 
+                                                        size="small" 
+                                                        variant="outlined"
+                                                        label={`${cajoGuides.reduce((sum, g) => sum + (Number(g.peso_kg) || 0), 0).toFixed(2)} kg`}
+                                                    />
+                                                </Box>
+
+                                                {/* Separador */}
+                                                <Divider orientation="vertical" flexItem />
+
+                                                {/* Total */}
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                                    <Box sx={{ 
+                                                        width: 40, height: 40, borderRadius: 2, 
+                                                        bgcolor: 'grey.700', color: 'white',
+                                                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                        fontWeight: 'bold', fontSize: 16
+                                                    }}>
+                                                        Σ
+                                                    </Box>
+                                                    <Box>
+                                                        <Typography variant="h5" fontWeight="bold">
+                                                            {packagesS.length + cajoGuides.length}
+                                                        </Typography>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            Total Cajas
+                                                        </Typography>
+                                                    </Box>
+                                                    <Chip 
+                                                        size="small" 
+                                                        variant="outlined"
+                                                        label={`${(packagesS.reduce((sum, p) => sum + (Number(p.weight) || 0), 0) + cajoGuides.reduce((sum, g) => sum + (Number(g.peso_kg) || 0), 0)).toFixed(2)} kg`}
+                                                    />
+                                                </Box>
+                                            </Box>
+                                        </CardContent>
+                                    </Card>
+
                                     {profitData ? (
                                         <Grid container spacing={3}>
                                             {/* Cost breakdown */}
