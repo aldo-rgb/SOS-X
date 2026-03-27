@@ -5,6 +5,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { getSignedUrlForKey, extractKeyFromUrl, isS3Configured } from './s3Service';
 
 interface AuthRequest extends Request {
   user?: { userId: number; role: string };
@@ -120,6 +121,26 @@ export const getAwbCostDetail = async (req: AuthRequest, res: Response): Promise
       WHERE awb_cost_id = $1
       ORDER BY created_at
     `, [id]);
+
+    // Generar presigned URLs para documentos S3
+    if (isS3Configured()) {
+      try {
+        if (awbCost.awb_pdf_url) {
+          const key = extractKeyFromUrl(awbCost.awb_pdf_url);
+          if (key) {
+            awbCost.awb_pdf_url = await getSignedUrlForKey(key, 3600);
+          }
+        }
+        if (awbCost.packing_list_url) {
+          const key = extractKeyFromUrl(awbCost.packing_list_url);
+          if (key) {
+            awbCost.packing_list_url = await getSignedUrlForKey(key, 3600);
+          }
+        }
+      } catch (err: any) {
+        console.error('✈️ [AWB-COST] Error generando presigned URLs:', err.message);
+      }
+    }
 
     res.json({
       success: true,
