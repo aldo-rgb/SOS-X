@@ -1059,7 +1059,7 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                             <Button
                                                                 variant="contained"
                                                                 startIcon={<OpenIcon />}
-                                                                onClick={() => window.open(cost.awb_pdf_url.startsWith('http') ? cost.awb_pdf_url : `${API_URL}${cost.awb_pdf_url}`, '_blank')}
+                                                                onClick={() => { const url = cost.awb_pdf_url!; window.open(url.startsWith('http') ? url : `${API_URL}${url}`, '_blank'); }}
                                                                 fullWidth
                                                                 sx={{ mb: 1 }}
                                                             >
@@ -1094,7 +1094,7 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                                 variant="contained"
                                                                 color="success"
                                                                 startIcon={<OpenIcon />}
-                                                                onClick={() => window.open(cost.packing_list_url.startsWith('http') ? cost.packing_list_url : `${API_URL}${cost.packing_list_url}`, '_blank')}
+                                                                onClick={() => { const url = cost.packing_list_url!; window.open(url.startsWith('http') ? url : `${API_URL}${url}`, '_blank'); }}
                                                                 fullWidth
                                                                 sx={{ mb: 1 }}
                                                             >
