@@ -642,7 +642,7 @@ export default function CostingPanelChinaAir() {
                                     <TableCell>{t('costing.date')}</TableCell>
                                     <TableCell align="right">{t('costing.boxes')}</TableCell>
                                     <TableCell align="right">{t('costing.weight')} (kg)</TableCell>
-                                    <TableCell align="right">{t('costing.grandTotal')}</TableCell>
+                                    <TableCell align="right">{t('costing.grandTotal')} (USD)</TableCell>
                                     <TableCell align="center">{t('costing.actions')}</TableCell>
                                 </TableRow>
                             </TableHead>
