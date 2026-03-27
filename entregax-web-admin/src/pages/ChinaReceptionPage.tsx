@@ -708,8 +708,11 @@ export default function ChinaReceptionPage() {
                         >
                             <MenuItem value="">Todos</MenuItem>
                             <MenuItem value="received_origin">En Origen</MenuItem>
+                            <MenuItem value="received_china">Recibido China</MenuItem>
                             <MenuItem value="in_transit">En Tránsito</MenuItem>
                             <MenuItem value="arrived_mx">Llegó MX</MenuItem>
+                            <MenuItem value="customs">En Aduana</MenuItem>
+                            <MenuItem value="ready_pickup">Listo Recoger</MenuItem>
                         </Select>
                     </FormControl>
                 </Box>

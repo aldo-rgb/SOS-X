@@ -749,7 +749,7 @@ const CajoManagementPage: React.FC<Props> = ({ onBack }) => {
           </Alert>
           <TextField
             fullWidth
-            label="Overfee por KG (MXN)"
+            label="Overfee por KG (USD)"
             type="number"
             value={overfeeValue}
             onChange={e => setOverfeeValue(e.target.value)}

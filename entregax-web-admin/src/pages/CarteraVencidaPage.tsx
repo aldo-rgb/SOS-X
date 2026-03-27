@@ -30,11 +30,11 @@ import {
   CardContent,
   Divider,
   Stack,
-  Grid,
   ToggleButtonGroup,
   ToggleButton,
   Snackbar,
 } from '@mui/material';
+import Grid from '@mui/material/Grid';
 import SearchIcon from '@mui/icons-material/Search';
 import AddIcon from '@mui/icons-material/Add';
 import RemoveIcon from '@mui/icons-material/Remove';
@@ -807,21 +807,21 @@ export default function CarteraVencidaPage() {
                   <Typography variant="subtitle1" fontWeight={600}>Cliente</Typography>
                 </Box>
                 <Grid container spacing={2}>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Casillero</Typography>
                     <Typography variant="body2" fontWeight={700} color="primary.main">
                       📦 {resumenGuia.cliente?.casillero || 'N/A'}
                     </Typography>
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Nombre</Typography>
                     <Typography variant="body2" fontWeight={600}>{resumenGuia.cliente?.nombre || 'Sin nombre'}</Typography>
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Email</Typography>
                     <Typography variant="body2">{resumenGuia.cliente?.email || '-'}</Typography>
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Teléfono</Typography>
                     <Typography variant="body2">{resumenGuia.cliente?.telefono || '-'}</Typography>
                   </Grid>
@@ -835,42 +835,42 @@ export default function CarteraVencidaPage() {
                   <Typography variant="subtitle1" fontWeight={600}>Información del Envío</Typography>
                 </Box>
                 <Grid container spacing={2}>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Tracking</Typography>
                     <Typography variant="body2" fontWeight={600}>{resumenGuia.guia?.tracking_number || selectedGuia?.tracking}</Typography>
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Servicio</Typography>
                     <Chip size="small" label={SERVICE_LABELS[resumenGuia.guia?.servicio] || resumenGuia.guia?.servicio || selectedGuia?.servicio} />
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Estatus</Typography>
                     <Chip size="small" label={resumenGuia.guia?.status || resumenGuia.guia?.payment_status || 'N/A'} color={resumenGuia.guia?.payment_status === 'paid' ? 'success' : 'warning'} />
                   </Grid>
-                  <Grid item xs={6} sm={3}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
                     <Typography variant="caption" color="text.secondary">Fecha</Typography>
                     <Typography variant="body2">{resumenGuia.guia?.created_at ? new Date(resumenGuia.guia.created_at).toLocaleDateString() : '-'}</Typography>
                   </Grid>
                   {resumenGuia.guia?.weight && (
-                    <Grid item xs={6} sm={3}>
+                    <Grid size={{ xs: 6, sm: 3 }}>
                       <Typography variant="caption" color="text.secondary">Peso</Typography>
                       <Typography variant="body2">{Number(resumenGuia.guia.weight).toFixed(2)} kg</Typography>
                     </Grid>
                   )}
                   {resumenGuia.guia?.dimensions && (
-                    <Grid item xs={6} sm={3}>
+                    <Grid size={{ xs: 6, sm: 3 }}>
                       <Typography variant="caption" color="text.secondary">Dimensiones</Typography>
                       <Typography variant="body2">{resumenGuia.guia.dimensions}</Typography>
                     </Grid>
                   )}
                   {resumenGuia.guia?.cbm && Number(resumenGuia.guia.cbm) > 0 && (
-                    <Grid item xs={6} sm={3}>
+                    <Grid size={{ xs: 6, sm: 3 }}>
                       <Typography variant="caption" color="text.secondary">CBM</Typography>
                       <Typography variant="body2">{Number(resumenGuia.guia.cbm).toFixed(4)} m³</Typography>
                     </Grid>
                   )}
                   {resumenGuia.guia?.declared_value && (
-                    <Grid item xs={6} sm={3}>
+                    <Grid size={{ xs: 6, sm: 3 }}>
                       <Typography variant="caption" color="text.secondary">Valor Declarado</Typography>
                       <Typography variant="body2">${Number(resumenGuia.guia.declared_value).toLocaleString()}</Typography>
                     </Grid>
