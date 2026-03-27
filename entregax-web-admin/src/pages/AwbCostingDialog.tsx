@@ -581,7 +581,13 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                 <CardContent>
                                                     <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                                         <BoxIcon fontSize="small" color="primary" />
-                                                        Paquetes Gestión Aérea (S) ({packagesS.length})
+                                                        Paquetes Gestión Aérea (S) ({packagesS.length}) 
+                                                        <Chip 
+                                                            size="small" 
+                                                            label={`${((packagesS.length / (packagesS.length + cajoGuides.length)) * 100 || 0).toFixed(0)}%`}
+                                                            color="primary"
+                                                            sx={{ ml: 1, fontSize: '0.7rem', height: 20 }}
+                                                        />
                                                     </Typography>
                                                     {packagesS.length > 0 ? (
                                                         <TableContainer sx={{ maxHeight: 200 }}>
@@ -624,6 +630,12 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                     <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                                         <BoxIcon fontSize="small" color="warning" />
                                                         Guías CAJO ({cajoGuides.length})
+                                                        <Chip 
+                                                            size="small" 
+                                                            label={`${((cajoGuides.length / (packagesS.length + cajoGuides.length)) * 100 || 0).toFixed(0)}%`}
+                                                            color="warning"
+                                                            sx={{ ml: 1, fontSize: '0.7rem', height: 20 }}
+                                                        />
                                                     </Typography>
                                                     {cajoGuides.length > 0 ? (
                                                         <TableContainer sx={{ maxHeight: 200 }}>
