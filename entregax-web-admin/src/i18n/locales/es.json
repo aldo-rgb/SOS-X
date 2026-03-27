@@ -595,7 +595,7 @@
       }
     },
     "modules": {
-      "costing": "Costeo Internacional",
+      "costing": "Costeo Aéreo",
       "clients": "Clientes",
       "pricing": "Tarifas",
       "invoicing": "Facturación",

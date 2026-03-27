@@ -157,7 +157,6 @@ const MODULE_ICONS: Record<string, React.ReactElement> = {
 const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
     china_air: [
         { key: 'costing', status: 'active' },
-        { key: 'inventory', status: 'active' },
         { key: 'pricing', status: 'active' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
