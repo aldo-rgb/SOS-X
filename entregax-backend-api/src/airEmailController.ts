@@ -805,13 +805,25 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
 
     // === VALIDAR QUE NO EXISTA UN AWB YA APROBADO CON ESTE MAWB ===
     if (mawb) {
+      // Checar en air_waybill_costs
       const existingAwb = await client.query(
         'SELECT id FROM air_waybill_costs WHERE awb_number = $1', [mawb]
       );
       if (existingAwb.rows.length > 0) {
         await client.query('ROLLBACK');
         return res.status(409).json({ 
-          error: `El MAWB ${mawb} ya fue aprobado anteriormente (costeo #${existingAwb.rows[0].id}). No se puede aprobar dos veces.` 
+          error: `El MAWB ${mawb} ya fue aprobado anteriormente (costeo #${existingAwb.rows[0].id}). No se puede duplicar.` 
+        });
+      }
+      // Checar si otro borrador (diferente al actual) ya fue aprobado con este MAWB
+      const existingDraft = await client.query(
+        `SELECT id FROM air_reception_drafts WHERE awb_number = $1 AND status = 'approved' AND id != $2 LIMIT 1`,
+        [mawb, id]
+      );
+      if (existingDraft.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ 
+          error: `El MAWB ${mawb} ya tiene un borrador aprobado (#${existingDraft.rows[0].id}). No se puede aprobar dos veces la misma guía.` 
         });
       }
     }

@@ -310,6 +310,11 @@ export default function InboundEmailsAirPage() {
         || null;
     const guiaVueloMismatch = !!(guiaVueloExcel && editableAwb.mawb && guiaVueloExcel !== editableAwb.mawb);
 
+    // Detectar si ya existe otro borrador aprobado con el mismo MAWB
+    const duplicateApproved = !!(selectedDraft && editableAwb.mawb &&
+        drafts.some(d => d.id !== selectedDraft.id && d.status === 'approved' && d.awb_number === editableAwb.mawb)
+    );
+
     const handleApprove = async () => {
         if (!selectedDraft || processing) return;
         setProcessing(true);
@@ -325,6 +330,16 @@ export default function InboundEmailsAirPage() {
             setSnackbar({
                 open: true,
                 message: `⚠️ No se puede aprobar: La guía de vuelo del Packing List (${guiaVueloExcel}) no coincide con el MAWB del AWB (${editableAwb.mawb}). Corrige el MAWB o sube el Packing List correcto.`,
+                severity: 'error',
+            });
+            setProcessing(false);
+            return;
+        }
+
+        if (duplicateApproved) {
+            setSnackbar({
+                open: true,
+                message: `🚫 El MAWB ${editableAwb.mawb} ya fue aprobado en otro borrador. No se puede duplicar.`,
                 severity: 'error',
             });
             setProcessing(false);
@@ -804,6 +819,13 @@ export default function InboundEmailsAirPage() {
                         <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}><CircularProgress /></Box>
                     ) : selectedDraft ? (
                         <Box sx={{ p: 2 }}>
+                            {/* Alerta de MAWB duplicado */}
+                            {duplicateApproved && selectedDraft.status !== 'approved' && (
+                                <Alert severity="error" sx={{ mb: 2, borderRadius: 2 }} variant="filled">
+                                    <strong>🚫 MAWB Duplicado:</strong> El MAWB <strong>{editableAwb.mawb}</strong> ya fue aprobado en otro borrador. 
+                                    Este borrador no se puede aprobar. Rechácelo o corrija el MAWB.
+                                </Alert>
+                            )}
                             {/* Packing List Rows Table */}
                             {editableRows.length > 0 && (
                                 <Box sx={{ mb: 3 }}>
@@ -1151,6 +1173,7 @@ export default function InboundEmailsAirPage() {
                             </Button>
                             <Tooltip title={
                                 !editableAwb.mawb ? 'Falta el MAWB'
+                                : duplicateApproved ? `🚫 El MAWB ${editableAwb.mawb} ya fue aprobado en otro borrador`
                                 : guiaVueloMismatch ? `⚠️ La guía de vuelo del Excel (${guiaVueloExcel}) no coincide con el MAWB (${editableAwb.mawb})`
                                 : ''
                             }>
@@ -1159,19 +1182,19 @@ export default function InboundEmailsAirPage() {
                                         variant="contained"
                                         startIcon={processing ? <CircularProgress size={16} color="inherit" /> : <CheckIcon />}
                                         onClick={handleApprove}
-                                        disabled={processing || !editableAwb.mawb || guiaVueloMismatch}
+                                        disabled={processing || !editableAwb.mawb || guiaVueloMismatch || duplicateApproved}
                                         sx={{
-                                            bgcolor: guiaVueloMismatch ? '#C62828' : '#2E7D32',
-                                            '&:hover': { bgcolor: guiaVueloMismatch ? '#B71C1C' : '#1B5E20' },
+                                            bgcolor: (guiaVueloMismatch || duplicateApproved) ? '#C62828' : '#2E7D32',
+                                            '&:hover': { bgcolor: (guiaVueloMismatch || duplicateApproved) ? '#B71C1C' : '#1B5E20' },
                                             textTransform: 'none',
                                             fontWeight: 600,
                                             whiteSpace: 'nowrap',
-                                            '&.Mui-disabled': guiaVueloMismatch
+                                            '&.Mui-disabled': (guiaVueloMismatch || duplicateApproved)
                                                 ? { bgcolor: '#C62828 !important', color: '#FFFFFF !important', opacity: 1 }
                                                 : {},
                                         }}
                                     >
-                                        {guiaVueloMismatch ? '⚠️ Guía no coincide' : 'Aprobar y Registrar'}
+                                        {duplicateApproved ? '🚫 MAWB ya aprobado' : guiaVueloMismatch ? '⚠️ Guía no coincide' : 'Aprobar y Registrar'}
                                     </Button>
                                 </span>
                             </Tooltip>
