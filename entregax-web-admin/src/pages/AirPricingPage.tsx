@@ -838,19 +838,24 @@ export default function AirPricingPage() {
                                                     inputProps={{ style: { textAlign: 'right', fontWeight: 'bold' }, step: '0.01' }}
                                                 />
                                                 {route.updated_at && (
-                                                    <Tooltip title="Ver historial de precios">
+                                                    <Tooltip title="Última actualización — Click para ver historial">
                                                         <Box 
                                                             sx={{ 
                                                                 display: 'flex', 
                                                                 alignItems: 'center', 
                                                                 gap: 0.5, 
                                                                 cursor: 'pointer',
-                                                                '&:hover': { color: 'primary.main' }
+                                                                mt: 0.5,
+                                                                px: 1,
+                                                                py: 0.25,
+                                                                borderRadius: 1,
+                                                                bgcolor: '#E3F2FD',
+                                                                '&:hover': { bgcolor: '#BBDEFB' }
                                                             }}
                                                             onClick={() => openHistoryDialog(route)}
                                                         >
-                                                            <HistoryIcon sx={{ fontSize: 12, color: 'text.secondary' }} />
-                                                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
+                                                            <HistoryIcon sx={{ fontSize: 14, color: '#1565C0' }} />
+                                                            <Typography variant="caption" sx={{ fontSize: '0.72rem', color: '#1565C0', fontWeight: 500 }}>
                                                                 {new Date(route.updated_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' })} {new Date(route.updated_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
                                                             </Typography>
                                                         </Box>
@@ -915,26 +920,37 @@ export default function AirPricingPage() {
 
                                         {/* Actions */}
                                         <TableCell align="center">
-                                            <Tooltip title={row.dirty ? 'Guardar cambios' : 'Sin cambios'}>
-                                                <span>
-                                                    <Button
+                                            <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', alignItems: 'center' }}>
+                                                <Tooltip title="Ver historial de cambios de tarifa">
+                                                    <IconButton
                                                         size="small"
-                                                        variant={row.dirty ? 'contained' : 'outlined'}
-                                                        startIcon={saving === route.id ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
-                                                        onClick={() => handleSaveRoute(route.id)}
-                                                        disabled={!row.dirty || saving !== null}
-                                                        sx={{
-                                                            textTransform: 'none',
-                                                            minWidth: 90,
-                                                            ...(row.dirty
-                                                                ? { bgcolor: AIR_COLOR, '&:hover': { bgcolor: '#C62828' } }
-                                                                : {}),
-                                                        }}
+                                                        onClick={() => openHistoryDialog(route)}
+                                                        sx={{ color: '#1565C0', bgcolor: '#E3F2FD', '&:hover': { bgcolor: '#BBDEFB' } }}
                                                     >
-                                                        {saving === route.id ? '...' : 'Guardar'}
-                                                    </Button>
-                                                </span>
-                                            </Tooltip>
+                                                        <HistoryIcon sx={{ fontSize: 18 }} />
+                                                    </IconButton>
+                                                </Tooltip>
+                                                <Tooltip title={row.dirty ? 'Guardar cambios' : 'Sin cambios'}>
+                                                    <span>
+                                                        <Button
+                                                            size="small"
+                                                            variant={row.dirty ? 'contained' : 'outlined'}
+                                                            startIcon={saving === route.id ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
+                                                            onClick={() => handleSaveRoute(route.id)}
+                                                            disabled={!row.dirty || saving !== null}
+                                                            sx={{
+                                                                textTransform: 'none',
+                                                                minWidth: 90,
+                                                                ...(row.dirty
+                                                                    ? { bgcolor: AIR_COLOR, '&:hover': { bgcolor: '#C62828' } }
+                                                                    : {}),
+                                                            }}
+                                                        >
+                                                            {saving === route.id ? '...' : 'Guardar'}
+                                                        </Button>
+                                                    </span>
+                                                </Tooltip>
+                                            </Box>
                                         </TableCell>
                                     </TableRow>
                                 );

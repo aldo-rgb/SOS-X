@@ -115,6 +115,12 @@ interface PackageS {
     status: string | null;
     child_no: string | null;
     international_tracking: string | null;
+    air_sale_price: number | null;
+    air_price_per_kg: number | null;
+    air_tariff_type: string | null;
+    cajo_tariff_type: string | null;
+    user_box_id: string | null;
+    user_name: string | null;
 }
 
 interface CajoGuide {
@@ -1309,65 +1315,118 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                     <CardContent>
                                                         <Typography variant="subtitle2" gutterBottom>💰 Ingresos y Utilidad</Typography>
 
-                                                        <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between' }}>
-                                                            <Typography variant="body2">
-                                                                Ingresos ({profitData.packagesS} paquetes S):
-                                                            </Typography>
-                                                            <Typography variant="body2" fontWeight="bold" color="info.main">
-                                                                {fmtUSD(profitData.totalRevenueUSD || 0)} USD
-                                                            </Typography>
-                                                        </Box>
+                                                        {(() => {
+                                                            const totalGuias = packagesS.length + cajoGuides.length;
+                                                            const pctCajo = totalGuias > 0 ? cajoGuides.length / totalGuias : 0;
+                                                            const sharedCost = (profitData.breakdown.custodyAndRelease || 0) + profitData.breakdown.logistics;
+                                                            const pagoCajo = pctCajo * sharedCost;
+                                                            const overfeeCajoPerKg = releaseCalc?.overfee_cajo_per_kg || 0;
+                                                            const pesoCajo = releaseCalc?.peso_cajo || cajoGuides.reduce((sum, g) => sum + (Number(g.peso_kg) || 0), 0);
+                                                            const overfeeTotal = overfeeCajoPerKg * pesoCajo;
+                                                            const ingresosMXN = (profitData.totalRevenueMXN || profitData.totalRevenue) + pagoCajo + overfeeTotal;
+                                                            const utilidad = ingresosMXN - profitData.totalCost;
+                                                            const margen = profitData.totalCost > 0 ? ((utilidad / profitData.totalCost) * 100) : 0;
 
-                                                        <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between', bgcolor: '#f5f5f5', p: 0.5, borderRadius: 1 }}>
-                                                            <Typography variant="caption" color="text.secondary">
-                                                                Tipo de Cambio (TDI):
-                                                            </Typography>
-                                                            <Typography variant="caption" fontWeight="bold">
-                                                                ${(profitData.exchangeRate || 0).toFixed(4)} MXN/USD
-                                                            </Typography>
-                                                        </Box>
+                                                            return (
+                                                                <>
+                                                                    <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between' }}>
+                                                                        <Typography variant="body2">
+                                                                            Ingresos ({profitData.packagesS} paquetes S):
+                                                                        </Typography>
+                                                                        <Typography variant="body2" fontWeight="bold" color="info.main">
+                                                                            {fmtUSD(profitData.totalRevenueUSD || 0)} USD
+                                                                        </Typography>
+                                                                    </Box>
 
-                                                        <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between' }}>
-                                                            <Typography variant="body2">
-                                                                Ingresos MXN:
-                                                            </Typography>
-                                                            <Typography variant="body2" fontWeight="bold" color="primary.main">
-                                                                {fmt(profitData.totalRevenueMXN || profitData.totalRevenue)}
-                                                            </Typography>
-                                                        </Box>
+                                                                    <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between', bgcolor: '#f5f5f5', p: 0.5, borderRadius: 1 }}>
+                                                                        <Typography variant="caption" color="text.secondary">
+                                                                            Tipo de Cambio (TDI):
+                                                                        </Typography>
+                                                                        <Typography variant="caption" fontWeight="bold">
+                                                                            ${(profitData.exchangeRate || 0).toFixed(4)} MXN/USD
+                                                                        </Typography>
+                                                                    </Box>
 
-                                                        <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between' }}>
-                                                            <Typography variant="body2">Costo Total:</Typography>
-                                                            <Typography variant="body2" fontWeight="bold" color="error.main">
-                                                                {fmt(profitData.totalCost)}
-                                                            </Typography>
-                                                        </Box>
+                                                                    <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between' }}>
+                                                                        <Typography variant="body2">
+                                                                            Ingresos MXN:
+                                                                        </Typography>
+                                                                        <Typography variant="body2" fontWeight="bold" color="primary.main">
+                                                                            {fmt(profitData.totalRevenueMXN || profitData.totalRevenue)}
+                                                                        </Typography>
+                                                                    </Box>
 
-                                                        <Divider sx={{ my: 1.5 }} />
+                                                                    {/* Pago Maniobra CAJO proporcional */}
+                                                                    {cajoGuides.length > 0 && (
+                                                                        <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between', bgcolor: '#FFF3E0', p: 0.75, borderRadius: 1 }}>
+                                                                            <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                                                Pago Maniobra CAJO ({(pctCajo * 100).toFixed(0)}%):
+                                                                            </Typography>
+                                                                            <Typography variant="body2" fontWeight="bold" color="warning.dark">
+                                                                                + {fmt(pagoCajo)}
+                                                                            </Typography>
+                                                                        </Box>
+                                                                    )}
 
-                                                        <Box sx={{
-                                                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                                            p: 2, borderRadius: 2,
-                                                            bgcolor: profitData.profit >= 0 ? '#e8f5e9' : '#ffebee',
-                                                        }}>
-                                                            <Box>
-                                                                <Typography variant="caption" color="text.secondary">UTILIDAD</Typography>
-                                                                <Typography variant="h4" fontWeight="bold" color={profitData.profit >= 0 ? 'success.main' : 'error.main'}>
-                                                                    {profitData.profit >= 0 ? <UpIcon sx={{ verticalAlign: 'middle' }} /> : <DownIcon sx={{ verticalAlign: 'middle' }} />}
-                                                                    {fmt(profitData.profit)}
-                                                                </Typography>
-                                                            </Box>
-                                                            <Box sx={{ textAlign: 'right' }}>
-                                                                <Typography variant="caption" color="text.secondary">MARGEN</Typography>
-                                                                <Typography
-                                                                    variant="h4"
-                                                                    fontWeight="bold"
-                                                                    color={Number(profitData.margin) >= 15 ? 'success.main' : Number(profitData.margin) >= 0 ? 'warning.main' : 'error.main'}
-                                                                >
-                                                                    {profitData.margin}%
-                                                                </Typography>
-                                                            </Box>
-                                                        </Box>
+                                                                    {/* Overfee CAJO */}
+                                                                    {cajoGuides.length > 0 && overfeeTotal > 0 && (
+                                                                        <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between', bgcolor: '#FFF3E0', p: 0.75, borderRadius: 1 }}>
+                                                                            <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                                                Overfee CAJO (${overfeeCajoPerKg.toFixed(2)}/kg × {pesoCajo.toFixed(2)} kg):
+                                                                            </Typography>
+                                                                            <Typography variant="body2" fontWeight="bold" color="warning.dark">
+                                                                                + {fmt(overfeeTotal)}
+                                                                            </Typography>
+                                                                        </Box>
+                                                                    )}
+
+                                                                    {/* Total Ingresos (con CAJO sumado) */}
+                                                                    {cajoGuides.length > 0 && (
+                                                                        <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between', bgcolor: '#E8F5E9', p: 0.75, borderRadius: 1 }}>
+                                                                            <Typography variant="body2" fontWeight="bold">
+                                                                                Total Ingresos:
+                                                                            </Typography>
+                                                                            <Typography variant="body2" fontWeight="bold" color="success.main">
+                                                                                {fmt(ingresosMXN)}
+                                                                            </Typography>
+                                                                        </Box>
+                                                                    )}
+
+                                                                    <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between' }}>
+                                                                        <Typography variant="body2">Costo Total:</Typography>
+                                                                        <Typography variant="body2" fontWeight="bold" color="error.main">
+                                                                            {fmt(profitData.totalCost)}
+                                                                        </Typography>
+                                                                    </Box>
+
+                                                                    <Divider sx={{ my: 1.5 }} />
+
+                                                                    <Box sx={{
+                                                                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                                                        p: 2, borderRadius: 2,
+                                                                        bgcolor: utilidad >= 0 ? '#e8f5e9' : '#ffebee',
+                                                                    }}>
+                                                                        <Box>
+                                                                            <Typography variant="caption" color="text.secondary">UTILIDAD</Typography>
+                                                                            <Typography variant="h4" fontWeight="bold" color={utilidad >= 0 ? 'success.main' : 'error.main'}>
+                                                                                {utilidad >= 0 ? <UpIcon sx={{ verticalAlign: 'middle' }} /> : <DownIcon sx={{ verticalAlign: 'middle' }} />}
+                                                                                {fmt(utilidad)}
+                                                                            </Typography>
+                                                                        </Box>
+                                                                        <Box sx={{ textAlign: 'right' }}>
+                                                                            <Typography variant="caption" color="text.secondary">MARGEN</Typography>
+                                                                            <Typography
+                                                                                variant="h4"
+                                                                                fontWeight="bold"
+                                                                                color={margen >= 15 ? 'success.main' : margen >= 0 ? 'warning.main' : 'error.main'}
+                                                                            >
+                                                                                {margen.toFixed(2)}%
+                                                                            </Typography>
+                                                                        </Box>
+                                                                    </Box>
+                                                                </>
+                                                            );
+                                                        })()}
                                                     </CardContent>
                                                 </Card>
                                             </Grid>
@@ -1377,6 +1436,105 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                             <CircularProgress size={24} sx={{ mr: 1 }} />
                                             <Typography variant="body2" color="text.secondary">Cargando datos de utilidad...</Typography>
                                         </Box>
+                                    )}
+
+                                    {/* Listado de Guías S con costos a cobrar */}
+                                    {packagesS.length > 0 && (
+                                        <Card variant="outlined" sx={{ mt: 3 }}>
+                                            <CardContent sx={{ py: 2 }}>
+                                                <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    ✈️ Detalle de Guías Gestión Aérea (S) — Costos a Cobrar
+                                                    <Chip size="small" label={`${packagesS.length} guías`} color="primary" sx={{ fontWeight: 'bold' }} />
+                                                    <Chip 
+                                                        size="small" 
+                                                        variant="outlined" 
+                                                        color="info"
+                                                        label={`Total: ${fmtUSD(packagesS.reduce((sum, p) => sum + (Number(p.air_sale_price) || 0), 0))} USD`}
+                                                        sx={{ fontWeight: 'bold' }}
+                                                    />
+                                                </Typography>
+                                                <TableContainer sx={{ maxHeight: 400 }}>
+                                                    <Table size="small" stickyHeader>
+                                                        <TableHead>
+                                                            <TableRow sx={{ '& th': { bgcolor: '#e3f2fd', fontWeight: 'bold', fontSize: '0.75rem' } }}>
+                                                                <TableCell>#</TableCell>
+                                                                <TableCell>Tracking</TableCell>
+                                                                <TableCell>Casillero</TableCell>
+                                                                <TableCell align="right">Peso (kg)</TableCell>
+                                                                <TableCell align="center">Tarifa</TableCell>
+                                                                <TableCell align="right">$/kg (USD)</TableCell>
+                                                                <TableCell align="right">Precio (USD)</TableCell>
+                                                                <TableCell>Status</TableCell>
+                                                            </TableRow>
+                                                        </TableHead>
+                                                        <TableBody>
+                                                            {packagesS.map((pkg, idx) => {
+                                                                const tariffLabel = pkg.air_tariff_type === 'L' ? 'Logo' : pkg.air_tariff_type === 'G' ? 'Genérico' : pkg.air_tariff_type === 'S' ? 'Sensible' : pkg.air_tariff_type === 'F' ? 'Flat' : pkg.air_tariff_type || '-';
+                                                                const tariffColor = pkg.air_tariff_type === 'L' ? '#1565C0' : pkg.air_tariff_type === 'G' ? '#2E7D32' : pkg.air_tariff_type === 'S' ? '#C62828' : pkg.air_tariff_type === 'F' ? '#6A1B9A' : '#757575';
+                                                                return (
+                                                                    <TableRow key={pkg.id} sx={{ '&:nth-of-type(odd)': { bgcolor: '#fafafa' } }}>
+                                                                        <TableCell sx={{ fontSize: '0.7rem', color: 'text.secondary' }}>{idx + 1}</TableCell>
+                                                                        <TableCell sx={{ fontSize: '0.75rem', fontFamily: 'monospace' }}>{pkg.tracking_internal}</TableCell>
+                                                                        <TableCell sx={{ fontSize: '0.75rem' }}>
+                                                                            {pkg.user_box_id ? (
+                                                                                <Chip size="small" label={pkg.user_box_id} variant="outlined" sx={{ fontSize: '0.7rem', height: 20 }} />
+                                                                            ) : '-'}
+                                                                        </TableCell>
+                                                                        <TableCell align="right" sx={{ fontSize: '0.75rem', fontWeight: 'bold' }}>
+                                                                            {pkg.weight ? `${Number(pkg.weight).toFixed(2)}` : '-'}
+                                                                        </TableCell>
+                                                                        <TableCell align="center">
+                                                                            <Chip 
+                                                                                size="small" 
+                                                                                label={tariffLabel}
+                                                                                sx={{ 
+                                                                                    fontSize: '0.65rem', height: 20, fontWeight: 'bold',
+                                                                                    bgcolor: `${tariffColor}15`, color: tariffColor, border: `1px solid ${tariffColor}40`
+                                                                                }}
+                                                                            />
+                                                                        </TableCell>
+                                                                        <TableCell align="right" sx={{ fontSize: '0.75rem' }}>
+                                                                            {pkg.air_price_per_kg ? `$${Number(pkg.air_price_per_kg).toFixed(2)}` : '-'}
+                                                                        </TableCell>
+                                                                        <TableCell align="right" sx={{ fontSize: '0.75rem', fontWeight: 'bold', color: Number(pkg.air_sale_price) > 0 ? '#1565C0' : 'text.secondary' }}>
+                                                                            {pkg.air_sale_price ? fmtUSD(pkg.air_sale_price) : '$0.00'}
+                                                                        </TableCell>
+                                                                        <TableCell>
+                                                                            <Chip 
+                                                                                size="small" 
+                                                                                label={pkg.status || 'N/A'} 
+                                                                                variant="outlined" 
+                                                                                sx={{ fontSize: '0.6rem', height: 18 }} 
+                                                                            />
+                                                                        </TableCell>
+                                                                    </TableRow>
+                                                                );
+                                                            })}
+                                                            {/* Fila de totales */}
+                                                            <TableRow sx={{ bgcolor: '#e3f2fd', '& td': { fontWeight: 'bold', fontSize: '0.8rem' } }}>
+                                                                <TableCell colSpan={3} align="right">TOTALES:</TableCell>
+                                                                <TableCell align="right">
+                                                                    {packagesS.reduce((sum, p) => sum + (Number(p.weight) || 0), 0).toFixed(2)} kg
+                                                                </TableCell>
+                                                                <TableCell />
+                                                                <TableCell />
+                                                                <TableCell align="right" sx={{ color: '#1565C0' }}>
+                                                                    {fmtUSD(packagesS.reduce((sum, p) => sum + (Number(p.air_sale_price) || 0), 0))}
+                                                                </TableCell>
+                                                                <TableCell />
+                                                            </TableRow>
+                                                        </TableBody>
+                                                    </Table>
+                                                </TableContainer>
+                                                {packagesS.some(p => !p.air_sale_price || Number(p.air_sale_price) === 0) && (
+                                                    <Alert severity="warning" sx={{ mt: 1, py: 0 }}>
+                                                        <Typography variant="caption">
+                                                            ⚠️ {packagesS.filter(p => !p.air_sale_price || Number(p.air_sale_price) === 0).length} paquete(s) sin precio asignado
+                                                        </Typography>
+                                                    </Alert>
+                                                )}
+                                            </CardContent>
+                                        </Card>
                                     )}
                                 </Box>
                             )}

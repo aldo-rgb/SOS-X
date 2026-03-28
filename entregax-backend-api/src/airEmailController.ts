@@ -1706,7 +1706,7 @@ export async function getAirTariffs(req: AuthRequest, res: Response) {
     // Get all active routes with cost_per_kg_usd
     const routesResult = await pool.query(`
       SELECT id, code, name, origin_airport, origin_city, destination_airport, destination_city,
-             cost_per_kg_usd, is_active
+             cost_per_kg_usd, is_active, updated_at
       FROM air_routes
       ORDER BY is_active DESC, code ASC
     `);

@@ -87,11 +87,14 @@ export const getAwbCostDetail = async (req: AuthRequest, res: Response): Promise
 
     // Paquetes S vinculados
     const packagesS = await pool.query(`
-      SELECT id, tracking_internal, weight, description, user_id, assigned_cost_mxn, status,
-             child_no, international_tracking
-      FROM packages 
-      WHERE awb_cost_id = $1 OR international_tracking = $2
-      ORDER BY tracking_internal
+      SELECT p.id, p.tracking_internal, p.weight, p.description, p.user_id, p.assigned_cost_mxn, p.status,
+             p.child_no, p.international_tracking,
+             p.air_sale_price, p.air_price_per_kg, p.air_tariff_type, COALESCE(p.cajo_tariff_type, 'L') as cajo_tariff_type,
+             u.box_id as user_box_id, u.full_name as user_name
+      FROM packages p
+      LEFT JOIN users u ON u.id = p.user_id
+      WHERE p.awb_cost_id = $1 OR p.international_tracking = $2
+      ORDER BY p.tracking_internal
     `, [id, awbCost.awb_number]);
 
     // Guías CAJO vinculadas
