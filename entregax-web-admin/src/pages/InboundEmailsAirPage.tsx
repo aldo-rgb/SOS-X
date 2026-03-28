@@ -1161,11 +1161,14 @@ export default function InboundEmailsAirPage() {
                                         onClick={handleApprove}
                                         disabled={processing || !editableAwb.mawb || guiaVueloMismatch}
                                         sx={{
-                                            bgcolor: guiaVueloMismatch ? '#E53935' : '#2E7D32',
-                                            '&:hover': { bgcolor: guiaVueloMismatch ? '#C62828' : '#1B5E20' },
+                                            bgcolor: guiaVueloMismatch ? '#C62828' : '#2E7D32',
+                                            '&:hover': { bgcolor: guiaVueloMismatch ? '#B71C1C' : '#1B5E20' },
                                             textTransform: 'none',
                                             fontWeight: 600,
-                                            '&.Mui-disabled': guiaVueloMismatch ? { bgcolor: '#FFCDD2', color: '#C62828' } : {},
+                                            whiteSpace: 'nowrap',
+                                            '&.Mui-disabled': guiaVueloMismatch
+                                                ? { bgcolor: '#C62828 !important', color: '#FFFFFF !important', opacity: 1 }
+                                                : {},
                                         }}
                                     >
                                         {guiaVueloMismatch ? '⚠️ Guía no coincide' : 'Aprobar y Registrar'}
