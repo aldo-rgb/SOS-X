@@ -1372,7 +1372,7 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                                     {cajoGuides.length > 0 && overfeeTotal > 0 && (
                                                                         <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between', bgcolor: '#FFF3E0', p: 0.75, borderRadius: 1 }}>
                                                                             <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                                                                Overfee CAJO (${overfeeCajoPerKg.toFixed(2)}/kg × {pesoCajo.toFixed(2)} kg):
+                                                                                Overfee CAJO (${overfeeCajoPerKg.toFixed(2)} MXN/kg × {pesoCajo.toFixed(2)} kg):
                                                                             </Typography>
                                                                             <Typography variant="body2" fontWeight="bold" color="warning.dark">
                                                                                 + {fmt(overfeeTotal)}
