@@ -305,6 +305,11 @@ export default function InboundEmailsAirPage() {
     };
 
     // ========== APPROVE ==========
+    const guiaVueloExcel = selectedDraft?.extracted_data?.guiaVueloExcel
+        || selectedDraft?.extracted_data?.packingList?.rows?.find((r: any) => r.guiaVuelo)?.guiaVuelo
+        || null;
+    const guiaVueloMismatch = !!(guiaVueloExcel && editableAwb.mawb && guiaVueloExcel !== editableAwb.mawb);
+
     const handleApprove = async () => {
         if (!selectedDraft || processing) return;
         setProcessing(true);
@@ -312,6 +317,16 @@ export default function InboundEmailsAirPage() {
         // Validaciones
         if (!editableAwb.mawb) {
             setSnackbar({ open: true, message: 'El MAWB es obligatorio', severity: 'error' });
+            setProcessing(false);
+            return;
+        }
+
+        if (guiaVueloMismatch) {
+            setSnackbar({
+                open: true,
+                message: `⚠️ No se puede aprobar: La guía de vuelo del Packing List (${guiaVueloExcel}) no coincide con el MAWB del AWB (${editableAwb.mawb}). Corrige el MAWB o sube el Packing List correcto.`,
+                severity: 'error',
+            });
             setProcessing(false);
             return;
         }
@@ -902,6 +917,35 @@ export default function InboundEmailsAirPage() {
                                                     />
                                                 ))}
                                             </Box>
+
+                                            {/* Guía de Vuelo del Packing List */}
+                                            {(selectedDraft.extracted_data?.guiaVueloExcel || selectedDraft.extracted_data?.packingList?.rows?.find((r: any) => r.guiaVuelo)?.guiaVuelo) && (
+                                                <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    <Typography variant="body2" fontWeight={700} color="text.secondary">
+                                                        ✈️ Guía de Vuelo (Packing List):
+                                                    </Typography>
+                                                    <Chip
+                                                        label={selectedDraft.extracted_data?.guiaVueloExcel || selectedDraft.extracted_data?.packingList?.rows?.find((r: any) => r.guiaVuelo)?.guiaVuelo}
+                                                        size="small"
+                                                        sx={{
+                                                            bgcolor: AIR_COLOR,
+                                                            color: 'white',
+                                                            fontWeight: 700,
+                                                            fontFamily: 'monospace',
+                                                            fontSize: '0.85rem',
+                                                        }}
+                                                    />
+                                                    {selectedDraft.awb_number && selectedDraft.extracted_data?.guiaVueloExcel &&
+                                                     selectedDraft.awb_number !== selectedDraft.extracted_data.guiaVueloExcel && (
+                                                        <Chip
+                                                            label="⚠️ No coincide con MAWB"
+                                                            size="small"
+                                                            color="warning"
+                                                            sx={{ fontWeight: 600 }}
+                                                        />
+                                                    )}
+                                                </Box>
+                                            )}
                                         </Box>
                                     )}
 
@@ -1105,16 +1149,26 @@ export default function InboundEmailsAirPage() {
                             >
                                 Extraer Datos
                             </Button>
-                            <Tooltip title={!editableAwb.mawb ? 'Falta el MAWB' : ''}>
+                            <Tooltip title={
+                                !editableAwb.mawb ? 'Falta el MAWB'
+                                : guiaVueloMismatch ? `⚠️ La guía de vuelo del Excel (${guiaVueloExcel}) no coincide con el MAWB (${editableAwb.mawb})`
+                                : ''
+                            }>
                                 <span>
                                     <Button
                                         variant="contained"
                                         startIcon={processing ? <CircularProgress size={16} color="inherit" /> : <CheckIcon />}
                                         onClick={handleApprove}
-                                        disabled={processing || !editableAwb.mawb}
-                                        sx={{ bgcolor: '#2E7D32', '&:hover': { bgcolor: '#1B5E20' }, textTransform: 'none', fontWeight: 600 }}
+                                        disabled={processing || !editableAwb.mawb || guiaVueloMismatch}
+                                        sx={{
+                                            bgcolor: guiaVueloMismatch ? '#E53935' : '#2E7D32',
+                                            '&:hover': { bgcolor: guiaVueloMismatch ? '#C62828' : '#1B5E20' },
+                                            textTransform: 'none',
+                                            fontWeight: 600,
+                                            '&.Mui-disabled': guiaVueloMismatch ? { bgcolor: '#FFCDD2', color: '#C62828' } : {},
+                                        }}
                                     >
-                                        Aprobar y Registrar
+                                        {guiaVueloMismatch ? '⚠️ Guía no coincide' : 'Aprobar y Registrar'}
                                     </Button>
                                 </span>
                             </Tooltip>

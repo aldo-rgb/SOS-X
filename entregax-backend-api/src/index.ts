@@ -530,6 +530,7 @@ import {
   batchUpdateCajoStatus,
   deleteCajoGuide,
   getCajoByMawb,
+  listCajoMawbs,
   getCajoOverfee,
   saveCajoOverfee
 } from './cajoController';
@@ -5342,6 +5343,7 @@ app.put('/api/cajo/guides/:id', authenticateToken, requireMinLevel(ROLES.WAREHOU
 app.put('/api/cajo/guides/batch-status', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), batchUpdateCajoStatus);
 app.delete('/api/cajo/guides/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteCajoGuide);
 app.get('/api/cajo/by-mawb/:mawb', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCajoByMawb);
+app.get('/api/cajo/mawbs', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listCajoMawbs);
 
 // ========== COSTEO AIR WAYBILL (Modal estilo marítimo) ==========
 app.get('/api/awb-costs/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAwbCostStats);

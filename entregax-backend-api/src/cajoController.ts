@@ -227,6 +227,57 @@ export const getCajoByMawb = async (req: AuthRequest, res: Response): Promise<vo
 };
 
 // ============================================
+// 7.5 LISTAR MAWBs AGRUPADOS (GET /api/cajo/mawbs)
+// ============================================
+export const listCajoMawbs = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { search } = req.query;
+
+    let whereClause = 'WHERE cg.mawb IS NOT NULL';
+    const params: (string | number)[] = [];
+    let paramIdx = 1;
+
+    if (search) {
+      whereClause += ` AND (cg.mawb ILIKE $${paramIdx} OR cg.cliente ILIKE $${paramIdx})`;
+      params.push(`%${search}%`);
+      paramIdx++;
+    }
+
+    const result = await pool.query(`
+      SELECT 
+        cg.mawb,
+        COUNT(*) as total_guides,
+        COUNT(DISTINCT cg.cliente) as total_clients,
+        COALESCE(SUM(cg.peso_kg), 0) as total_weight_kg,
+        COUNT(*) FILTER (WHERE cg.status = 'registered') as registered,
+        COUNT(*) FILTER (WHERE cg.status = 'in_transit') as in_transit,
+        COUNT(*) FILTER (WHERE cg.status = 'at_customs') as at_customs,
+        COUNT(*) FILTER (WHERE cg.status = 'delivered') as delivered,
+        COUNT(*) FILTER (WHERE cg.status = 'pending') as pending,
+        COUNT(*) FILTER (WHERE cg.tipo = 'Logo') as tipo_logo,
+        COUNT(*) FILTER (WHERE cg.tipo = 'Generico') as tipo_generico,
+        COUNT(*) FILTER (WHERE cg.tipo = 'Medical') as tipo_medical,
+        MAX(cg.vuelo) as vuelo,
+        MIN(cg.created_at) as first_created,
+        MAX(cg.created_at) as last_created
+      FROM cajo_guides cg
+      ${whereClause}
+      GROUP BY cg.mawb
+      ORDER BY MAX(cg.created_at) DESC
+    `, params);
+
+    res.json({
+      success: true,
+      mawbs: result.rows,
+      total: result.rows.length,
+    });
+  } catch (error: any) {
+    console.error('📦 [CAJO] Error listando MAWBs:', error.message);
+    res.status(500).json({ error: 'Error al listar MAWBs CAJO' });
+  }
+};
+
+// ============================================
 // 8. GET OVERFEE CONFIG (GET /api/cajo/overfee)
 // ============================================
 export const getCajoOverfee = async (req: AuthRequest, res: Response): Promise<void> => {

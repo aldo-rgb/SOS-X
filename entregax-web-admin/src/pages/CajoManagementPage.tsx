@@ -38,6 +38,9 @@ import {
   InputLabel,
   Divider,
   TablePagination,
+  Tabs,
+  Tab,
+  Collapse,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import FlightIcon from '@mui/icons-material/Flight';
@@ -53,6 +56,8 @@ import WarehouseIcon from '@mui/icons-material/Warehouse';
 import PeopleIcon from '@mui/icons-material/People';
 import ScaleIcon from '@mui/icons-material/Scale';
 import SettingsIcon from '@mui/icons-material/Settings';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const CAJO_COLOR = '#FF6F00';
@@ -95,6 +100,24 @@ interface CajoStats {
   tipo_logo: string;
   tipo_generico: string;
   tipo_medical: string;
+}
+
+interface MawbSummary {
+  mawb: string;
+  total_guides: number;
+  total_clients: number;
+  total_weight_kg: number;
+  registered: number;
+  in_transit: number;
+  at_customs: number;
+  delivered: number;
+  pending: number;
+  tipo_logo: number;
+  tipo_generico: number;
+  tipo_medical: number;
+  vuelo: string | null;
+  first_created: string;
+  last_created: string;
 }
 
 interface Props {
@@ -153,6 +176,15 @@ const CajoManagementPage: React.FC<Props> = ({ onBack }) => {
   const [overfeeValue, setOverfeeValue] = useState('');
   const [savingOverfee, setSavingOverfee] = useState(false);
 
+  // Tab & MAWB view
+  const [activeTab, setActiveTab] = useState(0);
+  const [mawbList, setMawbList] = useState<MawbSummary[]>([]);
+  const [mawbSearch, setMawbSearch] = useState('');
+  const [loadingMawbs, setLoadingMawbs] = useState(false);
+  const [expandedMawb, setExpandedMawb] = useState<string | null>(null);
+  const [mawbGuides, setMawbGuides] = useState<CajoGuide[]>([]);
+  const [loadingMawbGuides, setLoadingMawbGuides] = useState(false);
+
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
@@ -190,6 +222,48 @@ const CajoManagementPage: React.FC<Props> = ({ onBack }) => {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // ========== MAWB LIST ==========
+  const loadMawbList = useCallback(async () => {
+    setLoadingMawbs(true);
+    try {
+      const params = new URLSearchParams();
+      if (mawbSearch.trim()) params.set('search', mawbSearch.trim());
+
+      const res = await fetch(`${API_URL}/api/cajo/mawbs?${params}`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setMawbList(data.mawbs || []);
+      }
+    } catch (err) {
+      console.error('Error cargando MAWBs:', err);
+    }
+    setLoadingMawbs(false);
+  }, [mawbSearch]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (activeTab === 1) loadMawbList();
+  }, [activeTab, loadMawbList]);
+
+  const toggleMawbExpand = async (mawb: string) => {
+    if (expandedMawb === mawb) {
+      setExpandedMawb(null);
+      setMawbGuides([]);
+      return;
+    }
+    setExpandedMawb(mawb);
+    setLoadingMawbGuides(true);
+    try {
+      const res = await fetch(`${API_URL}/api/cajo/by-mawb/${encodeURIComponent(mawb)}`, { headers });
+      if (res.ok) {
+        const data = await res.json();
+        setMawbGuides(data.guides || []);
+      }
+    } catch (err) {
+      console.error('Error cargando guías MAWB:', err);
+    }
+    setLoadingMawbGuides(false);
+  };
 
   // ========== DETAIL ==========
   const openDetail = (guide: CajoGuide) => {
@@ -424,6 +498,25 @@ const CajoManagementPage: React.FC<Props> = ({ onBack }) => {
         </Box>
       )}
 
+      {/* Tabs */}
+      <Paper sx={{ mb: 2 }}>
+        <Tabs
+          value={activeTab}
+          onChange={(_, v) => setActiveTab(v)}
+          sx={{
+            '& .MuiTab-root': { textTransform: 'none', fontWeight: 600 },
+            '& .Mui-selected': { color: CAJO_COLOR },
+            '& .MuiTabs-indicator': { bgcolor: CAJO_COLOR },
+          }}
+        >
+          <Tab label="📋 General" />
+          <Tab label={`📦 Por MAWB (${stats?.total_mawbs || 0})`} />
+        </Tabs>
+      </Paper>
+
+      {/* ====== TAB 0: GENERAL ====== */}
+      {activeTab === 0 && (<>
+
       {/* Filters */}
       <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
         <TextField
@@ -585,6 +678,209 @@ const CajoManagementPage: React.FC<Props> = ({ onBack }) => {
             labelRowsPerPage="Filas:"
           />
         </>
+      )}
+
+      </>)} {/* End Tab 0: General */}
+
+      {/* ====== TAB 1: POR MAWB ====== */}
+      {activeTab === 1 && (
+        <Box>
+          {/* Search */}
+          <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center' }}>
+            <TextField
+              size="small"
+              placeholder="Buscar MAWB o cliente..."
+              value={mawbSearch}
+              onChange={e => setMawbSearch(e.target.value)}
+              InputProps={{
+                startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>,
+              }}
+              sx={{ minWidth: 280 }}
+            />
+            <Button
+              startIcon={loadingMawbs ? <CircularProgress size={18} color="inherit" /> : <RefreshIcon />}
+              onClick={loadMawbList}
+              disabled={loadingMawbs}
+              variant="outlined"
+              sx={{ borderColor: CAJO_COLOR, color: CAJO_COLOR }}
+            >
+              Actualizar
+            </Button>
+          </Box>
+
+          {loadingMawbs ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+              <CircularProgress sx={{ color: CAJO_COLOR }} />
+            </Box>
+          ) : mawbList.length === 0 ? (
+            <Alert severity="info">No se encontraron MAWBs{mawbSearch ? ` para "${mawbSearch}"` : ''}</Alert>
+          ) : (
+            <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
+              <Table>
+                <TableHead>
+                  <TableRow sx={{ bgcolor: '#263238' }}>
+                    <TableCell sx={{ color: 'white', width: 50 }} />
+                    <TableCell sx={{ fontWeight: 700, color: 'white' }}>MAWB</TableCell>
+                    <TableCell sx={{ fontWeight: 700, color: 'white' }} align="right">Guías</TableCell>
+                    <TableCell sx={{ fontWeight: 700, color: 'white' }} align="right">Clientes</TableCell>
+                    <TableCell sx={{ fontWeight: 700, color: 'white' }} align="right">Peso (kg)</TableCell>
+                    <TableCell sx={{ fontWeight: 700, color: 'white' }}>Vuelo</TableCell>
+                    <TableCell sx={{ fontWeight: 700, color: 'white' }}>Tipos</TableCell>
+                    <TableCell sx={{ fontWeight: 700, color: 'white' }}>Estados</TableCell>
+                    <TableCell sx={{ fontWeight: 700, color: 'white' }}>Fecha</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {mawbList.map((m) => (
+                    <>
+                      <TableRow
+                        key={m.mawb}
+                        hover
+                        onClick={() => toggleMawbExpand(m.mawb)}
+                        sx={{ cursor: 'pointer', '&:hover': { bgcolor: CAJO_BG }, bgcolor: expandedMawb === m.mawb ? '#FFF8E1' : undefined }}
+                      >
+                        <TableCell>
+                          <IconButton size="small">
+                            {expandedMawb === m.mawb ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                          </IconButton>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 700, color: '#E65100' }}>
+                            {m.mawb}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Chip label={m.total_guides} size="small" color="primary" />
+                        </TableCell>
+                        <TableCell align="right">{m.total_clients}</TableCell>
+                        <TableCell align="right">{Number(m.total_weight_kg || 0).toFixed(1)}</TableCell>
+                        <TableCell>
+                          <Typography variant="caption">{m.vuelo || '—'}</Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                            {Number(m.tipo_logo) > 0 && <Chip label={`Logo: ${m.tipo_logo}`} size="small" color="warning" variant="outlined" />}
+                            {Number(m.tipo_generico) > 0 && <Chip label={`Gen: ${m.tipo_generico}`} size="small" color="success" variant="outlined" />}
+                            {Number(m.tipo_medical) > 0 && <Chip label={`Med: ${m.tipo_medical}`} size="small" color="error" variant="outlined" />}
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                            {Number(m.in_transit) > 0 && <Chip label={`✈️ ${m.in_transit}`} size="small" color="info" variant="filled" />}
+                            {Number(m.delivered) > 0 && <Chip label={`✅ ${m.delivered}`} size="small" color="success" variant="filled" />}
+                            {Number(m.at_customs) > 0 && <Chip label={`🛃 ${m.at_customs}`} size="small" color="secondary" variant="filled" />}
+                            {Number(m.registered) > 0 && <Chip label={`📋 ${m.registered}`} size="small" color="warning" variant="filled" />}
+                            {Number(m.pending) > 0 && <Chip label={`⏳ ${m.pending}`} size="small" variant="filled" />}
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="caption">{formatDate(m.last_created)}</Typography>
+                        </TableCell>
+                      </TableRow>
+
+                      {/* Expanded MAWB detail row */}
+                      <TableRow key={`${m.mawb}-detail`}>
+                        <TableCell colSpan={9} sx={{ py: 0, border: expandedMawb === m.mawb ? undefined : 'none' }}>
+                          <Collapse in={expandedMawb === m.mawb} timeout="auto" unmountOnExit>
+                            <Box sx={{ py: 2, px: 1 }}>
+                              {loadingMawbGuides ? (
+                                <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                                  <CircularProgress size={28} sx={{ color: CAJO_COLOR }} />
+                                </Box>
+                              ) : (
+                                <>
+                                  <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, color: '#E65100' }}>
+                                    📦 Guías del MAWB {m.mawb} ({mawbGuides.length})
+                                  </Typography>
+                                  <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 1 }}>
+                                    <Table size="small">
+                                      <TableHead>
+                                        <TableRow sx={{ bgcolor: '#FFF3E0' }}>
+                                          <TableCell sx={{ fontWeight: 700 }}>Guía AIR</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Cliente</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Tipo</TableCell>
+                                          <TableCell align="right" sx={{ fontWeight: 700 }}>Peso KG</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Dimensiones</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Vuelo</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Producto</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Estado</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Fecha</TableCell>
+                                          <TableCell sx={{ fontWeight: 700 }}>Acciones</TableCell>
+                                        </TableRow>
+                                      </TableHead>
+                                      <TableBody>
+                                        {mawbGuides.map((g) => (
+                                          <TableRow key={g.id} hover sx={{ '&:hover': { bgcolor: '#FFF8E1' } }}>
+                                            <TableCell>
+                                              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                                                {g.guia_air || g.no_caja || '—'}
+                                              </Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                              <Typography variant="body2" fontWeight={600}>{g.cliente || '—'}</Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                              <Chip label={g.tipo || 'N/A'} size="small" color={tipoColor(g.tipo)} variant="filled" />
+                                            </TableCell>
+                                            <TableCell align="right">
+                                              <Typography variant="body2">{g.peso_kg ? `${Number(g.peso_kg).toFixed(1)}` : '—'}</Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                              <Typography variant="caption" color="text.secondary">
+                                                {g.largo && g.ancho && g.alto ? `${g.largo}×${g.ancho}×${g.alto}` : '—'}
+                                              </Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                              <Typography variant="caption">{g.vuelo || g.guia_vuelo || '—'}</Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                              <Tooltip title={g.observaciones || ''}>
+                                                <Typography variant="body2" sx={{ maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                  {g.observaciones || '—'}
+                                                </Typography>
+                                              </Tooltip>
+                                            </TableCell>
+                                            <TableCell>
+                                              {(() => {
+                                                const cfg = statusChipConfig[g.status] || { label: g.status, color: 'default' as const };
+                                                return <Chip label={cfg.label} size="small" color={cfg.color} variant="filled" />;
+                                              })()}
+                                            </TableCell>
+                                            <TableCell>
+                                              <Typography variant="caption">{formatDate(g.created_at)}</Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                              <Tooltip title="Ver / Editar">
+                                                <IconButton size="small" onClick={() => openDetail(g)} sx={{ color: CAJO_COLOR }}>
+                                                  <VisibilityIcon fontSize="small" />
+                                                </IconButton>
+                                              </Tooltip>
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
+                                        {mawbGuides.length === 0 && (
+                                          <TableRow>
+                                            <TableCell colSpan={10} align="center" sx={{ py: 2 }}>
+                                              <Typography variant="body2" color="text.secondary">No hay guías en este MAWB</Typography>
+                                            </TableCell>
+                                          </TableRow>
+                                        )}
+                                      </TableBody>
+                                    </Table>
+                                  </TableContainer>
+                                </>
+                              )}
+                            </Box>
+                          </Collapse>
+                        </TableCell>
+                      </TableRow>
+                    </>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </Box>
       )}
 
       {/* ====== DETAIL / EDIT DIALOG ====== */}

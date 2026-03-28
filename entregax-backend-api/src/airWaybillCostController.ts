@@ -479,6 +479,8 @@ export const calcReleaseCosts = async (req: AuthRequest, res: Response): Promise
     // Calcular peso total del AWB
     const pesoS = packagesS.rows.reduce((sum: number, p: any) => sum + (parseFloat(p.weight) || 0), 0);
     const pesoCajo = cajoGuides.rows.reduce((sum: number, g: any) => sum + (parseFloat(g.peso_kg) || 0), 0);
+    // Para buscar el bracket de tarifa, usar el peso bruto declarado del AWB (gross_weight_kg)
+    const pesoBrutoAwb = parseFloat(awbCost.gross_weight_kg) || 0;
     const pesoTotalAwb = pesoS + pesoCajo;
 
     // Clasificar paquetes S por tipo (Logo o Genérico)
@@ -495,7 +497,7 @@ export const calcReleaseCosts = async (req: AuthRequest, res: Response): Promise
     }
 
     // Determinar el tipo predominante para obtener la tarifa del proveedor
-    // El peso total del AWB determina el bracket
+    // El peso BRUTO del AWB (declarado) determina el bracket, NO la suma de pesos individuales
     const tipoPredominante = pesoLogo > pesoGenerico ? 'L' : 'G';
 
     // Obtener la ruta aérea (asumimos AIFA = HKG -> MEX, route_id = 1)
@@ -505,7 +507,7 @@ export const calcReleaseCosts = async (req: AuthRequest, res: Response): Promise
     `);
     const routeId = routeRes.rows.length > 0 ? routeRes.rows[0].id : 1;
 
-    // Obtener los brackets de costo del proveedor para este tipo y buscar el aplicable por peso
+    // Obtener los brackets de costo del proveedor para este tipo y buscar el aplicable por peso BRUTO del AWB
     const bracketsRes = await pool.query(`
       SELECT min_kg, cost_per_kg
       FROM air_cost_brackets
@@ -515,7 +517,7 @@ export const calcReleaseCosts = async (req: AuthRequest, res: Response): Promise
 
     let costPerKgProveedor = 0;
     for (const bracket of bracketsRes.rows) {
-      if (pesoTotalAwb >= parseFloat(bracket.min_kg)) {
+      if (pesoBrutoAwb >= parseFloat(bracket.min_kg)) {
         costPerKgProveedor = parseFloat(bracket.cost_per_kg);
         break;
       }
@@ -542,9 +544,10 @@ export const calcReleaseCosts = async (req: AuthRequest, res: Response): Promise
     console.log(`✈️ [AWB-COST] Cálculo automático AWB ${awbCost.awb_number}:
       - Peso S: ${pesoS.toFixed(2)} kg (Logo: ${pesoLogo.toFixed(2)}, Gen: ${pesoGenerico.toFixed(2)})
       - Peso CAJO: ${pesoCajo.toFixed(2)} kg
-      - Peso Total: ${pesoTotalAwb.toFixed(2)} kg
+      - Peso Bruto AWB (para bracket): ${pesoBrutoAwb.toFixed(2)} kg
+      - Peso Total paquetes: ${pesoTotalAwb.toFixed(2)} kg
       - Tipo predominante: ${tipoPredominante}
-      - Tarifa proveedor: $${costPerKgProveedor.toFixed(2)} MXN/kg
+      - Tarifa proveedor: $${costPerKgProveedor.toFixed(2)} MXN/kg (bracket por ${pesoBrutoAwb.toFixed(0)} kg)
       - Overfee CAJO: $${cajoOverfeePerKg.toFixed(2)} MXN/kg
       - Liberación S: $${gastosLiberacionS.toFixed(2)} MXN
       - Liberación CAJO: $${gastosLiberacionCajo.toFixed(2)} MXN
@@ -559,6 +562,7 @@ export const calcReleaseCosts = async (req: AuthRequest, res: Response): Promise
         peso_s_generico: pesoGenerico,
         peso_cajo: pesoCajo,
         peso_total: pesoTotalAwb,
+        peso_bruto_awb: pesoBrutoAwb,
         
         // Configuración usada
         tipo_predominante: tipoPredominante,

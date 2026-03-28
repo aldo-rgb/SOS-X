@@ -785,7 +785,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
     }
 
     const draft = draftRes.rows[0];
-    if (draft.status !== 'draft') {
+    if (draft.status !== 'draft' && draft.status !== 'pending') {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: `Borrador ya está en estado: ${draft.status}` });
     }
@@ -802,6 +802,19 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
     // Actualizar AWB fields si fueron editados
     const awb = editedAwb || extractedData.awb || {};
     const mawb = awb.mawb || draft.awb_number || '';
+
+    // === VALIDAR QUE NO EXISTA UN AWB YA APROBADO CON ESTE MAWB ===
+    if (mawb) {
+      const existingAwb = await client.query(
+        'SELECT id FROM air_waybill_costs WHERE awb_number = $1', [mawb]
+      );
+      if (existingAwb.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ 
+          error: `El MAWB ${mawb} ya fue aprobado anteriormente (costeo #${existingAwb.rows[0].id}). No se puede aprobar dos veces.` 
+        });
+      }
+    }
 
     // === OBTENER RUTA AÉREA PARA PRECIO ===
     // Intentar encontrar la ruta por destino (MEX, GDL, etc.)

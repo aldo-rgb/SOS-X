@@ -1065,9 +1065,6 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                             >
                                                                 Ver AWB PDF
                                                             </Button>
-                                                            <Typography variant="caption" color="text.secondary">
-                                                                {cost.awb_pdf_url}
-                                                            </Typography>
                                                         </Box>
                                                     ) : (
                                                         <Box sx={{ py: 4, textAlign: 'center' }}>
@@ -1100,9 +1097,6 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                                             >
                                                                 Descargar Packing List
                                                             </Button>
-                                                            <Typography variant="caption" color="text.secondary">
-                                                                {cost.packing_list_url}
-                                                            </Typography>
                                                         </Box>
                                                     ) : (
                                                         <Box sx={{ py: 4, textAlign: 'center' }}>
