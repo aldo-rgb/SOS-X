@@ -8,7 +8,6 @@ import {
   CircularProgress,
   useTheme,
   useMediaQuery,
-  Divider,
   Button,
   Dialog,
   DialogTitle,
@@ -38,6 +37,7 @@ interface Ticket {
   priority: string;
   created_at: string;
   updated_at: string;
+  resolved_at?: string;
 }
 
 interface TicketMessage {
@@ -341,7 +341,6 @@ export default function ClientTicketsPage({ onBack }: ClientTicketsPageProps) {
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
                   {messages.map((msg) => {
                     const isUser = msg.sender_type === 'user' || msg.sender_type === 'client';
-                    const isAgent = msg.sender_type === 'agent' || msg.sender_type === 'admin';
                     const isAI = msg.sender_type === 'ai' || msg.sender_type === 'bot';
                     return (
                       <Box
