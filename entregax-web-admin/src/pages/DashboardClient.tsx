@@ -53,6 +53,8 @@ import {
   BottomNavigationAction,
   Select,
   InputLabel,
+  Autocomplete,
+  FormGroup,
 } from '@mui/material';
 import {
   LocalShipping as ShippingIcon,
@@ -659,7 +661,8 @@ export default function DashboardClient() {
   const [editingAddress, setEditingAddress] = useState<DeliveryAddress | null>(null);
   const [addressForm, setAddressForm] = useState({
     alias: '',
-    contact_name: '',
+    first_name: '',
+    last_name: '',
     street: '',
     exterior_number: '',
     interior_number: '',
@@ -668,10 +671,14 @@ export default function DashboardClient() {
     state: '',
     zip_code: '',
     country: 'México',
+    country_code: '+52',
     phone: '',
     reference: '',
+    service_types: [] as string[],
   });
   const [addressSaving, setAddressSaving] = useState(false);
+  const [colonyOptions, setColonyOptions] = useState<string[]>([]);
+  const [zipLookupLoading, setZipLookupLoading] = useState(false);
   
   // Mis Métodos de Pago
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
@@ -2040,28 +2047,78 @@ export default function DashboardClient() {
 
   // Guardar dirección de entrega
   const handleSaveAddress = async () => {
-    if (!addressForm.street || !addressForm.city || !addressForm.state) {
+    if (!addressForm.first_name || !addressForm.last_name) {
+      setSnackbar({ open: true, message: 'Nombre y Apellido son requeridos', severity: 'warning' });
+      return;
+    }
+    if (!addressForm.street || !addressForm.city || !addressForm.state || !addressForm.colony) {
       setSnackbar({ open: true, message: t('cd.snackbar.addressRequired'), severity: 'warning' });
       return;
     }
 
     setAddressSaving(true);
     try {
-      const payload = { ...addressForm };
+      // Combinar nombre y apellido como contact_name
+      const contact_name = `${addressForm.first_name.trim()} ${addressForm.last_name.trim()}`;
+      // Combinar código de país + teléfono
+      const phone = addressForm.phone ? `${addressForm.country_code}${addressForm.phone.replace(/\D/g, '')}` : '';
+      
+      const payload = {
+        alias: addressForm.alias,
+        contact_name,
+        street: addressForm.street,
+        exterior_number: addressForm.exterior_number,
+        interior_number: addressForm.interior_number,
+        colony: addressForm.colony,
+        city: addressForm.city,
+        state: addressForm.state,
+        zip_code: addressForm.zip_code,
+        country: addressForm.country,
+        phone,
+        reference: addressForm.reference,
+        default_for_service: addressForm.service_types.length > 0 ? addressForm.service_types.join(',') : null,
+      };
+      
+      let savedAddressId: number | null = null;
       
       if (editingAddress) {
-        await api.put(`/addresses/${editingAddress.id}`, payload);
+        const res = await api.put(`/addresses/${editingAddress.id}`, payload);
+        savedAddressId = editingAddress.id;
+        void res; // used for potential future error handling
         setSnackbar({ open: true, message: t('cd.snackbar.addressUpdated'), severity: 'success' });
+        // Actualizar asignación de servicios si hay cambios
+        if (addressForm.service_types.length > 0) {
+          try {
+            await api.put(`/addresses/${savedAddressId}/default-for-service`, {
+              services: addressForm.service_types
+            });
+          } catch (svcErr) {
+            console.error('Error asignando servicios:', svcErr);
+          }
+        }
       } else {
-        await api.post('/addresses', payload);
+        const res = await api.post('/addresses', payload);
+        savedAddressId = res.data?.address?.id;
         setSnackbar({ open: true, message: t('cd.snackbar.addressAdded'), severity: 'success' });
+        // Asignar servicios a la dirección recién creada
+        if (savedAddressId && addressForm.service_types.length > 0) {
+          try {
+            await api.put(`/addresses/${savedAddressId}/default-for-service`, {
+              services: addressForm.service_types
+            });
+          } catch (svcErr) {
+            console.error('Error asignando servicios:', svcErr);
+          }
+        }
       }
       
       setAddressModalOpen(false);
       setEditingAddress(null);
+      setColonyOptions([]);
       setAddressForm({
         alias: '',
-        contact_name: '',
+        first_name: '',
+        last_name: '',
         street: '',
         exterior_number: '',
         interior_number: '',
@@ -2070,14 +2127,40 @@ export default function DashboardClient() {
         state: '',
         zip_code: '',
         country: 'México',
+        country_code: '+52',
         phone: '',
         reference: '',
+        service_types: [],
       });
       loadDeliveryAddresses();
     } catch (error) {
       setSnackbar({ open: true, message: t('cd.snackbar.addressSaveError'), severity: 'error' });
     } finally {
       setAddressSaving(false);
+    }
+  };
+
+  // Buscar código postal
+  const handleZipCodeLookup = async (cp: string) => {
+    if (!/^\d{5}$/.test(cp)) return;
+    setZipLookupLoading(true);
+    try {
+      const res = await api.get(`/zipcode/${cp}`);
+      if (res.data) {
+        const { city, state, colonies } = res.data;
+        setColonyOptions(colonies || []);
+        setAddressForm(prev => ({
+          ...prev,
+          city: city || prev.city,
+          state: state || prev.state,
+          colony: colonies?.length === 1 ? colonies[0] : prev.colony,
+        }));
+      }
+    } catch (error) {
+      console.log('CP no encontrado');
+      setColonyOptions([]);
+    } finally {
+      setZipLookupLoading(false);
     }
   };
 
@@ -2097,9 +2180,39 @@ export default function DashboardClient() {
   // Editar dirección
   const handleEditAddress = (address: DeliveryAddress) => {
     setEditingAddress(address);
+    // Separar nombre en first_name / last_name
+    const nameParts = (address.contact_name || '').trim().split(' ');
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || '';
+    // Separar código de país del teléfono
+    let countryCode = '+52';
+    let phone = address.phone || '';
+    if (phone.startsWith('+')) {
+      // Detectar código de país conocido
+      if (phone.startsWith('+52')) {
+        countryCode = '+52';
+        phone = phone.substring(3);
+      } else if (phone.startsWith('+1')) {
+        countryCode = '+1';
+        phone = phone.substring(2);
+      } else if (phone.startsWith('+86')) {
+        countryCode = '+86';
+        phone = phone.substring(3);
+      } else {
+        // Tomar primeros 3 chars como código
+        countryCode = phone.substring(0, 3);
+        phone = phone.substring(3);
+      }
+    }
+    // Parsear servicios asignados
+    const serviceTypes = address.default_for_service 
+      ? address.default_for_service.split(',').map(s => s.trim()).filter(Boolean) 
+      : [];
+    
     setAddressForm({
       alias: address.alias,
-      contact_name: address.contact_name || '',
+      first_name: firstName,
+      last_name: lastName,
       street: address.street,
       exterior_number: address.exterior_number || '',
       interior_number: address.interior_number || '',
@@ -2108,9 +2221,15 @@ export default function DashboardClient() {
       state: address.state,
       zip_code: address.zip_code || '',
       country: address.country || 'México',
-      phone: address.phone || '',
+      country_code: countryCode,
+      phone: phone,
       reference: address.reference || '',
+      service_types: serviceTypes,
     });
+    // Si tiene CP, cargar opciones de colonias
+    if (address.zip_code && /^\d{5}$/.test(address.zip_code)) {
+      handleZipCodeLookup(address.zip_code);
+    }
     setAddressModalOpen(true);
   };
 
@@ -2855,7 +2974,7 @@ export default function DashboardClient() {
             <Tab icon={<ShippingIcon />} label={t('cd.tabs.shipments')} iconPosition="start" />
             <Tab icon={<PaymentsIcon />} label="Pago Proveedores" iconPosition="start" />
             <Tab icon={<CalculateIcon />} label={t('cd.tabs.quoter')} iconPosition="start" />
-            <Tab icon={<WalletIcon />} label="Mi Cartera" iconPosition="start" />
+            <Tab icon={<WalletIcon />} label="Mi Cuenta" iconPosition="start" />
             <Tab icon={<ReceiptIcon />} label={t('cd.tabs.invoices')} iconPosition="start" />
             <Tab icon={<HomeIcon />} label="Direcciones de Envío" iconPosition="start" />
           </Tabs>
@@ -4575,9 +4694,11 @@ export default function DashboardClient() {
                         sx={{ bgcolor: ORANGE }}
                         onClick={() => {
                           setEditingAddress(null);
+                          setColonyOptions([]);
                           setAddressForm({
                             alias: '',
-                            contact_name: '',
+                            first_name: '',
+                            last_name: '',
                             street: '',
                             exterior_number: '',
                             interior_number: '',
@@ -4586,8 +4707,10 @@ export default function DashboardClient() {
                             state: '',
                             zip_code: '',
                             country: 'México',
+                            country_code: '+52',
                             phone: '',
                             reference: '',
+                            service_types: [],
                           });
                           setAddressModalOpen(true);
                         }}
@@ -4642,6 +4765,29 @@ export default function DashboardClient() {
                                   <Typography variant="caption" color="text.secondary">
                                     Ref: {addr.reference}
                                   </Typography>
+                                )}
+                                {/* Servicios asignados */}
+                                {addr.default_for_service && (
+                                  <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
+                                    {addr.default_for_service.split(',').map(svc => {
+                                      const svcMap: Record<string, { label: string; color: string }> = {
+                                        air: { label: '✈️ Aéreo', color: '#2196F3' },
+                                        maritime: { label: '🚢 Marítimo', color: '#00897B' },
+                                        usa: { label: '📦 PO Box', color: '#F05A28' },
+                                        national_mx: { label: '📍 Nacional', color: '#9C27B0' },
+                                        all: { label: '🌐 Todos', color: '#333' },
+                                      };
+                                      const info = svcMap[svc.trim()] || { label: svc.trim(), color: '#666' };
+                                      return (
+                                        <Chip
+                                          key={svc}
+                                          label={info.label}
+                                          size="small"
+                                          sx={{ bgcolor: info.color, color: 'white', fontSize: '0.7rem', height: 22 }}
+                                        />
+                                      );
+                                    })}
+                                  </Box>
                                 )}
                                 <Box sx={{ display: 'flex', gap: 0.5, mt: 1 }}>
                                   <IconButton size="small" onClick={() => handleEditAddress(addr)}>
@@ -6350,13 +6496,14 @@ export default function DashboardClient() {
       </Dialog>
 
       {/* Modal Agregar/Editar Dirección */}
-      <Dialog open={addressModalOpen} onClose={() => setAddressModalOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <LocationOnIcon color="primary" />
+      <Dialog open={addressModalOpen} onClose={() => { setAddressModalOpen(false); setColonyOptions([]); }} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: ORANGE, color: 'white' }}>
+          <LocationOnIcon />
           {editingAddress ? t('cd.addressModal.editTitle') : t('cd.addressModal.newTitle')}
         </DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
+            {/* Alias */}
             <Grid size={12}>
               <TextField
                 fullWidth
@@ -6364,37 +6511,176 @@ export default function DashboardClient() {
                 label={t('cd.addressModal.alias')}
                 value={addressForm.alias}
                 onChange={(e) => setAddressForm({ ...addressForm, alias: e.target.value })}
+                placeholder="Ej: Casa, Oficina, Bodega..."
+              />
+            </Grid>
+
+            {/* Nombre/s y Apellido/s */}
+            <Grid size={6}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Nombre(s) *"
+                value={addressForm.first_name}
+                onChange={(e) => setAddressForm({ ...addressForm, first_name: e.target.value })}
+                required
               />
             </Grid>
             <Grid size={6}>
               <TextField
                 fullWidth
                 size="small"
-                label={t('cd.addressModal.contactName')}
-                value={addressForm.contact_name}
-                onChange={(e) => setAddressForm({ ...addressForm, contact_name: e.target.value })}
+                label="Apellido(s) *"
+                value={addressForm.last_name}
+                onChange={(e) => setAddressForm({ ...addressForm, last_name: e.target.value })}
+                required
               />
             </Grid>
-            <Grid size={6}>
-              <TextField
-                fullWidth
-                size="small"
-                label={t('cd.addressModal.phone')}
-                value={addressForm.phone}
-                onChange={(e) => setAddressForm({ ...addressForm, phone: e.target.value })}
-              />
+
+            {/* Código de País + Teléfono */}
+            <Grid size={4}>
+              <FormControl fullWidth size="small">
+                <InputLabel>Clave País</InputLabel>
+                <Select
+                  value={addressForm.country_code}
+                  label="Clave País"
+                  onChange={(e) => setAddressForm({ ...addressForm, country_code: e.target.value as string })}
+                >
+                  <MenuItem value="+52">🇲🇽 +52</MenuItem>
+                  <MenuItem value="+1">🇺🇸 +1</MenuItem>
+                  <MenuItem value="+86">🇨🇳 +86</MenuItem>
+                  <MenuItem value="+57">🇨🇴 +57</MenuItem>
+                  <MenuItem value="+34">🇪🇸 +34</MenuItem>
+                </Select>
+              </FormControl>
             </Grid>
             <Grid size={8}>
               <TextField
                 fullWidth
                 size="small"
-                label={t('cd.addressModal.street')}
+                label="Teléfono"
+                value={addressForm.phone}
+                onChange={(e) => setAddressForm({ ...addressForm, phone: e.target.value.replace(/\D/g, '') })}
+                placeholder="10 dígitos"
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">📱</InputAdornment>
+                    ),
+                  }
+                }}
+              />
+            </Grid>
+
+            {/* Divider: Dirección */}
+            <Grid size={12}>
+              <Divider sx={{ my: 0.5 }}>
+                <Chip label="📍 Dirección" size="small" />
+              </Divider>
+            </Grid>
+
+            {/* Código Postal (primero para auto-fill) */}
+            <Grid size={4}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Código Postal *"
+                value={addressForm.zip_code}
+                onChange={(e) => {
+                  const cp = e.target.value.replace(/\D/g, '').substring(0, 5);
+                  setAddressForm({ ...addressForm, zip_code: cp });
+                  if (cp.length === 5) {
+                    handleZipCodeLookup(cp);
+                  }
+                }}
+                placeholder="5 dígitos"
+                slotProps={{
+                  input: {
+                    endAdornment: zipLookupLoading ? (
+                      <InputAdornment position="end">
+                        <CircularProgress size={18} />
+                      </InputAdornment>
+                    ) : null,
+                  }
+                }}
+              />
+            </Grid>
+            <Grid size={4}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Ciudad *"
+                required
+                value={addressForm.city}
+                onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })}
+                slotProps={{
+                  input: {
+                    readOnly: !!addressForm.city && colonyOptions.length > 0,
+                  }
+                }}
+                sx={addressForm.city && colonyOptions.length > 0 ? { '& .MuiInputBase-root': { bgcolor: '#f5f5f5' } } : {}}
+              />
+            </Grid>
+            <Grid size={4}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Estado *"
+                required
+                value={addressForm.state}
+                onChange={(e) => setAddressForm({ ...addressForm, state: e.target.value })}
+                slotProps={{
+                  input: {
+                    readOnly: !!addressForm.state && colonyOptions.length > 0,
+                  }
+                }}
+                sx={addressForm.state && colonyOptions.length > 0 ? { '& .MuiInputBase-root': { bgcolor: '#f5f5f5' } } : {}}
+              />
+            </Grid>
+
+            {/* Colonia (Autocomplete si hay opciones) */}
+            <Grid size={12}>
+              {colonyOptions.length > 0 ? (
+                <Autocomplete
+                  freeSolo
+                  size="small"
+                  options={colonyOptions}
+                  value={addressForm.colony}
+                  onChange={(_e, newValue) => setAddressForm({ ...addressForm, colony: newValue || '' })}
+                  onInputChange={(_e, newInput) => setAddressForm({ ...addressForm, colony: newInput })}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Colonia *"
+                      required
+                      placeholder="Selecciona o escribe la colonia"
+                    />
+                  )}
+                />
+              ) : (
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Colonia *"
+                  value={addressForm.colony}
+                  onChange={(e) => setAddressForm({ ...addressForm, colony: e.target.value })}
+                  placeholder="Ingresa el C.P. para ver opciones"
+                />
+              )}
+            </Grid>
+
+            {/* Calle + Número Ext + Int */}
+            <Grid size={6}>
+              <TextField
+                fullWidth
+                size="small"
+                label={t('cd.addressModal.street') + ' *'}
                 required
                 value={addressForm.street}
                 onChange={(e) => setAddressForm({ ...addressForm, street: e.target.value })}
               />
             </Grid>
-            <Grid size={2}>
+            <Grid size={3}>
               <TextField
                 fullWidth
                 size="small"
@@ -6403,7 +6689,7 @@ export default function DashboardClient() {
                 onChange={(e) => setAddressForm({ ...addressForm, exterior_number: e.target.value })}
               />
             </Grid>
-            <Grid size={2}>
+            <Grid size={3}>
               <TextField
                 fullWidth
                 size="small"
@@ -6412,44 +6698,8 @@ export default function DashboardClient() {
                 onChange={(e) => setAddressForm({ ...addressForm, interior_number: e.target.value })}
               />
             </Grid>
-            <Grid size={6}>
-              <TextField
-                fullWidth
-                size="small"
-                label={t('cd.addressModal.colony')}
-                value={addressForm.colony}
-                onChange={(e) => setAddressForm({ ...addressForm, colony: e.target.value })}
-              />
-            </Grid>
-            <Grid size={6}>
-              <TextField
-                fullWidth
-                size="small"
-                label={t('cd.addressModal.city')}
-                required
-                value={addressForm.city}
-                onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })}
-              />
-            </Grid>
-            <Grid size={6}>
-              <TextField
-                fullWidth
-                size="small"
-                label={t('cd.addressModal.state')}
-                required
-                value={addressForm.state}
-                onChange={(e) => setAddressForm({ ...addressForm, state: e.target.value })}
-              />
-            </Grid>
-            <Grid size={6}>
-              <TextField
-                fullWidth
-                size="small"
-                label={t('cd.addressModal.zipCode')}
-                value={addressForm.zip_code}
-                onChange={(e) => setAddressForm({ ...addressForm, zip_code: e.target.value })}
-              />
-            </Grid>
+
+            {/* Referencia */}
             <Grid size={12}>
               <TextField
                 fullWidth
@@ -6462,10 +6712,51 @@ export default function DashboardClient() {
                 placeholder={t('cd.addressModal.referencePlaceholder')}
               />
             </Grid>
+
+            {/* Divider: Asignar Servicios */}
+            <Grid size={12}>
+              <Divider sx={{ my: 0.5 }}>
+                <Chip label="📦 Asignar a Servicios" size="small" />
+              </Divider>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, mb: 0.5 }}>
+                Selecciona los servicios donde esta dirección será la predeterminada:
+              </Typography>
+            </Grid>
+            <Grid size={12}>
+              <FormGroup row>
+                {[
+                  { value: 'air', label: '✈️ Aéreo China', color: '#2196F3' },
+                  { value: 'maritime', label: '🚢 Marítimo China', color: '#00897B' },
+                  { value: 'usa', label: '📦 PO Box USA', color: '#F05A28' },
+                  { value: 'national_mx', label: '📍 Nacional MX', color: '#9C27B0' },
+                ].map(svc => (
+                  <FormControlLabel
+                    key={svc.value}
+                    control={
+                      <Checkbox
+                        size="small"
+                        checked={addressForm.service_types.includes(svc.value)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setAddressForm(prev => ({
+                            ...prev,
+                            service_types: checked
+                              ? [...prev.service_types, svc.value]
+                              : prev.service_types.filter(s => s !== svc.value),
+                          }));
+                        }}
+                        sx={{ color: svc.color, '&.Mui-checked': { color: svc.color } }}
+                      />
+                    }
+                    label={<Typography variant="body2">{svc.label}</Typography>}
+                  />
+                ))}
+              </FormGroup>
+            </Grid>
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAddressModalOpen(false)}>{t('common.cancel')}</Button>
+          <Button onClick={() => { setAddressModalOpen(false); setColonyOptions([]); }}>{t('common.cancel')}</Button>
           <Button 
             variant="contained" 
             onClick={handleSaveAddress}

@@ -4,6 +4,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import multer from 'multer';
 import path from 'path';
+import axios from 'axios';
 import { pool } from './db';
 import { generateCommissionsForPackages } from './commissionService';
 import { 
@@ -2468,6 +2469,64 @@ app.delete('/api/addresses/:id', authenticateToken, deleteMyAddress);
 app.put('/api/addresses/:id/default', authenticateToken, setMyDefaultAddress);
 app.put('/api/addresses/:id/default-for-service', authenticateToken, setMyDefaultForService);
 app.get('/api/addresses/default-for/:service', authenticateToken, getDefaultAddressForService);
+
+// --- RUTA DE BÚSQUEDA DE CÓDIGO POSTAL (SEPOMEX) ---
+app.get('/api/zipcode/:cp', async (req: Request, res: Response) => {
+    try {
+        const { cp } = req.params;
+        if (!/^\d{5}$/.test(cp)) {
+            res.status(400).json({ error: 'Código postal inválido (debe ser 5 dígitos)' });
+            return;
+        }
+        // Intentar con la API de copomex (datos SEPOMEX de México)
+        try {
+            const copomexRes = await axios.get(
+                `https://api.copomex.com/query/info_cp/${cp}?type=simplified&token=pruebas`,
+                { timeout: 5000 }
+            );
+            if (copomexRes.data && !copomexRes.data.error && copomexRes.data.response) {
+                const data = copomexRes.data.response;
+                // copomex puede retornar un objeto o un array
+                const items = Array.isArray(data) ? data : [data];
+                const first = items[0];
+                const colonies: string[] = items.map((item: any) => item.asentamiento).filter(Boolean);
+                res.json({
+                    city: first.municipio || first.ciudad || '',
+                    state: first.estado || '',
+                    colonies: [...new Set(colonies)].sort(),
+                    country: 'México'
+                });
+                return;
+            }
+        } catch (copomexErr) {
+            console.log('Copomex API no disponible, intentando fallback...');
+        }
+        // Fallback: zippopotam.us
+        try {
+            const zipRes = await axios.get(`https://api.zippopotam.us/MX/${cp}`, { timeout: 5000 });
+            if (zipRes.data && zipRes.data.places) {
+                const places = zipRes.data.places;
+                const state = places[0]?.state || '';
+                const colonies = places.map((p: any) => p['place name']).filter(Boolean);
+                // zippopotam no da ciudad explícitamente, usar primer place como referencia
+                const city = places.length === 1 ? places[0]['place name'] : '';
+                res.json({
+                    city,
+                    state,
+                    colonies: [...new Set(colonies)].sort(),
+                    country: 'México'
+                });
+                return;
+            }
+        } catch (zipErr) {
+            console.log('Zippopotam API no disponible');
+        }
+        res.status(404).json({ error: 'No se encontraron datos para este código postal' });
+    } catch (error) {
+        console.error('Error buscando código postal:', error);
+        res.status(500).json({ error: 'Error al buscar código postal' });
+    }
+});
 
 // --- RUTAS PARA APP MÓVIL: MIS MÉTODOS DE PAGO ---
 app.get('/api/payment-methods', authenticateToken, getMyPaymentMethods);

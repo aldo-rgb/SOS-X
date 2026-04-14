@@ -91,8 +91,10 @@ import DashboardOperations from './pages/DashboardOperations';
 import DashboardClient from './pages/DashboardClient';
 import DashboardAdvisor from './pages/DashboardAdvisor';
 import ProfileClient from './pages/ProfileClient';
+import ClientTicketsPage from './pages/ClientTicketsPage';
 import MyProfilePage from './pages/MyProfilePage';
 import PersonIcon from '@mui/icons-material/Person';
+import ConfirmationNumberIcon from '@mui/icons-material/ConfirmationNumber';
 
 const drawerWidth = 280;
 
@@ -265,6 +267,7 @@ function App() {
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [langAnchorEl, setLangAnchorEl] = useState<null | HTMLElement>(null);
   const [showClientProfile, setShowClientProfile] = useState(false);
+  const [showClientTickets, setShowClientTickets] = useState(false);
   const [showMyProfile, setShowMyProfile] = useState(false);
   const [notifAnchorEl, setNotifAnchorEl] = useState<null | HTMLElement>(null);
   const [notifications, setNotifications] = useState<any[]>([]);
@@ -938,8 +941,11 @@ function App() {
                     <Typography variant="body2">{currentUser?.email}</Typography>
                   </MenuItem>
                   <Divider />
-                  <MenuItem onClick={() => { setAnchorEl(null); setShowClientProfile(true); }}>
+                  <MenuItem onClick={() => { setAnchorEl(null); setShowClientProfile(true); setShowClientTickets(false); }}>
                     <PersonIcon sx={{ mr: 1 }} /> Mi Perfil
+                  </MenuItem>
+                  <MenuItem onClick={() => { setAnchorEl(null); setShowClientTickets(true); setShowClientProfile(false); }}>
+                    <ConfirmationNumberIcon sx={{ mr: 1 }} /> Mis Tickets
                   </MenuItem>
                   <MenuItem onClick={handleLogout}>
                     <LogoutIcon sx={{ mr: 1 }} /> Cerrar Sesión
@@ -953,6 +959,8 @@ function App() {
           <Box sx={{ pt: 8 }}>
             {showClientProfile ? (
               <ProfileClient onBack={() => setShowClientProfile(false)} />
+            ) : showClientTickets ? (
+              <ClientTicketsPage onBack={() => setShowClientTickets(false)} />
             ) : (
               <DashboardClient />
             )}
