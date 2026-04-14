@@ -1265,19 +1265,35 @@ export const getPackageStats = async (_req: Request, res: Response): Promise<voi
 export const getShipmentLabels = async (req: Request, res: Response): Promise<void> => {
     try {
         const { id } = req.params;
-        const result = await pool.query(`SELECT p.*, u.full_name, u.email, u.box_id, u.phone
-            FROM packages p JOIN users u ON p.user_id = u.id WHERE p.id = $1`, [id]);
+        const result = await pool.query(`SELECT p.*, u.full_name, u.email, u.box_id AS user_box_id, u.phone
+            FROM packages p LEFT JOIN users u ON p.user_id = u.id WHERE p.id = $1`, [id]);
 
         if (result.rows.length === 0) { res.status(404).json({ error: 'No encontrado' }); return; }
 
         const pkg = result.rows[0];
+
+        // Resolver nombre y casillero: user > legacy_client > sin cliente
+        let clientName = pkg.full_name || null;
+        let clientBoxId = pkg.user_box_id || null;
+        if (!clientName && pkg.legacy_client_id) {
+            try {
+                const legacyResult = await pool.query('SELECT full_name, box_id FROM legacy_clients WHERE id = $1', [pkg.legacy_client_id]);
+                if (legacyResult.rows.length > 0) {
+                    clientName = legacyResult.rows[0].full_name;
+                    clientBoxId = legacyResult.rows[0].box_id;
+                }
+            } catch (e) { /* ignore */ }
+        }
+        clientName = clientName || 'SIN CLIENTE';
+        clientBoxId = clientBoxId || 'PENDIENTE';
+
         const labels = [];
 
         if (pkg.is_master) {
             labels.push({ boxNumber: 0, totalBoxes: pkg.total_boxes, tracking: pkg.tracking_internal,
                 labelCode: pkg.tracking_internal, barcode: pkg.tracking_internal.replace(/-/g, ''),
-                isMaster: true, client: { name: pkg.full_name, boxId: pkg.box_id },
-                clientName: pkg.full_name, clientBoxId: pkg.box_id,
+                isMaster: true, client: { name: clientName, boxId: clientBoxId },
+                clientName, clientBoxId,
                 package: { description: pkg.description, weight: parseFloat(pkg.weight), totalBoxes: pkg.total_boxes },
                 description: pkg.description, weight: parseFloat(pkg.weight),
                 destinationCity: pkg.destination_city, destinationCountry: pkg.destination_country,
@@ -1289,8 +1305,8 @@ export const getShipmentLabels = async (req: Request, res: Response): Promise<vo
                 labels.push({ boxNumber: child.box_number, totalBoxes: child.total_boxes,
                     tracking: child.tracking_internal, labelCode: child.tracking_internal,
                     barcode: child.tracking_internal.replace(/-/g, ''), masterTracking: pkg.tracking_internal,
-                    isMaster: false, client: { name: pkg.full_name, boxId: pkg.box_id },
-                    clientName: pkg.full_name, clientBoxId: pkg.box_id,
+                    isMaster: false, client: { name: clientName, boxId: clientBoxId },
+                    clientName, clientBoxId,
                     package: { description: child.description, weight: parseFloat(child.weight),
                         dimensions: formatDimensions(parseFloat(child.pkg_length), parseFloat(child.pkg_width), parseFloat(child.pkg_height)) },
                     description: child.description, weight: parseFloat(child.weight),
@@ -1302,8 +1318,8 @@ export const getShipmentLabels = async (req: Request, res: Response): Promise<vo
         } else {
             labels.push({ boxNumber: 1, totalBoxes: 1, tracking: pkg.tracking_internal,
                 labelCode: pkg.tracking_internal, barcode: pkg.tracking_internal.replace(/-/g, ''),
-                isMaster: false, client: { name: pkg.full_name, boxId: pkg.box_id },
-                clientName: pkg.full_name, clientBoxId: pkg.box_id,
+                isMaster: false, client: { name: clientName, boxId: clientBoxId },
+                clientName, clientBoxId,
                 package: { description: pkg.description, weight: parseFloat(pkg.weight),
                     dimensions: formatDimensions(parseFloat(pkg.pkg_length), parseFloat(pkg.pkg_width), parseFloat(pkg.pkg_height)) },
                 description: pkg.description, weight: parseFloat(pkg.weight),

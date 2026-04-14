@@ -587,7 +587,8 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                     .detail-item { background: #f5f5f5; padding: 3px 8px; border-radius: 4px; }
                     .description { text-align: center; font-size: 12px; color: #666; flex-grow: 1; margin-top: 5px; }
                     .footer { text-align: center; font-size: 9px; color: #999; border-top: 1px solid #eee; padding-top: 5px; margin-top: auto; }
-                    @media print { body { margin: 0; } .label { border: 1px solid #000; } }
+                    @page { size: 4in 6in; margin: 0; }
+                    @media print { body { margin: 0; padding: 0; } .label { border: none; page-break-inside: avoid; } }
                 </style>
                 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
                 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"><\/script>

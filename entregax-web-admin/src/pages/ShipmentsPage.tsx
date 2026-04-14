@@ -1181,9 +1181,10 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           margin-top: auto;
         }
         
+        @page { size: 4in 6in; margin: 0; }
         @media print {
-          body { margin: 0; }
-          .label { border: 1px solid #000; }
+          body { margin: 0; padding: 0; }
+          .label { border: none; page-break-inside: avoid; }
         }
       </style>
       <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
