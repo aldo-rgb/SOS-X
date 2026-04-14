@@ -502,6 +502,116 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkStep(prev => Math.max(0, prev - 1));
     };
 
+    // =========== IMPRIMIR ETIQUETAS ===========
+    const printShipmentLabels = (labels: any[]) => {
+        if (!labels || labels.length === 0) return;
+
+        const printWindow = window.open('', '_blank', 'width=800,height=600');
+        if (!printWindow) {
+            setSnackbar({ open: true, message: 'Popup bloqueado. Permite popups para imprimir etiquetas.', severity: 'warning' });
+            return;
+        }
+
+        const formatDate = (dateStr?: string): string => {
+            if (!dateStr) return new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }).toUpperCase();
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }).toUpperCase();
+        };
+
+        const labelsHTML = labels.map((label: any, index: number) => {
+            const receivedDate = formatDate(label.receivedAt);
+            return `
+            <div class="label" style="page-break-after: ${index < labels.length - 1 ? 'always' : 'auto'};">
+                <div class="header">
+                    <div class="logo">🚀 EntregaX</div>
+                    <div class="date-badge">${receivedDate}</div>
+                </div>
+                ${label.isMaster ? '<div class="master-badge">GUÍA MASTER</div>' : ''}
+                <div class="tracking-main">
+                    <div class="tracking-code">${label.tracking}</div>
+                    ${!label.isMaster 
+                        ? `<div class="box-indicator">${label.boxNumber} de ${label.totalBoxes}</div>` 
+                        : `<div class="box-indicator">${label.totalBoxes} bultos</div>`}
+                </div>
+                ${label.masterTracking ? `<div class="master-ref">Master: ${label.masterTracking}</div>` : ''}
+                <div class="codes-container">
+                    <div class="barcode-section"><svg id="barcode-${index}"></svg></div>
+                    <div class="qr-section"><div id="qr-${index}"></div></div>
+                </div>
+                <div class="divider"></div>
+                <div class="client-info">
+                    <div class="client-name">${label.clientName || 'SIN CLIENTE'}</div>
+                    <div class="client-box">📦 ${label.clientBoxId || 'PENDIENTE'}</div>
+                </div>
+                <div class="details">
+                    ${label.weight ? `<span class="detail-item">⚖️ ${label.weight} kg</span>` : ''}
+                    ${label.dimensions ? `<span class="detail-item">📐 ${label.dimensions}</span>` : ''}
+                    ${label.totalBoxes > 1 && label.isMaster ? `<span class="detail-item">📦 ${label.totalBoxes} bultos</span>` : ''}
+                </div>
+                <div class="description">${label.description || ''}</div>
+                <div class="footer">
+                    <small>Impreso: ${new Date().toLocaleString('es-MX')}</small>
+                </div>
+            </div>`;
+        }).join('');
+
+        try {
+            printWindow.document.write(`<!DOCTYPE html><html><head>
+                <title>Etiquetas - ${labels[0]?.tracking || 'Paquete'}</title>
+                <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body { font-family: 'Arial', sans-serif; }
+                    .label {
+                        width: 4in; height: 6in; padding: 0.25in;
+                        border: 2px solid #000; display: flex; flex-direction: column;
+                        margin: 0 auto; position: relative;
+                    }
+                    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+                    .logo { font-size: 20px; font-weight: bold; color: #F05A28; }
+                    .date-badge { background: #111; color: white; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 4px; }
+                    .master-badge { background: #F05A28; color: white; text-align: center; padding: 5px; font-weight: bold; font-size: 14px; margin-bottom: 8px; }
+                    .tracking-main { text-align: center; margin: 8px 0; }
+                    .tracking-code { font-size: 22px; font-weight: bold; letter-spacing: 1px; }
+                    .box-indicator { font-size: 16px; background: #111; color: white; padding: 4px 12px; border-radius: 15px; display: inline-block; margin-top: 6px; }
+                    .master-ref { text-align: center; font-size: 11px; color: #666; margin: 4px 0; }
+                    .codes-container { display: flex; justify-content: center; align-items: center; gap: 15px; margin: 12px 0; padding: 10px; background: #fafafa; border-radius: 8px; }
+                    .barcode-section { flex: 1; text-align: center; }
+                    .barcode-section svg { max-width: 100%; height: 45px; }
+                    .qr-section { width: 70px; height: 70px; display: flex; align-items: center; justify-content: center; }
+                    .qr-section svg { width: 70px; height: 70px; }
+                    .divider { border-top: 2px dashed #ccc; margin: 10px 0; }
+                    .client-info { text-align: center; margin: 8px 0; }
+                    .client-box { font-size: 28px; color: #F05A28; font-weight: 900; letter-spacing: 2px; }
+                    .client-name { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
+                    .details { text-align: center; font-size: 13px; margin: 8px 0; display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; }
+                    .detail-item { background: #f5f5f5; padding: 3px 8px; border-radius: 4px; }
+                    .description { text-align: center; font-size: 12px; color: #666; flex-grow: 1; margin-top: 5px; }
+                    .footer { text-align: center; font-size: 9px; color: #999; border-top: 1px solid #eee; padding-top: 5px; margin-top: auto; }
+                    @media print { body { margin: 0; } .label { border: 1px solid #000; } }
+                </style>
+                <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
+                <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"><\/script>
+            </head><body>${labelsHTML}
+            <script>
+                ${labels.map((label: any, i: number) => `try { JsBarcode("#barcode-${i}", "${label.tracking.replace(/-/g, '')}", { format: "CODE128", width: 1.8, height: 45, displayValue: false }); } catch(e) {}`).join('\n')}
+                ${labels.map((label: any, i: number) => `
+                    (function() {
+                        try {
+                            var qr = qrcode(0, 'M');
+                            qr.addData('https://app.entregax.com/track/${label.tracking}');
+                            qr.make();
+                            document.getElementById('qr-${i}').innerHTML = qr.createSvgTag({ cellSize: 2, margin: 0 });
+                        } catch(e) {}
+                    })();
+                `).join('')}
+                window.onload = function() { setTimeout(function() { window.print(); }, 600); };
+            <\/script></body></html>`);
+            printWindow.document.close();
+        } catch (err) {
+            console.error('Error generando etiquetas:', err);
+        }
+    };
+
     // Guardar paquete y continuar con el siguiente
     const handleSaveBulkPackage = async () => {
         // boxId ya no es obligatorio - se puede crear sin cliente
@@ -538,6 +648,12 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                 peso: bulkTotalWeight,
                 medidas: `${bulkBoxes.length} caja(s)`
             }]);
+
+            // 🖨️ Imprimir etiquetas automáticamente
+            const labels = response.data.shipment?.labels;
+            if (labels && labels.length > 0) {
+                printShipmentLabels(labels);
+            }
 
             setSnackbar({ 
                 open: true, 
