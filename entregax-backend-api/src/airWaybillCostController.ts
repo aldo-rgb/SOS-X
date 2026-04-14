@@ -18,6 +18,66 @@ export const listAwbCosts = async (req: AuthRequest, res: Response): Promise<voi
   try {
     const { status, search, limit = 50, offset = 0 } = req.query;
 
+    // ── Auto-crear registros para AWBs que tienen paquetes pero no tienen air_waybill_costs ──
+    try {
+      const missingAwbs = await pool.query(`
+        SELECT p.international_tracking as awb,
+               COUNT(*) as total_s,
+               SUM(p.weight)::numeric(10,2) as total_weight,
+               MIN(p.created_at) as first_created,
+               (SELECT COUNT(*) FROM cajo_guides cg WHERE cg.mawb = p.international_tracking) as total_cajo,
+               (SELECT id FROM air_routes WHERE is_active = true ORDER BY id LIMIT 1) as default_route_id
+        FROM packages p
+        WHERE p.service_type = 'AIR_CHN_MX'
+          AND p.international_tracking IS NOT NULL
+          AND p.international_tracking != ''
+          AND NOT EXISTS (SELECT 1 FROM air_waybill_costs ac WHERE ac.awb_number = p.international_tracking)
+        GROUP BY p.international_tracking
+      `);
+
+      if (missingAwbs.rows.length > 0) {
+        // Obtener tipo de cambio TDI vigente
+        const tcRes = await pool.query(`
+          SELECT COALESCE(tipo_cambio_final, COALESCE(tipo_cambio_manual, ultimo_tc_api, 17.77) + COALESCE(sobreprecio, 0)) as tc_final
+          FROM exchange_rate_config WHERE servicio = 'tdi' AND estado = true LIMIT 1
+        `);
+        const exchangeRate = tcRes.rows.length > 0 ? parseFloat(tcRes.rows[0].tc_final) : 18.37;
+
+        for (const row of missingAwbs.rows) {
+          await pool.query(`
+            INSERT INTO air_waybill_costs (
+              awb_number, pieces, gross_weight_kg,
+              total_packages_s, total_packages_cajo,
+              route_id, exchange_rate,
+              status, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8, NOW())
+          `, [
+            row.awb,
+            parseInt(row.total_s),
+            parseFloat(row.total_weight) || 0,
+            parseInt(row.total_s),
+            parseInt(row.total_cajo) || 0,
+            row.default_route_id || null,
+            exchangeRate,
+            row.first_created,
+          ]);
+
+          // Vincular paquetes S al nuevo awb_cost_id
+          await pool.query(`
+            UPDATE packages SET awb_cost_id = (
+              SELECT id FROM air_waybill_costs WHERE awb_number = $1 LIMIT 1
+            )
+            WHERE international_tracking = $1 AND awb_cost_id IS NULL
+          `, [row.awb]);
+
+          console.log(`✈️ [AWB-COST] Auto-creado costeo para AWB ${row.awb} (${row.total_s} pkgs, ${row.total_weight} kg)`);
+        }
+      }
+    } catch (autoErr: any) {
+      console.error('✈️ [AWB-COST] Error auto-creando registros faltantes:', autoErr.message);
+    }
+
+    // ── Query principal ──
     let whereClause = 'WHERE 1=1';
     const params: (string | number)[] = [];
     let paramIdx = 1;
@@ -40,7 +100,7 @@ export const listAwbCosts = async (req: AuthRequest, res: Response): Promise<voi
       SELECT 
         ac.*,
         ar.code as route_code,
-        (SELECT COUNT(*) FROM packages p WHERE p.awb_cost_id = ac.id) as packages_s_count,
+        (SELECT COUNT(*) FROM packages p WHERE p.international_tracking = ac.awb_number) as packages_s_count,
         (SELECT COUNT(*) FROM cajo_guides cg WHERE cg.mawb = ac.awb_number) as packages_cajo_count
       FROM air_waybill_costs ac
       LEFT JOIN air_routes ar ON ar.id = ac.route_id

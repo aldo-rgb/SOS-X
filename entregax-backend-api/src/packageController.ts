@@ -323,19 +323,39 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
         
         if (boxId && boxId.trim()) {
             const userQuery = await client.query(
-                'SELECT id, full_name, email, box_id, is_verified, verification_status FROM users WHERE box_id = $1',
+                'SELECT id, full_name, email, box_id, is_verified, verification_status FROM users WHERE UPPER(box_id) = $1',
                 [(boxId as string).toUpperCase()]
             );
 
             if (userQuery.rows.length === 0) {
-                res.status(404).json({ 
-                    error: 'Box ID no encontrado',
-                    message: `No existe cliente con casillero ${boxId}.`
-                });
-                return;
-            }
+                // Fallback: buscar en legacy_clients
+                const legacyQuery = await client.query(
+                    'SELECT id, full_name, box_id FROM legacy_clients WHERE UPPER(box_id) = $1',
+                    [(boxId as string).toUpperCase()]
+                );
 
-            user = userQuery.rows[0];
+                if (legacyQuery.rows.length === 0) {
+                    res.status(404).json({ 
+                        error: 'Box ID no encontrado',
+                        message: `No existe cliente con casillero ${boxId}.`
+                    });
+                    return;
+                }
+
+                // Cliente legacy encontrado — usar datos parciales (sin user.id real)
+                const legacy = legacyQuery.rows[0];
+                user = {
+                    id: null,
+                    full_name: legacy.full_name,
+                    email: '',
+                    box_id: legacy.box_id,
+                    is_verified: false,
+                    verification_status: 'legacy',
+                };
+                console.log(`📦 [createShipment] Cliente legacy encontrado: ${legacy.full_name} (${legacy.box_id})`);
+            } else {
+                user = userQuery.rows[0];
+            }
 
             // ⚠️ NOTA: La verificación de cliente se aplicará más adelante en el flujo (al enviar/cobrar)
             // Por ahora permitimos recibir paquetes aunque el cliente no esté verificado
@@ -427,7 +447,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
             const totalCostMxn = costResult.totalMxn + nationalShippingCost;
             const result = await client.query(
                 `INSERT INTO packages 
-                 (user_id, tracking_internal, tracking_provider, description, weight, 
+                 (user_id, box_id, tracking_internal, tracking_provider, description, weight, 
                   pkg_length, pkg_width, pkg_height, declared_value, notes, status,
                   is_master, box_number, total_boxes, carrier,
                   destination_country, destination_city, destination_address, destination_zip, destination_phone, destination_contact, image_url,
@@ -435,10 +455,10 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                   assigned_cost_mxn, single_cbm, saldo_pendiente, long_cm, width_cm, height_cm,
                   pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn,
                   registered_exchange_rate, pobox_cost_usd, pobox_tarifa_nivel, pobox_venta_usd, national_shipping_cost)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, false, 1, 1, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23,
-                         $24, $25, $24, $6, $7, $8, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35) 
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false, 1, 1, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
+                         $25, $26, $25, $7, $8, $9, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36) 
                  RETURNING *`,
-                [user?.id || null, masterTracking, box.trackingCourier || trackingProvider || null, description, box.weight, 
+                [user?.id || null, user?.box_id || null, masterTracking, box.trackingCourier || trackingProvider || null, description, box.weight, 
                  box.length, box.width, box.height, declaredValue || null, notes || null, initialStatus,
                  safeCarrier, safeDestination.country, safeDestination.city, safeDestination.address, 
                  safeDestination.zip || null, safeDestination.phone || null, safeDestination.contact || null, imageUrl || null,
@@ -463,17 +483,17 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
             const totalCostMxn = costResult.totalMxn + nationalShippingCost;
             const masterResult = await client.query(
                 `INSERT INTO packages 
-                 (user_id, tracking_internal, tracking_provider, description, weight, 
+                 (user_id, box_id, tracking_internal, tracking_provider, description, weight, 
                   declared_value, notes, status, is_master, box_number, total_boxes, carrier,
                   destination_country, destination_city, destination_address, destination_zip, destination_phone, destination_contact, image_url,
                   service_type, warehouse_location, has_gex, consolidation_id,
                   assigned_cost_mxn, single_cbm, saldo_pendiente,
                   pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn,
                   registered_exchange_rate, pobox_cost_usd, pobox_tarifa_nivel, pobox_venta_usd, national_shipping_cost)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true, 0, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21,
-                         $22, $23, $22, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33) 
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, 0, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
+                         $23, $24, $23, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34) 
                  RETURNING *`,
-                [user?.id || null, masterTracking, trackingProvider || null, description, totalWeight, 
+                [user?.id || null, user?.box_id || null, masterTracking, trackingProvider || null, description, totalWeight, 
                  declaredValue || null, notes || null, initialStatus, totalBoxes, safeCarrier,
                  safeDestination.country, safeDestination.city, safeDestination.address,
                  safeDestination.zip || null, safeDestination.phone || null, safeDestination.contact || null, imageUrl || null,
@@ -501,14 +521,14 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
 
                 const childResult = await client.query(
                     `INSERT INTO packages 
-                     (user_id, tracking_internal, tracking_provider, description, weight, 
+                     (user_id, box_id, tracking_internal, tracking_provider, description, weight, 
                       pkg_length, pkg_width, pkg_height, status,
                       is_master, master_id, box_number, total_boxes, carrier,
                       destination_country, destination_city, destination_address,
                       service_type, warehouse_location, consolidation_id)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) 
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) 
                      RETURNING *`,
-                    [user?.id || null, childTracking, box.trackingCourier || trackingProvider || null, description, box.weight, 
+                    [user?.id || null, user?.box_id || null, childTracking, box.trackingCourier || trackingProvider || null, description, box.weight, 
                      box.length, box.width, box.height, initialStatus, masterPackage.id, boxNumber, totalBoxes,
                      safeCarrier, safeDestination.country, safeDestination.city, safeDestination.address,
                      serviceType, wLocation, consolidationId]
