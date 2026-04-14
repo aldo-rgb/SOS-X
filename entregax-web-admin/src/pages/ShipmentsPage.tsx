@@ -64,7 +64,7 @@ interface Package {
   receivedAt: string;
   deliveredAt?: string;
   consolidationId?: number;
-  client: { id: number; name: string; email: string; boxId: string };
+  client: { id: number; name: string; email: string; boxId: string } | null;
 }
 
 interface PackageLabel {
@@ -298,13 +298,16 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
 
   useEffect(() => { fetchPackages(); }, [fetchPackages]);
 
-  const filteredPackages = packages.filter(pkg => 
-    pkg.tracking.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    pkg.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    pkg.client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    pkg.client.boxId.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (pkg.trackingProvider && pkg.trackingProvider.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const filteredPackages = packages.filter(pkg => {
+    const search = searchTerm.toLowerCase();
+    return (
+      (pkg.tracking || '').toLowerCase().includes(search) ||
+      (pkg.description || '').toLowerCase().includes(search) ||
+      (pkg.client?.name || '').toLowerCase().includes(search) ||
+      (pkg.client?.boxId || '').toLowerCase().includes(search) ||
+      (pkg.trackingProvider && pkg.trackingProvider.toLowerCase().includes(search))
+    );
+  });
 
   // ============ WIZARD HANDLERS ============
   const handleOpenWizard = () => {
@@ -1385,10 +1388,10 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                     </TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Avatar sx={{ bgcolor: ORANGE, width: 32, height: 32, fontSize: 14 }}>{pkg.client.name.charAt(0)}</Avatar>
+                        <Avatar sx={{ bgcolor: ORANGE, width: 32, height: 32, fontSize: 14 }}>{(pkg.client?.name || '?').charAt(0)}</Avatar>
                         <Box>
-                          <Typography variant="body2" fontWeight="500">{pkg.client.name}</Typography>
-                          <Chip label={pkg.client.boxId} size="small" sx={{ fontSize: 10 }} />
+                          <Typography variant="body2" fontWeight="500">{pkg.client?.name || 'Sin Cliente'}</Typography>
+                          <Chip label={pkg.client?.boxId || 'N/A'} size="small" sx={{ fontSize: 10 }} />
                         </Box>
                       </Box>
                     </TableCell>
@@ -2666,7 +2669,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                 <Typography variant="h4" sx={{ color: ORANGE, fontWeight: 'bold' }}>{selectedPackage.tracking}</Typography>
               </Box>
               <Grid container spacing={2}>
-                <Grid size={6}><Typography variant="body2" color="text.secondary">{t('clients.client')}</Typography><Typography fontWeight="bold">{selectedPackage.client.name}</Typography><Chip label={selectedPackage.client.boxId} size="small" sx={{ mt: 0.5 }} /></Grid>
+                <Grid size={6}><Typography variant="body2" color="text.secondary">{t('clients.client')}</Typography><Typography fontWeight="bold">{selectedPackage.client?.name || 'Sin Cliente'}</Typography><Chip label={selectedPackage.client?.boxId || 'N/A'} size="small" sx={{ mt: 0.5 }} /></Grid>
                 <Grid size={6}><Typography variant="body2" color="text.secondary">{t('common.status')}</Typography><Chip icon={<span>{getStatusIcon(selectedPackage.status)}</span>} label={getStatusLabel(selectedPackage.status)} color={getStatusColor(selectedPackage.status)} /></Grid>
                 <Grid size={6}><Typography variant="body2" color="text.secondary">{t('shipments.totalWeight')}</Typography><Typography>{selectedPackage.weight ? `${selectedPackage.weight} kg` : '-'}</Typography></Grid>
                 <Grid size={6}><Typography variant="body2" color="text.secondary">{t('shipments.boxes')}</Typography><Typography>{selectedPackage.totalBoxes || 1}</Typography></Grid>

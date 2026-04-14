@@ -646,7 +646,7 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
             receivedAt: pkg.received_at, deliveredAt: pkg.delivered_at,
             consolidationId: pkg.consolidation_id,
             supplierId: pkg.supplier_id,
-            client: pkg.user_id ? { id: pkg.user_id, name: pkg.full_name, email: pkg.email, boxId: pkg.box_id } : null
+            client: pkg.user_id ? { id: pkg.user_id, name: pkg.full_name || 'Sin nombre', email: pkg.email || '', boxId: pkg.box_id || 'N/A' } : { id: 0, name: 'Sin Cliente', email: '', boxId: 'N/A' }
         }));
 
         res.json({ success: true, total: packages.length, packages });
@@ -723,7 +723,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         formatted: formatDimensions(parseFloat(c.pkg_length), parseFloat(c.pkg_width), parseFloat(c.pkg_height)) },
                     status: c.status, imageUrl: c.image_url || null })),
                 labels,
-                client: pkg.user_id ? { id: pkg.user_id, name: pkg.full_name, email: pkg.email, boxId: pkg.box_id } : null
+                client: pkg.user_id ? { id: pkg.user_id, name: pkg.full_name || 'Sin nombre', email: pkg.email || '', boxId: pkg.box_id || 'N/A' } : { id: 0, name: 'Sin Cliente', email: '', boxId: 'N/A' }
             }
         });
     } catch (error) {
