@@ -508,7 +508,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
 
         const printWindow = window.open('', '_blank', 'width=800,height=600');
         if (!printWindow) {
-            setSnackbar({ open: true, message: 'Popup bloqueado. Permite popups para imprimir etiquetas.', severity: 'warning' });
+            setSnackbar({ open: true, message: 'Popup bloqueado. Permite popups para imprimir etiquetas.', severity: 'error' });
             return;
         }
 
