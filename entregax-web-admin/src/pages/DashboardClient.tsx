@@ -381,6 +381,7 @@ export default function DashboardClient() {
   const [advisorCode, setAdvisorCode] = useState('');
   const [advisorLoading, setAdvisorLoading] = useState(false);
   const [advisorConfirmOpen, setAdvisorConfirmOpen] = useState(false);
+  const [advisorLookupName, setAdvisorLookupName] = useState('');
   
   // Modal de soporte / chat
   const [supportOpen, setSupportOpen] = useState(false);
@@ -1539,13 +1540,27 @@ export default function DashboardClient() {
     }
   };
 
-  // Vincular con asesor - paso 1: mostrar confirmación
-  const handleLinkAdvisor = () => {
+  // Vincular con asesor - paso 1: buscar asesor y mostrar confirmación con nombre
+  const handleLinkAdvisor = async () => {
     if (!advisorCode.trim()) {
       setSnackbar({ open: true, message: t('cd.snackbar.advisorCodeRequired'), severity: 'warning' });
       return;
     }
-    setAdvisorConfirmOpen(true);
+    setAdvisorLoading(true);
+    try {
+      const response = await api.get(`/advisor/lookup/${encodeURIComponent(advisorCode.trim())}`);
+      if (response.data?.success && response.data.advisor) {
+        setAdvisorLookupName(response.data.advisor.name);
+        setAdvisorConfirmOpen(true);
+      } else {
+        setSnackbar({ open: true, message: 'Código de asesor no válido', severity: 'error' });
+      }
+    } catch (error: any) {
+      const msg = error?.response?.data?.error || 'Código de asesor no válido. Verifica e intenta de nuevo.';
+      setSnackbar({ open: true, message: msg, severity: 'error' });
+    } finally {
+      setAdvisorLoading(false);
+    }
   };
 
   // Vincular con asesor - paso 2: confirmar y enviar
@@ -1573,6 +1588,8 @@ export default function DashboardClient() {
         }
         setAdvisorCode('');
         setAdvisorModalOpen(false);
+        // Recargar info del asesor para actualizar la UI
+        await loadAdvisorInfo();
       } else {
         setSnackbar({ open: true, message: response.data?.error || t('cd.snackbar.linkError'), severity: 'error' });
       }
@@ -7609,6 +7626,24 @@ export default function DashboardClient() {
         </Box>
 
         <DialogContent sx={{ px: 3, py: 2.5 }}>
+          {/* Nombre del asesor */}
+          {advisorLookupName && (
+            <Box sx={{ 
+              textAlign: 'center', mb: 2.5, p: 2, 
+              bgcolor: '#E8F5E9', borderRadius: 2, border: '1px solid #C8E6C9',
+            }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                Tu asesor será:
+              </Typography>
+              <Typography variant="h6" fontWeight="bold" color="#2E7D32">
+                {advisorLookupName}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Código: {advisorCode.toUpperCase()}
+              </Typography>
+            </Box>
+          )}
+
           {/* Sección: Lo que tu asesor PUEDE hacer */}
           <Typography variant="overline" sx={{ 
             color: '#4CAF50', fontWeight: 700, letterSpacing: 1.5, fontSize: '0.65rem',
@@ -7621,6 +7656,7 @@ export default function DashboardClient() {
             {[
               { text: t('cd.advisorConfirm.canDo1'), detail: t('cd.advisorConfirm.canDo1Detail') },
               { text: t('cd.advisorConfirm.canDo2'), detail: t('cd.advisorConfirm.canDo2Detail') },
+              { text: t('cd.advisorConfirm.canDo3'), detail: t('cd.advisorConfirm.canDo3Detail') },
             ].map((item, i) => (
               <Box key={i} sx={{ 
                 display: 'flex', alignItems: 'center', gap: 1.5,
@@ -7629,8 +7665,8 @@ export default function DashboardClient() {
               }}>
                 <CheckCircleOutlineIcon sx={{ color: '#4CAF50', fontSize: 22, flexShrink: 0 }} />
                 <Typography variant="body2" sx={{ lineHeight: 1.4 }}>
-                  <b>{item.text}</b>{' '}
-                  <span style={{ color: '#666' }}>{item.detail}</span>
+                  <b>{item.text}</b>{item.detail ? ' ' : ''}
+                  {item.detail && <span style={{ color: '#666' }}>{item.detail}</span>}
                 </Typography>
               </Box>
             ))}
@@ -7647,16 +7683,24 @@ export default function DashboardClient() {
             {t('cd.advisorConfirm.advisorCannot')}
           </Typography>
 
-          <Box sx={{ 
-            display: 'flex', alignItems: 'center', gap: 1.5,
-            p: 1.5, borderRadius: 2, bgcolor: '#FFEBEE', 
-            border: '1px solid #FFCDD2', mb: 2.5,
-          }}>
-            <BlockIcon sx={{ color: '#D32F2F', fontSize: 22, flexShrink: 0 }} />
-            <Typography variant="body2" sx={{ lineHeight: 1.4 }}>
-              <b>{t('cd.advisorConfirm.cannotDo1')}</b>{' '}
-              <span style={{ color: '#666' }}>{t('cd.advisorConfirm.cannotDo1Detail')}</span>
-            </Typography>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mb: 2.5 }}>
+            {[
+              { text: t('cd.advisorConfirm.cannotDo1'), detail: t('cd.advisorConfirm.cannotDo1Detail') },
+              { text: t('cd.advisorConfirm.cannotDo2'), detail: t('cd.advisorConfirm.cannotDo2Detail') },
+              { text: t('cd.advisorConfirm.cannotDo3'), detail: t('cd.advisorConfirm.cannotDo3Detail') },
+            ].map((item, i) => (
+              <Box key={i} sx={{ 
+                display: 'flex', alignItems: 'center', gap: 1.5,
+                p: 1.5, borderRadius: 2, bgcolor: '#FFEBEE', 
+                border: '1px solid #FFCDD2',
+              }}>
+                <BlockIcon sx={{ color: '#D32F2F', fontSize: 22, flexShrink: 0 }} />
+                <Typography variant="body2" sx={{ lineHeight: 1.4 }}>
+                  <b>{item.text}</b>{' '}
+                  <span style={{ color: '#666' }}>{item.detail}</span>
+                </Typography>
+              </Box>
+            ))}
           </Box>
 
           {/* Alerta de seguridad */}

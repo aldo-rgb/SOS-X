@@ -88,7 +88,53 @@ export const requestAdvisor = async (req: Request, res: Response): Promise<any> 
   }
 };
 
-// 🖥️ ADMIN: VER TODOS LOS LEADS (Para el CRM Web)
+// � APP: BUSCAR ASESOR POR CÓDIGO (Pre-validación antes de vincular)
+export const lookupAdvisor = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { code } = req.params;
+    const codeStr = Array.isArray(code) ? code[0] : code as string;
+    if (!codeStr || !codeStr.trim()) {
+      return res.status(400).json({ success: false, error: 'Código requerido' });
+    }
+
+    const codeUpper = codeStr.trim().toUpperCase();
+    // Normalizar: JUAN047 -> JUAN-047, CHRI3225 -> CHRI-3225
+    const normalizedCode = codeUpper.includes('-') 
+      ? codeUpper 
+      : codeUpper.length >= 5 
+        ? `${codeUpper.slice(0, 4)}-${codeUpper.slice(4)}`
+        : codeUpper;
+
+    const advisorRes = await pool.query(
+      `SELECT id, full_name, role FROM users 
+       WHERE (referral_code = $1 OR referral_code = $2 OR box_id = $1 OR box_id = $2) 
+       AND role IN ('advisor', 'asesor', 'asesor_lider', 'sub_advisor')`,
+      [codeUpper, normalizedCode]
+    );
+
+    if (advisorRes.rows.length === 0) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Código de Asesor no válido. Verifica el número e intenta de nuevo.' 
+      });
+    }
+
+    const advisor = advisorRes.rows[0];
+    return res.json({
+      success: true,
+      advisor: {
+        id: advisor.id,
+        name: advisor.full_name,
+        role: advisor.role,
+      }
+    });
+  } catch (error) {
+    console.error('Error en lookupAdvisor:', error);
+    res.status(500).json({ success: false, error: 'Error al buscar asesor' });
+  }
+};
+
+// �🖥️ ADMIN: VER TODOS LOS LEADS (Para el CRM Web)
 export const getCrmLeads = async (req: Request, res: Response): Promise<any> => {
   try {
     const { status } = req.query;

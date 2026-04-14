@@ -337,6 +337,7 @@ import {
 } from './advisorPanelController';
 import {
   requestAdvisor,
+  lookupAdvisor,
   getCrmLeads,
   getAvailableAdvisors,
   assignAdvisorManually,
@@ -2939,6 +2940,9 @@ app.get('/api/advisor/notifications', authenticateToken, getAdvisorNotifications
 app.get('/api/advisor/notifications/unread-count', authenticateToken, getAdvisorUnreadCount);
 
 // ========== CRM - SOLICITUDES DE ASESOR ==========
+
+// App: Buscar asesor por código (pre-validación)
+app.get('/api/advisor/lookup/:code', authenticateToken, lookupAdvisor);
 
 // App: Usuario solicita asesor (con o sin código)
 app.post('/api/advisor/request', authenticateToken, requestAdvisor);
