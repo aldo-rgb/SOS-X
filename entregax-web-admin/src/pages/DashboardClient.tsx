@@ -4773,6 +4773,7 @@ export default function DashboardClient() {
                                       const svcMap: Record<string, { label: string; color: string }> = {
                                         air: { label: '✈️ Aéreo', color: '#2196F3' },
                                         maritime: { label: '🚢 Marítimo', color: '#00897B' },
+                                        dhl: { label: '📮 DHL', color: '#D32F2F' },
                                         usa: { label: '📦 PO Box', color: '#F05A28' },
                                         national_mx: { label: '📍 Nacional', color: '#9C27B0' },
                                         all: { label: '🌐 Todos', color: '#333' },
@@ -6727,6 +6728,7 @@ export default function DashboardClient() {
                 {[
                   { value: 'air', label: '✈️ Aéreo China', color: '#2196F3' },
                   { value: 'maritime', label: '🚢 Marítimo China', color: '#00897B' },
+                  { value: 'dhl', label: '📮 DHL Express', color: '#D32F2F' },
                   { value: 'usa', label: '📦 PO Box USA', color: '#F05A28' },
                   { value: 'national_mx', label: '📍 Nacional MX', color: '#9C27B0' },
                 ].map(svc => (
