@@ -4775,7 +4775,6 @@ export default function DashboardClient() {
                                         maritime: { label: '🚢 Marítimo', color: '#00897B' },
                                         dhl: { label: '📮 DHL', color: '#D32F2F' },
                                         usa: { label: '📦 PO Box', color: '#F05A28' },
-                                        national_mx: { label: '📍 Nacional', color: '#9C27B0' },
                                         all: { label: '🌐 Todos', color: '#333' },
                                       };
                                       const info = svcMap[svc.trim()] || { label: svc.trim(), color: '#666' };
@@ -6730,7 +6729,6 @@ export default function DashboardClient() {
                   { value: 'maritime', label: '🚢 Marítimo China', color: '#00897B' },
                   { value: 'dhl', label: '📮 DHL Express', color: '#D32F2F' },
                   { value: 'usa', label: '📦 PO Box USA', color: '#F05A28' },
-                  { value: 'national_mx', label: '📍 Nacional MX', color: '#9C27B0' },
                 ].map(svc => (
                   <FormControlLabel
                     key={svc.value}
