@@ -601,10 +601,13 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
     try {
         const { status, boxId, limit = 50, sinCliente } = req.query;
 
-        // Solo mostrar paquetes POBOX USA - usar LEFT JOIN para incluir paquetes sin cliente
+        // Solo mostrar paquetes POBOX USA - usar LEFT JOIN para incluir paquetes sin cliente y legacy
         let query = `
-            SELECT p.*, u.id as user_id, u.full_name, u.email, u.box_id
-            FROM packages p LEFT JOIN users u ON p.user_id = u.id
+            SELECT p.*, u.id as user_id, u.full_name, u.email, u.box_id as user_box_id,
+                   lc.full_name as legacy_name, lc.box_id as legacy_box_id
+            FROM packages p 
+            LEFT JOIN users u ON p.user_id = u.id
+            LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
             WHERE (p.is_master = true OR p.master_id IS NULL)
             AND (p.service_type = 'POBOX_USA' OR p.service_type = 'air' OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%'))
         `;
@@ -646,7 +649,11 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
             receivedAt: pkg.received_at, deliveredAt: pkg.delivered_at,
             consolidationId: pkg.consolidation_id,
             supplierId: pkg.supplier_id,
-            client: pkg.user_id ? { id: pkg.user_id, name: pkg.full_name || 'Sin nombre', email: pkg.email || '', boxId: pkg.box_id || 'N/A' } : { id: 0, name: 'Sin Cliente', email: '', boxId: 'N/A' }
+            client: pkg.user_id 
+                ? { id: pkg.user_id, name: pkg.full_name || 'Sin nombre', email: pkg.email || '', boxId: pkg.user_box_id || 'N/A' } 
+                : pkg.legacy_name 
+                    ? { id: 0, name: pkg.legacy_name, email: '', boxId: pkg.legacy_box_id || pkg.box_id || 'N/A', isLegacy: true }
+                    : { id: 0, name: pkg.box_id ? `Casillero ${pkg.box_id}` : 'Sin Cliente', email: '', boxId: pkg.box_id || 'N/A' }
         }));
 
         res.json({ success: true, total: packages.length, packages });
@@ -664,8 +671,11 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         if (!tracking) { res.status(400).json({ error: 'Tracking requerido' }); return; }
 
         const result = await pool.query(`
-            SELECT p.*, u.full_name, u.email, u.box_id
-            FROM packages p LEFT JOIN users u ON p.user_id = u.id
+            SELECT p.*, u.full_name, u.email, u.box_id as user_box_id,
+                   lc.full_name as legacy_name, lc.box_id as legacy_box_id
+            FROM packages p 
+            LEFT JOIN users u ON p.user_id = u.id
+            LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
             WHERE p.tracking_internal = $1 OR p.tracking_provider = $1
         `, [tracking.toUpperCase()]);
 
@@ -680,10 +690,13 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         }
 
         const labels = [];
+        const resolvedName = pkg.full_name || pkg.legacy_name || 'SIN CLIENTE';
+        const resolvedBoxId = pkg.user_box_id || pkg.legacy_box_id || pkg.box_id || 'PENDIENTE';
+
         if (pkg.is_master) {
             labels.push({ boxNumber: 0, totalBoxes: pkg.total_boxes, tracking: pkg.tracking_internal, 
                 labelCode: pkg.tracking_internal, isMaster: true, weight: parseFloat(pkg.weight),
-                clientName: pkg.full_name || 'SIN CLIENTE', clientBoxId: pkg.box_id || 'PENDIENTE', description: pkg.description,
+                clientName: resolvedName, clientBoxId: resolvedBoxId, description: pkg.description,
                 destinationCity: pkg.destination_city, destinationCountry: pkg.destination_country,
                 carrier: pkg.carrier, receivedAt: pkg.received_at });
             
@@ -693,7 +706,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     masterTracking: pkg.tracking_internal, isMaster: false,
                     weight: parseFloat(child.weight),
                     dimensions: formatDimensions(parseFloat(child.pkg_length), parseFloat(child.pkg_width), parseFloat(child.pkg_height)),
-                    clientName: pkg.full_name || 'SIN CLIENTE', clientBoxId: pkg.box_id || 'PENDIENTE', description: child.description,
+                    clientName: resolvedName, clientBoxId: resolvedBoxId, description: child.description,
                     destinationCity: pkg.destination_city, destinationCountry: pkg.destination_country,
                     carrier: pkg.carrier, receivedAt: pkg.received_at });
             }
@@ -701,7 +714,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             labels.push({ boxNumber: 1, totalBoxes: 1, tracking: pkg.tracking_internal,
                 labelCode: pkg.tracking_internal, isMaster: false, weight: parseFloat(pkg.weight),
                 dimensions: formatDimensions(parseFloat(pkg.pkg_length), parseFloat(pkg.pkg_width), parseFloat(pkg.pkg_height)),
-                clientName: pkg.full_name || 'SIN CLIENTE', clientBoxId: pkg.box_id || 'PENDIENTE', description: pkg.description,
+                clientName: resolvedName, clientBoxId: resolvedBoxId, description: pkg.description,
                 destinationCity: pkg.destination_city, destinationCountry: pkg.destination_country,
                 carrier: pkg.carrier, receivedAt: pkg.received_at });
         }
@@ -723,7 +736,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         formatted: formatDimensions(parseFloat(c.pkg_length), parseFloat(c.pkg_width), parseFloat(c.pkg_height)) },
                     status: c.status, imageUrl: c.image_url || null })),
                 labels,
-                client: pkg.user_id ? { id: pkg.user_id, name: pkg.full_name || 'Sin nombre', email: pkg.email || '', boxId: pkg.box_id || 'N/A' } : { id: 0, name: 'Sin Cliente', email: '', boxId: 'N/A' }
+                client: pkg.user_id 
+                    ? { id: pkg.user_id, name: pkg.full_name || 'Sin nombre', email: pkg.email || '', boxId: pkg.user_box_id || 'N/A' } 
+                    : { id: 0, name: resolvedName, email: '', boxId: resolvedBoxId }
             }
         });
     } catch (error) {
@@ -1272,12 +1287,12 @@ export const getShipmentLabels = async (req: Request, res: Response): Promise<vo
 
         const pkg = result.rows[0];
 
-        // Resolver nombre y casillero: user > legacy_client > sin cliente
+        // Resolver nombre y casillero: user > legacy_client (por box_id) > sin cliente
         let clientName = pkg.full_name || null;
-        let clientBoxId = pkg.user_box_id || null;
-        if (!clientName && pkg.legacy_client_id) {
+        let clientBoxId = pkg.user_box_id || pkg.box_id || null;
+        if (!clientName && pkg.box_id) {
             try {
-                const legacyResult = await pool.query('SELECT full_name, box_id FROM legacy_clients WHERE id = $1', [pkg.legacy_client_id]);
+                const legacyResult = await pool.query('SELECT full_name, box_id FROM legacy_clients WHERE UPPER(box_id) = UPPER($1)', [pkg.box_id]);
                 if (legacyResult.rows.length > 0) {
                     clientName = legacyResult.rows[0].full_name;
                     clientBoxId = legacyResult.rows[0].box_id;
