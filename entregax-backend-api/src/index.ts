@@ -2478,49 +2478,75 @@ app.get('/api/zipcode/:cp', async (req: Request, res: Response) => {
             res.status(400).json({ error: 'Código postal inválido (debe ser 5 dígitos)' });
             return;
         }
-        // Intentar con la API de copomex (datos SEPOMEX de México)
+
+        // Opción 1: API pública de SEPOMEX México (sin token)
         try {
-            const copomexRes = await axios.get(
-                `https://api.copomex.com/query/info_cp/${cp}?type=simplified&token=pruebas`,
+            const sepomexRes = await axios.get(
+                `https://sepomex.icalialabs.com/api/v1/zip_codes?zip_code=${cp}`,
                 { timeout: 5000 }
             );
-            if (copomexRes.data && !copomexRes.data.error && copomexRes.data.response) {
-                const data = copomexRes.data.response;
-                // copomex puede retornar un objeto o un array
-                const items = Array.isArray(data) ? data : [data];
+            if (sepomexRes.data && sepomexRes.data.zip_codes && sepomexRes.data.zip_codes.length > 0) {
+                const items = sepomexRes.data.zip_codes;
                 const first = items[0];
-                const colonies: string[] = items.map((item: any) => item.asentamiento).filter(Boolean);
+                const colonies: string[] = items.map((item: any) => item.d_asenta).filter(Boolean);
                 res.json({
-                    city: first.municipio || first.ciudad || '',
-                    state: first.estado || '',
+                    city: first.d_mnpio || first.D_mnpio || '',
+                    state: first.d_estado || first.D_estado || '',
                     colonies: [...new Set(colonies)].sort(),
                     country: 'México'
                 });
                 return;
             }
-        } catch (copomexErr) {
-            console.log('Copomex API no disponible, intentando fallback...');
+        } catch (sepomexErr: any) {
+            console.log('SEPOMEX Icalia API no disponible:', sepomexErr?.message || '');
         }
-        // Fallback: zippopotam.us
+
+        // Opción 2: zippopotam.us (confiable, gratuita)
         try {
             const zipRes = await axios.get(`https://api.zippopotam.us/MX/${cp}`, { timeout: 5000 });
-            if (zipRes.data && zipRes.data.places) {
+            if (zipRes.data && zipRes.data.places && zipRes.data.places.length > 0) {
                 const places = zipRes.data.places;
                 const state = places[0]?.state || '';
                 const colonies = places.map((p: any) => p['place name']).filter(Boolean);
-                // zippopotam no da ciudad explícitamente, usar primer place como referencia
-                const city = places.length === 1 ? places[0]['place name'] : '';
+                // zippopotam retorna colonias como place names
                 res.json({
-                    city,
+                    city: places[0]?.['place name'] || '',
                     state,
                     colonies: [...new Set(colonies)].sort(),
                     country: 'México'
                 });
                 return;
             }
-        } catch (zipErr) {
-            console.log('Zippopotam API no disponible');
+        } catch (zipErr: any) {
+            console.log('Zippopotam API no disponible:', zipErr?.message || '');
         }
+
+        // Opción 3: API copomex (solo si se configura un token real en env)
+        const copomexToken = process.env.COPOMEX_TOKEN;
+        if (copomexToken) {
+            try {
+                const copomexRes = await axios.get(
+                    `https://api.copomex.com/query/info_cp/${cp}?type=simplified&token=${copomexToken}`,
+                    { timeout: 5000 }
+                );
+                if (copomexRes.data && !copomexRes.data.error && copomexRes.data.response) {
+                    const data = copomexRes.data.response;
+                    const items = Array.isArray(data) ? data : [data];
+                    const first = items[0];
+                    const colonies: string[] = items.map((item: any) => item.asentamiento).filter(Boolean);
+                    res.json({
+                        city: first.municipio || first.ciudad || '',
+                        state: first.estado || '',
+                        colonies: [...new Set(colonies)].sort(),
+                        country: 'México'
+                    });
+                    return;
+                }
+            } catch (copomexErr) {
+                console.log('Copomex API no disponible');
+            }
+        }
+
         res.status(404).json({ error: 'No se encontraron datos para este código postal' });
     } catch (error) {
         console.error('Error buscando código postal:', error);
