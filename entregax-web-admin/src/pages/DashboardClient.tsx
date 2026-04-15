@@ -195,6 +195,11 @@ interface PackageTracking {
   pobox_venta_usd?: number;
   // TC registrado al asignar costo
   registered_exchange_rate?: number;
+  // Paquetería nacional
+  national_carrier?: string;
+  national_shipping_cost?: number;
+  national_tracking?: string;
+  carrier?: string;
 }
 
 interface IncludedGuide {
@@ -7400,6 +7405,43 @@ export default function DashboardClient() {
                   )}
                 </Box>
 
+                {/* Paquetería Asignada */}
+                {(selectedPackage.national_carrier || selectedPackage.carrier) && (
+                  <Box sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
+                      🚚 Paquetería Asignada
+                    </Typography>
+                    <Paper sx={{ p: 2, bgcolor: '#e3f2fd' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: selectedPackage.national_shipping_cost ? 1 : 0 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Box sx={{ fontSize: '1.5rem' }}>🚚</Box>
+                          <Box>
+                            <Typography variant="body1" fontWeight="bold">
+                              {selectedPackage.national_carrier || selectedPackage.carrier}
+                            </Typography>
+                            {selectedPackage.national_tracking && (
+                              <Typography variant="caption" color="text.secondary">
+                                Guía: {selectedPackage.national_tracking}
+                              </Typography>
+                            )}
+                          </Box>
+                        </Box>
+                      </Box>
+                      {selectedPackage.national_shipping_cost && Number(selectedPackage.national_shipping_cost) > 0 && (
+                        <>
+                          <Divider sx={{ my: 1 }} />
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <Typography variant="body2" color="text.secondary">Costo de envío nacional:</Typography>
+                            <Typography variant="body1" fontWeight="bold" color="primary.main">
+                              ${Number(selectedPackage.national_shipping_cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                            </Typography>
+                          </Box>
+                        </>
+                      )}
+                    </Paper>
+                  </Box>
+                )}
+
                 {/* Estado y Costo */}
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
@@ -8545,6 +8587,19 @@ export default function DashboardClient() {
                       {formatCurrency(Number(pkg.monto) || 0)}
                     </Typography>
                   </Box>
+                  {(pkg.national_carrier || pkg.carrier) && (
+                    <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#e3f2fd', borderRadius: 1, px: 1, py: 0.5 }}>
+                      <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        🚚 {pkg.national_carrier || pkg.carrier}
+                        {pkg.national_tracking && <span style={{ color: '#666' }}> · {pkg.national_tracking}</span>}
+                      </Typography>
+                      {pkg.national_shipping_cost && Number(pkg.national_shipping_cost) > 0 && (
+                        <Typography variant="caption" fontWeight="bold" color="primary.main">
+                          +{formatCurrency(Number(pkg.national_shipping_cost))}
+                        </Typography>
+                      )}
+                    </Box>
+                  )}
                 </Box>
               ))}
             </Box>

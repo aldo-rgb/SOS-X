@@ -1677,7 +1677,11 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         air_tariff_type,
         pro_name,
         pobox_venta_usd,
-        registered_exchange_rate
+        registered_exchange_rate,
+        national_carrier,
+        national_shipping_cost,
+        national_tracking,
+        carrier
       FROM packages
       WHERE (user_id = $1 OR box_id = $2)
         AND status::text NOT IN ('delivered', 'cancelled', 'returned')
