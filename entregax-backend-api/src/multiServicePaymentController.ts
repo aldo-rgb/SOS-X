@@ -5,6 +5,8 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import axios from 'axios';
+import crypto from 'crypto';
 import { AuthRequest } from './authController';
 import { 
   ServiceType, 
@@ -14,6 +16,95 @@ import {
   getServiceFromReferenceType 
 } from './services/openpayConfig';
 import { createInvoice } from './fiscalController';
+import { generateCommissionsForPackages } from './commissionService';
+
+// ============ URLS BASE ============
+const OPENPAY_SANDBOX_URL = 'https://sandbox-api.openpay.mx/v1';
+const OPENPAY_PROD_URL = 'https://api.openpay.mx/v1';
+const PAYPAL_SANDBOX_URL = 'https://api-m.sandbox.paypal.com';
+const PAYPAL_PROD_URL = 'https://api-m.paypal.com';
+
+// Generar referencia única para pago
+const generatePaymentReference = (prefix: string = 'GW'): string => {
+  const timestamp = (Date.now() % 10000).toString().padStart(4, '0');
+  const random = crypto.randomBytes(2).toString('hex').toUpperCase();
+  return `${prefix}-${timestamp}${random}`;
+};
+
+// Obtener credenciales de PayPal desde la BD
+interface PayPalCredentials {
+  clientId: string;
+  secret: string;
+  isSandbox: boolean;
+  empresaName: string;
+}
+
+const getPaypalCredentials = async (): Promise<PayPalCredentials> => {
+  const query = await pool.query(`
+    SELECT id, alias, paypal_client_id, paypal_secret, paypal_sandbox
+    FROM fiscal_emitters
+    WHERE paypal_configured = true
+    AND paypal_client_id IS NOT NULL 
+    AND paypal_client_id != ''
+    LIMIT 1
+  `);
+
+  if (query.rows.length > 0) {
+    const row = query.rows[0];
+    console.log(`🔑 PayPal credentials from DB -> ${row.alias}`);
+    return {
+      clientId: row.paypal_client_id,
+      secret: row.paypal_secret,
+      isSandbox: row.paypal_sandbox !== false,
+      empresaName: row.alias
+    };
+  }
+
+  throw new Error('No hay credenciales de PayPal configuradas en ninguna empresa');
+};
+
+// Obtener Token de PayPal
+const getPayPalToken = async (credentials: PayPalCredentials): Promise<string> => {
+  const apiUrl = credentials.isSandbox ? PAYPAL_SANDBOX_URL : PAYPAL_PROD_URL;
+  const auth = Buffer.from(`${credentials.clientId}:${credentials.secret}`).toString('base64');
+  
+  const response = await axios.post(
+    `${apiUrl}/v1/oauth2/token`, 
+    'grant_type=client_credentials', 
+    {
+      headers: {
+        'Authorization': `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
+    }
+  );
+  
+  return response.data.access_token;
+};
+
+// Determinar tipo de servicio a partir de los paquetes
+const getServiceTypeFromPackages = async (packageIds: number[]): Promise<ServiceType> => {
+  const result = await pool.query(
+    `SELECT service_type FROM packages WHERE id = ANY($1) AND service_type IS NOT NULL LIMIT 1`,
+    [packageIds]
+  );
+  
+  if (result.rows.length > 0) {
+    const st = result.rows[0].service_type;
+    const mapping: Record<string, ServiceType> = {
+      'china_air': 'aereo',
+      'china_sea': 'maritimo',
+      'usa_pobox': 'po_box',
+      'dhl': 'dhl_liberacion',
+      'national': 'terrestre_nacional',
+      'air': 'aereo',
+      'sea': 'maritimo',
+      'maritime': 'maritimo'
+    };
+    return mapping[st] || 'aereo';
+  }
+  return 'aereo'; // default
+};
 
 // ============================================
 // OBTENER PAGOS PENDIENTES DEL USUARIO
@@ -571,39 +662,128 @@ export const processOpenPayCard = async (req: AuthRequest, res: Response): Promi
       });
     }
 
-    // Por ahora, registrar la intención de pago como pendiente
-    // En producción aquí iría la integración real con OpenPay
-    const paymentId = `openpay_${Date.now()}`;
-    
+    // Verificar que los paquetes existen y pertenecen al usuario
+    const packagesCheck = await pool.query(
+      `SELECT id, tracking_internal, status, service_type FROM packages WHERE id = ANY($1) AND user_id = $2`,
+      [packageIds, userId]
+    );
+
+    if (packagesCheck.rows.length === 0) {
+      return res.status(400).json({ success: false, error: 'No se encontraron paquetes válidos' });
+    }
+
+    // Obtener datos del usuario
+    const userResult = await pool.query(
+      'SELECT id, full_name, email, phone FROM users WHERE id = $1',
+      [userId]
+    );
+
+    if (userResult.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Usuario no encontrado' });
+    }
+
+    const user = userResult.rows[0];
+
+    // Determinar tipo de servicio y obtener credenciales OpenPay
+    const serviceType = await getServiceTypeFromPackages(packageIds);
+    let credentials;
+    try {
+      credentials = await getOpenpayCredentials(serviceType);
+    } catch (credError: any) {
+      console.error('❌ Error obteniendo credenciales OpenPay:', credError.message);
+      // Fallback: registrar como pendiente si no hay credenciales
+      const paymentId = `openpay_pending_${Date.now()}`;
+      return res.json({
+        success: true,
+        paymentId,
+        requiresRedirection: false,
+        status: 'pending',
+        message: '📋 OpenPay no está configurado para este servicio. Tu solicitud ha sido registrada y un administrador la procesará.'
+      });
+    }
+
+    const paymentRef = generatePaymentReference('OP');
+    const openpayBaseUrl = credentials.isSandbox ? OPENPAY_SANDBOX_URL : OPENPAY_PROD_URL;
+    const openpayUrl = `${openpayBaseUrl}/${credentials.merchantId}/charges`;
+
     // Registrar pago pendiente en financial_transactions
     try {
       await pool.query(`
         INSERT INTO financial_transactions 
-        (user_id, type, amount, currency, status, reference, description, created_at)
-        VALUES ($1, 'payment', $2, $3, 'pending', $4, $5, NOW())
-      `, [userId, total, currency || 'MXN', paymentId, `Pago con tarjeta - ${packageIds.length} paquete(s)`]);
+        (user_id, type, amount, description, reference_id, reference_type, metadata, created_at)
+        VALUES ($1, 'payment', $2, $3, $4, 'openpay_card', $5, NOW())
+      `, [
+        userId, total, 
+        `Pago con tarjeta - ${packageIds.length} paquete(s)`,
+        paymentRef,
+        JSON.stringify({ packageIds, currency: currency || 'MXN', serviceType, invoiceRequired })
+      ]);
     } catch (txErr: any) {
       console.log('Note: financial_transactions insert:', txErr.message);
     }
 
-    // Responder con status pendiente sin redirigir a URL falsa
-    const paymentResponse: any = {
-      success: true,
-      paymentId,
-      requiresRedirection: false,
-      status: 'pending',
-      message: '📋 Tu solicitud de pago con tarjeta ha sido registrada. Un administrador confirmará tu pago pronto.'
+    // Crear cargo con redireccionamiento en OpenPay
+    const packageCount = packageIds.length;
+    const cleanDescription = `Pago EntregaX ${packageCount} ${packageCount === 1 ? 'paquete' : 'paquetes'}`;
+    
+    const callbackBaseUrl = process.env.API_URL || 'https://sos-x-production.up.railway.app';
+    const frontendBaseUrl = returnUrl ? new URL(returnUrl).origin : 'https://entregax.app';
+
+    const chargeData = {
+      method: 'card',
+      amount: total,
+      currency: currency || 'MXN',
+      description: cleanDescription,
+      order_id: paymentRef,
+      confirm: false,
+      send_email: false,
+      redirect_url: `${callbackBaseUrl}/api/payments/openpay/callback?paymentRef=${paymentRef}&userId=${userId}&packageIds=${packageIds.join(',')}&amount=${total}&invoiceRequired=${invoiceRequired || false}`,
+      customer: {
+        name: user.full_name?.split(' ')[0] || 'Cliente',
+        last_name: user.full_name?.split(' ').slice(1).join(' ') || 'EntregaX',
+        email: user.email || `cliente${userId}@entregax.com`,
+        phone_number: user.phone?.replace(/\D/g, '').slice(-10) || '0000000000'
+      }
     };
 
-    console.log('💳 OpenPay payment registered as pending:', paymentId);
+    console.log('💳 Creating OpenPay charge:', { url: openpayUrl, order_id: paymentRef, amount: total });
 
-    res.json(paymentResponse);
+    const openpayResponse = await axios.post(openpayUrl, chargeData, {
+      auth: {
+        username: credentials.privateKey,
+        password: ''
+      }
+    });
 
-  } catch (error) {
-    console.error('❌ Error processing OpenPay card payment:', error);
+    // La URL de pago viene en payment_method.url
+    const paymentUrl = openpayResponse.data.payment_method?.url;
+    
+    if (!paymentUrl) {
+      console.error('❌ OpenPay no devolvió URL de pago:', openpayResponse.data);
+      return res.status(500).json({ 
+        success: false,
+        error: 'OpenPay no devolvió URL de pago'
+      });
+    }
+
+    console.log(`✅ OpenPay cargo creado: ${openpayResponse.data.id} - $${total} ${currency || 'MXN'}`);
+    console.log(`🔗 Payment URL: ${paymentUrl}`);
+
+    res.json({
+      success: true,
+      paymentId: openpayResponse.data.id,
+      reference: paymentRef,
+      requiresRedirection: true,
+      paymentUrl: paymentUrl,
+      amount: total,
+      currency: currency || 'MXN'
+    });
+
+  } catch (error: any) {
+    console.error('❌ Error processing OpenPay card payment:', error.response?.data || error.message);
     res.status(500).json({ 
       success: false, 
-      error: 'Error procesando pago con tarjeta' 
+      error: error.response?.data?.description || 'Error procesando pago con tarjeta'
     });
   }
 };
@@ -637,42 +817,104 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
       });
     }
 
-    // Por ahora, registrar la intención de pago como pendiente
-    // En producción aquí iría la integración real con PayPal
-    const paymentId = `paypal_${Date.now()}`;
-    const paymentResponse: any = {
-      success: true,
-      paymentId,
-      status: 'pending',
-      message: '📋 Tu solicitud de pago con PayPal ha sido registrada. Un administrador confirmará tu pago pronto.'
-    };
+    // Obtener credenciales de PayPal desde la BD
+    let credentials: PayPalCredentials;
+    try {
+      credentials = await getPaypalCredentials();
+    } catch (credError: any) {
+      console.error('❌ Error obteniendo credenciales PayPal:', credError.message);
+      const paymentId = `paypal_pending_${Date.now()}`;
+      return res.json({
+        success: true,
+        paymentId,
+        status: 'pending',
+        message: '📋 PayPal no está configurado. Tu solicitud ha sido registrada y un administrador la procesará.'
+      });
+    }
+
+    const paymentRef = generatePaymentReference('PP');
 
     // Registrar pago pendiente en financial_transactions
     try {
       await pool.query(`
         INSERT INTO financial_transactions 
-        (user_id, type, amount, currency, status, reference, description, created_at)
-        VALUES ($1, 'payment', $2, $3, 'pending', $4, $5, NOW())
-      `, [userId, total, currency || 'MXN', paymentId, `Pago con PayPal - ${packageIds.length} paquete(s)`]);
+        (user_id, type, amount, description, reference_id, reference_type, metadata, created_at)
+        VALUES ($1, 'payment', $2, $3, $4, 'paypal', $5, NOW())
+      `, [
+        userId, total,
+        `Pago con PayPal - ${packageIds.length} paquete(s)`,
+        paymentRef,
+        JSON.stringify({ packageIds, currency: currency || 'MXN', invoiceRequired })
+      ]);
     } catch (txErr: any) {
       console.log('Note: financial_transactions insert:', txErr.message);
     }
 
-    // NO generar factura ni marcar como pagado hasta que se confirme el pago real
-    if (invoiceRequired && invoiceData) {
-      console.log('📄 Invoice will be generated after PayPal payment confirmation:', paymentId);
-      paymentResponse.invoiceWillBeGenerated = true;
+    // Obtener token de PayPal
+    const token = await getPayPalToken(credentials);
+    const paypalApiUrl = credentials.isSandbox ? PAYPAL_SANDBOX_URL : PAYPAL_PROD_URL;
+
+    const frontendBaseUrl = returnUrl ? new URL(returnUrl).origin : 'https://entregax.app';
+    const callbackBaseUrl = process.env.API_URL || 'https://sos-x-production.up.railway.app';
+
+    // Crear orden en PayPal
+    const order = await axios.post(
+      `${paypalApiUrl}/v2/checkout/orders`,
+      {
+        intent: 'CAPTURE',
+        purchase_units: [{
+          reference_id: paymentRef,
+          amount: { 
+            currency_code: currency || 'MXN', 
+            value: total.toFixed(2)
+          },
+          description: `EntregaX - ${packageIds.length} paquete(s)`
+        }],
+        application_context: {
+          brand_name: 'EntregaX',
+          landing_page: 'LOGIN',
+          user_action: 'PAY_NOW',
+          return_url: `${callbackBaseUrl}/api/payments/paypal/callback?paymentRef=${paymentRef}&userId=${userId}&packageIds=${packageIds.join(',')}&amount=${total}&invoiceRequired=${invoiceRequired || false}`,
+          cancel_url: cancelUrl || `${frontendBaseUrl}/payment/cancel`
+        }
+      },
+      {
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    // Obtener URL de aprobación
+    const approveLink = order.data.links.find((link: any) => link.rel === 'approve')?.href;
+
+    if (!approveLink) {
+      console.error('❌ PayPal no devolvió URL de aprobación:', order.data);
+      return res.status(500).json({ 
+        success: false,
+        error: 'PayPal no devolvió URL de aprobación'
+      });
     }
 
-    console.log('🔄 PayPal payment registered as pending:', paymentId);
+    console.log(`✅ PayPal orden creada: ${order.data.id} - $${total} ${currency || 'MXN'}`);
+    console.log(`🔗 Approval URL: ${approveLink}`);
 
-    res.json(paymentResponse);
+    res.json({
+      success: true,
+      paymentId: order.data.id,
+      orderId: order.data.id,
+      reference: paymentRef,
+      approvalUrl: approveLink,
+      amount: total,
+      currency: currency || 'MXN'
+    });
 
-  } catch (error) {
-    console.error('❌ Error creating PayPal payment:', error);
+  } catch (error: any) {
+    console.error('❌ Error creating PayPal payment:', error.response?.data || error.message);
     res.status(500).json({ 
       success: false, 
-      error: 'Error creando pago con PayPal' 
+      error: error.response?.data?.message || 'Error creando pago con PayPal'
     });
   }
 };
@@ -825,5 +1067,262 @@ export const testConfirmPayment = async (req: AuthRequest, res: Response): Promi
       success: false, 
       error: 'Error confirmando pago de prueba' 
     });
+  }
+};
+
+// ============================================
+// OPENPAY CALLBACK - Redirige al usuario después del pago
+// ============================================
+export const handleOpenpayPaymentCallback = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { paymentRef, userId, packageIds, amount, invoiceRequired, id: transactionId } = req.query;
+
+    console.log(`📱 Callback OpenPay General - paymentRef: ${paymentRef}, transactionId: ${transactionId}`);
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://entregax.app';
+
+    // Verificar si ya fue procesado por el webhook
+    // Intentar capturar el pago basándonos en los query params
+    if (paymentRef && userId && packageIds && amount) {
+      const pkgIds = (packageIds as string).split(',').map(Number).filter(n => !isNaN(n));
+      const parsedAmount = parseFloat(amount as string);
+      const parsedUserId = parseInt(userId as string);
+
+      if (pkgIds.length > 0 && parsedAmount > 0 && parsedUserId > 0) {
+        // Verificar si los paquetes ya están pagados
+        const checkResult = await pool.query(
+          `SELECT id, payment_status FROM packages WHERE id = ANY($1) AND user_id = $2`,
+          [pkgIds, parsedUserId]
+        );
+
+        const alreadyPaid = checkResult.rows.every(r => r.payment_status === 'paid');
+
+        if (!alreadyPaid) {
+          // Marcar como pagados (OpenPay redirige después de pago exitoso)
+          await pool.query(`
+            UPDATE packages SET 
+              payment_status = 'paid',
+              monto_pagado = COALESCE(monto_pagado, 0) + $1,
+              saldo_pendiente = 0,
+              costing_paid = TRUE,
+              client_paid = TRUE,
+              costing_paid_at = CURRENT_TIMESTAMP,
+              payment_reference = $2
+            WHERE id = ANY($3) AND user_id = $4
+          `, [parsedAmount, paymentRef, pkgIds, parsedUserId]);
+
+          // Registrar en logs de cobranza
+          try {
+            await pool.query(`
+              INSERT INTO openpay_webhook_logs (
+                transaction_id, monto_recibido, monto_neto, concepto,
+                fecha_pago, estatus_procesamiento, user_id, tipo_pago
+              ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 'procesado', $5, 'tarjeta')
+            `, [
+              transactionId || paymentRef,
+              parsedAmount,
+              parsedAmount * 0.9664, // ~3.36% comisión OpenPay tarjeta
+              `Pago tarjeta - ${pkgIds.length} paquete(s)`,
+              parsedUserId
+            ]);
+          } catch (logErr: any) {
+            console.log('Note: webhook_logs insert:', logErr.message);
+          }
+
+          // Generar comisiones
+          generateCommissionsForPackages(pkgIds).catch(err =>
+            console.error('Error generando comisiones (OpenPay callback):', err)
+          );
+
+          console.log(`✅ OpenPay callback: ${pkgIds.length} paquetes marcados como pagados`);
+        }
+      }
+    }
+
+    // Redirigir al frontend
+    res.redirect(`${frontendUrl}/payment/success?ref=${paymentRef || 'unknown'}`);
+
+  } catch (error) {
+    console.error('❌ Error en callback OpenPay:', error);
+    const frontendUrl = process.env.FRONTEND_URL || 'https://entregax.app';
+    res.redirect(`${frontendUrl}/payment/error`);
+  }
+};
+
+// ============================================
+// OPENPAY WEBHOOK - Recibe notificaciones de OpenPay
+// ============================================
+export const handleOpenpayPaymentWebhook = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const event = req.body;
+
+    console.log('📬 Webhook OpenPay General recibido:', event.type);
+
+    if (event.type === 'charge.succeeded') {
+      const orderId = event.transaction?.order_id;
+      const transactionId = event.transaction?.id;
+      const amount = parseFloat(event.transaction?.amount || 0);
+
+      if (orderId) {
+        // Buscar la transacción financiera por referencia
+        const txResult = await pool.query(
+          `SELECT id, user_id, metadata FROM financial_transactions WHERE reference_id = $1`,
+          [orderId]
+        );
+
+        if (txResult.rows.length > 0) {
+          const tx = txResult.rows[0];
+          const metadata = tx.metadata || {};
+          const packageIds = metadata.packageIds || [];
+          const userId = tx.user_id;
+
+          if (packageIds.length > 0 && userId) {
+            // Verificar que no estén ya pagados
+            const checkResult = await pool.query(
+              `SELECT id, payment_status FROM packages WHERE id = ANY($1) AND payment_status != 'paid'`,
+              [packageIds]
+            );
+
+            if (checkResult.rows.length > 0) {
+              await pool.query(`
+                UPDATE packages SET 
+                  payment_status = 'paid',
+                  monto_pagado = COALESCE(monto_pagado, 0) + $1,
+                  saldo_pendiente = 0,
+                  costing_paid = TRUE,
+                  client_paid = TRUE,
+                  costing_paid_at = CURRENT_TIMESTAMP,
+                  payment_reference = $2
+                WHERE id = ANY($3) AND user_id = $4
+              `, [amount, orderId, packageIds, userId]);
+
+              // Registrar en logs de cobranza
+              const montoNeto = amount * 0.9664;
+              try {
+                await pool.query(`
+                  INSERT INTO openpay_webhook_logs (
+                    transaction_id, monto_recibido, monto_neto, concepto,
+                    fecha_pago, estatus_procesamiento, user_id, tipo_pago
+                  ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 'procesado', $5, 'tarjeta')
+                `, [transactionId, amount, montoNeto, `Pago tarjeta webhook - ${packageIds.length} paquete(s)`, userId]);
+              } catch (logErr: any) {
+                console.log('Note: webhook_logs insert:', logErr.message);
+              }
+
+              // Generar comisiones
+              generateCommissionsForPackages(packageIds).catch(err =>
+                console.error('Error generando comisiones (OpenPay webhook):', err)
+              );
+
+              console.log(`✅ OpenPay webhook: ${checkResult.rows.length} paquetes marcados como pagados`);
+            }
+          }
+        }
+      }
+    }
+
+    res.json({ received: true });
+  } catch (error) {
+    console.error('❌ Error procesando webhook OpenPay:', error);
+    res.status(500).json({ error: 'Error procesando webhook' });
+  }
+};
+
+// ============================================
+// PAYPAL CALLBACK - Redirige y captura el pago después de aprobación
+// ============================================
+export const handlePayPalPaymentCallback = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { paymentRef, userId, packageIds, amount, invoiceRequired, token: paypalOrderId, PayerID } = req.query;
+
+    console.log(`📱 Callback PayPal General - paymentRef: ${paymentRef}, orderId: ${paypalOrderId}`);
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://entregax.app';
+
+    if (!paypalOrderId) {
+      console.error('❌ PayPal callback sin orderId');
+      return res.redirect(`${frontendUrl}/payment/error`);
+    }
+
+    // Capturar el pago en PayPal
+    let credentials: PayPalCredentials;
+    try {
+      credentials = await getPaypalCredentials();
+    } catch (credError: any) {
+      console.error('❌ Error obteniendo credenciales PayPal para captura:', credError.message);
+      return res.redirect(`${frontendUrl}/payment/error`);
+    }
+
+    const paypalToken = await getPayPalToken(credentials);
+    const paypalApiUrl = credentials.isSandbox ? PAYPAL_SANDBOX_URL : PAYPAL_PROD_URL;
+
+    const capture = await axios.post(
+      `${paypalApiUrl}/v2/checkout/orders/${paypalOrderId}/capture`,
+      {},
+      {
+        headers: { 
+          'Authorization': `Bearer ${paypalToken}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    console.log(`💰 PayPal captura: ${capture.data.status}`);
+
+    if (capture.data.status === 'COMPLETED') {
+      const captureDetails = capture.data.purchase_units[0]?.payments?.captures[0];
+      const pkgIds = packageIds ? (packageIds as string).split(',').map(Number).filter(n => !isNaN(n)) : [];
+      const parsedAmount = parseFloat(amount as string) || parseFloat(captureDetails?.amount?.value || '0');
+      const parsedUserId = parseInt(userId as string) || 0;
+
+      if (pkgIds.length > 0 && parsedUserId > 0) {
+        // Marcar paquetes como pagados
+        await pool.query(`
+          UPDATE packages SET 
+            payment_status = 'paid',
+            monto_pagado = COALESCE(monto_pagado, 0) + $1,
+            saldo_pendiente = 0,
+            costing_paid = TRUE,
+            client_paid = TRUE,
+            costing_paid_at = CURRENT_TIMESTAMP,
+            payment_reference = $2
+          WHERE id = ANY($3) AND user_id = $4
+        `, [parsedAmount, paymentRef || paypalOrderId, pkgIds, parsedUserId]);
+
+        // Registrar en logs de cobranza
+        try {
+          await pool.query(`
+            INSERT INTO openpay_webhook_logs (
+              transaction_id, monto_recibido, monto_neto, concepto,
+              fecha_pago, estatus_procesamiento, user_id, tipo_pago
+            ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'paypal')
+          `, [
+            captureDetails?.id || paypalOrderId,
+            parsedAmount,
+            `Pago PayPal - ${pkgIds.length} paquete(s)`,
+            parsedUserId
+          ]);
+        } catch (logErr: any) {
+          console.log('Note: webhook_logs insert:', logErr.message);
+        }
+
+        // Generar comisiones
+        generateCommissionsForPackages(pkgIds).catch(err =>
+          console.error('Error generando comisiones (PayPal callback):', err)
+        );
+
+        console.log(`✅ PayPal callback: ${pkgIds.length} paquetes marcados como pagados`);
+      }
+
+      return res.redirect(`${frontendUrl}/payment/success?ref=${paymentRef || paypalOrderId}`);
+    } else {
+      console.error('❌ PayPal captura no completada:', capture.data.status);
+      return res.redirect(`${frontendUrl}/payment/error?status=${capture.data.status}`);
+    }
+
+  } catch (error: any) {
+    console.error('❌ Error en callback PayPal:', error.response?.data || error.message);
+    const frontendUrl = process.env.FRONTEND_URL || 'https://entregax.app';
+    res.redirect(`${frontendUrl}/payment/error`);
   }
 };

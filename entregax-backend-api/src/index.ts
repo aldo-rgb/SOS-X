@@ -635,7 +635,10 @@ import {
   processOpenPayCard,
   createPayPalPayment,
   createBranchPayment,
-  testConfirmPayment
+  testConfirmPayment,
+  handleOpenpayPaymentCallback,
+  handleOpenpayPaymentWebhook,
+  handlePayPalPaymentCallback
 } from './multiServicePaymentController';
 import {
   getUserServiceCredits,
@@ -2426,6 +2429,11 @@ app.get('/api/payments/status/:consolidationId', authenticateToken, getPaymentSt
 app.post('/api/payments/openpay/card', authenticateToken, processOpenPayCard);
 app.post('/api/payments/paypal/create', authenticateToken, createPayPalPayment);
 app.post('/api/payments/branch/reference', authenticateToken, createBranchPayment);
+
+// --- CALLBACKS Y WEBHOOKS DE PAGOS (sin auth, son redirecciones de pasarelas) ---
+app.get('/api/payments/openpay/callback', handleOpenpayPaymentCallback);
+app.post('/api/payments/openpay/webhook', handleOpenpayPaymentWebhook);
+app.get('/api/payments/paypal/callback', handlePayPalPaymentCallback);
 
 // --- RUTA DE PRUEBA PARA CONFIRMAR PAGOS ---
 app.post('/api/payments/test/confirm', authenticateToken, testConfirmPayment);
