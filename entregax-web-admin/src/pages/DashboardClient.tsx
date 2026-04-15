@@ -89,7 +89,7 @@ import {
   Star as StarIcon,
   ChatBubble as ChatBubbleIcon,
   Person as PersonIcon,
-  ConfirmationNumber,
+  ConfirmationNumber as TicketIcon,
   Scale as ScaleIcon,
   Lock as LockIcon,
   Payment as PaymentIcon,
@@ -110,6 +110,7 @@ import {
 } from '@mui/icons-material';
 import { Collapse } from '@mui/material';
 import api from '../services/api';
+import ClientTicketsPage from './ClientTicketsPage';
 
 const ORANGE = '#F05A28';
 const GREEN = '#4CAF50';
@@ -3025,14 +3026,15 @@ export default function DashboardClient() {
           <Tabs 
             value={(() => {
               // Mapear activeTab a índice de Tab visual
-              // activeTab: 0=Envíos, 1=Cotizador, 2=MiCuenta, 3=Facturas, 4=Direcciones
-              // Tabs: 0=Envíos, 1=Pagos, 2=Cotizador, 3=MiCuenta, 4=Facturas, 5=Direcciones
+              // activeTab: 0=Envíos, 1=Cotizador, 2=MiCuenta, 3=Facturas, 4=Direcciones, 7=Tickets
+              // Tabs: 0=Envíos, 1=Pagos, 2=Cotizador, 3=MiCuenta, 4=Facturas, 5=Direcciones, 6=Tickets
               const reverseMapping: {[key: number]: number} = {
                 0: 0,  // Envíos → Envíos
                 1: 2,  // Cotizador → Cotizador
                 2: 3,  // Mi Cuenta → Mi Cuenta
                 3: 4,  // Facturas → Facturas
                 4: 5,  // Direcciones → Direcciones
+                7: 6,  // Mis Tickets → Tickets
               };
               return reverseMapping[activeTab] ?? 0;
             })()}
@@ -3049,6 +3051,7 @@ export default function DashboardClient() {
                 3: 2,  // Mi Cuenta
                 4: 3,  // Facturas
                 5: 4,  // Direcciones
+                6: 7,  // Mis Tickets
               };
               setActiveTab(tabMapping[v] ?? 0);
             }}
@@ -3068,6 +3071,7 @@ export default function DashboardClient() {
             <Tab icon={<WalletIcon />} label="Mi Cuenta" iconPosition="start" />
             <Tab icon={<ReceiptIcon />} label={t('cd.tabs.invoices')} iconPosition="start" />
             <Tab icon={<HomeIcon />} label="Direcciones de Envío" iconPosition="start" />
+            <Tab icon={<TicketIcon />} label="Mis Tickets" iconPosition="start" />
           </Tabs>
         </Paper>
       )}
@@ -5198,6 +5202,13 @@ export default function DashboardClient() {
                   <strong>{t('cd.account.suiteReminder', { boxId })}</strong>
                 </Typography>
               </Alert>
+            </Box>
+          )}
+
+          {/* Tab: Mis Tickets */}
+          {activeTab === 7 && (
+            <Box>
+              <ClientTicketsPage onBack={() => setActiveTab(0)} />
             </Box>
           )}
 
@@ -9303,6 +9314,7 @@ export default function DashboardClient() {
                 2: 5,  // Mi Cuenta → Cuenta
                 3: 4,  // Facturas → Facturas
                 4: 3,  // Direcciones → Direcciones
+                7: 6,  // Mis Tickets → Tickets
               };
               return reverseMapping[activeTab] ?? 0;
             })()}
@@ -9319,6 +9331,7 @@ export default function DashboardClient() {
                 3: 4,  // Direcciones de Envío
                 4: 3,  // Facturas
                 5: 2,  // Mi Cuenta
+                6: 7,  // Mis Tickets
               };
               setActiveTab(tabMapping[newValue] ?? 0);
             }}
@@ -9348,6 +9361,7 @@ export default function DashboardClient() {
             <BottomNavigationAction label="Direcciones" icon={<HomeIcon sx={{ fontSize: 22 }} />} />
             <BottomNavigationAction label="Facturas" icon={<ReceiptIcon sx={{ fontSize: 22 }} />} />
             <BottomNavigationAction label="Cuenta" icon={<PersonIcon sx={{ fontSize: 22 }} />} />
+            <BottomNavigationAction label="Tickets" icon={<TicketIcon sx={{ fontSize: 22 }} />} />
           </BottomNavigation>
         </Paper>
       )}

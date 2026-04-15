@@ -498,6 +498,54 @@ export const getTicketMessages = async (req: Request, res: Response): Promise<an
   }
 };
 
+/**
+ * POST /api/support/ticket/:id/message
+ * Cliente envía un mensaje a su propio ticket
+ */
+export const clientReplyTicket = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const { message } = req.body;
+    const userId = (req as any).user?.userId;
+
+    if (!message || !message.trim()) {
+      return res.status(400).json({ error: 'Mensaje requerido' });
+    }
+
+    // Verificar que el ticket pertenece al cliente
+    const ticketCheck = await pool.query(
+      `SELECT id, status FROM support_tickets WHERE id = $1 AND user_id = $2`,
+      [id, userId]
+    );
+
+    if (ticketCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Ticket no encontrado' });
+    }
+
+    const ticket = ticketCheck.rows[0];
+    if (ticket.status === 'resolved' || ticket.status === 'closed') {
+      return res.status(400).json({ error: 'No se puede responder a un ticket cerrado' });
+    }
+
+    // Guardar mensaje del cliente
+    await pool.query(
+      `INSERT INTO ticket_messages (ticket_id, sender_type, message) VALUES ($1, 'client', $2)`,
+      [id, message.trim()]
+    );
+
+    // Actualizar estado del ticket a waiting_agent
+    await pool.query(
+      `UPDATE support_tickets SET status = 'waiting_agent', updated_at = NOW() WHERE id = $1`,
+      [id]
+    );
+
+    res.json({ success: true, message: 'Mensaje enviado' });
+  } catch (error) {
+    console.error('Error enviando mensaje de cliente:', error);
+    res.status(500).json({ error: 'Error enviando mensaje' });
+  }
+};
+
 // ============================================================
 // ENDPOINTS ADMIN (Panel de Soporte)
 // ============================================================

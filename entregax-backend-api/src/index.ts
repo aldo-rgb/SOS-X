@@ -367,6 +367,7 @@ import {
   handleSupportMessage,
   getMyTickets,
   getTicketMessages,
+  clientReplyTicket,
   getAdminTickets,
   getSupportStats,
   adminReplyTicket,
@@ -3099,6 +3100,9 @@ app.get('/api/support/tickets', authenticateToken, getMyTickets);
 
 // Cliente: Ver mensajes de un ticket
 app.get('/api/support/ticket/:id/messages', authenticateToken, getTicketMessages);
+
+// Cliente: Responder a su ticket
+app.post('/api/support/ticket/:id/message', authenticateToken, clientReplyTicket);
 
 // Admin: Ver todos los tickets (tablero Kanban)
 app.get('/api/admin/support/tickets', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAdminTickets);
