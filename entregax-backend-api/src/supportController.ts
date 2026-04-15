@@ -522,24 +522,23 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
       return res.status(404).json({ error: 'Ticket no encontrado' });
     }
 
-    const ticket = ticketCheck.rows[0];
-    if (ticket.status === 'resolved' || ticket.status === 'closed') {
-      return res.status(400).json({ error: 'No se puede responder a un ticket cerrado' });
-    }
-
     // Guardar mensaje del cliente
     await pool.query(
       `INSERT INTO ticket_messages (ticket_id, sender_type, message) VALUES ($1, 'client', $2)`,
       [id, message.trim()]
     );
 
-    // Actualizar estado del ticket a waiting_agent
+    // Si el ticket estaba resuelto/cerrado, reabrirlo automáticamente
+    const ticket = ticketCheck.rows[0];
+    const reopened = ticket.status === 'resolved' || ticket.status === 'closed';
+
+    // Actualizar estado del ticket a waiting_agent (reabrir si estaba cerrado)
     await pool.query(
       `UPDATE support_tickets SET status = 'waiting_agent', updated_at = NOW() WHERE id = $1`,
       [id]
     );
 
-    res.json({ success: true, message: 'Mensaje enviado' });
+    res.json({ success: true, message: reopened ? 'Ticket reabierto con nuevo mensaje' : 'Mensaje enviado', reopened });
   } catch (error) {
     console.error('Error enviando mensaje de cliente:', error);
     res.status(500).json({ error: 'Error enviando mensaje' });

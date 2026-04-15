@@ -107,11 +107,16 @@ export default function ClientTicketsPage({ onBack }: ClientTicketsPageProps) {
     if (!newMessage.trim() || !selectedTicket) return;
     setSending(true);
     try {
-      await api.post(`/support/ticket/${selectedTicket.id}/message`, {
+      const resp = await api.post(`/support/ticket/${selectedTicket.id}/message`, {
         message: newMessage.trim(),
       });
       setNewMessage('');
       await loadMessages(selectedTicket.id);
+      // Si el ticket fue reabierto, actualizar estado local
+      if (resp.data?.reopened || selectedTicket.status === 'resolved' || selectedTicket.status === 'closed') {
+        setSelectedTicket({ ...selectedTicket, status: 'waiting_agent' });
+        setTickets(prev => prev.map(t => t.id === selectedTicket.id ? { ...t, status: 'waiting_agent' } : t));
+      }
     } catch (error) {
       console.error('Error enviando mensaje:', error);
     } finally {
