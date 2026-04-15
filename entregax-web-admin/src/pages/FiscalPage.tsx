@@ -22,7 +22,7 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import SettingsIcon from '@mui/icons-material/Settings';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const ORANGE = '#F05A28';
 const BLACK = '#111';
 
