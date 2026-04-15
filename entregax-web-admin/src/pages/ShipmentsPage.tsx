@@ -34,6 +34,8 @@ import HomeIcon from '@mui/icons-material/Home';
 import WarningIcon from '@mui/icons-material/Warning';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import VideocamIcon from '@mui/icons-material/Videocam';
+import EditIcon from '@mui/icons-material/Edit';
+import SaveIcon from '@mui/icons-material/Save';
 
 // ============ CONSTANTES ============
 const COUNTRIES_ES = ['México', 'Estados Unidos', 'Canadá', 'Guatemala', 'Colombia', 'España', 'Otro'];
@@ -213,6 +215,9 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [printDialogOpen, setPrintDialogOpen] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState<Package | null>(null);
+  const [editingClient, setEditingClient] = useState(false);
+  const [editClientBoxId, setEditClientBoxId] = useState('');
+  const [savingClient, setSavingClient] = useState(false);
   const [labelsToPrint, setLabelsToPrint] = useState<PackageLabel[]>([]);
   
   // Wizard state
@@ -1410,7 +1415,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                     </TableCell>
                     <TableCell><Typography variant="body2">{new Date(pkg.receivedAt).toLocaleDateString(i18n.language === 'es' ? 'es-MX' : 'en-US')}</Typography></TableCell>
                     <TableCell align="center">
-                      <Tooltip title={t('clients.viewDetails')}><IconButton size="small" onClick={() => { setSelectedPackage(pkg); setDetailsOpen(true); }}><VisibilityIcon fontSize="small" /></IconButton></Tooltip>
+                      <Tooltip title={t('clients.viewDetails')}><IconButton size="small" onClick={() => { setSelectedPackage(pkg); setDetailsOpen(true); setEditingClient(false); }}><VisibilityIcon fontSize="small" /></IconButton></Tooltip>
                       <Tooltip title={t('shipments.printLabels')}><IconButton size="small" onClick={async () => {
                         try {
                           const response = await axios.get(`${API_URL}/packages/${pkg.id}/labels`, { headers: { Authorization: `Bearer ${getToken()}` } });
@@ -2670,7 +2675,67 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                 <Typography variant="h4" sx={{ color: ORANGE, fontWeight: 'bold' }}>{selectedPackage.tracking}</Typography>
               </Box>
               <Grid container spacing={2}>
-                <Grid size={6}><Typography variant="body2" color="text.secondary">{t('clients.client')}</Typography><Typography fontWeight="bold">{selectedPackage.client?.name || 'Sin Cliente'}</Typography><Chip label={selectedPackage.client?.boxId || 'N/A'} size="small" sx={{ mt: 0.5 }} /></Grid>
+                <Grid size={6}><Typography variant="body2" color="text.secondary">{t('clients.client')}</Typography>
+                  {editingClient ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+                      <TextField
+                        size="small"
+                        value={editClientBoxId}
+                        onChange={(e) => setEditClientBoxId(e.target.value.toUpperCase())}
+                        placeholder="Ej: S1234"
+                        autoFocus
+                        disabled={savingClient}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            (async () => {
+                              if (!selectedPackage) return;
+                              setSavingClient(true);
+                              try {
+                                const resp = await axios.patch(`${API_URL}/packages/${selectedPackage.id}/client`, { boxId: editClientBoxId.trim() }, { headers: { Authorization: `Bearer ${getToken()}` } });
+                                setSelectedPackage({ ...selectedPackage, client: resp.data.client });
+                                setPackages(prev => prev.map(p => p.id === selectedPackage.id ? { ...p, client: resp.data.client } : p));
+                                setEditingClient(false);
+                                setSnackbar({ open: true, message: resp.data.message, severity: 'success' });
+                              } catch (err: any) {
+                                setSnackbar({ open: true, message: err.response?.data?.error || 'Error al asignar cliente', severity: 'error' });
+                              } finally { setSavingClient(false); }
+                            })();
+                          }
+                          if (e.key === 'Escape') { setEditingClient(false); }
+                        }}
+                        sx={{ width: 100, '& .MuiInputBase-input': { py: 0.5, px: 1, fontSize: 14 } }}
+                      />
+                      <IconButton size="small" color="primary" disabled={savingClient} onClick={async () => {
+                        if (!selectedPackage) return;
+                        setSavingClient(true);
+                        try {
+                          const resp = await axios.patch(`${API_URL}/packages/${selectedPackage.id}/client`, { boxId: editClientBoxId.trim() }, { headers: { Authorization: `Bearer ${getToken()}` } });
+                          setSelectedPackage({ ...selectedPackage, client: resp.data.client });
+                          setPackages(prev => prev.map(p => p.id === selectedPackage.id ? { ...p, client: resp.data.client } : p));
+                          setEditingClient(false);
+                          setSnackbar({ open: true, message: resp.data.message, severity: 'success' });
+                        } catch (err: any) {
+                          setSnackbar({ open: true, message: err.response?.data?.error || 'Error al asignar cliente', severity: 'error' });
+                        } finally { setSavingClient(false); }
+                      }}>
+                        {savingClient ? <CircularProgress size={16} /> : <SaveIcon sx={{ fontSize: 18 }} />}
+                      </IconButton>
+                      <IconButton size="small" onClick={() => setEditingClient(false)} disabled={savingClient}>
+                        <CloseIcon sx={{ fontSize: 18 }} />
+                      </IconButton>
+                    </Box>
+                  ) : (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                      <Box>
+                        <Typography fontWeight="bold">{selectedPackage.client?.name || 'Sin Cliente'}</Typography>
+                        <Chip label={selectedPackage.client?.boxId || 'N/A'} size="small" sx={{ mt: 0.5 }} />
+                      </Box>
+                      <IconButton size="small" onClick={() => { setEditClientBoxId(selectedPackage.client?.boxId || ''); setEditingClient(true); }} sx={{ ml: 0.5 }}>
+                        <EditIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                      </IconButton>
+                    </Box>
+                  )}
+                </Grid>
                 <Grid size={6}><Typography variant="body2" color="text.secondary">{t('common.status')}</Typography><Chip icon={<span>{getStatusIcon(selectedPackage.status)}</span>} label={getStatusLabel(selectedPackage.status)} color={getStatusColor(selectedPackage.status)} /></Grid>
                 <Grid size={6}><Typography variant="body2" color="text.secondary">{t('shipments.totalWeight')}</Typography><Typography>{selectedPackage.weight ? `${selectedPackage.weight} kg` : '-'}</Typography></Grid>
                 <Grid size={6}><Typography variant="body2" color="text.secondary">{t('shipments.boxes')}</Typography><Typography>{selectedPackage.totalBoxes || 1}</Typography></Grid>

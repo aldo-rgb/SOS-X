@@ -60,9 +60,9 @@ const CARRIERS = ['FedEx', 'UPS', 'DHL', 'Estafeta', 'Redpack', 'Paquetexpress',
 
 // ============ GENERADOR DE TRACKING (Prefijo US) ============
 const generateTracking = (): string => {
-    const timestamp = Date.now().toString(36).toUpperCase().slice(-4);
-    const random = Math.floor(1000 + Math.random() * 9000);
-    return `US-${timestamp}${random}`;
+    // US- + 10 dígitos numéricos
+    const digits = Date.now().toString().slice(-6) + String(Math.floor(1000 + Math.random() * 9000));
+    return `US-${digits}`;
 };
 
 // ============ HELPERS ============
@@ -1918,6 +1918,70 @@ export const createPackage = createShipment;
 export const getPackageByTracking = getShipmentByTracking;
 export const updatePackageStatus = updateShipmentStatus;
 export const getPackageLabels = getShipmentLabels;
+
+// ============================================
+// ENDPOINT: ACTUALIZAR CLIENTE DE UN PAQUETE
+// ============================================
+export const updatePackageClient = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { id } = req.params;
+        const { boxId } = req.body;
+
+        if (!boxId || !boxId.trim()) {
+            // Desasignar cliente
+            await pool.query(
+                `UPDATE packages SET user_id = NULL, box_id = NULL, updated_at = NOW() WHERE id = $1`,
+                [id]
+            );
+            return res.json({ success: true, client: null, message: 'Cliente desasignado' });
+        }
+
+        const upperBoxId = boxId.trim().toUpperCase();
+
+        // Buscar en users
+        const userResult = await pool.query(
+            `SELECT id, full_name, email, box_id FROM users WHERE UPPER(box_id) = $1`,
+            [upperBoxId]
+        );
+
+        if (userResult.rows.length > 0) {
+            const user = userResult.rows[0];
+            await pool.query(
+                `UPDATE packages SET user_id = $1, box_id = $2, updated_at = NOW() WHERE id = $3`,
+                [user.id, user.box_id, id]
+            );
+            return res.json({
+                success: true,
+                client: { id: user.id, name: user.full_name, email: user.email, boxId: user.box_id },
+                message: `Cliente asignado: ${user.full_name} (${user.box_id})`
+            });
+        }
+
+        // Buscar en legacy_clients
+        const legacyResult = await pool.query(
+            `SELECT id, full_name, box_id FROM legacy_clients WHERE UPPER(box_id) = $1`,
+            [upperBoxId]
+        );
+
+        if (legacyResult.rows.length > 0) {
+            const legacy = legacyResult.rows[0];
+            await pool.query(
+                `UPDATE packages SET user_id = NULL, box_id = $1, updated_at = NOW() WHERE id = $2`,
+                [legacy.box_id, id]
+            );
+            return res.json({
+                success: true,
+                client: { id: null, name: legacy.full_name, email: '', boxId: legacy.box_id },
+                message: `Cliente legacy asignado: ${legacy.full_name} (${legacy.box_id})`
+            });
+        }
+
+        return res.status(404).json({ error: `No existe cliente con casillero ${boxId}` });
+    } catch (error: any) {
+        console.error('Error actualizando cliente del paquete:', error);
+        res.status(500).json({ error: 'Error al actualizar cliente' });
+    }
+};
 
 // ============================================
 // ENDPOINT: SOLICITAR REEMPAQUE

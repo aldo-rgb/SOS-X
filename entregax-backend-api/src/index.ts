@@ -47,7 +47,8 @@ import {
   requestRepack,
   getOutboundReadyPackages,
   createOutboundConsolidation,
-  getRepackInstructions
+  getRepackInstructions,
+  updatePackageClient
 } from './packageController';
 import {
   createPaymentOrder,
@@ -2305,6 +2306,9 @@ app.get('/api/packages/:id/labels', authenticateToken, requireMinLevel(ROLES.WAR
 
 // Actualizar estatus de paquete (Bodega o superior)
 app.patch('/api/packages/:id/status', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updatePackageStatus);
+
+// Actualizar cliente de un paquete (Bodega o superior)
+app.patch('/api/packages/:id/client', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updatePackageClient);
 
 // Solicitar reempaque/consolidación de paquetes (Usuario autenticado)
 app.post('/api/packages/repack', authenticateToken, requestRepack);
