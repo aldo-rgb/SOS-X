@@ -383,18 +383,20 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
 
         // 📦 Verificar si cliente tiene dirección asignada para USA (auto-procesar)
         let hasDefaultUsaAddress = false;
-        if (user && serviceType === 'POBOX_USA' && !leaveInWarehouse) {
+        let defaultAddressId: number | null = null;
+        if (user && serviceType === 'POBOX_USA') {
             const addressCheck = await client.query(
-                `SELECT id FROM addresses 
+                `SELECT id, carrier_config FROM addresses 
                  WHERE user_id = $1 
                  AND default_for_service IS NOT NULL 
-                 AND (default_for_service ILIKE '%usa%' OR default_for_service ILIKE '%all%')
+                 AND (default_for_service ILIKE '%po_box%' OR default_for_service ILIKE '%usa%' OR default_for_service ILIKE '%all%')
                  LIMIT 1`,
                 [user.id]
             );
-            hasDefaultUsaAddress = addressCheck.rows.length > 0;
-            if (hasDefaultUsaAddress) {
-                console.log(`📦 Cliente ${user.box_id} tiene dirección USA asignada - auto-procesando`);
+            if (addressCheck.rows.length > 0) {
+                hasDefaultUsaAddress = true;
+                defaultAddressId = addressCheck.rows[0].id;
+                console.log(`📦 Cliente ${user.box_id} tiene dirección USA asignada (ID: ${defaultAddressId}) - auto-asignando instrucciones`);
             }
         }
 
@@ -454,9 +456,11 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                   service_type, warehouse_location, has_gex, consolidation_id,
                   assigned_cost_mxn, single_cbm, saldo_pendiente, long_cm, width_cm, height_cm,
                   pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn,
-                  registered_exchange_rate, pobox_cost_usd, pobox_tarifa_nivel, pobox_venta_usd, national_shipping_cost)
+                  registered_exchange_rate, pobox_cost_usd, pobox_tarifa_nivel, pobox_venta_usd, national_shipping_cost,
+                  assigned_address_id, needs_instructions)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false, 1, 1, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
-                         $25, $26, $25, $7, $8, $9, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36) 
+                         $25, $26, $25, $7, $8, $9, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36,
+                         $37, $38) 
                  RETURNING *`,
                 [user?.id || null, user?.box_id || null, masterTracking, box.trackingCourier || trackingProvider || null, description, box.weight, 
                  box.length, box.width, box.height, declaredValue || null, notes || null, initialStatus,
@@ -465,7 +469,8 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                  serviceType, wLocation, hasGex, consolidationId,
                  totalCostMxn, costResult.cbm,
                  costResult.poboxServiceCost, costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn,
-                 costResult.registeredExchangeRate, costResult.poboxCostUsd, costResult.nivelTarifa || null, costResult.precioVentaUsd || null, nationalShippingCost]
+                 costResult.registeredExchangeRate, costResult.poboxCostUsd, costResult.nivelTarifa || null, costResult.precioVentaUsd || null, nationalShippingCost,
+                 defaultAddressId, defaultAddressId ? false : true]
             );
             masterPackage = result.rows[0];
             
@@ -489,9 +494,11 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                   service_type, warehouse_location, has_gex, consolidation_id,
                   assigned_cost_mxn, single_cbm, saldo_pendiente,
                   pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn,
-                  registered_exchange_rate, pobox_cost_usd, pobox_tarifa_nivel, pobox_venta_usd, national_shipping_cost)
+                  registered_exchange_rate, pobox_cost_usd, pobox_tarifa_nivel, pobox_venta_usd, national_shipping_cost,
+                  assigned_address_id, needs_instructions)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, 0, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
-                         $23, $24, $23, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34) 
+                         $23, $24, $23, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34,
+                         $35, $36) 
                  RETURNING *`,
                 [user?.id || null, user?.box_id || null, masterTracking, trackingProvider || null, description, totalWeight, 
                  declaredValue || null, notes || null, initialStatus, totalBoxes, safeCarrier,
@@ -500,7 +507,8 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                  serviceType, wLocation, hasGex, consolidationId,
                  totalCostMxn, costResult.cbm,
                  costResult.poboxServiceCost, costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn,
-                 costResult.registeredExchangeRate, costResult.poboxCostUsd, costResult.nivelTarifa || null, costResult.precioVentaUsd || null, nationalShippingCost]
+                 costResult.registeredExchangeRate, costResult.poboxCostUsd, costResult.nivelTarifa || null, costResult.precioVentaUsd || null, nationalShippingCost,
+                 defaultAddressId, defaultAddressId ? false : true]
             );
             masterPackage = masterResult.rows[0];
 
