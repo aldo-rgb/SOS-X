@@ -2073,11 +2073,11 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           saldo_pendiente: (parseFloat(stats.saldo_pendiente) || 0) + (parseFloat(maritimeStats.saldo_pendiente) || 0) + (parseFloat(dhlStats.saldo_pendiente as any) || 0) + containerSaldoPendiente + (parseFloat(chinaAirStats.saldo_pendiente as any) || 0),
           // Desglose por tipo de servicio con moneda correcta
           saldo_por_servicio: [
-            { servicio: 'PO Box USA', monto: parseFloat(stats.saldo_pobox) || 0, moneda: 'USD', icono: '📦' },
-            { servicio: 'Aéreo China', monto: (parseFloat(stats.saldo_aereo) || 0) + (parseFloat(chinaAirStats.saldo_pendiente as any) || 0), moneda: 'USD', icono: '✈️' },
-            { servicio: 'Marítimo China', monto: parseFloat(maritimeStats.saldo_pendiente) || 0, moneda: 'USD', icono: '🚢' },
-            { servicio: 'DHL Nacional', monto: parseFloat(dhlStats.saldo_pendiente as any) || 0, moneda: 'USD', icono: '📮' },
-            { servicio: 'Contenedores FCL', monto: containerSaldoPendiente, moneda: 'USD', icono: '🏗️' },
+            { servicio: 'PO Box USA', monto: parseFloat(stats.saldo_pobox) || 0, moneda: 'MXN', icono: '📦' },
+            { servicio: 'Aéreo China', monto: (parseFloat(stats.saldo_aereo) || 0) + (parseFloat(chinaAirStats.saldo_pendiente as any) || 0), moneda: 'MXN', icono: '✈️' },
+            { servicio: 'Marítimo China', monto: parseFloat(maritimeStats.saldo_pendiente) || 0, moneda: 'MXN', icono: '🚢' },
+            { servicio: 'Liberación MTY', monto: parseFloat(dhlStats.saldo_pendiente as any) || 0, moneda: 'MXN', icono: '📮' },
+            { servicio: 'Contenedores FCL', monto: containerSaldoPendiente, moneda: 'MXN', icono: '🏗️' },
           ].filter(s => s.monto > 0),
           saldo_favor: parseFloat(user.wallet_balance) || 0,
           credito_disponible: user.has_credit 

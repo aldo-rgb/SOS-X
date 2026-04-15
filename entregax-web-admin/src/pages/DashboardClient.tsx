@@ -4330,7 +4330,7 @@ export default function DashboardClient() {
                                 <Typography variant="body2" fontWeight="bold" color="error.main">
                                   ${item.monto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                 </Typography>
-                                <Typography variant="caption" color="text.secondary">{item.moneda || 'USD'}</Typography>
+                                <Typography variant="caption" color="text.secondary">{item.moneda || 'MXN'}</Typography>
                               </Box>
                             </Box>
                           ))}

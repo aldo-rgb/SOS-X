@@ -832,7 +832,7 @@ export const getClientWallet = async (req: Request, res: Response): Promise<any>
           { servicio: 'PO Box USA', monto: saldoPobox, moneda: 'MXN', icono: '📦' },
           { servicio: 'Aéreo China', monto: saldoAereo, moneda: 'MXN', icono: '✈️' },
           { servicio: 'Marítimo China', monto: saldoMaritimo, moneda: 'MXN', icono: '🚢' },
-          { servicio: 'DHL Nacional', monto: saldoDhl, moneda: 'MXN', icono: '📮' },
+          { servicio: 'Liberación MTY', monto: saldoDhl, moneda: 'MXN', icono: '📮' },
           { servicio: 'Contenedores FCL', monto: saldoContenedores, moneda: 'MXN', icono: '🏗️' },
         ].filter(s => s.monto > 0),
         cotizaciones_pendientes: {
