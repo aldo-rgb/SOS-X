@@ -186,10 +186,9 @@ export default function ReprintLabelsPage() {
             .barcode-section svg { width: 85%; height: 70px; }
             .divider { border-top: 2px dashed #ccc; margin: 10px 0; }
             .client-info { text-align: center; margin: 8px 0; }
-            .client-name { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
-            .client-box { font-size: 28px; color: #F05A28; font-weight: 900; letter-spacing: 2px; }
-            .details { text-align: center; font-size: 13px; margin: 8px 0; display: flex; justify-content: center; gap: 15px; }
-            .detail-item { background: #f5f5f5; padding: 3px 8px; border-radius: 4px; }
+            .client-box { font-size: 56px; color: #F05A28; font-weight: 900; letter-spacing: 3px; }
+            .details { text-align: center; font-size: 18px; font-weight: 600; margin: 8px 0; display: flex; justify-content: center; gap: 15px; }
+            .detail-item { background: #f5f5f5; padding: 4px 12px; border-radius: 4px; }
             .description { text-align: center; font-size: 12px; color: #666; flex-grow: 1; margin-top: 5px; }
             .footer { text-align: center; font-size: 9px; color: #999; border-top: 1px solid #eee; padding-top: 5px; margin-top: auto; }
             @media print { body { margin: 0; } .label { border: none; } }
@@ -208,14 +207,13 @@ export default function ReprintLabelsPage() {
             <div class="barcode-section"><svg id="barcode"></svg></div>
             <div class="divider"></div>
             <div class="client-info">
-              <div class="client-name">${pkg.client.name}</div>
               <div class="client-box">📦 ${pkg.client.boxId}</div>
             </div>
             <div class="details">
               ${pkg.weight ? `<span class="detail-item">⚖️ ${pkg.weight} kg</span>` : ''}
               ${dims ? `<span class="detail-item">📐 ${dims}</span>` : ''}
             </div>
-            <div class="description">Paquete recibido: Hidalgo TX</div>
+            <div class="description">Hidalgo TX</div>
             <div class="footer">
               <small>Impreso: ${new Date().toLocaleString('es-MX')}</small>
             </div>

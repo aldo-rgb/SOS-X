@@ -537,7 +537,6 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                 <div class="barcode-section"><svg id="barcode-${index}"></svg></div>
                 <div class="divider"></div>
                 <div class="client-info">
-                    <div class="client-name">${label.clientName || 'SIN CLIENTE'}</div>
                     <div class="client-box">📦 ${label.clientBoxId || 'PENDIENTE'}</div>
                 </div>
                 <div class="details">
@@ -545,7 +544,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                     ${label.dimensions ? `<span class="detail-item">📐 ${label.dimensions}</span>` : ''}
                     ${label.totalBoxes > 1 && label.isMaster ? `<span class="detail-item">📦 ${label.totalBoxes} bultos</span>` : ''}
                 </div>
-                <div class="description">${label.description || ''}</div>
+                <div class="description">Hidalgo TX</div>
                 <div class="footer">
                     <small>Impreso: ${new Date().toLocaleString('es-MX')}</small>
                 </div>
@@ -576,10 +575,9 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                     .barcode-section svg { width: 85%; height: 70px; }
                     .divider { border-top: 2px dashed #ccc; margin: 10px 0; }
                     .client-info { text-align: center; margin: 8px 0; }
-                    .client-box { font-size: 28px; color: #F05A28; font-weight: 900; letter-spacing: 2px; }
-                    .client-name { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
-                    .details { text-align: center; font-size: 13px; margin: 8px 0; display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; }
-                    .detail-item { background: #f5f5f5; padding: 3px 8px; border-radius: 4px; }
+                    .client-box { font-size: 56px; color: #F05A28; font-weight: 900; letter-spacing: 3px; }
+                    .details { text-align: center; font-size: 18px; font-weight: 600; margin: 8px 0; display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; }
+                    .detail-item { background: #f5f5f5; padding: 4px 12px; border-radius: 4px; }
                     .description { text-align: center; font-size: 12px; color: #666; flex-grow: 1; margin-top: 5px; }
                     .footer { text-align: center; font-size: 9px; color: #999; border-top: 1px solid #eee; padding-top: 5px; margin-top: auto; }
                     @page { size: 4in 6in; margin: 0; }
@@ -617,7 +615,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         try {
             const payload = {
                 boxId: bulkBoxId || undefined, // Opcional - puede ser sin cliente
-                description: `Paquete recibido: Hidalgo TX`,
+                description: `Hidalgo TX`,
                 boxes: bulkBoxes.map(b => ({
                     weight: parseFloat(b.weight),
                     length: parseFloat(b.length),

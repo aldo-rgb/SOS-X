@@ -523,13 +523,13 @@ export default function RepackPage() {
         .divider { border-top: 2px dashed #ccc; margin: 10px 0; }
         .client-info { text-align: center; margin: 10px 0; }
         .client-box { 
-          font-size: 32px; 
+          font-size: 64px; 
           font-weight: 900; 
           color: #F05A28;
+          letter-spacing: 3px;
         }
-        .client-name { font-size: 14px; color: #666; margin-top: 3px; }
-        .details { display: flex; gap: 15px; justify-content: center; font-size: 12px; margin: 8px 0; }
-        .detail-item { background: #f5f5f5; padding: 3px 8px; border-radius: 4px; }
+        .details { display: flex; gap: 15px; justify-content: center; font-size: 18px; font-weight: 600; margin: 8px 0; }
+        .detail-item { background: #f5f5f5; padding: 4px 12px; border-radius: 4px; }
         .packages-list { 
           font-size: 10px; 
           color: #666; 
@@ -569,8 +569,7 @@ export default function RepackPage() {
         <div class="divider"></div>
         
         <div class="client-info">
-          <div class="client-box">${label.clientBoxId}</div>
-          <div class="client-name">${label.clientName}</div>
+          <div class="client-box">📦 ${label.clientBoxId}</div>
         </div>
         
         <div class="details">
