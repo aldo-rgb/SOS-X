@@ -162,44 +162,69 @@ export default function ReprintLabelsPage() {
 
   // Generar etiqueta localmente (fallback)
   const generateLocalLabel = (pkg: PackageInWarehouse) => {
+    const dims = pkg.dimensions ? `${pkg.dimensions.length} × ${pkg.dimensions.width} × ${pkg.dimensions.height} cm` : '';
+    const receivedDate = new Date(pkg.receivedAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }).toUpperCase();
     const labelContent = `
       <html>
         <head>
           <title>Etiqueta - ${pkg.tracking}</title>
+          <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
+          <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"><\/script>
           <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
             @page { size: 4in 6in; margin: 0; }
-            body { font-family: Arial, sans-serif; padding: 20px; }
-            .label { border: 2px solid #000; padding: 15px; max-width: 380px; }
-            .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 10px; }
-            .logo { font-size: 24px; font-weight: bold; color: #C1272D; }
-            .tracking { font-size: 18px; font-weight: bold; margin: 10px 0; }
-            .barcode { text-align: center; margin: 15px 0; font-family: monospace; font-size: 24px; letter-spacing: 3px; }
-            .client-info { border: 1px solid #ccc; padding: 10px; margin: 10px 0; }
-            .box-id { font-size: 28px; font-weight: bold; text-align: center; background: #f0f0f0; padding: 10px; }
-            .details { font-size: 12px; color: #666; }
+            body { font-family: Arial, sans-serif; }
+            .label { width: 4in; height: 6in; padding: 0.25in; border: 2px solid #000; display: flex; flex-direction: column; margin: 0 auto; }
+            .header { display: flex; justify-content: flex-end; margin-bottom: 4px; }
+            .date-badge { background: #111; color: white; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 4px; }
+            .tracking-main { text-align: center; margin: 6px 0; }
+            .tracking-code { font-size: 22px; font-weight: bold; letter-spacing: 1px; }
+            .box-indicator { font-size: 16px; background: #111; color: white; padding: 4px 12px; border-radius: 15px; display: inline-block; margin-top: 6px; }
+            .qr-section { text-align: center; margin: 10px 0; }
+            .qr-section svg, .qr-section img { width: 150px !important; height: 150px !important; }
+            .barcode-section { text-align: center; margin: 8px 0; }
+            .barcode-section svg { width: 85%; height: 70px; }
+            .divider { border-top: 2px dashed #ccc; margin: 10px 0; }
+            .client-info { text-align: center; margin: 8px 0; }
+            .client-name { font-size: 16px; font-weight: bold; margin-bottom: 4px; }
+            .client-box { font-size: 28px; color: #F05A28; font-weight: 900; letter-spacing: 2px; }
+            .details { text-align: center; font-size: 13px; margin: 8px 0; display: flex; justify-content: center; gap: 15px; }
+            .detail-item { background: #f5f5f5; padding: 3px 8px; border-radius: 4px; }
+            .description { text-align: center; font-size: 12px; color: #666; flex-grow: 1; margin-top: 5px; }
+            .footer { text-align: center; font-size: 9px; color: #999; border-top: 1px solid #eee; padding-top: 5px; margin-top: auto; }
+            @media print { body { margin: 0; } .label { border: none; } }
           </style>
         </head>
         <body>
           <div class="label">
             <div class="header">
-              <div class="logo">EntregaX</div>
-              <div>PO Box USA - Etiqueta de Paquete</div>
+              <div class="date-badge">${receivedDate}</div>
             </div>
-            <div class="tracking">Tracking: ${pkg.tracking}</div>
-            <div class="barcode">||||| ${pkg.tracking.slice(-8)} |||||</div>
+            <div class="tracking-main">
+              <div class="tracking-code">${pkg.tracking}</div>
+              <div class="box-indicator">1 de 1</div>
+            </div>
+            <div class="qr-section"><div id="qr"></div></div>
+            <div class="barcode-section"><svg id="barcode"></svg></div>
+            <div class="divider"></div>
             <div class="client-info">
-              <strong>Cliente:</strong> ${pkg.client.name}<br/>
-              <strong>Email:</strong> ${pkg.client.email}
+              <div class="client-name">${pkg.client.name}</div>
+              <div class="client-box">📦 ${pkg.client.boxId}</div>
             </div>
-            <div class="box-id">${pkg.client.boxId}</div>
             <div class="details">
-              <p><strong>Descripción:</strong> ${pkg.description || 'N/A'}</p>
-              <p><strong>Peso:</strong> ${pkg.weight ? pkg.weight + ' kg' : 'N/A'}</p>
-              <p><strong>Dimensiones:</strong> ${pkg.dimensions ? `${pkg.dimensions.length}x${pkg.dimensions.width}x${pkg.dimensions.height} cm` : 'N/A'}</p>
-              <p><strong>Recibido:</strong> ${new Date(pkg.receivedAt).toLocaleString()}</p>
+              ${pkg.weight ? `<span class="detail-item">⚖️ ${pkg.weight} kg</span>` : ''}
+              ${dims ? `<span class="detail-item">📐 ${dims}</span>` : ''}
+            </div>
+            <div class="description">Paquete recibido: Hidalgo TX</div>
+            <div class="footer">
+              <small>Impreso: ${new Date().toLocaleString('es-MX')}</small>
             </div>
           </div>
-          <script>window.onload = function() { window.print(); }</script>
+          <script>
+            try { JsBarcode("#barcode", "${pkg.tracking.replace(/-/g, '')}", { format: "CODE128", width: 2.2, height: 70, displayValue: false, margin: 0 }); } catch(e) {}
+            try { var qr = qrcode(0, 'M'); qr.addData('https://app.entregax.com/track/${pkg.tracking}'); qr.make(); document.getElementById('qr').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0 }); } catch(e) {}
+            window.onload = function() { setTimeout(function() { window.print(); }, 600); };
+          <\/script>
         </body>
       </html>
     `;

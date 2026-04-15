@@ -4795,6 +4795,7 @@ export default function DashboardClient() {
                             phone: '',
                             reference: '',
                             service_types: [],
+                            carrier_config: {} as Record<string, string>,
                           });
                           setAddressModalOpen(true);
                         }}

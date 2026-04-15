@@ -484,11 +484,10 @@ export default function RepackPage() {
         }
         .header { 
           display: flex; 
-          justify-content: space-between; 
+          justify-content: flex-end; 
           align-items: center; 
-          margin-bottom: 8px;
+          margin-bottom: 4px;
         }
-        .logo { font-size: 20px; font-weight: bold; color: #F05A28; }
         .date-badge { 
           background: #111; 
           color: white; 
@@ -517,11 +516,10 @@ export default function RepackPage() {
           font-size: 12px; 
           margin-top: 5px;
         }
-        .codes-container { display: flex; justify-content: space-between; align-items: center; margin: 10px 0; }
-        .barcode-section { flex: 1; text-align: center; }
-        .barcode-section svg { max-width: 180px; height: 50px; }
-        .qr-section { width: 80px; text-align: center; }
-        .qr-section img, .qr-section canvas { width: 70px !important; height: 70px !important; }
+        .qr-section { text-align: center; margin: 10px 0; }
+        .qr-section img, .qr-section canvas, .qr-section svg { width: 150px !important; height: 150px !important; }
+        .barcode-section { text-align: center; margin: 8px 0; }
+        .barcode-section svg { width: 85%; height: 70px; }
         .divider { border-top: 2px dashed #ccc; margin: 10px 0; }
         .client-info { text-align: center; margin: 10px 0; }
         .client-box { 
@@ -551,7 +549,6 @@ export default function RepackPage() {
       </head><body>
       <div class="label">
         <div class="header">
-          <div class="logo">🚚 EntregaX</div>
           <div class="date-badge">${receivedDate}</div>
         </div>
         
@@ -562,13 +559,11 @@ export default function RepackPage() {
           <div class="box-indicator">${scannedPackages.length} paquetes consolidados</div>
         </div>
         
-        <div class="codes-container">
-          <div class="barcode-section">
-            <svg id="barcode"></svg>
-          </div>
-          <div class="qr-section">
-            <div id="qr"></div>
-          </div>
+        <div class="qr-section">
+          <div id="qr"></div>
+        </div>
+        <div class="barcode-section">
+          <svg id="barcode"></svg>
         </div>
         
         <div class="divider"></div>
@@ -597,8 +592,8 @@ export default function RepackPage() {
         try {
           JsBarcode("#barcode", "${label.tracking}", {
             format: "CODE128",
-            width: 1.5,
-            height: 40,
+            width: 2.2,
+            height: 70,
             displayValue: false,
             margin: 0
           });
@@ -609,7 +604,7 @@ export default function RepackPage() {
           var qr = qrcode(0, 'M');
           qr.addData('${label.tracking}');
           qr.make();
-          document.getElementById('qr').innerHTML = qr.createImgTag(2, 0);
+          document.getElementById('qr').innerHTML = qr.createImgTag(4, 0);
         } catch(e) { console.error('Error QR:', e); }
         
         // Imprimir automáticamente

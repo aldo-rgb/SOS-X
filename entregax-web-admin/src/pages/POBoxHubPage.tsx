@@ -523,7 +523,6 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             return `
             <div class="label" style="page-break-after: ${index < labels.length - 1 ? 'always' : 'auto'};">
                 <div class="header">
-                    <div class="logo">🚀 EntregaX</div>
                     <div class="date-badge">${receivedDate}</div>
                 </div>
                 ${label.isMaster ? '<div class="master-badge">GUÍA MASTER</div>' : ''}
@@ -534,10 +533,8 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                         : `<div class="box-indicator">${label.totalBoxes} bultos</div>`}
                 </div>
                 ${label.masterTracking ? `<div class="master-ref">Master: ${label.masterTracking}</div>` : ''}
-                <div class="codes-container">
-                    <div class="barcode-section"><svg id="barcode-${index}"></svg></div>
-                    <div class="qr-section"><div id="qr-${index}"></div></div>
-                </div>
+                <div class="qr-section"><div id="qr-${index}"></div></div>
+                <div class="barcode-section"><svg id="barcode-${index}"></svg></div>
                 <div class="divider"></div>
                 <div class="client-info">
                     <div class="client-name">${label.clientName || 'SIN CLIENTE'}</div>
@@ -566,19 +563,17 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                         border: 2px solid #000; display: flex; flex-direction: column;
                         margin: 0 auto; position: relative;
                     }
-                    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-                    .logo { font-size: 20px; font-weight: bold; color: #F05A28; }
+                    .header { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 4px; }
                     .date-badge { background: #111; color: white; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 4px; }
                     .master-badge { background: #F05A28; color: white; text-align: center; padding: 5px; font-weight: bold; font-size: 14px; margin-bottom: 8px; }
-                    .tracking-main { text-align: center; margin: 8px 0; }
+                    .tracking-main { text-align: center; margin: 6px 0; }
                     .tracking-code { font-size: 22px; font-weight: bold; letter-spacing: 1px; }
                     .box-indicator { font-size: 16px; background: #111; color: white; padding: 4px 12px; border-radius: 15px; display: inline-block; margin-top: 6px; }
                     .master-ref { text-align: center; font-size: 11px; color: #666; margin: 4px 0; }
-                    .codes-container { display: flex; justify-content: center; align-items: center; gap: 15px; margin: 12px 0; padding: 10px; background: #fafafa; border-radius: 8px; }
-                    .barcode-section { flex: 1; text-align: center; }
-                    .barcode-section svg { max-width: 100%; height: 45px; }
-                    .qr-section { width: 70px; height: 70px; display: flex; align-items: center; justify-content: center; }
-                    .qr-section svg { width: 70px; height: 70px; }
+                    .qr-section { text-align: center; margin: 10px 0; }
+                    .qr-section svg, .qr-section img { width: 150px !important; height: 150px !important; }
+                    .barcode-section { text-align: center; margin: 8px 0; }
+                    .barcode-section svg { width: 85%; height: 70px; }
                     .divider { border-top: 2px dashed #ccc; margin: 10px 0; }
                     .client-info { text-align: center; margin: 8px 0; }
                     .client-box { font-size: 28px; color: #F05A28; font-weight: 900; letter-spacing: 2px; }
@@ -594,14 +589,14 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"><\/script>
             </head><body>${labelsHTML}
             <script>
-                ${labels.map((label: any, i: number) => `try { JsBarcode("#barcode-${i}", "${label.tracking.replace(/-/g, '')}", { format: "CODE128", width: 1.8, height: 45, displayValue: false }); } catch(e) {}`).join('\n')}
+                ${labels.map((label: any, i: number) => `try { JsBarcode("#barcode-${i}", "${label.tracking.replace(/-/g, '')}", { format: "CODE128", width: 2.2, height: 70, displayValue: false, margin: 0 }); } catch(e) {}`).join('\n')}
                 ${labels.map((label: any, i: number) => `
                     (function() {
                         try {
                             var qr = qrcode(0, 'M');
                             qr.addData('https://app.entregax.com/track/${label.tracking}');
                             qr.make();
-                            document.getElementById('qr-${i}').innerHTML = qr.createSvgTag({ cellSize: 2, margin: 0 });
+                            document.getElementById('qr-${i}').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0 });
                         } catch(e) {}
                     })();
                 `).join('')}
