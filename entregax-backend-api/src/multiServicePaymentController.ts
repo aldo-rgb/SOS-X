@@ -571,29 +571,33 @@ export const processOpenPayCard = async (req: AuthRequest, res: Response): Promi
       });
     }
 
-    // Por ahora, simular respuesta exitosa mientras se implementa OpenPay
-    // TODO: Implementar integración real con OpenPay
+    // Por ahora, registrar la intención de pago como pendiente
+    // En producción aquí iría la integración real con OpenPay
     const paymentId = `openpay_${Date.now()}`;
     
-    // TEMPORAL: Retornar que necesita redirección a la pasarela
-    // En producción aquí iría la integración real con OpenPay
-    const mockPaymentResponse: any = {
+    // Registrar pago pendiente en financial_transactions
+    try {
+      await pool.query(`
+        INSERT INTO financial_transactions 
+        (user_id, type, amount, currency, status, reference, description, created_at)
+        VALUES ($1, 'payment', $2, $3, 'pending', $4, $5, NOW())
+      `, [userId, total, currency || 'MXN', paymentId, `Pago con tarjeta - ${packageIds.length} paquete(s)`]);
+    } catch (txErr: any) {
+      console.log('Note: financial_transactions insert:', txErr.message);
+    }
+
+    // Responder con status pendiente sin redirigir a URL falsa
+    const paymentResponse: any = {
       success: true,
       paymentId,
-      requiresRedirection: true,
-      paymentUrl: `https://sandbox-dashboard.openpay.mx/paynet-reference?id=${paymentId}`,
+      requiresRedirection: false,
       status: 'pending',
-      message: 'Redirigiendo a OpenPay para procesar el pago'
+      message: '📋 Tu solicitud de pago con tarjeta ha sido registrada. Un administrador confirmará tu pago pronto.'
     };
 
-    // NO generar factura ni marcar como pagado hasta que se confirme el pago real
-    console.log('💳 OpenPay payment created, awaiting confirmation:', paymentId);
+    console.log('💳 OpenPay payment registered as pending:', paymentId);
 
-    // Aquí iría la lógica real de OpenPay
-    // const openpay = new Openpay(merchantId, privateKey, isSandbox);
-    // const charge = await openpay.charges.create({...});
-
-    res.json(mockPaymentResponse);
+    res.json(paymentResponse);
 
   } catch (error) {
     console.error('❌ Error processing OpenPay card payment:', error);
@@ -633,31 +637,36 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
       });
     }
 
-    // Por ahora, simular respuesta exitosa mientras se implementa PayPal
-    // TODO: Implementar integración real con PayPal
+    // Por ahora, registrar la intención de pago como pendiente
+    // En producción aquí iría la integración real con PayPal
     const paymentId = `paypal_${Date.now()}`;
-    const mockPaymentResponse: any = {
+    const paymentResponse: any = {
       success: true,
       paymentId,
-      approvalUrl: `https://www.sandbox.paypal.com/checkoutnow?token=EC-${paymentId}`,
       status: 'pending',
-      message: 'Pago creado exitosamente con PayPal'
+      message: '📋 Tu solicitud de pago con PayPal ha sido registrada. Un administrador confirmará tu pago pronto.'
     };
 
-    // NO generar factura ni marcar como pagado hasta que se confirme el pago real
-    // Para PayPal, guardamos la intención de facturar y la procesamos en el callback
-    if (invoiceRequired && invoiceData) {
-      console.log('📄 Invoice will be generated after PayPal payment confirmation:', paymentId);
-      mockPaymentResponse.invoiceWillBeGenerated = true;
+    // Registrar pago pendiente en financial_transactions
+    try {
+      await pool.query(`
+        INSERT INTO financial_transactions 
+        (user_id, type, amount, currency, status, reference, description, created_at)
+        VALUES ($1, 'payment', $2, $3, 'pending', $4, $5, NOW())
+      `, [userId, total, currency || 'MXN', paymentId, `Pago con PayPal - ${packageIds.length} paquete(s)`]);
+    } catch (txErr: any) {
+      console.log('Note: financial_transactions insert:', txErr.message);
     }
 
-    console.log('🔄 PayPal payment created, awaiting confirmation:', paymentId);
+    // NO generar factura ni marcar como pagado hasta que se confirme el pago real
+    if (invoiceRequired && invoiceData) {
+      console.log('📄 Invoice will be generated after PayPal payment confirmation:', paymentId);
+      paymentResponse.invoiceWillBeGenerated = true;
+    }
 
-    // Aquí iría la lógica real de PayPal
-    // const paypal = require('paypal-rest-sdk');
-    // const payment = await paypal.payment.create({...});
+    console.log('🔄 PayPal payment registered as pending:', paymentId);
 
-    res.json(mockPaymentResponse);
+    res.json(paymentResponse);
 
   } catch (error) {
     console.error('❌ Error creating PayPal payment:', error);
