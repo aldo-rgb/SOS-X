@@ -8593,11 +8593,11 @@ export default function DashboardClient() {
                         🚚 {pkg.national_carrier || pkg.carrier}
                         {pkg.national_tracking && <span style={{ color: '#666' }}> · {pkg.national_tracking}</span>}
                       </Typography>
-                      {pkg.national_shipping_cost && Number(pkg.national_shipping_cost) > 0 && (
-                        <Typography variant="caption" fontWeight="bold" color="primary.main">
-                          +{formatCurrency(Number(pkg.national_shipping_cost))}
-                        </Typography>
-                      )}
+                      <Typography variant="caption" fontWeight="bold" color={Number(pkg.national_shipping_cost) > 0 ? 'primary.main' : 'text.secondary'}>
+                        {Number(pkg.national_shipping_cost) > 0 
+                          ? `+${formatCurrency(Number(pkg.national_shipping_cost))}` 
+                          : 'Costo según cotización'}
+                      </Typography>
                     </Box>
                   )}
                 </Box>
