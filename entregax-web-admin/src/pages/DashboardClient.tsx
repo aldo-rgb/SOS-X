@@ -106,6 +106,7 @@ import {
   People as PeopleIcon,
   Home as HomeIcon,
   Payments as PaymentsIcon,
+  Cancel as CancelIcon,
 } from '@mui/icons-material';
 import { Collapse } from '@mui/material';
 import api from '../services/api';
@@ -536,6 +537,28 @@ export default function DashboardClient() {
 
   // Opciones de paquetería dinámicas desde la API
   const [carrierServices, setCarrierServices] = useState<{ id: string; name: string; description: string; price: string; subtext?: string; icon: string; allowsCollect?: boolean; isDynamic?: boolean; isTotalPrice?: boolean; isCollect?: boolean }[]>([]);
+  // Cache de carriers por tipo de servicio para el formulario de direcciones
+  const [carriersPerService, setCarriersPerService] = useState<Record<string, { id: string; name: string; icon: string }[]>>({});
+  const fetchCarriersForService = async (serviceType: string) => {
+    if (carriersPerService[serviceType]) return carriersPerService[serviceType];
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/carrier-options/by-service/${serviceType}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        const mapped = data.data.filter((c: any) => c.carrier_type !== 'collect').map((c: any) => ({
+          id: c.carrier_key,
+          name: c.name,
+          icon: (c.icon && !c.icon.startsWith('http') && !c.icon.startsWith('/')) ? c.icon : '🚛',
+        }));
+        setCarriersPerService(prev => ({ ...prev, [serviceType]: mapped }));
+        return mapped;
+      }
+    } catch (err) { console.warn('Error fetching carriers for', serviceType); }
+    return [];
+  };
   useEffect(() => {
     const fetchCarrierOptions = async () => {
       try {
@@ -1877,7 +1900,7 @@ export default function DashboardClient() {
 
     setPaymentLoading(true);
     try {
-      const total = selected.reduce((sum, p) => sum + (p.monto || 0), 0);
+      const total = selected.reduce((sum, p) => sum + (Number(p.monto) || 0), 0);
       
       // Determinar la empresa emisora según el tipo de servicio predominante
       const serviceTypes = selected.map(p => p.servicio || 'china_air');
@@ -3448,35 +3471,6 @@ export default function DashboardClient() {
                     {isMobile ? 'Pagar' : t('cd.packages.pay')}
                   </Button>
 
-                  {/* BOTÓN TEMPORAL DE PRUEBA - Oculto en móvil */}
-                  {!isMobile && (
-                  <Button
-                    variant="contained"
-                    size="small"
-                    sx={{ 
-                      bgcolor: GREEN, 
-                      minWidth: 'auto',
-                      position: 'fixed',
-                      bottom: 20,
-                      left: 120,
-                      zIndex: 1000
-                    }}
-                    startIcon={<CheckCircleIcon />}
-                    onClick={() => {
-                      // Simular confirmación de pago OpenPay
-                      const total = getSelectedPackages().reduce((sum, pkg) => sum + (pkg.monto || 0), 0);
-                      testConfirmPayment(
-                        `openpay_test_${Date.now()}`,
-                        selectedPackageIds,
-                        total,
-                        'openpay'
-                      );
-                    }}
-                  >
-                    {t('cd.packages.testConfirmPayment')}
-                  </Button>
-                  )}
-
                   {/* Solo mostrar "Asignar Instrucciones" si hay paquetes sin instrucciones */}
                   {getSelectedPackages().some(pkg => !pkg.has_delivery_instructions && !pkg.assigned_address_id) && (
                     <Button
@@ -3590,7 +3584,6 @@ export default function DashboardClient() {
                             {pkg.status === 'delivered' && <Chip label={t('cd.packages.deliveredChip')} size="small" color="success" sx={{ height: 16, fontSize: '0.55rem' }} />}
                             {pkg.is_master && <Chip label="📦" size="small" sx={{ height: 16, fontSize: '0.55rem', bgcolor: '#e3f2fd', color: BLUE, minWidth: 'auto' }} />}
                             {pkg.client_paid && pkg.status !== 'delivered' && <Chip label="✓" size="small" color="success" sx={{ height: 16, fontSize: '0.55rem', minWidth: 'auto' }} />}
-                            {hasDeliveryInstructions && <Chip label="📍" size="small" color="primary" sx={{ height: 16, fontSize: '0.55rem', minWidth: 'auto' }} />}
                           </Box>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
                             {pkg.descripcion && <Typography variant="caption" color="text.secondary" sx={{ fontSize: isMobile ? '0.65rem' : '0.75rem' }} noWrap>{pkg.descripcion}</Typography>}
@@ -3748,7 +3741,39 @@ export default function DashboardClient() {
                         ⏱ {pkg.fecha_estimada ? (isMobile ? pkg.fecha_estimada : t('cd.packages.eta') + ': ' + pkg.fecha_estimada) : t('cd.packages.etaPending')}
                       </Typography>
                       
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                        {/* Indicador de Instrucciones de Entrega */}
+                        {hasDeliveryInstructions ? (
+                          <Chip 
+                            icon={<CheckCircleIcon sx={{ fontSize: 14 }} />}
+                            label="Con Instrucciones"
+                            size="small"
+                            sx={{ 
+                              bgcolor: ORANGE, 
+                              color: 'white',
+                              fontSize: '0.65rem',
+                              fontWeight: 'bold',
+                              height: 22,
+                              '& .MuiChip-icon': { color: 'white' },
+                              '& .MuiChip-label': { px: 0.5 }
+                            }}
+                          />
+                        ) : (
+                          <Chip 
+                            icon={<CancelIcon sx={{ fontSize: 14 }} />}
+                            label="Sin Instrucciones"
+                            size="small"
+                            sx={{ 
+                              bgcolor: '#D32F2F', 
+                              color: 'white',
+                              fontSize: '0.65rem',
+                              fontWeight: 'bold',
+                              height: 22,
+                              '& .MuiChip-icon': { color: 'white' },
+                              '& .MuiChip-label': { px: 0.5 }
+                            }}
+                          />
+                        )}
                         {/* Indicador de Garantía Extendida - Compacto */}
                         {pkg.has_gex ? (
                           <Chip 
@@ -6862,14 +6887,15 @@ export default function DashboardClient() {
                 ].map(svc => {
                   const isChecked = addressForm.service_types.includes(svc.value);
                   const currentCarrier = addressForm.carrier_config[svc.value] || '';
-                  // Filter carrier options for this service type
-                  const availableCarriers = carrierServices.length > 0 
-                    ? carrierServices.filter(c => !c.isCollect)
-                    : [
+                  // Fetch carriers for this specific service type
+                  const availableCarriers = carriersPerService[svc.serviceType] || [
                         { id: 'local', name: 'EntregaX Local MTY', icon: '🚛' },
-                        { id: 'pickup', name: 'Pick Up Hidalgo TX', icon: '📍' },
                         { id: 'express', name: 'Paquete Express', icon: '⚡' },
                       ] as any[];
+                  // Trigger fetch if not cached yet
+                  if (!carriersPerService[svc.serviceType]) {
+                    fetchCarriersForService(svc.serviceType);
+                  }
                   return (
                     <Box key={svc.value} sx={{ mb: 0.5 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -6911,14 +6937,21 @@ export default function DashboardClient() {
                               }));
                             }}
                             sx={{ minWidth: 180, flex: 1 }}
-                            SelectProps={{ displayEmpty: true }}
+                            SelectProps={{ 
+                              displayEmpty: true,
+                              renderValue: (val: unknown) => {
+                                if (!val) return <Typography variant="body2" color="text.secondary">Sin paquetería default</Typography>;
+                                const found = availableCarriers.find((c: any) => c.id === val);
+                                return <Typography variant="body2">{found ? `${found.icon || '🚛'} ${found.name}` : String(val)}</Typography>;
+                              },
+                            }}
                           >
                             <MenuItem value="">
                               <Typography variant="body2" color="text.secondary">Sin paquetería default</Typography>
                             </MenuItem>
                             {availableCarriers.map((c: any) => (
                               <MenuItem key={c.id} value={c.id}>
-                                <Typography variant="body2">{c.icon || '🚛'} {c.name}</Typography>
+                                <Typography variant="body2">{(c.icon && !c.icon.startsWith('http') && !c.icon.startsWith('/')) ? c.icon : '🚛'} {c.name}</Typography>
                               </MenuItem>
                             ))}
                           </TextField>
@@ -8474,33 +8507,29 @@ export default function DashboardClient() {
               </Typography>
             </Box>
             
-            {getSelectedPackages().slice(0, 3).map((pkg) => (
-              <Box key={pkg.id} sx={{ mb: 1, pb: 1, borderBottom: selectedPackageIds.length > 1 ? '1px solid #eee' : 'none' }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Box>
-                    <Typography variant="body2" fontWeight="bold">{pkg.tracking}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      {pkg.descripcion || t('cd.payment.noDescription')}{pkg.weight ? ` - ${Number(pkg.weight).toFixed(1)} kg` : ''}
+            <Box sx={{ maxHeight: 260, overflowY: 'auto', pr: 1 }}>
+              {getSelectedPackages().map((pkg) => (
+                <Box key={pkg.id} sx={{ mb: 1, pb: 1, borderBottom: '1px solid #eee' }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Box>
+                      <Typography variant="body2" fontWeight="bold">{pkg.tracking}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {pkg.descripcion || t('cd.payment.noDescription')}{pkg.weight ? ` - ${Number(pkg.weight).toFixed(1)} kg` : ''}
+                      </Typography>
+                    </Box>
+                    <Typography variant="body1" fontWeight="bold" sx={{ color: ORANGE }}>
+                      {formatCurrency(Number(pkg.monto) || 0)}
                     </Typography>
                   </Box>
-                  <Typography variant="body1" fontWeight="bold" sx={{ color: ORANGE }}>
-                    {formatCurrency(pkg.monto || 0)}
-                  </Typography>
                 </Box>
-              </Box>
-            ))}
-            
-            {selectedPackageIds.length > 3 && (
-              <Typography variant="caption" color="text.secondary">
-                +{selectedPackageIds.length - 3} {t('cd.payment.morePackages')}
-              </Typography>
-            )}
+              ))}
+            </Box>
             
             <Divider sx={{ my: 2 }} />
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Typography variant="h6" fontWeight="bold">TOTAL:</Typography>
               <Typography variant="h5" fontWeight="bold" sx={{ color: ORANGE }}>
-                {formatCurrency(getSelectedPackages().reduce((sum, p) => sum + (p.monto || 0), 0))}
+                {formatCurrency(getSelectedPackages().reduce((sum, p) => sum + (Number(p.monto) || 0), 0))}
               </Typography>
             </Box>
           </Paper>
@@ -8778,7 +8807,7 @@ export default function DashboardClient() {
               fontSize: '1.1rem'
             }}
           >
-            {paymentLoading ? t('common.processing') : `💳 ${t('cd.payment.payButton')} ${formatCurrency(getSelectedPackages().reduce((sum, p) => sum + (p.monto || 0), 0))}`}
+            {paymentLoading ? t('common.processing') : `💳 ${t('cd.payment.payButton', { amount: formatCurrency(getSelectedPackages().reduce((sum, p) => sum + (Number(p.monto) || 0), 0)) })}`}
           </Button>
         </DialogActions>
       </Dialog>

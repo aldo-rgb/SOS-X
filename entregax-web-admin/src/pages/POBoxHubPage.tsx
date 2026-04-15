@@ -565,21 +565,21 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                     .header { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 4px; }
                     .date-badge { background: #111; color: white; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 4px; }
                     .master-badge { background: #F05A28; color: white; text-align: center; padding: 5px; font-weight: bold; font-size: 14px; margin-bottom: 8px; }
-                    .tracking-main { text-align: center; margin: 6px 0; }
+                    .tracking-main { text-align: center; margin: 4px 0; }
                     .tracking-code { font-size: 22px; font-weight: bold; letter-spacing: 1px; }
-                    .box-indicator { font-size: 16px; background: #111; color: white; padding: 4px 12px; border-radius: 15px; display: inline-block; margin-top: 6px; }
-                    .master-ref { text-align: center; font-size: 11px; color: #666; margin: 4px 0; }
-                    .qr-section { text-align: center; margin: 10px 0; }
-                    .qr-section svg, .qr-section img { width: 150px !important; height: 150px !important; }
-                    .barcode-section { text-align: center; margin: 8px 0; }
-                    .barcode-section svg { width: 85%; height: 70px; }
-                    .divider { border-top: 2px dashed #ccc; margin: 10px 0; }
-                    .client-info { text-align: center; margin: 8px 0; }
+                    .box-indicator { font-size: 14px; color: #333; font-weight: 600; display: inline-block; margin-top: 2px; }
+                    .master-ref { text-align: center; font-size: 11px; color: #666; margin: 2px 0; }
+                    .qr-section { text-align: center; margin: 6px 0; }
+                    .qr-section svg, .qr-section img { width: 140px !important; height: 140px !important; }
+                    .barcode-section { text-align: center; margin: 4px 0; }
+                    .barcode-section svg { width: 85%; height: 65px; }
+                    .divider { border-top: 2px dashed #ccc; margin: 6px 0; }
+                    .client-info { text-align: center; margin: 4px 0; }
                     .client-box { font-size: 56px; color: #F05A28; font-weight: 900; letter-spacing: 3px; }
-                    .details { text-align: center; font-size: 18px; font-weight: 600; margin: 8px 0; display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; }
-                    .detail-item { background: #f5f5f5; padding: 4px 12px; border-radius: 4px; }
-                    .description { text-align: center; font-size: 12px; color: #666; flex-grow: 1; margin-top: 5px; }
-                    .footer { text-align: center; font-size: 9px; color: #999; border-top: 1px solid #eee; padding-top: 5px; margin-top: auto; }
+                    .details { text-align: center; font-size: 16px; font-weight: 600; margin: 4px 0; display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; }
+                    .detail-item { background: #f5f5f5; padding: 3px 10px; border-radius: 4px; }
+                    .description { text-align: center; font-size: 11px; color: #666; margin-top: 2px; }
+                    .footer { text-align: center; font-size: 8px; color: #999; border-top: 1px solid #eee; padding-top: 3px; margin-top: auto; }
                     @page { size: 4in 6in; margin: 0; }
                     @media print { body { margin: 0; padding: 0; } .label { border: none; page-break-inside: avoid; } }
                 </style>

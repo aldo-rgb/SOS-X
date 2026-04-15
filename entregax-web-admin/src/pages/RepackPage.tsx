@@ -506,30 +506,30 @@ export default function RepackPage() {
           margin-bottom: 8px; 
           border-radius: 4px;
         }
-        .tracking-main { text-align: center; margin: 10px 0; }
+        .tracking-main { text-align: center; margin: 4px 0; }
         .tracking-code { font-size: 24px; font-weight: 900; letter-spacing: 1px; }
         .box-indicator { 
-          background: #f5f5f5; 
+          color: #333;
+          font-weight: 600;
           display: inline-block; 
-          padding: 4px 12px; 
-          border-radius: 20px; 
+          padding: 2px 8px; 
           font-size: 12px; 
-          margin-top: 5px;
+          margin-top: 2px;
         }
-        .qr-section { text-align: center; margin: 10px 0; }
-        .qr-section img, .qr-section canvas, .qr-section svg { width: 150px !important; height: 150px !important; }
-        .barcode-section { text-align: center; margin: 8px 0; }
-        .barcode-section svg { width: 85%; height: 70px; }
-        .divider { border-top: 2px dashed #ccc; margin: 10px 0; }
-        .client-info { text-align: center; margin: 10px 0; }
+        .qr-section { text-align: center; margin: 6px 0; }
+        .qr-section img, .qr-section canvas, .qr-section svg { width: 140px !important; height: 140px !important; }
+        .barcode-section { text-align: center; margin: 4px 0; }
+        .barcode-section svg { width: 85%; height: 65px; }
+        .divider { border-top: 2px dashed #ccc; margin: 6px 0; }
+        .client-info { text-align: center; margin: 4px 0; }
         .client-box { 
           font-size: 64px; 
           font-weight: 900; 
           color: #F05A28;
           letter-spacing: 3px;
         }
-        .details { display: flex; gap: 15px; justify-content: center; font-size: 18px; font-weight: 600; margin: 8px 0; }
-        .detail-item { background: #f5f5f5; padding: 4px 12px; border-radius: 4px; }
+        .details { display: flex; gap: 15px; justify-content: center; font-size: 16px; font-weight: 600; margin: 4px 0; }
+        .detail-item { background: #f5f5f5; padding: 3px 10px; border-radius: 4px; }
         .packages-list { 
           font-size: 10px; 
           color: #666; 
@@ -539,7 +539,7 @@ export default function RepackPage() {
           background: #f9f9f9;
           border-radius: 4px;
         }
-        .footer { font-size: 9px; text-align: center; color: #999; margin-top: auto; padding-top: 8px; }
+        .footer { font-size: 8px; text-align: center; color: #999; margin-top: auto; padding-top: 3px; }
         @media print { 
           @page { size: 4in 6in; margin: 0; }
           body { margin: 0; }

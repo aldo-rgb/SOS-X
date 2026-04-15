@@ -1377,6 +1377,7 @@
       "branch": "Pago en Sucursal",
       "branchDesc": "Efectivo en Sucursal",
       "packagesTitle": "Paquetes a Pagar",
+      "packagesCount": "{{count}} paquete(s) seleccionado(s)",
       "noDescription": "Sin descripción",
       "morePackages": "+{{count}} paquetes más...",
       "shippingInfo": "Información de Envío",

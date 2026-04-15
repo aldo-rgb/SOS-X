@@ -1173,6 +1173,7 @@
       "branch": "网点付款",
       "branchDesc": "网点现金支付",
       "packagesTitle": "待付包裹",
+      "packagesCount": "已选择 {{count}} 个包裹",
       "noDescription": "无描述",
       "morePackages": "+{{count}} 个更多包裹...",
       "shippingInfo": "运输信息",

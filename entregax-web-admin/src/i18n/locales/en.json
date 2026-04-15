@@ -1342,6 +1342,7 @@
       "branch": "Branch Payment",
       "branchDesc": "Cash at Branch",
       "packagesTitle": "Packages to Pay",
+      "packagesCount": "{{count}} package(s) selected",
       "noDescription": "No description",
       "morePackages": "+{{count}} more packages...",
       "shippingInfo": "Shipping Information",
