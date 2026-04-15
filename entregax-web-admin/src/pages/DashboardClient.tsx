@@ -2103,9 +2103,8 @@ export default function DashboardClient() {
     setHistoryModalOpen(true);
   };
 
-  // FUNCIÓN TEMPORAL: Simular confirmación de pago para pruebas
-  // @ts-expect-error Oculto temporalmente con SHOW_TEST_BUTTON
-  const testConfirmPayment = async (paymentId: string, packageIds: number[], amount: number, paymentType: string) => {
+  // FUNCIÓN TEMPORAL: Simular confirmación de pago para pruebas (oculto con SHOW_TEST_BUTTON)
+  const _testConfirmPayment = async (paymentId: string, packageIds: number[], amount: number, paymentType: string) => {
     try {
       console.log('🧪 Testing payment confirmation:', { paymentId, packageIds, amount, paymentType });
       
@@ -3489,7 +3488,7 @@ export default function DashboardClient() {
                     startIcon={<CheckCircleIcon />}
                     onClick={() => {
                       const total = getSelectedPackages().reduce((sum, pkg) => sum + (Number(pkg.monto) || 0), 0);
-                      testConfirmPayment(
+                      _testConfirmPayment(
                         `openpay_test_${Date.now()}`,
                         selectedPackageIds,
                         total,
