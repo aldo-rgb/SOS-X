@@ -92,6 +92,12 @@ const getServiceTypeFromPackages = async (packageIds: number[]): Promise<Service
   if (result.rows.length > 0) {
     const st = result.rows[0].service_type;
     const mapping: Record<string, ServiceType> = {
+      // Valores reales en BD (mayúsculas)
+      'POBOX_USA': 'po_box',
+      'AIR_CHN_MX': 'aereo',
+      'SEA_CHN_MX': 'maritimo',
+      'AA_DHL': 'dhl_liberacion',
+      // Valores legacy/alternativos
       'china_air': 'aereo',
       'china_sea': 'maritimo',
       'usa_pobox': 'po_box',
