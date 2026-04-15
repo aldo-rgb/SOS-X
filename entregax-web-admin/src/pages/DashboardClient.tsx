@@ -115,6 +115,7 @@ const ORANGE = '#F05A28';
 const GREEN = '#4CAF50';
 const BLUE = '#2196F3';
 const BLACK = '#111111';
+const SHOW_TEST_BUTTON = false; // Cambiar a true para mostrar botón TEST: Confirmar Pago
 
 interface ClientStats {
   casillero: string;
@@ -2103,6 +2104,7 @@ export default function DashboardClient() {
   };
 
   // FUNCIÓN TEMPORAL: Simular confirmación de pago para pruebas
+  // @ts-expect-error Oculto temporalmente con SHOW_TEST_BUTTON
   const testConfirmPayment = async (paymentId: string, packageIds: number[], amount: number, paymentType: string) => {
     try {
       console.log('🧪 Testing payment confirmation:', { paymentId, packageIds, amount, paymentType });
@@ -3470,6 +3472,34 @@ export default function DashboardClient() {
                   >
                     {isMobile ? 'Pagar' : t('cd.packages.pay')}
                   </Button>
+
+                  {/* BOTÓN TEMPORAL DE PRUEBA - Oculto (cambiar SHOW_TEST_BUTTON a true para mostrar) */}
+                  {SHOW_TEST_BUTTON && !isMobile && (
+                  <Button
+                    variant="contained"
+                    size="small"
+                    sx={{ 
+                      bgcolor: GREEN, 
+                      minWidth: 'auto',
+                      position: 'fixed',
+                      bottom: 20,
+                      left: 120,
+                      zIndex: 1000
+                    }}
+                    startIcon={<CheckCircleIcon />}
+                    onClick={() => {
+                      const total = getSelectedPackages().reduce((sum, pkg) => sum + (Number(pkg.monto) || 0), 0);
+                      testConfirmPayment(
+                        `openpay_test_${Date.now()}`,
+                        selectedPackageIds,
+                        total,
+                        'openpay'
+                      );
+                    }}
+                  >
+                    {t('cd.packages.testConfirmPayment')}
+                  </Button>
+                  )}
 
                   {/* Solo mostrar "Asignar Instrucciones" si hay paquetes sin instrucciones */}
                   {getSelectedPackages().some(pkg => !pkg.has_delivery_instructions && !pkg.assigned_address_id) && (
