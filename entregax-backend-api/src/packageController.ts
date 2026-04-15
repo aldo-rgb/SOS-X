@@ -384,6 +384,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
         // 📦 Verificar si cliente tiene dirección asignada para USA (auto-procesar)
         let hasDefaultUsaAddress = false;
         let defaultAddressId: number | null = null;
+        let autoAssignedCarrier: string | null = null;
         if (user && serviceType === 'POBOX_USA') {
             const addressCheck = await client.query(
                 `SELECT id, carrier_config FROM addresses 
@@ -396,7 +397,25 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
             if (addressCheck.rows.length > 0) {
                 hasDefaultUsaAddress = true;
                 defaultAddressId = addressCheck.rows[0].id;
-                console.log(`📦 Cliente ${user.box_id} tiene dirección USA asignada (ID: ${defaultAddressId}) - auto-asignando instrucciones`);
+                
+                // 🚚 Extraer paquetería asignada de carrier_config
+                const carrierConfig = addressCheck.rows[0].carrier_config;
+                if (carrierConfig) {
+                    const CARRIER_NAMES: Record<string, string> = {
+                        'entregax_local': 'EntregaX Local',
+                        'paquete_express': 'Paquete Express',
+                    };
+                    const SERVICE_CONFIG_KEY: Record<string, string> = {
+                        'POBOX_USA': 'usa', 'AIR': 'air', 'MARITIME': 'maritime', 'CHINA_AIR': 'air',
+                    };
+                    const configKey = SERVICE_CONFIG_KEY[serviceType] || 'usa';
+                    const carrierId = carrierConfig[configKey];
+                    if (carrierId) {
+                        autoAssignedCarrier = CARRIER_NAMES[carrierId] || carrierId;
+                    }
+                }
+                
+                console.log(`📦 Cliente ${user.box_id} tiene dirección USA asignada (ID: ${defaultAddressId}, Carrier: ${autoAssignedCarrier}) - auto-asignando instrucciones`);
             }
         }
 
@@ -457,10 +476,10 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                   assigned_cost_mxn, single_cbm, saldo_pendiente, long_cm, width_cm, height_cm,
                   pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn,
                   registered_exchange_rate, pobox_cost_usd, pobox_tarifa_nivel, pobox_venta_usd, national_shipping_cost,
-                  assigned_address_id, needs_instructions)
+                  assigned_address_id, needs_instructions, national_carrier)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false, 1, 1, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
                          $25, $26, $25, $7, $8, $9, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36,
-                         $37, $38) 
+                         $37, $38, $39) 
                  RETURNING *`,
                 [user?.id || null, user?.box_id || null, masterTracking, box.trackingCourier || trackingProvider || null, description, box.weight, 
                  box.length, box.width, box.height, declaredValue || null, notes || null, initialStatus,
@@ -470,7 +489,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                  totalCostMxn, costResult.cbm,
                  costResult.poboxServiceCost, costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn,
                  costResult.registeredExchangeRate, costResult.poboxCostUsd, costResult.nivelTarifa || null, costResult.precioVentaUsd || null, nationalShippingCost,
-                 defaultAddressId, defaultAddressId ? false : true]
+                 defaultAddressId, defaultAddressId ? false : true, autoAssignedCarrier]
             );
             masterPackage = result.rows[0];
             
@@ -495,10 +514,10 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                   assigned_cost_mxn, single_cbm, saldo_pendiente,
                   pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn,
                   registered_exchange_rate, pobox_cost_usd, pobox_tarifa_nivel, pobox_venta_usd, national_shipping_cost,
-                  assigned_address_id, needs_instructions)
+                  assigned_address_id, needs_instructions, national_carrier)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, 0, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
                          $23, $24, $23, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34,
-                         $35, $36) 
+                         $35, $36, $37) 
                  RETURNING *`,
                 [user?.id || null, user?.box_id || null, masterTracking, trackingProvider || null, description, totalWeight, 
                  declaredValue || null, notes || null, initialStatus, totalBoxes, safeCarrier,
@@ -508,7 +527,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                  totalCostMxn, costResult.cbm,
                  costResult.poboxServiceCost, costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn,
                  costResult.registeredExchangeRate, costResult.poboxCostUsd, costResult.nivelTarifa || null, costResult.precioVentaUsd || null, nationalShippingCost,
-                 defaultAddressId, defaultAddressId ? false : true]
+                 defaultAddressId, defaultAddressId ? false : true, autoAssignedCarrier]
             );
             masterPackage = masterResult.rows[0];
 
@@ -986,7 +1005,9 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 declared_value: pkg.declared_value ? parseFloat(pkg.declared_value) : null,
                 status: displayStatus,
                 statusLabel: displayLabel,
-                carrier: pkg.carrier,
+                carrier: pkg.national_carrier || pkg.carrier,
+                national_carrier: pkg.national_carrier || null,
+                national_shipping_cost: pkg.national_shipping_cost ? parseFloat(pkg.national_shipping_cost) : 0,
                 destination_city: pkg.destination_city,
                 destination_country: pkg.destination_country,
                 image_url: pkg.image_url,
@@ -1029,7 +1050,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                    ct.bl_number as container_bl
             FROM maritime_orders mo
             LEFT JOIN containers ct ON mo.container_id = ct.id
-            WHERE mo.user_id = $1 OR ($2 IS NOT NULL AND mo.shipping_mark = $2)
+            WHERE mo.user_id = $1 OR ($2::text IS NOT NULL AND mo.shipping_mark = $2::text)
             ORDER BY mo.id, mo.created_at DESC
         `, [userId, userBoxId]);
 
@@ -1075,7 +1096,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             SELECT DISTINCT ON (cr.id) cr.*, u.full_name, COALESCE(u.box_id, cr.shipping_mark) as box_id
             FROM china_receipts cr
             LEFT JOIN users u ON cr.user_id = u.id
-            WHERE cr.user_id = $1 OR ($2 IS NOT NULL AND cr.shipping_mark = $2)
+            WHERE cr.user_id = $1 OR ($2::text IS NOT NULL AND cr.shipping_mark = $2::text)
             ORDER BY cr.id, cr.created_at DESC
         `, [userId, userBoxId]);
 
@@ -1644,16 +1665,40 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                             RETURNING id, tracking_internal
                         `, [deliveryAddressId, carrierName || carrier, shippingCostMxn, newTotalMxn, deliveryInstructions, packageId]);
                     } else {
-                        // Asignación normal de dirección
+                        // Asignación normal de dirección - guardar también carrier y costo de envío
+                        const shippingCostMxn = parseFloat(carrierCost) || 0;
+                        
+                        // Recalcular total: PO Box + GEX + envío nacional
+                        const currentPkgData = await pool.query(
+                            'SELECT pobox_venta_usd, gex_total_cost, monto_pagado FROM packages WHERE id = $1',
+                            [packageId]
+                        );
+                        const poboxVentaUsd = parseFloat(currentPkgData.rows[0]?.pobox_venta_usd) || 0;
+                        const gexCost = parseFloat(currentPkgData.rows[0]?.gex_total_cost) || 0;
+                        const montoPagado = parseFloat(currentPkgData.rows[0]?.monto_pagado) || 0;
+                        const poboxMxn = poboxVentaUsd * tc;
+                        const newTotalMxn = poboxMxn + gexCost + shippingCostMxn;
+                        const nuevoSaldo = Math.max(0, newTotalMxn - montoPagado);
+                        
+                        console.log(`📦 [Asignación Normal] Paquete ${packageId}:`);
+                        console.log(`   Carrier: ${carrierName || carrier}, Costo envío: $${shippingCostMxn.toFixed(2)} MXN`);
+                        console.log(`   PO Box: $${poboxVentaUsd} USD × TC $${tc} = $${poboxMxn.toFixed(2)} MXN`);
+                        console.log(`   GEX: $${gexCost.toFixed(2)}, Envío: $${shippingCostMxn.toFixed(2)}`);
+                        console.log(`   TOTAL: $${newTotalMxn.toFixed(2)} MXN, Pagado: $${montoPagado.toFixed(2)}, Saldo: $${nuevoSaldo.toFixed(2)}`);
+                        
                         result = await pool.query(`
                             UPDATE packages 
                             SET assigned_address_id = $1, 
                                 notes = COALESCE($2, notes),
                                 needs_instructions = false,
+                                national_carrier = $4,
+                                national_shipping_cost = $5,
+                                assigned_cost_mxn = $6,
+                                saldo_pendiente = $7,
                                 updated_at = CURRENT_TIMESTAMP
                             WHERE id = $3${ownerCondition}
                             RETURNING id, tracking_internal
-                        `, [deliveryAddressId, deliveryInstructions, packageId]);
+                        `, [deliveryAddressId, deliveryInstructions, packageId, carrierName || carrier || 'EntregaX Local', shippingCostMxn, newTotalMxn, nuevoSaldo]);
                     }
                 }
                 break;

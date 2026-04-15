@@ -662,7 +662,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                       <View style={styles.carrierOptionInfo}>
                         <Text style={styles.carrierOptionName}>{carrier.name}</Text>
                         <Text style={styles.carrierOptionCost}>
-                          {carrier.cost === 0 ? 'Sin costo' : `$${carrier.cost} MXN`}
+                          {carrier.dynamic ? 'Costo según cotización' : (carrier.cost === 0 ? 'Incluido' : `$${carrier.cost} MXN`)}
                         </Text>
                       </View>
                       <View style={[styles.radioCircle, selectedCarriers.maritime === carrier.id && styles.radioCircleSelected]}>
@@ -709,7 +709,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                       <View style={styles.carrierOptionInfo}>
                         <Text style={styles.carrierOptionName}>{carrier.name}</Text>
                         <Text style={styles.carrierOptionCost}>
-                          {carrier.cost === 0 ? 'Sin costo' : `$${carrier.cost} MXN`}
+                          {carrier.dynamic ? 'Costo según cotización' : (carrier.cost === 0 ? 'Incluido' : `$${carrier.cost} MXN`)}
                         </Text>
                       </View>
                       <View style={[styles.radioCircle, selectedCarriers.air === carrier.id && styles.radioCircleSelected]}>
@@ -756,7 +756,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                       <View style={styles.carrierOptionInfo}>
                         <Text style={styles.carrierOptionName}>{carrier.name}</Text>
                         <Text style={styles.carrierOptionCost}>
-                          {carrier.cost === 0 ? 'Sin costo' : `$${carrier.cost} MXN`}
+                          {carrier.dynamic ? 'Costo según cotización' : (carrier.cost === 0 ? 'Incluido' : `$${carrier.cost} MXN`)}
                         </Text>
                       </View>
                       <View style={[styles.radioCircle, selectedCarriers.usa === carrier.id && styles.radioCircleSelected]}>
@@ -1034,6 +1034,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 20,
     overflow: 'hidden',
+    maxHeight: '85%',
   },
   serviceModalHeader: {
     alignItems: 'center',
@@ -1065,6 +1066,7 @@ const styles = StyleSheet.create({
   },
   serviceOptionsContainer: {
     padding: 16,
+    flexGrow: 1,
   },
   serviceOptionCard: {
     flexDirection: 'row',

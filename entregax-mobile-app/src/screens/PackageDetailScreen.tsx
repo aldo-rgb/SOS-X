@@ -428,12 +428,12 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
               </View>
             )}
 
-            {/* Carrier */}
-            {details.carrier && (
+            {/* Carrier - solo mostrar si es una paquetería real (no ubicación de bodega) */}
+            {details.carrier && !['BODEGA', 'RACK', 'PISO', 'TARIMA'].includes(details.carrier?.toUpperCase?.()) && (
               <View style={styles.infoRow}>
                 <MaterialCommunityIcons name="truck" size={20} color="#666" />
                 <Text style={styles.infoLabel}>Paquetería:</Text>
-                <Text style={styles.infoValue}>{details.carrier}</Text>
+                <Text style={styles.infoValue}>{details.national_carrier || details.carrier}</Text>
               </View>
             )}
           </Card.Content>
@@ -661,7 +661,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                 {/* Costo de envío nacional (Estafeta, FedEx, etc.) - solo si NO es Pick Up */}
                 {(details.national_shipping_cost ?? 0) > 0 && (
                   <View style={styles.costRow}>
-                    <Text style={styles.costLabel}>🚚 Envío Nacional ({details.carrier})</Text>
+                    <Text style={styles.costLabel}>🚚 Envío Nacional ({details.national_carrier || 'Paquetería'})</Text>
                     <Text style={styles.costValue}>${(details.national_shipping_cost || 0).toFixed(2)} MXN</Text>
                   </View>
                 )}

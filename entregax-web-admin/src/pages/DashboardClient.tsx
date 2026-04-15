@@ -3764,14 +3764,14 @@ export default function DashboardClient() {
                       </Typography>
                       
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                        {/* Indicador de Instrucciones de Entrega */}
+                        {/* Indicador de Instrucciones de Entrega / Paquetería Asignada */}
                         {hasDeliveryInstructions ? (
                           <Chip 
                             icon={<CheckCircleIcon sx={{ fontSize: 14 }} />}
-                            label="Con Instrucciones"
+                            label={pkg.national_carrier ? `🚚 ${pkg.national_carrier}` : 'Con Instrucciones'}
                             size="small"
                             sx={{ 
-                              bgcolor: ORANGE, 
+                              bgcolor: pkg.national_carrier ? '#1565C0' : ORANGE, 
                               color: 'white',
                               fontSize: '0.65rem',
                               fontWeight: 'bold',
@@ -7405,8 +7405,8 @@ export default function DashboardClient() {
                   )}
                 </Box>
 
-                {/* Paquetería Asignada */}
-                {(selectedPackage.national_carrier || selectedPackage.carrier) && (
+                {/* Paquetería Asignada - filtrar ubicaciones de bodega */}
+                {(selectedPackage.national_carrier || (selectedPackage.carrier && !['BODEGA', 'RACK', 'PISO', 'TARIMA'].includes(selectedPackage.carrier?.toUpperCase?.()))) && (
                   <Box sx={{ mb: 2 }}>
                     <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
                       🚚 Paquetería Asignada
@@ -8587,7 +8587,7 @@ export default function DashboardClient() {
                       {formatCurrency(Number(pkg.monto) || 0)}
                     </Typography>
                   </Box>
-                  {(pkg.national_carrier || pkg.carrier) && (
+                  {(pkg.national_carrier || (pkg.carrier && !['BODEGA', 'RACK', 'PISO', 'TARIMA'].includes(pkg.carrier?.toUpperCase?.()))) && (
                     <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#e3f2fd', borderRadius: 1, px: 1, py: 0.5 }}>
                       <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         🚚 {pkg.national_carrier || pkg.carrier}
