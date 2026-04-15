@@ -7780,7 +7780,7 @@ export default function DashboardClient() {
               alignItems: 'center', 
               justifyContent: 'center' 
             }}>
-              <ConfirmationNumber sx={{ color: 'white' }} />
+              <TicketIcon sx={{ color: 'white' }} />
             </Box>
             <Box sx={{ flex: 1 }}>
               <Typography fontWeight="bold">{t('cd.help.createTicket')}</Typography>
