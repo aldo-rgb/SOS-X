@@ -812,8 +812,27 @@ export default function DashboardClient() {
     const paymentStatus = urlParams.get('payment_status');
     const paymentId = urlParams.get('payment_id');
     const paymentMethod = urlParams.get('method');
+    const paymentSuccess = urlParams.get('paymentSuccess');
+    const paymentError = urlParams.get('paymentError');
+    const paymentRef = urlParams.get('ref');
 
-    if (paymentStatus && paymentId) {
+    if (paymentSuccess === 'true') {
+      setSnackbar({ 
+        open: true, 
+        message: `✅ ¡Pago procesado exitosamente!${paymentRef ? ` Referencia: ${paymentRef}` : ''}`, 
+        severity: 'success' 
+      });
+      // Recargar datos para reflejar los paquetes pagados
+      setTimeout(() => { loadData(); }, 1000);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (paymentError === 'true') {
+      setSnackbar({ 
+        open: true, 
+        message: '❌ Hubo un error al procesar tu pago. Intenta de nuevo o contacta soporte.', 
+        severity: 'error' 
+      });
+      window.history.replaceState({}, document.title, window.location.pathname);
+    } else if (paymentStatus && paymentId) {
       handlePaymentCallback(paymentStatus, paymentId, paymentMethod);
       // Limpiar URL después de procesar
       window.history.replaceState({}, document.title, window.location.pathname);

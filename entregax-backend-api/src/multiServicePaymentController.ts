@@ -1145,13 +1145,13 @@ export const handleOpenpayPaymentCallback = async (req: Request, res: Response):
       }
     }
 
-    // Redirigir al frontend
-    res.redirect(`${frontendUrl}/payment/success?ref=${paymentRef || 'unknown'}`);
+    // Redirigir al dashboard del cliente con mensaje de éxito
+    res.redirect(`${frontendUrl}/?paymentSuccess=true&ref=${paymentRef || 'unknown'}`);
 
   } catch (error) {
     console.error('❌ Error en callback OpenPay:', error);
     const frontendUrl = process.env.FRONTEND_URL || 'https://entregax.app';
-    res.redirect(`${frontendUrl}/payment/error`);
+    res.redirect(`${frontendUrl}/?paymentError=true`);
   }
 };
 
@@ -1320,15 +1320,15 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
         console.log(`✅ PayPal callback: ${pkgIds.length} paquetes marcados como pagados`);
       }
 
-      return res.redirect(`${frontendUrl}/payment/success?ref=${paymentRef || paypalOrderId}`);
+      return res.redirect(`${frontendUrl}/?paymentSuccess=true&ref=${paymentRef || paypalOrderId}`);
     } else {
       console.error('❌ PayPal captura no completada:', capture.data.status);
-      return res.redirect(`${frontendUrl}/payment/error?status=${capture.data.status}`);
+      return res.redirect(`${frontendUrl}/?paymentError=true&status=${capture.data.status}`);
     }
 
   } catch (error: any) {
     console.error('❌ Error en callback PayPal:', error.response?.data || error.message);
     const frontendUrl = process.env.FRONTEND_URL || 'https://entregax.app';
-    res.redirect(`${frontendUrl}/payment/error`);
+    res.redirect(`${frontendUrl}/?paymentError=true`);
   }
 };
