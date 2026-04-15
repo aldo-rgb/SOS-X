@@ -9,6 +9,61 @@ import { AuthRequest } from './authController';
 import { ServiceType } from './services/openpayConfig';
 
 // ============================================
+// ENSURE TABLE EXISTS
+// ============================================
+
+let tableEnsured = false;
+
+async function ensureServiceCreditsTable() {
+  if (tableEnsured) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS user_service_credits (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        service VARCHAR(50) NOT NULL,
+        credit_limit NUMERIC(12,2) DEFAULT 0,
+        used_credit NUMERIC(12,2) DEFAULT 0,
+        credit_days INTEGER DEFAULT 15,
+        is_blocked BOOLEAN DEFAULT FALSE,
+        notes TEXT,
+        approved_by INTEGER REFERENCES users(id),
+        approved_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(user_id, service)
+      );
+      CREATE INDEX IF NOT EXISTS idx_usc_user ON user_service_credits(user_id);
+      CREATE INDEX IF NOT EXISTS idx_usc_service ON user_service_credits(service);
+    `);
+    // Also ensure payment_invoices exists for the summary queries
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS payment_invoices (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        service VARCHAR(50) NOT NULL,
+        invoice_number VARCHAR(50),
+        concept TEXT,
+        amount NUMERIC(12,2) DEFAULT 0,
+        amount_paid NUMERIC(12,2) DEFAULT 0,
+        currency VARCHAR(3) DEFAULT 'MXN',
+        due_date DATE,
+        status VARCHAR(20) DEFAULT 'pending',
+        reference_type VARCHAR(50),
+        reference_id INTEGER,
+        is_credit BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      );
+    `);
+    tableEnsured = true;
+    console.log('✅ user_service_credits table ensured');
+  } catch (err) {
+    console.error('Error ensuring user_service_credits table:', err);
+  }
+}
+
+// ============================================
 // TIPOS
 // ============================================
 
@@ -49,6 +104,7 @@ interface ClientWithServiceCredits {
 
 export const getUserServiceCredits = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
+    await ensureServiceCreditsTable();
     const userId = req.params.userId || req.user?.userId;
 
     // Obtener todos los créditos del usuario con info de la empresa
@@ -130,6 +186,7 @@ export const getUserServiceCredits = async (req: AuthRequest, res: Response): Pr
 
 export const updateServiceCredit = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
+    await ensureServiceCreditsTable();
     const { userId, service } = req.params;
     const { credit_limit, credit_days, is_blocked, notes } = req.body;
     const adminId = req.user?.userId;
@@ -187,6 +244,7 @@ export const updateServiceCredit = async (req: AuthRequest, res: Response): Prom
 
 export const updateAllServiceCredits = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
+    await ensureServiceCreditsTable();
     const { userId } = req.params;
     const { credits } = req.body; // Array de { service, credit_limit, credit_days, is_blocked, notes }
     const adminId = req.user?.userId;
