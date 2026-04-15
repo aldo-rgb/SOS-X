@@ -458,7 +458,7 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
  */
 export const getMyTickets = async (req: Request, res: Response): Promise<any> => {
   try {
-    const userId = (req as any).user?.id;
+    const userId = (req as any).user?.userId;
     
     const result = await pool.query(
       `SELECT id, ticket_folio, category, subject, status, priority, created_at, updated_at
@@ -575,7 +575,7 @@ export const adminReplyTicket = async (req: Request, res: Response): Promise<any
   try {
     const { id } = req.params;
     const { message } = req.body;
-    const agentId = (req as any).user?.id;
+    const agentId = (req as any).user?.userId;
 
     if (!message) {
       return res.status(400).json({ error: 'Mensaje requerido' });

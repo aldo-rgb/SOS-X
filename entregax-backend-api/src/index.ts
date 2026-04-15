@@ -2473,7 +2473,7 @@ app.get('/api/addresses/default-for/:service', authenticateToken, getDefaultAddr
 // --- RUTA DE BÚSQUEDA DE CÓDIGO POSTAL (SEPOMEX) ---
 app.get('/api/zipcode/:cp', async (req: Request, res: Response) => {
     try {
-        const { cp } = req.params;
+        const cp = req.params.cp as string;
         if (!/^\d{5}$/.test(cp)) {
             res.status(400).json({ error: 'Código postal inválido (debe ser 5 dígitos)' });
             return;

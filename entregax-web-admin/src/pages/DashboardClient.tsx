@@ -255,6 +255,7 @@ interface DeliveryAddress {
   reference?: string;
   is_default: boolean;
   default_for_service?: string;
+  carrier_config?: Record<string, string>;
 }
 
 // Métodos de pago del cliente
@@ -431,6 +432,14 @@ export default function DashboardClient() {
   
   const [gexValorFactura, setGexValorFactura] = useState<string>('');
   const [gexDescripcion, setGexDescripcion] = useState<string>('');
+  const [gexQuote, setGexQuote] = useState<{
+    exchangeRate: number;
+    insuredValueMxn: number;
+    variableFeeMxn: number;
+    fixedFeeMxn: number;
+    totalCostMxn: number;
+  } | null>(null);
+  const [gexQuoteLoading, setGexQuoteLoading] = useState(false);
   
   // Modal Instrucciones de Entrega
   const [deliveryModalOpen, setDeliveryModalOpen] = useState(false);
@@ -471,11 +480,31 @@ export default function DashboardClient() {
     loadSavedConstancia();
   }, [deliveryModalOpen]);
 
-  // Reset applyToFullShipment when modal opens
+  // Reset applyToFullShipment and auto-select default address/carrier when modal opens
   useEffect(() => {
     if (deliveryModalOpen) {
       setApplyToFullShipment(true);
+      // Auto-seleccionar dirección default para este servicio si no hay una seleccionada
+      if (!selectedDeliveryAddress && deliveryAddresses.length > 0) {
+        const svcKeyMap: Record<string, string> = {
+          china_air: 'air', china_sea: 'maritime', usa_pobox: 'usa', dhl: 'dhl'
+        };
+        const svcKey = svcKeyMap[selectedServiceType] || '';
+        // Buscar dirección con este servicio asignado
+        const defaultAddr = deliveryAddresses.find(a => 
+          a.default_for_service?.split(',').map(s => s.trim()).includes(svcKey)
+        ) || deliveryAddresses.find(a => a.is_default) || deliveryAddresses[0];
+        if (defaultAddr) {
+          setSelectedDeliveryAddress(defaultAddr.id);
+          // Auto-seleccionar carrier de carrier_config
+          const carrierKey = defaultAddr.carrier_config?.[svcKey];
+          if (carrierKey) {
+            setSelectedCarrierService(carrierKey);
+          }
+        }
+      }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deliveryModalOpen]);
   
   // Determinar el tipo de servicio de los paquetes seleccionados
@@ -675,6 +704,7 @@ export default function DashboardClient() {
     phone: '',
     reference: '',
     service_types: [] as string[],
+    carrier_config: {} as Record<string, string>,
   });
   const [addressSaving, setAddressSaving] = useState(false);
   const [colonyOptions, setColonyOptions] = useState<string[]>([]);
@@ -1689,23 +1719,63 @@ export default function DashboardClient() {
     return packages.filter(p => selectedPackageIds.includes(p.id));
   }, [packages, selectedPackageIds]);
 
+  // Cotizar GEX dinámicamente al cambiar valor de factura
+  const fetchGexQuote = async (valorUSD: number) => {
+    if (!valorUSD || valorUSD <= 0) { setGexQuote(null); return; }
+    setGexQuoteLoading(true);
+    try {
+      const res = await api.post('/gex/quote', { invoiceValueUsd: valorUSD });
+      setGexQuote(res.data);
+    } catch {
+      setGexQuote(null);
+    } finally {
+      setGexQuoteLoading(false);
+    }
+  };
+
   // Contratar GEX para paquetes seleccionados
   const handleContractGEX = async () => {
-    const selected = getSelectedPackages();
-    if (selected.length === 0) {
+    if (gexTargetPackages.length === 0) {
       setSnackbar({ open: true, message: t('cd.snackbar.selectPackage'), severity: 'warning' });
+      return;
+    }
+    const valorUSD = parseFloat(gexValorFactura);
+    if (!valorUSD || valorUSD <= 0) {
+      setSnackbar({ open: true, message: 'Ingresa el valor de factura', severity: 'warning' });
+      return;
+    }
+    if (!gexDescripcion.trim()) {
+      setSnackbar({ open: true, message: 'Ingresa la descripción de la carga', severity: 'warning' });
       return;
     }
 
     setGexLoading(true);
     try {
-      const response = await api.post('/packages/contract-gex', {
-        packageIds: selectedPackageIds,
+      const firstPkg = gexTargetPackages[0];
+      const isChina = firstPkg?.servicio === 'SEA_CHN_MX' || firstPkg?.servicio === 'AIR_CHN_MX' || firstPkg?.shipment_type === 'maritime' || firstPkg?.shipment_type === 'china_air';
+      const isMaritime = firstPkg?.servicio === 'SEA_CHN_MX' || firstPkg?.shipment_type === 'maritime';
+      const route = isMaritime ? 'Marítimo China-México' : isChina ? 'Aéreo China-México' : 'USA-México';
+
+      const response = await api.post('/gex/warranties/self', {
+        packageId: firstPkg.id,
+        serviceType: firstPkg.servicio || firstPkg.shipment_type,
+        boxCount: gexTargetPackages.reduce((sum, pkg) => sum + (Number(pkg.total_boxes) || 1), 0),
+        weight: gexTargetPackages.reduce((sum, pkg) => sum + (Number(pkg.weight) || 0), 0),
+        invoiceValueUSD: valorUSD,
+        route,
+        description: gexDescripcion.trim(),
+        signature: 'web-contract', // Firma digital desde web
+        paymentOption: 'add_to_balance', // Añadir al saldo pendiente
       });
       
       if (response.data.success) {
-        setSnackbar({ open: true, message: t('cd.snackbar.gexContracted', { count: selected.length }), severity: 'success' });
+        const folio = response.data.warranty?.folio || '';
+        const total = response.data.warranty?.totalCost || 0;
+        setSnackbar({ open: true, message: `🛡️ Póliza GEX ${folio} contratada por $${total.toFixed(2)} MXN`, severity: 'success' });
         setGexModalOpen(false);
+        setGexValorFactura('');
+        setGexDescripcion('');
+        setGexQuote(null);
         setSelectedPackageIds([]);
         loadData(); // Recargar paquetes
       }
@@ -2089,8 +2159,14 @@ export default function DashboardClient() {
         // Actualizar asignación de servicios si hay cambios
         if (addressForm.service_types.length > 0) {
           try {
+            // Filtrar carrier_config solo para servicios seleccionados
+            const filteredCarrier: Record<string, string> = {};
+            for (const svc of addressForm.service_types) {
+              if (addressForm.carrier_config[svc]) filteredCarrier[svc] = addressForm.carrier_config[svc];
+            }
             await api.put(`/addresses/${savedAddressId}/default-for-service`, {
-              services: addressForm.service_types
+              services: addressForm.service_types,
+              carrier_config: Object.keys(filteredCarrier).length > 0 ? filteredCarrier : undefined,
             });
           } catch (svcErr) {
             console.error('Error asignando servicios:', svcErr);
@@ -2103,8 +2179,13 @@ export default function DashboardClient() {
         // Asignar servicios a la dirección recién creada
         if (savedAddressId && addressForm.service_types.length > 0) {
           try {
+            const filteredCarrier: Record<string, string> = {};
+            for (const svc of addressForm.service_types) {
+              if (addressForm.carrier_config[svc]) filteredCarrier[svc] = addressForm.carrier_config[svc];
+            }
             await api.put(`/addresses/${savedAddressId}/default-for-service`, {
-              services: addressForm.service_types
+              services: addressForm.service_types,
+              carrier_config: Object.keys(filteredCarrier).length > 0 ? filteredCarrier : undefined,
             });
           } catch (svcErr) {
             console.error('Error asignando servicios:', svcErr);
@@ -2131,6 +2212,7 @@ export default function DashboardClient() {
         phone: '',
         reference: '',
         service_types: [],
+        carrier_config: {},
       });
       loadDeliveryAddresses();
     } catch (error) {
@@ -2225,6 +2307,7 @@ export default function DashboardClient() {
       phone: phone,
       reference: address.reference || '',
       service_types: serviceTypes,
+      carrier_config: address.carrier_config || {},
     });
     // Si tiene CP, cargar opciones de colonias
     if (address.zip_code && /^\d{5}$/.test(address.zip_code)) {
@@ -3695,6 +3778,7 @@ export default function DashboardClient() {
                             onClick={() => {
                               setSelectedPackageIds([pkg.id]);
                               setGexTargetPackages([pkg]);
+                              setGexValorFactura(''); setGexDescripcion(''); setGexQuote(null);
                               setGexModalOpen(true);
                             }}
                             sx={{ 
@@ -4766,7 +4850,7 @@ export default function DashboardClient() {
                                     Ref: {addr.reference}
                                   </Typography>
                                 )}
-                                {/* Servicios asignados */}
+                                {/* Servicios asignados con paquetería */}
                                 {addr.default_for_service && (
                                   <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
                                     {addr.default_for_service.split(',').map(svc => {
@@ -4777,11 +4861,15 @@ export default function DashboardClient() {
                                         usa: { label: '📦 PO Box', color: '#F05A28' },
                                         all: { label: '🌐 Todos', color: '#333' },
                                       };
-                                      const info = svcMap[svc.trim()] || { label: svc.trim(), color: '#666' };
+                                      const trimmed = svc.trim();
+                                      const info = svcMap[trimmed] || { label: trimmed, color: '#666' };
+                                      // Show carrier name if configured
+                                      const carrierKey = addr.carrier_config?.[trimmed];
+                                      const carrierLabel = carrierKey ? ` → ${carrierKey}` : '';
                                       return (
                                         <Chip
                                           key={svc}
-                                          label={info.label}
+                                          label={`${info.label}${carrierLabel}`}
                                           size="small"
                                           sx={{ bgcolor: info.color, color: 'white', fontSize: '0.7rem', height: 22 }}
                                         />
@@ -5288,6 +5376,7 @@ export default function DashboardClient() {
                                 onClick={() => {
                                   setSelectedPackageIds([pkg.id]);
                                   setGexTargetPackages([pkg]);
+                                  setGexValorFactura(''); setGexDescripcion(''); setGexQuote(null);
                                   setGexModalOpen(true);
                                 }}
                               />
@@ -5509,6 +5598,7 @@ export default function DashboardClient() {
                                   onClick={() => {
                                     setSelectedPackageIds([pkg.id]);
                                     setGexTargetPackages([pkg]);
+                                    setGexValorFactura(''); setGexDescripcion(''); setGexQuote(null);
                                     setGexModalOpen(true);
                                   }}
                                 />
@@ -5708,7 +5798,12 @@ export default function DashboardClient() {
                       type="number"
                       placeholder="123"
                       value={gexValorFactura}
-                      onChange={(e) => setGexValorFactura(e.target.value)}
+                      onChange={(e) => {
+                        setGexValorFactura(e.target.value);
+                        const val = parseFloat(e.target.value);
+                        if (val > 0) fetchGexQuote(val);
+                        else setGexQuote(null);
+                      }}
                       sx={{ mt: 0.5 }}
                       slotProps={{
                         input: {
@@ -5801,10 +5896,24 @@ export default function DashboardClient() {
                   </Box>
 
                   {(() => {
-                    const valorFacturaUSD = parseFloat(gexValorFactura) || 123; // Default como en la app
-                    const tipoCambio = 18.28; // Actualizado como en la app
-                    const valorAseguradoMXN = valorFacturaUSD * tipoCambio;
-                    const porcentajeGEX = valorAseguradoMXN * 0.05;
+                    const valorFacturaUSD = parseFloat(gexValorFactura) || 0;
+                    
+                    if (gexQuoteLoading) {
+                      return (
+                        <Box sx={{ textAlign: 'center', py: 3 }}>
+                          <CircularProgress size={30} sx={{ color: 'white' }} />
+                          <Typography variant="body2" sx={{ mt: 1, opacity: 0.8 }}>Calculando...</Typography>
+                        </Box>
+                      );
+                    }
+                    
+                    if (!gexQuote || valorFacturaUSD <= 0) {
+                      return (
+                        <Box sx={{ textAlign: 'center', py: 3 }}>
+                          <Typography variant="body2" sx={{ opacity: 0.8 }}>Ingresa el valor de factura para ver el costo</Typography>
+                        </Box>
+                      );
+                    }
 
                     return (
                       <>
@@ -5814,28 +5923,32 @@ export default function DashboardClient() {
                         </Box>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                           <Typography variant="body2">Tipo de Cambio:</Typography>
-                          <Typography variant="body2" fontWeight="600">${tipoCambio.toFixed(2)} MXN</Typography>
+                          <Typography variant="body2" fontWeight="600">${gexQuote.exchangeRate.toFixed(2)} MXN</Typography>
                         </Box>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
                           <Typography variant="body2">Valor Asegurado:</Typography>
-                          <Typography variant="body2" fontWeight="600">${valorAseguradoMXN.toFixed(2)} MXN</Typography>
+                          <Typography variant="body2" fontWeight="600">${gexQuote.insuredValueMxn.toFixed(2)} MXN</Typography>
                         </Box>
 
                         <Divider sx={{ borderColor: 'rgba(255,255,255,0.3)', my: 1.5 }} />
 
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                          <Typography variant="body2">Seguro (5%):</Typography>
+                          <Typography variant="body2" fontWeight="600">${gexQuote.variableFeeMxn.toFixed(2)} MXN</Typography>
+                        </Box>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1.5 }}>
-                          <Typography variant="body2">{t('cd.gex.fivePercent')}</Typography>
-                          <Typography variant="body2" fontWeight="600">${porcentajeGEX.toFixed(2)} MXN</Typography>
+                          <Typography variant="body2">Cuota fija:</Typography>
+                          <Typography variant="body2" fontWeight="600">${gexQuote.fixedFeeMxn.toFixed(2)} MXN</Typography>
                         </Box>
 
                         <Divider sx={{ borderColor: 'rgba(255,255,255,0.3)', my: 1.5 }} />
 
                         <Box sx={{ textAlign: 'center', mt: 2 }}>
                           <Typography variant="h4" fontWeight="bold">
-                            ${porcentajeGEX.toFixed(2)} MXN
+                            ${gexQuote.totalCostMxn.toFixed(2)} MXN
                           </Typography>
                           <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                            {t('cd.gex.fivePercentCaption')}
+                            Costo total de tu póliza GEX
                           </Typography>
                         </Box>
                       </>
@@ -5851,7 +5964,7 @@ export default function DashboardClient() {
           <Button 
             variant="contained" 
             onClick={handleContractGEX}
-            disabled={gexLoading || !gexValorFactura || !gexDescripcion.trim()}
+            disabled={gexLoading || !gexValorFactura || !gexDescripcion.trim() || !gexQuote || gexQuoteLoading}
             startIcon={gexLoading ? <CircularProgress size={20} /> : <SecurityIcon />}
             sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' }, px: 4 }}
           >
@@ -6052,7 +6165,23 @@ export default function DashboardClient() {
                   <FormControl component="fieldset" fullWidth>
                     <RadioGroup
                       value={selectedDeliveryAddress || ''}
-                      onChange={(e) => setSelectedDeliveryAddress(Number(e.target.value))}
+                      onChange={(e) => {
+                        const addrId = Number(e.target.value);
+                        setSelectedDeliveryAddress(addrId);
+                        // Auto-seleccionar paquetería según carrier_config de la dirección
+                        const addr = deliveryAddresses.find(a => a.id === addrId);
+                        if (addr?.carrier_config) {
+                          // Mapear selectedServiceType a la clave de carrier_config
+                          const svcKeyMap: Record<string, string> = {
+                            china_air: 'air', china_sea: 'maritime', usa_pobox: 'usa', dhl: 'dhl'
+                          };
+                          const configKey = svcKeyMap[selectedServiceType] || selectedServiceType;
+                          const defaultCarrier = addr.carrier_config[configKey];
+                          if (defaultCarrier && carrierServices.some(c => c.id === defaultCarrier)) {
+                            setSelectedCarrierService(defaultCarrier);
+                          }
+                        }
+                      }}
                     >
                       {deliveryAddresses.map((addr) => (
                         <FormControlLabel
@@ -6723,34 +6852,80 @@ export default function DashboardClient() {
               </Typography>
             </Grid>
             <Grid size={12}>
-              <FormGroup row>
+              <FormGroup>
                 {[
-                  { value: 'air', label: '✈️ Aéreo China', color: '#2196F3' },
-                  { value: 'maritime', label: '🚢 Marítimo China', color: '#00897B' },
-                  { value: 'dhl', label: '📮 Liberación MTY', color: '#D32F2F' },
-                  { value: 'usa', label: '📦 PO Box USA', color: '#F05A28' },
-                ].map(svc => (
-                  <FormControlLabel
-                    key={svc.value}
-                    control={
-                      <Checkbox
-                        size="small"
-                        checked={addressForm.service_types.includes(svc.value)}
-                        onChange={(e) => {
-                          const checked = e.target.checked;
-                          setAddressForm(prev => ({
-                            ...prev,
-                            service_types: checked
-                              ? [...prev.service_types, svc.value]
-                              : prev.service_types.filter(s => s !== svc.value),
-                          }));
-                        }}
-                        sx={{ color: svc.color, '&.Mui-checked': { color: svc.color } }}
-                      />
-                    }
-                    label={<Typography variant="body2">{svc.label}</Typography>}
-                  />
-                ))}
+                  { value: 'air', label: '✈️ Aéreo China', color: '#2196F3', serviceType: 'china_air' },
+                  { value: 'maritime', label: '🚢 Marítimo China', color: '#00897B', serviceType: 'china_sea' },
+                  { value: 'dhl', label: '📮 Liberación MTY', color: '#D32F2F', serviceType: 'dhl' },
+                  { value: 'usa', label: '📦 PO Box USA', color: '#F05A28', serviceType: 'usa_pobox' },
+                ].map(svc => {
+                  const isChecked = addressForm.service_types.includes(svc.value);
+                  const currentCarrier = addressForm.carrier_config[svc.value] || '';
+                  // Filter carrier options for this service type
+                  const availableCarriers = carrierServices.length > 0 
+                    ? carrierServices.filter(c => !c.isCollect)
+                    : [
+                        { id: 'local', name: 'EntregaX Local MTY', icon: '🚛' },
+                        { id: 'pickup', name: 'Pick Up Hidalgo TX', icon: '📍' },
+                        { id: 'express', name: 'Paquete Express', icon: '⚡' },
+                      ] as any[];
+                  return (
+                    <Box key={svc.value} sx={{ mb: 0.5 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <FormControlLabel
+                          control={
+                            <Checkbox
+                              size="small"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setAddressForm(prev => ({
+                                  ...prev,
+                                  service_types: checked
+                                    ? [...prev.service_types, svc.value]
+                                    : prev.service_types.filter(s => s !== svc.value),
+                                  // Limpiar carrier si se deselecciona el servicio
+                                  carrier_config: checked ? prev.carrier_config : (() => {
+                                    const cc = { ...prev.carrier_config };
+                                    delete cc[svc.value];
+                                    return cc;
+                                  })(),
+                                }));
+                              }}
+                              sx={{ color: svc.color, '&.Mui-checked': { color: svc.color } }}
+                            />
+                          }
+                          label={<Typography variant="body2">{svc.label}</Typography>}
+                          sx={{ mr: 0, minWidth: 170 }}
+                        />
+                        {isChecked && (
+                          <TextField
+                            select
+                            size="small"
+                            value={currentCarrier}
+                            onChange={(e) => {
+                              setAddressForm(prev => ({
+                                ...prev,
+                                carrier_config: { ...prev.carrier_config, [svc.value]: e.target.value },
+                              }));
+                            }}
+                            sx={{ minWidth: 180, flex: 1 }}
+                            SelectProps={{ displayEmpty: true }}
+                          >
+                            <MenuItem value="">
+                              <Typography variant="body2" color="text.secondary">Sin paquetería default</Typography>
+                            </MenuItem>
+                            {availableCarriers.map((c: any) => (
+                              <MenuItem key={c.id} value={c.id}>
+                                <Typography variant="body2">{c.icon || '🚛'} {c.name}</Typography>
+                              </MenuItem>
+                            ))}
+                          </TextField>
+                        )}
+                      </Box>
+                    </Box>
+                  );
+                })}
               </FormGroup>
             </Grid>
           </Grid>
