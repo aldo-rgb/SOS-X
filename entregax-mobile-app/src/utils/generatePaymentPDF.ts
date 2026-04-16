@@ -1,6 +1,6 @@
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import { cacheDirectory, readAsStringAsync, moveAsync } from 'expo-file-system/build/legacy/FileSystem';
+import { cacheDirectory, readAsStringAsync, moveAsync, EncodingType } from 'expo-file-system/legacy';
 import { Asset } from 'expo-asset';
 import { Alert } from 'react-native';
 
@@ -14,7 +14,7 @@ const getLogoBase64 = async (): Promise<string> => {
     await asset.downloadAsync();
     if (asset.localUri) {
       const base64 = await readAsStringAsync(asset.localUri, {
-        encoding: 'base64',
+        encoding: EncodingType.Base64,
       });
       logoBase64Cache = `data:image/png;base64,${base64}`;
       return logoBase64Cache;
