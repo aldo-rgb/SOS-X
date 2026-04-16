@@ -199,7 +199,7 @@ export default function FinanceDashboardPage() {
   const [pendingPayments, setPendingPayments] = useState<any[]>([]);
   const [loadingPending, setLoadingPending] = useState(false);
   const [voucherGallery, setVoucherGallery] = useState<{ open: boolean; payment: any; vouchers: any[]; loading: boolean }>({ open: false, payment: null, vouchers: [], loading: false });
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
 
   // Estado de Cuenta
   const [estadoCuentaRaw, setEstadoCuentaRaw] = useState('');
@@ -212,7 +212,7 @@ export default function FinanceDashboardPage() {
     saldo: number;
   }
   const [estadoCuentaRows, setEstadoCuentaRows] = useState<EstadoCuentaRow[]>([]);
-  const [estadoCuentaBanco, setEstadoCuentaBanco] = useState('bbva');
+  const [estadoCuentaBanco] = useState('bbva');
   const [refMatchModal, setRefMatchModal] = useState<{ open: boolean; loading: boolean; matches: any[]; wrongAccount: any[]; unmatched: any[]; summary: any } | null>(null);
   const [confirmAuthorize, setConfirmAuthorize] = useState<{ open: boolean; toAuthorize: any[]; totalSurplus: number } | null>(null);
 
@@ -378,7 +378,7 @@ export default function FinanceDashboardPage() {
     setRefMatchModal(prev => prev ? { ...prev, loading: true } : prev);
     try {
       const res = await api.post('/admin/finance/authorize-bank-payments', { matches: toAuthorize });
-      const { summary, results, errors: errs } = res.data;
+      const { summary, results } = res.data;
       let msg = `✅ ${summary.authorized} pago(s) autorizado(s)`;
       if (summary.already_paid > 0) msg += `, ${summary.already_paid} ya pagado(s)`;
       if (summary.errors > 0) msg += `, ${summary.errors} error(es)`;
