@@ -2472,7 +2472,7 @@ app.get('/webhooks/pobox/openpay/callback', handlePoboxOpenpayCallback); // Call
 
 // --- RUTAS DE COMPROBANTES DE PAGO (VOUCHERS) ---
 const voucherUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB max
-app.post('/api/payment/voucher/upload', authenticateToken, voucherUpload.single('file'), uploadVoucher);
+app.post('/api/payment/voucher/upload', authenticateToken, voucherUpload.single('voucher'), uploadVoucher);
 app.post('/api/payment/voucher/confirm', authenticateToken, confirmVoucherAmount);
 app.post('/api/payment/voucher/complete', authenticateToken, completeVoucherPayment);
 app.get('/api/payment/voucher/:orderId', authenticateToken, getOrderVouchers);
@@ -3790,6 +3790,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         fe.rfc,
         fe.openpay_merchant_id,
         fe.openpay_production_mode,
+        fe.bank_name,
         COALESCE(scc.service_type, 'general') as servicio_asignado,
         scc.service_name
       FROM fiscal_emitters fe
@@ -4318,7 +4319,149 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
     `, [refStr]);
 
     // ============================================
-    // SI NO ESTÁ EN OPENPAY, BUSCAR PAQUETE DIRECTO (Pick Up)
+    // SI NO ESTÁ EN OPENPAY, BUSCAR EN POBOX_PAYMENTS (Órdenes de Pago con comprobantes)
+    // ============================================
+    if (pendingPayment.rows.length === 0) {
+      const poboxPaymentResult = await pool.query(`
+        SELECT pp.*, u.full_name as cliente_nombre, u.box_id as cliente_box_id
+        FROM pobox_payments pp
+        LEFT JOIN users u ON pp.user_id = u.id
+        WHERE pp.payment_reference = $1 
+          AND pp.status IN ('vouchers_submitted', 'vouchers_partial', 'pending', 'pending_payment')
+      `, [refStr]);
+
+      if (poboxPaymentResult.rows.length > 0) {
+        const poboxPay = poboxPaymentResult.rows[0];
+        const montoPago = parseFloat(poboxPay.amount) || 0;
+        let packageIds: number[] = [];
+        try {
+          const parsed = typeof poboxPay.package_ids === 'string' ? JSON.parse(poboxPay.package_ids) : poboxPay.package_ids;
+          packageIds = Array.isArray(parsed) ? parsed : [];
+        } catch (e) { packageIds = []; }
+
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+
+          // 1. Marcar pobox_payment como pagado
+          await client.query(`
+            UPDATE pobox_payments SET
+              status = 'paid',
+              paid_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+          `, [poboxPay.id]);
+
+          // 2. Marcar paquetes como pagados
+          if (packageIds.length > 0) {
+            await client.query(`
+              UPDATE packages SET
+                client_paid = TRUE,
+                client_paid_at = CURRENT_TIMESTAMP,
+                saldo_pendiente = 0,
+                payment_status = 'paid'
+              WHERE id = ANY($1)
+            `, [packageIds]);
+          }
+
+          // 3. Aprobar todos los vouchers pendientes de esta orden
+          await client.query(`
+            UPDATE payment_vouchers SET
+              status = 'approved',
+              reviewed_by = $2,
+              reviewed_at = CURRENT_TIMESTAMP
+            WHERE payment_order_id = $1 AND status IN ('pending_review', 'pending_confirm')
+          `, [poboxPay.id, adminId]);
+
+          // 4. Registrar en billetera y movimientos financieros
+          const branchId = 6; // Mostrador Hidalgo TX para PO Box USA
+          const billeteraResult = await client.query(`
+            SELECT id, saldo_actual FROM billeteras_sucursal 
+            WHERE sucursal_id = $1 AND is_default = true AND is_active = true
+            LIMIT 1
+          `, [branchId]);
+
+          if (billeteraResult.rows.length > 0) {
+            const billetera = billeteraResult.rows[0];
+            const saldoAnterior = parseFloat(billetera.saldo_actual) || 0;
+            const nuevoSaldo = saldoAnterior + montoPago;
+
+            await client.query(`
+              UPDATE billeteras_sucursal SET saldo_actual = $1 WHERE id = $2
+            `, [nuevoSaldo, billetera.id]);
+
+            await client.query(`
+              INSERT INTO movimientos_financieros (
+                sucursal_id, billetera_id, tipo_movimiento, monto, 
+                monto_antes, monto_despues, nota_descriptiva, referencia,
+                usuario_id, usuario_nombre, status, created_at
+              ) VALUES (
+                $1, $2, 'ingreso', $3, $4, $5, $6, $7, $8, $9, 'confirmado', CURRENT_TIMESTAMP
+              )
+            `, [
+              branchId, billetera.id, montoPago, saldoAnterior, nuevoSaldo,
+              `Pago PO Box confirmado con comprobante - ${packageIds.length} paquete(s)`,
+              refStr, adminId, adminName
+            ]);
+
+            // Registrar en caja_chica_transacciones para que aparezca en transacciones
+            await client.query(`
+              INSERT INTO caja_chica_transacciones (
+                tipo, monto, concepto, cliente_id, admin_id, admin_name, 
+                saldo_despues_movimiento, categoria, notas, currency, referencia, service_type
+              ) VALUES (
+                'ingreso', $1, $2, $3, $4, $5, $6, 'cobro_guias', $7, 'MXN', $8, 'POBOX_USA'
+              )
+            `, [
+              montoPago,
+              `Pago PO Box comprobante - ${packageIds.length} paquete(s) - ${poboxPay.cliente_nombre || 'Cliente'}`,
+              poboxPay.user_id, adminId, adminName, nuevoSaldo,
+              `Confirmado por ${adminName} - Voucher total: $${poboxPay.voucher_total || montoPago}`,
+              refStr
+            ]);
+          }
+
+          // 5. Si existe en openpay_webhook_logs como confirmed, actualizarlo a procesado
+          await client.query(`
+            UPDATE openpay_webhook_logs SET
+              estatus_procesamiento = 'procesado',
+              processed_at = CURRENT_TIMESTAMP
+            WHERE transaction_id = $1 AND estatus_procesamiento IN ('confirmed', 'pending_payment')
+          `, [refStr]);
+
+          await client.query('COMMIT');
+
+          // Generar comisiones
+          if (packageIds.length > 0) {
+            generateCommissionsForPackages(packageIds).catch(err =>
+              console.error('Error generando comisiones (confirm pobox voucher):', err)
+            );
+          }
+
+          console.log(`✅ Pago PO Box confirmado: ${refStr} - $${montoPago} por ${adminName || adminId}`);
+
+          return res.json({
+            success: true,
+            message: `Pago PO Box confirmado - ${packageIds.length} paquete(s) pagados`,
+            referencia: refStr,
+            monto: montoPago,
+            metodo: 'comprobante',
+            paquetes_actualizados: packageIds.length,
+            confirmado_por: adminName || adminId,
+            voucher_total: parseFloat(poboxPay.voucher_total) || 0
+          });
+
+        } catch (err: any) {
+          await client.query('ROLLBACK');
+          console.error('❌ Error en confirm-payment (pobox flow):', err.message);
+          throw err;
+        } finally {
+          client.release();
+        }
+      }
+    }
+
+    // ============================================
+    // SI NO ESTÁ EN OPENPAY NI POBOX, BUSCAR PAQUETE DIRECTO (Pick Up)
     // ============================================
     if (pendingPayment.rows.length === 0) {
       // Buscar paquete por tracking (para Pick Up u otros pagos directos)
@@ -4929,8 +5072,8 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
       ORDER BY owl.fecha_pago DESC
     `, params1);
 
-    // 2. Obtener pagos pendientes de pobox_payments (cash pendiente de confirmar)
-    let whereClause2 = "WHERE pp.status IN ('pending', 'pending_payment') AND pp.payment_method = 'cash'";
+    // 2. Obtener pagos con comprobantes enviados (listos para conciliar)
+    let whereClause2 = "WHERE pp.status = 'vouchers_submitted' AND pp.payment_method = 'cash'";
     const params2: any[] = [];
 
     const poboxResult = await pool.query(`
@@ -4941,6 +5084,8 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
         pp.amount as monto,
         pp.package_ids,
         pp.created_at,
+        pp.voucher_total,
+        pp.voucher_count,
         'POBOX_USA' as tipo_servicio,
         pp.payment_method,
         u.full_name as cliente,
@@ -5002,12 +5147,16 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
         branch_id: null,
         sucursal_nombre: null,
         guias: r.package_ids,
-        source: 'pobox'
+        source: 'pobox',
+        voucher_total: parseFloat(r.voucher_total) || 0,
+        voucher_count: parseInt(r.voucher_count) || 0
       };
     });
 
-    // Unir y ordenar por fecha
-    const allPayments = [...webhookPayments, ...poboxPayments]
+    // Unir y deduplicar por referencia (pobox tiene prioridad sobre webhook)
+    const poboxRefs = new Set(poboxPayments.map((p: any) => p.referencia));
+    const dedupedWebhook = webhookPayments.filter((p: any) => !poboxRefs.has(p.referencia));
+    const allPayments = [...dedupedWebhook, ...poboxPayments]
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, Number(limit));
 
@@ -5146,6 +5295,306 @@ app.get('/api/admin/finance/payment-details/:referencia', authenticateToken, req
   } catch (error: any) {
     console.error('Error getting payment details:', error);
     res.status(500).json({ error: 'Error obteniendo detalles del pago', details: error.message });
+  }
+});
+
+// ============================================
+// MATCH REFERENCIAS DE ESTADO DE CUENTA BANCARIO
+// Busca referencias de pago en la BD
+// ============================================
+app.post('/api/admin/finance/match-references', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { references, empresa_id } = req.body;
+    // references = [{ ref: 'EP-0108FC08', entries: [{ fecha, concepto, referencia, cargo, abono, saldo }] }]
+    if (!references || !Array.isArray(references) || references.length === 0) {
+      return res.json({ success: true, matches: [], wrongAccount: [] });
+    }
+
+    const refCodes = references.map((r: any) => r.ref);
+
+    // Buscar en pobox_payments
+    const poboxRes = await pool.query(`
+      SELECT pp.id, pp.payment_reference, pp.amount, pp.status, pp.user_id, pp.created_at,
+             pp.voucher_total, pp.voucher_count, pp.package_ids,
+             u.full_name as cliente, u.box_id, u.email,
+             scc.service_type, scc.emitter_id as empresa_id
+      FROM pobox_payments pp
+      LEFT JOIN users u ON pp.user_id = u.id
+      LEFT JOIN service_company_config scc ON scc.service_type = 'POBOX_USA'
+      WHERE pp.payment_reference = ANY($1)
+    `, [refCodes]);
+
+    // Buscar en openpay_webhook_logs
+    const webhookRes = await pool.query(`
+      SELECT owl.id, owl.transaction_id as payment_reference, owl.monto_recibido as amount,
+             owl.estatus_procesamiento as status, owl.user_id, owl.fecha_pago as created_at,
+             owl.service_type, owl.empresa_id,
+             u.full_name as cliente, u.box_id, u.email
+      FROM openpay_webhook_logs owl
+      LEFT JOIN users u ON owl.user_id = u.id
+      WHERE owl.transaction_id = ANY($1)
+    `, [refCodes]);
+
+    // Mapear por referencia
+    const dbMatches: Record<string, any> = {};
+    for (const row of [...poboxRes.rows, ...webhookRes.rows]) {
+      const ref = row.payment_reference;
+      if (!dbMatches[ref]) {
+        dbMatches[ref] = {
+          ref,
+          cliente: row.cliente || 'Desconocido',
+          box_id: row.box_id,
+          email: row.email,
+          amount: parseFloat(row.amount) || 0,
+          status: row.status,
+          service_type: row.service_type,
+          user_id: row.user_id,
+          empresa_id: row.empresa_id || null,
+          created_at: row.created_at,
+          voucher_total: parseFloat(row.voucher_total) || 0,
+          voucher_count: parseInt(row.voucher_count) || 0,
+        };
+      }
+    }
+
+    // Determinar cuáles pertenecen a otra cuenta
+    const matches: any[] = [];
+    const wrongAccount: any[] = [];
+
+    for (const refGroup of references) {
+      const dbMatch = dbMatches[refGroup.ref];
+      if (!dbMatch) continue;
+
+      const totalAbonos = refGroup.entries
+        .filter((e: any) => e.abono)
+        .reduce((s: number, e: any) => s + e.abono, 0);
+
+      const result = {
+        ...dbMatch,
+        bank_entries: refGroup.entries,
+        total_bank_abonos: totalAbonos,
+        payment_count: refGroup.entries.filter((e: any) => e.abono).length,
+      };
+
+      // Si la empresa_id del match no coincide con la empresa del estado de cuenta
+      if (empresa_id && dbMatch.empresa_id && dbMatch.empresa_id !== empresa_id) {
+        wrongAccount.push(result);
+      } else {
+        matches.push(result);
+      }
+    }
+
+    // Referencias no encontradas en BD
+    const unmatched = references
+      .filter((r: any) => !dbMatches[r.ref])
+      .map((r: any) => ({
+        ref: r.ref,
+        bank_entries: r.entries,
+        total_bank_abonos: r.entries.filter((e: any) => e.abono).reduce((s: number, e: any) => s + e.abono, 0),
+      }));
+
+    res.json({
+      success: true,
+      matches,
+      wrongAccount,
+      unmatched,
+      summary: {
+        total_references: references.length,
+        matched: matches.length,
+        wrong_account: wrongAccount.length,
+        unmatched: unmatched.length,
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error matching references:', error);
+    res.status(500).json({ error: 'Error buscando referencias', details: error.message });
+  }
+});
+
+// ============================================
+// AUTORIZAR PAGOS DESDE ESTADO DE CUENTA BANCARIO
+// Marca órdenes como pagadas y acredita excedente como saldo a favor
+// ============================================
+app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const adminId = (req.user as any)?.userId || (req.user as any)?.id;
+    const adminName = (req.user as any)?.full_name || req.user?.email || 'Admin';
+    const { matches } = req.body;
+    // matches = [{ ref, amount, total_bank_abonos, user_id, status, ... }]
+
+    if (!matches || !Array.isArray(matches) || matches.length === 0) {
+      return res.status(400).json({ error: 'No hay pagos para autorizar' });
+    }
+
+    const results: any[] = [];
+    const errors: any[] = [];
+
+    for (const m of matches) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+
+        // Buscar la orden de pago
+        const orderRes = await client.query(
+          `SELECT pp.*, u.full_name as cliente_nombre FROM pobox_payments pp LEFT JOIN users u ON pp.user_id = u.id WHERE pp.payment_reference = $1`,
+          [m.ref]
+        );
+
+        if (orderRes.rows.length === 0) {
+          errors.push({ ref: m.ref, error: 'Orden no encontrada' });
+          await client.query('ROLLBACK');
+          client.release();
+          continue;
+        }
+
+        const order = orderRes.rows[0];
+
+        // Skip already paid
+        if (order.status === 'paid') {
+          results.push({ ref: m.ref, status: 'already_paid', message: 'Ya estaba pagado' });
+          await client.query('ROLLBACK');
+          client.release();
+          continue;
+        }
+
+        const orderAmount = parseFloat(order.amount) || 0;
+        const bankTotal = m.total_bank_abonos || 0;
+        const surplus = Math.max(0, bankTotal - orderAmount);
+
+        // 1. Mark order as paid with surplus info
+        await client.query(`
+          UPDATE pobox_payments SET
+            status = 'paid',
+            paid_at = CURRENT_TIMESTAMP,
+            surplus_amount = $2,
+            confirmation_notes = $3
+          WHERE id = $1
+        `, [order.id, surplus, `Autorizado desde estado de cuenta bancario por ${adminName}. Banco: $${bankTotal.toFixed(2)}, Orden: $${orderAmount.toFixed(2)}`]);
+
+        // 2. Mark packages as paid
+        let packageIds: number[] = [];
+        try {
+          const parsed = typeof order.package_ids === 'string' ? JSON.parse(order.package_ids) : order.package_ids;
+          packageIds = Array.isArray(parsed) ? parsed : [];
+        } catch (e) { packageIds = []; }
+
+        if (packageIds.length > 0) {
+          await client.query(`
+            UPDATE packages SET client_paid = TRUE, client_paid_at = CURRENT_TIMESTAMP, saldo_pendiente = 0, payment_status = 'paid'
+            WHERE id = ANY($1)
+          `, [packageIds]);
+        }
+
+        // 3. Approve pending vouchers
+        await client.query(`
+          UPDATE payment_vouchers SET status = 'approved', reviewed_by = $2, reviewed_at = CURRENT_TIMESTAMP
+          WHERE payment_order_id = $1 AND status IN ('pending_review', 'pending_confirm')
+        `, [order.id, adminId]);
+
+        // 4. Financial records
+        const branchId = 6;
+        const billeteraResult = await client.query(
+          `SELECT id, saldo_actual FROM billeteras_sucursal WHERE sucursal_id = $1 AND is_default = true AND is_active = true LIMIT 1`,
+          [branchId]
+        );
+
+        if (billeteraResult.rows.length > 0) {
+          const billetera = billeteraResult.rows[0];
+          const saldoAnterior = parseFloat(billetera.saldo_actual) || 0;
+          const nuevoSaldo = saldoAnterior + orderAmount;
+
+          await client.query(`UPDATE billeteras_sucursal SET saldo_actual = $1 WHERE id = $2`, [nuevoSaldo, billetera.id]);
+
+          await client.query(`
+            INSERT INTO movimientos_financieros (
+              sucursal_id, billetera_id, tipo_movimiento, monto, monto_antes, monto_despues,
+              nota_descriptiva, referencia, usuario_id, usuario_nombre, status, created_at
+            ) VALUES ($1, $2, 'ingreso', $3, $4, $5, $6, $7, $8, $9, 'confirmado', CURRENT_TIMESTAMP)
+          `, [branchId, billetera.id, orderAmount, saldoAnterior, nuevoSaldo,
+              `Autorizado por estado de cuenta bancario - ${packageIds.length} paquete(s)`,
+              m.ref, adminId, adminName]);
+
+          await client.query(`
+            INSERT INTO caja_chica_transacciones (
+              tipo, monto, concepto, cliente_id, admin_id, admin_name,
+              saldo_despues_movimiento, categoria, notas, currency, service_type
+            ) VALUES ('ingreso', $1, $2, $3, $4, $5, $6, 'cobro_guias', $7, 'MXN', 'POBOX_USA')
+          `, [orderAmount,
+              `Pago autorizado edo. cuenta - ${packageIds.length} paquete(s) - ${order.cliente_nombre || 'Cliente'} - Ref: ${m.ref}`,
+              order.user_id, adminId, adminName, nuevoSaldo,
+              `Autorizado por ${adminName} desde estado de cuenta bancario`]);
+        }
+
+        // 5. Credit surplus to wallet if any
+        if (surplus > 0) {
+          const serviceType = 'POBOX_USA';
+          const walletRes = await client.query(`
+            INSERT INTO billetera_servicio (user_id, service_type, saldo, currency)
+            VALUES ($1, $2, $3, 'MXN')
+            ON CONFLICT (user_id, service_type) DO UPDATE SET saldo = billetera_servicio.saldo + $3, updated_at = NOW()
+            RETURNING *
+          `, [order.user_id, serviceType, surplus]);
+
+          await client.query(`
+            INSERT INTO billetera_servicio_transacciones
+            (billetera_servicio_id, user_id, service_type, tipo, monto, currency, concepto, payment_order_id, created_by)
+            VALUES ($1, $2, $3, 'excedente', $4, 'MXN', $5, $6, $7)
+          `, [walletRes.rows[0].id, order.user_id, serviceType, surplus,
+              `Excedente autorizado de orden ${m.ref} (banco: $${bankTotal.toFixed(2)}, orden: $${orderAmount.toFixed(2)})`,
+              order.id, adminId]);
+
+          await client.query(`UPDATE pobox_payments SET surplus_credited = TRUE WHERE id = $1`, [order.id]);
+        }
+
+        // 6. Update openpay_webhook_logs if exists
+        await client.query(`
+          UPDATE openpay_webhook_logs SET estatus_procesamiento = 'procesado', processed_at = CURRENT_TIMESTAMP
+          WHERE transaction_id = $1 AND estatus_procesamiento IN ('confirmed', 'pending_payment')
+        `, [m.ref]);
+
+        await client.query('COMMIT');
+
+        // Generate commissions
+        if (packageIds.length > 0) {
+          generateCommissionsForPackages(packageIds).catch(err =>
+            console.error('Error generando comisiones (authorize bank):', err)
+          );
+        }
+
+        results.push({
+          ref: m.ref,
+          status: 'authorized',
+          amount: orderAmount,
+          bank_total: bankTotal,
+          surplus,
+          surplus_credited: surplus > 0,
+          packages_count: packageIds.length,
+        });
+
+        console.log(`✅ Pago autorizado desde edo. cuenta: ${m.ref} - Orden: $${orderAmount} / Banco: $${bankTotal} / Excedente: $${surplus} por ${adminName}`);
+        client.release();
+      } catch (err: any) {
+        await client.query('ROLLBACK');
+        client.release();
+        errors.push({ ref: m.ref, error: err.message });
+        console.error(`❌ Error autorizando ${m.ref}:`, err);
+      }
+    }
+
+    res.json({
+      success: true,
+      results,
+      errors,
+      summary: {
+        authorized: results.filter(r => r.status === 'authorized').length,
+        already_paid: results.filter(r => r.status === 'already_paid').length,
+        errors: errors.length,
+      }
+    });
+  } catch (error: any) {
+    console.error('Error authorizing bank payments:', error);
+    res.status(500).json({ error: 'Error autorizando pagos', details: error.message });
   }
 });
 

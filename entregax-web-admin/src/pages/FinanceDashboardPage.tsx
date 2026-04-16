@@ -53,6 +53,8 @@ import {
   Search,
   CheckCircle,
   AccessTime,
+  AccountBalanceWallet,
+  ContentPaste,
 } from '@mui/icons-material';
 import {
   PieChart,
@@ -146,6 +148,7 @@ interface Empresa {
   rfc: string;
   openpay_merchant_id: string;
   openpay_production_mode: boolean;
+  bank_name: string | null;
   servicio_asignado: string;
   service_name: string;
 }
@@ -195,9 +198,203 @@ export default function FinanceDashboardPage() {
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [pendingPayments, setPendingPayments] = useState<any[]>([]);
   const [loadingPending, setLoadingPending] = useState(false);
+  const [voucherGallery, setVoucherGallery] = useState<{ open: boolean; payment: any; vouchers: any[]; loading: boolean }>({ open: false, payment: null, vouchers: [], loading: false });
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
 
+  // Estado de Cuenta
+  const [estadoCuentaRaw, setEstadoCuentaRaw] = useState('');
+  interface EstadoCuentaRow {
+    fecha: string;
+    concepto: string;
+    referencia: string;
+    cargo: number | null;
+    abono: number | null;
+    saldo: number;
+  }
+  const [estadoCuentaRows, setEstadoCuentaRows] = useState<EstadoCuentaRow[]>([]);
+  const [estadoCuentaBanco, setEstadoCuentaBanco] = useState('bbva');
+  const [refMatchModal, setRefMatchModal] = useState<{ open: boolean; loading: boolean; matches: any[]; wrongAccount: any[]; unmatched: any[]; summary: any } | null>(null);
+  const [confirmAuthorize, setConfirmAuthorize] = useState<{ open: boolean; toAuthorize: any[]; totalSurplus: number } | null>(null);
+
+  // Parser BBVA
+  const parseBBVA = (text: string): EstadoCuentaRow[] => {
+    const lines = text.split('\n').filter(l => l.trim());
+    const parseAmount = (s: string): number | null => {
+      if (!s || !s.trim()) return null;
+      const clean = s.trim().replace(/,/g, '').replace(/\$/g, '');
+      const num = parseFloat(clean);
+      return isNaN(num) ? null : num;
+    };
+
+    // PASS 1: Extract raw data (fecha, concepto, amount, saldo) without guessing cargo/abono
+    type RawRow = { fecha: string; concepto: string; referencia: string; amount: number | null; saldo: number; hasThreeAmounts: boolean; cargo: number | null; abono: number | null };
+    const rawRows: RawRow[] = [];
+    for (const line of lines) {
+      const match = line.match(/^(\d{2}-\d{2}-\d{4})\s+(.+?)\s{2,}/);
+      if (!match) continue;
+      const fecha = match[1];
+      const parts = line.replace(fecha, '').trim();
+      const segments = parts.split(/\t+/).length > 1
+        ? parts.split(/\t+/)
+        : parts.split(/\s{2,}/);
+      if (segments.length < 2) continue;
+      const concepto = segments[0].trim();
+      const amounts = segments.slice(1).map(s => s.trim()).filter(s => s);
+
+      let cargo: number | null = null;
+      let abono: number | null = null;
+      let saldo = 0;
+      let amount: number | null = null;
+      let hasThreeAmounts = false;
+
+      if (amounts.length === 3) {
+        // Explicit: cargo, abono, saldo (BBVA uses '-' or empty for missing)
+        cargo = parseAmount(amounts[0]);
+        abono = parseAmount(amounts[1]);
+        saldo = parseAmount(amounts[2]) || 0;
+        hasThreeAmounts = true;
+      } else if (amounts.length === 2) {
+        // amount + saldo — we don't know yet if it's cargo or abono
+        amount = parseAmount(amounts[0]);
+        saldo = parseAmount(amounts[1]) || 0;
+      } else {
+        continue;
+      }
+
+      if (hasThreeAmounts && !cargo && !abono) continue;
+      if (!hasThreeAmounts && amount === null) continue;
+
+      const slashIdx = concepto.indexOf('/');
+      const conceptoClean = slashIdx > 0 ? concepto.substring(0, slashIdx).trim() : concepto;
+      const referenciaClean = slashIdx > 0 ? concepto.substring(slashIdx + 1).trim() : '';
+
+      rawRows.push({ fecha, concepto: conceptoClean, referencia: referenciaClean, amount, saldo, hasThreeAmounts, cargo, abono });
+    }
+
+    // PASS 2: Determine cargo/abono for 2-amount rows using saldo comparison
+    // Statement is newest-first, so row[i+1] is chronologically BEFORE row[i]
+    // cargo/abono = saldo[i] - saldo[i+1]: positive = abono, negative = cargo
+    const rows: EstadoCuentaRow[] = [];
+    for (let i = 0; i < rawRows.length; i++) {
+      const r = rawRows[i];
+      if (r.hasThreeAmounts) {
+        rows.push({ fecha: r.fecha, concepto: r.concepto, referencia: r.referencia, cargo: r.cargo, abono: r.abono, saldo: r.saldo });
+        continue;
+      }
+      // Compare with next row (older = chronologically prior)
+      const olderRow = rawRows[i + 1];
+      if (olderRow) {
+        const diff = r.saldo - olderRow.saldo; // positive = saldo went up = abono
+        if (diff >= 0) {
+          rows.push({ fecha: r.fecha, concepto: r.concepto, referencia: r.referencia, cargo: null, abono: Math.abs(r.amount || diff), saldo: r.saldo });
+        } else {
+          rows.push({ fecha: r.fecha, concepto: r.concepto, referencia: r.referencia, cargo: Math.abs(r.amount || diff), abono: null, saldo: r.saldo });
+        }
+      } else {
+        // Last row (oldest) — no older row to compare, use amount as-is; default cargo
+        rows.push({ fecha: r.fecha, concepto: r.concepto, referencia: r.referencia, cargo: r.amount, abono: null, saldo: r.saldo });
+      }
+    }
+    return rows;
+  };
+
+  // Regex para detectar referencias de pago: XX-8HEXCHARS
+  const REF_PATTERN = /\b([A-Z]{2}-[A-F0-9]{8})\b/gi;
+
+  const extractReferences = (rows: EstadoCuentaRow[]): { ref: string; entries: EstadoCuentaRow[] }[] => {
+    const refMap: Record<string, EstadoCuentaRow[]> = {};
+    for (const row of rows) {
+      const text = `${row.concepto} ${row.referencia}`;
+      const found = text.match(REF_PATTERN);
+      if (found) {
+        for (const m of found) {
+          const ref = m.toUpperCase();
+          if (!refMap[ref]) refMap[ref] = [];
+          refMap[ref].push(row);
+        }
+      }
+    }
+    return Object.entries(refMap).map(([ref, entries]) => ({ ref, entries }));
+  };
+
+  const handleParseEstadoCuenta = async () => {
+    let rows: EstadoCuentaRow[] = [];
+    if (estadoCuentaBanco === 'bbva') {
+      rows = parseBBVA(estadoCuentaRaw);
+    }
+    setEstadoCuentaRows(rows);
+    if (rows.length === 0) {
+      setSnackbar({ open: true, message: '⚠️ No se pudieron extraer movimientos. Verifica el formato.', severity: 'error' });
+      return;
+    }
+
+    // Detectar referencias
+    const refs = extractReferences(rows);
+    if (refs.length === 0) {
+      setSnackbar({ open: true, message: `✅ ${rows.length} movimientos extraídos. No se detectaron referencias de pago.`, severity: 'success' });
+      return;
+    }
+
+    // Buscar en BD
+    setRefMatchModal({ open: true, loading: true, matches: [], wrongAccount: [], unmatched: [], summary: null });
+    try {
+      const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
+      const res = await api.post('/admin/finance/match-references', {
+        references: refs,
+        empresa_id: empresaFilt?.id || null,
+      });
+      if (res.data.success) {
+        setRefMatchModal({
+          open: true,
+          loading: false,
+          matches: res.data.matches || [],
+          wrongAccount: res.data.wrongAccount || [],
+          unmatched: res.data.unmatched || [],
+          summary: res.data.summary,
+        });
+      }
+    } catch (err) {
+      console.error('Error matching refs:', err);
+      setRefMatchModal(null);
+      setSnackbar({ open: true, message: `✅ ${rows.length} movimientos extraídos. Error buscando referencias.`, severity: 'error' });
+    }
+  };
+
+  const handleAutorizarBankPayments = () => {
+    if (!refMatchModal?.matches?.length) return;
+    const toAuthorize = refMatchModal.matches.filter((m: any) => m.status !== 'paid' && m.total_bank_abonos >= m.amount);
+    if (toAuthorize.length === 0) {
+      setSnackbar({ open: true, message: 'No hay pagos pendientes que autorizar (todos pagados o monto insuficiente)', severity: 'info' });
+      return;
+    }
+    const totalSurplus = toAuthorize.reduce((s: number, m: any) => s + Math.max(0, m.total_bank_abonos - m.amount), 0);
+    setConfirmAuthorize({ open: true, toAuthorize, totalSurplus });
+  };
+
+  const executeAutorizarBankPayments = async () => {
+    if (!confirmAuthorize?.toAuthorize?.length) return;
+    const toAuthorize = confirmAuthorize.toAuthorize;
+    setConfirmAuthorize(null);
+    setRefMatchModal(prev => prev ? { ...prev, loading: true } : prev);
+    try {
+      const res = await api.post('/admin/finance/authorize-bank-payments', { matches: toAuthorize });
+      const { summary, results, errors: errs } = res.data;
+      let msg = `✅ ${summary.authorized} pago(s) autorizado(s)`;
+      if (summary.already_paid > 0) msg += `, ${summary.already_paid} ya pagado(s)`;
+      if (summary.errors > 0) msg += `, ${summary.errors} error(es)`;
+      const totalSurplus = results.filter((r: any) => r.surplus > 0).reduce((s: number, r: any) => s + r.surplus, 0);
+      if (totalSurplus > 0) msg += `. Excedente acreditado: $${totalSurplus.toFixed(2)}`;
+      setSnackbar({ open: true, message: msg, severity: summary.errors > 0 ? 'warning' : 'success' });
+      setRefMatchModal(null);
+    } catch (err: any) {
+      console.error('Error authorizing:', err);
+      setSnackbar({ open: true, message: 'Error al autorizar pagos: ' + (err.response?.data?.error || err.message), severity: 'error' });
+      setRefMatchModal(prev => prev ? { ...prev, loading: false } : prev);
+    }
+  };
+
   const token = localStorage.getItem('token') || '';
+  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
 
   const fetchDashboard = useCallback(async () => {
     setLoading(true);
@@ -751,17 +948,39 @@ export default function FinanceDashboardPage() {
                       </Typography>
                     </TableCell>
                     <TableCell align="center">
-                      <Button
-                        variant="contained"
-                        size="small"
-                        color="success"
-                        startIcon={<CheckCircle />}
-                        onClick={() => {
-                          setFoundPayment(payment);
-                        }}
-                      >
-                        Confirmar
-                      </Button>
+                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                        {payment.source === 'pobox' && (
+                          <Tooltip title="Ver comprobantes de pago" arrow>
+                            <Button
+                              variant="outlined"
+                              size="small"
+                              sx={{ minWidth: 'auto', px: 1, borderColor: '#1565C0', color: '#1565C0', fontSize: '0.7rem' }}
+                              onClick={async () => {
+                                setVoucherGallery({ open: true, payment, vouchers: [], loading: true });
+                                try {
+                                  const res = await api.get(`/admin/vouchers/order/${payment.id}`);
+                                  setVoucherGallery(prev => ({ ...prev, vouchers: res.data.vouchers || [], loading: false }));
+                                } catch (e) {
+                                  setVoucherGallery(prev => ({ ...prev, loading: false }));
+                                }
+                              }}
+                            >
+                              🖼️ {payment.voucher_count || 0}
+                            </Button>
+                          </Tooltip>
+                        )}
+                        <Button
+                          variant="contained"
+                          size="small"
+                          color="success"
+                          startIcon={<CheckCircle />}
+                          onClick={() => {
+                            setFoundPayment(payment);
+                          }}
+                        >
+                          Confirmar
+                        </Button>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ))
@@ -780,8 +999,21 @@ export default function FinanceDashboardPage() {
         </TableContainer>
       </Paper>
 
+      {/* Tabs siempre visibles */}
+      <Paper sx={{ borderRadius: 3, mb: 3 }}>
+        <Tabs 
+          value={tabValue} 
+          onChange={(_, v) => setTabValue(v)}
+          sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
+        >
+          <Tab icon={<TrendingUp />} label="Consolidado" />
+          <Tab icon={<Receipt />} label="Transacciones" />
+          <Tab icon={<AccountBalanceWallet />} label="Estado de Cuenta" />
+        </Tabs>
+      </Paper>
+
       {/* Si hay filtro de servicio activo, mostrar solo transacciones */}
-      {filterServicio !== 'all' ? (
+      {filterServicio !== 'all' && tabValue <= 1 ? (
         <>
           {/* Header con empresa asignada */}
           <Paper sx={{ borderRadius: 3, overflow: 'hidden', mb: 3 }}>
@@ -937,17 +1169,6 @@ export default function FinanceDashboardPage() {
       ) : (
         <>
           {/* Vista normal con TABS cuando no hay filtro de servicio */}
-          <Paper sx={{ borderRadius: 3, mb: 3 }}>
-            <Tabs 
-              value={tabValue} 
-              onChange={(_, v) => setTabValue(v)}
-              sx={{ borderBottom: 1, borderColor: 'divider', px: 2 }}
-            >
-              <Tab icon={<TrendingUp />} label="Consolidado" />
-              <Tab icon={<Receipt />} label="Transacciones" />
-            </Tabs>
-          </Paper>
-
       {/* TAB 0: Vista Consolidada (Transacciones) */}
       {tabValue === 0 && (
         <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
@@ -1127,6 +1348,426 @@ export default function FinanceDashboardPage() {
       </>
       )}
 
+      {/* TAB 2: Estado de Cuenta - siempre visible independiente del filtro */}
+      {tabValue === 2 && (() => {
+        // Detectar banco automáticamente si hay filtro de servicio
+        const empresaFiltrada = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
+        const bancoDetectado = empresaFiltrada?.bank_name
+          ? empresaFiltrada.bank_name.toLowerCase().includes('bbva') ? 'bbva'
+            : empresaFiltrada.bank_name.toLowerCase().includes('banorte') ? 'banorte'
+            : empresaFiltrada.bank_name.toLowerCase().includes('hsbc') ? 'hsbc'
+            : empresaFiltrada.bank_name.toLowerCase().includes('santander') ? 'santander'
+            : 'bbva'
+          : null;
+        const bancoActivo = bancoDetectado || estadoCuentaBanco;
+        const bancoFijo = !!bancoDetectado;
+
+        return filterServicio === 'all' && !empresaFiltrada ? (
+          // Sin filtro: mostrar selector de servicio
+          <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
+            <Box sx={{ bgcolor: '#1565C0', color: 'white', px: 3, py: 2 }}>
+              <Typography variant="h6" fontWeight="bold">🏦 Estado de Cuenta Bancario</Typography>
+            </Box>
+            <Box sx={{ p: 4, textAlign: 'center' }}>
+              <AccountBalanceWallet sx={{ fontSize: 64, color: 'grey.300', mb: 2 }} />
+              <Typography variant="h6" gutterBottom>Selecciona un servicio</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                Para cargar un estado de cuenta, primero filtra por el servicio correspondiente usando el filtro de la parte superior.
+                El banco se detectará automáticamente según la empresa configurada.
+              </Typography>
+              <Grid container spacing={2} justifyContent="center" sx={{ maxWidth: 600, mx: 'auto' }}>
+                {(data?.empresas || []).filter(e => e.bank_name).map((emp) => (
+                  <Grid item xs={12} sm={6} key={emp.id}>
+                    <Card 
+                      sx={{ cursor: 'pointer', border: '2px solid transparent', '&:hover': { borderColor: '#1565C0', bgcolor: '#E3F2FD' }, borderRadius: 2 }}
+                      onClick={() => setFilterServicio(emp.servicio_asignado)}
+                    >
+                      <CardContent sx={{ textAlign: 'center', py: 2 }}>
+                        <Typography variant="subtitle1" fontWeight="bold">{emp.alias}</Typography>
+                        <Chip label={SERVICE_LABELS[emp.servicio_asignado]?.label || emp.servicio_asignado} size="small" sx={{ bgcolor: SERVICE_LABELS[emp.servicio_asignado]?.color || '#666', color: 'white', my: 0.5 }} />
+                        <Typography variant="body2" color="text.secondary">🏦 {emp.bank_name}</Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                ))}
+              </Grid>
+            </Box>
+          </Paper>
+        ) : (
+        <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
+          {/* Header */}
+          <Box sx={{ bgcolor: '#1565C0', color: 'white', px: 3, py: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box>
+              <Typography variant="h6" fontWeight="bold">🏦 Estado de Cuenta Bancario</Typography>
+              {empresaFiltrada && (
+                <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                  {empresaFiltrada.alias} • {empresaFiltrada.bank_name} • RFC: {empresaFiltrada.rfc}
+                </Typography>
+              )}
+            </Box>
+            <Chip
+              icon={<AccountBalance />}
+              label={bancoActivo.toUpperCase()}
+              sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontWeight: 'bold', fontSize: '0.9rem' }}
+            />
+          </Box>
+
+          <Box sx={{ p: 3 }}>
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <strong>Instrucciones:</strong> Copia las líneas del estado de cuenta de <strong>{bancoActivo.toUpperCase()}</strong> desde tu banca en línea y pégalas en el campo de abajo. El sistema extraerá automáticamente los movimientos.
+              {bancoFijo && <><br/><em>Banco detectado automáticamente desde la configuración de {empresaFiltrada?.alias}.</em></>}
+            </Alert>
+
+            <TextField
+              multiline
+              rows={6}
+              fullWidth
+              placeholder={`Pega aquí el estado de cuenta de ${bancoActivo.toUpperCase()}...\n\nEjemplo BBVA:\n15-04-2026\tSPEI RECIBIDO...\t\t189,250.00\t925,709.37`}
+              value={estadoCuentaRaw}
+              onChange={(e) => setEstadoCuentaRaw(e.target.value)}
+              sx={{ mb: 2, fontFamily: 'monospace', '& textarea': { fontSize: '0.8rem' } }}
+            />
+
+            <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+              <Button
+                variant="contained"
+                startIcon={<ContentPaste />}
+                onClick={handleParseEstadoCuenta}
+                disabled={!estadoCuentaRaw.trim()}
+                sx={{ bgcolor: '#1565C0', '&:hover': { bgcolor: '#0D47A1' } }}
+              >
+                Extraer Movimientos
+              </Button>
+              {estadoCuentaRows.length > 0 && currentUser?.role === 'super_admin' && (
+                <Button
+                  variant="outlined"
+                  color="error"
+                  onClick={() => { setEstadoCuentaRows([]); setEstadoCuentaRaw(''); }}
+                >
+                  Limpiar
+                </Button>
+              )}
+            </Box>
+
+            {/* Results */}
+            {estadoCuentaRows.length > 0 && (
+              <>
+                {/* Summary cards */}
+                <Grid container spacing={2} sx={{ mb: 3 }}>
+                  <Grid item xs={12} sm={4}>
+                    <Card sx={{ bgcolor: '#E8F5E9', borderRadius: 2 }}>
+                      <CardContent sx={{ py: 1.5 }}>
+                        <Typography variant="caption" color="text.secondary">Total Abonos</Typography>
+                        <Typography variant="h6" fontWeight="bold" color="success.main">
+                          {formatCurrency(estadoCuentaRows.reduce((s, r) => s + (r.abono || 0), 0))}
+                        </Typography>
+                        <Typography variant="caption">{estadoCuentaRows.filter(r => r.abono).length} movimientos</Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <Card sx={{ bgcolor: '#FFEBEE', borderRadius: 2 }}>
+                      <CardContent sx={{ py: 1.5 }}>
+                        <Typography variant="caption" color="text.secondary">Total Cargos</Typography>
+                        <Typography variant="h6" fontWeight="bold" color="error.main">
+                          {formatCurrency(estadoCuentaRows.reduce((s, r) => s + (r.cargo || 0), 0))}
+                        </Typography>
+                        <Typography variant="caption">{estadoCuentaRows.filter(r => r.cargo).length} movimientos</Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <Card sx={{ bgcolor: '#E3F2FD', borderRadius: 2 }}>
+                      <CardContent sx={{ py: 1.5 }}>
+                        <Typography variant="caption" color="text.secondary">Saldo Final</Typography>
+                        <Typography variant="h6" fontWeight="bold" color="primary">
+                          {formatCurrency(estadoCuentaRows[0]?.saldo || 0)}
+                        </Typography>
+                        <Typography variant="caption">{estadoCuentaRows.length} movimientos totales</Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                </Grid>
+
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ bgcolor: '#263238' }}>
+                        <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>FECHA</TableCell>
+                        <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>CONCEPTO</TableCell>
+                        <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>REFERENCIA</TableCell>
+                        <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">CARGO</TableCell>
+                        <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">ABONO</TableCell>
+                        <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="right">SALDO</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {estadoCuentaRows.map((row, idx) => (
+                        <TableRow key={idx} hover sx={{ bgcolor: row.abono ? 'rgba(39,174,96,0.04)' : row.cargo ? 'rgba(231,76,60,0.04)' : 'inherit' }}>
+                          <TableCell>
+                            <Typography variant="body2" fontFamily="monospace">{row.fecha}</Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2" fontWeight="500">
+                              {row.concepto}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="caption" fontFamily="monospace" color="text.secondary" sx={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
+                              {row.referencia || '-'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            {row.cargo ? (
+                              <Typography variant="body2" color="error.main" fontWeight="bold">
+                                -{formatCurrency(row.cargo)}
+                              </Typography>
+                            ) : '-'}
+                          </TableCell>
+                          <TableCell align="right">
+                            {row.abono ? (
+                              <Typography variant="body2" color="success.main" fontWeight="bold">
+                                +{formatCurrency(row.abono)}
+                              </Typography>
+                            ) : '-'}
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" fontWeight="bold">
+                              {formatCurrency(row.saldo)}
+                            </Typography>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </>
+            )}
+
+            {estadoCuentaRows.length === 0 && !estadoCuentaRaw && (
+              <Box sx={{ textAlign: 'center', py: 6, color: 'text.secondary' }}>
+                <AccountBalanceWallet sx={{ fontSize: 64, color: 'grey.300', mb: 2 }} />
+                <Typography variant="h6">Pega tu estado de cuenta aquí</Typography>
+                <Typography variant="body2">Copia los movimientos desde tu banca en línea de {bancoActivo.toUpperCase()} y el sistema los extraerá automáticamente</Typography>
+              </Box>
+            )}
+          </Box>
+        </Paper>
+        );
+      })()}
+
+      {/* Dialog de referencias detectadas */}
+      <Dialog
+        open={!!refMatchModal?.open}
+        onClose={() => setRefMatchModal(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: '#1565C0', color: 'white' }}>
+          🔍 Referencias Detectadas en Estado de Cuenta
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2, mt: 1 }}>
+          {refMatchModal?.loading ? (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+              <CircularProgress />
+              <Typography sx={{ mt: 2 }}>Buscando referencias en el sistema...</Typography>
+            </Box>
+          ) : (
+            <>
+              {/* Resumen */}
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                <Grid item xs={4}>
+                  <Card sx={{ bgcolor: '#E8F5E9', borderRadius: 2 }}>
+                    <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
+                      <Typography variant="h4" fontWeight="bold" color="success.main">{refMatchModal?.summary?.matched || 0}</Typography>
+                      <Typography variant="caption">Coincidencias</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={4}>
+                  <Card sx={{ bgcolor: '#FFF3E0', borderRadius: 2 }}>
+                    <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
+                      <Typography variant="h4" fontWeight="bold" color="warning.main">{refMatchModal?.summary?.wrong_account || 0}</Typography>
+                      <Typography variant="caption">Cuenta incorrecta</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+                <Grid item xs={4}>
+                  <Card sx={{ bgcolor: '#FFEBEE', borderRadius: 2 }}>
+                    <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
+                      <Typography variant="h4" fontWeight="bold" color="error.main">{refMatchModal?.summary?.unmatched || 0}</Typography>
+                      <Typography variant="caption">Sin coincidencia</Typography>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+
+              {/* Coincidencias correctas */}
+              {(refMatchModal?.matches || []).length > 0 && (
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle1" fontWeight="bold" sx={{ mb: 1 }}>✅ Referencias encontradas</Typography>
+                  {refMatchModal!.matches.map((m: any, idx: number) => (
+                    <Paper key={idx} sx={{ p: 2, mb: 1.5, border: '1px solid #c8e6c9', borderRadius: 2, bgcolor: '#f9fbe7' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Box>
+                          <Chip label={m.ref} size="small" sx={{ fontFamily: 'monospace', fontWeight: 'bold', bgcolor: '#1565C0', color: 'white', mr: 1 }} />
+                          <Typography variant="body2" component="span" fontWeight="bold">{m.cliente}</Typography>
+                          {m.box_id && <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>📦 {m.box_id}</Typography>}
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+                          <Chip
+                            label={m.status === 'paid' ? 'Pagado' : m.status === 'vouchers_submitted' ? 'Comprobantes enviados' : m.status}
+                            size="small"
+                            color={m.status === 'paid' ? 'success' : 'warning'}
+                          />
+                          {m.status !== 'paid' && m.total_bank_abonos < m.amount && (
+                            <Chip label="⚠️ Pago insuficiente" size="small" sx={{ bgcolor: '#d32f2f', color: 'white', fontWeight: 'bold' }} />
+                          )}
+                        </Box>
+                      </Box>
+                      <Divider sx={{ my: 1 }} />
+                      <Grid container spacing={2}>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">Monto orden</Typography>
+                          <Typography variant="body1" fontWeight="bold">{formatCurrency(m.amount)}</Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">Total abonos banco ({m.payment_count} pago{m.payment_count !== 1 ? 's' : ''})</Typography>
+                          <Typography variant="body1" fontWeight="bold" color="success.main">{formatCurrency(m.total_bank_abonos)}</Typography>
+                        </Grid>
+                        <Grid item xs={4}>
+                          <Typography variant="caption" color="text.secondary">Diferencia</Typography>
+                          <Typography variant="body1" fontWeight="bold" color={m.total_bank_abonos >= m.amount ? 'success.main' : 'error.main'}>
+                            {formatCurrency(m.total_bank_abonos - m.amount)}
+                          </Typography>
+                        </Grid>
+                      </Grid>
+                      {/* Detalle de pagos */}
+                      {m.bank_entries.filter((e: any) => e.abono).length > 1 && (
+                        <Box sx={{ mt: 1.5 }}>
+                          <Typography variant="caption" fontWeight="bold">Detalle de abonos:</Typography>
+                          {m.bank_entries.filter((e: any) => e.abono).map((e: any, i: number) => (
+                            <Box key={i} sx={{ display: 'flex', justifyContent: 'space-between', pl: 1, py: 0.3 }}>
+                              <Typography variant="caption">{e.fecha} - {e.concepto}</Typography>
+                              <Typography variant="caption" fontWeight="bold" color="success.main">+{formatCurrency(e.abono)}</Typography>
+                            </Box>
+                          ))}
+                        </Box>
+                      )}
+                    </Paper>
+                  ))}
+                </Box>
+              )}
+
+              {/* Referencias de cuenta incorrecta */}
+              {(refMatchModal?.wrongAccount || []).length > 0 && (
+                <Box sx={{ mb: 3 }}>
+                  <Alert severity="warning" sx={{ mb: 1 }}>
+                    <strong>⚠️ Referencias de otra cuenta bancaria</strong> — Estos pagos pertenecen a otro servicio/empresa
+                  </Alert>
+                  {refMatchModal!.wrongAccount.map((m: any, idx: number) => (
+                    <Paper key={idx} sx={{ p: 2, mb: 1.5, border: '2px solid #ff9800', borderRadius: 2, bgcolor: '#fff8e1' }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Box>
+                          <Chip label={m.ref} size="small" sx={{ fontFamily: 'monospace', fontWeight: 'bold', bgcolor: '#ff9800', color: 'white', mr: 1 }} />
+                          <Typography variant="body2" component="span" fontWeight="bold">{m.cliente}</Typography>
+                          <Chip label={m.service_type || 'Otro servicio'} size="small" sx={{ ml: 1, bgcolor: '#e65100', color: 'white' }} />
+                        </Box>
+                        <Typography variant="body1" fontWeight="bold" color="warning.main">{formatCurrency(m.total_bank_abonos)}</Typography>
+                      </Box>
+                    </Paper>
+                  ))}
+                </Box>
+              )}
+
+              {/* Sin coincidencia */}
+              {(refMatchModal?.unmatched || []).length > 0 && (
+                <Box>
+                  <Typography variant="subtitle1" fontWeight="bold" color="text.secondary" sx={{ mb: 1 }}>❓ Referencias no encontradas</Typography>
+                  {refMatchModal!.unmatched.map((m: any, idx: number) => (
+                    <Paper key={idx} sx={{ p: 1.5, mb: 1, border: '1px solid #e0e0e0', borderRadius: 2 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Chip label={m.ref} size="small" sx={{ fontFamily: 'monospace', fontWeight: 'bold' }} />
+                        <Typography variant="body2" color="text.secondary">{formatCurrency(m.total_bank_abonos)} en abonos</Typography>
+                      </Box>
+                    </Paper>
+                  ))}
+                </Box>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setRefMatchModal(null)}>Cerrar</Button>
+          {(refMatchModal?.matches || []).some((m: any) => m.status !== 'paid' && m.total_bank_abonos >= m.amount) && (
+            <Button
+              variant="contained"
+              color="success"
+              onClick={handleAutorizarBankPayments}
+              disabled={refMatchModal?.loading}
+              startIcon={refMatchModal?.loading ? <CircularProgress size={18} /> : undefined}
+            >
+              ✅ Autorizar {refMatchModal?.matches?.filter((m: any) => m.status !== 'paid' && m.total_bank_abonos >= m.amount).length} pago(s)
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog confirmar autorización de pagos bancarios */}
+      <Dialog
+        open={!!confirmAuthorize?.open}
+        onClose={() => setConfirmAuthorize(null)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ bgcolor: '#2e7d32', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <CheckCircle />
+          Confirmar Autorización de Pagos
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Se procesarán <strong>{confirmAuthorize?.toAuthorize?.length || 0} orden(es) de pago</strong> detectadas en el estado de cuenta bancario.
+          </Alert>
+          {(confirmAuthorize?.totalSurplus || 0) > 0 && (
+            <Alert severity="success" icon={false} sx={{ mt: 1 }}>
+              💰 Se acreditará <strong>${confirmAuthorize!.totalSurplus.toFixed(2)} MXN</strong> como saldo a favor a los clientes correspondientes.
+            </Alert>
+          )}
+          {/* Detail per order */}
+          <Box sx={{ mt: 2 }}>
+            {confirmAuthorize?.toAuthorize?.map((m: any, i: number) => (
+              <Paper key={i} sx={{ p: 1.5, mb: 1, bgcolor: '#f1f8e9', border: '1px solid #c8e6c9', borderRadius: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Chip label={m.ref} size="small" sx={{ fontFamily: 'monospace', fontWeight: 'bold', bgcolor: '#1565C0', color: 'white' }} />
+                    <Typography variant="body2" fontWeight="bold">{m.cliente}</Typography>
+                  </Box>
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="body2">Orden: <strong>${Number(m.amount).toLocaleString('en', { minimumFractionDigits: 2 })}</strong></Typography>
+                    <Typography variant="caption" color="success.main">Banco: ${Number(m.total_bank_abonos).toLocaleString('en', { minimumFractionDigits: 2 })}</Typography>
+                  </Box>
+                </Box>
+              </Paper>
+            ))}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+          <Button onClick={() => setConfirmAuthorize(null)} variant="outlined" color="inherit">
+            Cancelar
+          </Button>
+          <Button
+            onClick={executeAutorizarBankPayments}
+            variant="contained"
+            color="success"
+            size="large"
+            sx={{ fontWeight: 'bold', px: 4 }}
+          >
+            ✅ Confirmar y Autorizar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Dialog para confirmar pago */}
       <Dialog 
         open={!!foundPayment} 
@@ -1237,6 +1878,95 @@ export default function FinanceDashboardPage() {
       </Dialog>
 
       {/* Snackbar de notificaciones */}
+
+      {/* Dialog: Galería de Comprobantes */}
+      <Dialog
+        open={voucherGallery.open}
+        onClose={() => setVoucherGallery({ open: false, payment: null, vouchers: [], loading: false })}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ bgcolor: '#1565C0', color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box>
+            <Typography variant="h6" fontWeight="bold">🖼️ Comprobantes de Pago</Typography>
+            <Typography variant="body2" sx={{ opacity: 0.9 }}>
+              {voucherGallery.payment?.referencia} — {voucherGallery.payment?.cliente}
+            </Typography>
+          </Box>
+          <Chip label={`${voucherGallery.vouchers.length} comprobante(s)`} sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontWeight: 'bold' }} />
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          {voucherGallery.loading ? (
+            <Box sx={{ textAlign: 'center', py: 6 }}>
+              <CircularProgress />
+              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>Cargando comprobantes...</Typography>
+            </Box>
+          ) : voucherGallery.vouchers.length === 0 ? (
+            <Box sx={{ textAlign: 'center', py: 6 }}>
+              <Typography variant="h6" color="text.secondary">Sin comprobantes</Typography>
+            </Box>
+          ) : (
+            <Box>
+              {/* Summary */}
+              <Paper sx={{ p: 2, mb: 3, bgcolor: '#E3F2FD', border: '1px solid #90CAF9', borderRadius: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Total Orden</Typography>
+                    <Typography variant="h6" fontWeight="bold">${Number(voucherGallery.payment?.monto || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
+                  </Box>
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="caption" color="text.secondary">Acumulado en comprobantes</Typography>
+                    <Typography variant="h6" fontWeight="bold" color="#2E7D32">
+                      ${voucherGallery.vouchers.reduce((s: number, v: any) => s + (Number(v.declared_amount) || 0), 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                    </Typography>
+                  </Box>
+                </Box>
+              </Paper>
+              {/* Grid of voucher images */}
+              <Grid container spacing={2}>
+                {voucherGallery.vouchers.map((v: any, idx: number) => (
+                  <Grid item xs={12} sm={6} key={v.id}>
+                    <Paper sx={{ borderRadius: 2, overflow: 'hidden', border: '1px solid #e0e0e0' }}>
+                      <Box
+                        component="img"
+                        src={v.file_url}
+                        alt={`Comprobante ${idx + 1}`}
+                        sx={{ width: '100%', maxHeight: 400, objectFit: 'contain', bgcolor: '#f5f5f5', cursor: 'pointer' }}
+                        onClick={() => window.open(v.file_url, '_blank')}
+                      />
+                      <Box sx={{ p: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Box>
+                          <Typography variant="body2" fontWeight="bold">Comprobante #{idx + 1}</Typography>
+                          <Typography variant="body2" color="success.main" fontWeight="bold">
+                            ${Number(v.declared_amount || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ textAlign: 'right' }}>
+                          <Chip
+                            size="small"
+                            label={v.status === 'pending_review' ? '⏳ Por revisar' : v.status === 'approved' ? '✅ Aprobado' : v.status === 'rejected' ? '❌ Rechazado' : v.status}
+                            sx={{ fontSize: '0.7rem', fontWeight: 'bold', bgcolor: v.status === 'approved' ? '#E8F5E9' : v.status === 'rejected' ? '#FFEBEE' : '#FFF3E0', color: v.status === 'approved' ? '#2E7D32' : v.status === 'rejected' ? '#C62828' : '#E65100' }}
+                          />
+                          <Typography variant="caption" display="block" color="text.secondary">
+                            {new Date(v.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </Paper>
+                  </Grid>
+                ))}
+              </Grid>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setVoucherGallery({ open: false, payment: null, vouchers: [], loading: false })}>
+            Cerrar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Snackbar
         open={snackbar.open}
         autoHideDuration={5000}

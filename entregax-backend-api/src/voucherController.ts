@@ -6,11 +6,11 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
-import { uploadToS3 } from './s3Service';
+import { uploadToS3, getSignedUrlForKey } from './s3Service';
 import { extractAmountFromReceipt, isOcrAvailable } from './ocrService';
 
 interface AuthRequest extends Request {
-  user?: { id: number; email: string; role?: string; level?: number };
+  user?: { userId: number; email: string; role?: string; level?: number };
 }
 
 // ============================================================
@@ -24,7 +24,7 @@ interface AuthRequest extends Request {
  */
 export const uploadVoucher = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
     const file = (req as any).file;
@@ -107,6 +107,9 @@ export const uploadVoucher = async (req: AuthRequest, res: Response) => {
 
     const voucher = insertResult.rows[0];
 
+    // Generate signed URL for the uploaded file
+    const signedFileUrl = await getSignedUrlForKey(s3Key, 3600);
+
     // Calculate remaining
     const remaining = Number(order.amount) - Number(order.voucher_total || 0);
 
@@ -114,8 +117,9 @@ export const uploadVoucher = async (req: AuthRequest, res: Response) => {
       success: true,
       voucher: {
         id: voucher.id,
-        file_url: fileUrl,
+        file_url: signedFileUrl,
         file_type: fileType,
+        status: 'pending_confirm',
         detected_amount: ocrResult.detected_amount,
         confidence: ocrResult.confidence,
         all_amounts: ocrResult.all_amounts,
@@ -141,7 +145,7 @@ export const uploadVoucher = async (req: AuthRequest, res: Response) => {
  */
 export const confirmVoucherAmount = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
     const { voucher_id, declared_amount } = req.body;
@@ -179,15 +183,17 @@ export const confirmVoucherAmount = async (req: AuthRequest, res: Response) => {
 
     // Update order accumulated total
     const newTotal = Number(voucher.voucher_total || 0) + amount;
+    const orderTotal = Number(voucher.order_amount);
+    const coversTotal = newTotal >= orderTotal;
+    const newStatus = coversTotal ? 'vouchers_submitted' : 'vouchers_partial';
     await pool.query(
       `UPDATE pobox_payments 
        SET voucher_total = $1, voucher_count = COALESCE(voucher_count, 0) + 1,
-           status = CASE WHEN status = 'pending_payment' THEN 'vouchers_submitted' ELSE status END
+           status = CASE WHEN status IN ('pending_payment', 'vouchers_partial') THEN $3 ELSE status END
        WHERE id = $2`,
-      [newTotal, voucher.payment_order_id]
+      [newTotal, voucher.payment_order_id, newStatus]
     );
 
-    const orderTotal = Number(voucher.order_amount);
     const remaining = orderTotal - newTotal;
     const isComplete = remaining <= 0;
     const surplus = isComplete ? Math.abs(remaining) : 0;
@@ -220,7 +226,7 @@ export const confirmVoucherAmount = async (req: AuthRequest, res: Response) => {
 export const completeVoucherPayment = async (req: AuthRequest, res: Response) => {
   const client = await pool.connect();
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
     const { payment_order_id } = req.body;
@@ -337,13 +343,13 @@ export const completeVoucherPayment = async (req: AuthRequest, res: Response) =>
  */
 export const getOrderVouchers = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
     const { orderId } = req.params;
 
     const result = await pool.query(
-      `SELECT v.id, v.file_url, v.file_type, v.detected_amount, v.declared_amount,
+      `SELECT v.id, v.file_url, v.file_key, v.file_type, v.detected_amount, v.declared_amount,
               v.currency, v.status, v.ocr_confidence, v.created_at,
               v.rejection_reason
        FROM payment_vouchers v
@@ -364,8 +370,20 @@ export const getOrderVouchers = async (req: AuthRequest, res: Response) => {
     }
     const order = orderRes.rows[0];
 
+    // Generate signed URLs for each voucher
+    const vouchersWithSignedUrls = await Promise.all(
+      result.rows.map(async (v: any) => {
+        if (v.file_key) {
+          try {
+            v.file_url = await getSignedUrlForKey(v.file_key, 3600);
+          } catch (e) { /* keep original */ }
+        }
+        return v;
+      })
+    );
+
     return res.json({
-      vouchers: result.rows,
+      vouchers: vouchersWithSignedUrls,
       order: {
         total: Number(order.amount),
         accumulated: Number(order.voucher_total || 0),
@@ -389,7 +407,7 @@ export const getOrderVouchers = async (req: AuthRequest, res: Response) => {
 export const deleteVoucher = async (req: AuthRequest, res: Response) => {
   const dbClient = await pool.connect();
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
     const { voucherId } = req.params;
@@ -496,7 +514,7 @@ export const getAdminOrderVouchers = async (req: AuthRequest, res: Response) => 
     const { orderId } = req.params;
 
     const vouchers = await pool.query(
-      `SELECT v.*, u.name as user_name, u.email as user_email
+      `SELECT v.*, v.file_key, u.full_name as user_name, u.email as user_email
        FROM payment_vouchers v
        JOIN users u ON u.id = v.user_id
        WHERE v.payment_order_id = $1
@@ -505,7 +523,7 @@ export const getAdminOrderVouchers = async (req: AuthRequest, res: Response) => 
     );
 
     const order = await pool.query(
-      `SELECT p.*, u.name as user_name, u.email as user_email, u.pobox_code
+      `SELECT p.*, u.full_name as user_name, u.email as user_email, u.box_id as pobox_code
        FROM pobox_payments p
        JOIN users u ON u.id = p.user_id
        WHERE p.id = $1`,
@@ -516,9 +534,21 @@ export const getAdminOrderVouchers = async (req: AuthRequest, res: Response) => 
       return res.status(404).json({ error: 'Orden no encontrada' });
     }
 
+    // Generate signed URLs for voucher images
+    const vouchersWithUrls = await Promise.all(
+      vouchers.rows.map(async (v: any) => {
+        if (v.file_key) {
+          try {
+            v.file_url = await getSignedUrlForKey(v.file_key);
+          } catch (e) { /* keep original url */ }
+        }
+        return v;
+      })
+    );
+
     return res.json({
       order: order.rows[0],
-      vouchers: vouchers.rows,
+      vouchers: vouchersWithUrls,
     });
   } catch (error: any) {
     console.error('[VOUCHER-ADMIN] Order vouchers error:', error);
@@ -532,7 +562,7 @@ export const getAdminOrderVouchers = async (req: AuthRequest, res: Response) => 
  */
 export const approveVoucher = async (req: AuthRequest, res: Response) => {
   try {
-    const adminId = req.user?.id;
+    const adminId = req.user?.userId;
     const { id } = req.params;
 
     const result = await pool.query(
@@ -624,7 +654,7 @@ export const approveVoucher = async (req: AuthRequest, res: Response) => {
 export const rejectVoucher = async (req: AuthRequest, res: Response) => {
   const dbClient = await pool.connect();
   try {
-    const adminId = req.user?.id;
+    const adminId = req.user?.userId;
     const { id } = req.params;
     const { reason } = req.body;
 
@@ -749,7 +779,7 @@ export const getVoucherStats = async (req: AuthRequest, res: Response) => {
  */
 export const getServiceWalletBalances = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
     const result = await pool.query(

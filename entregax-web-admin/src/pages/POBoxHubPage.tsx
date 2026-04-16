@@ -1337,15 +1337,31 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                                 />
                                             </Grid>
                                             <Grid size={{ xs: 12, sm: 3 }}>
-                                                <Button 
-                                                    fullWidth 
-                                                    variant="contained" 
-                                                    startIcon={<AddIcon />} 
-                                                    onClick={handleAddBulkBox}
-                                                    sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)`, py: 1.5 }}
-                                                >
-                                                    Agregar Caja
-                                                </Button>
+                                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                                    <Button 
+                                                        fullWidth 
+                                                        variant="contained" 
+                                                        startIcon={<AddIcon />} 
+                                                        onClick={handleAddBulkBox}
+                                                        sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)`, py: 1.5 }}
+                                                    >
+                                                        Agregar Caja
+                                                    </Button>
+                                                    {bulkBoxes.length > 0 && (
+                                                        <Button
+                                                            fullWidth
+                                                            variant="outlined"
+                                                            size="small"
+                                                            sx={{ borderColor: '#9C27B0', color: '#9C27B0', fontSize: '0.7rem', py: 0.5, '&:hover': { bgcolor: '#F3E5F5', borderColor: '#7B1FA2' } }}
+                                                            onClick={() => {
+                                                                const last = bulkBoxes[bulkBoxes.length - 1];
+                                                                setBulkCurrentBox(p => ({ ...p, weight: last.weight, length: last.length, width: last.width, height: last.height }));
+                                                            }}
+                                                        >
+                                                            📋 Copiar medidas anterior
+                                                        </Button>
+                                                    )}
+                                                </Box>
                                             </Grid>
                                         </Grid>
                                     </Card>

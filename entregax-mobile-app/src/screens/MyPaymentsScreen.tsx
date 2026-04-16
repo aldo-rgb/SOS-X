@@ -10,9 +10,14 @@ import {
   Clipboard,
   ActivityIndicator,
   Modal,
+  Image,
+  TextInput,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { API_URL } from '../services/api';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { 
   getPendingPaymentsApi, 
@@ -90,12 +95,22 @@ const MyPaymentsScreen = () => {
   const [selectedInvoice, setSelectedInvoice] = useState<PaymentInvoice | null>(null);
   const [clabeInfo, setClabeInfo] = useState<ClabeInfo | null>(null);
   const [loadingClabe, setLoadingClabe] = useState(false);
-  const [activeTab, setActiveTab] = useState<'pending' | 'orders'>(initialTab || 'pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'orders'>('orders');
   const [paymentOrders, setPaymentOrders] = useState<PaymentOrder[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
   const [selectedOrder, setSelectedOrder] = useState<PaymentOrder | null>(null);
   const [showQR, setShowQR] = useState(false);
+
+  // Voucher upload states
+  const [voucherOrder, setVoucherOrder] = useState<PaymentOrder | null>(null);
+  const [vouchers, setVouchers] = useState<any[]>([]);
+  const [loadingVouchers, setLoadingVouchers] = useState(false);
+  const [uploadingVoucher, setUploadingVoucher] = useState(false);
+  const [ocrResult, setOcrResult] = useState<any>(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [confirmingVoucher, setConfirmingVoucher] = useState(false);
+  const [completingPayment, setCompletingPayment] = useState(false);
 
   // Group invoices by service
   const groupInvoicesByService = (invoices: PaymentInvoice[]): GroupedInvoices[] => {
@@ -155,15 +170,13 @@ const MyPaymentsScreen = () => {
   }, [token]);
 
   useEffect(() => {
-    if (activeTab === 'orders' && paymentOrders.length === 0) {
-      fetchPaymentOrders();
-    }
-  }, [activeTab, fetchPaymentOrders]);
+    fetchPaymentOrders();
+  }, [fetchPaymentOrders]);
 
   const onRefresh = () => {
     setRefreshing(true);
     fetchPayments();
-    if (activeTab === 'orders') fetchPaymentOrders();
+    fetchPaymentOrders();
   };
 
   const handlePayInvoice = async (invoice: PaymentInvoice) => {
@@ -457,6 +470,146 @@ const MyPaymentsScreen = () => {
     );
   };
 
+  // ====== VOUCHER UPLOAD FUNCTIONS ======
+  const openVoucherModal = async (order: PaymentOrder) => {
+    setVoucherOrder(order);
+    setVouchers([]);
+    setOcrResult(null);
+    setEditAmount('');
+    await loadVouchers(order.id);
+  };
+
+  const loadVouchers = async (orderId: number) => {
+    setLoadingVouchers(true);
+    try {
+      const res = await fetch(`${API_URL}/api/payment/voucher/${orderId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (data.vouchers) setVouchers(data.vouchers);
+    } catch (e) {
+      console.error('Error loading vouchers:', e);
+    }
+    setLoadingVouchers(false);
+  };
+
+  const pickAndUploadImage = async (source: 'camera' | 'gallery') => {
+    if (!voucherOrder) return;
+    let result;
+    if (source === 'camera') {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) { Alert.alert('Error', t('myPayments.cameraPermission')); return; }
+      result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
+    } else {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) { Alert.alert('Error', t('myPayments.galleryPermission')); return; }
+      result = await ImagePicker.launchImageLibraryAsync({ quality: 0.7 });
+    }
+    if (result.canceled || !result.assets?.[0]) return;
+
+    const asset = result.assets[0];
+    setUploadingVoucher(true);
+    setOcrResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('voucher', {
+        uri: asset.uri,
+        type: asset.mimeType || 'image/jpeg',
+        name: asset.fileName || 'voucher.jpg',
+      } as any);
+      formData.append('payment_order_id', String(voucherOrder.id));
+      formData.append('service_type', voucherOrder.packages?.[0]?.service_type || 'po_box');
+      formData.append('payment_reference', voucherOrder.payment_reference);
+
+      const res = await fetch(`${API_URL}/api/payment/voucher/upload`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.voucher) {
+        setOcrResult(data.voucher);
+        setEditAmount(String(data.voucher.detected_amount || ''));
+        await loadVouchers(voucherOrder.id);
+      } else {
+        Alert.alert('Error', data.error || 'Error al subir comprobante');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Error de conexión');
+    }
+    setUploadingVoucher(false);
+  };
+
+  const confirmVoucherAmount = async () => {
+    if (!ocrResult) return;
+    setConfirmingVoucher(true);
+    try {
+      const res = await fetch(`${API_URL}/api/payment/voucher/confirm`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          voucher_id: ocrResult.id,
+          declared_amount: parseFloat(editAmount) || 0,
+        }),
+      });
+      const data = await res.json();
+      if (data.voucher) {
+        setOcrResult(null);
+        setEditAmount('');
+        if (voucherOrder) await loadVouchers(voucherOrder.id);
+        Alert.alert('✅', t('myPayments.voucherConfirmed'));
+      } else {
+        Alert.alert('Error', data.error || 'Error');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    }
+    setConfirmingVoucher(false);
+  };
+
+  const completePayment = async () => {
+    if (!voucherOrder) return;
+    setCompletingPayment(true);
+    try {
+      const res = await fetch(`${API_URL}/api/payment/voucher/complete`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payment_order_id: voucherOrder.id }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const msg = data.surplus_amount > 0
+          ? `${t('myPayments.paymentSent')}\n\n💰 ${t('myPayments.surplusCredit')}: $${Number(data.surplus_amount).toFixed(2)} MXN`
+          : t('myPayments.paymentSent');
+        Alert.alert('✅', msg);
+        setVoucherOrder(null);
+        // Refresh orders
+        setLoadingOrders(true);
+        try {
+          const ordersRes = await getPaymentOrdersApi(token);
+          if (ordersRes.orders) setPaymentOrders(ordersRes.orders);
+        } catch (e) {}
+        setLoadingOrders(false);
+      } else {
+        Alert.alert('Error', data.error || 'Error');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message);
+    }
+    setCompletingPayment(false);
+  };
+
+  const getVoucherTotal = () => {
+    return vouchers
+      .filter((v: any) => v.status !== 'rejected')
+      .reduce((sum: number, v: any) => sum + (Number(v.declared_amount) || Number(v.detected_amount) || 0), 0);
+  };
+
+  const canComplete = () => {
+    const confirmed = vouchers.filter((v: any) => v.status === 'pending_review' || v.status === 'approved');
+    return confirmed.length > 0 && getVoucherTotal() >= Number(voucherOrder?.amount || 0);
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -488,90 +641,7 @@ const MyPaymentsScreen = () => {
         <Text style={styles.totalCurrency}>MXN</Text>
       </View>
 
-      {/* Tabs */}
-      <View style={styles.tabBar}>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'pending' && styles.tabActive]}
-          onPress={() => setActiveTab('pending')}
-        >
-          <Ionicons name="receipt-outline" size={18} color={activeTab === 'pending' ? '#FF6B00' : '#999'} />
-          <Text style={[styles.tabText, activeTab === 'pending' && styles.tabTextActive]}>Pendientes</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.tab, activeTab === 'orders' && styles.tabActive]}
-          onPress={() => setActiveTab('orders')}
-        >
-          <Ionicons name="document-text-outline" size={18} color={activeTab === 'orders' ? '#FF6B00' : '#999'} />
-          <Text style={[styles.tabText, activeTab === 'orders' && styles.tabTextActive]}>Órdenes de Pago</Text>
-        </TouchableOpacity>
-      </View>
-
-      {activeTab === 'pending' ? (
-      <ScrollView
-        style={styles.scrollView}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
-        {groupedInvoices.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="checkmark-circle" size={64} color="#2ECC71" />
-            <Text style={styles.emptyTitle}>¡Todo al día!</Text>
-            <Text style={styles.emptyText}>No tienes pagos pendientes</Text>
-          </View>
-        ) : (
-          groupedInvoices.map((group, index) => (
-            <View key={index} style={styles.serviceGroup}>
-              {/* Header del servicio */}
-              <View style={[styles.serviceHeader, { backgroundColor: group.color }]}>
-                <Ionicons 
-                  name={SERVICE_ICONS[group.service] as any || 'cash'} 
-                  size={24} 
-                  color="#FFF" 
-                />
-                <Text style={styles.serviceTitle}>{group.serviceName}</Text>
-                <Text style={styles.serviceSubtotal}>{formatCurrency(group.subtotal)}</Text>
-              </View>
-
-              {/* Facturas */}
-              {group.invoices.map((invoice) => (
-                <View key={invoice.id} style={styles.invoiceCard}>
-                  <View style={styles.invoiceInfo}>
-                    <Text style={styles.invoiceNumber}>{invoice.invoice_number}</Text>
-                    <Text style={styles.invoiceConcept} numberOfLines={2}>
-                      {invoice.concept}
-                    </Text>
-                    {invoice.due_date && (
-                      <Text style={styles.invoiceDue}>
-                        Vence: {formatDate(invoice.due_date)}
-                      </Text>
-                    )}
-                  </View>
-                  <View style={styles.invoiceRight}>
-                    <Text style={styles.invoiceAmount}>{formatCurrency(invoice.amount)}</Text>
-                    <TouchableOpacity 
-                      style={styles.payButton}
-                      onPress={() => handlePayInvoice(invoice)}
-                    >
-                      <Text style={styles.payButtonText}>VER DETALLES</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))}
-            </View>
-          ))
-        )}
-
-        <View style={styles.footerInfo}>
-          <Ionicons name="shield-checkmark" size={20} color="#666" />
-          <Text style={styles.footerText}>
-            Cada servicio tiene su propia cuenta bancaria (CLABE). 
-            Sus pagos son procesados de forma segura a través de SPEI.
-          </Text>
-        </View>
-      </ScrollView>
-      ) : (
-      /* Tab: Órdenes de Pago */
+      {/* Órdenes de Pago */}
       <ScrollView
         style={styles.scrollView}
         refreshControl={
@@ -664,10 +734,7 @@ const MyPaymentsScreen = () => {
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={{ flex: 1, backgroundColor: '#4CAF50', borderRadius: 8, paddingVertical: 10, alignItems: 'center' }}
-                        onPress={() => {
-                          // TODO: Implement receipt upload
-                          Alert.alert(t('myPayments.uploadReceipt'), 'Próximamente');
-                        }}
+                        onPress={() => openVoucherModal(order)}
                       >
                         <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>📎 {t('myPayments.uploadReceipt')}</Text>
                       </TouchableOpacity>
@@ -699,7 +766,6 @@ const MyPaymentsScreen = () => {
           })
         )}
       </ScrollView>
-      )}
 
       {/* Modal de detalle de orden de pago */}
       {selectedOrder && !showQR && (
@@ -844,6 +910,176 @@ const MyPaymentsScreen = () => {
       
       {/* Modal de pago para facturas con CLABE */}
       {selectedInvoice && renderPaymentModal()}
+
+      {/* ====== MODAL SUBIR COMPROBANTE ====== */}
+      {voucherOrder && (
+        <Modal visible={true} transparent animationType="slide" onRequestClose={() => setVoucherOrder(null)}>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { maxHeight: Dimensions.get('window').height * 0.85 }]}>
+              {/* Header */}
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: '#333' }}>📎 {t('myPayments.uploadReceipt')}</Text>
+                <TouchableOpacity onPress={() => { setVoucherOrder(null); setOcrResult(null); }}>
+                  <Ionicons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {/* Order info */}
+                <View style={{ backgroundColor: '#F5F5F5', borderRadius: 10, padding: 14, marginBottom: 12 }}>
+                  <Text style={{ fontSize: 13, color: '#666' }}>{t('myPayments.paymentReference')}</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#E65100', marginTop: 2 }}>{voucherOrder.payment_reference}</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 }}>
+                    <View>
+                      <Text style={{ fontSize: 11, color: '#999' }}>{t('myPayments.amountToPay')}</Text>
+                      <Text style={{ fontSize: 16, fontWeight: '700', color: '#333' }}>{formatCurrency(voucherOrder.amount)}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={{ fontSize: 11, color: '#999' }}>{t('myPayments.accumulated')}</Text>
+                      <Text style={{ fontSize: 16, fontWeight: '700', color: getVoucherTotal() >= Number(voucherOrder.amount) ? '#4CAF50' : '#FF6B00' }}>
+                        {formatCurrency(getVoucherTotal())}
+                      </Text>
+                    </View>
+                  </View>
+                  {/* Progress bar */}
+                  <View style={{ height: 6, backgroundColor: '#E0E0E0', borderRadius: 3, marginTop: 8 }}>
+                    <View style={{ height: 6, backgroundColor: getVoucherTotal() >= Number(voucherOrder.amount) ? '#4CAF50' : '#FF6B00', borderRadius: 3, width: `${Math.min(100, (getVoucherTotal() / Number(voucherOrder.amount)) * 100)}%` }} />
+                  </View>
+                </View>
+
+                {/* OCR Result - confirm amount */}
+                {ocrResult && ocrResult.status === 'pending_confirm' && (
+                  <View style={{ backgroundColor: '#E8F5E9', borderRadius: 10, padding: 14, marginBottom: 12, borderWidth: 1, borderColor: '#A5D6A7' }}>
+                    <Text style={{ fontWeight: '700', color: '#2E7D32', marginBottom: 8 }}>🔍 {t('myPayments.amountDetected')}</Text>
+                    {ocrResult.detected_amount > 0 ? (
+                      <Text style={{ fontSize: 13, color: '#333', marginBottom: 8 }}>
+                        {t('myPayments.weDetected')} <Text style={{ fontWeight: '700' }}>${Number(ocrResult.detected_amount).toFixed(2)}</Text>
+                      </Text>
+                    ) : (
+                      <Text style={{ fontSize: 13, color: '#E65100', marginBottom: 8 }}>{t('myPayments.couldNotDetect')}</Text>
+                    )}
+                    <Text style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>{t('myPayments.enterCorrectAmount')}:</Text>
+                    <TextInput
+                      style={{ backgroundColor: '#FFF', borderWidth: 1, borderColor: '#CCC', borderRadius: 8, padding: 10, fontSize: 18, fontWeight: '700', textAlign: 'center' }}
+                      value={editAmount}
+                      onChangeText={setEditAmount}
+                      keyboardType="decimal-pad"
+                      placeholder="0.00"
+                    />
+                    <TouchableOpacity
+                      style={{ backgroundColor: '#4CAF50', borderRadius: 8, padding: 12, alignItems: 'center', marginTop: 10 }}
+                      onPress={confirmVoucherAmount}
+                      disabled={confirmingVoucher || !editAmount}
+                    >
+                      {confirmingVoucher ? (
+                        <ActivityIndicator color="#FFF" />
+                      ) : (
+                        <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 14 }}>✅ {t('myPayments.confirmAmount')}</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* Uploaded vouchers list */}
+                {loadingVouchers ? (
+                  <ActivityIndicator color="#FF6B00" style={{ marginVertical: 16 }} />
+                ) : vouchers.length > 0 ? (
+                  <View style={{ marginBottom: 12 }}>
+                    <Text style={{ fontWeight: '700', color: '#333', marginBottom: 8 }}>{t('myPayments.uploadedVouchers')} ({vouchers.length})</Text>
+                    {vouchers.map((v: any, idx: number) => (
+                      <View key={v.id} style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: '#F9F9F9', borderRadius: 8, padding: 8, marginBottom: 6 }}>
+                        {v.file_url && (
+                          <Image source={{ uri: v.file_url }} style={{ width: 50, height: 50, borderRadius: 6, marginRight: 10 }} />
+                        )}
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 13, fontWeight: '600', color: '#333' }}>
+                            {t('myPayments.voucher')} #{idx + 1}
+                          </Text>
+                          <Text style={{ fontSize: 15, fontWeight: '700', color: '#2E7D32' }}>
+                            ${Number(v.declared_amount || v.detected_amount || 0).toFixed(2)}
+                          </Text>
+                          <Text style={{ fontSize: 11, color: v.status === 'approved' ? '#4CAF50' : v.status === 'rejected' ? '#F44336' : '#FF9800' }}>
+                            {v.status === 'pending_confirm' ? '⏳ ' + t('myPayments.pendingConfirm') :
+                             v.status === 'pending_review' ? '📋 ' + t('myPayments.pendingReview') :
+                             v.status === 'approved' ? '✅ ' + t('myPayments.approved') :
+                             '❌ ' + t('myPayments.rejected')}
+                          </Text>
+                        </View>
+                        {(v.status === 'pending_confirm' || v.status === 'pending_review') && (
+                          <TouchableOpacity onPress={async () => {
+                            try {
+                              await fetch(`${API_URL}/api/payment/voucher/${v.id}`, {
+                                method: 'DELETE',
+                                headers: { Authorization: `Bearer ${token}` },
+                              });
+                              if (voucherOrder) await loadVouchers(voucherOrder.id);
+                            } catch (e) {}
+                          }}>
+                            <Ionicons name="trash-outline" size={20} color="#F44336" />
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                ) : (
+                  <View style={{ alignItems: 'center', paddingVertical: 20 }}>
+                    <Ionicons name="cloud-upload-outline" size={48} color="#CCC" />
+                    <Text style={{ color: '#999', marginTop: 8, fontSize: 13 }}>{t('myPayments.noVouchersYet')}</Text>
+                  </View>
+                )}
+
+                {/* Upload buttons */}
+                {!uploadingVoucher && !ocrResult && (
+                  <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
+                    <TouchableOpacity
+                      style={{ flex: 1, backgroundColor: '#1976D2', borderRadius: 10, padding: 14, alignItems: 'center' }}
+                      onPress={() => pickAndUploadImage('camera')}
+                    >
+                      <Ionicons name="camera" size={24} color="#FFF" />
+                      <Text style={{ color: '#FFF', fontWeight: '600', fontSize: 12, marginTop: 4 }}>{t('myPayments.takePhoto')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{ flex: 1, backgroundColor: '#7B1FA2', borderRadius: 10, padding: 14, alignItems: 'center' }}
+                      onPress={() => pickAndUploadImage('gallery')}
+                    >
+                      <Ionicons name="images" size={24} color="#FFF" />
+                      <Text style={{ color: '#FFF', fontWeight: '600', fontSize: 12, marginTop: 4 }}>{t('myPayments.fromGallery')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {uploadingVoucher && (
+                  <View style={{ alignItems: 'center', paddingVertical: 20 }}>
+                    <ActivityIndicator size="large" color="#FF6B00" />
+                    <Text style={{ color: '#666', marginTop: 8, fontSize: 13 }}>{t('myPayments.analyzingReceipt')}</Text>
+                  </View>
+                )}
+
+                {/* Complete payment button */}
+                {canComplete() && (
+                  <TouchableOpacity
+                    style={{ backgroundColor: '#4CAF50', borderRadius: 10, padding: 16, alignItems: 'center', marginTop: 4 }}
+                    onPress={completePayment}
+                    disabled={completingPayment}
+                  >
+                    {completingPayment ? (
+                      <ActivityIndicator color="#FFF" />
+                    ) : (
+                      <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 16 }}>🚀 {t('myPayments.sendPayment')}</Text>
+                    )}
+                  </TouchableOpacity>
+                )}
+
+                {getVoucherTotal() > 0 && getVoucherTotal() < Number(voucherOrder.amount) && (
+                  <Text style={{ textAlign: 'center', color: '#FF6B00', fontSize: 12, marginTop: 8 }}>
+                    {t('myPayments.remaining')}: {formatCurrency(Number(voucherOrder.amount) - getVoucherTotal())}
+                  </Text>
+                )}
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+      )}
     </SafeAreaView>
   );
 };

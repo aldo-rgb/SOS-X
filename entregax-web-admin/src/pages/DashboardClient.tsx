@@ -775,7 +775,6 @@ export default function DashboardClient() {
     invoices: any[];
   } | null>(null);
   const [showPendingPayments, setShowPendingPayments] = useState(false);
-  const [pendingPaymentsTab, setPendingPaymentsTab] = useState(0);
   const [paymentOrders, setPaymentOrders] = useState<any[]>([]);
   const [loadingPaymentOrders, setLoadingPaymentOrders] = useState(false);
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
@@ -788,6 +787,85 @@ export default function DashboardClient() {
     bankInfo: { banco: string; clabe: string; cuenta: string; beneficiario: string; concepto: string };
     branchInfo: { nombre: string; direccion: string; telefono: string; horario: string };
   } | null>(null);
+
+  // Voucher upload
+  const [voucherDialog, setVoucherDialog] = useState<{ open: boolean; order: any } | null>(null);
+  const [voucherList, setVoucherList] = useState<any[]>([]);
+  const [voucherUploading, setVoucherUploading] = useState(false);
+  const [voucherOcr, setVoucherOcr] = useState<any>(null);
+  const [voucherEditAmount, setVoucherEditAmount] = useState('');
+  const [paymentOrderTab, setPaymentOrderTab] = useState<'active' | 'history'>('active');
+  const [voucherConfirming, setVoucherConfirming] = useState(false);
+  const [voucherCompleting, setVoucherCompleting] = useState(false);
+
+  const loadVoucherList = async (orderId: number) => {
+    try {
+      const res = await api.get(`/payment/voucher/${orderId}`);
+      if (res.data.vouchers) setVoucherList(res.data.vouchers);
+    } catch (e) { console.error(e); }
+  };
+
+  const handleVoucherUpload = async (file: File) => {
+    if (!voucherDialog?.order) return;
+    setVoucherUploading(true);
+    setVoucherOcr(null);
+    try {
+      const fd = new FormData();
+      fd.append('voucher', file);
+      fd.append('payment_order_id', String(voucherDialog.order.id));
+      fd.append('service_type', voucherDialog.order.packages?.[0]?.service_type || 'po_box');
+      fd.append('payment_reference', voucherDialog.order.payment_reference);
+      const res = await api.post('/payment/voucher/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+      if (res.data.voucher) {
+        setVoucherOcr(res.data.voucher);
+        setVoucherEditAmount(String(res.data.voucher.detected_amount || ''));
+        await loadVoucherList(voucherDialog.order.id);
+      } else {
+        setSnackbar({ open: true, message: res.data.error || 'Error al subir', severity: 'error' });
+      }
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || e.message, severity: 'error' });
+    }
+    setVoucherUploading(false);
+  };
+
+  const confirmVoucherWeb = async () => {
+    if (!voucherOcr || !voucherDialog?.order) return;
+    setVoucherConfirming(true);
+    try {
+      const res = await api.post('/payment/voucher/confirm', { voucher_id: voucherOcr.id, declared_amount: parseFloat(voucherEditAmount) || 0 });
+      if (res.data.success) {
+        setVoucherOcr(null);
+        setVoucherEditAmount('');
+        await loadVoucherList(voucherDialog.order.id);
+        setSnackbar({ open: true, message: '✅ Comprobante confirmado', severity: 'success' });
+      }
+    } catch (e: any) { setSnackbar({ open: true, message: e.response?.data?.error || e.message, severity: 'error' }); }
+    setVoucherConfirming(false);
+  };
+
+  const completeVoucherPayment = async () => {
+    if (!voucherDialog?.order) return;
+    setVoucherCompleting(true);
+    try {
+      const res = await api.post('/payment/voucher/complete', { payment_order_id: voucherDialog.order.id });
+      if (res.data.success) {
+        const msg = res.data.surplus_amount > 0 ? `Comprobantes enviados. Excedente: $${Number(res.data.surplus_amount).toFixed(2)} MXN a tu billetera` : 'Comprobantes enviados. Tu pago será verificado pronto.';
+        setSnackbar({ open: true, message: `✅ ${msg}`, severity: 'success' });
+        setVoucherDialog(null);
+        loadPaymentOrders();
+      } else {
+        setSnackbar({ open: true, message: res.data.error || 'Error', severity: 'error' });
+      }
+    } catch (e: any) { setSnackbar({ open: true, message: e.response?.data?.error || e.message, severity: 'error' }); }
+    setVoucherCompleting(false);
+  };
+
+  const getVoucherTotal = () => voucherList.filter(v => v.status !== 'rejected').reduce((s, v) => s + (Number(v.declared_amount) || Number(v.detected_amount) || 0), 0);
+  const canCompleteVoucher = () => {
+    const confirmed = voucherList.filter(v => v.status === 'pending_review' || v.status === 'approved');
+    return confirmed.length > 0 && getVoucherTotal() >= Number(voucherDialog?.order?.amount || 0);
+  };
 
   // Cotizador Universal
   const [quoteService, setQuoteService] = useState<string>('');
@@ -2079,7 +2157,6 @@ export default function DashboardClient() {
             setSnackbar({ open: true, message: `⚠️ ${response.data.message}`, severity: 'warning' });
             setPaymentModalOpen(false);
             setShowPendingPayments(true);
-            setPendingPaymentsTab(1); // Ir a tab "Órdenes de Pago"
             loadPaymentOrders();
             return;
           }
@@ -2108,7 +2185,6 @@ export default function DashboardClient() {
       if (err.response?.data?.error === 'Paquetes ya en orden de pago') {
         setPaymentModalOpen(false);
         setShowPendingPayments(true);
-        setPendingPaymentsTab(1);
         loadPaymentOrders();
         setSnackbar({ open: true, message: `⚠️ ${err.response.data.message}`, severity: 'warning' });
         return;
@@ -4540,7 +4616,7 @@ export default function DashboardClient() {
                             size="small"
                             variant="outlined"
                             color="warning"
-                            onClick={() => setShowPendingPayments(true)}
+                            onClick={() => { setShowPendingPayments(true); loadPaymentOrders(); }}
                           >
                             Ver ({pendingPayments?.invoices?.length || 0})
                           </Button>
@@ -9418,100 +9494,18 @@ export default function DashboardClient() {
             <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>MXN</Typography>
           </Paper>
 
-          {/* Tabs */}
-          <Tabs
-            value={pendingPaymentsTab}
-            onChange={(_, v) => {
-              setPendingPaymentsTab(v);
-              if (v === 1 && paymentOrders.length === 0) loadPaymentOrders();
-            }}
-            variant="fullWidth"
-            sx={{ borderBottom: '1px solid #eee', bgcolor: '#fafafa' }}
-          >
-            <Tab label="📋 Pendientes" sx={{ fontWeight: 'bold' }} />
-            <Tab label="📄 Órdenes de Pago" sx={{ fontWeight: 'bold' }} />
-          </Tabs>
+          {/* Tabs: Órdenes activas / Historial */}
+          <Box sx={{ display: 'flex', borderBottom: '2px solid #eee', mx: 2, mt: 1 }}>
+            <Box
+              onClick={() => setPaymentOrderTab('active')}
+              sx={{ px: 3, py: 1.5, cursor: 'pointer', fontWeight: 'bold', fontSize: 14, color: paymentOrderTab === 'active' ? '#FF6B00' : '#999', borderBottom: paymentOrderTab === 'active' ? '3px solid #FF6B00' : '3px solid transparent', transition: 'all 0.2s' }}
+            >📋 Órdenes de Pago</Box>
+            <Box
+              onClick={() => setPaymentOrderTab('history')}
+              sx={{ px: 3, py: 1.5, cursor: 'pointer', fontWeight: 'bold', fontSize: 14, color: paymentOrderTab === 'history' ? '#2E7D32' : '#999', borderBottom: paymentOrderTab === 'history' ? '3px solid #2E7D32' : '3px solid transparent', transition: 'all 0.2s' }}
+            >✅ Historial</Box>
+          </Box>
 
-          {/* Tab: Pendientes */}
-          {pendingPaymentsTab === 0 && (
-          <>
-          {/* Listado por servicio */}
-          {pendingPayments?.byService && pendingPayments.byService.length > 0 ? (
-            pendingPayments.byService.map((group) => (
-              <Box key={group.service} sx={{ mb: 0 }}>
-                {/* Header del servicio */}
-                <Box sx={{ 
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  p: 2, bgcolor: '#f8f8f8', borderBottom: '1px solid #eee'
-                }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography variant="subtitle1" fontWeight="bold">
-                      {group.service === 'POBOX_USA' || group.service === 'po_box' ? '📦' : 
-                       group.service === 'AIR_CHN_MX' || group.service === 'aereo' ? '✈️' :
-                       group.service === 'SEA_CHN_MX' || group.service === 'maritimo' ? '🚢' :
-                       group.service === 'AA_DHL' ? '🚛' : '📋'}
-                      {' '}{group.serviceName}
-                    </Typography>
-                  </Box>
-                  <Typography variant="subtitle1" fontWeight="bold" color="error.main">
-                    {formatCurrency(group.subtotal)}
-                  </Typography>
-                </Box>
-
-                {/* Facturas/Paquetes del servicio */}
-                <Table size="small">
-                  <TableBody>
-                    {group.invoices.map((inv: any, idx: number) => (
-                      <TableRow key={`${group.service}-${idx}`} hover>
-                        <TableCell>
-                          <Typography variant="body2" fontWeight="bold">
-                            {inv.invoice_number || inv.tracking_internal}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {inv.concept || t('cd.invoices.packageFallback', { number: inv.invoice_number })} -
-                          </Typography>
-                          {inv.due_date && (
-                            <Typography variant="caption" color="error.main" display="block">
-                              {t('cd.invoices.dueDate')}: {new Date(inv.due_date).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography variant="body1" fontWeight="bold">
-                            {formatCurrency(inv.balance_due || inv.amount || 0)}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right" sx={{ width: 120 }}>
-                          <Button 
-                            variant="outlined" 
-                            size="small" 
-                            sx={{ borderColor: ORANGE, color: ORANGE, fontSize: '0.7rem', '&:hover': { bgcolor: ORANGE + '10' } }}
-                          >
-                            {t('cd.pending.viewDetails')}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </Box>
-            ))
-          ) : (
-            <Box sx={{ textAlign: 'center', py: 6 }}>
-              <CheckCircleIcon sx={{ fontSize: 60, color: GREEN, mb: 2 }} />
-              <Typography variant="h6" color="success.main" fontWeight="bold">
-                {t('cd.pending.upToDate')}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {t('cd.pending.noPending')}
-              </Typography>
-            </Box>
-          )}
-          </>
-          )}
-
-          {/* Tab: Órdenes de Pago */}
-          {pendingPaymentsTab === 1 && (
             <Box sx={{ minHeight: 200 }}>
               {loadingPaymentOrders ? (
                 <Box sx={{ textAlign: 'center', py: 6 }}>
@@ -9537,10 +9531,17 @@ export default function DashboardClient() {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    {paymentOrders.map((order: any) => {
+                    {paymentOrders.filter((o: any) => {
+                      const completedStatuses = ['completed', 'paid'];
+                      if (paymentOrderTab === 'history') return completedStatuses.includes(o.status);
+                      return !completedStatuses.includes(o.status);
+                    }).map((order: any) => {
                       const statusMap: Record<string, { color: string; label: string }> = {
                         pending_payment: { color: '#E65100', label: '⏳ Pendiente' },
                         completed: { color: '#2E7D32', label: '✅ Pagado' },
+                        paid: { color: '#2E7D32', label: '✅ Pagado' },
+                        vouchers_submitted: { color: '#1565C0', label: '📎 Comprobantes enviados' },
+                        vouchers_partial: { color: '#F57C00', label: '📎 Pago parcial' },
                         failed: { color: '#C62828', label: '❌ Fallido' },
                         expired: { color: '#757575', label: '⏰ Expirado' },
                         pending: { color: '#1565C0', label: '🔄 Procesando' },
@@ -9583,7 +9584,6 @@ export default function DashboardClient() {
                             )}
                           </TableCell>
                           <TableCell align="center" onClick={(e: any) => e.stopPropagation()}>
-                            {(order.status === 'pending_payment' || order.status === 'pending') && (
                               <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
                                 <Tooltip title="Ver Detalles" arrow>
                                   <IconButton
@@ -9607,7 +9607,8 @@ export default function DashboardClient() {
                                     size="small"
                                     sx={{ bgcolor: '#4CAF50', color: '#fff', width: 30, height: 30, fontSize: '15px', '&:hover': { bgcolor: '#388E3C' } }}
                                     onClick={() => {
-                                      setSnackbar({ open: true, message: '📎 Subir pago: Próximamente', severity: 'info' });
+                                      setVoucherDialog({ open: true, order });
+                                      loadVoucherList(order.id);
                                     }}
                                   >📎</IconButton>
                                 </Tooltip>
@@ -9638,7 +9639,6 @@ export default function DashboardClient() {
                                   >📥</IconButton>
                                 </Tooltip>
                               </Box>
-                            )}
                           </TableCell>
                         </TableRow>
                         {expandedOrderId === order.id && Array.isArray(order.packages) && order.packages.length > 0 && (
@@ -9677,14 +9677,178 @@ export default function DashboardClient() {
                   </TableBody>
                 </Table>
               )}
+              {!loadingPaymentOrders && paymentOrderTab === 'history' && paymentOrders.filter((o: any) => ['completed', 'paid'].includes(o.status)).length === 0 && (
+                <Box sx={{ textAlign: 'center', py: 6 }}>
+                  <Typography sx={{ fontSize: 50, mb: 1 }}>📋</Typography>
+                  <Typography variant="h6" color="text.secondary" fontWeight="bold">Sin pagos completados</Typography>
+                  <Typography variant="body2" color="text.secondary">Los pagos aprobados aparecerán aquí</Typography>
+                </Box>
+              )}
             </Box>
-          )}
         </DialogContent>
         <DialogActions sx={{ p: 2, bgcolor: '#f5f5f5' }}>
           <Button onClick={() => setShowPendingPayments(false)}>
             {t('common.close')}
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* =============== DIALOG: SUBIR COMPROBANTE =============== */}
+      <Dialog
+        open={!!voucherDialog?.open}
+        onClose={() => { setVoucherDialog(null); setVoucherOcr(null); }}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ bgcolor: '#4CAF50', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>📎 Subir Comprobante de Pago</Box>
+          <IconButton size="small" onClick={() => { setVoucherDialog(null); setVoucherOcr(null); }} sx={{ color: 'white' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {voucherDialog?.order && (
+            <>
+              {/* Order info */}
+              <Paper sx={{ p: 2, mb: 2, bgcolor: '#f5f5f5', borderRadius: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="caption" color="text.secondary">Referencia</Typography>
+                  <Typography variant="h6" fontWeight="bold" color="#E65100">{voucherDialog.order.payment_reference}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Total a pagar</Typography>
+                    <Typography variant="h6" fontWeight="bold">{formatCurrency(voucherDialog.order.amount)}</Typography>
+                  </Box>
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="caption" color="text.secondary">Acumulado</Typography>
+                    <Typography variant="h6" fontWeight="bold" color={getVoucherTotal() >= Number(voucherDialog.order.amount) ? '#4CAF50' : '#FF6B00'}>
+                      {formatCurrency(getVoucherTotal())}
+                    </Typography>
+                  </Box>
+                </Box>
+                {/* Progress bar */}
+                <Box sx={{ height: 6, bgcolor: '#E0E0E0', borderRadius: 3 }}>
+                  <Box sx={{ height: 6, bgcolor: getVoucherTotal() >= Number(voucherDialog.order.amount) ? '#4CAF50' : '#FF6B00', borderRadius: 3, width: `${Math.min(100, (getVoucherTotal() / Number(voucherDialog.order.amount)) * 100)}%`, transition: 'width 0.3s' }} />
+                </Box>
+              </Paper>
+
+              {/* OCR result */}
+              {voucherOcr && voucherOcr.status === 'pending_confirm' && (
+                <Paper sx={{ p: 2, mb: 2, bgcolor: '#E8F5E9', border: '1px solid #A5D6A7', borderRadius: 2 }}>
+                  <Typography fontWeight="bold" color="#2E7D32" gutterBottom>🔍 Monto detectado</Typography>
+                  {voucherOcr.detected_amount > 0 ? (
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                      Detectamos: <strong>${Number(voucherOcr.detected_amount).toFixed(2)}</strong>
+                    </Typography>
+                  ) : (
+                    <Typography variant="body2" color="warning.main" sx={{ mb: 1 }}>No pudimos detectar el monto automáticamente.</Typography>
+                  )}
+                  <Typography variant="caption" color="text.secondary">Ingresa el monto correcto del depósito:</Typography>
+                  <TextField
+                    fullWidth size="small" type="number"
+                    value={voucherEditAmount}
+                    onChange={(e) => setVoucherEditAmount(e.target.value)}
+                    sx={{ my: 1, '& input': { textAlign: 'center', fontSize: 18, fontWeight: 'bold' } }}
+                    placeholder="0.00"
+                  />
+                  <Button
+                    fullWidth variant="contained"
+                    sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' } }}
+                    onClick={confirmVoucherWeb}
+                    disabled={voucherConfirming || !voucherEditAmount}
+                  >
+                    {voucherConfirming ? <CircularProgress size={20} sx={{ color: 'white' }} /> : '✅ Confirmar monto'}
+                  </Button>
+                </Paper>
+              )}
+
+              {/* Voucher list */}
+              {voucherList.length > 0 && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" fontWeight="bold" gutterBottom>Comprobantes subidos ({voucherList.length})</Typography>
+                  {voucherList.map((v: any, idx: number) => (
+                    <Paper key={v.id} sx={{ p: 1.5, mb: 1, display: 'flex', alignItems: 'center', gap: 1.5, bgcolor: '#fafafa' }}>
+                      {v.file_url && (
+                        <Box component="img" src={v.file_url} sx={{ width: 50, height: 50, borderRadius: 1, objectFit: 'cover' }} />
+                      )}
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="body2" fontWeight="bold">Comprobante #{idx + 1}</Typography>
+                        <Typography variant="h6" fontWeight="bold" color="#2E7D32" sx={{ fontSize: 16 }}>
+                          ${Number(v.declared_amount || v.detected_amount || 0).toFixed(2)}
+                        </Typography>
+                        <Typography variant="caption" color={v.status === 'approved' ? 'success.main' : v.status === 'rejected' ? 'error.main' : 'warning.main'}>
+                          {v.status === 'pending_confirm' ? '⏳ Por confirmar' :
+                           v.status === 'pending_review' ? '📋 En revisión' :
+                           v.status === 'approved' ? '✅ Aprobado' : '❌ Rechazado'}
+                        </Typography>
+                      </Box>
+                      {(v.status === 'pending_confirm' || v.status === 'pending_review') && (
+                        <IconButton size="small" color="error" onClick={async () => {
+                          await api.delete(`/payment/voucher/${v.id}`);
+                          if (voucherDialog?.order) await loadVoucherList(voucherDialog.order.id);
+                        }}>
+                          <CloseIcon fontSize="small" />
+                        </IconButton>
+                      )}
+                    </Paper>
+                  ))}
+                </Box>
+              )}
+
+              {/* Upload area */}
+              {!voucherUploading && !voucherOcr && (
+                <Paper
+                  sx={{ p: 3, border: '2px dashed #CCC', borderRadius: 2, textAlign: 'center', cursor: 'pointer', '&:hover': { borderColor: '#4CAF50', bgcolor: '#f9fff9' } }}
+                  onClick={() => document.getElementById('voucher-file-input')?.click()}
+                >
+                  <AddPhotoIcon sx={{ fontSize: 40, color: '#999', mb: 1 }} />
+                  <Typography variant="body2" color="text.secondary">
+                    Click para seleccionar imagen del comprobante
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">JPG, PNG o PDF (máx. 10MB)</Typography>
+                  <input
+                    id="voucher-file-input"
+                    type="file"
+                    accept="image/*,.pdf"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleVoucherUpload(file);
+                      e.target.value = '';
+                    }}
+                  />
+                </Paper>
+              )}
+
+              {voucherUploading && (
+                <Box sx={{ textAlign: 'center', py: 3 }}>
+                  <CircularProgress size={40} sx={{ color: ORANGE }} />
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Analizando comprobante...</Typography>
+                </Box>
+              )}
+
+              {/* Complete button */}
+              {canCompleteVoucher() && (
+                <Button
+                  fullWidth variant="contained" size="large"
+                  sx={{ mt: 2, bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' }, fontWeight: 'bold', fontSize: 16 }}
+                  onClick={completeVoucherPayment}
+                  disabled={voucherCompleting}
+                >
+                  {voucherCompleting ? <CircularProgress size={24} sx={{ color: 'white' }} /> : '🚀 Enviar comprobantes'}
+                </Button>
+              )}
+
+              {getVoucherTotal() > 0 && getVoucherTotal() < Number(voucherDialog.order.amount) && (
+                <Typography variant="body2" color="warning.main" sx={{ textAlign: 'center', mt: 1 }}>
+                  Falta: {formatCurrency(Number(voucherDialog.order.amount) - getVoucherTotal())}
+                </Typography>
+              )}
+            </>
+          )}
+        </DialogContent>
       </Dialog>
 
       {/* Bottom Navigation - Mobile Only */}
