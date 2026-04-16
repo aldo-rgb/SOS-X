@@ -7,7 +7,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, Divider, CircularProgress, Alert,
   MenuItem, Select, FormControl, InputLabel, type SelectChangeEvent, Snackbar, Stepper,
   Step, StepLabel, Card, CardContent, Grid, Fade, Badge, List, ListItem, ListItemText,
-  ListItemSecondaryAction, ListItemIcon, Checkbox,
+  ListItemSecondaryAction, ListItemIcon, Checkbox, Autocomplete,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -230,11 +230,18 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   const [destination, setDestination] = useState({
     country: i18n.language === 'es' ? 'México' : 'Mexico',
     city: '',
+    state: '',
+    colony: '',
     address: '',
     zip: '',
+    phoneCode: '+52',
     phone: '',
+    firstName: '',
+    lastName: '',
     contact: ''
   });
+  const [colonyOptions, setColonyOptions] = useState<string[]>([]);
+  const [loadingZipcode, setLoadingZipcode] = useState(false);
   const [boxId, setBoxId] = useState('');
   const [description, setDescription] = useState('');
   const [notes, setNotes] = useState('');
@@ -321,7 +328,8 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     setTrackingProvider('');
     setDeclaredValue('');
     setCarrier('');
-    setDestination({ country: 'México', city: '', address: '', zip: '', phone: '', contact: '' });
+    setDestination({ country: 'México', city: '', state: '', colony: '', address: '', zip: '', phoneCode: '+52', phone: '', firstName: '', lastName: '', contact: '' });
+    setColonyOptions([]);
     setBoxId('');
     setDescription('');
     setNotes('');
@@ -419,14 +427,32 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         if (response.data.defaultAddress) {
           // Auto-llenar con la dirección del cliente
           const addr = response.data.defaultAddress;
+          // Separar nombre y apellido del recipientName si es posible
+          const nameParts = (addr.recipientName || '').split(' ');
+          const fName = nameParts[0] || '';
+          const lName = nameParts.slice(1).join(' ') || '';
+          // Extraer lada del teléfono si viene con formato internacional
+          const rawPhone = addr.phone || '';
+          const phoneMatch = rawPhone.match(/^(\+\d{1,3})[\s-]?(.+)$/);
+          const pCode = phoneMatch ? phoneMatch[1] : '+52';
+          const pNumber = phoneMatch ? phoneMatch[2].replace(/[^\d]/g, '') : rawPhone.replace(/[^\d]/g, '');
           setDestination({
             country: 'México',
             city: addr.city,
+            state: addr.state || '',
+            colony: addr.neighborhood || '',
             address: `${addr.street} ${addr.exteriorNumber || ''}${addr.interiorNumber ? ' Int. ' + addr.interiorNumber : ''}`,
             zip: addr.zipCode,
-            phone: addr.phone || '',
+            phoneCode: pCode,
+            phone: pNumber,
+            firstName: fName,
+            lastName: lName,
             contact: addr.recipientName || ''
           });
+          // Buscar colonias para el CP
+          if (addr.zipCode && /^\d{5}$/.test(addr.zipCode)) {
+            handleZipCodeLookup(addr.zipCode, false);
+          }
           setManualAddress(false);
           
           // Si tiene carrier predeterminado, usarlo
@@ -490,6 +516,35 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     }
   };
 
+  // ============ BUSCAR COLONIAS POR CÓDIGO POSTAL (SEPOMEX) ============
+  const handleZipCodeLookup = async (cp: string, autoFillCity = true) => {
+    if (!/^\d{5}$/.test(cp)) return;
+    setLoadingZipcode(true);
+    try {
+      const res = await axios.get(`${API_URL}/zipcode/${cp}`);
+      const { city, state, colonies } = res.data;
+      setColonyOptions(colonies || []);
+      if (autoFillCity) {
+        setDestination(prev => ({
+          ...prev,
+          city: city || prev.city,
+          state: state || prev.state,
+          colony: colonies?.length === 1 ? colonies[0] : prev.colony,
+        }));
+      } else {
+        // Solo llenar colonias sin sobrescribir ciudad si ya viene
+        if (colonies?.length === 1) {
+          setDestination(prev => ({ ...prev, colony: colonies[0], state: state || prev.state }));
+        }
+      }
+    } catch (err) {
+      console.error('Error buscando CP:', err);
+      setColonyOptions([]);
+    } finally {
+      setLoadingZipcode(false);
+    }
+  };
+
   // ============ COTIZAR OPCIONES DE ENVÍO ============
   // Cotizar con dirección específica (para auto-cotización)
   const fetchShippingRatesWithAddress = async (addr: { city: string; address: string; zip: string; phone: string; contact: string; clientName: string }) => {
@@ -510,9 +565,12 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           addr.city.toLowerCase().includes(city)
         );
       
-      // Calcular número de cajas
+      // Calcular número de cajas y dimensiones promedio
       const numCajas = boxes.length > 0 ? boxes.length : 1;
-      const precioExpressInterno = 350 * numCajas;
+      const avgWeight = boxes.length > 0 ? boxes.reduce((s, b) => s + (parseFloat(b.weight) || 1), 0) / boxes.length : 1;
+      const avgLength = boxes.length > 0 ? boxes.reduce((s, b) => s + (parseFloat(b.length) || 30), 0) / boxes.length : 30;
+      const avgWidth = boxes.length > 0 ? boxes.reduce((s, b) => s + (parseFloat(b.width) || 30), 0) / boxes.length : 30;
+      const avgHeight = boxes.length > 0 ? boxes.reduce((s, b) => s + (parseFloat(b.height) || 30), 0) / boxes.length : 30;
 
       let rates: any[] = [];
 
@@ -530,17 +588,46 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         });
       }
 
-      // Paquete Express Interno - siempre disponible
-      rates.push({
-        rateId: 'paquete-express-interno',
-        provider: 'Paquete Express',
-        carrierName: 'Paquete Express',
-        serviceName: `📦 Envío Nacional (${numCajas} ${numCajas === 1 ? 'caja' : 'cajas'})`,
-        totalPrice: precioExpressInterno,
-        currency: 'MXN',
-        deliveryDays: '3-5 días',
-        isInternal: true
-      });
+      // 🚚 Cotizar Paquete Express via API real
+      try {
+        const pqtxRes = await axios.post(`${API_URL}/shipping/pqtx-quote`, {
+          destZipCode: addr.zip,
+          packageCount: numCajas,
+          weight: Math.round(avgWeight),
+          length: Math.round(avgLength),
+          width: Math.round(avgWidth),
+          height: Math.round(avgHeight),
+        }, { headers: { Authorization: `Bearer ${getToken()}` } });
+
+        if (pqtxRes.data?.success) {
+          rates.push({
+            rateId: 'paquete-express-real',
+            provider: 'Paquete Express',
+            carrierName: 'Paquete Express',
+            serviceName: `📦 Envío Nacional (${numCajas} ${numCajas === 1 ? 'caja' : 'cajas'})`,
+            totalPrice: pqtxRes.data.clientPrice,
+            currency: 'MXN',
+            deliveryDays: pqtxRes.data.estimatedDays || '3-5 días',
+            isInternal: true,
+            pqtxQuote: pqtxRes.data.pqtxQuote,
+            rule: pqtxRes.data.rule,
+          });
+        }
+      } catch (pqtxErr) {
+        console.error('Error cotizando PQTX:', pqtxErr);
+        // Fallback: agregar con precio fallback de la API
+        rates.push({
+          rateId: 'paquete-express-fallback',
+          provider: 'Paquete Express',
+          carrierName: 'Paquete Express',
+          serviceName: `📦 Envío Nacional (${numCajas} ${numCajas === 1 ? 'caja' : 'cajas'})`,
+          totalPrice: 400 * numCajas,
+          currency: 'MXN',
+          deliveryDays: '3-5 días',
+          isInternal: true,
+          rule: 'frontend_fallback',
+        });
+      }
       
       setShippingRates(rates);
       
@@ -549,7 +636,6 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       let selectedRateToUse = null;
       
       if (clientPreferredCarrier) {
-        // Buscar la tarifa que coincida con la preferencia del cliente (normalizar quitando espacios, guiones y underscores)
         selectedRateToUse = rates.find(r => {
           const providerNorm = r.provider?.toLowerCase().replace(/[_\s-]/g, '') || '';
           const carrierNorm = r.carrierName?.toLowerCase().replace(/[_\s-]/g, '') || '';
@@ -557,7 +643,6 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         });
       }
       
-      // Si no hay preferencia o no se encontró, usar la primera
       if (!selectedRateToUse && rates.length > 0) {
         selectedRateToUse = rates[0];
       }
@@ -597,9 +682,12 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           destination.city.toLowerCase().includes(city)
         );
       
-      // Calcular número de cajas
+      // Calcular número de cajas y dimensiones promedio
       const numCajas = boxes.length > 0 ? boxes.length : 1;
-      const precioExpressInterno = 350 * numCajas;
+      const avgWeight = boxes.length > 0 ? boxes.reduce((s, b) => s + (parseFloat(b.weight) || 1), 0) / boxes.length : 1;
+      const avgLength = boxes.length > 0 ? boxes.reduce((s, b) => s + (parseFloat(b.length) || 30), 0) / boxes.length : 30;
+      const avgWidth = boxes.length > 0 ? boxes.reduce((s, b) => s + (parseFloat(b.width) || 30), 0) / boxes.length : 30;
+      const avgHeight = boxes.length > 0 ? boxes.reduce((s, b) => s + (parseFloat(b.height) || 30), 0) / boxes.length : 30;
 
       let rates: any[] = [];
 
@@ -617,17 +705,45 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         });
       }
 
-      // Paquete Express Interno - siempre disponible
-      rates.push({
-        rateId: 'paquete-express-interno',
-        provider: 'Paquete Express',
-        carrierName: 'Paquete Express',
-        serviceName: `📦 Envío Nacional (${numCajas} ${numCajas === 1 ? 'caja' : 'cajas'})`,
-        totalPrice: precioExpressInterno,
-        currency: 'MXN',
-        deliveryDays: '3-5 días',
-        isInternal: true
-      });
+      // 🚚 Cotizar Paquete Express via API real
+      try {
+        const pqtxRes = await axios.post(`${API_URL}/shipping/pqtx-quote`, {
+          destZipCode: destination.zip,
+          packageCount: numCajas,
+          weight: Math.round(avgWeight),
+          length: Math.round(avgLength),
+          width: Math.round(avgWidth),
+          height: Math.round(avgHeight),
+        }, { headers: { Authorization: `Bearer ${getToken()}` } });
+
+        if (pqtxRes.data?.success) {
+          rates.push({
+            rateId: 'paquete-express-real',
+            provider: 'Paquete Express',
+            carrierName: 'Paquete Express',
+            serviceName: `📦 Envío Nacional (${numCajas} ${numCajas === 1 ? 'caja' : 'cajas'})`,
+            totalPrice: pqtxRes.data.clientPrice,
+            currency: 'MXN',
+            deliveryDays: pqtxRes.data.estimatedDays || '3-5 días',
+            isInternal: true,
+            pqtxQuote: pqtxRes.data.pqtxQuote,
+            rule: pqtxRes.data.rule,
+          });
+        }
+      } catch (pqtxErr) {
+        console.error('Error cotizando PQTX:', pqtxErr);
+        rates.push({
+          rateId: 'paquete-express-fallback',
+          provider: 'Paquete Express',
+          carrierName: 'Paquete Express',
+          serviceName: `📦 Envío Nacional (${numCajas} ${numCajas === 1 ? 'caja' : 'cajas'})`,
+          totalPrice: 400 * numCajas,
+          currency: 'MXN',
+          deliveryDays: '3-5 días',
+          isInternal: true,
+          rule: 'frontend_fallback',
+        });
+      }
       
       setShippingRates(rates);
       
@@ -636,7 +752,6 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       let selectedRateToUse = null;
       
       if (clientPreferredCarrier) {
-        // Buscar la tarifa que coincida con la preferencia del cliente (normalizar quitando espacios, guiones y underscores)
         selectedRateToUse = rates.find(r => {
           const providerNorm = r.provider?.toLowerCase().replace(/[_\s-]/g, '') || '';
           const carrierNorm = r.carrierName?.toLowerCase().replace(/[_\s-]/g, '') || '';
@@ -872,10 +987,14 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         destination: skipShipping ? undefined : {
           country: destination.country,
           city: destination.city,
+          state: destination.state || undefined,
+          colony: destination.colony || undefined,
           address: destination.address,
           zip: destination.zip || undefined,
-          phone: destination.phone || undefined,
-          contact: destination.contact || undefined
+          phone: destination.phone ? `${destination.phoneCode}${destination.phone}` : undefined,
+          contact: destination.contact || `${destination.firstName} ${destination.lastName}`.trim() || undefined,
+          firstName: destination.firstName || undefined,
+          lastName: destination.lastName || undefined,
         },
         notes: notes || undefined,
         imageUrl: packageImage || undefined,
@@ -884,12 +1003,14 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         // Información de cotización Skydropx
         skydropxQuote: (!skipShipping && selectedRate) ? {
           shipmentId,
-          rateId: selectedRate.id,
+          rateId: selectedRate.rateId,
           provider: selectedRate.provider,
           serviceName: selectedRate.serviceName,
           totalPrice: selectedRate.totalPrice,
           currency: selectedRate.currency || 'MXN',
-          deliveryDays: selectedRate.deliveryDays
+          deliveryDays: selectedRate.deliveryDays,
+          pqtxQuote: selectedRate.pqtxQuote || null,
+          rule: selectedRate.rule || null,
         } : undefined,
         // 🛡️ Información de GEX (Garantía Extendida)
         gex: includeGex && gexQuote ? {
@@ -2072,9 +2193,38 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                             {/* Solo mostrar formulario si NO está en modo "Dejar en Bodega" */}
                             {!leaveInWarehouse && (
                               <>
-                            <Divider sx={{ my: 2 }}><Chip label={t('shipments.destinationAddress')} icon={<PlaceIcon />} size="small" /></Divider>
+                            <Divider sx={{ my: 2 }}><Chip label={i18n.language === 'es' ? '👤 Datos del Destinatario' : '👤 Recipient Info'} icon={<PersonIcon />} size="small" /></Divider>
 
                             <Grid container spacing={2}>
+                              <Grid size={{ xs: 12, sm: 6 }}>
+                                <TextField fullWidth label={i18n.language === 'es' ? 'Nombre *' : 'First Name *'} value={destination.firstName}
+                                  onChange={(e) => setDestination(prev => ({ ...prev, firstName: e.target.value, contact: `${e.target.value} ${prev.lastName}`.trim() }))}
+                                  placeholder={i18n.language === 'es' ? 'Ej: Juan' : 'E.g.: John'} />
+                              </Grid>
+                              <Grid size={{ xs: 12, sm: 6 }}>
+                                <TextField fullWidth label={i18n.language === 'es' ? 'Apellido *' : 'Last Name *'} value={destination.lastName}
+                                  onChange={(e) => setDestination(prev => ({ ...prev, lastName: e.target.value, contact: `${prev.firstName} ${e.target.value}`.trim() }))}
+                                  placeholder={i18n.language === 'es' ? 'Ej: Pérez' : 'E.g.: Smith'} />
+                              </Grid>
+                              <Grid size={{ xs: 4, sm: 2 }}>
+                                <FormControl fullWidth>
+                                  <InputLabel>{i18n.language === 'es' ? 'Lada' : 'Code'}</InputLabel>
+                                  <Select value={destination.phoneCode} label={i18n.language === 'es' ? 'Lada' : 'Code'}
+                                    onChange={(e: SelectChangeEvent) => setDestination(prev => ({ ...prev, phoneCode: e.target.value }))}>
+                                    <MenuItem value="+52">🇲🇽 +52</MenuItem>
+                                    <MenuItem value="+1">🇺🇸 +1</MenuItem>
+                                    <MenuItem value="+86">🇨🇳 +86</MenuItem>
+                                    <MenuItem value="+57">🇨🇴 +57</MenuItem>
+                                    <MenuItem value="+502">🇬🇹 +502</MenuItem>
+                                    <MenuItem value="+34">🇪🇸 +34</MenuItem>
+                                  </Select>
+                                </FormControl>
+                              </Grid>
+                              <Grid size={{ xs: 8, sm: 4 }}>
+                                <TextField fullWidth label={t('shipments.phone')} value={destination.phone}
+                                  onChange={(e) => setDestination(prev => ({ ...prev, phone: e.target.value.replace(/[^\d]/g, '') }))}
+                                  placeholder="81 1234 5678" />
+                              </Grid>
                               <Grid size={{ xs: 12, sm: 6 }}>
                                 <FormControl fullWidth>
                                   <InputLabel>{t('shipments.country')} *</InputLabel>
@@ -2084,30 +2234,57 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                                   </Select>
                                 </FormControl>
                               </Grid>
-                              <Grid size={{ xs: 12, sm: 6 }}>
-                                <TextField fullWidth label={`${t('shipments.city')} *`} value={destination.city}
+                            </Grid>
+
+                            <Divider sx={{ my: 2 }}><Chip label={t('shipments.destinationAddress')} icon={<PlaceIcon />} size="small" /></Divider>
+
+                            <Grid container spacing={2}>
+                              <Grid size={{ xs: 12, sm: 4 }}>
+                                <TextField fullWidth label={`${t('shipments.zipCode')} *`} value={destination.zip}
+                                  onChange={(e) => {
+                                    const val = e.target.value.replace(/\D/g, '').slice(0, 5);
+                                    setDestination(prev => ({ ...prev, zip: val }));
+                                    if (val.length === 5) {
+                                      handleZipCodeLookup(val);
+                                    } else {
+                                      setColonyOptions([]);
+                                    }
+                                  }}
+                                  placeholder="00000"
+                                  slotProps={{ input: { endAdornment: loadingZipcode ? <CircularProgress size={18} /> : null } }} />
+                              </Grid>
+                              <Grid size={{ xs: 12, sm: 4 }}>
+                                <TextField fullWidth label={`${i18n.language === 'es' ? 'Ciudad' : 'City'} *`} value={destination.city}
                                   onChange={(e) => setDestination(prev => ({ ...prev, city: e.target.value }))}
-                                  placeholder={i18n.language === 'es' ? 'Ej: Ciudad de México' : 'E.g.: Mexico City'} />
+                                  placeholder={i18n.language === 'es' ? 'Ej: Monterrey' : 'E.g.: Monterrey'}
+                                  slotProps={{ input: { readOnly: !!destination.city && colonyOptions.length > 0 } }}
+                                  sx={{ '& .MuiInputBase-input': { bgcolor: destination.city && colonyOptions.length > 0 ? '#f5f5f5' : 'inherit' } }} />
                               </Grid>
-                              <Grid size={12}>
-                                <TextField fullWidth label={`${t('shipments.fullAddress')} *`} value={destination.address}
+                              <Grid size={{ xs: 12, sm: 4 }}>
+                                <TextField fullWidth label={i18n.language === 'es' ? 'Estado' : 'State'} value={destination.state}
+                                  onChange={(e) => setDestination(prev => ({ ...prev, state: e.target.value }))}
+                                  placeholder={i18n.language === 'es' ? 'Ej: Nuevo León' : 'E.g.: Nuevo León'}
+                                  slotProps={{ input: { readOnly: !!destination.state && colonyOptions.length > 0 } }}
+                                  sx={{ '& .MuiInputBase-input': { bgcolor: destination.state && colonyOptions.length > 0 ? '#f5f5f5' : 'inherit' } }} />
+                              </Grid>
+                              <Grid size={{ xs: 12, sm: 6 }}>
+                                <Autocomplete
+                                  freeSolo
+                                  options={colonyOptions}
+                                  value={destination.colony}
+                                  onChange={(_e, val) => setDestination(prev => ({ ...prev, colony: val || '' }))}
+                                  onInputChange={(_e, val) => setDestination(prev => ({ ...prev, colony: val || '' }))}
+                                  renderInput={(params) => (
+                                    <TextField {...params} label={`${i18n.language === 'es' ? 'Colonia' : 'Neighborhood'} *`}
+                                      placeholder={colonyOptions.length > 0 ? (i18n.language === 'es' ? 'Selecciona colonia...' : 'Select neighborhood...') : (i18n.language === 'es' ? 'Ingresa CP para cargar colonias' : 'Enter zip to load neighborhoods')} />
+                                  )}
+                                  noOptionsText={i18n.language === 'es' ? 'Ingresa el CP primero' : 'Enter zip code first'}
+                                />
+                              </Grid>
+                              <Grid size={{ xs: 12, sm: 6 }}>
+                                <TextField fullWidth label={`${i18n.language === 'es' ? 'Calle y Número' : 'Street & Number'} *`} value={destination.address}
                                   onChange={(e) => setDestination(prev => ({ ...prev, address: e.target.value }))}
-                                  placeholder={i18n.language === 'es' ? 'Calle, número, colonia...' : 'Street, number, neighborhood...'} multiline rows={2} />
-                              </Grid>
-                              <Grid size={{ xs: 12, sm: 4 }}>
-                                <TextField fullWidth label={t('shipments.zipCode')} value={destination.zip}
-                                  onChange={(e) => setDestination(prev => ({ ...prev, zip: e.target.value }))}
-                                  placeholder="00000" />
-                              </Grid>
-                              <Grid size={{ xs: 12, sm: 4 }}>
-                                <TextField fullWidth label={t('shipments.phone')} value={destination.phone}
-                                  onChange={(e) => setDestination(prev => ({ ...prev, phone: e.target.value }))}
-                                  placeholder="+52 55 1234 5678" />
-                              </Grid>
-                              <Grid size={{ xs: 12, sm: 4 }}>
-                                <TextField fullWidth label={t('shipments.contact')} value={destination.contact}
-                                  onChange={(e) => setDestination(prev => ({ ...prev, contact: e.target.value }))}
-                                  placeholder={i18n.language === 'es' ? 'Nombre de quien recibe' : 'Recipient name'} />
+                                  placeholder={i18n.language === 'es' ? 'Ej: Av. Revolución 123' : 'E.g.: 123 Main St'} />
                               </Grid>
                             </Grid>
 
@@ -2140,14 +2317,14 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                                 </Typography>
                                 <Grid container spacing={2}>
                                   {shippingRates.map((rate, index) => (
-                                    <Grid size={{ xs: 12, sm: 6, md: 4 }} key={rate.id || index}>
+                                    <Grid size={{ xs: 12, sm: 6, md: 4 }} key={rate.rateId || index}>
                                       <Paper
                                         onClick={() => handleSelectRate(rate)}
                                         sx={{
                                           p: 2,
                                           cursor: 'pointer',
-                                          border: selectedRate?.id === rate.id ? `3px solid ${ORANGE}` : '1px solid #ddd',
-                                          bgcolor: selectedRate?.id === rate.id ? '#FFF3E0' : 'white',
+                                          border: selectedRate?.rateId === rate.rateId ? `3px solid ${ORANGE}` : '1px solid #ddd',
+                                          bgcolor: selectedRate?.rateId === rate.rateId ? '#FFF3E0' : 'white',
                                           transition: 'all 0.2s',
                                           '&:hover': { 
                                             boxShadow: 3,
@@ -2159,7 +2336,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                                           <Typography variant="subtitle1" fontWeight="bold" sx={{ textTransform: 'capitalize' }}>
                                             {rate.carrierName || rate.provider}
                                           </Typography>
-                                          {selectedRate?.id === rate.id && (
+                                          {selectedRate?.rateId === rate.rateId && (
                                             <CheckCircleIcon sx={{ color: ORANGE }} />
                                           )}
                                         </Box>
@@ -2201,14 +2378,25 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                                   // Recargar datos originales
                                   if (clientInstructions?.defaultAddress) {
                                     const addr = clientInstructions.defaultAddress;
+                                    const nameParts = (addr.recipientName || '').split(' ');
+                                    const rawPh = addr.phone || '';
+                                    const phMatch = rawPh.match(/^(\+\d{1,3})[\s-]?(.+)$/);
                                     setDestination({
                                       country: 'México',
                                       city: addr.city,
+                                      state: addr.state || '',
+                                      colony: addr.neighborhood || '',
                                       address: `${addr.street} ${addr.exteriorNumber || ''}`,
                                       zip: addr.zipCode,
-                                      phone: addr.phone || '',
+                                      phoneCode: phMatch ? phMatch[1] : '+52',
+                                      phone: phMatch ? phMatch[2].replace(/[^\d]/g, '') : rawPh.replace(/[^\d]/g, ''),
+                                      firstName: nameParts[0] || '',
+                                      lastName: nameParts.slice(1).join(' ') || '',
                                       contact: addr.recipientName || ''
                                     });
+                                    if (addr.zipCode && /^\d{5}$/.test(addr.zipCode)) {
+                                      handleZipCodeLookup(addr.zipCode, false);
+                                    }
                                   }
                                 }}
                                 sx={{ mt: 2 }}

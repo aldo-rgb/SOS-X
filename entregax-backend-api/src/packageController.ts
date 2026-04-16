@@ -4,6 +4,7 @@ import { PoolClient, Pool } from 'pg';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import axios from 'axios';
 
 // ============ TIPOS ============
 type PackageStatus = 'received' | 'in_transit' | 'customs' | 'ready_pickup' | 'delivered' | 'reempacado' | 'processing';
@@ -271,8 +272,8 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
         // 🛡️ GEX - Determinar si incluye garantía
         const hasGex = gex?.included || false;
         
-        // 🚚 Costo de envío nacional (Skydropx)
-        const nationalShippingCost = skydropxQuote?.totalPrice || 0;
+        // 🚚 Costo de envío nacional (se calcula con PQTX si auto-asignado)
+        let nationalShippingCost = skydropxQuote?.totalPrice || 0;
 
         // Determinar service_type basado en warehouseLocation
         const getServiceType = (location?: string): string => {
@@ -387,7 +388,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
         let autoAssignedCarrier: string | null = null;
         if (user && serviceType === 'POBOX_USA') {
             const addressCheck = await client.query(
-                `SELECT id, carrier_config FROM addresses 
+                `SELECT id, carrier_config, zip_code FROM addresses 
                  WHERE user_id = $1 
                  AND default_for_service IS NOT NULL 
                  AND (default_for_service ILIKE '%po_box%' OR default_for_service ILIKE '%usa%' OR default_for_service ILIKE '%all%')
@@ -416,6 +417,106 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                 }
                 
                 console.log(`📦 Cliente ${user.box_id} tiene dirección USA asignada (ID: ${defaultAddressId}, Carrier: ${autoAssignedCarrier}) - auto-asignando instrucciones`);
+                
+                // 🚚 AUTO-COTIZAR con Paquete Express si la paquetería asignada es paquete_express
+                if (carrierConfig && (carrierConfig['usa'] === 'paquete_express' || autoAssignedCarrier === 'Paquete Express')) {
+                    const destZip = addressCheck.rows[0].zip_code;
+                    if (destZip) {
+                        try {
+                            const PQTX_BASE_URL = process.env.PQTX_BASE_URL || 'https://qaglp.paquetexpress.com.mx';
+                            const PQTX_QUOTE_USER = process.env.PQTX_QUOTE_USER || 'WSQURBANWOD';
+                            const PQTX_QUOTE_PASSWORD = process.env.PQTX_QUOTE_PASSWORD || '1234';
+                            const PQTX_QUOTE_TOKEN = process.env.PQTX_QUOTE_TOKEN || '4DB7391907B749C5E063350AA8C0215D';
+                            const PQTX_ORIGIN_ZIP = process.env.PQTX_ORIGIN_ZIP || '64860';
+
+                            // Construir paquetes para cotización
+                            const shipments = boxes.map((box: BoxItem, idx: number) => ({
+                                sequence: idx + 1,
+                                quantity: 1,
+                                shpCode: '2',
+                                weight: box.weight || 1,
+                                longShip: box.length || 30,
+                                widthShip: box.width || 30,
+                                highShip: box.height || 30,
+                            }));
+
+                            const quoteUrl = `${PQTX_BASE_URL}/WsQuotePaquetexpress/api/apiQuoter/v2/getQuotation`;
+                            const quoteBody = {
+                                header: {
+                                    security: { user: PQTX_QUOTE_USER, password: PQTX_QUOTE_PASSWORD, type: 1, token: PQTX_QUOTE_TOKEN },
+                                    device: { appName: 'EntregaX', type: 'Web', ip: '', idDevice: '' },
+                                    target: { module: 'QUOTER', version: '1.0', service: 'quoter', uri: 'quotes', event: 'R' },
+                                    output: 'JSON',
+                                    language: null,
+                                },
+                                body: {
+                                    request: {
+                                        data: {
+                                            clientAddrOrig: { zipCode: PQTX_ORIGIN_ZIP, colonyName: 'CENTRO' },
+                                            clientAddrDest: { zipCode: destZip, colonyName: 'CENTRO' },
+                                            services: { dlvyType: '1', ackType: 'N', totlDeclVlue: 1000, invType: 'A', radType: '1' },
+                                            otherServices: { otherServices: [] },
+                                            shipmentDetail: { shipments },
+                                            quoteServices: ['ALL'],
+                                        },
+                                        objectDTO: null,
+                                    },
+                                    response: null,
+                                },
+                            };
+
+                            console.log(`🚚 [PQTX-AUTO] Cotizando envío: origen=${PQTX_ORIGIN_ZIP}, destino=${destZip}, cajas=${boxes.length}`);
+                            const pqtxResponse = await axios.post(quoteUrl, quoteBody, {
+                                headers: { 'Content-Type': 'application/json' },
+                                timeout: 20000,
+                            });
+
+                            const respBody = pqtxResponse.data?.body?.response;
+                            const quotations = respBody?.data?.quotations;
+
+                            if (respBody?.success && Array.isArray(quotations) && quotations.length > 0) {
+                                // Tomar la cotización más económica
+                                const cheapest = quotations.reduce((min: any, q: any) => {
+                                    const qTotal = parseFloat(q.amount?.totalAmnt || q.totalAmnt || q.totalAmount || q.total || '0');
+                                    const mTotal = parseFloat(min.amount?.totalAmnt || min.totalAmnt || min.totalAmount || min.total || '0');
+                                    return qTotal < mTotal ? q : min;
+                                }, quotations[0]);
+
+                                const pqtxTotal = parseFloat(cheapest.amount?.totalAmnt || cheapest.totalAmnt || cheapest.totalAmount || cheapest.total || '0');
+                                const packageCount = boxes.length;
+                                const pqtxPerBox = packageCount > 1 ? pqtxTotal / packageCount : pqtxTotal;
+
+                                // REGLA DE UTILIDAD:
+                                // - Si cotización por caja < $300 → cobrar $400 por caja
+                                // - Si cotización por caja >= $300 → agregar $100 por caja
+                                let pricePerBox: number;
+                                let rule: string;
+                                if (pqtxPerBox < 300) {
+                                    pricePerBox = 400;
+                                    rule = 'min_400_per_box';
+                                } else {
+                                    pricePerBox = Math.round(pqtxPerBox + 100);
+                                    rule = 'plus_100_per_box';
+                                }
+
+                                nationalShippingCost = pricePerBox * packageCount;
+                                console.log(`🚚 [PQTX-AUTO] Cotización: PQTX=$${pqtxTotal}, perBox=$${pqtxPerBox}, clientPerBox=$${pricePerBox}, clientTotal=$${nationalShippingCost}, rule=${rule}`);
+                            } else {
+                                // Sin cotización disponible → fallback $400 por caja
+                                nationalShippingCost = 400 * boxes.length;
+                                console.log(`🚚 [PQTX-AUTO] Sin cotización PQTX, usando fallback: $${nationalShippingCost} ($400 x ${boxes.length} cajas)`);
+                            }
+                        } catch (pqtxError: any) {
+                            // Error en API → fallback $400 por caja
+                            nationalShippingCost = 400 * boxes.length;
+                            console.error(`🚚 [PQTX-AUTO] Error cotización: ${pqtxError.message}, usando fallback: $${nationalShippingCost}`);
+                        }
+                    } else {
+                        // Sin CP destino → fallback $400 por caja
+                        nationalShippingCost = 400 * boxes.length;
+                        console.log(`🚚 [PQTX-AUTO] Sin CP destino, usando fallback: $${nationalShippingCost}`);
+                    }
+                }
             }
         }
 

@@ -845,6 +845,8 @@ export async function pqtxClientQuote(req: Request, res: Response) {
       return res.status(400).json({ success: false, error: 'Se requiere CP destino' });
     }
 
+    console.log(`[PQTX-CLIENT] Params recibidos: ZIP=${destZipCode}, boxes=${packageCount}, weight=${weight}, dims=${length}x${width}x${height}`);
+
     // Construir paquetes para la cotización
     const shipments = [];
     for (let i = 0; i < packageCount; i++) {
@@ -916,12 +918,12 @@ export async function pqtxClientQuote(req: Request, res: Response) {
 
     // Tomar la cotización más económica (terrestre normalmente)
     const cheapest = quotations.reduce((min: any, q: any) => {
-      const qTotal = parseFloat(q.totalAmnt || q.totalAmount || q.total || '0');
-      const mTotal = parseFloat(min.totalAmnt || min.totalAmount || min.total || '0');
+      const qTotal = parseFloat(q.amount?.totalAmnt || q.totalAmnt || q.totalAmount || q.total || '0');
+      const mTotal = parseFloat(min.amount?.totalAmnt || min.totalAmnt || min.totalAmount || min.total || '0');
       return qTotal < mTotal ? q : min;
     }, quotations[0]);
 
-    const pqtxTotal = parseFloat(cheapest.totalAmnt || cheapest.totalAmount || cheapest.total || '0');
+    const pqtxTotal = parseFloat(cheapest.amount?.totalAmnt || cheapest.totalAmnt || cheapest.totalAmount || cheapest.total || '0');
 
     // REGLA DE UTILIDAD (precio POR CAJA)
     const pqtxPerBox = packageCount > 1 ? pqtxTotal / packageCount : pqtxTotal;
