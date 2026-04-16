@@ -1377,7 +1377,7 @@ export default function FinanceDashboardPage() {
               </Typography>
               <Grid container spacing={2} justifyContent="center" sx={{ maxWidth: 600, mx: 'auto' }}>
                 {(data?.empresas || []).filter(e => e.bank_name).map((emp) => (
-                  <Grid item xs={12} sm={6} key={emp.id}>
+                  <Grid size={{ xs: 12, sm: 6 }} key={emp.id}>
                     <Card 
                       sx={{ cursor: 'pointer', border: '2px solid transparent', '&:hover': { borderColor: '#1565C0', bgcolor: '#E3F2FD' }, borderRadius: 2 }}
                       onClick={() => setFilterServicio(emp.servicio_asignado)}
@@ -1454,7 +1454,7 @@ export default function FinanceDashboardPage() {
               <>
                 {/* Summary cards */}
                 <Grid container spacing={2} sx={{ mb: 3 }}>
-                  <Grid item xs={12} sm={4}>
+                  <Grid size={{ xs: 12, sm: 4 }}>
                     <Card sx={{ bgcolor: '#E8F5E9', borderRadius: 2 }}>
                       <CardContent sx={{ py: 1.5 }}>
                         <Typography variant="caption" color="text.secondary">Total Abonos</Typography>
@@ -1465,7 +1465,7 @@ export default function FinanceDashboardPage() {
                       </CardContent>
                     </Card>
                   </Grid>
-                  <Grid item xs={12} sm={4}>
+                  <Grid size={{ xs: 12, sm: 4 }}>
                     <Card sx={{ bgcolor: '#FFEBEE', borderRadius: 2 }}>
                       <CardContent sx={{ py: 1.5 }}>
                         <Typography variant="caption" color="text.secondary">Total Cargos</Typography>
@@ -1476,7 +1476,7 @@ export default function FinanceDashboardPage() {
                       </CardContent>
                     </Card>
                   </Grid>
-                  <Grid item xs={12} sm={4}>
+                  <Grid size={{ xs: 12, sm: 4 }}>
                     <Card sx={{ bgcolor: '#E3F2FD', borderRadius: 2 }}>
                       <CardContent sx={{ py: 1.5 }}>
                         <Typography variant="caption" color="text.secondary">Saldo Final</Typography>
@@ -1576,7 +1576,7 @@ export default function FinanceDashboardPage() {
             <>
               {/* Resumen */}
               <Grid container spacing={2} sx={{ mb: 3 }}>
-                <Grid item xs={4}>
+                <Grid size={{ xs: 4 }}>
                   <Card sx={{ bgcolor: '#E8F5E9', borderRadius: 2 }}>
                     <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
                       <Typography variant="h4" fontWeight="bold" color="success.main">{refMatchModal?.summary?.matched || 0}</Typography>
@@ -1584,7 +1584,7 @@ export default function FinanceDashboardPage() {
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid item xs={4}>
+                <Grid size={{ xs: 4 }}>
                   <Card sx={{ bgcolor: '#FFF3E0', borderRadius: 2 }}>
                     <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
                       <Typography variant="h4" fontWeight="bold" color="warning.main">{refMatchModal?.summary?.wrong_account || 0}</Typography>
@@ -1592,7 +1592,7 @@ export default function FinanceDashboardPage() {
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid item xs={4}>
+                <Grid size={{ xs: 4 }}>
                   <Card sx={{ bgcolor: '#FFEBEE', borderRadius: 2 }}>
                     <CardContent sx={{ py: 1.5, textAlign: 'center' }}>
                       <Typography variant="h4" fontWeight="bold" color="error.main">{refMatchModal?.summary?.unmatched || 0}</Typography>
@@ -1627,15 +1627,15 @@ export default function FinanceDashboardPage() {
                       </Box>
                       <Divider sx={{ my: 1 }} />
                       <Grid container spacing={2}>
-                        <Grid item xs={4}>
+                        <Grid size={{ xs: 4 }}>
                           <Typography variant="caption" color="text.secondary">Monto orden</Typography>
                           <Typography variant="body1" fontWeight="bold">{formatCurrency(m.amount)}</Typography>
                         </Grid>
-                        <Grid item xs={4}>
+                        <Grid size={{ xs: 4 }}>
                           <Typography variant="caption" color="text.secondary">Total abonos banco ({m.payment_count} pago{m.payment_count !== 1 ? 's' : ''})</Typography>
                           <Typography variant="body1" fontWeight="bold" color="success.main">{formatCurrency(m.total_bank_abonos)}</Typography>
                         </Grid>
-                        <Grid item xs={4}>
+                        <Grid size={{ xs: 4 }}>
                           <Typography variant="caption" color="text.secondary">Diferencia</Typography>
                           <Typography variant="body1" fontWeight="bold" color={m.total_bank_abonos >= m.amount ? 'success.main' : 'error.main'}>
                             {formatCurrency(m.total_bank_abonos - m.amount)}
@@ -1926,7 +1926,7 @@ export default function FinanceDashboardPage() {
               {/* Grid of voucher images */}
               <Grid container spacing={2}>
                 {voucherGallery.vouchers.map((v: any, idx: number) => (
-                  <Grid item xs={12} sm={6} key={v.id}>
+                  <Grid size={{ xs: 12, sm: 6 }} key={v.id}>
                     <Paper sx={{ borderRadius: 2, overflow: 'hidden', border: '1px solid #e0e0e0' }}>
                       <Box
                         component="img"
