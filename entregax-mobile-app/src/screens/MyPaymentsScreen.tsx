@@ -18,7 +18,9 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { 
   getPendingPaymentsApi, 
   getPaymentClabeApi,
-  PaymentInvoice 
+  getPaymentOrdersApi,
+  PaymentInvoice,
+  PaymentOrder 
 } from '../services/api';
 import { useTranslation } from 'react-i18next';
 import QRCode from 'react-native-qrcode-svg';
@@ -88,6 +90,9 @@ const MyPaymentsScreen = () => {
   const [selectedInvoice, setSelectedInvoice] = useState<PaymentInvoice | null>(null);
   const [clabeInfo, setClabeInfo] = useState<ClabeInfo | null>(null);
   const [loadingClabe, setLoadingClabe] = useState(false);
+  const [activeTab, setActiveTab] = useState<'pending' | 'orders'>('pending');
+  const [paymentOrders, setPaymentOrders] = useState<PaymentOrder[]>([]);
+  const [loadingOrders, setLoadingOrders] = useState(false);
 
   // Group invoices by service
   const groupInvoicesByService = (invoices: PaymentInvoice[]): GroupedInvoices[] => {
@@ -132,9 +137,30 @@ const MyPaymentsScreen = () => {
     fetchPayments();
   }, [fetchPayments]);
 
+  const fetchPaymentOrders = useCallback(async () => {
+    setLoadingOrders(true);
+    try {
+      const response = await getPaymentOrdersApi(token);
+      if (response.success) {
+        setPaymentOrders(response.payments || []);
+      }
+    } catch (error) {
+      console.error('Error fetching payment orders:', error);
+    } finally {
+      setLoadingOrders(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (activeTab === 'orders' && paymentOrders.length === 0) {
+      fetchPaymentOrders();
+    }
+  }, [activeTab, fetchPaymentOrders]);
+
   const onRefresh = () => {
     setRefreshing(true);
     fetchPayments();
+    if (activeTab === 'orders') fetchPaymentOrders();
   };
 
   const handlePayInvoice = async (invoice: PaymentInvoice) => {
@@ -459,6 +485,25 @@ const MyPaymentsScreen = () => {
         <Text style={styles.totalCurrency}>MXN</Text>
       </View>
 
+      {/* Tabs */}
+      <View style={styles.tabBar}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'pending' && styles.tabActive]}
+          onPress={() => setActiveTab('pending')}
+        >
+          <Ionicons name="receipt-outline" size={18} color={activeTab === 'pending' ? '#FF6B00' : '#999'} />
+          <Text style={[styles.tabText, activeTab === 'pending' && styles.tabTextActive]}>Pendientes</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'orders' && styles.tabActive]}
+          onPress={() => setActiveTab('orders')}
+        >
+          <Ionicons name="document-text-outline" size={18} color={activeTab === 'orders' ? '#FF6B00' : '#999'} />
+          <Text style={[styles.tabText, activeTab === 'orders' && styles.tabTextActive]}>Órdenes de Pago</Text>
+        </TouchableOpacity>
+      </View>
+
+      {activeTab === 'pending' ? (
       <ScrollView
         style={styles.scrollView}
         refreshControl={
@@ -522,6 +567,84 @@ const MyPaymentsScreen = () => {
           </Text>
         </View>
       </ScrollView>
+      ) : (
+      /* Tab: Órdenes de Pago */
+      <ScrollView
+        style={styles.scrollView}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        {loadingOrders ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#FF6B00" />
+            <Text style={styles.loadingText}>Cargando órdenes...</Text>
+          </View>
+        ) : paymentOrders.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="document-text-outline" size={64} color="#CCC" />
+            <Text style={styles.emptyTitle}>Sin órdenes de pago</Text>
+            <Text style={styles.emptyText}>No se han generado órdenes de pago aún</Text>
+          </View>
+        ) : (
+          paymentOrders.map((order) => {
+            const statusColors: Record<string, { bg: string; text: string; label: string }> = {
+              pending_payment: { bg: '#FFF3E0', text: '#E65100', label: '⏳ Pendiente' },
+              completed: { bg: '#E8F5E9', text: '#2E7D32', label: '✅ Pagado' },
+              failed: { bg: '#FFEBEE', text: '#C62828', label: '❌ Fallido' },
+              expired: { bg: '#F5F5F5', text: '#757575', label: '⏰ Expirado' },
+              pending: { bg: '#E3F2FD', text: '#1565C0', label: '🔄 Procesando' },
+            };
+            const st = statusColors[order.status] || statusColors.pending;
+            const methodLabels: Record<string, string> = {
+              cash: '💵 Pago en Sucursal',
+              paypal: '🅿️ PayPal',
+              card: '💳 Tarjeta',
+              spei: '🏦 SPEI',
+            };
+
+            return (
+              <View key={order.id} style={styles.orderCard}>
+                <View style={styles.orderHeader}>
+                  <Text style={styles.orderRef}>{order.payment_reference}</Text>
+                  <View style={[styles.orderStatusBadge, { backgroundColor: st.bg }]}>
+                    <Text style={[styles.orderStatusText, { color: st.text }]}>{st.label}</Text>
+                  </View>
+                </View>
+                <View style={styles.orderBody}>
+                  <View style={styles.orderRow}>
+                    <Text style={styles.orderLabel}>Método:</Text>
+                    <Text style={styles.orderValue}>{methodLabels[order.payment_method] || order.payment_method}</Text>
+                  </View>
+                  <View style={styles.orderRow}>
+                    <Text style={styles.orderLabel}>Monto:</Text>
+                    <Text style={[styles.orderValue, { fontWeight: 'bold', color: '#FF6B00' }]}>
+                      {formatCurrency(order.amount)} {order.currency}
+                    </Text>
+                  </View>
+                  <View style={styles.orderRow}>
+                    <Text style={styles.orderLabel}>Fecha:</Text>
+                    <Text style={styles.orderValue}>{formatDate(order.created_at)}</Text>
+                  </View>
+                  {order.paid_at && (
+                    <View style={styles.orderRow}>
+                      <Text style={styles.orderLabel}>Pagado:</Text>
+                      <Text style={[styles.orderValue, { color: '#2E7D32' }]}>{formatDate(order.paid_at)}</Text>
+                    </View>
+                  )}
+                  <View style={styles.orderRow}>
+                    <Text style={styles.orderLabel}>Paquetes:</Text>
+                    <Text style={styles.orderValue}>
+                      {Array.isArray(order.package_ids) ? order.package_ids.length : 0} paquete(s)
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            );
+          })
+        )}
+      </ScrollView>
+      )}
 
       {/* Modal de pago para paquetes */}
       {renderPackagePaymentModal()}
@@ -533,6 +656,89 @@ const MyPaymentsScreen = () => {
 };
 
 const styles = StyleSheet.create({
+  tabBar: {
+    flexDirection: 'row',
+    marginHorizontal: 16,
+    marginBottom: 8,
+    backgroundColor: '#FFF',
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#EEE',
+  },
+  tab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 6,
+  },
+  tabActive: {
+    borderBottomWidth: 3,
+    borderBottomColor: '#FF6B00',
+    backgroundColor: '#FFF8F0',
+  },
+  tabText: {
+    fontSize: 14,
+    color: '#999',
+    fontWeight: '500',
+  },
+  tabTextActive: {
+    color: '#FF6B00',
+    fontWeight: '700',
+  },
+  orderCard: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  orderHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  orderRef: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#333',
+  },
+  orderStatusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  orderStatusText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  orderBody: {
+    padding: 12,
+  },
+  orderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  orderLabel: {
+    fontSize: 13,
+    color: '#888',
+  },
+  orderValue: {
+    fontSize: 13,
+    color: '#333',
+  },
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',

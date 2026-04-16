@@ -775,6 +775,9 @@ export default function DashboardClient() {
     invoices: any[];
   } | null>(null);
   const [showPendingPayments, setShowPendingPayments] = useState(false);
+  const [pendingPaymentsTab, setPendingPaymentsTab] = useState(0);
+  const [paymentOrders, setPaymentOrders] = useState<any[]>([]);
+  const [loadingPaymentOrders, setLoadingPaymentOrders] = useState(false);
 
   // Cotizador Universal
   const [quoteService, setQuoteService] = useState<string>('');
@@ -1278,6 +1281,20 @@ export default function DashboardClient() {
       }
     } catch (error) {
       console.error('Error cargando cuentas por pagar:', error);
+    }
+  };
+
+  const loadPaymentOrders = async () => {
+    setLoadingPaymentOrders(true);
+    try {
+      const response = await api.get('/pobox/payment/history');
+      if (response.data?.success) {
+        setPaymentOrders(response.data.payments || []);
+      }
+    } catch (error) {
+      console.error('Error cargando órdenes de pago:', error);
+    } finally {
+      setLoadingPaymentOrders(false);
     }
   };
 
@@ -8650,7 +8667,13 @@ export default function DashboardClient() {
                   }
                 }}
               >
-                {paymentGatewayMethods.map((method) => (
+                {paymentGatewayMethods.filter((method) => {
+                  if (method.id === 'branch') {
+                    const total = getSelectedPackages().reduce((sum, p) => sum + (Number(p.monto) || 0), 0);
+                    return total >= 30000;
+                  }
+                  return true;
+                }).map((method) => (
                   <FormControlLabel
                     key={method.id}
                     value={method.id}
@@ -9264,6 +9287,23 @@ export default function DashboardClient() {
             <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>MXN</Typography>
           </Paper>
 
+          {/* Tabs */}
+          <Tabs
+            value={pendingPaymentsTab}
+            onChange={(_, v) => {
+              setPendingPaymentsTab(v);
+              if (v === 1 && paymentOrders.length === 0) loadPaymentOrders();
+            }}
+            variant="fullWidth"
+            sx={{ borderBottom: '1px solid #eee', bgcolor: '#fafafa' }}
+          >
+            <Tab label="📋 Pendientes" sx={{ fontWeight: 'bold' }} />
+            <Tab label="📄 Órdenes de Pago" sx={{ fontWeight: 'bold' }} />
+          </Tabs>
+
+          {/* Tab: Pendientes */}
+          {pendingPaymentsTab === 0 && (
+          <>
           {/* Listado por servicio */}
           {pendingPayments?.byService && pendingPayments.byService.length > 0 ? (
             pendingPayments.byService.map((group) => (
@@ -9334,6 +9374,87 @@ export default function DashboardClient() {
               <Typography variant="body2" color="text.secondary">
                 {t('cd.pending.noPending')}
               </Typography>
+            </Box>
+          )}
+          </>
+          )}
+
+          {/* Tab: Órdenes de Pago */}
+          {pendingPaymentsTab === 1 && (
+            <Box sx={{ minHeight: 200 }}>
+              {loadingPaymentOrders ? (
+                <Box sx={{ textAlign: 'center', py: 6 }}>
+                  <CircularProgress size={40} sx={{ color: ORANGE }} />
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>Cargando órdenes...</Typography>
+                </Box>
+              ) : paymentOrders.length === 0 ? (
+                <Box sx={{ textAlign: 'center', py: 6 }}>
+                  <ReceiptIcon sx={{ fontSize: 60, color: '#CCC', mb: 2 }} />
+                  <Typography variant="h6" color="text.secondary" fontWeight="bold">Sin órdenes de pago</Typography>
+                  <Typography variant="body2" color="text.secondary">No se han generado órdenes de pago aún</Typography>
+                </Box>
+              ) : (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: '#f8f8f8' }}>
+                      <TableCell><strong>Referencia</strong></TableCell>
+                      <TableCell><strong>Método</strong></TableCell>
+                      <TableCell align="right"><strong>Monto</strong></TableCell>
+                      <TableCell><strong>Estado</strong></TableCell>
+                      <TableCell><strong>Fecha</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {paymentOrders.map((order: any) => {
+                      const statusMap: Record<string, { color: string; label: string }> = {
+                        pending_payment: { color: '#E65100', label: '⏳ Pendiente' },
+                        completed: { color: '#2E7D32', label: '✅ Pagado' },
+                        failed: { color: '#C62828', label: '❌ Fallido' },
+                        expired: { color: '#757575', label: '⏰ Expirado' },
+                        pending: { color: '#1565C0', label: '🔄 Procesando' },
+                      };
+                      const st = statusMap[order.status] || statusMap.pending;
+                      const methodMap: Record<string, string> = {
+                        cash: '💵 Sucursal',
+                        paypal: '🅿️ PayPal',
+                        card: '💳 Tarjeta',
+                        spei: '🏦 SPEI',
+                      };
+                      return (
+                        <TableRow key={order.id} hover>
+                          <TableCell>
+                            <Typography variant="body2" fontWeight="bold">{order.payment_reference}</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {Array.isArray(order.package_ids) ? `${order.package_ids.length} paquete(s)` : ''}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">{methodMap[order.payment_method] || order.payment_method}</Typography>
+                          </TableCell>
+                          <TableCell align="right">
+                            <Typography variant="body2" fontWeight="bold" sx={{ color: ORANGE }}>
+                              {formatCurrency(Number(order.amount) || 0)} {order.currency}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Chip label={st.label} size="small" sx={{ bgcolor: st.color + '15', color: st.color, fontWeight: 'bold', fontSize: '0.7rem' }} />
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="caption">
+                              {new Date(order.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
+                            </Typography>
+                            {order.paid_at && (
+                              <Typography variant="caption" display="block" sx={{ color: '#2E7D32' }}>
+                                Pagado: {new Date(order.paid_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
+                              </Typography>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              )}
             </Box>
           )}
         </DialogContent>

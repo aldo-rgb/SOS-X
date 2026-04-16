@@ -296,6 +296,37 @@ export const getPaymentHistoryApi = async (token: string): Promise<{
   return response.json();
 };
 
+// Get payment orders (pobox_payments)
+export interface PaymentOrder {
+  id: number;
+  package_ids: number[];
+  amount: number;
+  currency: string;
+  payment_method: string;
+  payment_reference: string;
+  status: string;
+  created_at: string;
+  paid_at: string | null;
+}
+
+export const getPaymentOrdersApi = async (token: string): Promise<{
+  success: boolean;
+  payments: PaymentOrder[];
+}> => {
+  const response = await fetch(`${API_URL}/api/pobox/payment/history`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Error al obtener órdenes de pago');
+  }
+
+  return response.json();
+};
+
 // 🎠 Get carousel slides
 export interface CarouselSlide {
   // El backend puede devolver con camelCase o snake_case
