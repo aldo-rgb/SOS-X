@@ -2051,7 +2051,7 @@ export default function DashboardClient() {
           totalAmount: total,
           currency: 'MXN'
         };
-        const response = await api.post('/pobox/payment/cash', cashData);
+        const response = await api.post('/pobox/payment/cash/create', cashData);
         
         if (response.data.success) {
           // Mostrar dialog con instrucciones de pago
