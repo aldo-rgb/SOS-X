@@ -10,7 +10,7 @@ let logoBase64Cache: string | null = null;
 const getLogoBase64 = async (): Promise<string> => {
   if (logoBase64Cache) return logoBase64Cache;
   try {
-    const asset = Asset.fromModule(require('../../assets/logo.png'));
+    const asset = Asset.fromModule(require('../../assets/logo-negro.png'));
     await asset.downloadAsync();
     if (asset.localUri) {
       const base64 = await readAsStringAsync(asset.localUri, {
@@ -160,7 +160,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
       ${logo ? `<img src="${logo}" class="logo" />` : '<div style="font-size:24px;font-weight:800;color:#FF6B00;">EntregaX</div>'}
     </div>
     <div class="company-info">
-      <strong>ENTREGAX S.A. DE C.V.</strong><br>
+      <strong>ENTREGAX</strong><br>
       📍 Monterrey, Nuevo León, México<br>
       📧 contacto@entregax.com<br>
       🌐 www.entregax.com
@@ -242,7 +242,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
     </p>
     <div class="payment-box">
       <div class="bank-row"><span class="bank-label">Banco:</span> <span class="bank-value">${bankInfo?.banco || 'BBVA México'}</span></div>
-      <div class="bank-row"><span class="bank-label">Beneficiario:</span> <span class="bank-value">${bankInfo?.beneficiario || 'ENTREGAX S.A. DE C.V.'}</span></div>
+      <div class="bank-row"><span class="bank-label">Beneficiario:</span> <span class="bank-value">${bankInfo?.beneficiario || 'ENTREGAX'}</span></div>
       <div class="bank-row"><span class="bank-label">Número de Cuenta:</span> <span class="bank-value">${bankInfo?.cuenta || '-'}</span></div>
       <div class="bank-row"><span class="bank-label">CLABE:</span> <span class="bank-value">${bankInfo?.clabe || '-'}</span></div>
       <div class="bank-row"><span class="bank-label">Concepto / Referencia:</span> <span class="bank-value" style="color:#E65100; font-size: 13px;">${data.payment_reference}</span></div>
@@ -250,6 +250,11 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
 
     <div class="warning-box">
       ⚠️ Favor de realizar depósitos de no más de $90,000 pesos por depósito.
+    </div>
+    <div style="background:#D32F2F;color:#fff;padding:14px 18px;margin-top:12px;border-radius:6px;text-align:center;font-size:12px;font-weight:700;letter-spacing:0.3px;">
+      🚨 IMPORTANTE: Debe incluir el número de referencia
+      <span style="background:#fff;color:#D32F2F;padding:2px 8px;border-radius:4px;font-size:14px;">${data.payment_reference}</span>
+      en el concepto de pago. Sin esta referencia, su pago NO podrá ser acreditado.
     </div>
   </div>
 
@@ -277,7 +282,7 @@ export const generatePaymentPDF = async (data: PaymentPDFData): Promise<void> =>
 
   <!-- FOOTER -->
   <div class="footer">
-    ENTREGAX S.A. DE C.V. &nbsp;|&nbsp; 📍 Monterrey, N.L., México &nbsp;|&nbsp; 📧 contacto@entregax.com &nbsp;|&nbsp; 🌐 <a href="https://www.entregax.com">www.entregax.com</a><br>
+    ENTREGAX &nbsp;|&nbsp; 📍 Monterrey, N.L., México &nbsp;|&nbsp; 📧 contacto@entregax.com &nbsp;|&nbsp; 🌐 <a href="https://www.entregax.com">www.entregax.com</a><br>
     Documento generado el ${today}. Este documento es una cotización informativa y no representa un comprobante fiscal.
   </div>
 

@@ -8566,6 +8566,11 @@ export default function DashboardClient() {
                   Copiar
                 </Button>
               </Box>
+              <Box sx={{ bgcolor: '#FFF3E0', borderRadius: 2, p: 1.2, mb: 1, borderLeft: '4px solid #E65100' }}>
+                <Typography variant="body2" sx={{ color: '#BF360C', fontWeight: 600, fontSize: '0.8rem', textAlign: 'center' }}>
+                  ⚠️ Debe incluir el número de referencia para que su pago sea acreditado.
+                </Typography>
+              </Box>
 
               {/* Monto */}
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, p: 1.5, bgcolor: '#f0fdf4', borderRadius: 2 }}>
@@ -8607,11 +8612,13 @@ export default function DashboardClient() {
                 </Box>
               )}
 
-              <Box sx={{ p: 1.5, bgcolor: '#fef2f2', borderRadius: 2 }}>
+              <Box sx={{ p: 1.5, bgcolor: '#fef2f2', borderRadius: 2, mb: 2 }}>
                 <Typography variant="body2" color="error.dark">
                   ⏰ Tu pedido se procesará una vez confirmado el pago. Tiempo de confirmación: 1-24 hrs.
                 </Typography>
               </Box>
+
+
             </Box>
           )}
         </DialogContent>
@@ -9577,57 +9584,59 @@ export default function DashboardClient() {
                           </TableCell>
                           <TableCell align="center" onClick={(e: any) => e.stopPropagation()}>
                             {(order.status === 'pending_payment' || order.status === 'pending') && (
-                              <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
-                                <Button
-                                  size="small"
-                                  variant="contained"
-                                  sx={{ bgcolor: ORANGE, fontSize: '0.65rem', px: 1, py: 0.5, minWidth: 'auto', textTransform: 'none', '&:hover': { bgcolor: '#E55A00' } }}
-                                  onClick={() => {
-                                    setPaymentInstructionsDialog({
-                                      open: true,
-                                      reference: order.payment_reference,
-                                      amount: Number(order.amount),
-                                      currency: order.currency || 'MXN',
-                                      expiresAt: '',
-                                      bankInfo: order.bank_info || { banco: 'BBVA México', clabe: '012580001234567890', cuenta: '1234567890', beneficiario: 'ENTREGAX S.A. DE C.V.', concepto: order.payment_reference },
-                                      branchInfo: order.branch_info || { nombre: 'CEDIS Monterrey', direccion: 'Av. Industrial #123', telefono: '81 1234 5678', horario: 'L-V 9-18' },
-                                    });
-                                  }}
-                                >
-                                  📄 Ver Detalles
-                                </Button>
-                                <Button
-                                  size="small"
-                                  variant="contained"
-                                  sx={{ bgcolor: '#4CAF50', fontSize: '0.65rem', px: 1, py: 0.5, minWidth: 'auto', textTransform: 'none', '&:hover': { bgcolor: '#388E3C' } }}
-                                  onClick={() => {
-                                    setSnackbar({ open: true, message: '📎 Subir pago: Próximamente', severity: 'info' });
-                                  }}
-                                >
-                                  📎 Subir Pago
-                                </Button>
-                                <Button
-                                  size="small"
-                                  variant="contained"
-                                  sx={{ bgcolor: '#1565C0', fontSize: '0.65rem', px: 1, py: 0.5, minWidth: 'auto', textTransform: 'none', '&:hover': { bgcolor: '#0D47A1' } }}
-                                  onClick={() => {
+                              <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                                <Tooltip title="Ver Detalles" arrow>
+                                  <IconButton
+                                    size="small"
+                                    sx={{ bgcolor: ORANGE, color: '#fff', width: 30, height: 30, fontSize: '15px', '&:hover': { bgcolor: '#E55A00' } }}
+                                    onClick={() => {
+                                      setPaymentInstructionsDialog({
+                                        open: true,
+                                        reference: order.payment_reference,
+                                        amount: Number(order.amount),
+                                        currency: order.currency || 'MXN',
+                                        expiresAt: '',
+                                        bankInfo: order.bank_info || { banco: 'BBVA México', clabe: '012580001234567890', cuenta: '1234567890', beneficiario: 'ENTREGAX', concepto: order.payment_reference },
+                                        branchInfo: order.branch_info || { nombre: 'CEDIS Monterrey', direccion: 'Av. Industrial #123', telefono: '81 1234 5678', horario: 'L-V 9-18' },
+                                      });
+                                    }}
+                                  >📄</IconButton>
+                                </Tooltip>
+                                <Tooltip title="Subir Pago" arrow>
+                                  <IconButton
+                                    size="small"
+                                    sx={{ bgcolor: '#4CAF50', color: '#fff', width: 30, height: 30, fontSize: '15px', '&:hover': { bgcolor: '#388E3C' } }}
+                                    onClick={() => {
+                                      setSnackbar({ open: true, message: '📎 Subir pago: Próximamente', severity: 'info' });
+                                    }}
+                                  >📎</IconButton>
+                                </Tooltip>
+                                <Tooltip title="Descargar PDF" arrow>
+                                  <IconButton
+                                    size="small"
+                                    sx={{ bgcolor: '#1565C0', color: '#fff', width: 30, height: 30, fontSize: '15px', '&:hover': { bgcolor: '#0D47A1' } }}
+                                    onClick={() => {
                                     const userData = JSON.parse(localStorage.getItem('user') || '{}');
-                                    const bankInfo = order.bank_info || { banco: 'BBVA México', clabe: '012580001234567890', cuenta: '1234567890', beneficiario: 'ENTREGAX S.A. DE C.V.' };
+                                    const bankInfo = order.bank_info || { banco: 'BBVA México', clabe: '012580001234567890', cuenta: '1234567890', beneficiario: 'ENTREGAX' };
                                     const pkgs = Array.isArray(order.packages) ? order.packages : [];
                                     const today = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
                                     const fmtCur = (n: number) => '$' + n.toLocaleString('es-MX', { minimumFractionDigits: 2 });
                                     const pkgRows = pkgs.map((pkg: any, i: number) => `<tr><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;">${i+1}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;font-weight:600;">${pkg.tracking_internal || pkg.international_tracking || '-'}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center;">${pkg.weight ? Number(pkg.weight).toFixed(1)+' lb' : '-'}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:center;">${pkg.national_carrier || '-'}</td><td style="padding:6px 8px;border-bottom:1px solid #eee;font-size:11px;text-align:right;font-weight:600;">${fmtCur(Number(pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0))}</td></tr>`).join('');
-                                    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>@page{margin:30px 40px;size:A4}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#333;font-size:12px;line-height:1.5}.header{display:flex;justify-content:space-between;align-items:center;padding-bottom:15px;border-bottom:3px solid #FF6B00;margin-bottom:20px}.logo{height:55px}.company-info{text-align:right;font-size:10px;color:#666}.company-info strong{color:#333;font-size:11px}.title-bar{background:linear-gradient(135deg,#FF6B00,#E55A00);color:white;padding:12px 20px;border-radius:6px;margin-bottom:20px}.title-bar h1{font-size:16px;font-weight:700}.title-bar .ref{font-size:11px;opacity:0.9;margin-top:2px}.section{margin-bottom:16px}.section-title{font-size:12px;font-weight:700;color:#FF6B00;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid #FFE0C0}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px}.info-row{display:flex;gap:8px}.info-label{color:#888;font-size:11px;min-width:120px}.info-value{font-weight:600;font-size:11px}table{width:100%;border-collapse:collapse;margin-top:6px}th{background:#F8F8F8;padding:8px 10px;text-align:left;font-size:10px;font-weight:700;color:#555;text-transform:uppercase;border-bottom:2px solid #FF6B00}th:last-child{text-align:right}.total-row{background:#FFF8F0}.total-row td{padding:10px;font-weight:700;font-size:13px;border-top:2px solid #FF6B00}.payment-box{background:#F9FBF5;border:1px solid #C8E6C9;border-radius:8px;padding:16px;margin-top:8px}.bank-row{margin-bottom:4px;font-size:11px}.bank-label{color:#666;display:inline-block;min-width:100px}.bank-value{font-weight:700;color:#333}.warning-box{background:#FFF3E0;border-left:4px solid #FF9800;padding:10px 14px;margin-top:12px;border-radius:0 6px 6px 0;font-size:10px;color:#E65100}.instructions-box{background:#F3F8FF;border:1px solid #BBDEFB;border-radius:8px;padding:14px;margin-top:12px}.instructions-box h3{font-size:11px;color:#1565C0;margin-bottom:8px}.instructions-box ol{padding-left:18px;font-size:10px;color:#444}.instructions-box ol li{margin-bottom:4px}.footer{margin-top:24px;padding-top:12px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}.terms{margin-top:16px;padding:12px;background:#FAFAFA;border-radius:6px;font-size:8.5px;color:#999;line-height:1.6}.terms strong{color:#666}</style></head><body><div class="header"><div style="font-size:24px;font-weight:800;color:#FF6B00;">Entrega<span style="color:#333;">X</span></div><div class="company-info"><strong>ENTREGAX S.A. DE C.V.</strong><br>📍 Monterrey, Nuevo León, México<br>📧 contacto@entregax.com<br>🌐 www.entregax.com</div></div><div class="title-bar"><h1>COTIZACIÓN DE SERVICIOS LOGÍSTICOS</h1><div class="ref">Folio de Referencia: <strong>${order.payment_reference}</strong> &nbsp;|&nbsp; Fecha de Emisión: ${today}</div></div><div class="section"><div class="section-title">1. Datos del Cliente</div><div class="info-grid"><div class="info-row"><span class="info-label">Nombre / Razón Social:</span><span class="info-value">${userData.name || '-'}</span></div><div class="info-row"><span class="info-label">Casillero:</span><span class="info-value">${userData.boxId || userData.box_id || '-'}</span></div></div></div><div class="section"><div class="section-title">2. Detalle del Embarque</div><div class="info-grid"><div class="info-row"><span class="info-label">Servicio:</span><span class="info-value">PO Box USA - Carga Aérea</span></div><div class="info-row"><span class="info-label">Origen:</span><span class="info-value">Estados Unidos</span></div><div class="info-row"><span class="info-label">Destino:</span><span class="info-value">Monterrey, N.L., México</span></div><div class="info-row"><span class="info-label">Paquetes:</span><span class="info-value">${pkgs.length} paquete(s)</span></div></div></div><div class="section"><div class="section-title">3. Desglose de Costos (MXN)</div><table><thead><tr><th style="width:30px">#</th><th>Guía / Tracking</th><th style="text-align:center">Peso</th><th style="text-align:center">Paquetería</th><th style="text-align:right">Monto (MXN)</th></tr></thead><tbody>${pkgRows}<tr class="total-row"><td colspan="4" style="text-align:right;padding-right:10px;">TOTAL A PAGAR:</td><td style="text-align:right;color:#E65100;font-size:14px;">${fmtCur(Number(order.amount))} ${order.currency || 'MXN'}</td></tr></tbody></table></div><div class="section"><div class="section-title">💳 Instrucciones de Pago</div><p style="font-size:11px;color:#555;margin-bottom:8px;">Para garantizar el despacho de su mercancía, le solicitamos realizar el pago correspondiente:</p><div class="payment-box"><div class="bank-row"><span class="bank-label">Banco:</span> <span class="bank-value">${bankInfo.banco}</span></div><div class="bank-row"><span class="bank-label">Beneficiario:</span> <span class="bank-value">${bankInfo.beneficiario}</span></div><div class="bank-row"><span class="bank-label">Número de Cuenta:</span> <span class="bank-value">${bankInfo.cuenta}</span></div><div class="bank-row"><span class="bank-label">CLABE:</span> <span class="bank-value">${bankInfo.clabe}</span></div><div class="bank-row"><span class="bank-label">Concepto / Referencia:</span> <span class="bank-value" style="color:#E65100;font-size:13px;">${order.payment_reference}</span></div></div><div class="warning-box">⚠️ Favor de realizar depósitos de no más de $90,000 pesos por depósito.</div></div><div class="section"><div class="instructions-box"><h3>📧 Confirmación de Pago</h3><ol><li>Una vez realizado el pago, ingrese a su portal en <strong>www.entregax.app</strong></li><li>Diríjase a la sección <strong>"Mis Cuentas por Pagar"</strong></li><li>Seleccione la opción <strong>"Órdenes de Pago"</strong></li><li>Envíe el comprobante de pago en formato PDF o JPG</li><li>Para depósitos en efectivo, puede tardar de <strong>24 a 48 horas</strong> en verse reflejado</li></ol></div></div><div class="terms"><strong>Términos y Condiciones:</strong><br>Los tiempos de tránsito son estimados y están sujetos a revisiones aduanales, clima y disponibilidad de espacio en aerolíneas/navieras. Los costos aduanales pueden variar según el dictamen final de la autoridad. Esta cotización no incluye almacenajes prolongados en destino ni maniobras especiales. Los precios están expresados en Moneda Nacional (MXN) y son válidos al momento de la emisión de este documento.</div><div class="footer">ENTREGAX S.A. DE C.V. &nbsp;|&nbsp; 📍 Monterrey, N.L., México &nbsp;|&nbsp; 📧 contacto@entregax.com &nbsp;|&nbsp; 🌐 www.entregax.com<br>Documento generado el ${today}. Este documento es una cotización informativa y no representa un comprobante fiscal.</div></body></html>`;
+                                    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>@page{margin:30px 40px;size:A4}*{margin:0;padding:0;box-sizing:border-box}body{font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;color:#333;font-size:12px;line-height:1.5}.header{display:flex;justify-content:space-between;align-items:center;padding-bottom:15px;border-bottom:3px solid #FF6B00;margin-bottom:20px}.logo{height:55px}.company-info{text-align:right;font-size:10px;color:#666}.company-info strong{color:#333;font-size:11px}.title-bar{background:linear-gradient(135deg,#FF6B00,#E55A00);color:white;padding:12px 20px;border-radius:6px;margin-bottom:20px}.title-bar h1{font-size:16px;font-weight:700}.title-bar .ref{font-size:11px;opacity:0.9;margin-top:2px}.section{margin-bottom:16px}.section-title{font-size:12px;font-weight:700;color:#FF6B00;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;padding-bottom:4px;border-bottom:1px solid #FFE0C0}.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px 20px}.info-row{display:flex;gap:8px}.info-label{color:#888;font-size:11px;min-width:120px}.info-value{font-weight:600;font-size:11px}table{width:100%;border-collapse:collapse;margin-top:6px}th{background:#F8F8F8;padding:8px 10px;text-align:left;font-size:10px;font-weight:700;color:#555;text-transform:uppercase;border-bottom:2px solid #FF6B00}th:last-child{text-align:right}.total-row{background:#FFF8F0}.total-row td{padding:10px;font-weight:700;font-size:13px;border-top:2px solid #FF6B00}.payment-box{background:#F9FBF5;border:1px solid #C8E6C9;border-radius:8px;padding:16px;margin-top:8px}.bank-row{margin-bottom:4px;font-size:11px}.bank-label{color:#666;display:inline-block;min-width:100px}.bank-value{font-weight:700;color:#333}.warning-box{background:#FFF3E0;border-left:4px solid #FF9800;padding:10px 14px;margin-top:12px;border-radius:0 6px 6px 0;font-size:10px;color:#E65100}.instructions-box{background:#F3F8FF;border:1px solid #BBDEFB;border-radius:8px;padding:14px;margin-top:12px}.instructions-box h3{font-size:11px;color:#1565C0;margin-bottom:8px}.instructions-box ol{padding-left:18px;font-size:10px;color:#444}.instructions-box ol li{margin-bottom:4px}.footer{margin-top:24px;padding-top:12px;border-top:1px solid #ddd;font-size:9px;color:#999;text-align:center}.terms{margin-top:16px;padding:12px;background:#FAFAFA;border-radius:6px;font-size:8.5px;color:#999;line-height:1.6}.terms strong{color:#666}</style></head><body><div class="header"><img src="/entregax-logo-full.png" alt="EntregaX" style="height:48px;object-fit:contain;"><div class="company-info"><strong>ENTREGAX</strong><br>📍 Monterrey, Nuevo León, México<br>📧 contacto@entregax.com<br>🌐 www.entregax.com</div></div><div class="title-bar"><h1>COTIZACIÓN DE SERVICIOS LOGÍSTICOS</h1><div class="ref">Folio de Referencia: <strong>${order.payment_reference}</strong> &nbsp;|&nbsp; Fecha de Emisión: ${today}</div></div><div class="section"><div class="section-title">1. Datos del Cliente</div><div class="info-grid"><div class="info-row"><span class="info-label">Nombre / Razón Social:</span><span class="info-value">${userData.name || '-'}</span></div><div class="info-row"><span class="info-label">Casillero:</span><span class="info-value">${userData.boxId || userData.box_id || '-'}</span></div></div></div><div class="section"><div class="section-title">2. Detalle del Embarque</div><div class="info-grid"><div class="info-row"><span class="info-label">Servicio:</span><span class="info-value">PO Box USA - Carga Aérea</span></div><div class="info-row"><span class="info-label">Origen:</span><span class="info-value">Estados Unidos</span></div><div class="info-row"><span class="info-label">Destino:</span><span class="info-value">Monterrey, N.L., México</span></div><div class="info-row"><span class="info-label">Paquetes:</span><span class="info-value">${pkgs.length} paquete(s)</span></div></div></div><div class="section"><div class="section-title">3. Desglose de Costos (MXN)</div><table><thead><tr><th style="width:30px">#</th><th>Guía / Tracking</th><th style="text-align:center">Peso</th><th style="text-align:center">Paquetería</th><th style="text-align:right">Monto (MXN)</th></tr></thead><tbody>${pkgRows}<tr class="total-row"><td colspan="4" style="text-align:right;padding-right:10px;">TOTAL A PAGAR:</td><td style="text-align:right;color:#E65100;font-size:14px;">${fmtCur(Number(order.amount))} ${order.currency || 'MXN'}</td></tr></tbody></table></div><div class="section"><div class="section-title">💳 Instrucciones de Pago</div><p style="font-size:11px;color:#555;margin-bottom:8px;">Para garantizar el despacho de su mercancía, le solicitamos realizar el pago correspondiente:</p><div class="payment-box"><div class="bank-row"><span class="bank-label">Banco:</span> <span class="bank-value">${bankInfo.banco}</span></div><div class="bank-row"><span class="bank-label">Beneficiario:</span> <span class="bank-value">${bankInfo.beneficiario}</span></div><div class="bank-row"><span class="bank-label">Número de Cuenta:</span> <span class="bank-value">${bankInfo.cuenta}</span></div><div class="bank-row"><span class="bank-label">CLABE:</span> <span class="bank-value">${bankInfo.clabe}</span></div><div class="bank-row"><span class="bank-label">Concepto / Referencia:</span> <span class="bank-value" style="color:#E65100;font-size:13px;">${order.payment_reference}</span></div></div><div class="warning-box">⚠️ Favor de realizar depósitos de no más de $90,000 pesos por depósito.</div><div style="background:#D32F2F;color:#fff;padding:14px 18px;margin-top:12px;border-radius:6px;text-align:center;font-size:12px;font-weight:700;letter-spacing:0.3px;">🚨 IMPORTANTE: Deb incluir el número de referencia <span style="background:#fff;color:#D32F2F;padding:2px 8px;border-radius:4px;font-size:14px;">${order.payment_reference}</span> en el concepto de pago. Sin esta referencia, su pago NO podrá ser acreditado.</div></div><div class="section"><div class="instructions-box"><h3>📧 Confirmación de Pago</h3><ol><li>Una vez realizado el pago, ingrese a su portal en <strong>www.entregax.app</strong></li><li>Diríjase a la sección <strong>"Mis Cuentas por Pagar"</strong></li><li>Seleccione la opción <strong>"Órdenes de Pago"</strong></li><li>Envíe el comprobante de pago en formato PDF o JPG</li><li>Para depósitos en efectivo, puede tardar de <strong>24 a 48 horas</strong> en verse reflejado</li></ol></div></div><div class="terms"><strong>Términos y Condiciones:</strong><br>Los tiempos de tránsito son estimados y están sujetos a revisiones aduanales, clima y disponibilidad de espacio en aerolíneas/navieras. Los costos aduanales pueden variar según el dictamen final de la autoridad. Esta cotización no incluye almacenajes prolongados en destino ni maniobras especiales. Los precios están expresados en Moneda Nacional (MXN) y son válidos al momento de la emisión de este documento.</div><div class="footer">ENTREGAX &nbsp;|&nbsp; 📍 Monterrey, N.L., México &nbsp;|&nbsp; 📧 contacto@entregax.com &nbsp;|&nbsp; 🌐 www.entregax.com<br>Documento generado el ${today}. Este documento es una cotización informativa y no representa un comprobante fiscal.</div></body></html>`;
                                     const printWindow = window.open('', '_blank');
                                     if (printWindow) {
                                       printWindow.document.write(html);
                                       printWindow.document.close();
-                                      setTimeout(() => { printWindow.print(); }, 500);
+                                      const img = printWindow.document.querySelector('img');
+                                      if (img && !img.complete) {
+                                        img.onload = () => { printWindow.print(); };
+                                      } else {
+                                        setTimeout(() => { printWindow.print(); }, 400);
+                                      }
                                     }
                                   }}
-                                >
-                                  📥 Descargar
-                                </Button>
+                                  >📥</IconButton>
+                                </Tooltip>
                               </Box>
                             )}
                           </TableCell>

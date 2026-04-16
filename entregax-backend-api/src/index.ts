@@ -823,6 +823,12 @@ import {
   getPoboxPaymentHistory
 } from './poboxPaymentController';
 import {
+  uploadVoucher, confirmVoucherAmount, completeVoucherPayment,
+  getOrderVouchers, deleteVoucher,
+  getAdminPendingVouchers, getAdminOrderVouchers, approveVoucher, rejectVoucher,
+  getVoucherStats, getServiceWalletBalances
+} from './voucherController';
+import {
   getSuppliers,
   getSupplierById,
   createSupplier,
@@ -2463,6 +2469,21 @@ app.get('/api/pobox/payment/history', authenticateToken, getPoboxPaymentHistory)
 app.get('/api/admin/pobox/payments/pending', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getPoboxPendingPayments); // Admin: Pagos pendientes
 app.post('/webhooks/pobox/openpay', handlePoboxOpenpayWebhook); // Webhook OpenPay (sin auth)
 app.get('/webhooks/pobox/openpay/callback', handlePoboxOpenpayCallback); // Callback después de pago (sin auth)
+
+// --- RUTAS DE COMPROBANTES DE PAGO (VOUCHERS) ---
+const voucherUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB max
+app.post('/api/payment/voucher/upload', authenticateToken, voucherUpload.single('file'), uploadVoucher);
+app.post('/api/payment/voucher/confirm', authenticateToken, confirmVoucherAmount);
+app.post('/api/payment/voucher/complete', authenticateToken, completeVoucherPayment);
+app.get('/api/payment/voucher/:orderId', authenticateToken, getOrderVouchers);
+app.delete('/api/payment/voucher/:voucherId', authenticateToken, deleteVoucher);
+app.get('/api/payment/wallet/service', authenticateToken, getServiceWalletBalances);
+// Admin voucher conciliation
+app.get('/api/admin/vouchers/pending', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAdminPendingVouchers);
+app.get('/api/admin/vouchers/order/:orderId', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAdminOrderVouchers);
+app.get('/api/admin/vouchers/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getVoucherStats);
+app.post('/api/admin/voucher/approve/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), approveVoucher);
+app.post('/api/admin/voucher/reject/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), rejectVoucher);
 
 // --- RUTAS DE VERIFICACIÓN KYC ---
 app.post('/api/verify/documents', authenticateToken, uploadVerificationDocuments);

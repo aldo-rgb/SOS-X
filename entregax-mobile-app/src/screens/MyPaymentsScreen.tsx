@@ -721,6 +721,9 @@ const MyPaymentsScreen = () => {
                     <Text style={{ color: '#999', fontSize: 11, textAlign: 'center', marginTop: 2 }}>📋 {t('myPayments.tapToCopy')}</Text>
                   </TouchableOpacity>
                 </View>
+                <View style={{ backgroundColor: '#FFF3E0', borderRadius: 8, padding: 10, marginBottom: 12, borderLeftWidth: 4, borderLeftColor: '#E65100' }}>
+                  <Text style={{ fontSize: 12, color: '#BF360C', fontWeight: '600', textAlign: 'center' }}>⚠️ Debe incluir el número de referencia para que su pago sea acreditado.</Text>
+                </View>
 
                 {/* Monto */}
                 <View style={{ backgroundColor: '#F1F8E9', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -746,7 +749,7 @@ const MyPaymentsScreen = () => {
                   <Text style={{ fontSize: 16 }}>⚠️</Text>
                   <Text style={{ flex: 1, fontSize: 12, color: '#E65100' }}>{t('myPayments.depositWarning')}</Text>
                 </View>
-                <View style={{ backgroundColor: '#FFF3E0', borderRadius: 10, padding: 12, flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12, gap: 8 }}>
+                <View style={{ backgroundColor: '#FFF3E0', borderRadius: 10, padding: 12, flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8, gap: 8 }}>
                   <Text style={{ fontSize: 16 }}>⏰</Text>
                   <Text style={{ flex: 1, fontSize: 12, color: '#E65100' }}>{t('myPayments.confirmationTime')}</Text>
                 </View>

@@ -495,6 +495,8 @@
     "branch": "Branch",
     "depositWarning": "Please make deposits of no more than $90,000 pesos per deposit.",
     "confirmationTime": "Your order will be processed once payment is confirmed. Confirmation time: 1-24 hrs.",
+    "referenceWarningTitle": "IMPORTANT",
+    "referenceWarningText": "It is ESSENTIAL to include the reference number in the payment concept. Without this reference, your payment CANNOT be credited.",
     "expires": "Expires",
     "viewQR": "View QR",
     "share": "Share",
