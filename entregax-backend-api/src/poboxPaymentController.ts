@@ -1372,9 +1372,9 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
             if (Array.isArray(row.package_ids) && row.package_ids.length > 0) {
                 try {
                     const pkgResult = await pool.query(`
-                        SELECT id, tracking_internal, tracking_usa, weight, 
+                        SELECT id, tracking_internal, international_tracking, weight, 
                                assigned_cost_mxn, saldo_pendiente, national_shipping_cost,
-                               national_carrier, descripcion, status
+                               national_carrier, status
                         FROM packages
                         WHERE id = ANY($1)
                     `, [row.package_ids]);
