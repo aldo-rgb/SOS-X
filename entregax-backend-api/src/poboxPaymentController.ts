@@ -831,14 +831,14 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             };
         }
 
-        // Crear registro de pago
+        // Crear registro de pago (sin vencimiento para pagos en efectivo/sucursal)
         const paymentResult = await pool.query(`
             INSERT INTO pobox_payments (
                 user_id, package_ids, amount, currency, payment_method, 
-                payment_reference, status, expires_at, created_at
+                payment_reference, status, created_at
             ) VALUES ($1, $2, $3, $4, 'cash', $5, 'pending_payment', 
-                      CURRENT_TIMESTAMP + INTERVAL '48 hours', CURRENT_TIMESTAMP)
-            RETURNING id, expires_at
+                      CURRENT_TIMESTAMP)
+            RETURNING id
         `, [userId, JSON.stringify(packageIds), totalAmount, currency, paymentRef]);
 
         const payment = paymentResult.rows[0];
@@ -867,7 +867,7 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
                 JSON.stringify({ 
                     packageIds, 
                     payment_id: payment.id,
-                    expires_at: payment.expires_at,
+
                     trackings: trackings
                 }),
                 branchId || null
@@ -914,7 +914,7 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             reference: paymentRef,
             amount: totalAmount,
             currency: currency,
-            expiresAt: payment.expires_at,
+
             trackings: trackings,
             bankInfo: bankInfo,
             branchInfo: {

@@ -751,13 +751,6 @@ const MyPaymentsScreen = () => {
                   <Text style={{ flex: 1, fontSize: 12, color: '#E65100' }}>{t('myPayments.confirmationTime')}</Text>
                 </View>
 
-                {/* Expires */}
-                {selectedOrder.expires_at && (
-                  <Text style={{ color: '#E65100', fontSize: 12, textAlign: 'center', marginBottom: 8 }}>
-                    {t('myPayments.expires')}: {formatDate(selectedOrder.expires_at)}
-                  </Text>
-                )}
-
                 {/* Botones */}
                 <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
                   <TouchableOpacity
