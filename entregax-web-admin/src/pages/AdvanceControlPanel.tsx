@@ -965,7 +965,7 @@ export default function AdvanceControlPanel() {
                                 color={comprobanteFile ? 'success' : 'primary'}
                                 sx={{ height: 56 }}
                             >
-                                {comprobanteFile ? `✅ ${comprobanteFile.name}` : 'Subir Comprobante'}
+                                {comprobanteFile ? `✅ ${comprobanteFile.name}` : 'Enviar Comprobante'}
                                 <input
                                     type="file"
                                     hidden

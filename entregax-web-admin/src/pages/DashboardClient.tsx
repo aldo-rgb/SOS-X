@@ -9526,6 +9526,7 @@ export default function DashboardClient() {
                       <TableCell align="right"><strong>Monto</strong></TableCell>
                       <TableCell><strong>Estado</strong></TableCell>
                       <TableCell><strong>Fecha</strong></TableCell>
+                      <TableCell align="center"><strong>Acciones</strong></TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -9577,7 +9578,7 @@ export default function DashboardClient() {
                         </TableRow>
                         {expandedOrderId === order.id && Array.isArray(order.packages) && order.packages.length > 0 && (
                           <TableRow>
-                            <TableCell colSpan={5} sx={{ bgcolor: '#fafafa', py: 0, px: 2 }}>
+                            <TableCell colSpan={6} sx={{ bgcolor: '#fafafa', py: 0, px: 2 }}>
                               <Table size="small">
                                 <TableBody>
                                   {order.packages.map((pkg: any) => (
