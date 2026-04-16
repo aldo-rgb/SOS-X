@@ -2074,6 +2074,15 @@ export default function DashboardClient() {
           // Recargar órdenes de pago
           loadPaymentOrders();
         } else {
+          // Si es error de paquetes duplicados, mostrar opción de ir a órdenes
+          if (response.data.error === 'Paquetes ya en orden de pago') {
+            setSnackbar({ open: true, message: `⚠️ ${response.data.message}`, severity: 'warning' });
+            setPaymentModalOpen(false);
+            setShowPendingPayments(true);
+            setPendingPaymentsTab(1); // Ir a tab "Órdenes de Pago"
+            loadPaymentOrders();
+            return;
+          }
           throw new Error(response.data.error || response.data.message || t('cd.snackbar.referenceError'));
         }
       }

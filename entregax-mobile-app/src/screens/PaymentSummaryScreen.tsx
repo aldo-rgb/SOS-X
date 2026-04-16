@@ -300,7 +300,19 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
         }
         setShowCashInstructions(true);
       } else {
-        Alert.alert('Error', data.error || 'No se pudo generar la orden de pago');
+        // Si el error es por paquetes duplicados, ofrecer ir a órdenes de pago
+        if (data.error === 'Paquetes ya en orden de pago') {
+          Alert.alert(
+            '📦 Paquetes ya en Orden de Pago',
+            data.message || 'Algunos paquetes ya están en una orden de pago pendiente.',
+            [
+              { text: 'OK', style: 'cancel' },
+              { text: 'Ver Orden de Pago', onPress: () => navigation.navigate('MyPayments' as any, { user, token, initialTab: 'orders' }) }
+            ]
+          );
+        } else {
+          Alert.alert('Error', data.error || 'No se pudo generar la orden de pago');
+        }
       }
     } catch (error) {
       console.error('Error creating cash payment:', error);

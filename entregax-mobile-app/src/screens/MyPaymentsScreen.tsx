@@ -27,7 +27,7 @@ import QRCode from 'react-native-qrcode-svg';
 
 // Types for navigation
 type RootStackParamList = {
-  MyPayments: { user: any; token: string };
+  MyPayments: { user: any; token: string; initialTab?: 'pending' | 'orders' };
 };
 
 // Iconos por servicio
@@ -81,7 +81,7 @@ const MyPaymentsScreen = () => {
   const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<RootStackParamList, 'MyPayments'>>();
   const { t } = useTranslation();
-  const { user, token } = route.params;
+  const { user, token, initialTab } = route.params;
   
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -90,7 +90,7 @@ const MyPaymentsScreen = () => {
   const [selectedInvoice, setSelectedInvoice] = useState<PaymentInvoice | null>(null);
   const [clabeInfo, setClabeInfo] = useState<ClabeInfo | null>(null);
   const [loadingClabe, setLoadingClabe] = useState(false);
-  const [activeTab, setActiveTab] = useState<'pending' | 'orders'>('pending');
+  const [activeTab, setActiveTab] = useState<'pending' | 'orders'>(initialTab || 'pending');
   const [paymentOrders, setPaymentOrders] = useState<PaymentOrder[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
