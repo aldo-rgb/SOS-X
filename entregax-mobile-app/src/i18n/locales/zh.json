@@ -473,11 +473,29 @@
     "delivered": "已送达",
     "copied": "已复制",
     "codeCopied": "推荐码已复制到剪贴板",
-    "reportsComingSoon": "报告模块即将推出",
+    "reportsComingSoon": "报告模块即将推出"
+  },
+  "myPayments": {
     "viewPaymentDetails": "查看付款详情",
     "uploadReceipt": "上传凭证",
     "pendingPayments": "待付款",
     "paymentOrders": "付款订单",
-    "packages": "包裹"
+    "packages": "包裹",
+    "paymentInstructions": "付款说明",
+    "paymentReference": "您的付款参考号：",
+    "tapToCopy": "点击复制",
+    "amountToPay": "应付金额：",
+    "cashDeposit": "现金存款：",
+    "bank": "银行",
+    "account": "账户",
+    "beneficiary": "收款人",
+    "reference": "参考号",
+    "branch": "分店",
+    "depositWarning": "每次存款请勿超过90,000比索。",
+    "confirmationTime": "确认付款后将处理您的订单。确认时间：1-24小时。",
+    "expires": "到期",
+    "viewQR": "查看二维码",
+    "share": "分享",
+    "copied": "已复制"
   }
 }

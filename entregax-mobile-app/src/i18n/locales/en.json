@@ -475,11 +475,29 @@
     "delivered": "Delivered",
     "copied": "Copied",
     "codeCopied": "Referral code copied to clipboard",
-    "reportsComingSoon": "Reports module coming soon",
+    "reportsComingSoon": "Reports module coming soon"
+  },
+  "myPayments": {
     "viewPaymentDetails": "View Payment Details",
     "uploadReceipt": "Upload Receipt",
     "pendingPayments": "Pending Payments",
     "paymentOrders": "Payment Orders",
-    "packages": "Packages"
+    "packages": "Packages",
+    "paymentInstructions": "Payment Instructions",
+    "paymentReference": "Your payment reference:",
+    "tapToCopy": "Tap to copy",
+    "amountToPay": "Amount to pay:",
+    "cashDeposit": "Cash deposit:",
+    "bank": "Bank",
+    "account": "Account",
+    "beneficiary": "Beneficiary",
+    "reference": "Reference",
+    "branch": "Branch",
+    "depositWarning": "Please make deposits of no more than $90,000 pesos per deposit.",
+    "confirmationTime": "Your order will be processed once payment is confirmed. Confirmation time: 1-24 hrs.",
+    "expires": "Expires",
+    "viewQR": "View QR",
+    "share": "Share",
+    "copied": "Copied"
   }
 }

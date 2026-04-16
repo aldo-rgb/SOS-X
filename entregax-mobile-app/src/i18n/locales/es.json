@@ -475,11 +475,29 @@
     "delivered": "Entregados",
     "copied": "Copiado",
     "codeCopied": "Código de referido copiado al portapapeles",
-    "reportsComingSoon": "Módulo de reportes próximamente",
+    "reportsComingSoon": "Módulo de reportes próximamente"
+  },
+  "myPayments": {
     "viewPaymentDetails": "Ver Detalles de Pago",
     "uploadReceipt": "Subir Comprobante",
     "pendingPayments": "Pagos Pendientes",
     "paymentOrders": "Órdenes de Pago",
-    "packages": "Paquetes"
+    "packages": "Paquetes",
+    "paymentInstructions": "Instrucciones de Pago",
+    "paymentReference": "Tu referencia de pago:",
+    "tapToCopy": "Toca para copiar",
+    "amountToPay": "Monto a pagar:",
+    "cashDeposit": "Depósito en efectivo:",
+    "bank": "Banco",
+    "account": "Cuenta",
+    "beneficiary": "Beneficiario",
+    "reference": "Referencia",
+    "branch": "Sucursal",
+    "depositWarning": "Favor de realizar depósitos de no más de $90,000 pesos por depósito.",
+    "confirmationTime": "Tu pedido se procesará una vez confirmado el pago. Tiempo de confirmación: 1-24 hrs.",
+    "expires": "Vence",
+    "viewQR": "Ver QR",
+    "share": "Compartir",
+    "copied": "Copiado"
   }
 }

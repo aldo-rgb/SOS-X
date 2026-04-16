@@ -660,16 +660,16 @@ const MyPaymentsScreen = () => {
                         style={{ flex: 1, backgroundColor: '#FF6B00', borderRadius: 8, paddingVertical: 10, alignItems: 'center' }}
                         onPress={() => setSelectedOrder(order)}
                       >
-                        <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>📄 {t('viewPaymentDetails')}</Text>
+                        <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>📄 {t('myPayments.viewPaymentDetails')}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={{ flex: 1, backgroundColor: '#4CAF50', borderRadius: 8, paddingVertical: 10, alignItems: 'center' }}
                         onPress={() => {
                           // TODO: Implement receipt upload
-                          Alert.alert(t('uploadReceipt'), 'Próximamente');
+                          Alert.alert(t('myPayments.uploadReceipt'), 'Próximamente');
                         }}
                       >
-                        <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>📎 {t('uploadReceipt')}</Text>
+                        <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 13 }}>📎 {t('myPayments.uploadReceipt')}</Text>
                       </TouchableOpacity>
                     </View>
                   )}
@@ -707,7 +707,7 @@ const MyPaymentsScreen = () => {
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Text style={{ fontSize: 18, fontWeight: '700', color: '#333' }}>📋 {t('viewPaymentDetails')}</Text>
+                <Text style={{ fontSize: 18, fontWeight: '700', color: '#333' }}>📋 {t('myPayments.paymentInstructions')}</Text>
                 <TouchableOpacity onPress={() => { setSelectedOrder(null); setShowQR(false); }}>
                   <Ionicons name="close" size={24} color="#666" />
                 </TouchableOpacity>
@@ -715,41 +715,28 @@ const MyPaymentsScreen = () => {
               <ScrollView showsVerticalScrollIndicator={false} style={{ marginTop: 12 }}>
                 {/* Referencia */}
                 <View style={{ backgroundColor: '#FFF8E1', borderRadius: 12, padding: 16, alignItems: 'center', marginBottom: 12 }}>
-                  <Text style={{ color: '#666', fontSize: 13, marginBottom: 4 }}>Tu referencia de pago:</Text>
-                  <TouchableOpacity onPress={() => { Clipboard.setString(selectedOrder.payment_reference); Alert.alert('✅', t('copied')); }}>
+                  <Text style={{ color: '#666', fontSize: 13, marginBottom: 4 }}>{t('myPayments.paymentReference')}</Text>
+                  <TouchableOpacity onPress={() => { Clipboard.setString(selectedOrder.payment_reference); Alert.alert('✅', t('myPayments.copied')); }}>
                     <Text style={{ fontSize: 22, fontWeight: '800', color: '#E65100', letterSpacing: 1 }}>{selectedOrder.payment_reference}</Text>
-                    <Text style={{ color: '#999', fontSize: 11, textAlign: 'center', marginTop: 2 }}>📋 Toca para copiar</Text>
+                    <Text style={{ color: '#999', fontSize: 11, textAlign: 'center', marginTop: 2 }}>📋 {t('myPayments.tapToCopy')}</Text>
                   </TouchableOpacity>
                 </View>
 
                 {/* Monto */}
                 <View style={{ backgroundColor: '#F1F8E9', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                  <Text style={{ color: '#333', fontSize: 14 }}>Monto a pagar:</Text>
+                  <Text style={{ color: '#333', fontSize: 14 }}>{t('myPayments.amountToPay')}</Text>
                   <Text style={{ fontSize: 20, fontWeight: '800', color: '#2E7D32' }}>{formatCurrency(selectedOrder.amount)} {selectedOrder.currency || 'MXN'}</Text>
                 </View>
 
                 {/* Bank Info */}
                 {(selectedOrder as any).bank_info && (
                   <View style={{ marginBottom: 12 }}>
-                    <Text style={{ fontWeight: '700', fontSize: 14, color: '#333', marginBottom: 8 }}>💵 Depósito en efectivo:</Text>
+                    <Text style={{ fontWeight: '700', fontSize: 14, color: '#333', marginBottom: 8 }}>💵 {t('myPayments.cashDeposit')}</Text>
                     <View style={{ backgroundColor: '#F5F5F5', borderRadius: 10, padding: 12 }}>
-                      <Text style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>Banco: <Text style={{ fontWeight: '700', color: '#333' }}>{(selectedOrder as any).bank_info.banco}</Text></Text>
-                      <Text style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>Cuenta: <Text style={{ fontWeight: '700', color: '#333' }}>{(selectedOrder as any).bank_info.cuenta}</Text></Text>
-                      <Text style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>Beneficiario: <Text style={{ fontWeight: '700', color: '#333' }}>{(selectedOrder as any).bank_info.beneficiario}</Text></Text>
-                      <Text style={{ fontSize: 13, color: '#555' }}>Referencia: <Text style={{ fontWeight: '700', color: '#333' }}>{selectedOrder.payment_reference}</Text></Text>
-                    </View>
-                  </View>
-                )}
-
-                {/* Branch Info */}
-                {(selectedOrder as any).branch_info && (
-                  <View style={{ marginBottom: 12 }}>
-                    <Text style={{ fontWeight: '700', fontSize: 14, color: '#333', marginBottom: 8 }}>🏢 Sucursal:</Text>
-                    <View style={{ backgroundColor: '#F5F5F5', borderRadius: 10, padding: 12 }}>
-                      <Text style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>{(selectedOrder as any).branch_info.nombre}</Text>
-                      <Text style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>{(selectedOrder as any).branch_info.direccion}</Text>
-                      {(selectedOrder as any).branch_info.telefono && <Text style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>📞 {(selectedOrder as any).branch_info.telefono}</Text>}
-                      {(selectedOrder as any).branch_info.horario && <Text style={{ fontSize: 13, color: '#555' }}>🕐 {(selectedOrder as any).branch_info.horario}</Text>}
+                      <Text style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>{t('myPayments.bank')}: <Text style={{ fontWeight: '700', color: '#333' }}>{(selectedOrder as any).bank_info.banco}</Text></Text>
+                      <Text style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>{t('myPayments.account')}: <Text style={{ fontWeight: '700', color: '#333' }}>{(selectedOrder as any).bank_info.cuenta}</Text></Text>
+                      <Text style={{ fontSize: 13, color: '#555', marginBottom: 4 }}>{t('myPayments.beneficiary')}: <Text style={{ fontWeight: '700', color: '#333' }}>{(selectedOrder as any).bank_info.beneficiario}</Text></Text>
+                      <Text style={{ fontSize: 13, color: '#555' }}>{t('myPayments.reference')}: <Text style={{ fontWeight: '700', color: '#333' }}>{selectedOrder.payment_reference}</Text></Text>
                     </View>
                   </View>
                 )}
@@ -757,34 +744,18 @@ const MyPaymentsScreen = () => {
                 {/* Warnings */}
                 <View style={{ backgroundColor: '#FFF3E0', borderRadius: 10, padding: 12, flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8, gap: 8 }}>
                   <Text style={{ fontSize: 16 }}>⚠️</Text>
-                  <Text style={{ flex: 1, fontSize: 12, color: '#E65100' }}>Favor de realizar depósitos de no más de $90,000 pesos por depósito.</Text>
+                  <Text style={{ flex: 1, fontSize: 12, color: '#E65100' }}>{t('myPayments.depositWarning')}</Text>
                 </View>
                 <View style={{ backgroundColor: '#FFF3E0', borderRadius: 10, padding: 12, flexDirection: 'row', alignItems: 'flex-start', marginBottom: 12, gap: 8 }}>
                   <Text style={{ fontSize: 16 }}>⏰</Text>
-                  <Text style={{ flex: 1, fontSize: 12, color: '#E65100' }}>Tu pedido se procesará una vez confirmado el pago. Tiempo de confirmación: 1-24 hrs.</Text>
+                  <Text style={{ flex: 1, fontSize: 12, color: '#E65100' }}>{t('myPayments.confirmationTime')}</Text>
                 </View>
 
                 {/* Expires */}
                 {selectedOrder.expires_at && (
                   <Text style={{ color: '#E65100', fontSize: 12, textAlign: 'center', marginBottom: 8 }}>
-                    Vence: {formatDate(selectedOrder.expires_at)}
+                    {t('myPayments.expires')}: {formatDate(selectedOrder.expires_at)}
                   </Text>
-                )}
-
-                {/* Paquetes incluidos */}
-                {Array.isArray(selectedOrder.packages) && selectedOrder.packages.length > 0 && (
-                  <View style={{ marginTop: 4 }}>
-                    <Text style={{ fontWeight: 'bold', fontSize: 14, marginBottom: 8, color: '#333' }}>📦 {t('packages')} ({selectedOrder.packages.length}):</Text>
-                    {selectedOrder.packages.map((pkg: any) => (
-                      <View key={pkg.id} style={styles.orderPkgRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.orderPkgTracking}>{pkg.tracking_internal || pkg.international_tracking}</Text>
-                          <Text style={styles.orderPkgDetail}>{pkg.weight ? `${Number(pkg.weight).toFixed(1)} lb` : ''}{pkg.national_carrier ? ` · 🚚 ${pkg.national_carrier}` : ''}</Text>
-                        </View>
-                        <Text style={styles.orderPkgAmount}>{formatCurrency(Number(pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0))}</Text>
-                      </View>
-                    ))}
-                  </View>
                 )}
 
                 {/* Botones */}
@@ -794,7 +765,7 @@ const MyPaymentsScreen = () => {
                     onPress={() => setShowQR(true)}
                   >
                     <Ionicons name="qr-code" size={20} color="#FFF" />
-                    <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 15 }}>Ver QR</Text>
+                    <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 15 }}>{t('myPayments.viewQR')}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={{ flex: 1, backgroundColor: '#4CAF50', borderRadius: 10, paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
@@ -805,7 +776,7 @@ const MyPaymentsScreen = () => {
                     }}
                   >
                     <Ionicons name="share-outline" size={20} color="#FFF" />
-                    <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 15 }}>Compartir</Text>
+                    <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 15 }}>{t('myPayments.share')}</Text>
                   </TouchableOpacity>
                 </View>
               </ScrollView>
@@ -848,7 +819,7 @@ const MyPaymentsScreen = () => {
                 <Text style={styles.clabeLabel}>Referencia de Pago</Text>
                 <View style={styles.clabeRow}>
                   <Text style={styles.clabeValue}>{selectedOrder.payment_reference}</Text>
-                  <TouchableOpacity style={styles.copyButton} onPress={() => { Clipboard.setString(selectedOrder.payment_reference); Alert.alert('✅', t('copied')); }}>
+                  <TouchableOpacity style={styles.copyButton} onPress={() => { Clipboard.setString(selectedOrder.payment_reference); Alert.alert('✅', t('myPayments.copied')); }}>
                     <Ionicons name="copy" size={20} color="#FF6B00" />
                   </TouchableOpacity>
                 </View>
