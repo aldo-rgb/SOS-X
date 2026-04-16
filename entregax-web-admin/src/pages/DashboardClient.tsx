@@ -2102,7 +2102,18 @@ export default function DashboardClient() {
       
     } catch (error) {
       console.error('Error processing payment:', error);
-      const err = error as { response?: { data?: { message?: string } }; message?: string };
+      const err = error as { response?: { data?: { error?: string; message?: string } }; message?: string };
+      
+      // Si es error de paquetes duplicados, cerrar modal de pago y abrir órdenes
+      if (err.response?.data?.error === 'Paquetes ya en orden de pago') {
+        setPaymentModalOpen(false);
+        setShowPendingPayments(true);
+        setPendingPaymentsTab(1);
+        loadPaymentOrders();
+        setSnackbar({ open: true, message: `⚠️ ${err.response.data.message}`, severity: 'warning' });
+        return;
+      }
+      
       const errorMessage = err.response?.data?.message || err.message || t('cd.snackbar.paymentProcessError');
       setSnackbar({ 
         open: true, 
