@@ -9575,6 +9575,40 @@ export default function DashboardClient() {
                               </Typography>
                             )}
                           </TableCell>
+                          <TableCell align="center" onClick={(e: any) => e.stopPropagation()}>
+                            {(order.status === 'pending_payment' || order.status === 'pending') && (
+                              <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
+                                <Button
+                                  size="small"
+                                  variant="contained"
+                                  sx={{ bgcolor: ORANGE, fontSize: '0.65rem', px: 1, py: 0.5, minWidth: 'auto', textTransform: 'none', '&:hover': { bgcolor: '#E55A00' } }}
+                                  onClick={() => {
+                                    setPaymentInstructionsDialog({
+                                      open: true,
+                                      reference: order.payment_reference,
+                                      amount: Number(order.amount),
+                                      currency: order.currency || 'MXN',
+                                      expiresAt: '',
+                                      bankInfo: order.bank_info || { banco: 'BBVA México', clabe: '012580001234567890', cuenta: '1234567890', beneficiario: 'ENTREGAX S.A. DE C.V.', concepto: order.payment_reference },
+                                      branchInfo: order.branch_info || { nombre: 'CEDIS Monterrey', direccion: 'Av. Industrial #123', telefono: '81 1234 5678', horario: 'L-V 9-18' },
+                                    });
+                                  }}
+                                >
+                                  📄 Ver Detalles
+                                </Button>
+                                <Button
+                                  size="small"
+                                  variant="contained"
+                                  sx={{ bgcolor: '#4CAF50', fontSize: '0.65rem', px: 1, py: 0.5, minWidth: 'auto', textTransform: 'none', '&:hover': { bgcolor: '#388E3C' } }}
+                                  onClick={() => {
+                                    setSnackbar({ open: true, message: '📎 Subir comprobante: Próximamente', severity: 'info' });
+                                  }}
+                                >
+                                  📎 Comprobante
+                                </Button>
+                              </Box>
+                            )}
+                          </TableCell>
                         </TableRow>
                         {expandedOrderId === order.id && Array.isArray(order.packages) && order.packages.length > 0 && (
                           <TableRow>
