@@ -94,6 +94,7 @@ const MyPaymentsScreen = () => {
   const [paymentOrders, setPaymentOrders] = useState<PaymentOrder[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
+  const [selectedOrder, setSelectedOrder] = useState<PaymentOrder | null>(null);
 
   // Group invoices by service
   const groupInvoicesByService = (invoices: PaymentInvoice[]): GroupedInvoices[] => {
@@ -652,6 +653,14 @@ const MyPaymentsScreen = () => {
                        Array.isArray(order.package_ids) ? order.package_ids.length : 0} paquete(s) ▾
                     </Text>
                   </TouchableOpacity>
+                  {(order.status === 'pending_payment' || order.status === 'pending') && (
+                    <TouchableOpacity
+                      style={{ backgroundColor: '#FF6B00', borderRadius: 8, paddingVertical: 10, marginTop: 8, alignItems: 'center' }}
+                      onPress={() => setSelectedOrder(order)}
+                    >
+                      <Text style={{ color: '#FFF', fontWeight: 'bold', fontSize: 14 }}>📄 Ver Detalles de Pago</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
 
                 {/* Detalle de paquetes expandible */}
@@ -678,6 +687,85 @@ const MyPaymentsScreen = () => {
           })
         )}
       </ScrollView>
+      )}
+
+      {/* Modal de detalle de orden de pago con QR */}
+      {selectedOrder && (
+        <Modal visible={true} transparent animationType="slide" onRequestClose={() => setSelectedOrder(null)}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <TouchableOpacity style={styles.closeButton} onPress={() => setSelectedOrder(null)}>
+                <Ionicons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                <View style={[styles.serviceBadge, { backgroundColor: '#9B59B6' }]}>
+                  <Ionicons name="mail" size={24} color="#FFF" />
+                  <Text style={styles.serviceBadgeText}>PO Box USA</Text>
+                </View>
+                <Text style={styles.modalTitle}>Detalles del Pago</Text>
+                <View style={styles.amountBox}>
+                  <Text style={styles.amountLabel}>Monto a Pagar</Text>
+                  <Text style={styles.amountValue}>{formatCurrency(selectedOrder.amount)}</Text>
+                  <Text style={styles.amountCurrency}>{selectedOrder.currency || 'MXN'}</Text>
+                </View>
+                {/* QR Code */}
+                <View style={styles.qrContainer}>
+                  <Text style={styles.qrLabel}>Código QR para Pago en Sucursal</Text>
+                  <View style={styles.qrBox}>
+                    <QRCode
+                      value={JSON.stringify({ type: 'payment_order', ref: selectedOrder.payment_reference, amount: selectedOrder.amount })}
+                      size={180}
+                      color="#333"
+                      backgroundColor="#FFF"
+                    />
+                  </View>
+                  <Text style={styles.qrHint}>Presente este código en cualquier sucursal para realizar su pago</Text>
+                </View>
+                {/* Referencia */}
+                <View style={styles.clabeContainer}>
+                  <Text style={styles.clabeLabel}>Referencia de Pago</Text>
+                  <View style={styles.clabeRow}>
+                    <Text style={styles.clabeValue}>{selectedOrder.payment_reference}</Text>
+                    <TouchableOpacity style={styles.copyButton} onPress={() => { Clipboard.setString(selectedOrder.payment_reference); Alert.alert('✅ Copiado', 'Referencia copiada'); }}>
+                      <Ionicons name="copy" size={20} color="#FF6B00" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+                {selectedOrder.expires_at && (
+                  <Text style={{ color: '#E65100', fontSize: 12, textAlign: 'center', marginBottom: 8 }}>
+                    Vence: {formatDate(selectedOrder.expires_at)}
+                  </Text>
+                )}
+                {/* Paquetes incluidos */}
+                {Array.isArray(selectedOrder.packages) && selectedOrder.packages.length > 0 && (
+                  <View style={{ marginTop: 12 }}>
+                    <Text style={{ fontWeight: 'bold', fontSize: 14, marginBottom: 8, color: '#333' }}>📦 Paquetes incluidos ({selectedOrder.packages.length}):</Text>
+                    {selectedOrder.packages.map((pkg: any) => (
+                      <View key={pkg.id} style={styles.orderPkgRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.orderPkgTracking}>{pkg.tracking_internal || pkg.international_tracking}</Text>
+                          <Text style={styles.orderPkgDetail}>{pkg.weight ? `${Number(pkg.weight).toFixed(1)} lb` : ''}{pkg.national_carrier ? ` · 🚚 ${pkg.national_carrier}` : ''}</Text>
+                        </View>
+                        <Text style={styles.orderPkgAmount}>{formatCurrency(Number(pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0))}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={[styles.shareButton, { marginTop: 16 }]}
+                  onPress={async () => {
+                    try {
+                      await Share.share({ message: `💳 Orden de Pago EntregaX\n\nReferencia: ${selectedOrder.payment_reference}\nMonto: ${formatCurrency(selectedOrder.amount)} ${selectedOrder.currency || 'MXN'}\nPaquetes: ${Array.isArray(selectedOrder.packages) ? selectedOrder.packages.length : ''}\n\nPresente esta referencia en cualquier sucursal EntregaX.` });
+                    } catch (e) { console.error(e); }
+                  }}
+                >
+                  <Ionicons name="share-outline" size={20} color="#FFF" />
+                  <Text style={styles.shareButtonText}>Compartir</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
       )}
 
       {/* Modal de pago para paquetes */}

@@ -1414,9 +1414,10 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                 p.payment_reference,
                 p.status,
                 p.created_at,
-                p.paid_at
+                p.paid_at,
+                p.expires_at
             FROM pobox_payments p
-            WHERE p.user_id = $1
+            WHERE p.user_id = $1 AND p.status != 'cancelled'
             ORDER BY p.created_at DESC
             LIMIT 50
         `, [userId]);
