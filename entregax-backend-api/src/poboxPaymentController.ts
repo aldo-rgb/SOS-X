@@ -1422,6 +1422,36 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
             LIMIT 50
         `, [userId]);
 
+        // Get company bank info for cash payments
+        let bankInfo: any = null;
+        let branchInfo: any = null;
+        try {
+            const companyResult = await pool.query(`SELECT bank_name, bank_clabe, bank_account, legal_name FROM companies LIMIT 1`);
+            const companyInfo = companyResult.rows[0] || {};
+            bankInfo = {
+                banco: companyInfo.bank_name || 'BBVA México',
+                clabe: companyInfo.bank_clabe || '012580001234567890',
+                cuenta: companyInfo.bank_account || companyInfo.bank_clabe?.slice(-10) || '1234567890',
+                beneficiario: companyInfo.legal_name || 'ENTREGAX S.A. DE C.V.'
+            };
+            const branchResult = await pool.query(`SELECT name, address, phone, business_hours FROM branches WHERE is_active = TRUE ORDER BY id LIMIT 1`);
+            const br = branchResult.rows[0];
+            branchInfo = br ? { nombre: br.name, direccion: br.address, telefono: br.phone, horario: br.business_hours } : null;
+        } catch (e) {
+            bankInfo = {
+                banco: 'BBVA México',
+                clabe: '012580001234567890',
+                cuenta: '1234567890',
+                beneficiario: 'ENTREGAX S.A. DE C.V.'
+            };
+            branchInfo = {
+                nombre: 'CEDIS Monterrey',
+                direccion: 'Av. Industrial #123, Col. Centro, Monterrey, N.L.',
+                telefono: '81 1234 5678',
+                horario: 'Lunes a Viernes 9:00 - 18:00, Sábados 9:00 - 14:00'
+            };
+        }
+
         // Enrich with package details
         const payments = [];
         for (const row of result.rows) {
@@ -1440,7 +1470,12 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                     // ignore
                 }
             }
-            payments.push({ ...row, packages });
+            const enriched: any = { ...row, packages };
+            if (row.payment_method === 'cash') {
+                enriched.bank_info = bankInfo;
+                enriched.branch_info = branchInfo;
+            }
+            payments.push(enriched);
         }
 
         res.json({

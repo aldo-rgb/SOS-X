@@ -475,6 +475,11 @@
     "delivered": "Delivered",
     "copied": "Copied",
     "codeCopied": "Referral code copied to clipboard",
-    "reportsComingSoon": "Reports module coming soon"
+    "reportsComingSoon": "Reports module coming soon",
+    "viewPaymentDetails": "View Payment Details",
+    "uploadReceipt": "Upload Receipt",
+    "pendingPayments": "Pending Payments",
+    "paymentOrders": "Payment Orders",
+    "packages": "Packages"
   }
 }

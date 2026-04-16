@@ -475,6 +475,11 @@
     "delivered": "Entregados",
     "copied": "Copiado",
     "codeCopied": "Código de referido copiado al portapapeles",
-    "reportsComingSoon": "Módulo de reportes próximamente"
+    "reportsComingSoon": "Módulo de reportes próximamente",
+    "viewPaymentDetails": "Ver Detalles de Pago",
+    "uploadReceipt": "Subir Comprobante",
+    "pendingPayments": "Pagos Pendientes",
+    "paymentOrders": "Órdenes de Pago",
+    "packages": "Paquetes"
   }
 }

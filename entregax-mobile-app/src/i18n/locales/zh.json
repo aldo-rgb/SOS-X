@@ -473,6 +473,11 @@
     "delivered": "已送达",
     "copied": "已复制",
     "codeCopied": "推荐码已复制到剪贴板",
-    "reportsComingSoon": "报告模块即将推出"
+    "reportsComingSoon": "报告模块即将推出",
+    "viewPaymentDetails": "查看付款详情",
+    "uploadReceipt": "上传凭证",
+    "pendingPayments": "待付款",
+    "paymentOrders": "付款订单",
+    "packages": "包裹"
   }
 }
