@@ -631,7 +631,8 @@ export const createPoboxOpenpayPayment = async (req: Request, res: Response): Pr
 // ============================================
 export const createPoboxCashPayment = async (req: AuthRequest, res: Response): Promise<any> => {
     try {
-        const { packageIds, userId, totalAmount, currency = 'MXN', branchId } = req.body;
+        const { packageIds, totalAmount, currency = 'MXN', branchId } = req.body;
+        const userId = req.body.userId || req.user?.userId || req.user?.id;
 
         if (!packageIds || !Array.isArray(packageIds) || packageIds.length === 0) {
             return res.status(400).json({ error: 'packageIds es requerido y debe ser un array' });
