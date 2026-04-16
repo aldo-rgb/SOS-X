@@ -5299,9 +5299,120 @@ app.get('/api/admin/finance/payment-details/:referencia', authenticateToken, req
 });
 
 // ============================================
+// OBTENER MOVIMIENTOS GUARDADOS DE ESTADO DE CUENTA
+// ============================================
+app.get('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { empresa_id, date_from, date_to, limit = 500 } = req.query;
+    if (!empresa_id) return res.status(400).json({ error: 'Falta empresa_id' });
+
+    const result = await pool.query(`
+      SELECT id, fecha, concepto, referencia, cargo, abono, saldo, banco, uploaded_at
+      FROM bank_statement_entries
+      WHERE empresa_id = $1
+        AND ($2::date IS NULL OR fecha >= $2::date)
+        AND ($3::date IS NULL OR fecha <= $3::date)
+      ORDER BY fecha DESC, id DESC
+      LIMIT $4
+    `, [empresa_id, date_from || null, date_to || null, Math.min(Number(limit), 2000)]);
+
+    res.json({ success: true, entries: result.rows, count: result.rows.length });
+  } catch (error: any) {
+    console.error('Error fetching bank entries:', error);
+    res.status(500).json({ error: 'Error obteniendo movimientos', details: error.message });
+  }
+});
+
+// ============================================
 // MATCH REFERENCIAS DE ESTADO DE CUENTA BANCARIO
 // Busca referencias de pago en la BD
 // ============================================
+// ============================================
+// GUARDAR MOVIMIENTOS DE ESTADO DE CUENTA BANCARIO
+// Persiste las líneas parseadas, deduplica por hash, devuelve solo las nuevas
+// ============================================
+app.post('/api/admin/finance/save-bank-entries', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const adminId = (req.user as any)?.userId || (req.user as any)?.id;
+    const { entries, empresa_id, service_type, banco } = req.body;
+    // entries = [{ fecha, concepto, referencia, cargo, abono, saldo }]
+
+    if (!entries || !Array.isArray(entries) || entries.length === 0) {
+      return res.status(400).json({ error: 'No hay movimientos para guardar' });
+    }
+    if (!empresa_id) {
+      return res.status(400).json({ error: 'Falta empresa_id' });
+    }
+
+    const crypto = require('crypto');
+    const newEntries: any[] = [];
+    const duplicateCount = { count: 0 };
+
+    for (const entry of entries) {
+      // Generar hash para deduplicar
+      const hashInput = `${entry.fecha}|${entry.concepto}|${entry.referencia || ''}|${entry.cargo || ''}|${entry.abono || ''}|${entry.saldo || ''}`;
+      const entryHash = crypto.createHash('sha256').update(hashInput).digest('hex').substring(0, 64);
+
+      try {
+        const result = await pool.query(`
+          INSERT INTO bank_statement_entries (empresa_id, service_type, banco, fecha, concepto, referencia, cargo, abono, saldo, entry_hash, uploaded_by)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          ON CONFLICT (empresa_id, entry_hash) DO NOTHING
+          RETURNING *
+        `, [
+          empresa_id,
+          service_type || null,
+          banco || 'bbva',
+          entry.fecha ? parseDateDDMMYYYY(entry.fecha) : new Date(),
+          entry.concepto || '',
+          entry.referencia || '',
+          entry.cargo || null,
+          entry.abono || null,
+          entry.saldo || null,
+          entryHash,
+          adminId,
+        ]);
+
+        if (result.rows.length > 0) {
+          newEntries.push({ ...entry, db_id: result.rows[0].id });
+        } else {
+          duplicateCount.count++;
+        }
+      } catch (insertErr: any) {
+        // Unique constraint violation = duplicate, skip
+        if (insertErr.code === '23505') {
+          duplicateCount.count++;
+        } else {
+          console.error('Error inserting bank entry:', insertErr.message);
+        }
+      }
+    }
+
+    console.log(`🏦 Estado de cuenta guardado: ${newEntries.length} nuevas, ${duplicateCount.count} duplicadas (empresa ${empresa_id}, ${banco})`);
+
+    res.json({
+      success: true,
+      new_entries: newEntries,
+      new_count: newEntries.length,
+      duplicate_count: duplicateCount.count,
+      total_received: entries.length,
+    });
+  } catch (error: any) {
+    console.error('Error saving bank entries:', error);
+    res.status(500).json({ error: 'Error guardando movimientos', details: error.message });
+  }
+});
+
+// Helper: parse DD-MM-YYYY to Date
+function parseDateDDMMYYYY(dateStr: string): Date {
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const [dd, mm, yyyy] = parts;
+    return new Date(`${yyyy}-${mm}-${dd}`);
+  }
+  return new Date(dateStr);
+}
+
 app.post('/api/admin/finance/match-references', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { references, empresa_id } = req.body;

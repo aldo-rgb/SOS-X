@@ -215,6 +215,8 @@ export default function FinanceDashboardPage() {
   const [estadoCuentaBanco] = useState('bbva');
   const [refMatchModal, setRefMatchModal] = useState<{ open: boolean; loading: boolean; matches: any[]; wrongAccount: any[]; unmatched: any[]; summary: any } | null>(null);
   const [confirmAuthorize, setConfirmAuthorize] = useState<{ open: boolean; toAuthorize: any[]; totalSurplus: number } | null>(null);
+  const [loadingSavedEntries, setLoadingSavedEntries] = useState(false);
+  const [savedEntriesCount, setSavedEntriesCount] = useState<number | null>(null);
 
   // Parser BBVA
   const parseBBVA = (text: string): EstadoCuentaRow[] => {
@@ -317,6 +319,34 @@ export default function FinanceDashboardPage() {
     return Object.entries(refMap).map(([ref, entries]) => ({ ref, entries }));
   };
 
+  const loadSavedBankEntries = async () => {
+    const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
+    if (!empresaFilt) return;
+    setLoadingSavedEntries(true);
+    try {
+      const res = await api.get(`/admin/finance/bank-entries?empresa_id=${empresaFilt.id}&date_from=${dateFrom}&date_to=${dateTo}`);
+      if (res.data.entries && res.data.entries.length > 0) {
+        const mapped = res.data.entries.map((e: any) => ({
+          fecha: e.fecha ? new Date(e.fecha).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-') : '',
+          concepto: e.concepto,
+          referencia: e.referencia,
+          cargo: e.cargo ? parseFloat(e.cargo) : null,
+          abono: e.abono ? parseFloat(e.abono) : null,
+          saldo: e.saldo ? parseFloat(e.saldo) : 0,
+        }));
+        setEstadoCuentaRows(mapped);
+        setSavedEntriesCount(mapped.length);
+        setSnackbar({ open: true, message: `📋 ${mapped.length} movimientos cargados desde la base de datos`, severity: 'success' });
+      } else {
+        setSavedEntriesCount(0);
+        setSnackbar({ open: true, message: 'No hay movimientos guardados para este período', severity: 'info' });
+      }
+    } catch (err: any) {
+      setSnackbar({ open: true, message: 'Error cargando historial: ' + (err.response?.data?.error || err.message), severity: 'error' });
+    }
+    setLoadingSavedEntries(false);
+  };
+
   const handleParseEstadoCuenta = async () => {
     let rows: EstadoCuentaRow[] = [];
     if (estadoCuentaBanco === 'bbva') {
@@ -328,17 +358,49 @@ export default function FinanceDashboardPage() {
       return;
     }
 
-    // Detectar referencias
-    const refs = extractReferences(rows);
-    if (refs.length === 0) {
-      setSnackbar({ open: true, message: `✅ ${rows.length} movimientos extraídos. No se detectaron referencias de pago.`, severity: 'success' });
+    // 1. Guardar en BD y obtener solo las nuevas
+    const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
+    if (!empresaFilt) {
+      setSnackbar({ open: true, message: '⚠️ Selecciona un servicio/empresa para guardar los movimientos.', severity: 'error' });
       return;
     }
 
-    // Buscar en BD
+    let newEntries: EstadoCuentaRow[] = [];
+    let duplicateCount = 0;
+    try {
+      const saveRes = await api.post('/admin/finance/save-bank-entries', {
+        entries: rows,
+        empresa_id: empresaFilt.id,
+        service_type: empresaFilt.servicio_asignado,
+        banco: estadoCuentaBanco,
+      });
+      newEntries = saveRes.data.new_entries || [];
+      duplicateCount = saveRes.data.duplicate_count || 0;
+    } catch (err: any) {
+      console.error('Error saving bank entries:', err);
+      setSnackbar({ open: true, message: 'Error guardando movimientos: ' + (err.response?.data?.error || err.message), severity: 'error' });
+      return;
+    }
+
+    if (newEntries.length === 0) {
+      setSnackbar({ open: true, message: `ℹ️ ${rows.length} movimientos extraídos, pero todos ya estaban guardados (${duplicateCount} duplicados). No hay líneas nuevas que procesar.`, severity: 'info' });
+      return;
+    }
+
+    const infoMsg = duplicateCount > 0
+      ? `💾 ${newEntries.length} movimientos nuevos guardados (${duplicateCount} duplicados descartados).`
+      : `💾 ${newEntries.length} movimientos nuevos guardados.`;
+
+    // 2. Solo buscar referencias en las líneas NUEVAS
+    const refs = extractReferences(newEntries);
+    if (refs.length === 0) {
+      setSnackbar({ open: true, message: `${infoMsg} No se detectaron referencias de pago en las líneas nuevas.`, severity: 'success' });
+      return;
+    }
+
+    // 3. Buscar referencias en BD
     setRefMatchModal({ open: true, loading: true, matches: [], wrongAccount: [], unmatched: [], summary: null });
     try {
-      const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
       const res = await api.post('/admin/finance/match-references', {
         references: refs,
         empresa_id: empresaFilt?.id || null,
@@ -350,13 +412,13 @@ export default function FinanceDashboardPage() {
           matches: res.data.matches || [],
           wrongAccount: res.data.wrongAccount || [],
           unmatched: res.data.unmatched || [],
-          summary: res.data.summary,
+          summary: { ...res.data.summary, infoMsg },
         });
       }
     } catch (err) {
       console.error('Error matching refs:', err);
       setRefMatchModal(null);
-      setSnackbar({ open: true, message: `✅ ${rows.length} movimientos extraídos. Error buscando referencias.`, severity: 'error' });
+      setSnackbar({ open: true, message: `${infoMsg} Error buscando referencias.`, severity: 'error' });
     }
   };
 
@@ -394,7 +456,6 @@ export default function FinanceDashboardPage() {
   };
 
   const token = localStorage.getItem('token') || '';
-  const currentUser = JSON.parse(localStorage.getItem('user') || '{}');
 
   const fetchDashboard = useCallback(async () => {
     setLoading(true);
@@ -1428,7 +1489,7 @@ export default function FinanceDashboardPage() {
               sx={{ mb: 2, fontFamily: 'monospace', '& textarea': { fontSize: '0.8rem' } }}
             />
 
-            <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+            <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
               <Button
                 variant="contained"
                 startIcon={<ContentPaste />}
@@ -1436,13 +1497,23 @@ export default function FinanceDashboardPage() {
                 disabled={!estadoCuentaRaw.trim()}
                 sx={{ bgcolor: '#1565C0', '&:hover': { bgcolor: '#0D47A1' } }}
               >
-                Extraer Movimientos
+                Extraer y Guardar
               </Button>
-              {estadoCuentaRows.length > 0 && currentUser?.role === 'super_admin' && (
+              <Button
+                variant="outlined"
+                startIcon={loadingSavedEntries ? <CircularProgress size={16} /> : <Search />}
+                onClick={loadSavedBankEntries}
+                disabled={loadingSavedEntries}
+                sx={{ borderColor: '#2E7D32', color: '#2E7D32', '&:hover': { bgcolor: '#E8F5E9', borderColor: '#1B5E20' } }}
+              >
+                📋 Cargar Historial{savedEntriesCount !== null ? ` (${savedEntriesCount})` : ''}
+              </Button>
+              {estadoCuentaRows.length > 0 && (
                 <Button
                   variant="outlined"
                   color="error"
-                  onClick={() => { setEstadoCuentaRows([]); setEstadoCuentaRaw(''); }}
+                  size="small"
+                  onClick={() => { setEstadoCuentaRows([]); setEstadoCuentaRaw(''); setSavedEntriesCount(null); }}
                 >
                   Limpiar
                 </Button>
@@ -1574,6 +1645,10 @@ export default function FinanceDashboardPage() {
             </Box>
           ) : (
             <>
+              {/* Info de guardado */}
+              {refMatchModal?.summary?.infoMsg && (
+                <Alert severity="success" sx={{ mb: 2 }}>{refMatchModal.summary.infoMsg}</Alert>
+              )}
               {/* Resumen */}
               <Grid container spacing={2} sx={{ mb: 3 }}>
                 <Grid size={{ xs: 4 }}>
