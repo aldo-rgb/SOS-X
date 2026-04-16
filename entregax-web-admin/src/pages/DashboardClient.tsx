@@ -778,6 +778,7 @@ export default function DashboardClient() {
   const [pendingPaymentsTab, setPendingPaymentsTab] = useState(0);
   const [paymentOrders, setPaymentOrders] = useState<any[]>([]);
   const [loadingPaymentOrders, setLoadingPaymentOrders] = useState(false);
+  const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
 
   // Cotizador Universal
   const [quoteService, setQuoteService] = useState<string>('');
@@ -9421,11 +9422,12 @@ export default function DashboardClient() {
                         spei: '🏦 SPEI',
                       };
                       return (
-                        <TableRow key={order.id} hover>
+                        <Box key={order.id} component="tbody">
+                        <TableRow hover sx={{ cursor: 'pointer' }} onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}>
                           <TableCell>
                             <Typography variant="body2" fontWeight="bold">{order.payment_reference}</Typography>
                             <Typography variant="caption" color="text.secondary">
-                              {Array.isArray(order.package_ids) ? `${order.package_ids.length} paquete(s)` : ''}
+                              📦 {Array.isArray(order.packages) ? order.packages.length : Array.isArray(order.package_ids) ? order.package_ids.length : 0} paquete(s) {expandedOrderId === order.id ? '▴' : '▾'}
                             </Typography>
                           </TableCell>
                           <TableCell>
@@ -9450,6 +9452,37 @@ export default function DashboardClient() {
                             )}
                           </TableCell>
                         </TableRow>
+                        {expandedOrderId === order.id && Array.isArray(order.packages) && order.packages.length > 0 && (
+                          <TableRow>
+                            <TableCell colSpan={5} sx={{ bgcolor: '#fafafa', py: 0, px: 2 }}>
+                              <Table size="small">
+                                <TableBody>
+                                  {order.packages.map((pkg: any) => (
+                                    <TableRow key={pkg.id} sx={{ '&:last-child td': { borderBottom: 0 } }}>
+                                      <TableCell sx={{ py: 0.5 }}>
+                                        <Typography variant="body2" fontWeight="bold">{pkg.tracking_internal}</Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                          {pkg.descripcion || ''}{pkg.weight ? ` · ${Number(pkg.weight).toFixed(1)} lb` : ''}
+                                        </Typography>
+                                      </TableCell>
+                                      <TableCell sx={{ py: 0.5 }}>
+                                        {pkg.national_carrier && (
+                                          <Typography variant="caption">🚚 {pkg.national_carrier}</Typography>
+                                        )}
+                                      </TableCell>
+                                      <TableCell align="right" sx={{ py: 0.5 }}>
+                                        <Typography variant="body2" fontWeight="bold" sx={{ color: ORANGE }}>
+                                          {formatCurrency(Number(pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0))}
+                                        </Typography>
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        </Box>
                       );
                     })}
                   </TableBody>

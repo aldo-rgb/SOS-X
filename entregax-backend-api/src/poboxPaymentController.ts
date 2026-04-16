@@ -726,9 +726,6 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         }
 
         // No existe pago pendiente, crear uno nuevo
-        // Generar referencia única
-        const paymentRef = generatePaymentReference('EF');
-
         // Obtener información de la empresa asignada al servicio POBOX_USA
         let companyInfo: any = null;
         let empresaId: number | null = null;
@@ -753,6 +750,18 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         } catch (e) {
             console.log('No se encontró config de empresa para POBOX_USA');
         }
+
+        // Generar prefijo con iniciales de la empresa (2 primeras letras de cada palabra)
+        let refPrefix = 'EF';
+        if (companyInfo?.company_name) {
+            const words = companyInfo.company_name.trim().split(/\s+/).filter((w: string) => !['sa', 'de', 'cv', 's.a.', 'S.A.', 'DE', 'CV', 'C.V.'].includes(w.toLowerCase()));
+            if (words.length >= 2) {
+                refPrefix = (words[0][0] + words[1][0]).toUpperCase();
+            } else if (words.length === 1 && words[0].length >= 2) {
+                refPrefix = words[0].substring(0, 2).toUpperCase();
+            }
+        }
+        const paymentRef = generatePaymentReference(refPrefix);
 
         // Valores por defecto si no hay configuración
         if (!companyInfo || !companyInfo.bank_clabe) {
@@ -1356,9 +1365,30 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
             LIMIT 50
         `, [userId]);
 
+        // Enrich with package details
+        const payments = [];
+        for (const row of result.rows) {
+            let packages: any[] = [];
+            if (Array.isArray(row.package_ids) && row.package_ids.length > 0) {
+                try {
+                    const pkgResult = await pool.query(`
+                        SELECT id, tracking_internal, tracking_usa, weight, 
+                               assigned_cost_mxn, saldo_pendiente, national_shipping_cost,
+                               national_carrier, descripcion, status
+                        FROM packages
+                        WHERE id = ANY($1)
+                    `, [row.package_ids]);
+                    packages = pkgResult.rows;
+                } catch (e) {
+                    // ignore
+                }
+            }
+            payments.push({ ...row, packages });
+        }
+
         res.json({
             success: true,
-            payments: result.rows
+            payments
         });
     } catch (error) {
         console.error('Error obteniendo historial de pagos PO Box:', error);

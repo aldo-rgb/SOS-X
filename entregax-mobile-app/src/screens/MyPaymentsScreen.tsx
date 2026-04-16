@@ -93,6 +93,7 @@ const MyPaymentsScreen = () => {
   const [activeTab, setActiveTab] = useState<'pending' | 'orders'>('pending');
   const [paymentOrders, setPaymentOrders] = useState<PaymentOrder[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
+  const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
 
   // Group invoices by service
   const groupInvoicesByService = (invoices: PaymentInvoice[]): GroupedInvoices[] => {
@@ -605,12 +606,21 @@ const MyPaymentsScreen = () => {
 
             return (
               <View key={order.id} style={styles.orderCard}>
-                <View style={styles.orderHeader}>
+                <TouchableOpacity 
+                  style={styles.orderHeader}
+                  onPress={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                >
                   <Text style={styles.orderRef}>{order.payment_reference}</Text>
-                  <View style={[styles.orderStatusBadge, { backgroundColor: st.bg }]}>
-                    <Text style={[styles.orderStatusText, { color: st.text }]}>{st.label}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <View style={[styles.orderStatusBadge, { backgroundColor: st.bg }]}>
+                      <Text style={[styles.orderStatusText, { color: st.text }]}>{st.label}</Text>
+                    </View>
+                    <Ionicons 
+                      name={expandedOrderId === order.id ? 'chevron-up' : 'chevron-down'} 
+                      size={18} color="#999" 
+                    />
                   </View>
-                </View>
+                </TouchableOpacity>
                 <View style={styles.orderBody}>
                   <View style={styles.orderRow}>
                     <Text style={styles.orderLabel}>Método:</Text>
@@ -632,13 +642,37 @@ const MyPaymentsScreen = () => {
                       <Text style={[styles.orderValue, { color: '#2E7D32' }]}>{formatDate(order.paid_at)}</Text>
                     </View>
                   )}
-                  <View style={styles.orderRow}>
-                    <Text style={styles.orderLabel}>Paquetes:</Text>
-                    <Text style={styles.orderValue}>
-                      {Array.isArray(order.package_ids) ? order.package_ids.length : 0} paquete(s)
+                  <TouchableOpacity 
+                    style={styles.orderRow}
+                    onPress={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                  >
+                    <Text style={styles.orderLabel}>📦 Paquetes:</Text>
+                    <Text style={[styles.orderValue, { color: '#FF6B00' }]}>
+                      {Array.isArray(order.packages) ? order.packages.length : 
+                       Array.isArray(order.package_ids) ? order.package_ids.length : 0} paquete(s) ▾
                     </Text>
-                  </View>
+                  </TouchableOpacity>
                 </View>
+
+                {/* Detalle de paquetes expandible */}
+                {expandedOrderId === order.id && Array.isArray(order.packages) && order.packages.length > 0 && (
+                  <View style={styles.orderPackages}>
+                    {order.packages.map((pkg: any) => (
+                      <View key={pkg.id} style={styles.orderPkgRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.orderPkgTracking}>{pkg.tracking_internal}</Text>
+                          <Text style={styles.orderPkgDetail}>
+                            {pkg.descripcion ? `${pkg.descripcion} · ` : ''}{pkg.weight ? `${Number(pkg.weight).toFixed(1)} lb` : ''}
+                            {pkg.national_carrier ? ` · 🚚 ${pkg.national_carrier}` : ''}
+                          </Text>
+                        </View>
+                        <Text style={styles.orderPkgAmount}>
+                          {formatCurrency(Number(pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0))}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
               </View>
             );
           })
@@ -738,6 +772,36 @@ const styles = StyleSheet.create({
   orderValue: {
     fontSize: 13,
     color: '#333',
+  },
+  orderPackages: {
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+    backgroundColor: '#FAFAFA',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  orderPkgRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F0F0',
+  },
+  orderPkgTracking: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#333',
+  },
+  orderPkgDetail: {
+    fontSize: 11,
+    color: '#888',
+    marginTop: 2,
+  },
+  orderPkgAmount: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FF6B00',
   },
   container: {
     flex: 1,

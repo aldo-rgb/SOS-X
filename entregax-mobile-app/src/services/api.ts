@@ -307,6 +307,18 @@ export interface PaymentOrder {
   status: string;
   created_at: string;
   paid_at: string | null;
+  packages: {
+    id: number;
+    tracking_internal: string;
+    tracking_usa: string;
+    weight: number;
+    assigned_cost_mxn: number;
+    saldo_pendiente: number;
+    national_shipping_cost: number;
+    national_carrier: string;
+    descripcion: string;
+    status: string;
+  }[];
 }
 
 export const getPaymentOrdersApi = async (token: string): Promise<{
