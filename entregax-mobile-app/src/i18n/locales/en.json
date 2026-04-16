@@ -498,6 +498,7 @@
     "expires": "Expires",
     "viewQR": "View QR",
     "share": "Share",
+    "download": "Download",
     "copied": "Copied"
   }
 }

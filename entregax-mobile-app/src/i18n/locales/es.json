@@ -249,7 +249,7 @@
     "step3": "Selfie",
     "uploadFront": "Subir parte frontal",
     "uploadBack": "Subir parte trasera",
-    "uploadProof": "Subir comprobante",
+    "uploadProof": "Enviar comprobante",
     "takeSelfie": "Tomar Selfie",
     "submit": "Enviar Verificación",
     "inReview": "En Revisión",
@@ -479,7 +479,7 @@
   },
   "myPayments": {
     "viewPaymentDetails": "Ver Detalles de Pago",
-    "uploadReceipt": "Subir Comprobante",
+    "uploadReceipt": "Enviar Comprobante",
     "pendingPayments": "Pagos Pendientes",
     "paymentOrders": "Órdenes de Pago",
     "packages": "Paquetes",
@@ -498,6 +498,7 @@
     "expires": "Vence",
     "viewQR": "Ver QR",
     "share": "Compartir",
+    "download": "Descargar",
     "copied": "Copiado"
   }
 }

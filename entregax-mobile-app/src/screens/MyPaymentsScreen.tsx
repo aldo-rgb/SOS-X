@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   RefreshControl,
   Alert,
-  Share,
   Clipboard,
   ActivityIndicator,
   Modal,
@@ -24,6 +23,7 @@ import {
 } from '../services/api';
 import { useTranslation } from 'react-i18next';
 import QRCode from 'react-native-qrcode-svg';
+import { generatePaymentPDF } from '../utils/generatePaymentPDF';
 
 // Types for navigation
 type RootStackParamList = {
@@ -764,12 +764,20 @@ const MyPaymentsScreen = () => {
                     style={{ flex: 1, backgroundColor: '#4CAF50', borderRadius: 10, paddingVertical: 14, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
                     onPress={async () => {
                       try {
-                        await Share.share({ message: `💳 Orden de Pago EntregaX\n\nReferencia: ${selectedOrder.payment_reference}\nMonto: ${formatCurrency(selectedOrder.amount)} ${selectedOrder.currency || 'MXN'}\n\nPresente esta referencia para realizar su pago.` });
+                        await generatePaymentPDF({
+                          payment_reference: selectedOrder.payment_reference,
+                          amount: selectedOrder.amount,
+                          currency: selectedOrder.currency || 'MXN',
+                          bank_info: (selectedOrder as any).bank_info,
+                          packages: selectedOrder.packages,
+                          userName: user?.name || user?.nombre || `${user?.first_name || ''} ${user?.last_name || ''}`.trim() || '-',
+                          userCasillero: user?.pobox_code || user?.casillero || '-',
+                        });
                       } catch (e) { console.error(e); }
                     }}
                   >
-                    <Ionicons name="share-outline" size={20} color="#FFF" />
-                    <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 15 }}>{t('myPayments.share')}</Text>
+                    <Ionicons name="download-outline" size={20} color="#FFF" />
+                    <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 15 }}>{t('myPayments.download')}</Text>
                   </TouchableOpacity>
                 </View>
               </ScrollView>

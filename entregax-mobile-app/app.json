@@ -28,7 +28,8 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "react-native-nfc-manager"
+      "react-native-nfc-manager",
+      "expo-asset"
     ]
   }
 }
