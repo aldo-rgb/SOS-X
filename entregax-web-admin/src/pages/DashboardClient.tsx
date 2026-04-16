@@ -3,7 +3,7 @@
 // Panel principal para Clientes con portal completo
 // ============================================
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -9422,7 +9422,7 @@ export default function DashboardClient() {
                         spei: '🏦 SPEI',
                       };
                       return (
-                        <Box key={order.id} component="tbody">
+                        <Fragment key={order.id}>
                         <TableRow hover sx={{ cursor: 'pointer' }} onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}>
                           <TableCell>
                             <Typography variant="body2" fontWeight="bold">{order.payment_reference}</Typography>
@@ -9482,7 +9482,7 @@ export default function DashboardClient() {
                             </TableCell>
                           </TableRow>
                         )}
-                        </Box>
+                        </Fragment>
                       );
                     })}
                   </TableBody>
