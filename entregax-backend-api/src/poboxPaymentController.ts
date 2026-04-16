@@ -93,6 +93,21 @@ const generatePaymentReference = (prefix: string = 'PB'): string => {
     return `${prefix}-${timestamp}${random}`;
 };
 
+// Verificar si alguno de los paquetes ya está en una orden de pago pendiente
+const checkDuplicatePackagesInOrders = async (packageIds: number[], userId: number): Promise<{ hasDuplicates: boolean; duplicates: { packageId: number; reference: string }[] }> => {
+    const result = await pool.query(`
+        SELECT pp.payment_reference, pkg_id::int as package_id
+        FROM pobox_payments pp,
+             jsonb_array_elements(pp.package_ids) AS pkg_id
+        WHERE pp.user_id = $1
+          AND pp.status IN ('pending', 'pending_payment')
+          AND pkg_id::int = ANY($2)
+    `, [userId, packageIds]);
+    
+    const duplicates = result.rows.map((r: any) => ({ packageId: r.package_id, reference: r.payment_reference }));
+    return { hasDuplicates: duplicates.length > 0, duplicates };
+};
+
 // ============================================
 // 1. CREAR PAGO PAYPAL PARA POBOX
 // ============================================
@@ -148,6 +163,17 @@ export const createPoboxPaypalPayment = async (req: Request, res: Response): Pro
 
         if (packagesCheck.rows.length !== packageIds.length) {
             return res.status(400).json({ error: 'Algunos paquetes no existen o no pertenecen al usuario' });
+        }
+
+        // Verificar que ningún paquete esté ya en una orden de pago pendiente
+        const dupCheck = await checkDuplicatePackagesInOrders(packageIds, userId);
+        if (dupCheck.hasDuplicates) {
+            const refs = [...new Set(dupCheck.duplicates.map(d => d.reference))].join(', ');
+            return res.status(400).json({ 
+                error: 'Paquetes ya en orden de pago',
+                message: `Algunos paquetes ya están en una orden de pago pendiente (${refs}). Cancela o paga esa orden primero.`,
+                duplicates: dupCheck.duplicates
+            });
         }
 
         // Crear registro de pago en base de datos
@@ -478,6 +504,17 @@ export const createPoboxOpenpayPayment = async (req: Request, res: Response): Pr
             return res.status(400).json({ error: 'Algunos paquetes no existen o no pertenecen al usuario' });
         }
 
+        // Verificar que ningún paquete esté ya en una orden de pago pendiente
+        const dupCheck = await checkDuplicatePackagesInOrders(packageIds, userId);
+        if (dupCheck.hasDuplicates) {
+            const refs = [...new Set(dupCheck.duplicates.map(d => d.reference))].join(', ');
+            return res.status(400).json({ 
+                error: 'Paquetes ya en orden de pago',
+                message: `Algunos paquetes ya están en una orden de pago pendiente (${refs}). Cancela o paga esa orden primero.`,
+                duplicates: dupCheck.duplicates
+            });
+        }
+
         // Obtener datos del usuario
         const userResult = await pool.query(
             'SELECT id, full_name, email, phone FROM users WHERE id = $1',
@@ -616,6 +653,24 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
 
         if (packagesCheck.rows.length !== packageIds.length) {
             return res.status(400).json({ error: 'Algunos paquetes no existen o no pertenecen al usuario' });
+        }
+
+        // Verificar que ningún paquete esté ya en una orden de pago pendiente
+        const dupCheck = await checkDuplicatePackagesInOrders(packageIds, userId);
+        if (dupCheck.hasDuplicates) {
+            // Si es el mismo set exacto, lo manejará el bloque de abajo (reutilizar)
+            // Si son paquetes parciales en otra orden, bloquear
+            const dupRefs = [...new Set(dupCheck.duplicates.map(d => d.reference))];
+            const sortedReq = [...packageIds].sort((a, b) => a - b);
+            // Verificar si es exactamente la misma orden (permitir reutilizar)
+            const isSameOrder = dupRefs.length === 1;
+            if (!isSameOrder) {
+                return res.status(400).json({ 
+                    error: 'Paquetes ya en orden de pago',
+                    message: `Algunos paquetes ya están en una orden de pago pendiente (${dupRefs.join(', ')}). Cancela o paga esa orden primero.`,
+                    duplicates: dupCheck.duplicates
+                });
+            }
         }
 
         // ✨ NUEVO: Verificar si ya existe un pago pendiente para estos mismos paquetes
