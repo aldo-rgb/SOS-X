@@ -1745,7 +1745,11 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         assigned_cost_usd as maritime_sale_price_usd,
         merchandise_type,
         'MXN' as monto_currency,
-        registered_exchange_rate
+        registered_exchange_rate,
+        national_carrier,
+        national_shipping_cost,
+        national_tracking,
+        (SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = maritime_orders.gex_folio LIMIT 1) as gex_total_cost
       FROM maritime_orders
       WHERE (user_id = $1 OR UPPER(shipping_mark) = UPPER($2))
         AND status NOT IN ('delivered', 'cancelled')

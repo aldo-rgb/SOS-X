@@ -1810,10 +1810,12 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                     UPDATE maritime_orders 
                     SET delivery_address_id = $1, 
                         delivery_instructions = $2,
+                        national_carrier = $4,
+                        national_shipping_cost = COALESCE($5, 0),
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = $3${ownerCondition}
                     RETURNING id, ordersn as tracking_internal
-                `, [deliveryAddressId, deliveryInstructions, packageId]);
+                `, [deliveryAddressId, deliveryInstructions, packageId, carrierName || carrier || null, parseFloat(carrierCost) || 0]);
                 break;
 
             case 'china_air':
