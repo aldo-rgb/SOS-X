@@ -7764,10 +7764,10 @@ export default function DashboardClient() {
                         </Box>
 
                         {/* Desglose de costos */}
-                        {(selectedPackage.gex_total_cost || selectedPackage.national_shipping_cost) && !isEstimated ? (() => {
+                        {(Number(selectedPackage.gex_total_cost) > 0 || Number(selectedPackage.national_shipping_cost) > 0) ? (() => {
                           const gexMXN = Number(selectedPackage.gex_total_cost) || 0;
                           const paqMXN = Number(selectedPackage.national_shipping_cost) || 0;
-                          const envioMXN = montoMXN - gexMXN - paqMXN;
+                          const envioMXN = isEstimated ? montoMXN : montoMXN - gexMXN - paqMXN;
                           return (
                             <>
                               <Divider sx={{ my: 1 }} />
@@ -7776,7 +7776,7 @@ export default function DashboardClient() {
                               </Typography>
                               {envioMXN > 0 && (
                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                  <Typography variant="caption" color="text.secondary">Servicio de envío:</Typography>
+                                  <Typography variant="caption" color="text.secondary">Servicio de envío{isEstimated ? ' (estimado)' : ''}:</Typography>
                                   <Typography variant="caption" fontWeight="bold">
                                     ${envioMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
                                   </Typography>
