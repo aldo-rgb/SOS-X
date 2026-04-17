@@ -139,6 +139,10 @@ interface IngresoPorEmpresa {
   rfc: string;
   spei_bruto: number;
   spei_neto: number;
+  total_bruto: number;
+  total_neto: number;
+  efectivo_neto: number;
+  paypal_neto: number;
   comisiones: number;
   transacciones: number;
 }
@@ -163,6 +167,7 @@ interface DashboardData {
   kpis: KPIs;
   empresas: Empresa[];
   ingresos_por_empresa: IngresoPorEmpresa[];
+  saldos_bancarios: Record<number, { saldo: number; fecha: string }>;
   distribucion_metodos: { efectivo: number; spei: number; paypal: number };
   porcentajes: { efectivo: string; spei: string; paypal: string };
   ingresos_por_servicio: IngresoPorServicio[];
@@ -217,8 +222,8 @@ export default function FinanceDashboardPage() {
   const [estadoCuentaBanco] = useState('bbva');
   const [refMatchModal, setRefMatchModal] = useState<{ open: boolean; loading: boolean; matches: any[]; wrongAccount: any[]; unmatched: any[]; summary: any } | null>(null);
   const [confirmAuthorize, setConfirmAuthorize] = useState<{ open: boolean; toAuthorize: any[]; totalSurplus: number } | null>(null);
-  const [loadingSavedEntries, setLoadingSavedEntries] = useState(false);
-  const [savedEntriesCount, setSavedEntriesCount] = useState<number | null>(null);
+  const [_loadingSavedEntries, setLoadingSavedEntries] = useState(false);
+  const [_savedEntriesCount, setSavedEntriesCount] = useState<number | null>(null);
 
   // Parser BBVA
   const parseBBVA = (text: string): EstadoCuentaRow[] => {
