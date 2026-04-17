@@ -55,6 +55,7 @@ import {
   AccessTime,
   AccountBalanceWallet,
   ContentPaste,
+  UploadFile,
 } from '@mui/icons-material';
 import {
   PieChart,
@@ -203,6 +204,7 @@ export default function FinanceDashboardPage() {
 
   // Estado de Cuenta
   const [estadoCuentaRaw, setEstadoCuentaRaw] = useState('');
+  const [csvFile, setCsvFile] = useState<File | null>(null);
   interface EstadoCuentaRow {
     fecha: string;
     concepto: string;
@@ -300,6 +302,77 @@ export default function FinanceDashboardPage() {
     return rows;
   };
 
+  // Parser Banregio CSV
+  const parseBanregio = (csvText: string): EstadoCuentaRow[] => {
+    const parseAmount = (s: string): number | null => {
+      if (!s || !s.trim()) return null;
+      const clean = s.trim().replace(/,/g, '').replace(/\$/g, '').replace(/"/g, '');
+      const num = parseFloat(clean);
+      return isNaN(num) ? null : num;
+    };
+
+    const lines = csvText.split('\n');
+    // Find header line
+    let headerIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].toLowerCase().includes('fecha') && lines[i].toLowerCase().includes('descripci')) {
+        headerIdx = i;
+        break;
+      }
+    }
+    if (headerIdx === -1) return [];
+
+    const rows: EstadoCuentaRow[] = [];
+    for (let i = headerIdx + 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      // Parse CSV respecting quoted fields
+      const fields: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      for (let c = 0; c < line.length; c++) {
+        if (line[c] === '"') {
+          inQuotes = !inQuotes;
+        } else if (line[c] === ',' && !inQuotes) {
+          fields.push(current);
+          current = '';
+        } else {
+          current += line[c];
+        }
+      }
+      fields.push(current);
+
+      if (fields.length < 6) continue;
+
+      const [fechaRaw, descripcion, referencia, cargoRaw, abonoRaw, saldoRaw] = fields;
+
+      // Skip "Saldo Inicial" row
+      if (descripcion && descripcion.toLowerCase().includes('saldo inicial')) continue;
+
+      // Parse date DD/MM/YYYY → DD-MM-YYYY
+      const dateMatch = fechaRaw.trim().match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (!dateMatch) continue;
+      const fecha = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
+
+      const cargo = parseAmount(cargoRaw);
+      const abono = parseAmount(abonoRaw);
+      const saldo = parseAmount(saldoRaw) || 0;
+
+      if (cargo === null && abono === null) continue;
+
+      rows.push({
+        fecha,
+        concepto: (descripcion || '').trim().replace(/"/g, ''),
+        referencia: (referencia || '').trim().replace(/^_/, '').replace(/"/g, ''),
+        cargo,
+        abono,
+        saldo,
+      });
+    }
+    return rows;
+  };
+
   // Regex para detectar referencias de pago: XX-8HEXCHARS
   const REF_PATTERN = /\b([A-Z]{2}-[A-F0-9]{8})\b/gi;
 
@@ -324,17 +397,27 @@ export default function FinanceDashboardPage() {
     if (!empresaFilt) return;
     setLoadingSavedEntries(true);
     try {
-      const res = await api.get(`/admin/finance/bank-entries?empresa_id=${empresaFilt.id}&date_from=${dateFrom}&date_to=${dateTo}`);
+      const res = await api.get(`/admin/finance/bank-entries?empresa_id=${empresaFilt.id}`);
       if (res.data.entries && res.data.entries.length > 0) {
-        const mapped = res.data.entries.map((e: any) => ({
-          fecha: e.fecha ? new Date(e.fecha).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '-') : '',
-          concepto: e.concepto,
-          referencia: e.referencia,
-          cargo: e.cargo ? parseFloat(e.cargo) : null,
-          abono: e.abono ? parseFloat(e.abono) : null,
-          saldo: e.saldo ? parseFloat(e.saldo) : 0,
-        }));
-        setEstadoCuentaRows(mapped);
+        const mapped = res.data.entries.map((e: any) => {
+          // Parse date from ISO string directly to avoid timezone shift
+          // e.fecha = "2026-04-15T00:00:00.000Z" → extract "2026-04-15" → "15-04-2026"
+          let fechaStr = '';
+          if (e.fecha) {
+            const isoDate = e.fecha.substring(0, 10); // "2026-04-15"
+            const [yyyy, mm, dd] = isoDate.split('-');
+            fechaStr = `${dd}-${mm}-${yyyy}`;
+          }
+          return {
+            fecha: fechaStr,
+            concepto: e.concepto,
+            referencia: e.referencia,
+            cargo: e.cargo ? parseFloat(e.cargo) : null,
+            abono: e.abono ? parseFloat(e.abono) : null,
+            saldo: e.saldo ? parseFloat(e.saldo) : 0,
+          };
+        });
+        setEstadoCuentaRows(sortRowsDesc(mapped));
         setSavedEntriesCount(mapped.length);
         setSnackbar({ open: true, message: `📋 ${mapped.length} movimientos cargados desde la base de datos`, severity: 'success' });
       } else {
@@ -347,12 +430,32 @@ export default function FinanceDashboardPage() {
     setLoadingSavedEntries(false);
   };
 
-  const handleParseEstadoCuenta = async () => {
+  // Sort rows by date descending (most recent first)
+  const sortRowsDesc = (rows: EstadoCuentaRow[]): EstadoCuentaRow[] => {
+    return [...rows].sort((a, b) => {
+      // fecha format: DD-MM-YYYY
+      const [da, ma, ya] = a.fecha.split('-');
+      const [db, mb, yb] = b.fecha.split('-');
+      const dateA = `${ya}${ma}${da}`;
+      const dateB = `${yb}${mb}${db}`;
+      return dateB.localeCompare(dateA);
+    });
+  };
+
+  const handleParseEstadoCuenta = async (bancoOverride?: string) => {
+    const banco = bancoOverride || estadoCuentaBanco;
     let rows: EstadoCuentaRow[] = [];
-    if (estadoCuentaBanco === 'bbva') {
+    if (banco === 'bbva') {
       rows = parseBBVA(estadoCuentaRaw);
+    } else if (banco === 'banregio') {
+      if (!csvFile) {
+        setSnackbar({ open: true, message: '⚠️ Selecciona un archivo CSV de Banregio.', severity: 'error' });
+        return;
+      }
+      const text = await csvFile.text();
+      rows = parseBanregio(text);
     }
-    setEstadoCuentaRows(rows);
+    setEstadoCuentaRows(sortRowsDesc(rows));
     if (rows.length === 0) {
       setSnackbar({ open: true, message: '⚠️ No se pudieron extraer movimientos. Verifica el formato.', severity: 'error' });
       return;
@@ -481,6 +584,14 @@ export default function FinanceDashboardPage() {
   useEffect(() => {
     fetchDashboard();
   }, [fetchDashboard]);
+
+  // Auto-cargar historial de estado de cuenta al entrar al tab 2
+  useEffect(() => {
+    if (tabValue === 2 && data && estadoCuentaRows.length === 0) {
+      loadSavedBankEntries();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabValue, data, filterServicio]);
 
   // Cargar pagos pendientes
   const fetchPendingPayments = useCallback(async () => {
@@ -954,13 +1065,13 @@ export default function FinanceDashboardPage() {
           <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Referencia</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Cliente</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Monto</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Servicio</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Banco/CLABE</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Fecha</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Acciones</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Referencia</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Cliente</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Monto</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Servicio</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Banco/CLABE</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Fecha</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Acciones</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1137,14 +1248,12 @@ export default function FinanceDashboardPage() {
               <Table stickyHeader size="small">
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Fecha/Hora</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Cliente</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Monto Bruto</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Comisión</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Monto Neto</TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Método</TableCell>
-                    <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Concepto</TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Estado</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Fecha/Hora</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Cliente</TableCell>
+                    <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Monto Neto</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Método</TableCell>
+                    <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Concepto</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Estado</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1165,20 +1274,6 @@ export default function FinanceDashboardPage() {
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
-                          <Typography variant="body2" fontWeight="bold">
-                            {formatCurrency(tx.monto_bruto)}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right">
-                          {tx.comision > 0 ? (
-                            <Typography variant="body2" color="error">
-                              -{formatCurrency(tx.comision)}
-                            </Typography>
-                          ) : (
-                            <Typography variant="body2" color="text.secondary">-</Typography>
-                          )}
-                        </TableCell>
-                        <TableCell align="right">
                           <Typography variant="body2" fontWeight="bold" color="success.main">
                             {formatCurrency(tx.monto_neto)}
                           </Typography>
@@ -1196,9 +1291,25 @@ export default function FinanceDashboardPage() {
                           />
                         </TableCell>
                         <TableCell>
-                          <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                            {tx.concepto}
-                          </Typography>
+                          {tx.concepto && tx.concepto.length > 50 ? (
+                            <Box>
+                              <Typography variant="body2" sx={{ maxWidth: 250 }}>
+                                {tx.concepto.substring(0, 50)}...
+                              </Typography>
+                              <Button size="small" sx={{ textTransform: 'none', p: 0, minWidth: 0, fontSize: '0.7rem' }}
+                                onClick={(e) => {
+                                  const el = (e.currentTarget.parentElement?.querySelector('.concepto-full') as HTMLElement);
+                                  if (el) { el.style.display = el.style.display === 'none' ? 'block' : 'none'; }
+                                  e.currentTarget.textContent = e.currentTarget.textContent === '▶ Ver más' ? '▼ Ocultar' : '▶ Ver más';
+                                }}
+                              >▶ Ver más</Button>
+                              <Typography className="concepto-full" variant="body2" sx={{ display: 'none', maxWidth: 300, whiteSpace: 'pre-wrap', mt: 0.5 }}>
+                                {tx.concepto}
+                              </Typography>
+                            </Box>
+                          ) : (
+                            <Typography variant="body2">{tx.concepto}</Typography>
+                          )}
                         </TableCell>
                         <TableCell align="center">
                           <Chip
@@ -1211,7 +1322,7 @@ export default function FinanceDashboardPage() {
                     ))
                   ) : (
                     <TableRow>
-                      <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                         <Receipt sx={{ fontSize: 48, color: 'grey.300', mb: 1 }} />
                         <Typography color="text.secondary">
                           No hay transacciones de {SERVICE_LABELS[filterServicio]?.label || filterServicio} en el período seleccionado
@@ -1241,32 +1352,87 @@ export default function FinanceDashboardPage() {
           <Box sx={{ p: 3 }}>
             {/* Resumen rápido por empresa */}
             <Grid container spacing={2} sx={{ mb: 3 }}>
-              {(data?.ingresos_por_empresa || []).map((emp, idx) => (
-                <Grid size={{ xs: 12, sm: 6, md: 4 }} key={emp.empresa_id}>
+              {(data?.empresas || []).map((emp, idx) => {
+                const ingreso = (data?.ingresos_por_empresa || []).find((ie: any) => ie.empresa_id === emp.id);
+                const saldoBanco = data?.saldos_bancarios?.[emp.id];
+                const empresaCount = (data?.empresas || []).length;
+                const mdSize = empresaCount <= 2 ? 6 : empresaCount === 4 ? 3 : 4;
+                return (
+                <Grid size={{ xs: 12, sm: 6, md: mdSize }} key={emp.id}>
                   <Card sx={{ 
                     background: `linear-gradient(135deg, ${EMPRESA_COLORS[idx % EMPRESA_COLORS.length]} 0%, ${EMPRESA_COLORS[(idx + 1) % EMPRESA_COLORS.length]}aa 100%)`,
-                    color: 'white'
+                    color: 'white',
+                    height: '100%',
+                    display: 'flex',
+                    flexDirection: 'column',
                   }}>
-                    <CardContent>
+                    <CardContent sx={{ flex: 1 }}>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <Box>
-                          <Typography variant="body2" sx={{ opacity: 0.9 }}>{emp.empresa_nombre}</Typography>
-                          <Typography variant="h5" fontWeight="bold">
-                            {formatCurrency(emp.spei_neto)}
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="body2" sx={{ opacity: 0.9, fontWeight: 'bold' }}>{emp.alias}</Typography>
+                          <Typography variant="caption" sx={{ opacity: 0.7 }}>
+                            {emp.bank_name || 'Sin banco'} • RFC: {emp.rfc}
                           </Typography>
-                          <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                            {emp.transacciones} transacciones • RFC: {emp.rfc}
-                          </Typography>
+
+                          {/* Saldo Bancario */}
+                          {saldoBanco ? (
+                            <Box sx={{ mt: 1.5, p: 1, bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 1 }}>
+                              <Typography variant="caption" sx={{ opacity: 0.8 }}>💰 Saldo Bancario</Typography>
+                              <Typography variant="h5" fontWeight="bold">
+                                {formatCurrency(saldoBanco.saldo)}
+                              </Typography>
+                              <Typography variant="caption" sx={{ opacity: 0.6, fontSize: '0.65rem' }}>
+                                Último mov: {saldoBanco.fecha ? (() => {
+                                  const d = saldoBanco.fecha.substring(0, 10);
+                                  const [y, m, dd] = d.split('-');
+                                  return `${dd}/${m}/${y}`;
+                                })() : '—'}
+                              </Typography>
+                            </Box>
+                          ) : (
+                            <Box sx={{ mt: 1.5, p: 1, bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 1 }}>
+                              <Typography variant="caption" sx={{ opacity: 0.6 }}>💰 Sin estado de cuenta cargado</Typography>
+                            </Box>
+                          )}
+
+                          {/* Ingresos del período */}
+                          <Box sx={{ mt: 1 }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Typography variant="caption" sx={{ opacity: 0.7 }}>📈 Ingresos del Período</Typography>
+                              <Chip 
+                                label={`${ingreso?.transacciones || 0} txns`}
+                                size="small"
+                                sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontSize: '0.7rem' }}
+                              />
+                            </Box>
+                            <Typography variant="h6" fontWeight="bold">
+                              {formatCurrency(ingreso?.total_neto || 0)}
+                            </Typography>
+                            {ingreso && (
+                              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mt: 0.5 }}>
+                                {ingreso.efectivo_neto > 0 && (
+                                  <Chip label={`💵 ${formatCurrency(ingreso.efectivo_neto)}`} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontSize: '0.65rem', height: 20 }} />
+                                )}
+                                {ingreso.spei_neto > 0 && (
+                                  <Chip label={`🏦 ${formatCurrency(ingreso.spei_neto)}`} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontSize: '0.65rem', height: 20 }} />
+                                )}
+                                {ingreso.paypal_neto > 0 && (
+                                  <Chip label={`🅿️ ${formatCurrency(ingreso.paypal_neto)}`} size="small" sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontSize: '0.65rem', height: 20 }} />
+                                )}
+                              </Box>
+                            )}
+                          </Box>
                         </Box>
                         <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                          <Business />
+                          <AccountBalance />
                         </Avatar>
                       </Box>
                     </CardContent>
                   </Card>
                 </Grid>
-              ))}
-              {(!data?.ingresos_por_empresa || data.ingresos_por_empresa.length === 0) && (
+                );
+              })}
+              {(!data?.empresas || data.empresas.length === 0) && (
                 <Grid size={{ xs: 12 }}>
                   <Alert severity="info">No hay ingresos SPEI registrados en este período</Alert>
                 </Grid>
@@ -1316,14 +1482,11 @@ export default function FinanceDashboardPage() {
           <Table stickyHeader size="small">
             <TableHead>
               <TableRow>
-                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Fecha/Hora</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Cliente</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Monto Bruto</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Comisión</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Monto Neto</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Método</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Guías Pagadas</TableCell>
-                <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: 'grey.100' }}>Estado</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Fecha/Hora</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Cliente</TableCell>
+                <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Monto Neto</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Método</TableCell>
+                <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Estado</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1347,20 +1510,6 @@ export default function FinanceDashboardPage() {
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
-                      <Typography variant="body2" fontWeight="bold">
-                        {formatCurrency(tx.monto_bruto)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      {tx.comision > 0 ? (
-                        <Typography variant="body2" color="error">
-                          -{formatCurrency(tx.comision)}
-                        </Typography>
-                      ) : (
-                        <Typography variant="body2" color="text.secondary">-</Typography>
-                      )}
-                    </TableCell>
-                    <TableCell align="right">
                       <Typography variant="body2" fontWeight="bold" color="success.main">
                         {formatCurrency(tx.monto_neto)}
                       </Typography>
@@ -1377,11 +1526,6 @@ export default function FinanceDashboardPage() {
                         }}
                       />
                     </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {tx.guias_pagadas}
-                      </Typography>
-                    </TableCell>
                     <TableCell align="center">
                       <Chip
                         label={tx.estatus === 'completado' || tx.estatus === 'procesado' ? 'Completado' : tx.estatus}
@@ -1393,7 +1537,7 @@ export default function FinanceDashboardPage() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
                     <Receipt sx={{ fontSize: 48, color: 'grey.300', mb: 1 }} />
                     <Typography color="text.secondary">
                       No hay transacciones en el período seleccionado
@@ -1415,6 +1559,7 @@ export default function FinanceDashboardPage() {
         const empresaFiltrada = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
         const bancoDetectado = empresaFiltrada?.bank_name
           ? empresaFiltrada.bank_name.toLowerCase().includes('bbva') ? 'bbva'
+            : empresaFiltrada.bank_name.toLowerCase().includes('banregio') ? 'banregio'
             : empresaFiltrada.bank_name.toLowerCase().includes('banorte') ? 'banorte'
             : empresaFiltrada.bank_name.toLowerCase().includes('hsbc') ? 'hsbc'
             : empresaFiltrada.bank_name.toLowerCase().includes('santander') ? 'santander'
@@ -1475,45 +1620,66 @@ export default function FinanceDashboardPage() {
 
           <Box sx={{ p: 3 }}>
             <Alert severity="info" sx={{ mb: 2 }}>
-              <strong>Instrucciones:</strong> Copia las líneas del estado de cuenta de <strong>{bancoActivo.toUpperCase()}</strong> desde tu banca en línea y pégalas en el campo de abajo. El sistema extraerá automáticamente los movimientos.
+              <strong>Instrucciones:</strong>{' '}
+              {bancoActivo === 'banregio'
+                ? <>Descarga el estado de cuenta en formato <strong>CSV</strong> desde tu banca en línea de <strong>BANREGIO</strong> y súbelo con el botón de abajo.</>
+                : <>Copia las líneas del estado de cuenta de <strong>{bancoActivo.toUpperCase()}</strong> desde tu banca en línea y pégalas en el campo de abajo. El sistema extraerá automáticamente los movimientos.</>
+              }
               {bancoFijo && <><br/><em>Banco detectado automáticamente desde la configuración de {empresaFiltrada?.alias}.</em></>}
             </Alert>
 
-            <TextField
-              multiline
-              rows={6}
-              fullWidth
-              placeholder={`Pega aquí el estado de cuenta de ${bancoActivo.toUpperCase()}...\n\nEjemplo BBVA:\n15-04-2026\tSPEI RECIBIDO...\t\t189,250.00\t925,709.37`}
-              value={estadoCuentaRaw}
-              onChange={(e) => setEstadoCuentaRaw(e.target.value)}
-              sx={{ mb: 2, fontFamily: 'monospace', '& textarea': { fontSize: '0.8rem' } }}
-            />
+            {bancoActivo === 'banregio' ? (
+              <Box sx={{ mb: 2 }}>
+                <Button
+                  variant="outlined"
+                  component="label"
+                  startIcon={<UploadFile />}
+                  sx={{ mr: 2 }}
+                >
+                  {csvFile ? csvFile.name : 'Seleccionar CSV de Banregio'}
+                  <input
+                    type="file"
+                    accept=".csv"
+                    hidden
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      setCsvFile(file);
+                    }}
+                  />
+                </Button>
+                {csvFile && (
+                  <Chip label={`${(csvFile.size / 1024).toFixed(1)} KB`} size="small" sx={{ ml: 1 }} />
+                )}
+              </Box>
+            ) : (
+              <TextField
+                multiline
+                rows={6}
+                fullWidth
+                placeholder={`Pega aquí el estado de cuenta de ${bancoActivo.toUpperCase()}...\n\nEjemplo BBVA:\n15-04-2026\tSPEI RECIBIDO...\t\t189,250.00\t925,709.37`}
+                value={estadoCuentaRaw}
+                onChange={(e) => setEstadoCuentaRaw(e.target.value)}
+                sx={{ mb: 2, fontFamily: 'monospace', '& textarea': { fontSize: '0.8rem' } }}
+              />
+            )}
 
             <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
               <Button
                 variant="contained"
                 startIcon={<ContentPaste />}
-                onClick={handleParseEstadoCuenta}
-                disabled={!estadoCuentaRaw.trim()}
+                onClick={() => handleParseEstadoCuenta(bancoActivo)}
+                disabled={bancoActivo === 'banregio' ? !csvFile : !estadoCuentaRaw.trim()}
                 sx={{ bgcolor: '#1565C0', '&:hover': { bgcolor: '#0D47A1' } }}
               >
                 Extraer y Guardar
               </Button>
-              <Button
-                variant="outlined"
-                startIcon={loadingSavedEntries ? <CircularProgress size={16} /> : <Search />}
-                onClick={loadSavedBankEntries}
-                disabled={loadingSavedEntries}
-                sx={{ borderColor: '#2E7D32', color: '#2E7D32', '&:hover': { bgcolor: '#E8F5E9', borderColor: '#1B5E20' } }}
-              >
-                📋 Cargar Historial{savedEntriesCount !== null ? ` (${savedEntriesCount})` : ''}
-              </Button>
+
               {estadoCuentaRows.length > 0 && (
                 <Button
                   variant="outlined"
                   color="error"
                   size="small"
-                  onClick={() => { setEstadoCuentaRows([]); setEstadoCuentaRaw(''); setSavedEntriesCount(null); }}
+                  onClick={() => { setEstadoCuentaRows([]); setEstadoCuentaRaw(''); setCsvFile(null); setSavedEntriesCount(null); }}
                 >
                   Limpiar
                 </Button>
@@ -1615,11 +1781,11 @@ export default function FinanceDashboardPage() {
               </>
             )}
 
-            {estadoCuentaRows.length === 0 && !estadoCuentaRaw && (
+            {estadoCuentaRows.length === 0 && !estadoCuentaRaw && !csvFile && (
               <Box sx={{ textAlign: 'center', py: 6, color: 'text.secondary' }}>
                 <AccountBalanceWallet sx={{ fontSize: 64, color: 'grey.300', mb: 2 }} />
-                <Typography variant="h6">Pega tu estado de cuenta aquí</Typography>
-                <Typography variant="body2">Copia los movimientos desde tu banca en línea de {bancoActivo.toUpperCase()} y el sistema los extraerá automáticamente</Typography>
+                <Typography variant="h6">{bancoActivo === 'banregio' ? 'Sube tu archivo CSV aquí' : 'Pega tu estado de cuenta aquí'}</Typography>
+                <Typography variant="body2">{bancoActivo === 'banregio' ? 'Descarga el reporte de movimientos en CSV desde Banregio y súbelo aquí' : `Copia los movimientos desde tu banca en línea de ${bancoActivo.toUpperCase()} y el sistema los extraerá automáticamente`}</Typography>
               </Box>
             )}
           </Box>

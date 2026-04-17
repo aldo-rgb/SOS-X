@@ -900,8 +900,7 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                   </View>
                 </TouchableOpacity>
 
-                {/* Opción: Efectivo/Transferencia - Solo disponible para montos >= $30,000 MXN */}
-                {totalMXN >= 30000 && (
+                {/* Opción: Efectivo/Transferencia - Siempre disponible */}
                 <TouchableOpacity
                   style={[
                     styles.paymentOption,
@@ -920,7 +919,6 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                     <Text style={styles.paymentOptionSublabel}>Depósito en efectivo</Text>
                   </View>
                 </TouchableOpacity>
-                )}
               </RadioButton.Group>
             </Card.Content>
           </Card>

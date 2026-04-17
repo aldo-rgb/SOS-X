@@ -3775,7 +3775,9 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
     const today = new Date();
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
     const startDate = date_from ? new Date(date_from as string) : startOfMonth;
-    const endDate = date_to ? new Date(date_to as string) : today;
+    // endDate debe ser fin del día para incluir transacciones de hoy
+    let endDate = date_to ? new Date(date_to as string) : today;
+    endDate.setHours(23, 59, 59, 999);
     
     // Filtro por tipo de servicio (opcional)
     const serviceFilter = service_type ? service_type as string : null;
@@ -3795,7 +3797,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         scc.service_name
       FROM fiscal_emitters fe
       LEFT JOIN service_company_config scc ON scc.emitter_id = fe.id
-      WHERE fe.is_active = TRUE AND fe.openpay_configured = TRUE
+      WHERE fe.is_active = TRUE AND (fe.openpay_configured = TRUE OR scc.id IS NOT NULL)
       ORDER BY fe.alias
     `);
 
@@ -3844,17 +3846,19 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         owl.empresa_id,
         fe.alias as empresa_nombre,
         fe.rfc,
-        COALESCE(SUM(owl.monto_recibido), 0) as spei_bruto,
-        COALESCE(SUM(owl.monto_neto), 0) as spei_neto,
-        COUNT(*) as total_transacciones
+        COALESCE(SUM(owl.monto_recibido), 0) as total_bruto,
+        COALESCE(SUM(owl.monto_neto), 0) as total_neto,
+        COUNT(*) as total_transacciones,
+        COALESCE(SUM(CASE WHEN COALESCE(owl.payment_method, owl.tipo_pago, 'spei') = 'spei' THEN owl.monto_neto ELSE 0 END), 0) as spei_neto,
+        COALESCE(SUM(CASE WHEN COALESCE(owl.payment_method, owl.tipo_pago, 'spei') = 'cash' THEN owl.monto_neto ELSE 0 END), 0) as efectivo_neto,
+        COALESCE(SUM(CASE WHEN COALESCE(owl.payment_method, owl.tipo_pago, 'spei') = 'paypal' THEN owl.monto_neto ELSE 0 END), 0) as paypal_neto
       FROM openpay_webhook_logs owl
       LEFT JOIN fiscal_emitters fe ON owl.empresa_id = fe.id
       WHERE owl.fecha_pago >= $1 AND owl.fecha_pago <= $2
         AND owl.estatus_procesamiento = 'procesado'
-        AND (owl.tipo_pago = 'spei' OR owl.tipo_pago IS NULL)
         ${serviceFilter ? "AND owl.service_type = $3" : ""}
       GROUP BY owl.empresa_id, fe.alias, fe.rfc
-      ORDER BY spei_bruto DESC
+      ORDER BY total_bruto DESC
     `, serviceFilter ? [startOfMonth, today, serviceFilter] : [startOfMonth, today]);
 
     // PayPal del mes
@@ -3935,6 +3939,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         LEFT JOIN users u ON t.cliente_id = u.id
         WHERE t.tipo = 'ingreso' 
           AND t.created_at >= $1 AND t.created_at <= $2
+          AND t.concepto NOT LIKE 'Pago autorizado edo. cuenta%'
           ${serviceFilter ? "AND t.service_type = $3" : ""}
         ORDER BY t.created_at DESC
         LIMIT 50
@@ -3948,7 +3953,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
           owl.monto_recibido as monto_bruto,
           owl.monto_neto,
           owl.monto_recibido - owl.monto_neto as comision,
-          COALESCE(owl.tipo_pago, 'spei') as metodo,
+          COALESCE(owl.payment_method, owl.tipo_pago, 'spei') as metodo,
           owl.concepto,
           COALESCE(fe.alias, 'Empresa') as origen,
           owl.estatus_procesamiento as estatus,
@@ -3973,12 +3978,19 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
     const paypalHoy = parseFloat(paypalHoyRes.rows[0]?.paypal_bruto || 0);
     const paypalNetoHoy = parseFloat(paypalHoyRes.rows[0]?.paypal_neto || 0);
     const efectivoMes = parseFloat(ingresosMesRes.rows[0].efectivo_mes) || 0;
-    const speiMesTotal = speiMesPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.spei_bruto || 0), 0);
+    const speiMesTotal = speiMesPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.spei_neto || 0), 0);
     const speiNetoMesTotal = speiMesPorEmpresaRes.rows.reduce((sum: number, r: any) => sum + parseFloat(r.spei_neto || 0), 0);
     const paypalMes = parseFloat(paypalMesRes.rows[0]?.paypal_bruto || 0);
     const paypalNetoMes = parseFloat(paypalMesRes.rows[0]?.paypal_neto || 0);
     const comisionesMes = (speiMesTotal - speiNetoMesTotal) + (paypalMes - paypalNetoMes);
     const totalMes = efectivoMes + speiMesTotal + paypalMes;
+
+    // Saldo más reciente por empresa desde bank_statement_entries
+    const saldosPorEmpresaRes = await pool.query(`
+      SELECT DISTINCT ON (empresa_id) empresa_id, saldo, fecha
+      FROM bank_statement_entries
+      ORDER BY empresa_id, fecha DESC, id DESC
+    `);
 
     res.json({
       success: true,
@@ -3988,6 +4000,12 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       
       // Empresas con OpenPay configurado
       empresas: empresasRes.rows,
+
+      // Saldo bancario más reciente por empresa
+      saldos_bancarios: saldosPorEmpresaRes.rows.reduce((acc: any, r: any) => {
+        acc[r.empresa_id] = { saldo: parseFloat(r.saldo) || 0, fecha: r.fecha };
+        return acc;
+      }, {}),
       
       // KPIs principales CONSOLIDADOS
       kpis: {
@@ -4014,9 +4032,12 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         empresa_id: r.empresa_id,
         empresa_nombre: r.empresa_nombre || 'Sin asignar',
         rfc: r.rfc || 'N/A',
-        spei_bruto: parseFloat(r.spei_bruto) || 0,
+        total_bruto: parseFloat(r.total_bruto) || 0,
+        total_neto: parseFloat(r.total_neto) || 0,
         spei_neto: parseFloat(r.spei_neto) || 0,
-        comisiones: parseFloat(r.spei_bruto) - parseFloat(r.spei_neto) || 0,
+        efectivo_neto: parseFloat(r.efectivo_neto) || 0,
+        paypal_neto: parseFloat(r.paypal_neto) || 0,
+        comisiones: (parseFloat(r.total_bruto) || 0) - (parseFloat(r.total_neto) || 0),
         transacciones: parseInt(r.total_transacciones) || 0
       })),
       
@@ -5303,18 +5324,15 @@ app.get('/api/admin/finance/payment-details/:referencia', authenticateToken, req
 // ============================================
 app.get('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const { empresa_id, date_from, date_to, limit = 500 } = req.query;
+    const { empresa_id } = req.query;
     if (!empresa_id) return res.status(400).json({ error: 'Falta empresa_id' });
 
     const result = await pool.query(`
       SELECT id, fecha, concepto, referencia, cargo, abono, saldo, banco, uploaded_at
       FROM bank_statement_entries
       WHERE empresa_id = $1
-        AND ($2::date IS NULL OR fecha >= $2::date)
-        AND ($3::date IS NULL OR fecha <= $3::date)
-      ORDER BY fecha DESC, id DESC
-      LIMIT $4
-    `, [empresa_id, date_from || null, date_to || null, Math.min(Number(limit), 2000)]);
+      ORDER BY fecha DESC, id ASC
+    `, [empresa_id]);
 
     res.json({ success: true, entries: result.rows, count: result.rows.length });
   } catch (error: any) {
@@ -5403,14 +5421,14 @@ app.post('/api/admin/finance/save-bank-entries', authenticateToken, requireMinLe
   }
 });
 
-// Helper: parse DD-MM-YYYY to Date
-function parseDateDDMMYYYY(dateStr: string): Date {
+// Helper: parse DD-MM-YYYY to Date string for PostgreSQL (avoids timezone issues)
+function parseDateDDMMYYYY(dateStr: string): string {
   const parts = dateStr.split('-');
   if (parts.length === 3) {
     const [dd, mm, yyyy] = parts;
-    return new Date(`${yyyy}-${mm}-${dd}`);
+    return `${yyyy}-${mm}-${dd}`;
   }
-  return new Date(dateStr);
+  return dateStr;
 }
 
 app.post('/api/admin/finance/match-references', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: AuthRequest, res: Response): Promise<any> => {
