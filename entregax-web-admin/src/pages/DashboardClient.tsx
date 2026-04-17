@@ -200,6 +200,7 @@ interface PackageTracking {
   national_shipping_cost?: number;
   national_tracking?: string;
   carrier?: string;
+  gex_total_cost?: number;
 }
 
 interface IncludedGuide {
@@ -7761,6 +7762,45 @@ export default function DashboardClient() {
                             ${montoMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
                           </Typography>
                         </Box>
+
+                        {/* Desglose de costos */}
+                        {(selectedPackage.gex_total_cost || selectedPackage.national_shipping_cost) && !isEstimated ? (() => {
+                          const gexMXN = Number(selectedPackage.gex_total_cost) || 0;
+                          const paqMXN = Number(selectedPackage.national_shipping_cost) || 0;
+                          const envioMXN = montoMXN - gexMXN - paqMXN;
+                          return (
+                            <>
+                              <Divider sx={{ my: 1 }} />
+                              <Typography variant="caption" fontWeight="bold" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                                📋 Desglose:
+                              </Typography>
+                              {envioMXN > 0 && (
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Typography variant="caption" color="text.secondary">Servicio de envío:</Typography>
+                                  <Typography variant="caption" fontWeight="bold">
+                                    ${envioMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                                  </Typography>
+                                </Box>
+                              )}
+                              {gexMXN > 0 && (
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Typography variant="caption" color="text.secondary">🛡️ Garantía Extendida (GEX):</Typography>
+                                  <Typography variant="caption" fontWeight="bold">
+                                    ${gexMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                                  </Typography>
+                                </Box>
+                              )}
+                              {paqMXN > 0 && (
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <Typography variant="caption" color="text.secondary">🚚 Paquetería nacional:</Typography>
+                                  <Typography variant="caption" fontWeight="bold">
+                                    ${paqMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                                  </Typography>
+                                </Box>
+                              )}
+                            </>
+                          );
+                        })() : null}
 
                         <Chip 
                           label={isPaid ? t('cd.detail.paid') : isEstimated ? 'Pendiente de Cotización' : t('cd.detail.pendingPayment')} 

@@ -1687,7 +1687,8 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         national_carrier,
         national_shipping_cost,
         national_tracking,
-        carrier
+        carrier,
+        gex_total_cost
       FROM packages
       WHERE (user_id = $1 OR box_id = $2)
         AND status::text NOT IN ('delivered', 'cancelled', 'returned')
