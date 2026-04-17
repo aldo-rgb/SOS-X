@@ -3789,11 +3789,15 @@ export default function DashboardClient() {
                               (pkg.shipment_type === 'maritime' || pkg.servicio === 'SEA_CHN_MX')) {
                             const cbm = Number(pkg.cbm);
                             let estUSD = 0;
-                            if (cbm <= 0.03) estUSD = 39;
-                            else if (cbm <= 0.1) estUSD = 79;
-                            else if (cbm <= 0.5) estUSD = cbm * 150;
-                            else if (cbm <= 2) estUSD = cbm * 120;
-                            else estUSD = cbm * 100;
+                            if (cbm <= 0.25) estUSD = 399;
+                            else if (cbm <= 0.50) estUSD = 549;
+                            else if (cbm <= 0.75) estUSD = 699;
+                            else if (cbm < 1) estUSD = cbm * 899;
+                            else if (cbm <= 3) estUSD = cbm * 899;
+                            else if (cbm <= 6) estUSD = cbm * 849;
+                            else if (cbm <= 10) estUSD = cbm * 799;
+                            else if (cbm <= 20) estUSD = cbm * 749;
+                            else estUSD = cbm * 649;
                             return (
                               <Typography variant="body2" color="warning.main" fontWeight="bold" sx={{ fontSize: '0.8rem' }}>
                                 ${estUSD.toFixed(2)} USD
@@ -7690,7 +7694,7 @@ export default function DashboardClient() {
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                           <Typography variant="body2" color="text.secondary">📦 Costo de envío:</Typography>
                           <Typography variant="body1" fontWeight="bold" color={accentColor}>
-                            {isEstimated ? '~' : ''}${costoUSD.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                            {isEstimated ? '≈' : ''}${costoUSD.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                           </Typography>
                         </Box>
                         
@@ -7717,7 +7721,7 @@ export default function DashboardClient() {
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <Typography variant="body2" fontWeight="bold">🇲🇽 Total en pesos:</Typography>
                           <Typography variant="h5" fontWeight="bold" color={accentColor}>
-                            {isEstimated ? '~' : ''}${montoMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                            {isEstimated ? '≈' : ''}${montoMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
                           </Typography>
                         </Box>
 
