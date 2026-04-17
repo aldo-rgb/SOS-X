@@ -7532,42 +7532,79 @@ export default function DashboardClient() {
                   )}
                 </Box>
 
-                {/* Paquetería Asignada - filtrar ubicaciones de bodega */}
-                {(selectedPackage.national_carrier || (selectedPackage.carrier && !['BODEGA', 'RACK', 'PISO', 'TARIMA'].includes(selectedPackage.carrier?.toUpperCase?.()))) && (
-                  <Box sx={{ mb: 2 }}>
-                    <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
-                      🚚 Paquetería Asignada
-                    </Typography>
-                    <Paper sx={{ p: 2, bgcolor: '#e3f2fd' }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: selectedPackage.national_shipping_cost ? 1 : 0 }}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                          <Box sx={{ fontSize: '1.5rem' }}>🚚</Box>
-                          <Box>
-                            <Typography variant="body1" fontWeight="bold">
-                              {selectedPackage.national_carrier || selectedPackage.carrier}
-                            </Typography>
-                            {selectedPackage.national_tracking && (
+                {/* Servicio y Paquetería Asignada */}
+                {(() => {
+                  const hasNationalCarrier = !!selectedPackage.national_carrier;
+                  const hasCarrier = selectedPackage.carrier && !['BODEGA', 'RACK', 'PISO', 'TARIMA'].includes(selectedPackage.carrier?.toUpperCase?.());
+                  const isMar = selectedPackage.shipment_type === 'maritime' || selectedPackage.servicio === 'SEA_CHN_MX' || selectedPackage.servicio === 'FCL_CHN_MX';
+                  const isAir = selectedPackage.shipment_type === 'china_air' || selectedPackage.servicio === 'AIR_CHN_MX';
+                  const isDhlSvc = selectedPackage.shipment_type === 'dhl' || selectedPackage.servicio === 'AA_DHL' || selectedPackage.servicio === 'DHL_MTY';
+                  const isPoboxSvc = selectedPackage.servicio === 'POBOX_USA';
+
+                  // Determine service label and icon
+                  let serviceLabel = '';
+                  let serviceIcon = '📦';
+                  if (isMar) { serviceLabel = selectedPackage.servicio === 'FCL_CHN_MX' ? 'FCL Contenedor Completo' : 'Marítimo China → México'; serviceIcon = '🚢'; }
+                  else if (isAir) { serviceLabel = 'Aéreo China → México'; serviceIcon = '✈️'; }
+                  else if (isDhlSvc) { serviceLabel = selectedPackage.servicio === 'DHL_MTY' ? 'DHL Monterrey' : 'AA DHL'; serviceIcon = '📮'; }
+                  else if (isPoboxSvc) { serviceLabel = 'PO Box USA'; serviceIcon = '📬'; }
+
+                  return (
+                    <Box sx={{ mb: 2 }}>
+                      <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
+                        🚚 Servicio de Envío
+                      </Typography>
+                      <Paper sx={{ p: 2, bgcolor: '#e3f2fd' }}>
+                        {/* Tipo de servicio */}
+                        {serviceLabel && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: (hasNationalCarrier || hasCarrier) ? 1.5 : 0 }}>
+                            <Box sx={{ fontSize: '1.5rem' }}>{serviceIcon}</Box>
+                            <Box>
+                              <Typography variant="body1" fontWeight="bold">{serviceLabel}</Typography>
                               <Typography variant="caption" color="text.secondary">
-                                Guía: {selectedPackage.national_tracking}
+                                {selectedPackage.servicio}
+                                {selectedPackage.tracking_provider ? ` · ${selectedPackage.tracking_provider}` : ''}
                               </Typography>
-                            )}
+                            </Box>
                           </Box>
-                        </Box>
-                      </Box>
-                      {selectedPackage.national_shipping_cost && Number(selectedPackage.national_shipping_cost) > 0 && (
-                        <>
-                          <Divider sx={{ my: 1 }} />
-                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <Typography variant="body2" color="text.secondary">Costo de envío nacional:</Typography>
-                            <Typography variant="body1" fontWeight="bold" color="primary.main">
-                              ${Number(selectedPackage.national_shipping_cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
-                            </Typography>
-                          </Box>
-                        </>
-                      )}
-                    </Paper>
-                  </Box>
-                )}
+                        )}
+
+                        {/* Paquetería nacional asignada */}
+                        {(hasNationalCarrier || hasCarrier) && (
+                          <>
+                            {serviceLabel && <Divider sx={{ my: 1 }} />}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                              <Box sx={{ fontSize: '1.5rem' }}>🚚</Box>
+                              <Box>
+                                <Typography variant="body1" fontWeight="bold">
+                                  {selectedPackage.national_carrier || selectedPackage.carrier}
+                                </Typography>
+                                {selectedPackage.national_tracking && (
+                                  <Typography variant="caption" color="text.secondary">
+                                    Guía: {selectedPackage.national_tracking}
+                                  </Typography>
+                                )}
+                              </Box>
+                            </Box>
+                          </>
+                        )}
+
+                        {/* Costo de envío nacional */}
+                        {selectedPackage.national_shipping_cost && Number(selectedPackage.national_shipping_cost) > 0 && (
+                          <>
+                            <Divider sx={{ my: 1 }} />
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Typography variant="body2" color="text.secondary">Costo de envío nacional:</Typography>
+                              <Typography variant="body1" fontWeight="bold" color="primary.main">
+                                ${Number(selectedPackage.national_shipping_cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                              </Typography>
+                            </Box>
+                          </>
+                        )}
+                      </Paper>
+                    </Box>
+                  );
+                })()}
 
                 {/* Estado y Costo */}
                 <Box sx={{ mb: 2 }}>
@@ -7694,7 +7731,7 @@ export default function DashboardClient() {
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                           <Typography variant="body2" color="text.secondary">📦 Costo de envío:</Typography>
                           <Typography variant="body1" fontWeight="bold" color={accentColor}>
-                            {isEstimated ? '≈' : ''}${costoUSD.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                            ${costoUSD.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
                           </Typography>
                         </Box>
                         
@@ -7721,7 +7758,7 @@ export default function DashboardClient() {
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <Typography variant="body2" fontWeight="bold">🇲🇽 Total en pesos:</Typography>
                           <Typography variant="h5" fontWeight="bold" color={accentColor}>
-                            {isEstimated ? '≈' : ''}${montoMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                            ${montoMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
                           </Typography>
                         </Box>
 
