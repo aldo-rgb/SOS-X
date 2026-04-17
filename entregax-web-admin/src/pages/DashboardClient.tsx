@@ -7646,13 +7646,19 @@ export default function DashboardClient() {
                       detailLine = `${Number(selectedPackage.weight).toFixed(1)} kg × $21 USD/kg (estimado)`;
                       isEstimated = true;
                     } else if (isMaritime && !isFCL && selectedPackage.cbm && Number(selectedPackage.cbm) > 0) {
-                      // MARÍTIMO estimado por CBM
+                      // MARÍTIMO estimado por CBM (tarifas USD basadas en pricing_tiers)
                       const cbm = Number(selectedPackage.cbm);
-                      if (cbm <= 0.03) costoUSD = 39;
-                      else if (cbm <= 0.1) costoUSD = 79;
-                      else if (cbm <= 0.5) costoUSD = cbm * 150;
-                      else if (cbm <= 2) costoUSD = cbm * 120;
-                      else costoUSD = cbm * 100;
+                      // < 1 m³: StartUp flat fees (USD)
+                      if (cbm <= 0.25) costoUSD = 399;
+                      else if (cbm <= 0.50) costoUSD = 549;
+                      else if (cbm <= 0.75) costoUSD = 699;
+                      else if (cbm < 1) costoUSD = cbm * 899;
+                      // >= 1 m³: Genérico por CBM (USD)
+                      else if (cbm <= 3) costoUSD = cbm * 899;
+                      else if (cbm <= 6) costoUSD = cbm * 849;
+                      else if (cbm <= 10) costoUSD = cbm * 799;
+                      else if (cbm <= 20) costoUSD = cbm * 749;
+                      else costoUSD = cbm * 649;
                       montoMXN = costoUSD * tcConfig;
                       tcToShow = tcConfig;
                       detailLine = `${cbm.toFixed(4)} m³ · ${merchLabel} (estimado)`;
