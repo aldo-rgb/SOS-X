@@ -1978,6 +1978,17 @@ export default function DashboardClient() {
       formData.append('wantsFacturaPaqueteria', String(wantsFacturaPaqueteria));
       formData.append('saveConstancia', String(saveConstancia));
 
+      // Send carrier quoted price
+      const selectedService = carrierServices.find(s => s.id === actualCarrier);
+      if (selectedService?.price) {
+        const priceNum = parseFloat(selectedService.price.replace(/[^0-9.]/g, ''));
+        if (!isNaN(priceNum) && priceNum > 0) {
+          // isTotalPrice means the price is already the total, otherwise it's per-box
+          const totalCost = selectedService.isTotalPrice ? priceNum : priceNum * totalBoxes;
+          formData.append('carrierCost', String(totalCost));
+        }
+      }
+
       // Attach files if present
       if (facturaFile) formData.append('factura', facturaFile);
       if (constanciaFile) formData.append('constancia', constanciaFile);

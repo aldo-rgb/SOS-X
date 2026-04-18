@@ -2697,6 +2697,7 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
     const isCollectBool = isCollect === 'true' || isCollect === true;
     const wantsFacturaBool = wantsFacturaPaqueteria === 'true' || wantsFacturaPaqueteria === true;
     const saveConstanciaBool = saveConstanciaFlag === 'true' || saveConstanciaFlag === true;
+    const carrierCostMxn = parseFloat(req.body.carrierCost) || 0;
 
     console.log(`📦 [Bulk Assign Delivery] User ${userId}: ${pkgIds.length} packages, carrier=${carrierService}, isCollect=${isCollectBool}`);
 
@@ -2746,10 +2747,11 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
             SET delivery_address_id = $1,
                 national_carrier = $2,
                 delivery_instructions = $3,
+                national_shipping_cost = $6,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $4 AND user_id = $5
             RETURNING id
-          `, [addrId, carrierService, notes || null, pkgId, userId]);
+          `, [addrId, carrierService, notes || null, pkgId, userId, carrierCostMxn]);
           
           if (maritimeResult.rowCount && maritimeResult.rowCount > 0) {
             updatedCount++;
