@@ -2739,10 +2739,27 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
           RETURNING id
         `, [addrId, carrierService, notes || null, isCollectBool, isCollectBool ? carrierService : null, wantsFacturaBool, pkgId, userId]);
         
-        if (result.rowCount && result.rowCount > 0) {
+        // If not found in packages, try maritime_orders
+        if (!result.rowCount || result.rowCount === 0) {
+          const maritimeResult = await client.query(`
+            UPDATE maritime_orders 
+            SET delivery_address_id = $1,
+                national_carrier = $2,
+                delivery_instructions = $3,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = $4 AND user_id = $5
+            RETURNING id
+          `, [addrId, carrierService, notes || null, pkgId, userId]);
+          
+          if (maritimeResult.rowCount && maritimeResult.rowCount > 0) {
+            updatedCount++;
+            console.log(`🚢 Maritime order ${pkgId} updated with carrier=${carrierService}`);
+          }
+        } else {
           updatedCount++;
+        }
 
-          // Save document references for this package
+        if ((result.rowCount && result.rowCount > 0)) {
           if (facturaUrl) {
             await client.query(`
               INSERT INTO delivery_documents (package_id, user_id, document_type, file_url, original_filename)
