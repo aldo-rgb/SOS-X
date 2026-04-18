@@ -7764,54 +7764,60 @@ export default function DashboardClient() {
                           </Typography>
                         </Box>
 
-                        <Divider sx={{ my: 1 }} />
-
-                        {/* Total en pesos */}
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Typography variant="body2" fontWeight="bold">🇲🇽 Total en pesos:</Typography>
-                          <Typography variant="h5" fontWeight="bold" color={accentColor}>
-                            ${montoMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
-                          </Typography>
-                        </Box>
-
                         {/* Desglose de costos */}
-                        {(Number(selectedPackage.gex_total_cost) > 0 || Number(selectedPackage.national_shipping_cost) > 0) ? (() => {
+                        {(() => {
                           const gexMXN = Number(selectedPackage.gex_total_cost) || 0;
                           const paqMXN = Number(selectedPackage.national_shipping_cost) || 0;
-                          const envioMXN = isEstimated ? montoMXN : montoMXN - gexMXN - paqMXN;
+                          const hasDesglose = gexMXN > 0 || paqMXN > 0;
+                          const envioMXN = montoMXN;
+                          const totalMXN = hasDesglose ? envioMXN + gexMXN + paqMXN : montoMXN;
                           return (
                             <>
+                              {hasDesglose && (
+                                <>
+                                  <Divider sx={{ my: 1 }} />
+                                  <Typography variant="caption" fontWeight="bold" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                                    📋 Desglose:
+                                  </Typography>
+                                  {envioMXN > 0 && (
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <Typography variant="caption" color="text.secondary">Servicio de envío{isEstimated ? ' (estimado)' : ''}:</Typography>
+                                      <Typography variant="caption" fontWeight="bold">
+                                        ${envioMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                                      </Typography>
+                                    </Box>
+                                  )}
+                                  {gexMXN > 0 && (
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <Typography variant="caption" color="text.secondary">🛡️ Garantía Extendida (GEX):</Typography>
+                                      <Typography variant="caption" fontWeight="bold">
+                                        ${gexMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                                      </Typography>
+                                    </Box>
+                                  )}
+                                  {paqMXN > 0 && (
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <Typography variant="caption" color="text.secondary">🚚 Paquetería nacional:</Typography>
+                                      <Typography variant="caption" fontWeight="bold">
+                                        ${paqMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                                      </Typography>
+                                    </Box>
+                                  )}
+                                </>
+                              )}
+
                               <Divider sx={{ my: 1 }} />
-                              <Typography variant="caption" fontWeight="bold" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
-                                📋 Desglose:
-                              </Typography>
-                              {envioMXN > 0 && (
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                  <Typography variant="caption" color="text.secondary">Servicio de envío{isEstimated ? ' (estimado)' : ''}:</Typography>
-                                  <Typography variant="caption" fontWeight="bold">
-                                    ${envioMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
-                                  </Typography>
-                                </Box>
-                              )}
-                              {gexMXN > 0 && (
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                  <Typography variant="caption" color="text.secondary">🛡️ Garantía Extendida (GEX):</Typography>
-                                  <Typography variant="caption" fontWeight="bold">
-                                    ${gexMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
-                                  </Typography>
-                                </Box>
-                              )}
-                              {paqMXN > 0 && (
-                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                  <Typography variant="caption" color="text.secondary">🚚 Paquetería nacional:</Typography>
-                                  <Typography variant="caption" fontWeight="bold">
-                                    ${paqMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
-                                  </Typography>
-                                </Box>
-                              )}
+
+                              {/* Total en pesos */}
+                              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <Typography variant="body2" fontWeight="bold">🇲🇽 Total en pesos:</Typography>
+                                <Typography variant="h5" fontWeight="bold" color={accentColor}>
+                                  ${totalMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                                </Typography>
+                              </Box>
                             </>
                           );
-                        })() : null}
+                        })()}
 
                         <Chip 
                           label={isPaid ? t('cd.detail.paid') : isEstimated ? 'Pendiente de Cotización' : t('cd.detail.pendingPayment')} 
