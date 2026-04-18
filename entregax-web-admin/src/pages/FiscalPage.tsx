@@ -21,6 +21,10 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import SettingsIcon from '@mui/icons-material/Settings';
+import LinkIcon from '@mui/icons-material/Link';
+import LinkOffIcon from '@mui/icons-material/LinkOff';
+import SyncIcon from '@mui/icons-material/Sync';
+import DeleteIcon from '@mui/icons-material/Delete';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const ORANGE = '#F05A28';
@@ -136,6 +140,14 @@ export default function FiscalPage() {
     paypal_sandbox: true
   });
   const [savingPaypal, setSavingPaypal] = useState(false);
+
+  // Modal Belvo
+  const [openBelvoModal, setOpenBelvoModal] = useState(false);
+  const [selectedEmpresaBelvo, setSelectedEmpresaBelvo] = useState<any>(null);
+  const [belvoLinks, setBelvoLinks] = useState<any[]>([]);
+  const [belvoLoading, setBelvoLoading] = useState(false);
+  const [belvoStats, setBelvoStats] = useState<any>(null);
+  const [syncingBelvo, setSyncingBelvo] = useState<number | null>(null);
 
   const getToken = () => localStorage.getItem('token');
 
@@ -386,6 +398,118 @@ export default function FiscalPage() {
     }
   };
 
+  // ========== FUNCIONES DE BELVO ==========
+  const handleOpenBelvoModal = async (emitter: any) => {
+    setSelectedEmpresaBelvo(emitter);
+    setBelvoLoading(true);
+    setOpenBelvoModal(true);
+    try {
+      const [linksRes, statsRes] = await Promise.all([
+        axios.get(`${API_URL}/admin/belvo/links?emitter_id=${emitter.id}`, {
+          headers: { Authorization: `Bearer ${getToken()}` }
+        }).catch(() => ({ data: { links: [] } })),
+        axios.get(`${API_URL}/admin/belvo/stats?emitter_id=${emitter.id}`, {
+          headers: { Authorization: `Bearer ${getToken()}` }
+        }).catch(() => ({ data: {} })),
+      ]);
+      setBelvoLinks(linksRes.data.links || []);
+      setBelvoStats(statsRes.data || null);
+    } catch (e) {
+      setBelvoLinks([]);
+      setBelvoStats(null);
+    } finally {
+      setBelvoLoading(false);
+    }
+  };
+
+  const handleConnectBelvo = async () => {
+    if (!selectedEmpresaBelvo) return;
+    try {
+      const tokenRes = await axios.post(`${API_URL}/admin/belvo/widget-token`, {}, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      const { access, environment } = tokenRes.data;
+
+      // Load Belvo widget script
+      const script = document.createElement('script');
+      script.src = 'https://cdn.belvo.io/belvo-widget-1-stable.js';
+      script.onload = () => {
+        const belvoWidget = new (window as any).belvoSDK.createWidget(access, {
+          company_name: 'EntregaX',
+          company_benefit_header: 'Conecta tu cuenta bancaria',
+          company_benefit_content: 'Para extraer automáticamente los movimientos y conciliar pagos.',
+          locale: 'es',
+          country_codes: ['MX'],
+          institution_types: ['business', 'retail'],
+          callback: async (link: string, institution: string) => {
+            // Link created successfully
+            try {
+              await axios.post(`${API_URL}/admin/belvo/links`, {
+                emitter_id: selectedEmpresaBelvo.id,
+                link_id: link,
+                institution: institution,
+                institution_name: institution,
+                access_mode: 'recurrent'
+              }, { headers: { Authorization: `Bearer ${getToken()}` } });
+
+              setSnackbar({ open: true, message: `✅ Banco conectado vía Belvo para ${selectedEmpresaBelvo.alias}`, severity: 'success' });
+              handleOpenBelvoModal(selectedEmpresaBelvo); // Refresh
+              loadData();
+            } catch (err: any) {
+              setSnackbar({ open: true, message: err.response?.data?.error || 'Error registrando link', severity: 'error' });
+            }
+          },
+          onExit: () => { /* Widget closed */ },
+          onEvent: (event: any) => {
+            console.log('Belvo widget event:', event);
+          }
+        });
+        belvoWidget.build();
+      };
+      document.body.appendChild(script);
+    } catch (error: any) {
+      setSnackbar({ 
+        open: true, 
+        message: error.response?.data?.error || 'Error iniciando widget de Belvo. Verifica que BELVO_SECRET_ID y BELVO_SECRET_PASSWORD estén configurados.', 
+        severity: 'error' 
+      });
+    }
+  };
+
+  const handleSyncBelvoLink = async (linkId: number) => {
+    setSyncingBelvo(linkId);
+    try {
+      const res = await axios.post(`${API_URL}/admin/belvo/sync`, {
+        link_id: linkId,
+        days_back: 7
+      }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setSnackbar({ 
+        open: true, 
+        message: `✅ Sincronizado: ${res.data.new_count || 0} nuevas transacciones, ${res.data.matched_count || 0} conciliadas`, 
+        severity: 'success' 
+      });
+      if (selectedEmpresaBelvo) handleOpenBelvoModal(selectedEmpresaBelvo);
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.error || 'Error sincronizando', severity: 'error' });
+    } finally {
+      setSyncingBelvo(null);
+    }
+  };
+
+  const handleDeleteBelvoLink = async (linkId: number) => {
+    if (!confirm('¿Estás seguro de desconectar este banco? Se eliminarán las transacciones descargadas.')) return;
+    try {
+      await axios.delete(`${API_URL}/admin/belvo/links/${linkId}`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      setSnackbar({ open: true, message: '✅ Banco desconectado', severity: 'success' });
+      if (selectedEmpresaBelvo) handleOpenBelvoModal(selectedEmpresaBelvo);
+      loadData();
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.error || 'Error desconectando', severity: 'error' });
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
@@ -517,6 +641,7 @@ export default function FiscalPage() {
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Openpay</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Banco</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>PayPal</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>Belvo</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Estado' : 'Status'}</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Acciones' : 'Actions'}</TableCell>
                 </TableRow>
@@ -617,6 +742,32 @@ export default function FiscalPage() {
                         </Tooltip>
                       )}
                     </TableCell>
+                    {/* Belvo */}
+                    <TableCell align="center">
+                      {(emitter as any).belvo_connected ? (
+                        <Tooltip title={`Belvo conectado: ${(emitter as any).belvo_institution || 'Banco'}`}>
+                          <Chip 
+                            icon={<LinkIcon />}
+                            label={(emitter as any).belvo_institution?.slice(0, 8) || 'Conectado'}
+                            color="success"
+                            size="small"
+                            onClick={() => handleOpenBelvoModal(emitter)}
+                            sx={{ cursor: 'pointer', bgcolor: '#00695c', color: 'white' }}
+                          />
+                        </Tooltip>
+                      ) : (
+                        <Tooltip title="Conectar banco vía Belvo para extracción automática">
+                          <Chip 
+                            icon={<LinkOffIcon />}
+                            label="Conectar"
+                            color="default"
+                            size="small"
+                            onClick={() => handleOpenBelvoModal(emitter)}
+                            sx={{ cursor: 'pointer' }}
+                          />
+                        </Tooltip>
+                      )}
+                    </TableCell>
                     <TableCell align="center">
                       <Chip 
                         label={emitter.is_active ? (i18n.language === 'es' ? 'Activa' : 'Active') : (i18n.language === 'es' ? 'Inactiva' : 'Inactive')}
@@ -627,12 +778,11 @@ export default function FiscalPage() {
                     <TableCell align="center">
                       <IconButton onClick={() => handleOpenModal(emitter)} size="small">
                         <EditIcon />
-                      </IconButton>
                     </TableCell>
                   </TableRow>
                 )) : (
                   <TableRow>
-                    <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                       <BusinessIcon sx={{ fontSize: 48, color: 'grey.300', mb: 1 }} />
                       <Typography color="text.secondary">
                         {i18n.language === 'es' ? 'No hay empresas registradas. Agrega tu primera empresa emisora.' : 'No companies registered. Add your first issuing company.'}
@@ -1178,6 +1328,99 @@ export default function FiscalPage() {
           >
             {savingPaypal ? 'Verificando...' : 'Guardar y Verificar'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ========== Modal Belvo - Conexión Bancaria Automática ========== */}
+      <Dialog open={openBelvoModal} onClose={() => setOpenBelvoModal(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#00695c', color: 'white', fontWeight: 'bold' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <LinkIcon /> Belvo - Extracción Automática - {selectedEmpresaBelvo?.alias}
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="info" sx={{ mb: 3 }}>
+            <Typography variant="body2">
+              🏦 <strong>Conexión bancaria automática:</strong> Conecta tu cuenta bancaria para que los movimientos se descarguen automáticamente.
+              El sistema conciliará los depósitos con las órdenes de pago pendientes.
+            </Typography>
+          </Alert>
+
+          {belvoLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress sx={{ color: '#00695c' }} />
+            </Box>
+          ) : (
+            <>
+              {/* Stats */}
+              {belvoStats && (
+                <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+                  <Chip label={`${belvoStats.active_links || 0} conexiones`} color="primary" size="small" />
+                  <Chip label={`${belvoStats.total_inflows || 0} depósitos`} color="success" size="small" />
+                  <Chip label={`${belvoStats.matched_count || 0} conciliados`} color="info" size="small" />
+                  <Chip label={`${belvoStats.pending_count || 0} por revisar`} color="warning" size="small" />
+                </Box>
+              )}
+
+              {/* Active Links */}
+              {belvoLinks.length > 0 && (
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="subtitle2" fontWeight="bold" gutterBottom>Bancos Conectados</Typography>
+                  {belvoLinks.map((link: any) => (
+                    <Box key={link.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5, mb: 1, bgcolor: 'grey.50', borderRadius: 2, border: '1px solid', borderColor: 'grey.200' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <AccountBalanceIcon color="success" />
+                        <Box>
+                          <Typography fontWeight="bold" variant="body2">{link.institution_name}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Estado: {link.status === 'valid' ? '🟢 Activo' : '🔴 ' + link.status}
+                            {link.last_accessed_at && ` • Último sync: ${new Date(link.last_accessed_at).toLocaleDateString('es-MX')}`}
+                          </Typography>
+                        </Box>
+                      </Box>
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        <Tooltip title="Sincronizar transacciones">
+                          <IconButton 
+                            size="small" 
+                            onClick={() => handleSyncBelvoLink(link.id)}
+                            disabled={syncingBelvo === link.id}
+                            sx={{ color: '#00695c' }}
+                          >
+                            {syncingBelvo === link.id ? <CircularProgress size={18} /> : <SyncIcon />}
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Desconectar banco">
+                          <IconButton size="small" color="error" onClick={() => handleDeleteBelvoLink(link.id)}>
+                            <DeleteIcon />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+
+              {/* Connect Button */}
+              <Button
+                variant="contained"
+                startIcon={<LinkIcon />}
+                onClick={handleConnectBelvo}
+                fullWidth
+                sx={{ bgcolor: '#00695c', '&:hover': { bgcolor: '#004d40' }, py: 1.5 }}
+              >
+                {belvoLinks.length > 0 ? 'Conectar Otro Banco' : 'Conectar Banco'}
+              </Button>
+
+              {belvoLinks.length === 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'center' }}>
+                  Se abrirá una ventana segura de Belvo para iniciar sesión en tu banca en línea.
+                </Typography>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setOpenBelvoModal(false)}>Cerrar</Button>
         </DialogActions>
       </Dialog>
 

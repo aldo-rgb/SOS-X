@@ -152,6 +152,18 @@ import {
   getEmpresaFullConfig
 } from './openpayController';
 import {
+  getWidgetToken as getBelvoWidgetToken,
+  registerLink as registerBelvoLink,
+  getLinks as getBelvoLinks,
+  deleteLinkHandler as deleteBelvoLink,
+  syncTransactions as syncBelvoTransactions,
+  getTransactions as getBelvoTransactions,
+  getStats as getBelvoStats,
+  manualMatch as belvoManualMatch,
+  ignoreTransaction as belvoIgnoreTransaction,
+  webhookHandler as handleBelvoWebhook,
+} from './belvoController';
+import {
   getServiceInstructions,
   getAllServiceInstructions,
   updateServiceInstructions,
@@ -2700,6 +2712,21 @@ app.get('/api/admin/openpay/dashboard', authenticateToken, requireMinLevel(ROLES
 app.get('/api/admin/openpay/applications/:log_id', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getPaymentApplications);
 // Webhook (público, recibe notificaciones de Openpay por empresa)
 app.post('/webhooks/openpay/:empresa_id', handleOpenpayWebhookMultiEmpresa);
+
+// ============================================
+// BELVO - EXTRACCIÓN AUTOMÁTICA DE MOVIMIENTOS BANCARIOS
+// ============================================
+app.post('/api/admin/belvo/widget-token', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getBelvoWidgetToken);
+app.get('/api/admin/belvo/links', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getBelvoLinks);
+app.post('/api/admin/belvo/links', authenticateToken, requireMinLevel(ROLES.DIRECTOR), registerBelvoLink);
+app.delete('/api/admin/belvo/links/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteBelvoLink);
+app.post('/api/admin/belvo/sync', authenticateToken, requireMinLevel(ROLES.DIRECTOR), syncBelvoTransactions);
+app.get('/api/admin/belvo/transactions', authenticateToken, requireMinLevel(ROLES.ADMIN), getBelvoTransactions);
+app.get('/api/admin/belvo/stats', authenticateToken, requireMinLevel(ROLES.ADMIN), getBelvoStats);
+app.post('/api/admin/belvo/match', authenticateToken, requireMinLevel(ROLES.ADMIN), belvoManualMatch);
+app.post('/api/admin/belvo/ignore', authenticateToken, requireMinLevel(ROLES.ADMIN), belvoIgnoreTransaction);
+// Webhook (público, recibe notificaciones de Belvo)
+app.post('/api/webhooks/belvo', handleBelvoWebhook);
 // Cliente: obtener su CLABE para pagar
 app.get('/api/my-clabe', authenticateToken, async (req: Request, res: Response) => {
   const userId = (req as any).user?.userId;
@@ -3806,6 +3833,8 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         fe.openpay_merchant_id,
         fe.openpay_production_mode,
         fe.bank_name,
+        fe.belvo_connected,
+        fe.belvo_institution,
         COALESCE(scc.service_type, 'general') as servicio_asignado,
         scc.service_name
       FROM fiscal_emitters fe

@@ -224,6 +224,7 @@ export default function FinanceDashboardPage() {
   const [confirmAuthorize, setConfirmAuthorize] = useState<{ open: boolean; toAuthorize: any[]; totalSurplus: number } | null>(null);
   const [_loadingSavedEntries, setLoadingSavedEntries] = useState(false);
   const [_savedEntriesCount, setSavedEntriesCount] = useState<number | null>(null);
+  const [belvoSyncing, setBelvoSyncing] = useState(false);
 
   // Parser BBVA
   const parseBBVA = (text: string): EstadoCuentaRow[] => {
@@ -1613,17 +1614,66 @@ export default function FinanceDashboardPage() {
               {empresaFiltrada && (
                 <Typography variant="body2" sx={{ opacity: 0.9 }}>
                   {empresaFiltrada.alias} • {empresaFiltrada.bank_name} • RFC: {empresaFiltrada.rfc}
+                  {(empresaFiltrada as any).belvo_connected && ' • 🔗 Belvo conectado'}
                 </Typography>
               )}
             </Box>
-            <Chip
-              icon={<AccountBalance />}
-              label={bancoActivo.toUpperCase()}
-              sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontWeight: 'bold', fontSize: '0.9rem' }}
-            />
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              {(empresaFiltrada as any)?.belvo_connected && (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={belvoSyncing ? <CircularProgress size={16} color="inherit" /> : <Refresh />}
+                  disabled={belvoSyncing}
+                  onClick={async () => {
+                    setBelvoSyncing(true);
+                    try {
+                      const token = localStorage.getItem('token');
+                      const res = await api.post('/admin/belvo/sync', { days_back: 7 }, { headers: { Authorization: `Bearer ${token}` } });
+                      const results = res.data.results || [res.data];
+                      const totalNew = results.reduce((s: number, r: any) => s + (r.new_count || 0), 0);
+                      const totalMatched = results.reduce((s: number, r: any) => s + (r.matched_count || 0), 0);
+                      setSnackbar({ 
+                        open: true, 
+                        message: `✅ Belvo sync: ${totalNew} nuevas transacciones, ${totalMatched} conciliadas automáticamente`, 
+                        severity: totalNew > 0 ? 'success' : 'info' 
+                      });
+                      // Reload bank entries to show new ones
+                      if (empresaFiltrada) {
+                        try {
+                          const entriesRes = await api.get(`/admin/finance/bank-entries?empresa_id=${empresaFiltrada.id}`, { headers: { Authorization: `Bearer ${token}` } });
+                          if (entriesRes.data?.entries) {
+                            setSavedEntriesCount(entriesRes.data.entries.length);
+                          }
+                        } catch (_e) { /* ignore */ }
+                      }
+                    } catch (err: any) {
+                      setSnackbar({ open: true, message: err.response?.data?.error || 'Error sincronizando Belvo', severity: 'error' });
+                    } finally {
+                      setBelvoSyncing(false);
+                    }
+                  }}
+                  sx={{ bgcolor: '#00695c', '&:hover': { bgcolor: '#004d40' }, textTransform: 'none' }}
+                >
+                  {belvoSyncing ? 'Sincronizando...' : '🔄 Sync Belvo'}
+                </Button>
+              )}
+              <Chip
+                icon={<AccountBalance />}
+                label={bancoActivo.toUpperCase()}
+                sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontWeight: 'bold', fontSize: '0.9rem' }}
+              />
+            </Box>
           </Box>
 
           <Box sx={{ p: 3 }}>
+            {/* Belvo auto-sync notice */}
+            {(empresaFiltrada as any)?.belvo_connected && (
+              <Alert severity="success" sx={{ mb: 2 }} icon={<CheckCircle />}>
+                <strong>Extracción automática activa:</strong> Los movimientos de {empresaFiltrada?.bank_name} se descargan automáticamente vía Belvo.
+                Usa el botón "Sync Belvo" para forzar una actualización, o el método manual debajo si prefieres.
+              </Alert>
+            )}
             <Alert severity="info" sx={{ mb: 2 }}>
               <strong>Instrucciones:</strong>{' '}
               {bancoActivo === 'banregio'
