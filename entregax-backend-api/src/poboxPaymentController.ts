@@ -643,18 +643,31 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         }
 
         // Verificar que los paquetes existen y pertenecen al usuario
-        // Paquetes PO Box USA: service_type NULL o vacío, excluir FCL/maritime/china_air/dhl
+        // Primero buscar en packages, luego en maritime_orders
         const packagesCheck = await pool.query(
-            `SELECT id, tracking_internal, status, service_type, assigned_cost_mxn
+            `SELECT id, tracking_internal, status::text, service_type, assigned_cost_mxn, 'package' as source
              FROM packages 
              WHERE id = ANY($1) AND user_id = $2 
-             AND (service_type IS NULL OR service_type NOT IN ('fcl', 'maritime', 'china_air', 'dhl'))`,
+            UNION ALL
+            SELECT id, ordersn as tracking_internal, status::text, 'maritime' as service_type, assigned_cost_mxn, 'maritime' as source
+             FROM maritime_orders
+             WHERE id = ANY($1) AND user_id = $2
+            UNION ALL
+            SELECT id, inbound_tracking as tracking_internal, status::text, 'AA_DHL' as service_type, total_cost_mxn as assigned_cost_mxn, 'dhl' as source
+             FROM dhl_shipments
+             WHERE id = ANY($1) AND user_id = $2`,
             [packageIds, userId]
         );
 
         if (packagesCheck.rows.length !== packageIds.length) {
             return res.status(400).json({ error: 'Algunos paquetes no existen o no pertenecen al usuario' });
         }
+
+        // Determine service type for company config lookup
+        const hasMaritime = packagesCheck.rows.some(p => p.source === 'maritime' || p.service_type === 'maritime');
+        const hasDhl = packagesCheck.rows.some(p => p.source === 'dhl');
+        const hasAir = packagesCheck.rows.some(p => p.service_type === 'AIR_CHN_MX');
+        const serviceTypeForConfig = hasMaritime ? 'SEA_CHN_MX' : hasDhl ? 'AA_DHL' : hasAir ? 'AIR_CHN_MX' : 'POBOX_USA';
 
         // Verificar que ningún paquete esté ya en una orden de pago pendiente
         const dupCheck = await checkDuplicatePackagesInOrders(packageIds, userId);
@@ -711,13 +724,13 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
                         fe.bank_account
                      FROM service_company_config scc
                      JOIN fiscal_emitters fe ON scc.emitter_id = fe.id
-                     WHERE scc.service_type = 'POBOX_USA' AND scc.is_active = TRUE`
+                     WHERE scc.service_type = $1 AND scc.is_active = TRUE`,[serviceTypeForConfig]
                 );
                 if (companyResult.rows.length > 0) {
                     companyInfo = companyResult.rows[0];
                 }
             } catch (e) {
-                console.log('No se encontró config de empresa para POBOX_USA');
+                console.log('No se encontró config de empresa para', serviceTypeForConfig);
             }
 
             if (!companyInfo || !companyInfo.bank_clabe) {
@@ -782,7 +795,7 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         }
 
         // No existe pago pendiente, crear uno nuevo
-        // Obtener información de la empresa asignada al servicio POBOX_USA
+        // Obtener información de la empresa asignada al servicio
         let companyInfo: any = null;
         let empresaId: number | null = null;
         try {
@@ -797,14 +810,14 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
                     fe.bank_account
                  FROM service_company_config scc
                  JOIN fiscal_emitters fe ON scc.emitter_id = fe.id
-                 WHERE scc.service_type = 'POBOX_USA' AND scc.is_active = TRUE`
+                 WHERE scc.service_type = $1 AND scc.is_active = TRUE`,[serviceTypeForConfig]
             );
             if (companyResult.rows.length > 0) {
                 companyInfo = companyResult.rows[0];
                 empresaId = companyInfo.empresa_id;
             }
         } catch (e) {
-            console.log('No se encontró config de empresa para POBOX_USA');
+            console.log('No se encontró config de empresa para', serviceTypeForConfig);
         }
 
         // Generar prefijo con iniciales de la empresa (2 primeras letras de cada palabra)
@@ -855,7 +868,7 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
                     payment_method, payload_json, branch_id
                 ) VALUES (
                     $1, $2, $3, $4, $4,
-                    $5, CURRENT_TIMESTAMP, 'pending_payment', 'POBOX_USA',
+                    $5, CURRENT_TIMESTAMP, 'pending_payment', $8,
                     'cash', $6, $7
                 )
             `, [
@@ -870,7 +883,8 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
 
                     trackings: trackings
                 }),
-                branchId || null
+                branchId || null,
+                serviceTypeForConfig
             ]);
             console.log(`📝 Registro pendiente creado en dashboard: ${paymentRef}`);
         } catch (logError) {

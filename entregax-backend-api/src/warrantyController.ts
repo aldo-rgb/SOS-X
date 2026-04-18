@@ -577,12 +577,27 @@ export const createWarrantyByUser = async (req: AuthRequest, res: Response): Pro
             const isChinaAirOrder = serviceType === 'china_air' || route?.includes('Aéreo');
             
             if (isChinaAirOrder) {
-                // Actualizar china_receipts (TDI Aéreo China)
+                // Actualizar packages (el packageId viene de la tabla packages)
                 await pool.query(
-                    'UPDATE china_receipts SET has_gex = true, gex_folio = $1 WHERE id = $2',
-                    [gexFolio, packageId]
+                    `UPDATE packages SET has_gex = true, gex_folio = $1, 
+                     declared_value = $3, gex_insurance_cost = $4, gex_fixed_cost = $5, gex_total_cost = $6
+                     WHERE id = $2`,
+                    [gexFolio, packageId, invoiceValueUSD, variableFee, fixedFee, totalCost]
                 );
-                console.log(`✈️🇨🇳 China receipt ${packageId} actualizado con GEX: ${gexFolio}`);
+                // También actualizar china_receipts buscando por fno del tracking del paquete
+                const pkgTrack = await pool.query('SELECT tracking_internal, child_no FROM packages WHERE id = $1', [packageId]);
+                if (pkgTrack.rows.length > 0) {
+                    const track = pkgTrack.rows[0].child_no || pkgTrack.rows[0].tracking_internal || '';
+                    // El fno en china_receipts es el tracking sin el sufijo -001, -002, etc.
+                    const fno = track.replace(/-\d+$/, '');
+                    await pool.query(
+                        'UPDATE china_receipts SET has_gex = true, gex_folio = $1 WHERE fno = $2',
+                        [gexFolio, fno]
+                    );
+                    console.log(`✈️🇨🇳 China air package ${packageId} + receipt fno=${fno} actualizado con GEX: ${gexFolio}`);
+                } else {
+                    console.log(`✈️🇨🇳 China air package ${packageId} actualizado con GEX: ${gexFolio} (no china_receipt found)`);
+                }
             } else if (isMaritimeOrder) {
                 // Actualizar maritime_orders
                 await pool.query(
@@ -590,6 +605,13 @@ export const createWarrantyByUser = async (req: AuthRequest, res: Response): Pro
                     [gexFolio, packageId]
                 );
                 console.log(`📦 Maritime order ${packageId} actualizada con GEX: ${gexFolio}`);
+            } else if (serviceType === 'AA_DHL' || serviceType === 'DHL_MTY') {
+                // Actualizar dhl_shipments
+                await pool.query(
+                    'UPDATE dhl_shipments SET has_gex = true, gex_folio = $1 WHERE id = $2',
+                    [gexFolio, packageId]
+                );
+                console.log(`📦 DHL shipment ${packageId} actualizado con GEX: ${gexFolio}`);
             } else {
                 // Actualizar packages (USA/PO Box) con todos los datos de GEX
                 // Primero obtener el assigned_cost_mxn actual para calcular nuevo saldo

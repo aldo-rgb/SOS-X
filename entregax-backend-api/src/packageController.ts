@@ -2756,6 +2756,21 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
           if (maritimeResult.rowCount && maritimeResult.rowCount > 0) {
             updatedCount++;
             console.log(`🚢 Maritime order ${pkgId} updated with carrier=${carrierService}`);
+          } else {
+            // Try dhl_shipments
+            const dhlResult = await client.query(`
+              UPDATE dhl_shipments 
+              SET delivery_address_id = $1,
+                  national_carrier = $2,
+                  national_cost_mxn = $3,
+                  updated_at = CURRENT_TIMESTAMP
+              WHERE id = $4 AND user_id = $5
+              RETURNING id
+            `, [addrId, carrierService, carrierCostMxn, pkgId, userId]);
+            if (dhlResult.rowCount && dhlResult.rowCount > 0) {
+              updatedCount++;
+              console.log(`📦 DHL shipment ${pkgId} updated with carrier=${carrierService}`);
+            }
           }
         } else {
           updatedCount++;

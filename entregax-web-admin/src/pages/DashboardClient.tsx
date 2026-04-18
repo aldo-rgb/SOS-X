@@ -517,6 +517,72 @@ export default function DashboardClient() {
   }, [deliveryModalOpen]);
   
   // Determinar el tipo de servicio de los paquetes seleccionados
+  // Helper: friendly carrier name from carrier code
+  const getCarrierDisplayName = (code: string | undefined | null): string => {
+    if (!code) return '';
+    const map: Record<string, string> = {
+      'paquete_express': 'Paquete Express', 'local': 'EntregaX Local MTY', 'pickup': 'Pick Up Hidalgo TX',
+      'entregax_local_cdmx': 'EntregaX CDMX', 'evisa': 'EVISA', 'tresguerras': 'Tres Guerras',
+      'fedex': 'FedEx', 'estafeta': 'Estafeta', 'dhl': 'DHL', 'nacional': 'Nacional',
+    };
+    return map[code] || code.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  // Helper: friendly status label from raw status
+  const getStatusDisplayLabel = (status: string | undefined | null, statusLabel?: string | null): string => {
+    if (statusLabel && statusLabel !== status) return statusLabel;
+    if (!status) return '';
+    const map: Record<string, string> = {
+      'received_china': 'Recibido en China', 'in_transit_sea': 'En Tránsito Marítimo', 'in_transit_air': 'En Tránsito Aéreo',
+      'in_customs': 'En Aduana', 'received_mx': 'Recibido en México', 'ready_pickup': 'Listo para Recoger',
+      'in_transit': 'En Tránsito', 'delivered': 'Entregado', 'pending': 'Pendiente',
+      'received_warehouse': 'Recibido en Bodega', 'assigned': 'Asignado', 'processing': 'Procesando',
+    };
+    return map[status] || status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  };
+
+  // Helper: compute full package cost in MXN (envío + GEX + paquetería)
+  const getPackageTotalMXN = (pkg: PackageTracking): number => {
+    const monto = Number(pkg.monto) || 0;
+    const isMar = pkg.shipment_type === 'maritime' || pkg.servicio === 'SEA_CHN_MX' || pkg.servicio === 'FCL_CHN_MX';
+    const isAir = pkg.shipment_type === 'china_air' || pkg.servicio === 'AIR_CHN_MX';
+    const isDhl = pkg.shipment_type === 'dhl' || pkg.servicio === 'AA_DHL' || pkg.servicio === 'DHL_MTY';
+    const isPobox = pkg.servicio === 'POBOX_USA';
+
+    let envioMXN = monto;
+    // Maritime with 0 monto: estimate from CBM
+    if (isMar && envioMXN === 0 && pkg.cbm && Number(pkg.cbm) > 0) {
+      const cbm = Number(pkg.cbm);
+      let usd = 0;
+      if (cbm <= 0.25) usd = 399;
+      else if (cbm <= 0.50) usd = 549;
+      else if (cbm <= 0.75) usd = 699;
+      else if (cbm < 1) usd = cbm * 899;
+      else if (cbm <= 3) usd = cbm * 899;
+      else if (cbm <= 6) usd = cbm * 849;
+      else if (cbm <= 10) usd = cbm * 799;
+      else if (cbm <= 20) usd = cbm * 749;
+      else usd = cbm * 649;
+      envioMXN = usd * (Number(pkg.exchange_rate) || 18.5);
+    }
+    // Air with air_sale_price
+    if (isAir && envioMXN === 0 && pkg.air_sale_price && Number(pkg.air_sale_price) > 0) {
+      envioMXN = Number(pkg.air_sale_price) * (Number(pkg.exchange_rate) || 18.5);
+    }
+    // PO Box
+    if (isPobox && envioMXN === 0 && pkg.pobox_venta_usd && Number(pkg.pobox_venta_usd) > 0) {
+      envioMXN = Number(pkg.pobox_venta_usd) * (Number(pkg.exchange_rate) || 18.5);
+    }
+    // USD monto
+    if (envioMXN === monto && pkg.monto_currency === 'USD' && monto > 0) {
+      envioMXN = monto * (Number(pkg.exchange_rate) || 18.5);
+    }
+
+    const gex = Number(pkg.gex_total_cost) || 0;
+    const paq = Number(pkg.national_shipping_cost) || 0;
+    return envioMXN + gex + paq;
+  };
+
   const selectedServiceType = useMemo(() => {
     const selected = packages.filter(p => selectedPackageIds.includes(p.id));
     if (selected.length === 0) return 'china_air';
@@ -2043,7 +2109,7 @@ export default function DashboardClient() {
 
     setPaymentLoading(true);
     try {
-      const total = selected.reduce((sum, p) => sum + (Number(p.monto) || 0), 0);
+      const total = selected.reduce((sum, p) => sum + getPackageTotalMXN(p), 0);
       
       // Determinar la empresa emisora según el tipo de servicio predominante
       const serviceTypes = selected.map(p => p.servicio || 'china_air');
@@ -3615,7 +3681,7 @@ export default function DashboardClient() {
                     }}
                     startIcon={<CheckCircleIcon />}
                     onClick={() => {
-                      const total = getSelectedPackages().reduce((sum, pkg) => sum + (Number(pkg.monto) || 0), 0);
+                      const total = getSelectedPackages().reduce((sum, pkg) => sum + getPackageTotalMXN(pkg), 0);
                       _testConfirmPayment(
                         `openpay_test_${Date.now()}`,
                         selectedPackageIds,
@@ -3857,7 +3923,7 @@ export default function DashboardClient() {
                           return null;
                         })()}
                         <Chip 
-                          label={isMobile ? (pkg.status === 'ready_pickup' ? '🟠' : pkg.status === 'in_transit' ? '🔵' : pkg.status === 'delivered' ? '✅' : '⚪') : pkg.status_label} 
+                          label={isMobile ? (pkg.status === 'ready_pickup' ? '🟠' : pkg.status === 'in_transit' ? '🔵' : pkg.status === 'delivered' ? '✅' : '⚪') : getStatusDisplayLabel(pkg.status, pkg.status_label)} 
                           color={pkg.status === 'ready_pickup' ? 'warning' : pkg.status === 'in_transit' ? 'info' : 'default'}
                           size="small"
                           sx={{ height: isMobile ? 20 : 24, fontSize: isMobile ? '0.65rem' : '0.8rem', ...(pkg.status === 'ready_pickup' && { bgcolor: ORANGE, color: 'white' }) }}
@@ -3907,7 +3973,7 @@ export default function DashboardClient() {
                         {hasDeliveryInstructions ? (
                           <Chip 
                             icon={<CheckCircleIcon sx={{ fontSize: 14 }} />}
-                            label={pkg.national_carrier ? `🚚 ${pkg.national_carrier}` : 'Con Instrucciones'}
+                            label={pkg.national_carrier ? `🚚 ${getCarrierDisplayName(pkg.national_carrier)}` : 'Con Instrucciones'}
                             size="small"
                             sx={{ 
                               bgcolor: pkg.national_carrier ? '#1565C0' : ORANGE, 
@@ -5465,7 +5531,7 @@ export default function DashboardClient() {
                               </Box>
                             </Box>
                             <Chip 
-                              label={pkg.status_label} 
+                              label={getStatusDisplayLabel(pkg.status, pkg.status_label)} 
                               size="small" 
                               sx={{ 
                                 bgcolor: pkg.status === 'ready_pickup' ? ORANGE : pkg.status === 'in_transit' ? BLUE : ORANGE,
@@ -5694,7 +5760,7 @@ export default function DashboardClient() {
                               </Box>
                             </Box>
                             <Chip 
-                              label={pkg.status_label} 
+                              label={getStatusDisplayLabel(pkg.status, pkg.status_label)} 
                               size="small" 
                               sx={{ 
                                 bgcolor: pkg.status === 'ready_pickup' ? ORANGE : pkg.status === 'in_transit' ? BLUE : ORANGE,
@@ -6803,7 +6869,7 @@ export default function DashboardClient() {
                       </TableCell>
                       <TableCell>{pkg.descripcion}</TableCell>
                       <TableCell>
-                        <Chip label={pkg.status_label} size="small" color="success" />
+                        <Chip label={getStatusDisplayLabel(pkg.status, pkg.status_label)} size="small" color="success" />
                       </TableCell>
                       <TableCell align="right">{formatCurrency(pkg.monto)}</TableCell>
                     </TableRow>
@@ -7573,10 +7639,11 @@ export default function DashboardClient() {
                             <Box sx={{ fontSize: '1.5rem' }}>{serviceIcon}</Box>
                             <Box>
                               <Typography variant="body1" fontWeight="bold">{serviceLabel}</Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {selectedPackage.servicio}
-                                {selectedPackage.tracking_provider ? ` · ${selectedPackage.tracking_provider}` : ''}
-                              </Typography>
+                              {selectedPackage.tracking_provider && (
+                                <Typography variant="caption" color="text.secondary">
+                                  {selectedPackage.tracking_provider}
+                                </Typography>
+                              )}
                             </Box>
                           </Box>
                         )}
@@ -7585,11 +7652,18 @@ export default function DashboardClient() {
                         {(hasNationalCarrier || hasCarrier) && (
                           <>
                             {serviceLabel && <Divider sx={{ my: 1 }} />}
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Box sx={{ fontSize: '1.5rem' }}>🚚</Box>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                              {(() => {
+                                const carrierCode = selectedPackage.national_carrier || selectedPackage.carrier || '';
+                                const carrierMatch = carrierServices.find(s => s.id === carrierCode);
+                                const iconSrc = carrierMatch?.icon;
+                                const isUrl = iconSrc && (iconSrc.startsWith('http') || iconSrc.startsWith('/'));
+                                if (isUrl) return <img src={iconSrc} alt={carrierCode} style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 4 }} />;
+                                return <Box sx={{ fontSize: '1.5rem' }}>{iconSrc || '🚚'}</Box>;
+                              })()}
                               <Box>
                                 <Typography variant="body1" fontWeight="bold">
-                                  {selectedPackage.national_carrier || selectedPackage.carrier}
+                                  {carrierServices.find(s => s.id === (selectedPackage.national_carrier || selectedPackage.carrier))?.name || selectedPackage.national_carrier || selectedPackage.carrier}
                                 </Typography>
                                 {selectedPackage.national_tracking && (
                                   <Typography variant="caption" color="text.secondary">
@@ -7866,7 +7940,7 @@ export default function DashboardClient() {
                 {/* Estado actual */}
                 <Box sx={{ mt: 2, textAlign: 'center' }}>
                   <Chip 
-                    label={selectedPackage.status_label} 
+                    label={getStatusDisplayLabel(selectedPackage.status, selectedPackage.status_label)} 
                     size="medium"
                     sx={{ 
                       fontSize: '1rem', 
@@ -8912,19 +8986,27 @@ export default function DashboardClient() {
                       </Typography>
                     </Box>
                     <Typography variant="body1" fontWeight="bold" sx={{ color: ORANGE }}>
-                      {formatCurrency(Number(pkg.monto) || 0)}
+                      {formatCurrency(getPackageTotalMXN(pkg))}
                     </Typography>
                   </Box>
                   {(pkg.national_carrier || (pkg.carrier && !['BODEGA', 'RACK', 'PISO', 'TARIMA'].includes(pkg.carrier?.toUpperCase?.()))) && (
                     <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#e3f2fd', borderRadius: 1, px: 1, py: 0.5 }}>
                       <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        🚚 {pkg.national_carrier || pkg.carrier}
+                        🚚 {getCarrierDisplayName(pkg.national_carrier || pkg.carrier)}
                         {pkg.national_tracking && <span style={{ color: '#666' }}> · {pkg.national_tracking}</span>}
                       </Typography>
                       <Typography variant="caption" fontWeight="bold" color={Number(pkg.national_shipping_cost) > 0 ? 'primary.main' : 'text.secondary'}>
                         {Number(pkg.national_shipping_cost) > 0 
-                          ? `+${formatCurrency(Number(pkg.national_shipping_cost))}` 
-                          : 'Costo según cotización'}
+                          ? formatCurrency(Number(pkg.national_shipping_cost))
+                          : (pkg.national_carrier || pkg.carrier || '').toLowerCase().includes('local') ? 'Gratis' : 'Costo según cotización'}
+                      </Typography>
+                    </Box>
+                  )}
+                  {Number(pkg.gex_total_cost) > 0 && (
+                    <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#e8f5e9', borderRadius: 1, px: 1, py: 0.5 }}>
+                      <Typography variant="caption">🛡️ Garantía Extendida (GEX)</Typography>
+                      <Typography variant="caption" fontWeight="bold" color="success.main">
+                        {formatCurrency(Number(pkg.gex_total_cost))}
                       </Typography>
                     </Box>
                   )}
@@ -8936,7 +9018,7 @@ export default function DashboardClient() {
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Typography variant="h6" fontWeight="bold">TOTAL:</Typography>
               <Typography variant="h5" fontWeight="bold" sx={{ color: ORANGE }}>
-                {formatCurrency(getSelectedPackages().reduce((sum, p) => sum + (Number(p.monto) || 0), 0))}
+                {formatCurrency(getSelectedPackages().reduce((sum, p) => sum + getPackageTotalMXN(p), 0))}
               </Typography>
             </Box>
           </Paper>
@@ -8980,8 +9062,8 @@ export default function DashboardClient() {
               >
                 {paymentGatewayMethods.filter((method) => {
                   if (method.id === 'branch') {
-                    const total = getSelectedPackages().reduce((sum, p) => sum + (Number(p.monto) || 0), 0);
-                    return total >= 30000;
+                    const total = getSelectedPackages().reduce((sum, p) => sum + getPackageTotalMXN(p), 0);
+                    return total >= 2500;
                   }
                   return true;
                 }).map((method) => (
@@ -9220,7 +9302,7 @@ export default function DashboardClient() {
               fontSize: '1.1rem'
             }}
           >
-            {paymentLoading ? t('common.processing') : `💳 ${t('cd.payment.payButton', { amount: formatCurrency(getSelectedPackages().reduce((sum, p) => sum + (Number(p.monto) || 0), 0)) })}`}
+            {paymentLoading ? t('common.processing') : `💳 ${t('cd.payment.payButton', { amount: formatCurrency(getSelectedPackages().reduce((sum, p) => sum + getPackageTotalMXN(p), 0)) })}`}
           </Button>
         </DialogActions>
       </Dialog>
@@ -9760,7 +9842,7 @@ export default function DashboardClient() {
                                       </TableCell>
                                       <TableCell sx={{ py: 0.5 }}>
                                         {pkg.national_carrier && (
-                                          <Typography variant="caption">🚚 {pkg.national_carrier}</Typography>
+                                          <Typography variant="caption">🚚 {getCarrierDisplayName(pkg.national_carrier)}</Typography>
                                         )}
                                       </TableCell>
                                       <TableCell align="right" sx={{ py: 0.5 }}>

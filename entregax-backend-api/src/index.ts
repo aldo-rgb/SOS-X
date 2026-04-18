@@ -1711,6 +1711,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         'maritime' as shipment_type,
         status,
         CASE status 
+          WHEN 'received_china' THEN '📦 Recibido en China'
           WHEN 'in_warehouse' THEN 'En Bodega China'
           WHEN 'in_transit' THEN '🚢 En Tránsito Marítimo'
           WHEN 'shipped' THEN '🚢 Ya Zarpó'
@@ -1843,7 +1844,14 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           ds.saldo_pendiente,
           ds.monto_pagado,
           ds.import_cost_usd as dhl_sale_price_usd,
-          'USD' as monto_currency
+          'USD' as monto_currency,
+          CASE WHEN ds.delivery_address_id IS NOT NULL THEN true ELSE false END as has_delivery_instructions,
+          false as needs_instructions,
+          ds.national_carrier,
+          ds.national_cost_mxn as national_shipping_cost,
+          ds.national_tracking,
+          ds.import_cost_usd as declared_value,
+          (SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1) as gex_total_cost
         FROM dhl_shipments ds
         WHERE (ds.user_id = $1 OR ds.box_id = $2)
           AND ds.status NOT IN ('delivered', 'cancelled')
