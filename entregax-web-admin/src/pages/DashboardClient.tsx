@@ -195,6 +195,7 @@ interface PackageTracking {
   pobox_venta_usd?: number;
   // TC registrado al asignar costo
   registered_exchange_rate?: number;
+  exchange_rate?: number;
   // Paquetería nacional
   national_carrier?: string;
   national_shipping_cost?: number;
@@ -546,7 +547,6 @@ export default function DashboardClient() {
     const monto = Number(pkg.monto) || 0;
     const isMar = pkg.shipment_type === 'maritime' || pkg.servicio === 'SEA_CHN_MX' || pkg.servicio === 'FCL_CHN_MX';
     const isAir = pkg.shipment_type === 'china_air' || pkg.servicio === 'AIR_CHN_MX';
-    const isDhl = pkg.shipment_type === 'dhl' || pkg.servicio === 'AA_DHL' || pkg.servicio === 'DHL_MTY';
     const isPobox = pkg.servicio === 'POBOX_USA';
 
     let envioMXN = monto;
