@@ -1733,7 +1733,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         COALESCE(summary_weight, weight) as weight,
         COALESCE(summary_volume, volume) as cbm,
         NULL as dimensions,
-        estimated_cost as declared_value,
+        COALESCE(estimated_cost, (SELECT w.invoice_value_usd FROM warranties w WHERE w.gex_folio = maritime_orders.gex_folio LIMIT 1)) as declared_value,
         NULL as image_url,
         NULL as destination_address,
         NULL as destination_city,
