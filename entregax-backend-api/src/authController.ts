@@ -559,6 +559,7 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
             `SELECT u.id, u.full_name, u.email, u.box_id, u.role, u.warehouse_location, u.created_at,
                     u.is_verified, u.verification_status, u.is_employee_onboarded, u.profile_photo_url,
                     u.phone, u.rfc, u.referred_by_id, u.privacy_accepted_at,
+                    u.gex_auto_enabled,
                     u.advisor_id,
                     a.full_name as advisor_name,
                     a.phone as advisor_phone,

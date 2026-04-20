@@ -52,6 +52,10 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   const [refreshingStatus, setRefreshingStatus] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
 
+  // GEX auto-config
+  const [gexAutoEnabled, setGexAutoEnabled] = useState(false);
+  const [gexAutoLoading, setGexAutoLoading] = useState(false);
+
   // Password form
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: '',
@@ -151,7 +155,41 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   // 📸 Cargar foto de perfil al montar
   useEffect(() => {
     fetchProfilePhoto();
+    fetchGexAutoConfig();
   }, []);
+
+  const fetchGexAutoConfig = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/gex/auto-config`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setGexAutoEnabled(!!data.gex_auto_enabled);
+      }
+    } catch (error) {
+      console.log('Error fetching GEX config:', error);
+    }
+  };
+
+  const handleToggleGexAuto = async (enabled: boolean) => {
+    setGexAutoLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/api/gex/auto-config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ enabled }),
+      });
+      if (response.ok) {
+        setGexAutoEnabled(enabled);
+        Alert.alert('✅', enabled ? 'GEX automático activado para todos tus embarques' : 'GEX automático desactivado');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo actualizar la configuración');
+    } finally {
+      setGexAutoLoading(false);
+    }
+  };
 
   const fetchProfilePhoto = async () => {
     try {
@@ -899,6 +937,26 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                 onValueChange={handleToggle2FA}
                 trackColor={{ false: '#ddd', true: ORANGE + '80' }}
                 thumbColor={twoFactorEnabled ? ORANGE : '#f4f3f4'}
+              />
+            </View>
+
+            <Divider style={styles.divider} />
+
+            {/* GEX Automático */}
+            <View style={styles.menuItem}>
+              <Ionicons name="shield-outline" size={24} color={ORANGE} />
+              <View style={styles.menuItemContent}>
+                <Text style={styles.menuItemTitle}>🛡️ GEX Automático</Text>
+                <Text style={styles.menuItemSubtitle}>
+                  {gexAutoEnabled ? 'Garantía Extendida activa para cada embarque' : 'Contratar GEX automáticamente en cada embarque'}
+                </Text>
+              </View>
+              <Switch
+                value={gexAutoEnabled}
+                disabled={gexAutoLoading}
+                onValueChange={handleToggleGexAuto}
+                trackColor={{ false: '#ddd', true: ORANGE + '80' }}
+                thumbColor={gexAutoEnabled ? ORANGE : '#f4f3f4'}
               />
             </View>
 

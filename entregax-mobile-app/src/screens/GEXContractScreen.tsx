@@ -176,8 +176,11 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
   const [hasScrolledToEnd, setHasScrolledToEnd] = useState(false);
   const [signature, setSignature] = useState<string | null>(null);
   
-  // Opción de pago
-  const [paymentOption, setPaymentOption] = useState<'now' | 'withShipment'>('withShipment');
+  // Opción de pago - siempre con el embarque
+  const [paymentOption] = useState<'now' | 'withShipment'>('withShipment');
+  
+  // Auto-GEX preference
+  const [gexAutoEnabled, setGexAutoEnabled] = useState(false);
   
   // Detectar scroll al final de las políticas
   const handlePoliciesScroll = (event: any) => {
@@ -214,13 +217,14 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
         Alert.alert('⚠️ Error', 'Debes firmar para continuar');
         return;
       }
-      setCurrentStep('payment');
+      // Skip payment step - auto submit with withShipment
+      handleSubmit();
     }
   };
   
   // Retroceder
   const prevStep = () => {
-    const steps: Step[] = ['form', 'policies', 'signature', 'payment'];
+    const steps: Step[] = ['form', 'policies', 'signature'];
     const currentIndex = steps.indexOf(currentStep);
     if (currentIndex > 0) {
       setCurrentStep(steps[currentIndex - 1]);
@@ -286,6 +290,19 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
         throw new Error(responseData.details || responseData.error || 'Error al contratar GEX');
       }
       
+      // Save auto-GEX preference if checked
+      if (gexAutoEnabled) {
+        try {
+          await fetch(`${API_URL}/api/gex/auto-config`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ enabled: true }),
+          });
+        } catch (e) {
+          console.error('Error saving auto-GEX:', e);
+        }
+      }
+      
       setCurrentStep('success');
     } catch (error: any) {
       console.error('❌ Error al crear póliza:', error);
@@ -297,7 +314,7 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
   
   // Progress indicator
   const getStepNumber = (): number => {
-    const steps: Step[] = ['form', 'policies', 'signature', 'payment', 'success'];
+    const steps: Step[] = ['form', 'policies', 'signature', 'success'];
     return steps.indexOf(currentStep) + 1;
   };
 
@@ -729,6 +746,24 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
         </Card.Content>
       </Card>
 
+      {/* Auto-GEX checkbox */}
+      <Card style={{ borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: '#90caf9', backgroundColor: '#f0f7ff' }}>
+        <Card.Content style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <TouchableOpacity 
+            onPress={() => setGexAutoEnabled(!gexAutoEnabled)}
+            style={{ width: 24, height: 24, borderRadius: 4, borderWidth: 2, borderColor: gexAutoEnabled ? BRAND_ORANGE : '#999', backgroundColor: gexAutoEnabled ? BRAND_ORANGE : 'transparent', alignItems: 'center', justifyContent: 'center' }}
+          >
+            {gexAutoEnabled && <MaterialCommunityIcons name="check" size={16} color="white" />}
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: '#333' }}>🛡️ Activar GEX automático</Text>
+            <Text style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+              Se contratará automáticamente en cada nuevo embarque. Configurable desde tu perfil.
+            </Text>
+          </View>
+        </Card.Content>
+      </Card>
+
       <View style={styles.buttonRow}>
         <Button 
           mode="outlined" 
@@ -742,10 +777,12 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
           mode="contained" 
           onPress={nextStep}
           style={styles.nextButtonHalf}
-          buttonColor={BRAND_ORANGE}
-          disabled={!signature}
+          buttonColor={BRAND_GREEN}
+          disabled={!signature || loading}
+          loading={loading}
+          icon="check-bold"
         >
-          PAGO →
+          CONFIRMAR
         </Button>
       </View>
     </View>
@@ -902,8 +939,6 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
         return renderPoliciesStep();
       case 'signature':
         return renderSignatureStep();
-      case 'payment':
-        return renderPaymentStep();
       case 'success':
         return renderSuccessStep();
       default:

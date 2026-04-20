@@ -100,6 +100,10 @@ const ProfileClient = ({ onBack }: ProfileClientProps) => {
   const [showCameraPreview, setShowCameraPreview] = useState(false);
   const [currentCaptureStep, setCurrentCaptureStep] = useState<string>('');
 
+  // GEX auto-config
+  const [gexAutoEnabled, setGexAutoEnabled] = useState(false);
+  const [gexAutoLoading, setGexAutoLoading] = useState(false);
+
   // Signature canvas refs and state
   const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
@@ -143,6 +147,10 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
       setLoading(true);
       const response = await api.get('/auth/profile');
       setProfile(response.data);
+      // Load GEX auto config
+      if (response.data.gex_auto_enabled !== undefined) {
+        setGexAutoEnabled(!!response.data.gex_auto_enabled);
+      }
     } catch (error) {
       console.error('Error loading profile:', error);
       // Fallback from localStorage
@@ -172,6 +180,19 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
   useEffect(() => {
     loadProfile();
   }, [loadProfile]);
+
+  const handleToggleGexAuto = async (enabled: boolean) => {
+    setGexAutoLoading(true);
+    try {
+      await api.put('/gex/auto-config', { enabled });
+      setGexAutoEnabled(enabled);
+      setSnackbar({ open: true, message: enabled ? '🛡️ GEX automático activado para todos tus embarques' : 'GEX automático desactivado', severity: 'success' });
+    } catch {
+      setSnackbar({ open: true, message: 'Error al actualizar configuración', severity: 'error' });
+    } finally {
+      setGexAutoLoading(false);
+    }
+  };
 
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
@@ -653,6 +674,35 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
             onChange={() => {
               setSnackbar({ open: true, message: 'Contacta a soporte para activar 2FA', severity: 'info' });
             }}
+            sx={{
+              '& .MuiSwitch-switchBase.Mui-checked': { color: ORANGE },
+              '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ORANGE },
+            }}
+          />
+        </Box>
+
+        <Divider sx={{ mx: 2 }} />
+
+        {/* GEX Automático */}
+        <Box sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 2 }}>
+          <Box sx={{ 
+            width: 40, height: 40, borderRadius: '10px', bgcolor: '#fff3e0',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <SecurityIcon sx={{ color: ORANGE }} />
+          </Box>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#333' }}>
+              🛡️ GEX Automático
+            </Typography>
+            <Typography variant="caption" sx={{ color: '#999' }}>
+              Contratar Garantía Extendida automáticamente en cada embarque
+            </Typography>
+          </Box>
+          <Switch
+            checked={gexAutoEnabled}
+            disabled={gexAutoLoading}
+            onChange={(e) => handleToggleGexAuto(e.target.checked)}
             sx={{
               '& .MuiSwitch-switchBase.Mui-checked': { color: ORANGE },
               '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ORANGE },

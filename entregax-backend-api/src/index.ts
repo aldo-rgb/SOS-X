@@ -3126,6 +3126,29 @@ app.get('/api/gex/revenue-report', authenticateToken, getRevenueReport);
 // Búsqueda de clientes para select
 app.get('/api/gex/clients', authenticateToken, searchClients);
 
+// Toggle auto-GEX preference
+app.get('/api/gex/auto-config', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const result = await pool.query('SELECT gex_auto_enabled FROM users WHERE id = $1', [userId]);
+    res.json({ gex_auto_enabled: result.rows[0]?.gex_auto_enabled || false });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al obtener configuración GEX' });
+  }
+});
+
+app.put('/api/gex/auto-config', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    const { enabled } = req.body;
+    await pool.query('UPDATE users SET gex_auto_enabled = $1 WHERE id = $2', [!!enabled, userId]);
+    console.log(`🛡️ Usuario ${userId} auto-GEX: ${!!enabled}`);
+    res.json({ success: true, gex_auto_enabled: !!enabled });
+  } catch (error) {
+    res.status(500).json({ error: 'Error al actualizar configuración GEX' });
+  }
+});
+
 // ========== PANEL DEL ASESOR (self-service) ==========
 app.get('/api/advisor/dashboard', authenticateToken, getAdvisorDashboard);
 app.get('/api/advisor/clients', authenticateToken, getAdvisorClients);

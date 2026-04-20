@@ -3,7 +3,7 @@
 // Panel principal para Clientes con portal completo
 // ============================================
 
-import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
+import { useState, useEffect, useCallback, useMemo, Fragment, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -425,6 +425,13 @@ export default function DashboardClient() {
   const [gexModalOpen, setGexModalOpen] = useState(false);
   const [gexLoading, setGexLoading] = useState(false);
   const [gexTargetPackages, setGexTargetPackages] = useState<PackageTracking[]>([]);
+  const [gexStep, setGexStep] = useState<'form' | 'policies' | 'signature' | 'confirm'>('form');
+  const [gexAcceptedPolicies, setGexAcceptedPolicies] = useState(false);
+  const [gexScrolledToEnd, setGexScrolledToEnd] = useState(false);
+  const [gexSignature, setGexSignature] = useState<string | null>(null);
+  const [gexAutoEnabled, setGexAutoEnabled] = useState(false);
+  const gexSignatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [gexIsDrawing, setGexIsDrawing] = useState(false);
   
   // Datos fiscales para facturación
   const [fiscalData, setFiscalData] = useState<{
@@ -1963,6 +1970,74 @@ export default function DashboardClient() {
     }
   };
 
+  // GEX signature canvas helpers
+  const initGexSignatureCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
+    if (!canvas) return;
+    gexSignatureCanvasRef.current = canvas;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 2;
+      ctx.lineCap = 'round';
+    }
+  }, []);
+
+  const gexCanvasMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = gexSignatureCanvasRef.current;
+    if (!canvas) return;
+    setGexIsDrawing(true);
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    ctx?.beginPath();
+    ctx?.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+  }, []);
+
+  const gexCanvasMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!gexIsDrawing) return;
+    const canvas = gexSignatureCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const rect = canvas.getBoundingClientRect();
+    ctx?.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+    ctx?.stroke();
+  }, [gexIsDrawing]);
+
+  const gexCanvasMouseUp = useCallback(() => {
+    if (gexIsDrawing) {
+      setGexIsDrawing(false);
+      const canvas = gexSignatureCanvasRef.current;
+      if (canvas) {
+        setGexSignature(canvas.toDataURL('image/png'));
+      }
+    }
+  }, [gexIsDrawing]);
+
+  const clearGexSignature = useCallback(() => {
+    const canvas = gexSignatureCanvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+    setGexSignature(null);
+  }, []);
+
+  const resetGexModal = useCallback(() => {
+    setGexModalOpen(false);
+    setGexStep('form');
+    setGexValorFactura('');
+    setGexDescripcion('');
+    setGexQuote(null);
+    setGexAcceptedPolicies(false);
+    setGexScrolledToEnd(false);
+    setGexSignature(null);
+    setGexAutoEnabled(false);
+  }, []);
+
   // Contratar GEX para paquetes seleccionados
   const handleContractGEX = async () => {
     if (gexTargetPackages.length === 0) {
@@ -1994,20 +2069,25 @@ export default function DashboardClient() {
         invoiceValueUSD: valorUSD,
         route,
         description: gexDescripcion.trim(),
-        signature: 'web-contract', // Firma digital desde web
-        paymentOption: 'add_to_balance', // Añadir al saldo pendiente
+        signature: gexSignature || 'web-contract',
+        paymentOption: 'add_to_balance',
       });
       
       if (response.data.success) {
+        // If auto-GEX checkbox was checked, enable it
+        if (gexAutoEnabled) {
+          try {
+            await api.put('/gex/auto-config', { enabled: true });
+          } catch (e) {
+            console.error('Error enabling auto-GEX:', e);
+          }
+        }
         const folio = response.data.warranty?.folio || '';
         const total = response.data.warranty?.totalCost || 0;
         setSnackbar({ open: true, message: `🛡️ Póliza GEX ${folio} contratada por $${total.toFixed(2)} MXN`, severity: 'success' });
-        setGexModalOpen(false);
-        setGexValorFactura('');
-        setGexDescripcion('');
-        setGexQuote(null);
+        resetGexModal();
         setSelectedPackageIds([]);
-        loadData(); // Recargar paquetes
+        loadData();
       }
     } catch (error) {
       setSnackbar({ open: true, message: t('cd.snackbar.gexError'), severity: 'error' });
@@ -6024,20 +6104,28 @@ export default function DashboardClient() {
         </DialogActions>
       </Dialog>
 
-      {/* Modal GEX (Garantía Extendida) */}
-      <Dialog open={gexModalOpen} onClose={() => setGexModalOpen(false)} maxWidth="sm" fullWidth>
+      {/* Modal GEX (Garantía Extendida) - Multi-step */}
+      <Dialog open={gexModalOpen} onClose={resetGexModal} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
           <SecurityIcon />
           {t('cd.gex.title')}
+          {/* Step indicator */}
+          <Box sx={{ ml: 'auto', display: 'flex', gap: 0.5 }}>
+            {['form', 'policies', 'signature'].map((s, i) => (
+              <Box key={s} sx={{ 
+                width: 8, height: 8, borderRadius: '50%', 
+                bgcolor: gexStep === s || ['form', 'policies', 'signature'].indexOf(gexStep) > i ? 'white' : 'rgba(255,255,255,0.4)' 
+              }} />
+            ))}
+          </Box>
         </DialogTitle>
         <DialogContent sx={{ p: 0 }}>
           {(() => {
-            // Obtener nombre del usuario para mostrar en el seguro
             const userName = localStorage.getItem('user') ? JSON.parse(localStorage.getItem('user')!).name || 'NOMBRE DEL CLIENTE' : 'NOMBRE DEL CLIENTE';
             
-            return (
+            // ========== STEP 1: FORM ==========
+            if (gexStep === 'form') return (
               <>
-                {/* Sección de Datos del Seguro */}
                 <Box sx={{ p: 2.5, bgcolor: '#f8f9fa' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                     <SecurityIcon sx={{ color: ORANGE }} />
@@ -6048,8 +6136,6 @@ export default function DashboardClient() {
                   <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                     {t('cd.gex.completeInfo')}
                   </Typography>
-
-                  {/* Nombre del Cliente */}
                   <Box sx={{ mb: 2 }}>
                     <Typography variant="caption" color="text.secondary">{t('cd.gex.clientName')}</Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
@@ -6057,15 +6143,9 @@ export default function DashboardClient() {
                       <Typography variant="body1" fontWeight="bold">{userName.toUpperCase()}</Typography>
                     </Box>
                   </Box>
-
-                  {/* Valor de Factura */}
                   <Box sx={{ mb: 2 }}>
                     <Typography variant="caption" color="text.secondary">{t('cd.gex.invoiceValue')}</Typography>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      type="number"
-                      placeholder="123"
+                    <TextField fullWidth size="small" type="number" placeholder="123"
                       value={gexValorFactura}
                       onChange={(e) => {
                         setGexValorFactura(e.target.value);
@@ -6082,17 +6162,9 @@ export default function DashboardClient() {
                       }}
                     />
                   </Box>
-
-                  {/* Alert informativo */}
-                  <Alert 
-                    severity="warning" 
-                    sx={{ mb: 2.5, bgcolor: '#fff3e0', border: `1px solid ${ORANGE}` }}
-                    icon={<WarningIcon />}
-                  >
+                  <Alert severity="warning" sx={{ mb: 2.5, bgcolor: '#fff3e0', border: `1px solid ${ORANGE}` }} icon={<WarningIcon />}>
                     {t('cd.gex.claimAlert')}
                   </Alert>
-
-                  {/* No. Cajas y Peso Total */}
                   <Grid container spacing={2} sx={{ mb: 2 }}>
                     <Grid size={6}>
                       <Typography variant="caption" color="text.secondary">{t('cd.gex.numBoxes')}</Typography>
@@ -6114,8 +6186,6 @@ export default function DashboardClient() {
                       </Box>
                     </Grid>
                   </Grid>
-
-                  {/* Ruta de Envío */}
                   <Box sx={{ mb: 2 }}>
                     <Typography variant="caption" color="text.secondary">{t('cd.gex.shippingRoute')}</Typography>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, p: 1.5, border: '1px solid #e0e0e0', borderRadius: 1, bgcolor: 'white' }}>
@@ -6125,11 +6195,7 @@ export default function DashboardClient() {
                         const isMaritime = firstPkg?.servicio === 'SEA_CHN_MX' || firstPkg?.shipment_type === 'maritime';
                         return (
                           <>
-                            {isMaritime ? (
-                              <BoatIcon sx={{ color: '#666', fontSize: 20 }} />
-                            ) : (
-                              <FlightIcon sx={{ color: '#666', fontSize: 20 }} />
-                            )}
+                            {isMaritime ? <BoatIcon sx={{ color: '#666', fontSize: 20 }} /> : <FlightIcon sx={{ color: '#666', fontSize: 20 }} />}
                             <Typography variant="body1">
                               {isChina ? '🇨🇳 China → México 🇲🇽' : '🇺🇸 USA → México 🇲🇽'}
                             </Typography>
@@ -6139,14 +6205,9 @@ export default function DashboardClient() {
                       <LockIcon sx={{ color: '#666', fontSize: 16, ml: 'auto' }} />
                     </Box>
                   </Box>
-
-                  {/* Descripción de la Carga */}
                   <Box sx={{ mb: 0 }}>
                     <Typography variant="caption" color="text.secondary">{t('cd.gex.cargoDescription')} *</Typography>
-                    <TextField
-                      fullWidth
-                      size="small"
-                      required
+                    <TextField fullWidth size="small" required
                       error={gexDescripcion.trim() === ''}
                       helperText={gexDescripcion.trim() === '' ? 'Describe el contenido de tu carga (obligatorio)' : ''}
                       placeholder={t('cd.gex.cargoPlaceholder')}
@@ -6156,34 +6217,25 @@ export default function DashboardClient() {
                     />
                   </Box>
                 </Box>
-
-                {/* Sección de Costos - Fondo naranja corporativo */}
+                {/* Cost section */}
                 <Box sx={{ bgcolor: ORANGE, p: 2.5, color: 'white' }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                     <ReceiptIcon sx={{ fontSize: 20 }} />
                     <Typography variant="subtitle1" fontWeight="bold">Costo de tu Póliza GEX</Typography>
                   </Box>
-
                   {(() => {
                     const valorFacturaUSD = parseFloat(gexValorFactura) || 0;
-                    
-                    if (gexQuoteLoading) {
-                      return (
-                        <Box sx={{ textAlign: 'center', py: 3 }}>
-                          <CircularProgress size={30} sx={{ color: 'white' }} />
-                          <Typography variant="body2" sx={{ mt: 1, opacity: 0.8 }}>Calculando...</Typography>
-                        </Box>
-                      );
-                    }
-                    
-                    if (!gexQuote || valorFacturaUSD <= 0) {
-                      return (
-                        <Box sx={{ textAlign: 'center', py: 3 }}>
-                          <Typography variant="body2" sx={{ opacity: 0.8 }}>Ingresa el valor de factura para ver el costo</Typography>
-                        </Box>
-                      );
-                    }
-
+                    if (gexQuoteLoading) return (
+                      <Box sx={{ textAlign: 'center', py: 3 }}>
+                        <CircularProgress size={30} sx={{ color: 'white' }} />
+                        <Typography variant="body2" sx={{ mt: 1, opacity: 0.8 }}>Calculando...</Typography>
+                      </Box>
+                    );
+                    if (!gexQuote || valorFacturaUSD <= 0) return (
+                      <Box sx={{ textAlign: 'center', py: 3 }}>
+                        <Typography variant="body2" sx={{ opacity: 0.8 }}>Ingresa el valor de factura para ver el costo</Typography>
+                      </Box>
+                    );
                     return (
                       <>
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
@@ -6198,9 +6250,7 @@ export default function DashboardClient() {
                           <Typography variant="body2">Valor Asegurado:</Typography>
                           <Typography variant="body2" fontWeight="600">${gexQuote.insuredValueMxn.toFixed(2)} MXN</Typography>
                         </Box>
-
                         <Divider sx={{ borderColor: 'rgba(255,255,255,0.3)', my: 1.5 }} />
-
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                           <Typography variant="body2">Seguro (5%):</Typography>
                           <Typography variant="body2" fontWeight="600">${gexQuote.variableFeeMxn.toFixed(2)} MXN</Typography>
@@ -6209,16 +6259,10 @@ export default function DashboardClient() {
                           <Typography variant="body2">Cuota fija:</Typography>
                           <Typography variant="body2" fontWeight="600">${gexQuote.fixedFeeMxn.toFixed(2)} MXN</Typography>
                         </Box>
-
                         <Divider sx={{ borderColor: 'rgba(255,255,255,0.3)', my: 1.5 }} />
-
                         <Box sx={{ textAlign: 'center', mt: 2 }}>
-                          <Typography variant="h4" fontWeight="bold">
-                            ${gexQuote.totalCostMxn.toFixed(2)} MXN
-                          </Typography>
-                          <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                            Costo total de tu póliza GEX
-                          </Typography>
+                          <Typography variant="h4" fontWeight="bold">${gexQuote.totalCostMxn.toFixed(2)} MXN</Typography>
+                          <Typography variant="caption" sx={{ opacity: 0.8 }}>Costo total de tu póliza GEX</Typography>
                         </Box>
                       </>
                     );
@@ -6226,19 +6270,194 @@ export default function DashboardClient() {
                 </Box>
               </>
             );
+
+            // ========== STEP 2: POLICIES ==========
+            if (gexStep === 'policies') return (
+              <Box sx={{ p: 0 }}>
+                <Box sx={{ p: 2.5, bgcolor: '#f8f9fa' }}>
+                  <Typography variant="subtitle1" fontWeight="bold" sx={{ color: ORANGE, mb: 1 }}>
+                    📋 Política de Garantía Extendida
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    Lee y acepta los términos para continuar.
+                  </Typography>
+                </Box>
+                <Box 
+                  sx={{ maxHeight: 350, overflow: 'auto', p: 2.5, bgcolor: 'white', border: '1px solid #e0e0e0', m: 2, borderRadius: 1 }}
+                  onScroll={(e: any) => {
+                    const el = e.target;
+                    if (el.scrollHeight - el.scrollTop - el.clientHeight < 50) {
+                      setGexScrolledToEnd(true);
+                    }
+                  }}
+                >
+                  <Typography variant="subtitle2" fontWeight="bold" align="center" sx={{ mb: 2 }}>
+                    POLÍTICA DE GARANTÍA DE TIEMPO DE ENTREGA DE MERCANCÍA EN 90 DÍAS NATURALES
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 2 }}>
+                    En Logisti-k Systems Development S.A. de C.V. (en adelante "Grupo LSD") nos preocupamos por que nuestros clientes reciban sus cargas en tiempo, forma y en sus mejores condiciones, es por esto por lo que contamos con una forma de garantizar el tiempo de entrega de 90 (noventa) días naturales en el traslado de las mercancías (en adelante la "Garantía"). Lo anterior, en el entendido de que dicha garantía estará en todo momento sujeto a lo establecido en la presente política.
+                  </Typography>
+                  <Typography variant="subtitle2" fontWeight="bold" sx={{ color: ORANGE, mb: 1 }}>
+                    PRIMERA PARTE: DEFINICIONES
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    Para la interpretación de la presente política de garantía de traslado de mercancías, se deberá entender lo definido a continuación:
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>• <b>Accidente:</b> acontecimiento fortuito, súbito e imprevisto.</Typography>
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>• <b>Cliente:</b> persona física o moral que contrata los servicios de Grupo LSD.</Typography>
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>• <b>Deducible:</b> cantidad que queda a cargo del Cliente en caso de siniestro.</Typography>
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>• <b>Mercancía:</b> bienes muebles objeto de transporte.</Typography>
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>• <b>Evento:</b> cualquier hecho que pueda dar lugar a una reclamación.</Typography>
+                  <Typography variant="body2" sx={{ mb: 2 }}>• <b>Siniestro:</b> evento que causa daño o pérdida de la mercancía.</Typography>
+                  <Typography variant="subtitle2" fontWeight="bold" sx={{ color: ORANGE, mb: 1 }}>
+                    SEGUNDA PARTE: CONDICIONES
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    La Garantía Extendida cubre el tiempo de entrega de hasta 90 días naturales contados a partir de la fecha de embarque. El costo de la garantía se calcula como el 5% del valor asegurado en MXN más una cuota fija de $625.00 MXN.
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    En caso de que la mercancía no sea entregada dentro del plazo garantizado, el Cliente podrá iniciar un proceso de reclamación presentando la factura original del embarque y la documentación de soporte.
+                  </Typography>
+                  <Typography variant="subtitle2" fontWeight="bold" sx={{ color: ORANGE, mb: 1 }}>
+                    TERCERA PARTE: EXCLUSIONES
+                  </Typography>
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>• Retrasos por trámites aduanales o retenciones gubernamentales.</Typography>
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>• Fraude o negligencia del Cliente.</Typography>
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>• Mercancía perecedera o de naturaleza frágil no declarada.</Typography>
+                  <Typography variant="body2" sx={{ mb: 0.5 }}>• Guerras, actos de terrorismo o desastres naturales.</Typography>
+                  <Typography variant="body2" sx={{ mb: 2 }}>• Mercancía prohibida o restringida por la ley.</Typography>
+                </Box>
+                {!gexScrolledToEnd && (
+                  <Alert severity="error" sx={{ mx: 2, mb: 1 }} icon={<WarningIcon />}>
+                    Desplázate hacia abajo para leer todo el documento
+                  </Alert>
+                )}
+                <Box sx={{ px: 2, pb: 2 }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox 
+                        checked={gexAcceptedPolicies} 
+                        onChange={(e) => setGexAcceptedPolicies(e.target.checked)}
+                        disabled={!gexScrolledToEnd}
+                        sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }}
+                      />
+                    }
+                    label={
+                      <Typography variant="body2">
+                        He leído y acepto los términos y condiciones de la Garantía Extendida de Tiempo de Entrega en 90 días naturales
+                      </Typography>
+                    }
+                  />
+                </Box>
+              </Box>
+            );
+
+            // ========== STEP 3: SIGNATURE ==========
+            if (gexStep === 'signature') return (
+              <Box sx={{ p: 2.5 }}>
+                <Typography variant="subtitle1" fontWeight="bold" sx={{ color: ORANGE, mb: 1 }}>
+                  ✍️ Firma Digital
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                  Firma para confirmar la contratación de tu póliza GEX.
+                </Typography>
+                <Box sx={{ 
+                  border: '2px dashed #ccc', borderRadius: 2, mb: 2, position: 'relative',
+                  bgcolor: '#fafafa', overflow: 'hidden'
+                }}>
+                  <canvas
+                    ref={initGexSignatureCanvas}
+                    width={450}
+                    height={200}
+                    style={{ width: '100%', height: 200, cursor: 'crosshair', display: 'block' }}
+                    onMouseDown={gexCanvasMouseDown}
+                    onMouseMove={gexCanvasMouseMove}
+                    onMouseUp={gexCanvasMouseUp}
+                    onMouseLeave={gexCanvasMouseUp}
+                  />
+                </Box>
+                <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+                  <Button variant="outlined" color="error" onClick={clearGexSignature} startIcon={<DeleteIcon />} size="small">
+                    Limpiar
+                  </Button>
+                  {gexSignature && (
+                    <Chip label="✓ Firma capturada" color="success" size="small" />
+                  )}
+                </Box>
+                {/* Cost summary */}
+                {gexQuote && (
+                  <Box sx={{ bgcolor: ORANGE, p: 2, borderRadius: 2, color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                    <Typography variant="body1" fontWeight="bold">Total GEX:</Typography>
+                    <Typography variant="h5" fontWeight="bold">${gexQuote.totalCostMxn.toFixed(2)} MXN</Typography>
+                  </Box>
+                )}
+                {/* Auto-GEX checkbox */}
+                <Paper sx={{ p: 2, bgcolor: '#f0f7ff', border: '1px solid #90caf9', borderRadius: 2 }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox 
+                        checked={gexAutoEnabled} 
+                        onChange={(e) => setGexAutoEnabled(e.target.checked)}
+                        sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }}
+                      />
+                    }
+                    label={
+                      <Box>
+                        <Typography variant="body2" fontWeight="bold">
+                          🛡️ Activar GEX automático para todos mis embarques
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Se contratará y cobrará automáticamente la Garantía Extendida en cada nuevo embarque. Puedes desactivarlo desde tu perfil.
+                        </Typography>
+                      </Box>
+                    }
+                  />
+                </Paper>
+              </Box>
+            );
+
+            return null;
           })()}
         </DialogContent>
-        <DialogActions sx={{ p: 2, bgcolor: '#f5f5f5', justifyContent: 'center' }}>
-          <Button onClick={() => setGexModalOpen(false)} sx={{ color: 'text.secondary', mr: 2 }}>{t('common.cancel')}</Button>
-          <Button 
-            variant="contained" 
-            onClick={handleContractGEX}
-            disabled={gexLoading || !gexValorFactura || !gexDescripcion.trim() || !gexQuote || gexQuoteLoading}
-            startIcon={gexLoading ? <CircularProgress size={20} /> : <SecurityIcon />}
-            sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' }, px: 4 }}
-          >
-            {gexLoading ? t('common.processing') : t('cd.gex.contractButton')}
-          </Button>
+        <DialogActions sx={{ p: 2, bgcolor: '#f5f5f5', justifyContent: 'space-between' }}>
+          {gexStep === 'form' ? (
+            <>
+              <Button onClick={resetGexModal} sx={{ color: 'text.secondary' }}>{t('common.cancel')}</Button>
+              <Button 
+                variant="contained"
+                onClick={() => setGexStep('policies')}
+                disabled={!gexValorFactura || !gexDescripcion.trim() || !gexQuote || gexQuoteLoading}
+                sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' }, px: 4 }}
+              >
+                Continuar →
+              </Button>
+            </>
+          ) : gexStep === 'policies' ? (
+            <>
+              <Button onClick={() => setGexStep('form')} sx={{ color: 'text.secondary' }}>← Atrás</Button>
+              <Button 
+                variant="contained"
+                onClick={() => setGexStep('signature')}
+                disabled={!gexAcceptedPolicies}
+                sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' }, px: 4 }}
+              >
+                Firmar →
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button onClick={() => setGexStep('policies')} sx={{ color: 'text.secondary' }}>← Atrás</Button>
+              <Button 
+                variant="contained"
+                onClick={handleContractGEX}
+                disabled={gexLoading || !gexSignature}
+                startIcon={gexLoading ? <CircularProgress size={20} /> : <SecurityIcon />}
+                sx={{ bgcolor: '#10B981', '&:hover': { bgcolor: '#059669' }, px: 4 }}
+              >
+                {gexLoading ? t('common.processing') : '✓ Contratar GEX'}
+              </Button>
+            </>
+          )}
         </DialogActions>
       </Dialog>
 
