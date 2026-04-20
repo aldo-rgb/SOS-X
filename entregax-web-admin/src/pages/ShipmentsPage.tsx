@@ -42,7 +42,7 @@ const COUNTRIES_ES = ['México', 'Estados Unidos', 'Canadá', 'Guatemala', 'Colo
 const COUNTRIES_EN = ['Mexico', 'United States', 'Canada', 'Guatemala', 'Colombia', 'Spain', 'Other'];
 
 // ============ TIPOS ============
-type PackageStatus = 'received' | 'in_transit' | 'customs' | 'ready_pickup' | 'delivered';
+type PackageStatus = 'received' | 'in_transit' | 'customs' | 'processing' | 'ready_pickup' | 'out_for_delivery' | 'delivered' | 'shipped';
 
 interface PackageDimensions {
   length: number | null;
@@ -179,22 +179,42 @@ const BLACK = '#111111';
 
 const getStatusColor = (status: PackageStatus): "info" | "warning" | "success" | "error" | "default" => {
   const colors: Record<PackageStatus, "info" | "warning" | "success" | "error" | "default"> = {
-    received: 'info', in_transit: 'warning', customs: 'error', ready_pickup: 'success', delivered: 'default'
+    received: 'info',
+    in_transit: 'warning',
+    customs: 'error',
+    processing: 'error',
+    ready_pickup: 'success',
+    out_for_delivery: 'success',
+    delivered: 'default',
+    shipped: 'default',
   };
   return colors[status] || 'default';
 };
 
 const getStatusLabel = (status: PackageStatus): string => {
   const labels: Record<PackageStatus, string> = {
-    received: 'En Bodega', in_transit: 'En Tránsito', customs: 'En Aduana',
-    ready_pickup: 'Listo para Recoger', delivered: 'Entregado'
+    received: 'RECIBIDO CEDIS',
+    in_transit: 'EN TRÁNSITO A MTY, N.L.',
+    customs: 'Procesando - Guía impresa',
+    processing: 'Procesando - Guía impresa',
+    ready_pickup: 'EN RUTA',
+    out_for_delivery: 'EN RUTA',
+    delivered: 'ENTREGADO',
+    shipped: 'ENVIADO',
   };
   return labels[status] || status;
 };
 
 const getStatusIcon = (status: PackageStatus): string => {
   const icons: Record<PackageStatus, string> = {
-    received: '📦', in_transit: '🚚', customs: '🛃', ready_pickup: '✅', delivered: '🎉'
+    received: '📦',
+    in_transit: '🚚',
+    customs: '⚙️',
+    processing: '⚙️',
+    ready_pickup: '🛣️',
+    out_for_delivery: '🛣️',
+    delivered: '✅',
+    shipped: '📤',
   };
   return icons[status] || '📦';
 };
@@ -1439,19 +1459,20 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       {/* Stats Cards */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
         {[
-          { label: t('status.inWarehouse', 'En Bodega'), status: 'received', color: '#2196f3', icon: '📦' },
-          { label: t('status.inTransit'), status: 'in_transit', color: '#ff9800', icon: '🚚' },
-          { label: t('status.customs'), status: 'customs', color: '#f44336', icon: '🛃' },
-          { label: t('status.ready', 'Listos'), status: 'ready_pickup', color: '#4caf50', icon: '✅' },
-          { label: t('status.delivered'), status: 'delivered', color: '#9e9e9e', icon: '🎉' },
+          { label: 'RECIBIDO CEDIS', statuses: ['received'], color: '#2196f3', icon: '📦' },
+          { label: 'EN TRÁNSITO A MTY, N.L.', statuses: ['in_transit'], color: '#ff9800', icon: '🚚' },
+          { label: 'Procesando - Guía impresa', statuses: ['customs', 'processing'], color: '#f44336', icon: '⚙️' },
+          { label: 'EN RUTA', statuses: ['ready_pickup', 'out_for_delivery'], color: '#4caf50', icon: '🛣️' },
+          { label: 'ENTREGADO', statuses: ['delivered'], color: '#9e9e9e', icon: '✅' },
+          { label: 'ENVIADO', statuses: ['shipped'], color: '#607d8b', icon: '📤' },
         ].map((stat) => {
-          const count = packages.filter(p => p.status === stat.status).length;
+          const count = packages.filter(p => stat.statuses.includes(p.status as PackageStatus)).length;
           return (
-            <Grid size={{ xs: 6, sm: 2.4 }} key={stat.status}>
+            <Grid size={{ xs: 6, sm: 2 }} key={stat.label}>
               <Paper sx={{ p: 2, textAlign: 'center', cursor: 'pointer',
-                  border: statusFilter === stat.status ? `2px solid ${stat.color}` : '2px solid transparent',
+                  border: stat.statuses.includes(statusFilter as PackageStatus) ? `2px solid ${stat.color}` : '2px solid transparent',
                   '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 } }}
-                onClick={() => setStatusFilter(statusFilter === stat.status ? 'all' : stat.status)}>
+                onClick={() => setStatusFilter(stat.statuses.includes(statusFilter as PackageStatus) ? 'all' : stat.statuses[0])}>
                 <Typography variant="h3" sx={{ color: stat.color }}>{stat.icon}</Typography>
                 <Typography variant="h4" fontWeight="bold">{count}</Typography>
                 <Typography variant="body2" color="text.secondary">{stat.label}</Typography>
@@ -1471,11 +1492,12 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
             <InputLabel>{t('common.status')}</InputLabel>
             <Select value={statusFilter} label={t('common.status')} onChange={(e: SelectChangeEvent) => setStatusFilter(e.target.value)}>
               <MenuItem value="all">{t('common.all')}</MenuItem>
-              <MenuItem value="received">📦 {t('status.inWarehouse', 'En Bodega')}</MenuItem>
-              <MenuItem value="in_transit">🚚 {t('status.inTransit')}</MenuItem>
-              <MenuItem value="customs">🛃 {t('status.customs')}</MenuItem>
-              <MenuItem value="ready_pickup">✅ {t('status.ready', 'Listos')}</MenuItem>
-              <MenuItem value="delivered">🎉 {t('status.delivered')}</MenuItem>
+              <MenuItem value="received">📦 RECIBIDO CEDIS</MenuItem>
+              <MenuItem value="in_transit">🚚 EN TRÁNSITO A MTY, N.L.</MenuItem>
+              <MenuItem value="processing">⚙️ Procesando - Guía impresa</MenuItem>
+              <MenuItem value="ready_pickup">🛣️ EN RUTA</MenuItem>
+              <MenuItem value="delivered">✅ ENTREGADO</MenuItem>
+              <MenuItem value="shipped">📤 ENVIADO</MenuItem>
             </Select>
           </FormControl>
           <IconButton onClick={fetchPackages} color="primary"><RefreshIcon /></IconButton>
@@ -2834,7 +2856,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           <Typography gutterBottom>{t('shipments.package')}: <strong>{selectedPackage?.tracking}</strong></Typography>
           {selectedPackage?.isMaster && <Alert severity="info" sx={{ mb: 2 }}>{t('shipments.masterWillUpdateChildren')}</Alert>}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 2 }}>
-            {(['received', 'in_transit', 'customs', 'ready_pickup', 'delivered'] as PackageStatus[]).map((status) => (
+            {(['received', 'in_transit', 'processing', 'ready_pickup', 'delivered', 'shipped'] as PackageStatus[]).map((status) => (
               <Button key={status} variant={selectedPackage?.status === status ? 'contained' : 'outlined'}
                 onClick={() => handleStatusChange(status)} startIcon={<span>{getStatusIcon(status)}</span>}
                 disabled={selectedPackage?.status === status} fullWidth
