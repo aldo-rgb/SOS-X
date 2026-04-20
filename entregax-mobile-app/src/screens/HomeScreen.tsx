@@ -2578,23 +2578,27 @@ const styles = StyleSheet.create({
   },
   userInfo: {
     flexDirection: 'column',
+    alignItems: 'center',
     marginBottom: 15,
   },
   userTextContainer: {
-    flex: 1,
+    alignItems: 'center',
   },
   greeting: {
     fontSize: 20,
     fontWeight: 'bold',
     color: BLACK,
+    textAlign: 'center',
   },
   boxId: {
     fontSize: 14,
     color: '#666',
     marginTop: 3,
+    textAlign: 'center',
   },
   headerButtonsRow: {
     flexDirection: 'row',
+    justifyContent: 'center',
     gap: 8,
     marginTop: 10,
   },
@@ -2669,7 +2673,9 @@ const styles = StyleSheet.create({
   // 🔍 Estilos para botones de acción en el header
   headerActionButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'center',
+    alignSelf: 'center',
+    width: '100%',
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
