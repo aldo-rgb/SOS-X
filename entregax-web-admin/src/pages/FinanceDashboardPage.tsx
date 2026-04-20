@@ -125,6 +125,7 @@ interface Transaccion {
   origen: string;
   guias_pagadas?: string;
   estatus: string;
+  referencia?: string;
 }
 
 interface IngresoPorServicio {
