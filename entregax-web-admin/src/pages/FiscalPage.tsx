@@ -432,6 +432,13 @@ export default function FiscalPage() {
 
       // Load Belvo widget script
       const script = document.createElement('script');
+      // Ensure belvo container div exists
+      if (!document.getElementById('belvo')) {
+        const belvoDiv = document.createElement('div');
+        belvoDiv.id = 'belvo';
+        document.body.appendChild(belvoDiv);
+      }
+
       script.src = 'https://cdn.belvo.io/belvo-widget-1-stable.js';
       script.onload = () => {
         const belvoWidget = (window as any).belvoSDK.createWidget(access, {
@@ -459,7 +466,11 @@ export default function FiscalPage() {
               setSnackbar({ open: true, message: err.response?.data?.error || 'Error registrando link', severity: 'error' });
             }
           },
-          onExit: () => { /* Widget closed */ },
+          onExit: () => {
+            // Clean up belvo div on exit
+            const belvoDiv = document.getElementById('belvo');
+            if (belvoDiv) belvoDiv.innerHTML = '';
+          },
           onEvent: (event: any) => {
             console.log('Belvo widget event:', event);
           }
