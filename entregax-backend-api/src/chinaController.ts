@@ -187,39 +187,58 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
                 tariffType = 'S';
             }
             
-            // Buscar precio: primero tarifa personalizada del cliente, luego general
+            // Buscar precio: primero verificar Start Up, luego personalizada, luego general
+            const itemWeight = parseFloat(String(item.weight || 0)) || 0;
             let pricePerKg = 0;
             let isCustomTariff = false;
+            let salePrice = 0;
+            let isStartup = false;
             
-            if (airRouteId && userId) {
-                const customTariffRes = await client.query(`
-                    SELECT price_per_kg FROM air_client_tariffs 
-                    WHERE user_id = $1 AND route_id = $2 AND tariff_type = $3 AND is_active = true
+            // Check Start Up tier (flat price by weight bracket, ≤15kg)
+            if (airRouteId && itemWeight > 0 && itemWeight <= 15) {
+                const startupRes = await client.query(`
+                    SELECT price_usd FROM air_startup_tiers
+                    WHERE route_id = $1 AND is_active = true AND $2 >= min_weight AND $2 <= max_weight
                     LIMIT 1
-                `, [userId, airRouteId, tariffType]);
-                
-                if (customTariffRes.rows.length > 0) {
-                    pricePerKg = parseFloat(customTariffRes.rows[0].price_per_kg);
-                    isCustomTariff = true;
+                `, [airRouteId, itemWeight]);
+                if (startupRes.rows.length > 0) {
+                    salePrice = parseFloat(startupRes.rows[0].price_usd);
+                    pricePerKg = itemWeight > 0 ? salePrice / itemWeight : 0;
+                    isStartup = true;
+                    tariffType = 'SU';
                 }
             }
             
-            if (pricePerKg === 0 && airRouteId) {
-                const generalTariffRes = await client.query(`
-                    SELECT price_per_kg FROM air_tariffs 
-                    WHERE route_id = $1 AND tariff_type = $2 AND is_active = true
-                    LIMIT 1
-                `, [airRouteId, tariffType]);
-                
-                if (generalTariffRes.rows.length > 0) {
-                    pricePerKg = parseFloat(generalTariffRes.rows[0].price_per_kg);
+            // If not startup, use per-kg pricing
+            if (!isStartup) {
+                if (airRouteId && userId) {
+                    const customTariffRes = await client.query(`
+                        SELECT price_per_kg FROM air_client_tariffs 
+                        WHERE user_id = $1 AND route_id = $2 AND tariff_type = $3 AND is_active = true
+                        LIMIT 1
+                    `, [userId, airRouteId, tariffType]);
+                    
+                    if (customTariffRes.rows.length > 0) {
+                        pricePerKg = parseFloat(customTariffRes.rows[0].price_per_kg);
+                        isCustomTariff = true;
+                    }
                 }
+                
+                if (pricePerKg === 0 && airRouteId) {
+                    const generalTariffRes = await client.query(`
+                        SELECT price_per_kg FROM air_tariffs 
+                        WHERE route_id = $1 AND tariff_type = $2 AND is_active = true
+                        LIMIT 1
+                    `, [airRouteId, tariffType]);
+                    
+                    if (generalTariffRes.rows.length > 0) {
+                        pricePerKg = parseFloat(generalTariffRes.rows[0].price_per_kg);
+                    }
+                }
+                salePrice = itemWeight * pricePerKg;
             }
             
-            const itemWeight = parseFloat(String(item.weight || 0)) || 0;
-            const salePrice = itemWeight * pricePerKg;
-            
-            console.log(`   📦 ${item.childNo}: ${tariffType} | ${itemWeight}kg × $${pricePerKg}/kg = $${salePrice.toFixed(2)} (${isCustomTariff ? 'CUSTOM' : 'GENERAL'})`);
+            console.log(`   📦 ${item.childNo}: ${tariffType} | ${itemWeight}kg ${isStartup ? `STARTUP $${salePrice.toFixed(2)}` : `× $${pricePerKg}/kg = $${salePrice.toFixed(2)}`} (${isCustomTariff ? 'CUSTOM' : 'GENERAL'})`);
 
             if (existingPkg.rows.length > 0) {
                 // ACTUALIZAR caja existente (ej: cuando llega el billNo)
@@ -2243,41 +2262,58 @@ async function processCallbackPayload(
                         tariffType = 'S';
                     }
                     
-                    // Buscar precio: primero tarifa personalizada del cliente, luego general
+                    // Buscar precio: primero verificar Start Up, luego personalizada, luego general
+                    const weight = parseFloat(String(item.weight || 0)) || 0;
                     let pricePerKg = 0;
                     let isCustomTariff = false;
+                    let salePrice = 0;
+                    let isStartup = false;
                     
-                    if (airRouteId && userId) {
-                        // Buscar tarifa personalizada del cliente
-                        const customTariffRes = await client.query(`
-                            SELECT price_per_kg FROM air_client_tariffs 
-                            WHERE user_id = $1 AND route_id = $2 AND tariff_type = $3 AND is_active = true
+                    // Check Start Up tier (flat price by weight bracket, ≤15kg)
+                    if (airRouteId && weight > 0 && weight <= 15) {
+                        const startupRes = await client.query(`
+                            SELECT price_usd FROM air_startup_tiers
+                            WHERE route_id = $1 AND is_active = true AND $2 >= min_weight AND $2 <= max_weight
                             LIMIT 1
-                        `, [userId, airRouteId, tariffType]);
-                        
-                        if (customTariffRes.rows.length > 0) {
-                            pricePerKg = parseFloat(customTariffRes.rows[0].price_per_kg);
-                            isCustomTariff = true;
+                        `, [airRouteId, weight]);
+                        if (startupRes.rows.length > 0) {
+                            salePrice = parseFloat(startupRes.rows[0].price_usd);
+                            pricePerKg = weight > 0 ? salePrice / weight : 0;
+                            isStartup = true;
+                            tariffType = 'SU';
                         }
                     }
                     
-                    // Si no hay personalizada, buscar tarifa general
-                    if (pricePerKg === 0 && airRouteId) {
-                        const generalTariffRes = await client.query(`
-                            SELECT price_per_kg FROM air_tariffs 
-                            WHERE route_id = $1 AND tariff_type = $2 AND is_active = true
-                            LIMIT 1
-                        `, [airRouteId, tariffType]);
-                        
-                        if (generalTariffRes.rows.length > 0) {
-                            pricePerKg = parseFloat(generalTariffRes.rows[0].price_per_kg);
+                    // If not startup, use per-kg pricing
+                    if (!isStartup) {
+                        if (airRouteId && userId) {
+                            const customTariffRes = await client.query(`
+                                SELECT price_per_kg FROM air_client_tariffs 
+                                WHERE user_id = $1 AND route_id = $2 AND tariff_type = $3 AND is_active = true
+                                LIMIT 1
+                            `, [userId, airRouteId, tariffType]);
+                            
+                            if (customTariffRes.rows.length > 0) {
+                                pricePerKg = parseFloat(customTariffRes.rows[0].price_per_kg);
+                                isCustomTariff = true;
+                            }
                         }
+                        
+                        if (pricePerKg === 0 && airRouteId) {
+                            const generalTariffRes = await client.query(`
+                                SELECT price_per_kg FROM air_tariffs 
+                                WHERE route_id = $1 AND tariff_type = $2 AND is_active = true
+                                LIMIT 1
+                            `, [airRouteId, tariffType]);
+                            
+                            if (generalTariffRes.rows.length > 0) {
+                                pricePerKg = parseFloat(generalTariffRes.rows[0].price_per_kg);
+                            }
+                        }
+                        salePrice = weight * pricePerKg;
                     }
                     
-                    const weight = parseFloat(String(item.weight || 0)) || 0;
-                    const salePrice = weight * pricePerKg;
-                    
-                    console.log(`   📦 ${childNo}: ${weight}kg × $${pricePerKg}/kg = $${salePrice.toFixed(2)} (${isCustomTariff ? 'CUSTOM' : 'GENERAL'})`);
+                    console.log(`   📦 ${childNo}: ${tariffType} | ${weight}kg ${isStartup ? `STARTUP $${salePrice.toFixed(2)}` : `× $${pricePerKg}/kg = $${salePrice.toFixed(2)}`} (${isCustomTariff ? 'CUSTOM' : 'GENERAL'})`);
                     
                     await client.query(`
                         INSERT INTO packages 

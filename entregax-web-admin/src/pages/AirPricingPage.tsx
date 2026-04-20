@@ -53,6 +53,7 @@ import {
     Edit as EditIcon,
     History as HistoryIcon,
     TrendingUp as TrendingUpIcon,
+    RocketLaunch as RocketIcon,
 } from '@mui/icons-material';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -98,6 +99,14 @@ interface RouteTariff {
         S: { id: number | null; price_per_kg: number; is_active: boolean };
         F: { id: number | null; price_per_kg: number; is_active: boolean };
     };
+    startup_tiers: { id: number; min_weight: number; max_weight: number; price_usd: number; is_active: boolean }[];
+}
+
+interface StartupTierRow {
+    min_weight: string;
+    max_weight: string;
+    price_usd: string;
+    is_active: boolean;
 }
 
 interface EditableRow {
@@ -185,6 +194,11 @@ export default function AirPricingPage() {
     const [priceHistory, setPriceHistory] = useState<PriceHistoryItem[]>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
 
+    // Startup tiers state
+    const [startupTiers, setStartupTiers] = useState<Record<number, StartupTierRow[]>>({});
+    const [startupSaving, setStartupSaving] = useState<number | null>(null);
+    const [startupDirty, setStartupDirty] = useState<Record<number, boolean>>({});
+
     const token = localStorage.getItem('token');
 
     // ========== LOAD DATA ==========
@@ -211,6 +225,19 @@ export default function AirPricingPage() {
                     };
                 }
                 setEditableRows(rows);
+
+                // Initialize startup tiers
+                const stMap: Record<number, StartupTierRow[]> = {};
+                for (const r of data.routes || []) {
+                    stMap[r.id] = (r.startup_tiers || []).map((t: any) => ({
+                        min_weight: t.min_weight.toString(),
+                        max_weight: t.max_weight.toString(),
+                        price_usd: t.price_usd.toString(),
+                        is_active: t.is_active,
+                    }));
+                }
+                setStartupTiers(stMap);
+                setStartupDirty({});
             }
         } catch (error) {
             console.error('Error cargando tarifas:', error);
@@ -617,6 +644,58 @@ export default function AirPricingPage() {
         loadClientsWithTariffs();
     };
 
+    // ========== STARTUP TIER HANDLERS ==========
+    const handleStartupChange = (routeId: number, index: number, field: keyof StartupTierRow, value: string | boolean) => {
+        setStartupTiers(prev => {
+            const tiers = [...(prev[routeId] || [])];
+            tiers[index] = { ...tiers[index], [field]: value };
+            return { ...prev, [routeId]: tiers };
+        });
+        setStartupDirty(prev => ({ ...prev, [routeId]: true }));
+    };
+
+    const handleAddStartupTier = (routeId: number) => {
+        setStartupTiers(prev => {
+            const tiers = [...(prev[routeId] || [])];
+            const lastMax = tiers.length > 0 ? parseFloat(tiers[tiers.length - 1].max_weight) : 0;
+            tiers.push({ min_weight: (lastMax + 0.01).toFixed(2), max_weight: (lastMax + 5).toFixed(0), price_usd: '0', is_active: true });
+            return { ...prev, [routeId]: tiers };
+        });
+        setStartupDirty(prev => ({ ...prev, [routeId]: true }));
+    };
+
+    const handleRemoveStartupTier = (routeId: number, index: number) => {
+        setStartupTiers(prev => {
+            const tiers = [...(prev[routeId] || [])];
+            tiers.splice(index, 1);
+            return { ...prev, [routeId]: tiers };
+        });
+        setStartupDirty(prev => ({ ...prev, [routeId]: true }));
+    };
+
+    const handleSaveStartup = async (routeId: number) => {
+        setStartupSaving(routeId);
+        try {
+            const tiers = startupTiers[routeId] || [];
+            const res = await fetch(`${API_URL}/api/admin/air-startup-tiers`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ route_id: routeId, tiers }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                setSnackbar({ open: true, message: 'Tarifas Start Up guardadas', severity: 'success' });
+                setStartupDirty(prev => ({ ...prev, [routeId]: false }));
+            } else {
+                throw new Error(data.error);
+            }
+        } catch (error: unknown) {
+            setSnackbar({ open: true, message: error instanceof Error ? error.message : 'Error', severity: 'error' });
+        } finally {
+            setStartupSaving(null);
+        }
+    };
+
     // ========== RENDER ==========
     return (
         <Box>
@@ -959,6 +1038,115 @@ export default function AirPricingPage() {
                     </Table>
                 </TableContainer>
             )}
+
+            {/* ========== STARTUP TIERS SECTION ========== */}
+            {routes.filter(r => r.is_active).map(route => (
+                <Paper key={`startup-${route.id}`} sx={{ mb: 3, p: 2.5, borderRadius: 2, border: '2px solid #FF6F00' }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                            <RocketIcon sx={{ color: '#FF6F00', fontSize: 28 }} />
+                            <Box>
+                                <Typography variant="h6" fontWeight="bold" color="#FF6F00">
+                                    TDI Start Up — {route.code}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                    Tarifa plana por rango de peso (≤15 kg). Incluye flete internacional + aduanas + entrega. Aplica antes que Logo/Genérico.
+                                </Typography>
+                            </Box>
+                        </Box>
+                        <Box sx={{ display: 'flex', gap: 1 }}>
+                            <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<AddIcon />}
+                                onClick={() => handleAddStartupTier(route.id)}
+                                sx={{ textTransform: 'none', borderColor: '#FF6F00', color: '#FF6F00' }}
+                            >
+                                Agregar Rango
+                            </Button>
+                            {startupDirty[route.id] && (
+                                <Button
+                                    size="small"
+                                    variant="contained"
+                                    startIcon={startupSaving === route.id ? <CircularProgress size={14} color="inherit" /> : <SaveIcon />}
+                                    onClick={() => handleSaveStartup(route.id)}
+                                    disabled={startupSaving !== null}
+                                    sx={{ textTransform: 'none', bgcolor: '#FF6F00', '&:hover': { bgcolor: '#E65100' } }}
+                                >
+                                    Guardar Start Up
+                                </Button>
+                            )}
+                        </Box>
+                    </Box>
+                    {(startupTiers[route.id] || []).length === 0 ? (
+                        <Alert severity="info" sx={{ borderRadius: 2 }}>
+                            No hay rangos de Start Up configurados. Los paquetes ≤15 kg usarán la tarifa por kg normal.
+                        </Alert>
+                    ) : (
+                        <Table size="small">
+                            <TableHead>
+                                <TableRow>
+                                    <TableCell sx={{ fontWeight: 'bold', width: 180 }}>Peso Mínimo (kg)</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', width: 180 }}>Peso Máximo (kg)</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', width: 180 }}>Precio (USD)</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', width: 100 }}>Activo</TableCell>
+                                    <TableCell sx={{ fontWeight: 'bold', width: 80 }}></TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {(startupTiers[route.id] || []).map((tier, idx) => (
+                                    <TableRow key={idx}>
+                                        <TableCell>
+                                            <TextField
+                                                size="small"
+                                                type="number"
+                                                value={tier.min_weight}
+                                                onChange={(e) => handleStartupChange(route.id, idx, 'min_weight', e.target.value)}
+                                                InputProps={{ endAdornment: <InputAdornment position="end">kg</InputAdornment> }}
+                                                sx={{ width: 150 }}
+                                            />
+                                        </TableCell>
+                                        <TableCell>
+                                            <TextField
+                                                size="small"
+                                                type="number"
+                                                value={tier.max_weight}
+                                                onChange={(e) => handleStartupChange(route.id, idx, 'max_weight', e.target.value)}
+                                                InputProps={{ endAdornment: <InputAdornment position="end">kg</InputAdornment> }}
+                                                sx={{ width: 150 }}
+                                            />
+                                        </TableCell>
+                                        <TableCell>
+                                            <TextField
+                                                size="small"
+                                                type="number"
+                                                value={tier.price_usd}
+                                                onChange={(e) => handleStartupChange(route.id, idx, 'price_usd', e.target.value)}
+                                                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment>, endAdornment: <InputAdornment position="end">USD</InputAdornment> }}
+                                                sx={{ width: 160 }}
+                                            />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Chip
+                                                label={tier.is_active ? 'Sí' : 'No'}
+                                                size="small"
+                                                color={tier.is_active ? 'success' : 'default'}
+                                                onClick={() => handleStartupChange(route.id, idx, 'is_active', !tier.is_active)}
+                                                sx={{ cursor: 'pointer' }}
+                                            />
+                                        </TableCell>
+                                        <TableCell>
+                                            <IconButton size="small" onClick={() => handleRemoveStartupTier(route.id, idx)} sx={{ color: '#C62828' }}>
+                                                <DeleteIcon fontSize="small" />
+                                            </IconButton>
+                                        </TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    )}
+                </Paper>
+            ))}
 
             {/* ========== COST BRACKETS DIALOG ========== */}
             <Dialog

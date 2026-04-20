@@ -1732,6 +1732,24 @@ export async function getAirTariffs(req: AuthRequest, res: Response) {
       }
     }
 
+    // Get startup tiers per route
+    const startupResult = await pool.query(`
+      SELECT id, route_id, min_weight, max_weight, price_usd, is_active
+      FROM air_startup_tiers
+      ORDER BY route_id, min_weight
+    `);
+    const startupMap: Record<number, any[]> = {};
+    for (const s of startupResult.rows) {
+      if (!startupMap[s.route_id]) startupMap[s.route_id] = [];
+      startupMap[s.route_id].push({
+        id: s.id,
+        min_weight: parseFloat(s.min_weight),
+        max_weight: parseFloat(s.max_weight),
+        price_usd: parseFloat(s.price_usd),
+        is_active: s.is_active,
+      });
+    }
+
     // Build response with routes + their tariffs
     const routes = routesResult.rows.map((r: any) => ({
       ...r,
@@ -1742,6 +1760,7 @@ export async function getAirTariffs(req: AuthRequest, res: Response) {
         S: tariffMap[r.id]?.S || { id: null, price_per_kg: 0, is_active: false },
         F: tariffMap[r.id]?.F || { id: null, price_per_kg: 0, is_active: false },
       },
+      startup_tiers: startupMap[r.id] || [],
     }));
 
     res.json({ success: true, routes });
@@ -1834,6 +1853,39 @@ export async function saveAirTariffs(req: AuthRequest, res: Response) {
   } catch (error: any) {
     console.error('✈️ [AIR-TARIFFS] Error guardando:', error.message);
     res.status(500).json({ error: 'Error guardando tarifas aéreas' });
+  }
+}
+
+// ========== SAVE AIR STARTUP TIERS ==========
+export async function saveAirStartupTiers(req: AuthRequest, res: Response) {
+  try {
+    const { route_id, tiers } = req.body;
+    if (!route_id || !Array.isArray(tiers)) {
+      return res.status(400).json({ error: 'route_id y tiers[] son requeridos' });
+    }
+
+    // Delete existing tiers for this route and re-insert
+    await pool.query('DELETE FROM air_startup_tiers WHERE route_id = $1', [route_id]);
+
+    for (const tier of tiers) {
+      const minW = parseFloat(tier.min_weight) || 0;
+      const maxW = parseFloat(tier.max_weight) || 0;
+      const price = parseFloat(tier.price_usd) || 0;
+      const isActive = tier.is_active !== false;
+      if (maxW > 0) {
+        await pool.query(
+          `INSERT INTO air_startup_tiers (route_id, min_weight, max_weight, price_usd, is_active, updated_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())`,
+          [route_id, minW, maxW, price, isActive]
+        );
+      }
+    }
+
+    console.log(`✈️ [AIR-STARTUP] Startup tiers actualizados para ruta #${route_id}: ${tiers.length} tiers`);
+    res.json({ success: true, message: 'Tarifas Start Up guardadas' });
+  } catch (error: any) {
+    console.error('✈️ [AIR-STARTUP] Error:', error.message);
+    res.status(500).json({ error: 'Error guardando tarifas Start Up' });
   }
 }
 
