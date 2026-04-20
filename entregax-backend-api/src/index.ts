@@ -1679,19 +1679,35 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           ELSE 'air'
         END as shipment_type,
         status::text as status,
-        CASE status::text 
-          WHEN 'received' THEN 'En Bodega'
-          WHEN 'in_transit' THEN 'En Tránsito'
-          WHEN 'customs' THEN 'En Aduana'
-          WHEN 'ready_pickup' THEN 'Listo para Recoger'
-          WHEN 'delivered' THEN 'Entregado'
-          WHEN 'processing' THEN 'Procesando'
-          WHEN 'reempacado' THEN 'Reempacado'
-          WHEN 'received_china' THEN 'Recibido China'
-          WHEN 'received_origin' THEN 'En Bodega China'
-          WHEN 'at_customs' THEN 'En Aduana'
-          WHEN 'in_transit_mx' THEN 'En Ruta México'
-          WHEN 'received_cedis' THEN 'En CEDIS'
+        CASE
+          -- Flujo específico PO Box USA
+          WHEN service_type = 'POBOX_USA' AND status::text = 'ready_pickup' THEN 'Listo para recoger Hidalgo TX'
+          WHEN service_type = 'POBOX_USA' AND status::text = 'received' AND dispatched_at IS NULL THEN 'RECIBIDO CEDIS (Hidalgo TX)'
+          WHEN service_type = 'POBOX_USA' AND status::text = 'in_transit' THEN 'EN TRÁNSITO A MTY, N.L.'
+          WHEN service_type = 'POBOX_USA' AND status::text = 'received' AND dispatched_at IS NOT NULL THEN 'RECIBIDO EN CEDIS (MTY)'
+          WHEN service_type = 'POBOX_USA' AND status::text IN ('received_mty', 'received_cedis') THEN 'RECIBIDO EN CEDIS (MTY)'
+          WHEN service_type = 'POBOX_USA' AND status::text = 'processing' THEN 'Procesando - Guía impresa'
+          WHEN service_type = 'POBOX_USA' AND status::text IN ('out_for_delivery', 'en_ruta_entrega') THEN 'En ruta de entrega'
+          WHEN service_type = 'POBOX_USA' AND status::text IN ('shipped', 'sent', 'enviado') THEN 'Enviado'
+          WHEN service_type = 'POBOX_USA' AND status::text = 'delivered' THEN
+            CASE
+              WHEN COALESCE(received_by, '') <> '' THEN 'Entregado: ' || received_by
+              ELSE 'Entregado'
+            END
+
+          -- Flujo general
+          WHEN status::text = 'received' THEN 'En Bodega'
+          WHEN status::text = 'in_transit' THEN 'En Tránsito'
+          WHEN status::text = 'customs' THEN 'En Aduana'
+          WHEN status::text = 'ready_pickup' THEN 'Listo para Recoger'
+          WHEN status::text = 'delivered' THEN 'Entregado'
+          WHEN status::text = 'processing' THEN 'Procesando'
+          WHEN status::text = 'reempacado' THEN 'Reempacado'
+          WHEN status::text = 'received_china' THEN 'Recibido China'
+          WHEN status::text = 'received_origin' THEN 'En Bodega China'
+          WHEN status::text = 'at_customs' THEN 'En Aduana'
+          WHEN status::text = 'in_transit_mx' THEN 'En Ruta México'
+          WHEN status::text = 'received_cedis' THEN 'En CEDIS'
           ELSE status::text
         END as status_label,
         COALESCE(eta::text, 'Por confirmar') as fecha_estimada,
@@ -2199,7 +2215,10 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
           ELSE 'air'
         END as shipment_type,
         status,
-        'Entregado' as status_label,
+        CASE
+          WHEN service_type = 'POBOX_USA' AND COALESCE(received_by, '') <> '' THEN 'Entregado: ' || received_by
+          ELSE 'Entregado'
+        END as status_label,
         COALESCE(TO_CHAR(delivered_at, 'DD Mon YYYY'), TO_CHAR(updated_at, 'DD Mon YYYY')) as fecha_entrega,
         COALESCE(assigned_cost_mxn, 0) as monto,
         received_by as recibio,
