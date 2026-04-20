@@ -103,6 +103,12 @@ const ProfileClient = ({ onBack }: ProfileClientProps) => {
   // GEX auto-config
   const [gexAutoEnabled, setGexAutoEnabled] = useState(false);
   const [gexAutoLoading, setGexAutoLoading] = useState(false);
+  const [gexPolicyModalOpen, setGexPolicyModalOpen] = useState(false);
+  const [gexPolicyScrolled, setGexPolicyScrolled] = useState(false);
+  const [gexPolicyAccepted, setGexPolicyAccepted] = useState(false);
+  const [gexPolicySignature, setGexPolicySignature] = useState<string | null>(null);
+  const gexPolicyCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const [gexPolicyDrawing, setGexPolicyDrawing] = useState(false);
 
   // Signature canvas refs and state
   const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -181,11 +187,25 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
     loadProfile();
   }, [loadProfile]);
 
-  const handleToggleGexAuto = async (enabled: boolean) => {
+  const handleToggleGexAuto = (enabled: boolean) => {
+    if (enabled) {
+      // Show policy modal first
+      setGexPolicyScrolled(false);
+      setGexPolicyAccepted(false);
+      setGexPolicySignature(null);
+      setGexPolicyModalOpen(true);
+    } else {
+      // Disable directly
+      confirmGexAutoToggle(false);
+    }
+  };
+
+  const confirmGexAutoToggle = async (enabled: boolean) => {
     setGexAutoLoading(true);
     try {
-      await api.put('/gex/auto-config', { enabled });
+      await api.put('/gex/auto-config', { enabled, signature: gexPolicySignature });
       setGexAutoEnabled(enabled);
+      setGexPolicyModalOpen(false);
       setSnackbar({ open: true, message: enabled ? '🛡️ GEX automático activado para todos tus embarques' : 'GEX automático desactivado', severity: 'success' });
     } catch {
       setSnackbar({ open: true, message: 'Error al actualizar configuración', severity: 'error' });
@@ -193,6 +213,37 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
       setGexAutoLoading(false);
     }
   };
+
+  const initGexPolicyCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
+    if (!canvas) return;
+    gexPolicyCanvasRef.current = canvas;
+    const ctx = canvas.getContext('2d');
+    if (ctx) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.strokeStyle = '#000'; ctx.lineWidth = 2; ctx.lineCap = 'round'; }
+  }, []);
+
+  const gexPolicyMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = gexPolicyCanvasRef.current; if (!canvas) return;
+    setGexPolicyDrawing(true);
+    const ctx = canvas.getContext('2d'); const rect = canvas.getBoundingClientRect();
+    ctx?.beginPath(); ctx?.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+  }, []);
+
+  const gexPolicyMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!gexPolicyDrawing) return;
+    const canvas = gexPolicyCanvasRef.current; if (!canvas) return;
+    const ctx = canvas.getContext('2d'); const rect = canvas.getBoundingClientRect();
+    ctx?.lineTo(e.clientX - rect.left, e.clientY - rect.top); ctx?.stroke();
+  }, [gexPolicyDrawing]);
+
+  const gexPolicyMouseUp = useCallback(() => {
+    if (gexPolicyDrawing) { setGexPolicyDrawing(false); const c = gexPolicyCanvasRef.current; if (c) setGexPolicySignature(c.toDataURL('image/png')); }
+  }, [gexPolicyDrawing]);
+
+  const clearGexPolicySignature = useCallback(() => {
+    const c = gexPolicyCanvasRef.current;
+    if (c) { const ctx = c.getContext('2d'); if (ctx) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); } }
+    setGexPolicySignature(null);
+  }, []);
 
   const getInitials = (name: string) => {
     return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
@@ -1312,6 +1363,92 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
               )}
             </>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Modal Políticas GEX Automático */}
+      <Dialog open={gexPolicyModalOpen} onClose={() => setGexPolicyModalOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <SecurityIcon />
+          Contrato de Garantía Extendida Automática
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          <Box sx={{ p: 2.5, bgcolor: '#f8f9fa' }}>
+            <Typography variant="subtitle1" fontWeight="bold" sx={{ color: ORANGE, mb: 1 }}>
+              📋 Política de Garantía Extendida - Vigencia Indefinida
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+              Al activar el GEX automático, aceptas que se contratará la Garantía Extendida en cada embarque.
+            </Typography>
+          </Box>
+          <Box
+            sx={{ maxHeight: 300, overflow: 'auto', p: 2.5, bgcolor: 'white', border: '1px solid #e0e0e0', m: 2, borderRadius: 1 }}
+            onScroll={(e: any) => { const el = e.target; if (el.scrollHeight - el.scrollTop - el.clientHeight < 50) setGexPolicyScrolled(true); }}
+          >
+            <Typography variant="subtitle2" fontWeight="bold" align="center" sx={{ mb: 2 }}>
+              CONTRATO DE GARANTÍA EXTENDIDA DE TIEMPO DE ENTREGA DE MERCANCÍA - MODALIDAD AUTOMÁTICA
+            </Typography>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              En Logisti-k Systems Development S.A. de C.V. (en adelante "Grupo LSD") nos preocupamos por que nuestros clientes reciban sus cargas en tiempo, forma y en sus mejores condiciones. El presente contrato establece los términos de la contratación automática de la Garantía Extendida de Tiempo de Entrega (en adelante "GEX") para todos los embarques del Cliente.
+            </Typography>
+            <Typography variant="subtitle2" fontWeight="bold" sx={{ color: ORANGE, mb: 1 }}>CLÁUSULA PRIMERA: OBJETO</Typography>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              El Cliente autoriza que en cada nuevo embarque registrado en la plataforma EntregaX se contrate automáticamente la Garantía Extendida de Tiempo de Entrega de 90 días naturales. El costo de cada póliza será calculado al momento del registro del embarque con base en el valor declarado de la mercancía y el tipo de cambio vigente, y se sumará al saldo pendiente del embarque correspondiente.
+            </Typography>
+            <Typography variant="subtitle2" fontWeight="bold" sx={{ color: ORANGE, mb: 1 }}>CLÁUSULA SEGUNDA: VIGENCIA DEL CONTRATO</Typography>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              <b>El presente contrato tiene vigencia indefinida</b> a partir de la fecha de firma. Permanecerá activo mientras el Cliente mantenga habilitada la opción de GEX Automático en su perfil. El Cliente podrá desactivar esta funcionalidad en cualquier momento desde la configuración de su perfil, sin penalización alguna. La desactivación surtirá efecto para los embarques registrados a partir de ese momento, sin afectar las pólizas ya contratadas.
+            </Typography>
+            <Typography variant="subtitle2" fontWeight="bold" sx={{ color: ORANGE, mb: 1 }}>CLÁUSULA TERCERA: CÁLCULO DEL COSTO</Typography>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              El costo de cada póliza GEX se calculará como el 5% del valor asegurado en MXN (valor de factura en USD multiplicado por el tipo de cambio vigente) más una cuota fija de $625.00 MXN. El valor de la mercancía será determinado por el valor declarado en cada embarque individual.
+            </Typography>
+            <Typography variant="subtitle2" fontWeight="bold" sx={{ color: ORANGE, mb: 1 }}>CLÁUSULA CUARTA: COBERTURA</Typography>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              Cada póliza GEX contratada automáticamente cubrirá el tiempo de entrega de hasta 90 días naturales contados a partir de la fecha de embarque. En caso de incumplimiento del plazo, el Cliente podrá iniciar un proceso de reclamación presentando la factura original.
+            </Typography>
+            <Typography variant="subtitle2" fontWeight="bold" sx={{ color: ORANGE, mb: 1 }}>CLÁUSULA QUINTA: EXCLUSIONES</Typography>
+            <Typography variant="body2" sx={{ mb: 0.5 }}>• Retrasos por trámites aduanales o retenciones gubernamentales.</Typography>
+            <Typography variant="body2" sx={{ mb: 0.5 }}>• Fraude o negligencia del Cliente.</Typography>
+            <Typography variant="body2" sx={{ mb: 0.5 }}>• Mercancía perecedera o de naturaleza frágil no declarada.</Typography>
+            <Typography variant="body2" sx={{ mb: 0.5 }}>• Guerras, actos de terrorismo o desastres naturales.</Typography>
+            <Typography variant="body2" sx={{ mb: 2 }}>• Mercancía prohibida o restringida por la ley.</Typography>
+            <Typography variant="subtitle2" fontWeight="bold" sx={{ color: ORANGE, mb: 1 }}>CLÁUSULA SEXTA: CANCELACIÓN</Typography>
+            <Typography variant="body2" sx={{ mb: 2 }}>
+              El Cliente puede cancelar este contrato en cualquier momento desactivando la opción "GEX Automático" en su perfil de usuario. Las pólizas ya generadas no serán canceladas y mantendrán su cobertura hasta el vencimiento del plazo de 90 días de cada embarque.
+            </Typography>
+          </Box>
+          {!gexPolicyScrolled && (
+            <Alert severity="error" sx={{ mx: 2, mb: 1 }}>Desplázate hacia abajo para leer todo el contrato</Alert>
+          )}
+          <Box sx={{ px: 2, pb: 1 }}>
+            <FormControlLabel
+              control={<Checkbox checked={gexPolicyAccepted} onChange={(e) => setGexPolicyAccepted(e.target.checked)} disabled={!gexPolicyScrolled} sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }} />}
+              label={<Typography variant="body2">He leído y acepto los términos del contrato de Garantía Extendida Automática con vigencia indefinida</Typography>}
+            />
+          </Box>
+          {gexPolicyAccepted && (
+            <Box sx={{ px: 2, pb: 2 }}>
+              <Typography variant="subtitle2" fontWeight="bold" sx={{ color: ORANGE, mb: 1 }}>✍️ Firma Digital</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>Firma para confirmar la activación del GEX automático.</Typography>
+              <Box sx={{ border: '2px dashed #ccc', borderRadius: 2, mb: 1, overflow: 'hidden' }}>
+                <canvas ref={initGexPolicyCanvas} width={450} height={150} style={{ width: '100%', height: 150, cursor: 'crosshair', display: 'block' }}
+                  onMouseDown={gexPolicyMouseDown} onMouseMove={gexPolicyMouseMove} onMouseUp={gexPolicyMouseUp} onMouseLeave={gexPolicyMouseUp} />
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                <Button size="small" color="error" onClick={clearGexPolicySignature}>Limpiar</Button>
+                {gexPolicySignature && <Typography variant="caption" color="success.main">✓ Firma capturada</Typography>}
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2, bgcolor: '#f5f5f5' }}>
+          <Button onClick={() => setGexPolicyModalOpen(false)} sx={{ color: 'text.secondary' }}>Cancelar</Button>
+          <Button variant="contained" onClick={() => confirmGexAutoToggle(true)}
+            disabled={!gexPolicyAccepted || !gexPolicySignature || gexAutoLoading}
+            sx={{ bgcolor: '#10B981', '&:hover': { bgcolor: '#059669' }, px: 3 }}>
+            {gexAutoLoading ? 'Activando...' : '✓ Activar GEX Automático'}
+          </Button>
         </DialogActions>
       </Dialog>
 

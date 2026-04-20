@@ -55,6 +55,9 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   // GEX auto-config
   const [gexAutoEnabled, setGexAutoEnabled] = useState(false);
   const [gexAutoLoading, setGexAutoLoading] = useState(false);
+  const [gexPolicyModalVisible, setGexPolicyModalVisible] = useState(false);
+  const [gexPolicyScrolled, setGexPolicyScrolled] = useState(false);
+  const [gexPolicyAccepted, setGexPolicyAccepted] = useState(false);
 
   // Password form
   const [passwordForm, setPasswordForm] = useState({
@@ -172,7 +175,17 @@ export default function MyProfileScreen({ navigation, route }: Props) {
     }
   };
 
-  const handleToggleGexAuto = async (enabled: boolean) => {
+  const handleToggleGexAuto = (enabled: boolean) => {
+    if (enabled) {
+      setGexPolicyScrolled(false);
+      setGexPolicyAccepted(false);
+      setGexPolicyModalVisible(true);
+    } else {
+      confirmGexAutoToggle(false);
+    }
+  };
+
+  const confirmGexAutoToggle = async (enabled: boolean) => {
     setGexAutoLoading(true);
     try {
       const response = await fetch(`${API_URL}/api/gex/auto-config`, {
@@ -182,6 +195,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
       });
       if (response.ok) {
         setGexAutoEnabled(enabled);
+        setGexPolicyModalVisible(false);
         Alert.alert('✅', enabled ? 'GEX automático activado para todos tus embarques' : 'GEX automático desactivado');
       }
     } catch (error) {
@@ -1442,6 +1456,85 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                 )}
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal Políticas GEX Automático */}
+      <Modal visible={gexPolicyModalVisible} animationType="slide" presentationStyle="pageSheet">
+        <View style={{ flex: 1, backgroundColor: '#fff' }}>
+          <View style={{ backgroundColor: ORANGE, padding: 16, paddingTop: 50, flexDirection: 'row', alignItems: 'center' }}>
+            <TouchableOpacity onPress={() => setGexPolicyModalVisible(false)}>
+              <Ionicons name="close" size={24} color="white" />
+            </TouchableOpacity>
+            <Text style={{ color: 'white', fontSize: 18, fontWeight: '700', marginLeft: 12, flex: 1 }}>Contrato GEX Automático</Text>
+          </View>
+          <ScrollView
+            style={{ flex: 1, padding: 16 }}
+            onScroll={({ nativeEvent }) => {
+              const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+              if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 50) setGexPolicyScrolled(true);
+            }}
+            scrollEventThrottle={16}
+          >
+            <Text style={{ fontSize: 16, fontWeight: '700', textAlign: 'center', marginBottom: 16 }}>
+              CONTRATO DE GARANTÍA EXTENDIDA DE TIEMPO DE ENTREGA - MODALIDAD AUTOMÁTICA
+            </Text>
+            <Text style={{ fontSize: 13, color: '#333', lineHeight: 20, marginBottom: 12 }}>
+              En Logisti-k Systems Development S.A. de C.V. (en adelante "Grupo LSD") nos preocupamos por que nuestros clientes reciban sus cargas en tiempo, forma y en sus mejores condiciones. El presente contrato establece los términos de la contratación automática de la Garantía Extendida de Tiempo de Entrega (en adelante "GEX") para todos los embarques del Cliente.
+            </Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: ORANGE, marginBottom: 4 }}>CLÁUSULA PRIMERA: OBJETO</Text>
+            <Text style={{ fontSize: 13, color: '#333', lineHeight: 20, marginBottom: 12 }}>
+              El Cliente autoriza que en cada nuevo embarque registrado en la plataforma EntregaX se contrate automáticamente la Garantía Extendida de Tiempo de Entrega de 90 días naturales. El costo de cada póliza será calculado al momento del registro del embarque con base en el valor declarado de la mercancía y el tipo de cambio vigente, y se sumará al saldo pendiente del embarque correspondiente.
+            </Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: ORANGE, marginBottom: 4 }}>CLÁUSULA SEGUNDA: VIGENCIA DEL CONTRATO</Text>
+            <Text style={{ fontSize: 13, color: '#333', lineHeight: 20, marginBottom: 12 }}>
+              El presente contrato tiene vigencia indefinida a partir de la fecha de firma. Permanecerá activo mientras el Cliente mantenga habilitada la opción de GEX Automático en su perfil. El Cliente podrá desactivar esta funcionalidad en cualquier momento desde la configuración de su perfil, sin penalización alguna. La desactivación surtirá efecto para los embarques registrados a partir de ese momento, sin afectar las pólizas ya contratadas.
+            </Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: ORANGE, marginBottom: 4 }}>CLÁUSULA TERCERA: CÁLCULO DEL COSTO</Text>
+            <Text style={{ fontSize: 13, color: '#333', lineHeight: 20, marginBottom: 12 }}>
+              El costo de cada póliza GEX se calculará como el 5% del valor asegurado en MXN (valor de factura en USD multiplicado por el tipo de cambio vigente) más una cuota fija de $625.00 MXN. El valor de la mercancía será determinado por el valor declarado en cada embarque individual.
+            </Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: ORANGE, marginBottom: 4 }}>CLÁUSULA CUARTA: COBERTURA</Text>
+            <Text style={{ fontSize: 13, color: '#333', lineHeight: 20, marginBottom: 12 }}>
+              Cada póliza GEX contratada automáticamente cubrirá el tiempo de entrega de hasta 90 días naturales contados a partir de la fecha de embarque. En caso de incumplimiento del plazo, el Cliente podrá iniciar un proceso de reclamación presentando la factura original.
+            </Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: ORANGE, marginBottom: 4 }}>CLÁUSULA QUINTA: EXCLUSIONES</Text>
+            <Text style={{ fontSize: 13, color: '#333', lineHeight: 20, marginBottom: 4 }}>• Retrasos por trámites aduanales o retenciones gubernamentales.</Text>
+            <Text style={{ fontSize: 13, color: '#333', lineHeight: 20, marginBottom: 4 }}>• Fraude o negligencia del Cliente.</Text>
+            <Text style={{ fontSize: 13, color: '#333', lineHeight: 20, marginBottom: 4 }}>• Mercancía perecedera o de naturaleza frágil no declarada.</Text>
+            <Text style={{ fontSize: 13, color: '#333', lineHeight: 20, marginBottom: 4 }}>• Guerras, actos de terrorismo o desastres naturales.</Text>
+            <Text style={{ fontSize: 13, color: '#333', lineHeight: 20, marginBottom: 12 }}>• Mercancía prohibida o restringida por la ley.</Text>
+            <Text style={{ fontSize: 14, fontWeight: '700', color: ORANGE, marginBottom: 4 }}>CLÁUSULA SEXTA: CANCELACIÓN</Text>
+            <Text style={{ fontSize: 13, color: '#333', lineHeight: 20, marginBottom: 24 }}>
+              El Cliente puede cancelar este contrato en cualquier momento desactivando la opción "GEX Automático" en su perfil de usuario. Las pólizas ya generadas no serán canceladas y mantendrán su cobertura hasta el vencimiento del plazo de 90 días de cada embarque.
+            </Text>
+          </ScrollView>
+          {!gexPolicyScrolled && (
+            <View style={{ backgroundColor: '#FFEBEE', padding: 12, marginHorizontal: 16, borderRadius: 8 }}>
+              <Text style={{ color: '#D32F2F', fontSize: 13, textAlign: 'center' }}>⚠️ Desplázate hacia abajo para leer todo el contrato</Text>
+            </View>
+          )}
+          <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: '#eee' }}>
+            <TouchableOpacity
+              onPress={() => setGexPolicyAccepted(!gexPolicyAccepted)}
+              disabled={!gexPolicyScrolled}
+              style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16, opacity: gexPolicyScrolled ? 1 : 0.4 }}
+            >
+              <View style={{ width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: gexPolicyAccepted ? ORANGE : '#999', backgroundColor: gexPolicyAccepted ? ORANGE : 'transparent', alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
+                {gexPolicyAccepted && <Ionicons name="checkmark" size={16} color="white" />}
+              </View>
+              <Text style={{ flex: 1, fontSize: 13, color: '#333' }}>He leído y acepto los términos del contrato de Garantía Extendida Automática con vigencia indefinida</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => confirmGexAutoToggle(true)}
+              disabled={!gexPolicyAccepted || gexAutoLoading}
+              style={{ backgroundColor: gexPolicyAccepted ? '#10B981' : '#ccc', borderRadius: 12, padding: 16, alignItems: 'center' }}
+            >
+              <Text style={{ color: 'white', fontSize: 16, fontWeight: '700' }}>
+                {gexAutoLoading ? 'Activando...' : '✓ Activar GEX Automático'}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
