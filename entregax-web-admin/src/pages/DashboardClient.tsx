@@ -7562,7 +7562,9 @@ export default function DashboardClient() {
                               renderValue: (val: unknown) => {
                                 if (!val) return <Typography variant="body2" color="text.secondary">Sin paquetería default</Typography>;
                                 const found = availableCarriers.find((c: any) => c.id === val);
-                                return <Typography variant="body2">{found ? `${found.icon || '🚛'} ${found.name}` : String(val)}</Typography>;
+                                if (!found) return <Typography variant="body2">{String(val)}</Typography>;
+                                const iconIsEmoji = found.icon && !found.icon.startsWith('http') && !found.icon.startsWith('/');
+                                return <Typography variant="body2" noWrap>{iconIsEmoji ? found.icon : '🚛'} {found.name}</Typography>;
                               },
                             }}
                           >
