@@ -2603,7 +2603,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   supplierPaymentButton: {
-    backgroundColor: '#00796B',
+    backgroundColor: ORANGE,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
