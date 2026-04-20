@@ -4105,7 +4105,7 @@ export default function DashboardClient() {
                               '& .MuiChip-label': { px: 0.5 }
                             }}
                           />
-                        ) : (
+                        ) : !pkg.client_paid ? (
                           <Chip 
                             icon={
                               <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16 }}>
@@ -4133,7 +4133,7 @@ export default function DashboardClient() {
                               '& .MuiChip-label': { px: 0.5 }
                             }}
                           />
-                        )}
+                        ) : null}
                         
                         <Button 
                           variant={pkg.status === 'ready_pickup' ? 'contained' : 'outlined'}
@@ -5704,7 +5704,7 @@ export default function DashboardClient() {
                                   }
                                 }}
                               />
-                            ) : (
+                            ) : !pkg.client_paid ? (
                               <Chip
                                 icon={
                                   <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16 }}>
@@ -5729,7 +5729,7 @@ export default function DashboardClient() {
                                   setGexModalOpen(true);
                                 }}
                               />
-                            )}
+                            ) : null}
                           </Box>
                         </CardContent>
                       </Card>
@@ -5926,7 +5926,7 @@ export default function DashboardClient() {
                                     }
                                   }}
                                 />
-                              ) : (
+                              ) : !pkg.client_paid ? (
                                 <Chip
                                   icon={
                                     <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16 }}>
@@ -5951,7 +5951,7 @@ export default function DashboardClient() {
                                     setGexModalOpen(true);
                                   }}
                                 />
-                              )}
+                              ) : null}
                             </Box>
                             <Button 
                               variant="outlined"
