@@ -80,6 +80,7 @@ import CajaChicaPage from './pages/CajaChicaPage';
 import TesoreriaSucursalPage from './pages/TesoreriaSucursalPage';
 import WarehouseHubPage from './pages/WarehouseHubPage';
 import SecurityIcon from '@mui/icons-material/Security';
+import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import DescriptionIcon from '@mui/icons-material/Description';
 import LegalDocumentsPage from './pages/LegalDocumentsPage';
@@ -276,6 +277,7 @@ function App() {
   const [markingAsRead, setMarkingAsRead] = useState(false);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [pendingVerifications, setPendingVerifications] = useState<number>(0);
   const [userPanelPermissions, setUserPanelPermissions] = useState<Record<string, boolean>>({});
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
 
@@ -554,6 +556,20 @@ function App() {
     }
   };
 
+  const fetchPendingVerifications = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) return;
+      const response = await axios.get(`${API_URL}/admin/verifications/stats`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const pending = Number(response.data?.pending ?? 0);
+      setPendingVerifications(Number.isFinite(pending) ? pending : 0);
+    } catch (error) {
+      // 403/401 para roles sin acceso -> silencioso
+    }
+  };
+
   // Roles que pueden ver la lista de usuarios
   const canFetchUsers = currentUser?.role && ['super_admin', 'Super Admin', 'branch_manager', 'Branch Manager', 'admin', 'Admin', 'director', 'Director'].includes(currentUser.role);
   
@@ -573,6 +589,13 @@ function App() {
         fetchDashboardStats();
       } else {
         setStatsLoading(false);
+      }
+      // Verificaciones pendientes (solo roles con acceso al endpoint)
+      const canFetchVerifications = ['super_admin', 'Super Admin', 'admin', 'Admin', 'director', 'Director'].includes(currentUser.role);
+      if (canFetchVerifications) {
+        fetchPendingVerifications();
+        const interval = setInterval(fetchPendingVerifications, 60000);
+        return () => clearInterval(interval);
       }
     }
   }, [isAuthenticated, currentUser?.role]);
@@ -1203,6 +1226,46 @@ function App() {
           </Box>
         </Paper>
       </Box>
+
+      {/* Verificaciones Pendientes Widget */}
+      {pendingVerifications > 0 && (
+        <Paper
+          onClick={() => {
+            setSelectedIndex(3); // panels
+            setSelectedSubIndex(0); // panelsAdmin
+            setTimeout(() => window.dispatchEvent(new CustomEvent('open-admin-verifications')), 50);
+          }}
+          sx={{
+            p: 3,
+            mb: 3,
+            borderRadius: 2,
+            cursor: 'pointer',
+            background: 'linear-gradient(135deg, rgba(240, 90, 40, 0.08) 0%, rgba(193, 39, 45, 0.08) 100%)',
+            border: '1px solid rgba(240, 90, 40, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 2,
+            transition: 'all 0.2s',
+            '&:hover': { transform: 'translateY(-2px)', boxShadow: '0 6px 20px rgba(240, 90, 40, 0.2)' }
+          }}
+        >
+          <Avatar sx={{ background: 'linear-gradient(135deg, #C1272D 0%, #F05A28 100%)', width: 56, height: 56 }}>
+            <VerifiedUserIcon sx={{ color: 'white', fontSize: 30 }} />
+          </Avatar>
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="body2" color="text.secondary" fontWeight={500}>
+              Verificaciones de Identidad pendientes
+            </Typography>
+            <Typography variant="h4" fontWeight={700} sx={{ color: '#C1272D', lineHeight: 1.2 }}>
+              {pendingVerifications}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              Haz clic para revisar y aprobar documentos KYC
+            </Typography>
+          </Box>
+          <Box sx={{ color: '#F05A28', fontSize: 32, fontWeight: 700 }}>→</Box>
+        </Paper>
+      )}
 
       {/* Quick Stats Row */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(2, 1fr)' }, gap: 3, mb: 3 }}>

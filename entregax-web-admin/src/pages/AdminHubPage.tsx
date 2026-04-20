@@ -262,6 +262,17 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
     const [showCajaChica, setShowCajaChica] = useState(false);
     const [showFinanceDashboard, setShowFinanceDashboard] = useState(false);
     
+    // Escuchar evento global para abrir directamente verificaciones desde el dashboard
+    useEffect(() => {
+        const handler = () => {
+            setShowVerifications(true);
+            setSelectedService(null);
+            setSelectedModule(null);
+        };
+        window.addEventListener('open-admin-verifications', handler);
+        return () => window.removeEventListener('open-admin-verifications', handler);
+    }, []);
+    
     // Estado para permisos de módulos del servicio seleccionado
     const [modulePermissions, setModulePermissions] = useState<Record<string, boolean>>({});
     const [modulePermissionsLoading, setModulePermissionsLoading] = useState(false);
