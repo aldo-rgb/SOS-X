@@ -524,7 +524,15 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
         // Si tiene carrier última milla O tiene dirección USA asignada, auto-procesar
         // Si leaveInWarehouse, NO auto-procesar (queda en received para que cliente asigne)
         // Si no hay usuario, queda en 'received' para asignar después
-        const shouldAutoProcess = user && !leaveInWarehouse && (isLastMileShipment || hasDefaultUsaAddress);
+        //
+        // ⚠️ IMPORTANTE: aunque el cliente tenga dirección e instrucciones por defecto
+        // guardadas, el paquete debe permanecer en "Recibido en bodega" (received)
+        // hasta que un operador imprima la guía / despache. Saltar a "processing"
+        // automáticamente confunde al cliente porque muestra "Procesando - Guía impresa"
+        // sin que se haya impreso nada todavía. Por eso hasDefaultUsaAddress YA NO
+        // dispara el auto-procesado; solo lo hace isLastMileShipment (se eligió un
+        // carrier de última milla explícito al registrar la recepción).
+        const shouldAutoProcess = user && !leaveInWarehouse && isLastMileShipment;
         const initialStatus = shouldAutoProcess ? 'processing' : 'received';
 
         // 💰 Calcular costo para PO Box USA con desglose
