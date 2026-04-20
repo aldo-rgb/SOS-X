@@ -3977,11 +3977,14 @@ export default function DashboardClient() {
                             const airSalePrice = pkg.air_sale_price ? Number(pkg.air_sale_price) : 0;
                             if (airSalePrice > 0) {
                               // Precio congelado desde backend (tarifa asignada al llegar a gestión aérea)
-                              const tariffLabel = pkg.air_tariff_type === 'L' ? 'Logo' : pkg.air_tariff_type === 'G' ? 'Genérico' : pkg.air_tariff_type || '';
+                              const tariffLabel = pkg.air_tariff_type === 'L' ? 'Logo' : pkg.air_tariff_type === 'G' ? 'Genérico' : pkg.air_tariff_type === 'SU' ? 'Start Up' : pkg.air_tariff_type || '';
+                              // Convertir a MXN
+                              const exRate = Number(pkg.registered_exchange_rate) || Number(pkg.exchange_rate) || 18.5;
+                              const airPriceMXN = airSalePrice * exRate;
                               return (
                                 <Box sx={{ textAlign: 'right' }}>
                                   <Typography variant="body2" color="warning.main" fontWeight="bold" sx={{ fontSize: '0.8rem' }}>
-                                    ${airSalePrice.toFixed(2)} USD
+                                    {formatCurrency(airPriceMXN)}
                                   </Typography>
                                   {tariffLabel && (
                                     <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
@@ -3995,9 +3998,11 @@ export default function DashboardClient() {
                             if (pkg.weight && Number(pkg.weight) > 0) {
                               const weightKg = Number(pkg.weight);
                               const estUSD = weightKg * 21;
+                              const exRate = Number(pkg.registered_exchange_rate) || Number(pkg.exchange_rate) || 18.5;
+                              const estMXN = estUSD * exRate;
                               return (
                                 <Typography variant="body2" color="text.secondary" fontWeight="bold" sx={{ fontSize: '0.8rem', fontStyle: 'italic' }}>
-                                  ~${estUSD.toFixed(2)} USD
+                                  ~{formatCurrency(estMXN)}
                                 </Typography>
                               );
                             }
