@@ -37,7 +37,6 @@ export async function createWidgetToken(options?: { link_id?: string; widget_bra
   const payload: any = {
     id: BELVO_SECRET_ID,
     password: BELVO_SECRET_PASSWORD,
-    scopes: 'read_institutions,write_links,read_links,delete_links,read_accounts,read_transactions',
     ...(options?.link_id && { link_id: options.link_id }),
     ...(options?.widget_branding && { widget: options.widget_branding }),
   };

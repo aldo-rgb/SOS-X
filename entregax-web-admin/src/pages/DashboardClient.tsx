@@ -622,11 +622,13 @@ export default function DashboardClient() {
       });
       const data = await res.json();
       if (data.success && data.data) {
-        const mapped = data.data.filter((c: any) => c.carrier_type !== 'collect').map((c: any) => ({
-          id: c.carrier_key,
-          name: c.name,
-          icon: (c.icon && !c.icon.startsWith('http') && !c.icon.startsWith('/')) ? c.icon : '🚛',
-        }));
+        const mapped = data.data.filter((c: any) => c.carrier_type !== 'collect').map((c: any) => {
+          let iconUrl = c.icon || '🚛';
+          const lm = iconUrl.match(/https?:\/\/localhost:\d+(\/uploads\/.*)/);
+          if (lm) iconUrl = `${API_URL}${lm[1]}`;
+          else if (iconUrl.startsWith('/uploads/')) iconUrl = `${API_URL}${iconUrl}`;
+          return { id: c.carrier_key, name: c.name, icon: iconUrl };
+        });
         setCarriersPerService(prev => ({ ...prev, [serviceType]: mapped }));
         return mapped;
       }
@@ -642,18 +644,25 @@ export default function DashboardClient() {
         });
         const data = await res.json();
         if (data.success && data.data) {
-          setCarrierServices(data.data.map((c: { carrier_key: string; name: string; description: string; price_label: string; subtext: string; icon: string; allows_collect: boolean; carrier_type: string }) => ({
+          setCarrierServices(data.data.map((c: { carrier_key: string; name: string; description: string; price_label: string; subtext: string; icon: string; allows_collect: boolean; carrier_type: string }) => {
+            // Fix icon URLs - prefix relative paths with API_URL
+            let iconUrl = c.icon || '🚛';
+            const localMatch = iconUrl.match(/https?:\/\/localhost:\d+(\/uploads\/.*)/);
+            if (localMatch) iconUrl = `${API_URL}${localMatch[1]}`;
+            else if (iconUrl.startsWith('/uploads/')) iconUrl = `${API_URL}${iconUrl}`;
+            return {
             id: c.carrier_key,
             name: c.name,
             description: c.description || '',
             price: c.price_label || '',
             subtext: c.subtext || undefined,
-            icon: c.icon || '🚛',
+            icon: iconUrl,
             allowsCollect: c.allows_collect || false,
             isDynamic: c.price_label === 'API',
             isTotalPrice: false,
             isCollect: c.carrier_type === 'collect' || c.allows_collect,
-          })));
+          };
+          }));
         }
       } catch (err) {
         // Fallback a opciones hardcoded si la API falla
@@ -3704,7 +3713,7 @@ export default function DashboardClient() {
                       onClick={() => setDeliveryModalOpen(true)}
                       sx={{ 
                         position: 'fixed',
-                        bottom: isMobile ? 70 : 90,
+                        bottom: isMobile ? 130 : 90,
                         right: isMobile ? 10 : 20,
                         zIndex: 1000,
                         minWidth: 'auto',
@@ -6539,20 +6548,25 @@ export default function DashboardClient() {
                           <Paper 
                             elevation={selectedCarrierService === service.id ? 2 : 0}
                             sx={{ 
-                              p: 2, 
+                              p: isMobile ? 1.5 : 2, 
                               bgcolor: selectedCarrierService === service.id ? 'primary.50' : 'transparent',
                               border: selectedCarrierService === service.id ? `2px solid ${ORANGE}` : '1px solid #eee',
                               borderRadius: 2,
                               width: '100%',
-                              minHeight: 90,
+                              minHeight: isMobile ? 70 : 90,
                             }}
                           >
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: 100, flexShrink: 0 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: isMobile ? 1 : 2 }}>
+                              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: isMobile ? 70 : 100, flexShrink: 0 }}>
                                 {service.icon && (service.icon.startsWith('http') || service.icon.startsWith('/uploads')) ? (
-                                  <Box component="img" src={service.icon} alt={service.name} sx={{ width: 100, height: 60, objectFit: 'contain' }} />
+                                  <Box 
+                                    component="img" 
+                                    src={service.icon} 
+                                    alt={service.name} 
+                                    sx={{ width: isMobile ? 60 : 100, height: isMobile ? 36 : 60, objectFit: 'contain' }}
+                                  />
                                 ) : (
-                                  <Box sx={{ fontSize: '2.5rem' }}>{service.icon}</Box>
+                                  <Box sx={{ fontSize: isMobile ? '1.8rem' : '2.5rem' }}>{service.icon || '🚛'}</Box>
                                 )}
                                 <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, textAlign: 'center', lineHeight: 1.2 }}>
                                   ⏱ {service.description}

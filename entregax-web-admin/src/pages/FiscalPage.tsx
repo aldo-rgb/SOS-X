@@ -428,7 +428,7 @@ export default function FiscalPage() {
       const tokenRes = await axios.post(`${API_URL}/admin/belvo/widget-token`, {}, {
         headers: { Authorization: `Bearer ${getToken()}` }
       });
-      const { access, environment } = tokenRes.data;
+      const { access } = tokenRes.data;
 
       // Load Belvo widget script
       const script = document.createElement('script');
@@ -778,6 +778,7 @@ export default function FiscalPage() {
                     <TableCell align="center">
                       <IconButton onClick={() => handleOpenModal(emitter)} size="small">
                         <EditIcon />
+                      </IconButton>
                     </TableCell>
                   </TableRow>
                 )) : (

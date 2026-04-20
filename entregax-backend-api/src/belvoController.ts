@@ -17,8 +17,13 @@ export async function getWidgetToken(req: Request, res: Response): Promise<any> 
     const token = await belvoService.createWidgetToken({ link_id });
     res.json({ success: true, access: token, environment: belvoService.getBelvoEnv() });
   } catch (error: any) {
-    console.error('Error getting Belvo widget token:', error.response?.data || error.message);
-    res.status(500).json({ error: 'Error obteniendo token de widget', details: error.response?.data || error.message });
+    const belvoError = error.response?.data;
+    console.error('Error getting Belvo widget token:', belvoError || error.message);
+    const errorCode = Array.isArray(belvoError) ? belvoError[0]?.code : belvoError?.code;
+    if (errorCode === 'no_active_account') {
+      return res.status(401).json({ error: 'Credenciales de Belvo inválidas. Verifica BELVO_SECRET_ID y BELVO_SECRET_PASSWORD en .env', code: 'invalid_credentials' });
+    }
+    res.status(500).json({ error: 'Error obteniendo token de widget', details: belvoError || error.message });
   }
 }
 
