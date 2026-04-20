@@ -1741,7 +1741,7 @@ export async function getAirTariffs(req: AuthRequest, res: Response) {
     const startupMap: Record<number, any[]> = {};
     for (const s of startupResult.rows) {
       if (!startupMap[s.route_id]) startupMap[s.route_id] = [];
-      startupMap[s.route_id].push({
+      startupMap[s.route_id]!.push({
         id: s.id,
         min_weight: parseFloat(s.min_weight),
         max_weight: parseFloat(s.max_weight),
