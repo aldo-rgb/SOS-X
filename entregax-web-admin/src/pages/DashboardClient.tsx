@@ -3913,109 +3913,11 @@ export default function DashboardClient() {
                         </Box>
                       </Box>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-                        {(() => {
-                          const pkgMonto = Number(pkg.monto) || 0;
-                          const isDhl = pkg.shipment_type === 'dhl' || pkg.servicio === 'AA_DHL' || pkg.servicio === 'DHL_MTY';
-                          const isMaritime = pkg.shipment_type === 'maritime' || pkg.servicio === 'SEA_CHN_MX' || pkg.servicio === 'FCL_CHN_MX';
-                          const currency = pkg.monto_currency || (isDhl ? 'USD' : 'MXN');
-                          // Mostrar precio asignado o estimado
-                          if (pkgMonto > 0 && !pkg.client_paid) {
-                            // Para marítimo/FCL, mostrar precio con label de tipo
-                            if (isMaritime && pkgMonto > 0) {
-                              const merchLabel = pkg.merchandise_type === 'sensitive' ? 'Sensible' 
-                                : pkg.merchandise_type === 'logo' ? 'Logotipo' 
-                                : pkg.merchandise_type === 'startup' ? 'StartUp'
-                                : pkg.merchandise_type === 'FCL' ? 'FCL'
-                                : 'Genérico';
-                              return (
-                                <Box sx={{ textAlign: 'right' }}>
-                                  <Typography variant="body2" color="warning.main" fontWeight="bold">
-                                    {currency === 'USD' ? `$${pkgMonto.toFixed(2)} USD` : formatCurrency(pkgMonto)}
-                                  </Typography>
-                                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
-                                    {merchLabel}
-                                  </Typography>
-                                </Box>
-                              );
-                            }
-                            return (
-                              <Box sx={{ textAlign: 'right' }}>
-                                <Typography variant="body2" color="warning.main" fontWeight="bold">
-                                  {currency === 'USD' ? `$${pkgMonto.toFixed(2)} USD` : formatCurrency(pkgMonto)}
-                                </Typography>
-                                {isDhl && pkg.product_type && (
-                                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
-                                    {pkg.product_type === 'high_value' ? 'Sensible' : 'Accesorios/Mixto'}
-                                  </Typography>
-                                )}
-                              </Box>
-                            );
-                          }
-                          // Para marítimo sin precio asignado, mostrar estimado por CBM
-                          if (pkgMonto === 0 && !pkg.client_paid && pkg.cbm && Number(pkg.cbm) > 0 &&
-                              (pkg.shipment_type === 'maritime' || pkg.servicio === 'SEA_CHN_MX')) {
-                            const cbm = Number(pkg.cbm);
-                            let estUSD = 0;
-                            if (cbm <= 0.25) estUSD = 399;
-                            else if (cbm <= 0.50) estUSD = 549;
-                            else if (cbm <= 0.75) estUSD = 699;
-                            else if (cbm < 1) estUSD = cbm * 899;
-                            else if (cbm <= 3) estUSD = cbm * 899;
-                            else if (cbm <= 6) estUSD = cbm * 849;
-                            else if (cbm <= 10) estUSD = cbm * 799;
-                            else if (cbm <= 20) estUSD = cbm * 749;
-                            else estUSD = cbm * 649;
-                            return (
-                              <Typography variant="body2" color="warning.main" fontWeight="bold" sx={{ fontSize: '0.8rem' }}>
-                                ${estUSD.toFixed(2)} USD
-                              </Typography>
-                            );
-                          }
-                          // Para aéreo China: usar precio congelado del backend si existe, sino estimado
-                          if (pkgMonto === 0 && !pkg.client_paid &&
-                              (pkg.shipment_type === 'china_air' || pkg.servicio === 'AIR_CHN_MX')) {
-                            const airSalePrice = pkg.air_sale_price ? Number(pkg.air_sale_price) : 0;
-                            if (airSalePrice > 0) {
-                              // Precio congelado desde backend (tarifa asignada al llegar a gestión aérea)
-                              const tariffLabel = pkg.air_tariff_type === 'L' ? 'Logo' : pkg.air_tariff_type === 'G' ? 'Genérico' : pkg.air_tariff_type === 'SU' ? 'Start Up' : pkg.air_tariff_type || '';
-                              // Convertir a MXN
-                              const exRate = Number(pkg.registered_exchange_rate) || Number(pkg.exchange_rate) || 18.5;
-                              const airPriceMXN = airSalePrice * exRate;
-                              return (
-                                <Box sx={{ textAlign: 'right' }}>
-                                  <Typography variant="body2" color="warning.main" fontWeight="bold" sx={{ fontSize: '0.8rem' }}>
-                                    {formatCurrency(airPriceMXN)}
-                                  </Typography>
-                                  {tariffLabel && (
-                                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.65rem' }}>
-                                      {tariffLabel}
-                                    </Typography>
-                                  )}
-                                </Box>
-                              );
-                            }
-                            // Sin precio congelado → mostrar estimado si hay peso
-                            if (pkg.weight && Number(pkg.weight) > 0) {
-                              const weightKg = Number(pkg.weight);
-                              const estUSD = weightKg * 21;
-                              const exRate = Number(pkg.registered_exchange_rate) || Number(pkg.exchange_rate) || 18.5;
-                              const estMXN = estUSD * exRate;
-                              return (
-                                <Typography variant="body2" color="text.secondary" fontWeight="bold" sx={{ fontSize: '0.8rem', fontStyle: 'italic' }}>
-                                  ~{formatCurrency(estMXN)}
-                                </Typography>
-                              );
-                            }
-                          }
-                          if (pkg.client_paid) {
-                            return (
-                              <Typography variant="body2" color="success.main" fontWeight="bold" sx={{ fontSize: isMobile ? '0.65rem' : '0.75rem' }}>
-                                ✅ {isMobile ? '' : 'Pagado'}
-                              </Typography>
-                            );
-                          }
-                          return null;
-                        })()}
+                        {pkg.client_paid && (
+                          <Typography variant="body2" color="success.main" fontWeight="bold" sx={{ fontSize: isMobile ? '0.65rem' : '0.75rem' }}>
+                            ✅ {isMobile ? '' : 'Pagado'}
+                          </Typography>
+                        )}
                         <Chip 
                           label={isMobile ? (pkg.status === 'ready_pickup' ? '🟠' : pkg.status === 'in_transit' ? '🔵' : pkg.status === 'delivered' ? '✅' : '⚪') : getStatusDisplayLabel(pkg.status, pkg.status_label)} 
                           color={pkg.status === 'ready_pickup' ? 'warning' : pkg.status === 'in_transit' ? 'info' : 'default'}
