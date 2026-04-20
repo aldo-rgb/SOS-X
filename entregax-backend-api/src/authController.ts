@@ -68,11 +68,50 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
             return;
         }
 
-        // 1. Verificar si el usuario ya existe en PostgreSQL
-        const userCheck = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-        
+        // Normalizar email (minúsculas + trim) para comparación consistente
+        const normalizedEmail = String(email).toLowerCase().trim();
+
+        // 1. Verificar si el usuario ya existe en PostgreSQL (case-insensitive)
+        const userCheck = await pool.query(
+            'SELECT id, box_id FROM users WHERE LOWER(email) = $1',
+            [normalizedEmail]
+        );
+
         if (userCheck.rows.length > 0) {
-            res.status(400).json({ error: 'El usuario ya existe' });
+            res.status(409).json({
+                error: 'Este correo ya está registrado. Inicia sesión o recupera tu contraseña.',
+                errorCode: 'USER_EXISTS'
+            });
+            return;
+        }
+
+        // 1.1 Verificar si el correo existe en legacy_clients (cliente anterior sin activar)
+        // Si existe y NO fue reclamado, devolvemos datos para redirigir al flujo de
+        // "Activar cuenta existente".
+        const legacyEmailCheck = await pool.query(
+            `SELECT box_id, full_name, is_claimed, claimed_by_user_id
+             FROM legacy_clients
+             WHERE LOWER(email) = $1
+             ORDER BY is_claimed ASC, registration_date DESC NULLS LAST
+             LIMIT 1`,
+            [normalizedEmail]
+        );
+
+        if (legacyEmailCheck.rows.length > 0) {
+            const legacy = legacyEmailCheck.rows[0];
+            if (legacy.is_claimed || legacy.claimed_by_user_id) {
+                res.status(409).json({
+                    error: 'Este correo ya está registrado. Inicia sesión o recupera tu contraseña.',
+                    errorCode: 'USER_EXISTS'
+                });
+                return;
+            }
+            res.status(409).json({
+                error: 'Este correo corresponde a un cliente anterior. Activa tu cuenta existente.',
+                errorCode: 'LEGACY_EMAIL_EXISTS',
+                boxId: legacy.box_id,
+                fullName: legacy.full_name
+            });
             return;
         }
 

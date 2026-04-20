@@ -533,7 +533,7 @@ export const createWarrantyByUser = async (req: AuthRequest, res: Response): Pro
             return;
         }
 
-        // Regla de negocio PO Box: GEX solo se puede contratar en RECIBIDO CEDIS (status=received)
+        // Regla de negocio PO Box: GEX se puede contratar en RECIBIDO CEDIS o EN TRANSITO
         if (packageId) {
             const pkgCheck = await pool.query(
                 `SELECT id, user_id, service_type, status::text as status
@@ -550,8 +550,8 @@ export const createWarrantyByUser = async (req: AuthRequest, res: Response): Pro
                 }
 
                 const isPobox = pkg.service_type === 'POBOX_USA' || serviceType === 'POBOX_USA' || serviceType === 'air';
-                if (isPobox && pkg.status !== 'received') {
-                    res.status(400).json({ error: 'GEX en PO Box solo se puede contratar en estatus RECIBIDO CEDIS' });
+                if (isPobox && !['received', 'in_transit'].includes(pkg.status)) {
+                    res.status(400).json({ error: 'GEX en PO Box solo se puede contratar en estatus RECIBIDO CEDIS o EN TRANSITO' });
                     return;
                 }
             }

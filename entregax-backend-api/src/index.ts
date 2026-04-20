@@ -1,10 +1,19 @@
 // EntregaX Backend API v2.1.0
-import express, { Request, Response } from 'express';
+import express, { NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import multer from 'multer';
 import path from 'path';
 import axios from 'axios';
+
+// En producción se silencian logs de depuración/info para evitar exponer PII o payloads sensibles.
+// Se conservan console.warn y console.error para operaciones.
+if (process.env.NODE_ENV === 'production' && process.env.ENABLE_DEBUG_LOGS !== 'true') {
+  console.log = () => {};
+  console.info = () => {};
+  console.debug = () => {};
+}
+
 import { pool } from './db';
 import { generateCommissionsForPackages } from './commissionService';
 import { 
@@ -896,11 +905,107 @@ async function activateGexForPaidPackages(packageIds: number[]): Promise<void> {
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
+const allowedOrigins = [
+  ...(process.env.CORS_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://localhost:3000',
+].filter(Boolean) as string[];
+
+const uniqueAllowedOrigins = Array.from(new Set(allowedOrigins));
+const bodyLimit = process.env.BODY_LIMIT || '10mb';
+
+const authRateWindowMs = Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000);
+const authRateMax = Number(process.env.AUTH_RATE_LIMIT_MAX || 20);
+const authRateStore = new Map<string, { count: number; resetAt: number }>();
+
+const authRateLimit = (req: Request, res: Response, next: NextFunction) => {
+  const key = `${req.ip}:${req.path}`;
+  const now = Date.now();
+  const item = authRateStore.get(key);
+
+  if (!item || now > item.resetAt) {
+    authRateStore.set(key, { count: 1, resetAt: now + authRateWindowMs });
+    return next();
+  }
+
+  if (item.count >= authRateMax) {
+    return res.status(429).json({
+      error: 'Demasiados intentos. Intenta de nuevo más tarde.',
+    });
+  }
+
+  item.count += 1;
+  authRateStore.set(key, item);
+  next();
+};
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, item] of authRateStore.entries()) {
+    if (now > item.resetAt) {
+      authRateStore.delete(key);
+    }
+  }
+}, 60 * 1000);
+
 // Middlewares
-app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use(express.text({ limit: '50mb', type: ['text/plain', 'text/html'] })); // Para callbacks encriptados de MoJie
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  if (process.env.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  }
+  next();
+});
+
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  const originalJson = res.json.bind(res);
+  (res as any).json = (payload: any) => {
+    if (
+      process.env.NODE_ENV === 'production' &&
+      res.statusCode >= 500 &&
+      payload &&
+      typeof payload === 'object'
+    ) {
+      const sanitized = { ...payload };
+      delete sanitized.details;
+      delete sanitized.stack;
+      delete sanitized.logs;
+      if (sanitized.error && typeof sanitized.error === 'string') {
+        sanitized.error = 'Error interno del servidor';
+      }
+      return originalJson(sanitized);
+    }
+    return originalJson(payload);
+  };
+  next();
+});
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (uniqueAllowedOrigins.length === 0 || uniqueAllowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error('Not allowed by CORS'));
+  },
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: false,
+}));
+
+app.use(express.json({ limit: bodyLimit }));
+app.use(express.urlencoded({ limit: bodyLimit, extended: true }));
+app.use(express.text({ limit: bodyLimit, type: ['text/plain', 'text/html'] })); // Para callbacks encriptados de MoJie
 
 // Servir archivos estáticos de uploads
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
@@ -926,7 +1031,7 @@ app.get('/api/health', (_req: Request, res: Response) => {
 });
 
 // DEBUG: Verificar conexión a base de datos
-app.get('/health/db', async (_req: Request, res: Response) => {
+app.get('/health/db', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
   try {
     const result = await pool.query('SELECT NOW() as time, current_database() as db');
     res.json({ 
@@ -1480,8 +1585,8 @@ app.get('/', (_req: Request, res: Response) => {
 });
 
 // --- RUTAS DE AUTENTICACIÓN ---
-app.post('/api/auth/register', registerUser);
-app.post('/api/auth/login', loginUser);
+app.post('/api/auth/register', authRateLimit, registerUser);
+app.post('/api/auth/login', authRateLimit, loginUser);
 app.get('/api/auth/profile', authenticateToken, getProfile);
 app.post('/api/auth/change-password', authenticateToken, changePassword);
 app.put('/api/auth/update-profile', authenticateToken, updateProfile);
@@ -1489,7 +1594,7 @@ app.put('/api/auth/profile-photo', authenticateToken, updateProfilePhoto);
 
 // --- RUTAS DE CLIENTES LEGACY (Migración) ---
 // Públicas (para registro)
-app.post('/api/legacy/claim', claimLegacyAccount);
+app.post('/api/legacy/claim', authRateLimit, claimLegacyAccount);
 app.get('/api/legacy/verify/:boxId', verifyLegacyBox);
 app.post('/api/legacy/verify-name', verifyLegacyName);
 // Protegidas (para admin)
@@ -1681,19 +1786,33 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         status::text as status,
         CASE
           -- Flujo específico PO Box USA
-          WHEN service_type = 'POBOX_USA' AND status::text = 'ready_pickup' THEN 'Listo para recoger Hidalgo TX'
-          WHEN service_type = 'POBOX_USA' AND status::text = 'received' AND dispatched_at IS NULL THEN 'RECIBIDO CEDIS (Hidalgo TX)'
-          WHEN service_type = 'POBOX_USA' AND status::text = 'in_transit' THEN 'EN TRÁNSITO A MTY, N.L.'
-          WHEN service_type = 'POBOX_USA' AND status::text = 'received' AND dispatched_at IS NOT NULL THEN 'RECIBIDO EN CEDIS (MTY)'
-          WHEN service_type = 'POBOX_USA' AND status::text IN ('received_mty', 'received_cedis') THEN 'RECIBIDO EN CEDIS (MTY)'
-          WHEN service_type = 'POBOX_USA' AND status::text = 'processing' THEN 'Procesando - Guía impresa'
-          WHEN service_type = 'POBOX_USA' AND status::text IN ('out_for_delivery', 'en_ruta_entrega') THEN 'En ruta de entrega'
-          WHEN service_type = 'POBOX_USA' AND status::text IN ('shipped', 'sent', 'enviado') THEN 'Enviado'
+          WHEN service_type = 'POBOX_USA' AND status::text = 'ready_pickup' THEN 'En Ruta'
+          WHEN service_type = 'POBOX_USA' AND status::text = 'received' AND dispatched_at IS NULL THEN 'Recibido CEDIS HIDALGO TX'
+          WHEN service_type = 'POBOX_USA' AND status::text = 'in_transit' THEN 'EN TRANSITO A MTY NL'
+          WHEN service_type = 'POBOX_USA' AND status::text = 'received' AND dispatched_at IS NOT NULL THEN 'RECIBIDO EN CEDIS MTY'
+          WHEN service_type = 'POBOX_USA' AND status::text IN ('received_mty', 'received_cedis') THEN 'RECIBIDO EN CEDIS MTY'
+          WHEN service_type = 'POBOX_USA' AND status::text = 'processing' THEN 'Procesando'
+          WHEN service_type = 'POBOX_USA' AND status::text IN ('out_for_delivery', 'en_ruta_entrega') THEN 'En Ruta'
+          WHEN service_type = 'POBOX_USA' AND status::text IN ('shipped', 'sent', 'enviado') THEN 'ENVIADO'
           WHEN service_type = 'POBOX_USA' AND status::text = 'delivered' THEN
             CASE
-              WHEN COALESCE(received_by, '') <> '' THEN 'Entregado: ' || received_by
-              ELSE 'Entregado'
+              WHEN COALESCE(received_by, '') <> '' THEN 'ENTREGADO'
+              ELSE 'ENTREGADO'
             END
+
+          -- Flujo específico TDI Aéreo China
+          WHEN service_type = 'AIR_CHN_MX' AND status::text = 'received_china' THEN 'Recibido China'
+          WHEN service_type = 'AIR_CHN_MX' AND status::text = 'received_origin' THEN 'En Bodega China'
+          WHEN service_type = 'AIR_CHN_MX' AND status::text = 'in_transit' THEN 'En Tránsito'
+          WHEN service_type = 'AIR_CHN_MX' AND status::text = 'at_customs' THEN 'En Aduana'
+          WHEN service_type = 'AIR_CHN_MX' AND status::text = 'in_transit_mx' THEN 'En Ruta Cedis México'
+          WHEN service_type = 'AIR_CHN_MX' AND status::text = 'received_cedis' THEN 'En CEDIS'
+          WHEN service_type = 'AIR_CHN_MX' AND status::text = 'ready_pickup' THEN 'Listo Recoger'
+          WHEN service_type = 'AIR_CHN_MX' AND status::text = 'in_transit_mty' THEN 'EN TRÁNSITO A MTY, N.L.'
+          WHEN service_type = 'AIR_CHN_MX' AND status::text IN ('processing', 'customs') THEN 'Procesando - Guía impresa'
+          WHEN service_type = 'AIR_CHN_MX' AND status::text = 'out_for_delivery' THEN 'EN RUTA'
+          WHEN service_type = 'AIR_CHN_MX' AND status::text IN ('shipped', 'sent', 'enviado') THEN 'ENVIADO'
+          WHEN service_type = 'AIR_CHN_MX' AND status::text = 'delivered' THEN 'Entregado'
 
           -- Flujo general
           WHEN status::text = 'received' THEN 'En Bodega'
@@ -2216,8 +2335,8 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
         END as shipment_type,
         status,
         CASE
-          WHEN service_type = 'POBOX_USA' AND COALESCE(received_by, '') <> '' THEN 'Entregado: ' || received_by
-          ELSE 'Entregado'
+          WHEN service_type = 'POBOX_USA' AND COALESCE(received_by, '') <> '' THEN 'ENTREGADO'
+          ELSE 'ENTREGADO'
         END as status_label,
         COALESCE(TO_CHAR(delivered_at, 'DD Mon YYYY'), TO_CHAR(updated_at, 'DD Mon YYYY')) as fecha_entrega,
         COALESCE(assigned_cost_mxn, 0) as monto,

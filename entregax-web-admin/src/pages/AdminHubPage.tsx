@@ -240,6 +240,11 @@ const PANEL_TO_SERVICE: Record<string, string> = {
 
 export default function AdminHubPage({ users = [], loading = false, onRefresh, panelPermissions = {}, permissionsReady = false }: Props) {
     const { t } = useTranslation();
+
+    const getModuleLabel = (moduleKey: string, serviceKey?: string | null): string => {
+        if (moduleKey === 'costing' && serviceKey === 'china_sea') return 'Costeo Marítimo';
+        return t(`panels.modules.${moduleKey}`);
+    };
     
     const [selectedService, setSelectedService] = useState<string | null>(null);
     const [selectedModule, setSelectedModule] = useState<string | null>(null);
@@ -1182,7 +1187,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 <Paper sx={{ p: 4, textAlign: 'center' }}>
                     <ConstructionIcon sx={{ fontSize: 80, color: 'warning.main', mb: 2 }} />
                     <Typography variant="h5" fontWeight="bold" gutterBottom>
-                        {t(`panels.modules.${selectedModule}`)} - {t(`panels.services.${selectedService}.title`)}
+                        {getModuleLabel(selectedModule, selectedService)} - {t(`panels.services.${selectedService}.title`)}
                     </Typography>
                     <Typography color="text.secondary" sx={{ mb: 3 }}>
                         {t('panels.developmentSoon')}
@@ -1378,7 +1383,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                                         </Box>
                                         <Box sx={{ flex: 1 }}>
                                             <Typography variant="subtitle1" fontWeight="bold">
-                                                {t(`panels.modules.${module.key}`)}
+                                                {getModuleLabel(module.key, selectedService)}
                                             </Typography>
                                             <Chip
                                                 label={module.status === 'pending' ? `🚧 ${t('panels.inDevelopment')}` : `✅ ${t('panels.active')}`}

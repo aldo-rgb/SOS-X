@@ -155,10 +155,13 @@ interface InventoryPackage {
 // Status disponibles para filtro
 const STATUS_OPTIONS = [
     { value: 'all', label: 'Todos', color: 'default' },
-    { value: 'received', label: 'En Bodega', color: 'info' },
+    { value: 'received', label: 'Recibido CEDIS HIDALGO TX', color: 'info' },
+    { value: 'received_mty', label: 'RECIBIDO EN CEDIS MTY', color: 'info' },
     { value: 'processing', label: 'Procesando', color: 'warning' },
-    { value: 'in_transit', label: 'En Tránsito', color: 'primary' },
-    { value: 'delivered', label: 'Entregado', color: 'success' },
+    { value: 'in_transit', label: 'EN TRANSITO A MTY NL', color: 'primary' },
+    { value: 'ready_pickup', label: 'En Ruta', color: 'success' },
+    { value: 'shipped', label: 'ENVIADO', color: 'default' },
+    { value: 'delivered', label: 'ENTREGADO', color: 'success' },
 ];
 
 // Paqueterías disponibles
@@ -731,8 +734,11 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const getStatusColor = (status: string): 'default' | 'info' | 'warning' | 'primary' | 'success' | 'error' => {
         const colors: Record<string, 'default' | 'info' | 'warning' | 'primary' | 'success' | 'error'> = {
             received: 'info',
+            received_mty: 'info',
             processing: 'warning',
             in_transit: 'primary',
+            ready_pickup: 'success',
+            shipped: 'default',
             delivered: 'success',
             customs: 'error',
         };
@@ -742,10 +748,13 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     // Obtener label del status
     const getStatusLabel = (status: string): string => {
         const labels: Record<string, string> = {
-            received: '📦 En Bodega',
+            received: '📦 Recibido CEDIS HIDALGO TX',
+            received_mty: '🏢 RECIBIDO EN CEDIS MTY',
             processing: '📋 Procesando',
-            in_transit: '🚚 En Tránsito',
-            delivered: '✅ Entregado',
+            in_transit: '🚚 EN TRANSITO A MTY NL',
+            ready_pickup: '🛣️ En Ruta',
+            shipped: '📤 ENVIADO',
+            delivered: '✅ ENTREGADO',
             customs: '🛃 En Aduana',
         };
         return labels[status] || status;

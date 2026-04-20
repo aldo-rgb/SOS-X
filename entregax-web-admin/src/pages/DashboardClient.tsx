@@ -336,6 +336,24 @@ export default function DashboardClient() {
     t('cd.steps.warehouse'), t('cd.steps.ready'), t('cd.steps.delivered')
   ], [t]);
 
+  const airStatusSteps = useMemo(() => [
+    'Recibido China / En Bodega China',
+    'En Tránsito',
+    'En CEDIS MX',
+    'Procesando',
+    'EN RUTA',
+    'Entregado',
+  ], []);
+
+  const maritimeStatusSteps = useMemo(() => [
+    'En Bodega',
+    'Ya Zarpó',
+    'Arribo a Puerto',
+    'En Tránsito MX',
+    'EN RUTA',
+    'Entregado',
+  ], []);
+
   const poboxStatusSteps = useMemo(() => [
     'Recibido',
     'En tránsito',
@@ -346,7 +364,11 @@ export default function DashboardClient() {
   ], []);
 
   const getStepsForPackage = (pkg: PackageTracking): string[] => {
+    const isMaritime = pkg.servicio === 'SEA_CHN_MX' || pkg.servicio === 'FCL_CHN_MX' || pkg.shipment_type === 'maritime';
+    const isChinaAir = pkg.servicio === 'AIR_CHN_MX' || pkg.shipment_type === 'china_air';
     const isPobox = pkg.servicio === 'POBOX_USA' || pkg.shipment_type === 'air';
+    if (isMaritime) return maritimeStatusSteps;
+    if (isChinaAir) return airStatusSteps;
     return isPobox ? poboxStatusSteps : statusSteps;
   };
 
@@ -358,6 +380,30 @@ export default function DashboardClient() {
   const [boxId, setBoxId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState(0);
+
+  // Estado de verificación del cliente - los paquetes solo se muestran si está verificado
+  const isClientVerified = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('user');
+      if (!raw) return false;
+      const parsed = JSON.parse(raw);
+      const verified = parsed.isVerified ?? parsed.is_verified ?? false;
+      const status = parsed.verificationStatus || parsed.verification_status || '';
+      return Boolean(verified) || status === 'approved' || status === 'verified';
+    } catch {
+      return false;
+    }
+  }, []);
+  const verificationStatusLabel = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('user');
+      if (!raw) return 'pending';
+      const parsed = JSON.parse(raw);
+      return parsed.verificationStatus || parsed.verification_status || 'pending';
+    } catch {
+      return 'pending';
+    }
+  }, []);
   
   // Direcciones de envío por servicio
   const [serviceAddresses, setServiceAddresses] = useState<ServiceAddresses[]>([]);
@@ -551,27 +597,75 @@ export default function DashboardClient() {
   };
 
   // Helper: friendly status label from raw status
-  const getStatusDisplayLabel = (status: string | undefined | null, statusLabel?: string | null): string => {
-    if (statusLabel && statusLabel !== status) return statusLabel;
+  const getStatusDisplayLabel = (status: string | undefined | null, statusLabel?: string | null, pkg?: PackageTracking): string => {
     if (!status) return '';
+
+    const isMaritime = !!pkg && (pkg.servicio === 'SEA_CHN_MX' || pkg.servicio === 'FCL_CHN_MX' || pkg.shipment_type === 'maritime');
+    if (isMaritime) {
+      const maritimeMap: Record<string, string> = {
+        'received_origin': 'En Bodega',
+        'received_china': 'En Bodega',
+        'consolidated': 'En Bodega',
+        'in_warehouse': 'En Bodega',
+        'in_transit': 'Ya Zarpó',
+        'in_transit_sea': 'Ya Zarpó',
+        'arrived_port': 'Arribo a Puerto',
+        'at_port': 'Arribo a Puerto',
+        'in_transit_mx': 'En Tránsito MX',
+        'customs_cleared': 'En Tránsito MX',
+        'customs_mx': 'En Tránsito MX',
+        'out_for_delivery': 'EN RUTA',
+        'shipped': 'Entregado',
+        'shiped': 'Entregado',
+        'sent': 'Entregado',
+        'enviado': 'Entregado',
+        'delivered': 'Entregado',
+      };
+      if (maritimeMap[status]) return maritimeMap[status];
+    }
+
+    if (statusLabel && statusLabel !== status) return statusLabel;
+
     const map: Record<string, string> = {
-      'received_china': 'Recibido en China', 'in_transit_sea': 'En Tránsito Marítimo', 'in_transit_air': 'En Tránsito Aéreo',
-      'in_customs': 'En Aduana', 'received_mx': 'Recibido en México', 'ready_pickup': 'Listo para Recoger',
-      'in_transit': 'En Tránsito', 'delivered': 'Entregado', 'pending': 'Pendiente',
-      'received_warehouse': 'Recibido en Bodega', 'assigned': 'Asignado', 'processing': 'Procesando',
+      'received_china': 'Recibido China', 'received_origin': 'En Bodega China', 'in_transit_sea': 'En Tránsito Marítimo', 'in_transit_air': 'En Tránsito Aéreo',
+      'in_customs': 'En Aduana', 'at_customs': 'En Tránsito', 'received_mx': 'Recibido en México', 'ready_pickup': 'EN RUTA',
+      'in_transit': 'En Tránsito', 'in_transit_mx': 'En Tránsito', 'received_cedis': 'En CEDIS MX', 'in_transit_mty': 'EN TRÁNSITO A MTY, N.L.',
+      'out_for_delivery': 'EN RUTA', 'shipped': 'ENVIADO', 'delivered': 'Entregado', 'pending': 'Pendiente',
+      'received_warehouse': 'Recibido en Bodega', 'assigned': 'Asignado', 'processing': 'Procesando', 'customs': 'Procesando',
     };
     return map[status] || status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   };
 
-  // GEX solo se puede contratar cuando el paquete está en CEDIS (received)
+  // Reglas de elegibilidad para contratar GEX por estado
   const canContractGex = (pkg: PackageTracking): boolean => {
     if (pkg.client_paid || pkg.has_gex) return false;
+
+    const isChinaAir = pkg.servicio === 'AIR_CHN_MX' || pkg.shipment_type === 'china_air';
+    if (isChinaAir) {
+      return [
+        'received_china',
+        'received_origin',
+        'in_transit',
+        'received_cedis',
+        'processing',
+        'customs',
+        'out_for_delivery',
+      ].includes(pkg.status);
+    }
+
     const isPobox = pkg.servicio === 'POBOX_USA' || pkg.shipment_type === 'air';
     if (isPobox) {
       const label = (pkg.status_label || '').toUpperCase();
+      if (pkg.status === 'in_transit') return true;
       return pkg.status === 'received' && label.includes('RECIBIDO CEDIS');
     }
-    return pkg.status === 'received' || pkg.status === 'received_mx' || pkg.status === 'received_cedis' || pkg.status === 'ready_pickup';
+    return [
+      'received',
+      'in_transit',
+      'received_mx',
+      'received_cedis',
+      'ready_pickup',
+    ].includes(pkg.status);
   };
 
   // Helper: compute full package cost in MXN (envío + GEX + paquetería)
@@ -2757,6 +2851,53 @@ export default function DashboardClient() {
   }, []);
 
   const getStatusStep = (status: string, pkg?: PackageTracking): number => {
+    const isMaritime = pkg && (pkg.servicio === 'SEA_CHN_MX' || pkg.servicio === 'FCL_CHN_MX' || pkg.shipment_type === 'maritime');
+    if (isMaritime) {
+      switch (status) {
+        case 'received_origin':
+        case 'received_china':
+        case 'consolidated':
+        case 'in_warehouse': return 0;
+        case 'in_transit':
+        case 'in_transit_sea': return 1;
+        case 'arrived_port':
+        case 'at_port': return 2;
+        case 'in_transit_mx':
+        case 'customs_cleared':
+        case 'customs_mx':
+        case 'in_customs': return 3;
+        case 'out_for_delivery': return 4;
+        case 'shipped':
+        case 'shiped':
+        case 'sent':
+        case 'enviado':
+        case 'delivered': return 5;
+        default: return 0;
+      }
+    }
+
+    const isChinaAir = pkg && (pkg.servicio === 'AIR_CHN_MX' || pkg.shipment_type === 'china_air');
+    if (isChinaAir) {
+      switch (status) {
+        case 'received_china':
+        case 'received_origin': return 0;
+        case 'in_transit':
+        case 'at_customs':
+        case 'in_transit_mx': return 1;
+        case 'received_cedis': return 2;
+        case 'processing':
+        case 'customs': return 3;
+        case 'out_for_delivery':
+        case 'in_transit_mty':
+        case 'ready_pickup':
+        case 'shipped':
+        case 'sent':
+        case 'enviado': return 4;
+        case 'delivered': return 5;
+        default: return 0;
+      }
+    }
+
     const isPobox = pkg && (pkg.servicio === 'POBOX_USA' || pkg.shipment_type === 'air');
     if (isPobox) {
       const label = (pkg?.status_label || '').toLowerCase();
@@ -2765,7 +2906,12 @@ export default function DashboardClient() {
           if (label.includes('mty')) return 2;
           return 0;
         case 'in_transit': return 1;
+        case 'in_transit_mx': return 2;
+        case 'received_cedis': return 3;
+        case 'in_transit_mty': return 4;
         case 'processing': return 3;
+        case 'customs':
+        case 'at_customs': return 3;
         case 'out_for_delivery':
         case 'en_ruta_entrega': return 4;
         case 'ready_pickup':
@@ -3428,7 +3574,54 @@ export default function DashboardClient() {
       <Paper sx={{ borderRadius: isMobile ? 2 : 3, overflow: 'hidden', mt: isMobile ? 0 : 0 }}>
         <Box sx={{ p: isMobile ? 1 : 3 }}>
           {/* Tab: Mis Envíos */}
-          {activeTab === 0 && (
+          {activeTab === 0 && !isClientVerified && (
+            <Box sx={{ p: isMobile ? 2 : 4, textAlign: 'center' }}>
+              <Box
+                sx={{
+                  maxWidth: 520,
+                  mx: 'auto',
+                  p: 3,
+                  borderRadius: 3,
+                  border: '1px solid #FFE0B2',
+                  bgcolor: '#FFF8F3',
+                }}
+              >
+                <WarningAmberIcon sx={{ fontSize: 48, color: ORANGE, mb: 1 }} />
+                <Typography variant="h6" fontWeight="bold" sx={{ mb: 1 }}>
+                  Verificación requerida
+                </Typography>
+                <Typography variant="body2" sx={{ color: 'text.secondary', mb: 2 }}>
+                  {verificationStatusLabel === 'pending_review'
+                    ? 'Tu verificación está en revisión. En cuanto sea aprobada podrás ver y gestionar tus paquetes.'
+                    : verificationStatusLabel === 'rejected'
+                    ? 'Tu verificación fue rechazada. Por favor actualiza tus documentos para volver a intentarlo.'
+                    : 'Para ver y gestionar tus paquetes primero debes completar la verificación de identidad.'}
+                </Typography>
+                <Button
+                  variant="contained"
+                  onClick={() => {
+                    // Abrir perfil para iniciar verificación
+                    window.dispatchEvent(new CustomEvent('open-client-profile'));
+                  }}
+                  sx={{
+                    bgcolor: ORANGE,
+                    textTransform: 'none',
+                    fontWeight: 700,
+                    '&:hover': { bgcolor: '#d94d1f' },
+                  }}
+                  disabled={verificationStatusLabel === 'pending_review'}
+                >
+                  {verificationStatusLabel === 'pending_review'
+                    ? 'En revisión...'
+                    : verificationStatusLabel === 'rejected'
+                    ? 'Reintentar verificación'
+                    : 'Iniciar verificación'}
+                </Button>
+              </Box>
+            </Box>
+          )}
+          {/* Tab: Mis Envíos */}
+          {activeTab === 0 && isClientVerified && (
             <Box>
               {/* Header y búsqueda - Mobile optimized */}
               <Box sx={{ 
@@ -3972,7 +4165,7 @@ export default function DashboardClient() {
                           </Typography>
                         )}
                         <Chip 
-                          label={isMobile ? (pkg.status === 'ready_pickup' ? '🟠' : pkg.status === 'in_transit' ? '🔵' : pkg.status === 'delivered' ? '✅' : '⚪') : getStatusDisplayLabel(pkg.status, pkg.status_label)} 
+                          label={isMobile ? (pkg.status === 'ready_pickup' ? '🟠' : pkg.status === 'in_transit' ? '🔵' : pkg.status === 'delivered' ? '✅' : '⚪') : getStatusDisplayLabel(pkg.status, pkg.status_label, pkg)} 
                           color={pkg.status === 'ready_pickup' ? 'warning' : pkg.status === 'in_transit' ? 'info' : 'default'}
                           size="small"
                           sx={{ height: isMobile ? 20 : 24, fontSize: isMobile ? '0.65rem' : '0.8rem', ...(pkg.status === 'ready_pickup' && { bgcolor: ORANGE, color: 'white' }) }}
@@ -5580,7 +5773,7 @@ export default function DashboardClient() {
                               </Box>
                             </Box>
                             <Chip 
-                              label={getStatusDisplayLabel(pkg.status, pkg.status_label)} 
+                              label={getStatusDisplayLabel(pkg.status, pkg.status_label, pkg)} 
                               size="small" 
                               sx={{ 
                                 bgcolor: pkg.status === 'ready_pickup' ? ORANGE : pkg.status === 'in_transit' ? BLUE : ORANGE,
@@ -5809,7 +6002,7 @@ export default function DashboardClient() {
                               </Box>
                             </Box>
                             <Chip 
-                              label={getStatusDisplayLabel(pkg.status, pkg.status_label)} 
+                              label={getStatusDisplayLabel(pkg.status, pkg.status_label, pkg)} 
                               size="small" 
                               sx={{ 
                                 bgcolor: pkg.status === 'ready_pickup' ? ORANGE : pkg.status === 'in_transit' ? BLUE : ORANGE,
@@ -7062,7 +7255,7 @@ export default function DashboardClient() {
                       </TableCell>
                       <TableCell>{pkg.descripcion}</TableCell>
                       <TableCell>
-                        <Chip label={getStatusDisplayLabel(pkg.status, pkg.status_label)} size="small" color="success" />
+                        <Chip label={getStatusDisplayLabel(pkg.status, pkg.status_label, pkg)} size="small" color="success" />
                       </TableCell>
                       <TableCell align="right">{formatCurrency(pkg.monto)}</TableCell>
                     </TableRow>
@@ -8133,7 +8326,7 @@ export default function DashboardClient() {
                 {/* Estado actual */}
                 <Box sx={{ mt: 2, textAlign: 'center' }}>
                   <Chip 
-                    label={getStatusDisplayLabel(selectedPackage.status, selectedPackage.status_label)} 
+                    label={getStatusDisplayLabel(selectedPackage.status, selectedPackage.status_label, selectedPackage)} 
                     size="medium"
                     sx={{ 
                       fontSize: '1rem', 

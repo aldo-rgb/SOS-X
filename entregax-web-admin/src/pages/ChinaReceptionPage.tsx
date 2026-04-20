@@ -138,8 +138,18 @@ function ReceiptRow({
 
     const getStatusColor = (status: string) => {
         switch (status) {
+            case 'received_china': return 'warning';
             case 'received_origin': return 'info';
             case 'in_transit': return 'warning';
+            case 'at_customs':
+            case 'customs':
+            case 'processing': return 'warning';
+            case 'in_transit_mx':
+            case 'in_transit_mty': return 'info';
+            case 'received_cedis':
+            case 'out_for_delivery':
+            case 'ready_pickup': return 'success';
+            case 'shipped': return 'default';
             case 'arrived_mx': return 'success';
             case 'delivered': return 'default';
             default: return 'default';
@@ -148,8 +158,18 @@ function ReceiptRow({
 
     const getStatusLabel = (status: string) => {
         switch (status) {
-            case 'received_origin': return 'En Origen';
+            case 'received_china': return 'Recibido China';
+            case 'received_origin': return 'En Bodega China';
             case 'in_transit': return 'En Tránsito';
+            case 'at_customs': return 'En Aduana';
+            case 'customs':
+            case 'processing': return 'Procesando - Guía impresa';
+            case 'in_transit_mx': return 'En Ruta Cedis México';
+            case 'received_cedis': return 'En CEDIS';
+            case 'in_transit_mty': return 'EN TRÁNSITO A MTY, N.L.';
+            case 'out_for_delivery': return 'EN RUTA';
+            case 'shipped': return 'ENVIADO';
+            case 'ready_pickup': return 'Listo Recoger';
             case 'arrived_mx': return 'Llegó MX';
             case 'delivered': return 'Entregado';
             default: return status;
@@ -707,9 +727,16 @@ export default function ChinaReceptionPage() {
                             onChange={(e) => setStatusFilter(e.target.value)}
                         >
                             <MenuItem value="">Todos</MenuItem>
-                            <MenuItem value="received_origin">En Origen</MenuItem>
+                            <MenuItem value="received_origin">En Bodega China</MenuItem>
                             <MenuItem value="received_china">Recibido China</MenuItem>
                             <MenuItem value="in_transit">En Tránsito</MenuItem>
+                            <MenuItem value="at_customs">En Aduana</MenuItem>
+                            <MenuItem value="in_transit_mx">En Ruta Cedis México</MenuItem>
+                            <MenuItem value="received_cedis">En CEDIS</MenuItem>
+                            <MenuItem value="in_transit_mty">EN TRÁNSITO A MTY, N.L.</MenuItem>
+                            <MenuItem value="processing">Procesando - Guía impresa</MenuItem>
+                            <MenuItem value="out_for_delivery">EN RUTA</MenuItem>
+                            <MenuItem value="shipped">ENVIADO</MenuItem>
                             <MenuItem value="arrived_mx">Llegó MX</MenuItem>
                             <MenuItem value="customs">En Aduana</MenuItem>
                             <MenuItem value="ready_pickup">Listo Recoger</MenuItem>

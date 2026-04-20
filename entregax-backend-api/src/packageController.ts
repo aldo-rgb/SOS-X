@@ -969,13 +969,19 @@ const getMaritimeStatusLabel = (status: string): string => {
 // Helper para status label TDI Aéreo China
 const getChinaAirStatusLabel = (status: string): string => {
     const labels: Record<string, string> = {
+        'received_china': '📦 Recibido China',
         'received_origin': '📦 En Bodega China',
         'in_transit': '✈️ En Tránsito',
         'at_customs': '🛃 En Aduana',
+        'customs': '📋 Procesando - Guía impresa',
+        'processing': '📋 Procesando - Guía impresa',
         'customs_mx': '🛃 Aduana México',
-        'in_transit_mx': '🚛 En Ruta a CEDIS',
+        'in_transit_mx': '🚛 En Ruta Cedis México',
         'received_cedis': '✅ En CEDIS',
-        'ready_pickup': '📍 Listo para Recoger',
+        'ready_pickup': '📍 Listo Recoger',
+        'in_transit_mty': '🚚 EN TRÁNSITO A MTY, N.L.',
+        'out_for_delivery': '🛣️ EN RUTA',
+        'shipped': '📤 ENVIADO',
         'delivered': '✅ Entregado'
     };
     return labels[status] || status;

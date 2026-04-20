@@ -194,13 +194,13 @@ const getStatusColor = (status: PackageStatus): "info" | "warning" | "success" |
 
 const getStatusLabel = (status: PackageStatus): string => {
   const labels: Record<PackageStatus, string> = {
-    received: 'RECIBIDO CEDIS',
+    received: 'Recibido CEDIS HIDALGO TX',
     received_mty: 'RECIBIDO EN CEDIS MTY',
-    in_transit: 'EN TRÁNSITO A MTY, N.L.',
-    customs: 'Procesando - Guía impresa',
-    processing: 'Procesando - Guía impresa',
-    ready_pickup: 'EN RUTA',
-    out_for_delivery: 'EN RUTA',
+    in_transit: 'EN TRANSITO A MTY NL',
+    customs: 'Procesando',
+    processing: 'Procesando',
+    ready_pickup: 'En Ruta',
+    out_for_delivery: 'En Ruta',
     delivered: 'ENTREGADO',
     shipped: 'ENVIADO',
   };
@@ -1462,11 +1462,11 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       {/* Stats Cards */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
         {[
-          { label: 'RECIBIDO CEDIS', statuses: ['received'], color: '#2196f3', icon: '📦' },
+          { label: 'Recibido CEDIS HIDALGO TX', statuses: ['received'], color: '#2196f3', icon: '📦' },
           { label: 'RECIBIDO EN CEDIS MTY', statuses: ['received_mty'], color: '#00acc1', icon: '🏢' },
-          { label: 'EN TRÁNSITO A MTY, N.L.', statuses: ['in_transit'], color: '#ff9800', icon: '🚚' },
-          { label: 'Procesando - Guía impresa', statuses: ['customs', 'processing'], color: '#f44336', icon: '⚙️' },
-          { label: 'EN RUTA', statuses: ['ready_pickup', 'out_for_delivery'], color: '#4caf50', icon: '🛣️' },
+          { label: 'EN TRANSITO A MTY NL', statuses: ['in_transit'], color: '#ff9800', icon: '🚚' },
+          { label: 'Procesando', statuses: ['customs', 'processing'], color: '#f44336', icon: '⚙️' },
+          { label: 'En Ruta', statuses: ['ready_pickup', 'out_for_delivery'], color: '#4caf50', icon: '🛣️' },
           { label: 'ENTREGADO', statuses: ['delivered'], color: '#9e9e9e', icon: '✅' },
           { label: 'ENVIADO', statuses: ['shipped'], color: '#607d8b', icon: '📤' },
         ].map((stat) => {
@@ -1496,11 +1496,11 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
             <InputLabel>{t('common.status')}</InputLabel>
             <Select value={statusFilter} label={t('common.status')} onChange={(e: SelectChangeEvent) => setStatusFilter(e.target.value)}>
               <MenuItem value="all">{t('common.all')}</MenuItem>
-              <MenuItem value="received">📦 RECIBIDO CEDIS</MenuItem>
+              <MenuItem value="received">📦 Recibido CEDIS HIDALGO TX</MenuItem>
               <MenuItem value="received_mty">🏢 RECIBIDO EN CEDIS MTY</MenuItem>
-              <MenuItem value="in_transit">🚚 EN TRÁNSITO A MTY, N.L.</MenuItem>
-              <MenuItem value="processing">⚙️ Procesando - Guía impresa</MenuItem>
-              <MenuItem value="ready_pickup">🛣️ EN RUTA</MenuItem>
+              <MenuItem value="in_transit">🚚 EN TRANSITO A MTY NL</MenuItem>
+              <MenuItem value="processing">⚙️ Procesando</MenuItem>
+              <MenuItem value="ready_pickup">🛣️ En Ruta</MenuItem>
               <MenuItem value="delivered">✅ ENTREGADO</MenuItem>
               <MenuItem value="shipped">📤 ENVIADO</MenuItem>
             </Select>

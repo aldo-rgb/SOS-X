@@ -101,11 +101,17 @@ interface Props {
 
 const STATUS_FILTERS = [
   { key: 'all', label: 'Todas' },
-  { key: 'received_china', label: 'En Bodega China' },
+  { key: 'received_origin', label: 'En Bodega China' },
+  { key: 'received_china', label: 'Recibido China' },
   { key: 'in_transit', label: 'En Tránsito' },
   { key: 'at_customs', label: 'En Aduana' },
-  { key: 'in_transit_mx', label: 'En Ruta MX' },
+  { key: 'in_transit_mx', label: 'En Ruta Cedis México' },
   { key: 'received_cedis', label: 'En CEDIS' },
+  { key: 'in_transit_mty', label: 'EN TRÁNSITO A MTY, N.L.' },
+  { key: 'processing', label: 'Procesando - Guía impresa' },
+  { key: 'customs', label: 'Procesando - Guía impresa' },
+  { key: 'out_for_delivery', label: 'EN RUTA' },
+  { key: 'shipped', label: 'ENVIADO' },
   { key: 'ready_pickup', label: 'Listo Recoger' },
   { key: 'delivered', label: 'Entregado' },
 ];
@@ -171,8 +177,13 @@ const AirManagementPage: React.FC<Props> = ({ onBack }) => {
       'received_origin': { label: '🏭 En Bodega China', color: 'warning' },
       'in_transit': { label: '✈️ En Tránsito', color: 'info' },
       'at_customs': { label: '🛃 En Aduana', color: 'secondary' },
-      'in_transit_mx': { label: '🚛 En Ruta MX', color: 'info' },
+      'customs': { label: '📋 Procesando - Guía impresa', color: 'warning' },
+      'processing': { label: '📋 Procesando - Guía impresa', color: 'warning' },
+      'in_transit_mx': { label: '🚛 En Ruta Cedis México', color: 'info' },
       'received_cedis': { label: '📍 En CEDIS', color: 'primary' },
+      'in_transit_mty': { label: '🚚 EN TRÁNSITO A MTY, N.L.', color: 'info' },
+      'out_for_delivery': { label: '🛣️ EN RUTA', color: 'success' },
+      'shipped': { label: '📤 ENVIADO', color: 'default' },
       'ready_pickup': { label: '✅ Listo Recoger', color: 'success' },
       'delivered': { label: '🎉 Entregado', color: 'success' },
       'cancelled': { label: '❌ Cancelado', color: 'error' },
@@ -237,7 +248,7 @@ const AirManagementPage: React.FC<Props> = ({ onBack }) => {
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
               <WarehouseIcon sx={{ fontSize: 28, color: '#e65100' }} />
               <Typography variant="h4" fontWeight="bold">{getStatusCount('received_china')}</Typography>
-              <Typography variant="caption">En Bodega China</Typography>
+              <Typography variant="caption">Recibido China</Typography>
             </CardContent>
           </Card>
         </Grid>

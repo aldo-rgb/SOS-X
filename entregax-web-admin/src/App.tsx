@@ -329,6 +329,16 @@ function App() {
     return () => clearInterval(interval);
   }, [isAuthenticated, currentUser]);
 
+  // Permitir que DashboardClient solicite abrir el perfil (para iniciar verificación)
+  useEffect(() => {
+    const openProfileHandler = () => {
+      setShowClientProfile(true);
+      setShowClientTickets(false);
+    };
+    window.addEventListener('open-client-profile', openProfileHandler);
+    return () => window.removeEventListener('open-client-profile', openProfileHandler);
+  }, []);
+
   // Función para marcar notificación como leída
   const markNotificationAsRead = async (notifId: number) => {
     const token = localStorage.getItem('token');

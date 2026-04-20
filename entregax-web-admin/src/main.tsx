@@ -8,6 +8,12 @@ import FirmaAbandonoPage from './pages/FirmaAbandonoPage.tsx'
 import TutorialesPage from './pages/TutorialesPage.tsx'
 import CotizadorPublico from './pages/CotizadorPublico.tsx'
 
+if (import.meta.env.PROD) {
+  console.log = () => {};
+  console.info = () => {};
+  console.debug = () => {};
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <BrowserRouter>

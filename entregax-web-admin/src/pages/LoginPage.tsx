@@ -294,7 +294,21 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       }, 4000);
 
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Error al registrar usuario');
+      const data = err.response?.data;
+      // Si el correo corresponde a un cliente anterior (legacy), redirigir
+      // al flujo de "Activar cuenta existente" pre-llenando box_id y nombre.
+      if (data?.errorCode === 'LEGACY_EMAIL_EXISTS' && data?.boxId) {
+        setExistingBoxId(String(data.boxId).toUpperCase());
+        if (data.fullName) setExistingName(String(data.fullName));
+        setExistingEmail(registerEmail);
+        setExistingClientStep(1); // saltar paso de captura de box_id
+        setExistingClientDialog(true);
+        setError('');
+        setSuccess('Detectamos que ya eres cliente. Continúa para activar tu cuenta existente.');
+        setTimeout(() => setSuccess(''), 6000);
+      } else {
+        setError(data?.error || 'Error al registrar usuario');
+      }
     } finally {
       setLoading(false);
     }
