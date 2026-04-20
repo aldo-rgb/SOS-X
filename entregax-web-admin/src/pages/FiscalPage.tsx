@@ -434,7 +434,7 @@ export default function FiscalPage() {
       const script = document.createElement('script');
       script.src = 'https://cdn.belvo.io/belvo-widget-1-stable.js';
       script.onload = () => {
-        const belvoWidget = new (window as any).belvoSDK.createWidget(access, {
+        const belvoWidget = (window as any).belvoSDK.createWidget(access, {
           company_name: 'EntregaX',
           company_benefit_header: 'Conecta tu cuenta bancaria',
           company_benefit_content: 'Para extraer automáticamente los movimientos y conciliar pagos.',
