@@ -563,6 +563,17 @@ export default function DashboardClient() {
     return map[status] || status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   };
 
+  // GEX solo se puede contratar cuando el paquete está en CEDIS (received)
+  const canContractGex = (pkg: PackageTracking): boolean => {
+    if (pkg.client_paid || pkg.has_gex) return false;
+    const isPobox = pkg.servicio === 'POBOX_USA' || pkg.shipment_type === 'air';
+    if (isPobox) {
+      const label = (pkg.status_label || '').toUpperCase();
+      return pkg.status === 'received' && label.includes('RECIBIDO CEDIS');
+    }
+    return pkg.status === 'received' || pkg.status === 'received_mx' || pkg.status === 'received_cedis' || pkg.status === 'ready_pickup';
+  };
+
   // Helper: compute full package cost in MXN (envío + GEX + paquetería)
   const getPackageTotalMXN = (pkg: PackageTracking): number => {
     const monto = Number(pkg.monto) || 0;
@@ -2056,6 +2067,14 @@ export default function DashboardClient() {
   const handleContractGEX = async () => {
     if (gexTargetPackages.length === 0) {
       setSnackbar({ open: true, message: t('cd.snackbar.selectPackage'), severity: 'warning' });
+      return;
+    }
+    if (gexTargetPackages.some((pkg) => !canContractGex(pkg))) {
+      setSnackbar({
+        open: true,
+        message: 'GEX solo se puede contratar en estatus RECIBIDO CEDIS',
+        severity: 'warning'
+      });
       return;
     }
     const valorUSD = parseFloat(gexValorFactura);
@@ -4046,7 +4065,7 @@ export default function DashboardClient() {
                               '& .MuiChip-label': { px: 0.5 }
                             }}
                           />
-                        ) : !pkg.client_paid ? (
+                        ) : canContractGex(pkg) ? (
                           <Chip 
                             icon={
                               <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16 }}>
@@ -5645,7 +5664,7 @@ export default function DashboardClient() {
                                   }
                                 }}
                               />
-                            ) : !pkg.client_paid ? (
+                            ) : canContractGex(pkg) ? (
                               <Chip
                                 icon={
                                   <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16 }}>
@@ -5867,7 +5886,7 @@ export default function DashboardClient() {
                                     }
                                   }}
                                 />
-                              ) : !pkg.client_paid ? (
+                              ) : canContractGex(pkg) ? (
                                 <Chip
                                   icon={
                                     <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', width: 16, height: 16 }}>

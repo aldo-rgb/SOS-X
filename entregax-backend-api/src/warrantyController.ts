@@ -532,6 +532,30 @@ export const createWarrantyByUser = async (req: AuthRequest, res: Response): Pro
             res.status(400).json({ error: 'Firma requerida' });
             return;
         }
+
+        // Regla de negocio PO Box: GEX solo se puede contratar en RECIBIDO CEDIS (status=received)
+        if (packageId) {
+            const pkgCheck = await pool.query(
+                `SELECT id, user_id, service_type, status::text as status
+                 FROM packages
+                 WHERE id = $1`,
+                [packageId]
+            );
+
+            if (pkgCheck.rows.length > 0) {
+                const pkg = pkgCheck.rows[0];
+                if (pkg.user_id !== userId) {
+                    res.status(403).json({ error: 'No tienes permiso para contratar GEX en este paquete' });
+                    return;
+                }
+
+                const isPobox = pkg.service_type === 'POBOX_USA' || serviceType === 'POBOX_USA' || serviceType === 'air';
+                if (isPobox && pkg.status !== 'received') {
+                    res.status(400).json({ error: 'GEX en PO Box solo se puede contratar en estatus RECIBIDO CEDIS' });
+                    return;
+                }
+            }
+        }
         
         // Obtener el advisor del usuario (referred_by_id)
         const userRes = await pool.query('SELECT referred_by_id FROM users WHERE id = $1', [userId]);
