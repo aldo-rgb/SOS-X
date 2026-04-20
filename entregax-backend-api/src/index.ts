@@ -854,6 +854,44 @@ import {
 // Cargar variables de entorno
 dotenv.config();
 
+// ============================================
+// HELPER: Activar warranties GEX automáticamente cuando los paquetes se pagan
+// ============================================
+async function activateGexForPaidPackages(packageIds: number[]): Promise<void> {
+  try {
+    if (!packageIds || packageIds.length === 0) return;
+    // Find packages with GEX that have a gex_folio
+    const result = await pool.query(`
+      SELECT DISTINCT gex_folio FROM packages 
+      WHERE id = ANY($1) AND has_gex = true AND gex_folio IS NOT NULL
+    `, [packageIds]);
+    
+    if (result.rows.length === 0) return;
+    
+    const folios = result.rows.map((r: any) => r.gex_folio);
+    
+    // Also check maritime_orders and dhl_shipments for GEX
+    const maritimeResult = await pool.query(`
+      SELECT DISTINCT gex_folio FROM maritime_orders 
+      WHERE gex_folio = ANY($1) AND has_gex = true
+    `, [folios]);
+    
+    // Activate warranties that are still pending
+    const updated = await pool.query(`
+      UPDATE warranties 
+      SET status = 'active', activated_at = NOW(), paid_at = COALESCE(paid_at, NOW())
+      WHERE gex_folio = ANY($1) AND status IN ('generated', 'pending_payment')
+      RETURNING gex_folio
+    `, [folios]);
+    
+    if (updated.rowCount && updated.rowCount > 0) {
+      console.log(`🛡️ GEX auto-activadas: ${updated.rows.map((r: any) => r.gex_folio).join(', ')}`);
+    }
+  } catch (err: any) {
+    console.error('Error activando GEX automáticamente:', err.message);
+  }
+}
+
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
@@ -4498,6 +4536,9 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
             generateCommissionsForPackages(packageIds).catch(err =>
               console.error('Error generando comisiones (confirm pobox voucher):', err)
             );
+            activateGexForPaidPackages(packageIds).catch(err =>
+              console.error('Error activando GEX (confirm pobox voucher):', err)
+            );
           }
 
           console.log(`✅ Pago PO Box confirmado: ${refStr} - $${montoPago} por ${adminName || adminId}`);
@@ -4675,6 +4716,9 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
         generateCommissionsForPackages([pkg.id]).catch(err =>
           console.error('Error generando comisiones (confirm-payment pick up):', err)
         );
+        activateGexForPaidPackages([pkg.id]).catch(err =>
+          console.error('Error activando GEX (confirm-payment pick up):', err)
+        );
 
         console.log(`✅ Pago Pick Up confirmado: ${pkg.tracking_internal} - $${montoPendiente} MXN por ${adminName || adminId}`);
 
@@ -4792,6 +4836,9 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
       if (packageIds.length > 0) {
         generateCommissionsForPackages(packageIds).catch(err =>
           console.error('Error generando comisiones (confirm-payment webhook flow):', err)
+        );
+        activateGexForPaidPackages(packageIds).catch(err =>
+          console.error('Error activando GEX (confirm-payment webhook flow):', err)
         );
       }
 
@@ -4981,6 +5028,9 @@ app.post('/api/admin/finance/confirm-payment-bulk', authenticateToken, requireMi
         if (bulkPkgIds.length > 0) {
           generateCommissionsForPackages(bulkPkgIds).catch(err =>
             console.error('Error generando comisiones (confirm-payment-bulk):', err)
+          );
+          activateGexForPaidPackages(bulkPkgIds).catch(err =>
+            console.error('Error activando GEX (confirm-payment-bulk):', err)
           );
         }
       }
@@ -5730,6 +5780,9 @@ app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requir
         if (packageIds.length > 0) {
           generateCommissionsForPackages(packageIds).catch(err =>
             console.error('Error generando comisiones (authorize bank):', err)
+          );
+          activateGexForPaidPackages(packageIds).catch(err =>
+            console.error('Error activando GEX (authorize bank):', err)
           );
         }
 
