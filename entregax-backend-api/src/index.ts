@@ -4037,7 +4037,8 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
           t.concepto,
           'Caja CC' as origen,
           'completado' as estatus,
-          t.service_type
+          t.service_type,
+          NULL as referencia
         FROM caja_chica_transacciones t
         LEFT JOIN users u ON t.cliente_id = u.id
         WHERE t.tipo = 'ingreso' 
@@ -4060,7 +4061,8 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
           owl.concepto,
           COALESCE(fe.alias, 'Empresa') as origen,
           owl.estatus_procesamiento as estatus,
-          owl.service_type
+          owl.service_type,
+          owl.transaction_id as referencia
         FROM openpay_webhook_logs owl
         LEFT JOIN users u ON owl.user_id = u.id
         LEFT JOIN fiscal_emitters fe ON owl.empresa_id = fe.id

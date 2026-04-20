@@ -1490,6 +1490,7 @@ export default function FinanceDashboardPage() {
               <TableRow>
                 <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Fecha/Hora</TableCell>
                 <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Cliente</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Referencia</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Monto Neto</TableCell>
                 <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Método</TableCell>
                 <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Estado</TableCell>
@@ -1513,6 +1514,11 @@ export default function FinanceDashboardPage() {
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
                         {tx.origen}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                        {tx.referencia || '-'}
                       </Typography>
                     </TableCell>
                     <TableCell align="right">
@@ -1543,7 +1549,7 @@ export default function FinanceDashboardPage() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
                     <Receipt sx={{ fontSize: 48, color: 'grey.300', mb: 1 }} />
                     <Typography color="text.secondary">
                       No hay transacciones en el período seleccionado
