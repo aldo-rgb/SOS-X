@@ -911,11 +911,31 @@ const allowedOrigins = [
     .map((origin) => origin.trim())
     .filter(Boolean),
   process.env.FRONTEND_URL,
+  // Dominios de producción conocidos
+  'https://entregax.app',
+  'https://www.entregax.app',
+  'https://admin.entregax.app',
+  'https://app.entregax.app',
   'http://localhost:5173',
   'http://localhost:3000',
 ].filter(Boolean) as string[];
 
 const uniqueAllowedOrigins = Array.from(new Set(allowedOrigins));
+
+// Patrones regex (subdominios Vercel, dominios propios).
+// Se puede extender vía CORS_ALLOWED_ORIGIN_PATTERNS (coma-separado, regex).
+const allowedOriginPatterns: RegExp[] = [
+  /^https:\/\/[a-z0-9-]+\.vercel\.app$/i,
+  /^https:\/\/([a-z0-9-]+\.)?entregax\.app$/i,
+  ...(process.env.CORS_ALLOWED_ORIGIN_PATTERNS || '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .map((p) => {
+      try { return new RegExp(p); } catch { return null; }
+    })
+    .filter(Boolean) as RegExp[],
+];
 const bodyLimit = process.env.BODY_LIMIT || '10mb';
 
 const authRateWindowMs = Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000);
@@ -996,6 +1016,10 @@ app.use(cors({
     if (uniqueAllowedOrigins.length === 0 || uniqueAllowedOrigins.includes(origin)) {
       return callback(null, true);
     }
+    if (allowedOriginPatterns.some((re) => re.test(origin))) {
+      return callback(null, true);
+    }
+    console.warn(`[CORS] Origen bloqueado: ${origin}`);
     return callback(new Error('Not allowed by CORS'));
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -7023,7 +7047,12 @@ app.use((_req: Request, res: Response) => {
 });
 
 // Manejador de errores global - Siempre devolver JSON
-app.use((err: Error, _req: Request, res: Response, _next: any) => {
+app.use((err: Error, req: Request, res: Response, _next: any) => {
+  // CORS: responder 403 sin stack trace (no es un "error interno")
+  if (err && err.message === 'Not allowed by CORS') {
+    console.warn(`[CORS] Rechazado: origin=${req.headers.origin} path=${req.path}`);
+    return res.status(403).json({ error: 'Origen no permitido' });
+  }
   console.error('Error no manejado:', err);
   res.status(500).json({ 
     error: 'Error interno del servidor',
