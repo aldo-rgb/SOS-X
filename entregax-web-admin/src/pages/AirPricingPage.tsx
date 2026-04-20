@@ -1040,17 +1040,17 @@ export default function AirPricingPage() {
             )}
 
             {/* ========== STARTUP TIERS SECTION ========== */}
-            {routes.filter(r => r.is_active).map(route => (
+            {routes.filter(r => r.is_active).slice(0, 1).map(route => (
                 <Paper key={`startup-${route.id}`} sx={{ mb: 3, p: 2.5, borderRadius: 2, border: '2px solid #FF6F00' }}>
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                             <RocketIcon sx={{ color: '#FF6F00', fontSize: 28 }} />
                             <Box>
                                 <Typography variant="h6" fontWeight="bold" color="#FF6F00">
-                                    TDI Start Up — {route.code}
+                                    TDI Start Up
                                 </Typography>
                                 <Typography variant="caption" color="text.secondary">
-                                    Tarifa plana por rango de peso (≤15 kg). Incluye flete internacional + aduanas + entrega. Aplica antes que Logo/Genérico.
+                                    Tarifa plana por rango de peso (≤15 kg). Incluye flete internacional + aduanas + entrega a puerta. Aplica automáticamente antes que Logo/Genérico.
                                 </Typography>
                             </Box>
                         </Box>
