@@ -7,7 +7,7 @@ import fs from 'fs';
 import axios from 'axios';
 
 // ============ TIPOS ============
-type PackageStatus = 'received' | 'in_transit' | 'customs' | 'ready_pickup' | 'delivered' | 'reempacado' | 'processing';
+type PackageStatus = 'received' | 'received_mty' | 'in_transit' | 'customs' | 'ready_pickup' | 'delivered' | 'reempacado' | 'processing';
 
 interface BoxItem {
     weight: number;
@@ -70,6 +70,7 @@ const generateTracking = (): string => {
 const getStatusLabel = (status: PackageStatus): string => {
     const labels: Record<PackageStatus, string> = {
         received: '📦 En Bodega',
+        received_mty: '📦 Recibido en CEDIS MTY',
         in_transit: '🚚 En Tránsito',
         customs: '🛃 En Aduana',
         ready_pickup: '✅ Listo para Recoger',
@@ -881,7 +882,7 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
     try {
         const { id } = req.params;
         const { status, notes } = req.body;
-        const validStatuses: PackageStatus[] = ['received', 'in_transit', 'customs', 'ready_pickup', 'delivered', 'reempacado'];
+        const validStatuses: PackageStatus[] = ['received', 'received_mty', 'in_transit', 'customs', 'ready_pickup', 'delivered', 'reempacado', 'processing'];
         
         if (!validStatuses.includes(status)) {
             res.status(400).json({ error: 'Estado inválido', validStatuses });

@@ -42,7 +42,7 @@ const COUNTRIES_ES = ['México', 'Estados Unidos', 'Canadá', 'Guatemala', 'Colo
 const COUNTRIES_EN = ['Mexico', 'United States', 'Canada', 'Guatemala', 'Colombia', 'Spain', 'Other'];
 
 // ============ TIPOS ============
-type PackageStatus = 'received' | 'in_transit' | 'customs' | 'processing' | 'ready_pickup' | 'out_for_delivery' | 'delivered' | 'shipped';
+type PackageStatus = 'received' | 'received_mty' | 'in_transit' | 'customs' | 'processing' | 'ready_pickup' | 'out_for_delivery' | 'delivered' | 'shipped';
 
 interface PackageDimensions {
   length: number | null;
@@ -180,6 +180,7 @@ const BLACK = '#111111';
 const getStatusColor = (status: PackageStatus): "info" | "warning" | "success" | "error" | "default" => {
   const colors: Record<PackageStatus, "info" | "warning" | "success" | "error" | "default"> = {
     received: 'info',
+    received_mty: 'info',
     in_transit: 'warning',
     customs: 'error',
     processing: 'error',
@@ -194,6 +195,7 @@ const getStatusColor = (status: PackageStatus): "info" | "warning" | "success" |
 const getStatusLabel = (status: PackageStatus): string => {
   const labels: Record<PackageStatus, string> = {
     received: 'RECIBIDO CEDIS',
+    received_mty: 'RECIBIDO EN CEDIS MTY',
     in_transit: 'EN TRÁNSITO A MTY, N.L.',
     customs: 'Procesando - Guía impresa',
     processing: 'Procesando - Guía impresa',
@@ -208,6 +210,7 @@ const getStatusLabel = (status: PackageStatus): string => {
 const getStatusIcon = (status: PackageStatus): string => {
   const icons: Record<PackageStatus, string> = {
     received: '📦',
+    received_mty: '🏢',
     in_transit: '🚚',
     customs: '⚙️',
     processing: '⚙️',
@@ -1460,6 +1463,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       <Grid container spacing={2} sx={{ mb: 3 }}>
         {[
           { label: 'RECIBIDO CEDIS', statuses: ['received'], color: '#2196f3', icon: '📦' },
+          { label: 'RECIBIDO EN CEDIS MTY', statuses: ['received_mty'], color: '#00acc1', icon: '🏢' },
           { label: 'EN TRÁNSITO A MTY, N.L.', statuses: ['in_transit'], color: '#ff9800', icon: '🚚' },
           { label: 'Procesando - Guía impresa', statuses: ['customs', 'processing'], color: '#f44336', icon: '⚙️' },
           { label: 'EN RUTA', statuses: ['ready_pickup', 'out_for_delivery'], color: '#4caf50', icon: '🛣️' },
@@ -1468,7 +1472,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         ].map((stat) => {
           const count = packages.filter(p => stat.statuses.includes(p.status as PackageStatus)).length;
           return (
-            <Grid size={{ xs: 6, sm: 2 }} key={stat.label}>
+            <Grid size={{ xs: 6, sm: 2, md: 12 / 7 }} key={stat.label}>
               <Paper sx={{ p: 2, textAlign: 'center', cursor: 'pointer',
                   border: stat.statuses.includes(statusFilter as PackageStatus) ? `2px solid ${stat.color}` : '2px solid transparent',
                   '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 } }}
@@ -1493,6 +1497,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
             <Select value={statusFilter} label={t('common.status')} onChange={(e: SelectChangeEvent) => setStatusFilter(e.target.value)}>
               <MenuItem value="all">{t('common.all')}</MenuItem>
               <MenuItem value="received">📦 RECIBIDO CEDIS</MenuItem>
+              <MenuItem value="received_mty">🏢 RECIBIDO EN CEDIS MTY</MenuItem>
               <MenuItem value="in_transit">🚚 EN TRÁNSITO A MTY, N.L.</MenuItem>
               <MenuItem value="processing">⚙️ Procesando - Guía impresa</MenuItem>
               <MenuItem value="ready_pickup">🛣️ EN RUTA</MenuItem>
@@ -2856,7 +2861,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           <Typography gutterBottom>{t('shipments.package')}: <strong>{selectedPackage?.tracking}</strong></Typography>
           {selectedPackage?.isMaster && <Alert severity="info" sx={{ mb: 2 }}>{t('shipments.masterWillUpdateChildren')}</Alert>}
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 2 }}>
-            {(['received', 'in_transit', 'processing', 'ready_pickup', 'delivered', 'shipped'] as PackageStatus[]).map((status) => (
+            {(['received', 'received_mty', 'in_transit', 'processing', 'ready_pickup', 'delivered', 'shipped'] as PackageStatus[]).map((status) => (
               <Button key={status} variant={selectedPackage?.status === status ? 'contained' : 'outlined'}
                 onClick={() => handleStatusChange(status)} startIcon={<span>{getStatusIcon(status)}</span>}
                 disabled={selectedPackage?.status === status} fullWidth
