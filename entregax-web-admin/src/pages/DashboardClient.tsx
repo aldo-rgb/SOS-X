@@ -336,6 +336,20 @@ export default function DashboardClient() {
     t('cd.steps.warehouse'), t('cd.steps.ready'), t('cd.steps.delivered')
   ], [t]);
 
+  const poboxStatusSteps = useMemo(() => [
+    'Recibido',
+    'En tránsito',
+    'Recibido (MTY)',
+    'Procesando',
+    'En ruta',
+    'Entregado / Enviado',
+  ], []);
+
+  const getStepsForPackage = (pkg: PackageTracking): string[] => {
+    const isPobox = pkg.servicio === 'POBOX_USA' || pkg.shipment_type === 'air';
+    return isPobox ? poboxStatusSteps : statusSteps;
+  };
+
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<ClientStats | null>(null);
   const [packages, setPackages] = useState<PackageTracking[]>([]);
@@ -2723,7 +2737,27 @@ export default function DashboardClient() {
     setQuoteCategoria('');
   }, []);
 
-  const getStatusStep = (status: string): number => {
+  const getStatusStep = (status: string, pkg?: PackageTracking): number => {
+    const isPobox = pkg && (pkg.servicio === 'POBOX_USA' || pkg.shipment_type === 'air');
+    if (isPobox) {
+      const label = (pkg?.status_label || '').toLowerCase();
+      switch (status) {
+        case 'received':
+          if (label.includes('mty')) return 2;
+          return 0;
+        case 'in_transit': return 1;
+        case 'processing': return 3;
+        case 'out_for_delivery':
+        case 'en_ruta_entrega': return 4;
+        case 'ready_pickup':
+        case 'shipped':
+        case 'sent':
+        case 'enviado':
+        case 'delivered': return 5;
+        default: return 0;
+      }
+    }
+
     switch (status) {
       case 'ordered': return 0;
       case 'in_transit': return 1;
@@ -3929,8 +3963,8 @@ export default function DashboardClient() {
 
                     {/* Stepper compacto - Mobile optimized */}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, my: isMobile ? 0.5 : 1 }}>
-                      {statusSteps.map((label, idx) => {
-                        const activeIdx = getStatusStep(pkg.status);
+                      {getStepsForPackage(pkg).map((label, idx) => {
+                        const activeIdx = getStatusStep(pkg.status, pkg);
                         const isCompleted = idx < activeIdx;
                         const isActive = idx === activeIdx;
                         return (
@@ -3943,7 +3977,7 @@ export default function DashboardClient() {
                             }}>
                               {isCompleted ? '✓' : idx + 1}
                             </Box>
-                            {idx < statusSteps.length - 1 && (
+                            {idx < getStepsForPackage(pkg).length - 1 && (
                               <Box sx={{ flex: 1, height: 2, bgcolor: isCompleted ? ORANGE : 'grey.300', mx: 0.5 }} />
                             )}
                           </Box>
@@ -3952,7 +3986,7 @@ export default function DashboardClient() {
                     </Box>
                     {!isMobile && (
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.6rem', color: 'text.secondary', px: 0.5 }}>
-                      {statusSteps.map((label) => (
+                      {getStepsForPackage(pkg).map((label) => (
                         <Typography key={label} variant="caption" sx={{ fontSize: '0.6rem', textAlign: 'center', flex: 1 }}>{label}</Typography>
                       ))}
                     </Box>
@@ -5540,8 +5574,8 @@ export default function DashboardClient() {
                           {/* Stepper de estados */}
                           <Box sx={{ mt: 2, mb: 1 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              {statusSteps.map((label, idx) => {
-                                const activeIdx = getStatusStep(pkg.status);
+                              {getStepsForPackage(pkg).map((label, idx) => {
+                                const activeIdx = getStatusStep(pkg.status, pkg);
                                 const isCompleted = idx < activeIdx;
                                 const isActive = idx === activeIdx;
                                 return (
@@ -5555,7 +5589,7 @@ export default function DashboardClient() {
                                     }}>
                                       {isCompleted ? '✓' : idx + 1}
                                     </Box>
-                                    {idx < statusSteps.length - 1 && (
+                                    {idx < getStepsForPackage(pkg).length - 1 && (
                                       <Box sx={{ flex: 1, height: 3, bgcolor: isCompleted ? ORANGE : 'grey.300', mx: 0.25, borderRadius: 1 }} />
                                     )}
                                   </Box>
@@ -5563,7 +5597,7 @@ export default function DashboardClient() {
                               })}
                             </Box>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
-                              {statusSteps.map((label) => (
+                              {getStepsForPackage(pkg).map((label) => (
                                 <Typography key={label} variant="caption" sx={{ fontSize: '0.55rem', textAlign: 'center', flex: 1, color: 'text.secondary' }}>
                                   {label}
                                 </Typography>
@@ -5769,8 +5803,8 @@ export default function DashboardClient() {
                           {/* Stepper de estados */}
                           <Box sx={{ mt: 2, mb: 1 }}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              {statusSteps.map((label, idx) => {
-                                const activeIdx = getStatusStep(pkg.status);
+                              {getStepsForPackage(pkg).map((label, idx) => {
+                                const activeIdx = getStatusStep(pkg.status, pkg);
                                 const isCompleted = idx < activeIdx;
                                 const isActive = idx === activeIdx;
                                 return (
@@ -5784,7 +5818,7 @@ export default function DashboardClient() {
                                     }}>
                                       {isCompleted ? '✓' : idx + 1}
                                     </Box>
-                                    {idx < statusSteps.length - 1 && (
+                                    {idx < getStepsForPackage(pkg).length - 1 && (
                                       <Box sx={{ flex: 1, height: 3, bgcolor: isCompleted ? ORANGE : 'grey.300', mx: 0.25, borderRadius: 1 }} />
                                     )}
                                   </Box>
@@ -5792,7 +5826,7 @@ export default function DashboardClient() {
                               })}
                             </Box>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
-                              {statusSteps.map((label) => (
+                              {getStepsForPackage(pkg).map((label) => (
                                 <Typography key={label} variant="caption" sx={{ fontSize: '0.55rem', textAlign: 'center', flex: 1, color: 'text.secondary' }}>
                                   {label}
                                 </Typography>
