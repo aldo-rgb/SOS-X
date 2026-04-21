@@ -278,7 +278,8 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   const weightInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { readScale } = useScaleReader();
+  const { readScale, liveWeight } = useScaleReader();
+  const [scaleLive, setScaleLive] = useState(false);
   
   // Estados para cámara
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -863,6 +864,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     if (r.success && r.weight !== undefined) {
       const finalWeight = r.weight.toFixed(2);
       setCurrentBox(prev => ({ ...prev, weight: finalWeight }));
+      setScaleLive(true);
       if (r.stale) {
         setSnackbar({ open: true, message: `⚠️ Sin peso actualizado. Peso anterior: ${finalWeight} kg`, severity: 'info' });
       } else {
@@ -872,6 +874,14 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       setSnackbar({ open: true, message: `⚠️ ${r.error || 'Error leyendo báscula'}`, severity: 'error' });
     }
   };
+
+  // Auto-actualiza el peso cuando cambia en la báscula (tras primera conexión)
+  useEffect(() => {
+    if (!scaleLive) return;
+    if (liveWeight === null || liveWeight <= 0) return;
+    const w = liveWeight.toFixed(2);
+    setCurrentBox(prev => (prev.weight === w ? prev : { ...prev, weight: w }));
+  }, [liveWeight, scaleLive]);
 
   const handleAddBox = () => {
     const weight = parseFloat(currentBox.weight);

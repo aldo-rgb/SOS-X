@@ -2,7 +2,8 @@
 // Diseño: una sola conexión persistente + un loop de lectura en background
 // que mantiene cacheado el último peso parseado. readScale() espera a que
 // exista un peso reciente (>0) o vence el timeout.
-import { useCallback } from 'react';
+// liveWeight: se actualiza automáticamente (p. ej. al presionar TARE/ZERO).
+import { useCallback, useEffect, useState } from 'react';
 
 export interface ScaleReadResult {
   success: boolean;
@@ -18,7 +19,6 @@ let sharedPort: any = null;
 let loopRunning = false;
 let loopAbort = false;
 let latestWeight: number | null = null;
-let latestAt = 0;
 let latestRaw = '';
 
 function parseWeight(buffer: string): number | null {
@@ -133,7 +133,6 @@ function startReadLoop() {
           const w = parseWeight(buffer);
           if (w !== null && w >= 0) {
             latestWeight = w;
-            latestAt = Date.now();
             latestRaw = buffer.slice(-120);
           }
         }
@@ -218,5 +217,16 @@ export function useScaleReader() {
     }
   }, []);
 
-  return { readScale: read };
+  // Peso en vivo: refleja latestWeight en tiempo real mientras el componente
+  // esté montado. Útil para mostrar el peso actual aunque el usuario no
+  // haya presionado "Actualizar".
+  const [liveWeight, setLiveWeight] = useState<number | null>(latestWeight);
+  useEffect(() => {
+    const id = setInterval(() => {
+      setLiveWeight((prev) => (prev === latestWeight ? prev : latestWeight));
+    }, 300);
+    return () => clearInterval(id);
+  }, []);
+
+  return { readScale: read, liveWeight };
 }

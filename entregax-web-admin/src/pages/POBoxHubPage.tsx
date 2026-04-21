@@ -416,13 +416,15 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     };
 
     // =========== LÓGICA PARA RECEPCIÓN EN SERIE ===========
-    const { readScale: readBulkScale } = useScaleReader();
+    const { readScale: readBulkScale, liveWeight: bulkLiveWeight } = useScaleReader();
+    const [bulkScaleLive, setBulkScaleLive] = useState(false);
 
     const handleReadBulkScale = async () => {
         const r = await readBulkScale();
         if (r.success && r.weight !== undefined) {
             const w = r.weight.toFixed(2);
             setBulkCurrentBox(p => ({ ...p, weight: w }));
+            setBulkScaleLive(true);
             if (r.stale) {
                 setSnackbar({ open: true, message: `⚠️ Sin peso actualizado. Peso anterior: ${w} kg`, severity: 'info' });
             } else {
@@ -432,6 +434,14 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             setSnackbar({ open: true, message: `⚠️ ${r.error || 'Error leyendo báscula'}`, severity: 'error' });
         }
     };
+
+    // Auto-actualiza peso cuando la báscula cambia (tras primera conexión)
+    useEffect(() => {
+        if (!bulkScaleLive) return;
+        if (bulkLiveWeight === null || bulkLiveWeight <= 0) return;
+        const w = bulkLiveWeight.toFixed(2);
+        setBulkCurrentBox(p => (p.weight === w ? p : { ...p, weight: w }));
+    }, [bulkLiveWeight, bulkScaleLive]);
     
     // Agregar caja al listado
     const handleAddBulkBox = () => {
