@@ -288,6 +288,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const bulkGuideInputRef = useRef<HTMLInputElement>(null);
     const bulkLengthInputRef = useRef<HTMLInputElement>(null);
+    const bulkWeightInputRef = useRef<HTMLInputElement>(null);
     const [cameraOpen, setCameraOpen] = useState(false);
     const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
 
@@ -430,11 +431,24 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const [bulkBoxQuantity, setBulkBoxQuantity] = useState('1');
     const [bulkMultiScanOpen, setBulkMultiScanOpen] = useState(false);
 
-    // Al escanear guía (Enter): leer báscula y saltar a Largo
+    // Al escanear guía (Enter): leer báscula y saltar a Largo (o Peso si falla)
     const handleBulkGuideScanned = async () => {
         if (!bulkCurrentBox.trackingCourier.trim()) return;
-        await handleReadBulkScale();
-        setTimeout(() => bulkLengthInputRef.current?.focus(), 50);
+        const r = await readBulkScale();
+        if (r.success && r.weight !== undefined) {
+            const w = r.weight.toFixed(2);
+            setBulkCurrentBox(p => ({ ...p, weight: w }));
+            setBulkScaleLive(true);
+            if (r.stale) {
+                setSnackbar({ open: true, message: `⚠️ Sin peso actualizado. Peso anterior: ${w} kg`, severity: 'info' });
+            } else {
+                setSnackbar({ open: true, message: `⚖️ Peso capturado: ${w} kg`, severity: 'success' });
+            }
+            setTimeout(() => bulkLengthInputRef.current?.focus(), 50);
+        } else {
+            setSnackbar({ open: true, message: `⚠️ ${r.error || 'Error leyendo báscula'} — Escribe el peso manualmente.`, severity: 'info' });
+            setTimeout(() => bulkWeightInputRef.current?.focus(), 50);
+        }
     };
 
     const handleReadBulkScale = async () => {
@@ -1411,6 +1425,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                             <Grid size={{ xs: 6, sm: 3 }}>
                                                 <TextField
                                                     fullWidth
+                                                    inputRef={bulkWeightInputRef}
                                                     label="Peso"
                                                     type="number"
                                                     value={bulkCurrentBox.weight}

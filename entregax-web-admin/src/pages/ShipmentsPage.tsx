@@ -888,11 +888,24 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     setCurrentBox(prev => (prev.weight === w ? prev : { ...prev, weight: w }));
   }, [liveWeight, scaleLive]);
 
-  // Al escanear guía (Enter): leer báscula y saltar a Largo
+  // Al escanear guía (Enter): leer báscula y saltar a Largo (o Peso si falla)
   const handleGuideScanned = async () => {
     if (!currentBox.trackingCourier.trim()) return;
-    await handleReadScale();
-    setTimeout(() => lengthInputRef.current?.focus(), 50);
+    const r = await readScale();
+    if (r.success && r.weight !== undefined) {
+      const w = r.weight.toFixed(2);
+      setCurrentBox(prev => ({ ...prev, weight: w }));
+      setScaleLive(true);
+      if (r.stale) {
+        setSnackbar({ open: true, message: `⚠️ Sin peso actualizado. Peso anterior: ${w} kg`, severity: 'info' });
+      } else {
+        setSnackbar({ open: true, message: `⚖️ ${t('wizard.weightCaptured')}: ${w} kg`, severity: 'success' });
+      }
+      setTimeout(() => lengthInputRef.current?.focus(), 50);
+    } else {
+      setSnackbar({ open: true, message: `⚠️ ${r.error || 'Error leyendo báscula'} — Escribe el peso manualmente.`, severity: 'info' });
+      setTimeout(() => weightInputRef.current?.focus(), 50);
+    }
   };
 
   const handleAddBox = () => {
