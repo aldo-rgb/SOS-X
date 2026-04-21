@@ -1,5 +1,7 @@
-// Hook compartido para leer peso desde báscula USB vía Web Serial API
-// Soporta formatos comunes: "ST,GS, 1.83 kg", "+ 0001.83 kg", "  1.83\r\n", etc.
+// Hook compartido para leer peso desde báscula USB vía Web Serial API.
+// Diseño: una sola conexión persistente + un loop de lectura en background
+// que mantiene cacheado el último peso parseado. readScale() espera a que
+// exista un peso reciente (>0) o vence el timeout.
 import { useCallback } from 'react';
 
 export interface ScaleReadResult {
@@ -9,41 +11,48 @@ export interface ScaleReadResult {
   raw?: string;
 }
 
-// Singleton a nivel de módulo: comparte el puerto entre TODAS las páginas
-// para evitar "The port is already open" al cambiar de modal.
+// ---------- Estado singleton (module-level) ----------
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let sharedPort: any = null;
-let sharedReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+let loopRunning = false;
+let loopAbort = false;
+let latestWeight: number | null = null;
+let latestAt = 0;
+let latestRaw = '';
+
+function parseWeight(buffer: string): number | null {
+  // Con unidad explícita
+  const m = buffer.match(/([+-]?\d+\.?\d*)\s*(kg|g|lb|oz)/i);
+  if (m) {
+    let w = Math.abs(parseFloat(m[1]));
+    const u = m[2].toLowerCase();
+    if (u === 'g') w /= 1000;
+    if (u === 'lb') w *= 0.453592;
+    if (u === 'oz') w *= 0.0283495;
+    return Math.round(w * 100) / 100;
+  }
+  // Línea numérica sin unidad (asume kg)
+  const lineMatches = buffer.match(/([+-]?\d+\.\d+)\s*[\r\n]/g);
+  if (lineMatches && lineMatches.length > 0) {
+    const last = lineMatches[lineMatches.length - 1].match(/([+-]?\d+\.\d+)/);
+    if (last) {
+      const w = Math.abs(parseFloat(last[1]));
+      return Math.round(w * 100) / 100;
+    }
+  }
+  return null;
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function ensurePortOpen(nav: any) {
-  // Reusar puerto previamente autorizado si sigue abierto
-  if (sharedPort) {
-    // Si por algún motivo está cerrado, intentar reabrir
-    if (!sharedPort.readable) {
-      try {
-        await sharedPort.open({
-          baudRate: 9600,
-          dataBits: 8,
-          stopBits: 1,
-          parity: 'none',
-          flowControl: 'none',
-        });
-      } catch (e: unknown) {
-        const m = e instanceof Error ? e.message : '';
-        if (!m.toLowerCase().includes('already open')) throw e;
-      }
-    }
-    return sharedPort;
-  }
+async function openPort(nav: any) {
+  if (sharedPort) return sharedPort;
 
-  // Buscar puertos ya autorizados antes de pedir uno nuevo
+  // Reusar puerto previamente autorizado
   let port = null;
   try {
     const granted = await nav.serial.getPorts();
     if (granted && granted.length > 0) port = granted[0];
   } catch { /* ignore */ }
-
   if (!port) port = await nav.serial.requestPort();
 
   try {
@@ -55,13 +64,67 @@ async function ensurePortOpen(nav: any) {
       flowControl: 'none',
     });
   } catch (e: unknown) {
-    const m = e instanceof Error ? e.message : '';
-    // Si ya estaba abierto (otra pestaña/instancia), seguimos usando el handle
-    if (!m.toLowerCase().includes('already open')) throw e;
+    const m = e instanceof Error ? e.message.toLowerCase() : '';
+    if (!m.includes('already open')) throw e;
   }
   try { await port.setSignals({ dataTerminalReady: true, requestToSend: true }); } catch { /* ignore */ }
   sharedPort = port;
   return port;
+}
+
+async function sendPoll() {
+  if (!sharedPort?.writable) return;
+  const writer = sharedPort.writable.getWriter();
+  try {
+    const enc = new TextEncoder();
+    await writer.write(enc.encode('W\r\n'));
+    await writer.write(enc.encode('P\r\n'));
+    await writer.write(enc.encode('S\r\n'));
+    await writer.write(new Uint8Array([0x05])); // ENQ
+  } catch { /* ignore */ }
+  try { writer.releaseLock(); } catch { /* ignore */ }
+}
+
+function startReadLoop() {
+  if (loopRunning) return;
+  loopRunning = true;
+  loopAbort = false;
+
+  (async () => {
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (!loopAbort && sharedPort?.readable) {
+      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+      try {
+        reader = sharedPort.readable.getReader();
+        if (!reader) break;
+        while (!loopAbort) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (!value) continue;
+          buffer += decoder.decode(value, { stream: true });
+          // Mantener el buffer acotado
+          if (buffer.length > 512) buffer = buffer.slice(-256);
+          // Log debug
+          console.log('[Báscula RX]', JSON.stringify(buffer.slice(-80)));
+          const w = parseWeight(buffer);
+          if (w !== null && w >= 0) {
+            latestWeight = w;
+            latestAt = Date.now();
+            latestRaw = buffer.slice(-120);
+          }
+        }
+      } catch (e) {
+        console.warn('[Báscula] loop error:', e);
+        // Salir del bucle interno; reintenta si el puerto sigue abierto
+        await new Promise((r) => setTimeout(r, 300));
+      } finally {
+        try { reader?.releaseLock(); } catch { /* ignore */ }
+      }
+      if (!sharedPort?.readable) break;
+    }
+    loopRunning = false;
+  })();
 }
 
 export function useScaleReader() {
@@ -72,89 +135,45 @@ export function useScaleReader() {
       return { success: false, error: 'Web Serial API no disponible. Usa Chrome/Edge en HTTPS.' };
     }
     try {
-      const port = await ensurePortOpen(nav);
+      await openPort(nav);
+      startReadLoop();
 
-      // Cancelar reader anterior si quedó abierto
-      if (sharedReader) {
-        try { await sharedReader.cancel(); } catch { /* ignore */ }
-        try { sharedReader.releaseLock(); } catch { /* ignore */ }
-        sharedReader = null;
-      }
-
-      // Enviar comandos de poll comunes para básculas en modo "on demand"
-      // (Toledo: 'W\r\n', OHAUS/AND: 'P\r\n', genéricas: ENQ 0x05, 'S\r\n')
-      const writer = port.writable?.getWriter();
-      if (writer) {
-        try {
-          const enc = new TextEncoder();
-          await writer.write(enc.encode('W\r\n'));
-          await writer.write(enc.encode('P\r\n'));
-          await writer.write(enc.encode('S\r\n'));
-          await writer.write(new Uint8Array([0x05])); // ENQ
-        } catch { /* ignore */ }
-        try { writer.releaseLock(); } catch { /* ignore */ }
-      }
-
-      const reader = port.readable?.getReader();
-      if (!reader) return { success: false, error: 'No se pudo obtener lector del puerto. Otra app podría tenerlo abierto.' };
-      sharedReader = reader;
-
-      const decoder = new TextDecoder();
-      let buffer = '';
       const start = Date.now();
-      try {
-        while ((Date.now() - start) < timeoutMs) {
-          const remaining = timeoutMs - (Date.now() - start);
-          const timeout = new Promise<{ value?: Uint8Array; done: boolean }>((resolve) =>
-            setTimeout(() => resolve({ done: false }), remaining)
-          );
-          const result = await Promise.race([reader.read(), timeout]);
-          if (result.done) break;
-          if (!result.value) continue;
+      // Marca el "piso" para considerar lecturas frescas dentro de esta llamada
+      const floor = start;
 
-          buffer += decoder.decode(result.value, { stream: true });
-          // Log para debug (visible en consola del navegador)
-          console.log('[Báscula RX]', JSON.stringify(buffer));
-
-          // 1) Intentar match con unidad explícita
-          let match: RegExpMatchArray | null = buffer.match(/([+-]?\d+\.?\d*)\s*(kg|g|lb|oz)/i);
-          let unit: string | null = match ? match[2].toLowerCase() : null;
-
-          // 2) Si no, intentar match numérico al cierre de línea (asume kg)
-          if (!match) {
-            const lineMatch = buffer.match(/([+-]?\d+\.\d+)\s*[\r\n]/);
-            if (lineMatch) {
-              match = lineMatch;
-              unit = 'kg';
-            }
-          }
-
-          if (match && unit) {
-            let w = Math.abs(parseFloat(match[1]));
-            if (unit === 'g') w /= 1000;
-            if (unit === 'lb') w *= 0.453592;
-            if (unit === 'oz') w *= 0.0283495;
-            if (w > 0) {
-              return { success: true, weight: Math.round(w * 100) / 100, raw: buffer };
-            }
-          }
+      while (Date.now() - start < timeoutMs) {
+        // Enviar poll cada ~1s por si la báscula es on-demand
+        const elapsed = Date.now() - start;
+        if (elapsed === 0 || elapsed % 1000 < 150) {
+          await sendPoll();
         }
-        return {
-          success: false,
-          error: buffer
-            ? `Datos recibidos pero sin formato de peso: "${buffer.slice(0, 60)}"`
-            : 'Sin datos de la báscula. Verifica que esté encendida y con peso > 0.',
-          raw: buffer,
-        };
-      } finally {
-        try { reader.releaseLock(); } catch { /* ignore */ }
-        sharedReader = null;
+
+        // Si hay peso reciente (>0) posterior al inicio → devolver
+        if (latestWeight !== null && latestWeight > 0 && latestAt >= floor) {
+          return { success: true, weight: latestWeight, raw: latestRaw };
+        }
+        await new Promise((r) => setTimeout(r, 150));
       }
+
+      // Si tenemos un peso cacheado (aunque sea de antes) lo devolvemos como fallback
+      if (latestWeight !== null && latestWeight > 0) {
+        return { success: true, weight: latestWeight, raw: latestRaw };
+      }
+
+      return {
+        success: false,
+        error: latestRaw
+          ? `Datos recibidos sin formato reconocible: "${latestRaw.slice(-60)}"`
+          : 'Sin datos de la báscula. Verifica que esté encendida, con peso > 0, y en modo de transmisión continua.',
+        raw: latestRaw,
+      };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error conectando báscula';
-      // Si el error NO es "already open", resetear el puerto para forzar nueva selección
-      if (!msg.toLowerCase().includes('already open') &&
-          (msg.toLowerCase().includes('open') || msg.toLowerCase().includes('access') || msg.toLowerCase().includes('disconnect'))) {
+      // Errores graves: soltar el puerto para forzar nueva autorización
+      const lm = msg.toLowerCase();
+      if (lm.includes('disconnect') || lm.includes('no port') || lm.includes('access denied')) {
+        loopAbort = true;
         try { await sharedPort?.close(); } catch { /* ignore */ }
         sharedPort = null;
       }
