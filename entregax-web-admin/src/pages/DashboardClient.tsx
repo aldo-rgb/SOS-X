@@ -916,6 +916,37 @@ export default function DashboardClient() {
   const [selectedPackage, setSelectedPackage] = useState<PackageTracking | null>(null);
   const [highlightedGuideTracking, setHighlightedGuideTracking] = useState<string | null>(null);
   const [boxListExpanded, setBoxListExpanded] = useState(false);
+
+  // Modal Trayectoria China (MoJie) - historial de movimientos
+  const [trajectoryOpen, setTrajectoryOpen] = useState(false);
+  const [trajectoryLoading, setTrajectoryLoading] = useState(false);
+  const [trajectoryError, setTrajectoryError] = useState<string | null>(null);
+  const [trajectoryTracking, setTrajectoryTracking] = useState<string>('');
+  const [trajectoryEvents, setTrajectoryEvents] = useState<Array<{ ch: string; en: string; date: string }>>([]);
+
+  const handleOpenTrajectory = async (tracking: string) => {
+    setTrajectoryOpen(true);
+    setTrajectoryTracking(tracking);
+    setTrajectoryLoading(true);
+    setTrajectoryError(null);
+    setTrajectoryEvents([]);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(`${API_URL}/api/china/trajectory/${encodeURIComponent(tracking)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.trayectoria)) {
+        setTrajectoryEvents(data.trayectoria);
+      } else {
+        setTrajectoryError(data.error || data.details || 'No se encontraron movimientos para esta guía');
+      }
+    } catch (err: any) {
+      setTrajectoryError(err?.message || 'Error de conexión');
+    } finally {
+      setTrajectoryLoading(false);
+    }
+  };
   
   // Mis Direcciones de Entrega (tab)
   const [addressModalOpen, setAddressModalOpen] = useState(false);
@@ -7664,6 +7695,24 @@ export default function DashboardClient() {
                     </span>
                   </Typography>
                 )}
+
+                {/* Botón Ver Detalles de Status (solo guías China Air AIR...) */}
+                {selectedPackage.tracking && /^AIR\d+/i.test(selectedPackage.tracking) && (
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<HistoryIcon />}
+                    onClick={() => handleOpenTrajectory(selectedPackage.tracking)}
+                    sx={{
+                      mt: 1.5,
+                      borderColor: ORANGE,
+                      color: ORANGE,
+                      '&:hover': { borderColor: ORANGE, bgcolor: 'rgba(255,87,34,0.08)' }
+                    }}
+                  >
+                    Ver Detalles de Status
+                  </Button>
+                )}
               </Box>
 
               {/* Info General */}
@@ -8378,6 +8427,128 @@ export default function DashboardClient() {
             sx={{ bgcolor: ORANGE }}
           >
             {t('common.close')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Modal Trayectoria China (MoJie) - Historial de Movimientos */}
+      <Dialog
+        open={trajectoryOpen}
+        onClose={() => setTrajectoryOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          bgcolor: ORANGE,
+          color: 'white',
+          py: 2
+        }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <HistoryIcon />
+            <Typography variant="h6" fontWeight="bold">Movimientos de la Guía</Typography>
+          </Box>
+          <IconButton onClick={() => setTrajectoryOpen(false)} sx={{ color: 'white' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          <Box sx={{ bgcolor: '#f8f9fa', p: 2, borderBottom: '1px solid #e0e0e0' }}>
+            <Typography variant="caption" color="text.secondary">Número de Rastreo</Typography>
+            <Typography variant="h6" fontFamily="monospace" fontWeight="bold" sx={{ color: ORANGE }}>
+              {trajectoryTracking}
+            </Typography>
+          </Box>
+
+          {trajectoryLoading && (
+            <Box sx={{ p: 4, textAlign: 'center' }}>
+              <CircularProgress sx={{ color: ORANGE }} />
+              <Typography variant="body2" sx={{ mt: 2 }} color="text.secondary">
+                Consultando historial en MoJie...
+              </Typography>
+            </Box>
+          )}
+
+          {trajectoryError && !trajectoryLoading && (
+            <Box sx={{ p: 3 }}>
+              <Paper sx={{ p: 2, bgcolor: '#ffebee', border: '1px solid #ef5350' }}>
+                <Typography variant="body2" color="error">
+                  ❌ {trajectoryError}
+                </Typography>
+              </Paper>
+            </Box>
+          )}
+
+          {!trajectoryLoading && !trajectoryError && trajectoryEvents.length === 0 && (
+            <Box sx={{ p: 4, textAlign: 'center' }}>
+              <Typography variant="body2" color="text.secondary">
+                No hay movimientos registrados aún para esta guía.
+              </Typography>
+            </Box>
+          )}
+
+          {!trajectoryLoading && trajectoryEvents.length > 0 && (
+            <Box sx={{ p: 2 }}>
+              {trajectoryEvents.map((evt, idx) => {
+                const isLast = idx === trajectoryEvents.length - 1;
+                const isFirst = idx === 0;
+                return (
+                  <Box key={idx} sx={{ display: 'flex', gap: 2, position: 'relative' }}>
+                    {/* Línea vertical + dot */}
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 24 }}>
+                      <Box sx={{
+                        width: 14,
+                        height: 14,
+                        borderRadius: '50%',
+                        bgcolor: isFirst ? ORANGE : '#9e9e9e',
+                        border: isFirst ? '3px solid #fff3e0' : '2px solid #e0e0e0',
+                        boxShadow: isFirst ? `0 0 0 2px ${ORANGE}` : 'none',
+                        mt: 0.5,
+                        flexShrink: 0
+                      }} />
+                      {!isLast && (
+                        <Box sx={{ width: 2, flex: 1, bgcolor: '#e0e0e0', minHeight: 40, mt: 0.5 }} />
+                      )}
+                    </Box>
+                    {/* Contenido */}
+                    <Box sx={{ flex: 1, pb: isLast ? 0 : 2.5 }}>
+                      <Typography
+                        variant="body2"
+                        fontWeight={isFirst ? 'bold' : 'medium'}
+                        sx={{ color: isFirst ? ORANGE : 'text.primary' }}
+                      >
+                        {evt.en || evt.ch || '(sin descripción)'}
+                      </Typography>
+                      {evt.en && evt.ch && evt.en !== evt.ch && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.3 }}>
+                          {evt.ch}
+                        </Typography>
+                      )}
+                      {evt.date && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                          🕐 {new Date(evt.date).toLocaleString('es-MX', {
+                            day: '2-digit', month: 'short', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit'
+                          })}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            fullWidth
+            variant="contained"
+            onClick={() => setTrajectoryOpen(false)}
+            sx={{ bgcolor: ORANGE }}
+          >
+            Cerrar
           </Button>
         </DialogActions>
       </Dialog>

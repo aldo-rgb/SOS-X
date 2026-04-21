@@ -520,11 +520,11 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
           </Card>
         </Grid>
         <Grid size={{ xs: 6, md: 2 }}>
-          <Card sx={{ bgcolor: 'secondary.light' }}>
+          <Card sx={{ bgcolor: '#FFF3E0' }}>
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <AssignmentIndIcon sx={{ fontSize: 32, color: 'secondary.dark' }} />
-              <Typography variant="h4" fontWeight="bold">{getStatusCount('customs')}</Typography>
-              <Typography variant="body2">En Aduana</Typography>
+              <AssignmentIndIcon sx={{ fontSize: 32, color: '#E65100' }} />
+              <Typography variant="h4" fontWeight="bold" sx={{ color: '#E65100' }}>{getStatusCount('customs')}</Typography>
+              <Typography variant="body2" sx={{ color: '#BF360C' }}>En Aduana</Typography>
             </CardContent>
           </Card>
         </Grid>
