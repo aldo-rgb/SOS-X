@@ -166,8 +166,23 @@ export default function OutboundControlPage() {
     if (e.key !== 'Enter' || !scanInput.trim()) return;
     
     // Extraer tracking del input: puede venir como URL del QR (ej: https://app.entregax.com/track/US-XXXXXX)
-    // o como el tracking directo
+    // o como el tracking directo. Algunos escáneres con layout US en Mac en español mapean mal los símbolos:
+    //   ':' -> 'Ñ',  '/' -> '-',  '-' -> "'"
+    // por eso la URL puede llegar como "HTTPSÑ--APP.ENTREGAX.COM-TRACK-US'5556872579"
     let raw = scanInput.trim();
+
+    // Normalizar caracteres si detectamos el patrón de layout mal mapeado
+    const looksMangled = /HTTPSÑ|HTTPÑ|-TRACK-|-T-/i.test(raw);
+    if (looksMangled) {
+      raw = raw
+        .replace(/Ñ/g, ':')
+        .replace(/'/g, '-');
+      // Los '/' vienen como '-', pero los '-' originales ya se convirtieron arriba.
+      // Reconstruir la URL: primer '-' después de "https:" y los que rodean "track" son realmente '/'
+      raw = raw.replace(/^(https?:)-+/i, '$1//');
+      raw = raw.replace(/-(track|t)-/i, '/$1/');
+    }
+
     // Si contiene una URL con /track/ o /t/, extraer el último segmento
     const urlMatch = raw.match(/(?:\/track\/|\/t\/)([A-Za-z0-9-]+)/i);
     if (urlMatch && urlMatch[1]) {
