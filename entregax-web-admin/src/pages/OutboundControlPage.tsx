@@ -165,7 +165,19 @@ export default function OutboundControlPage() {
   const handleScan = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter' || !scanInput.trim()) return;
     
-    const tracking = scanInput.trim().toUpperCase();
+    // Extraer tracking del input: puede venir como URL del QR (ej: https://app.entregax.com/track/US-XXXXXX)
+    // o como el tracking directo
+    let raw = scanInput.trim();
+    // Si contiene una URL con /track/ o /t/, extraer el último segmento
+    const urlMatch = raw.match(/(?:\/track\/|\/t\/)([A-Za-z0-9-]+)/i);
+    if (urlMatch && urlMatch[1]) {
+      raw = urlMatch[1];
+    } else if (/^https?:\/\//i.test(raw)) {
+      // URL genérica: usar el último segmento no vacío
+      const parts = raw.split(/[/?#]/).filter(Boolean);
+      raw = parts[parts.length - 1] || raw;
+    }
+    const tracking = raw.toUpperCase();
     
     // Verificar si ya está escaneado
     if (scannedPackages.some(p => p.tracking === tracking)) {
