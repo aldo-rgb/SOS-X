@@ -1224,9 +1224,8 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       
       return `
       <div class="label" style="page-break-after: ${index < labelsToPrint.length - 1 ? 'always' : 'auto'};">
-        <!-- Header con logo y fecha -->
+        <!-- Header con fecha -->
         <div class="header">
-          <div class="logo">🚚 EntregaX</div>
           <div class="date-badge">${receivedDate}</div>
         </div>
         
@@ -1255,10 +1254,9 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         
         <div class="divider"></div>
         
-        <!-- Cliente destacado -->
+        <!-- Casillero destacado -->
         <div class="client-info">
           <div class="client-box">${label.clientBoxId}</div>
-          <div class="client-name">${label.clientName}</div>
         </div>
         
         <!-- Detalles -->
