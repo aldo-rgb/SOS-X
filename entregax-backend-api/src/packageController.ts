@@ -387,6 +387,12 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
         let hasDefaultUsaAddress = false;
         let defaultAddressId: number | null = null;
         let autoAssignedCarrier: string | null = null;
+
+        // 🚚 ¿El operador seleccionó explícitamente una tarifa en el wizard?
+        // Si sí, RESPETAR su elección (carrier + costo nacional) y NO auto-cotizar con PQTX
+        // aunque el cliente tenga paquete_express configurado en su dirección.
+        const operatorSelectedRate = !!skydropxQuote && skydropxQuote.rateId != null;
+
         if (user && serviceType === 'POBOX_USA') {
             const addressCheck = await client.query(
                 `SELECT id, carrier_config, zip_code FROM addresses 
@@ -401,8 +407,9 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                 defaultAddressId = addressCheck.rows[0].id;
                 
                 // 🚚 Extraer paquetería asignada de carrier_config
+                // Solo usar como "auto-asignada" si el operador NO eligió explícitamente algo distinto
                 const carrierConfig = addressCheck.rows[0].carrier_config;
-                if (carrierConfig) {
+                if (carrierConfig && !operatorSelectedRate) {
                     const CARRIER_NAMES: Record<string, string> = {
                         'entregax_local': 'EntregaX Local',
                         'paquete_express': 'Paquete Express',
@@ -420,7 +427,9 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                 console.log(`📦 Cliente ${user.box_id} tiene dirección USA asignada (ID: ${defaultAddressId}, Carrier: ${autoAssignedCarrier}) - auto-asignando instrucciones`);
                 
                 // 🚚 AUTO-COTIZAR con Paquete Express si la paquetería asignada es paquete_express
-                if (carrierConfig && (carrierConfig['usa'] === 'paquete_express' || autoAssignedCarrier === 'Paquete Express')) {
+                // PERO: si el operador ya seleccionó una tarifa en el wizard (skydropxQuote),
+                // respetar su elección y NO sobrescribir el costo nacional.
+                if (!operatorSelectedRate && carrierConfig && (carrierConfig['usa'] === 'paquete_express' || autoAssignedCarrier === 'Paquete Express')) {
                     const destZip = addressCheck.rows[0].zip_code;
                     if (destZip) {
                         try {
@@ -568,6 +577,13 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
         // Los paquetes en 'processing' están listos para salida pero sin consolidación aún
         let consolidationId: number | null = null;
 
+        // 🚚 Carrier nacional efectivo: prioridad a la elección explícita del operador
+        // (skydropxQuote.provider / carrier del wizard) sobre el auto-asignado de carrier_config.
+        const operatorChosenCarrier = operatorSelectedRate
+            ? (skydropxQuote?.provider || carrier || null)
+            : null;
+        const effectiveNationalCarrier = operatorChosenCarrier || autoAssignedCarrier;
+
         let masterPackage;
         const childPackages = [];
         const allLabels = [];
@@ -599,7 +615,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                  totalCostMxn, costResult.cbm,
                  costResult.poboxServiceCost, costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn,
                  costResult.registeredExchangeRate, costResult.poboxCostUsd, costResult.nivelTarifa || null, costResult.precioVentaUsd || null, nationalShippingCost,
-                 defaultAddressId, defaultAddressId ? false : true, autoAssignedCarrier]
+                 defaultAddressId, defaultAddressId ? false : true, effectiveNationalCarrier]
             );
             masterPackage = result.rows[0];
             
@@ -637,7 +653,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                  totalCostMxn, costResult.cbm,
                  costResult.poboxServiceCost, costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn,
                  costResult.registeredExchangeRate, costResult.poboxCostUsd, costResult.nivelTarifa || null, costResult.precioVentaUsd || null, nationalShippingCost,
-                 defaultAddressId, defaultAddressId ? false : true, autoAssignedCarrier]
+                 defaultAddressId, defaultAddressId ? false : true, effectiveNationalCarrier]
             );
             masterPackage = masterResult.rows[0];
 

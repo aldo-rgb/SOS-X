@@ -4143,6 +4143,17 @@ export default function DashboardClient() {
                             {pkg.is_master && <Chip label="📦" size="small" sx={{ height: 16, fontSize: '0.55rem', bgcolor: '#e3f2fd', color: BLUE, minWidth: 'auto' }} />}
                             {pkg.client_paid && pkg.status !== 'delivered' && <Chip label="✓" size="small" color="success" sx={{ height: 16, fontSize: '0.55rem', minWidth: 'auto' }} />}
                           </Box>
+                          {/* Guía del proveedor (origen) */}
+                          {(pkg.tracking_provider ||
+                            (pkg.is_master && pkg.included_guides && pkg.included_guides.some(g => g.tracking_provider))) && (
+                            <Typography variant="caption" sx={{ display: 'block', color: '#666', fontFamily: 'monospace', fontSize: isMobile ? '0.6rem' : '0.7rem' }} noWrap>
+                              🚚 {pkg.tracking_provider ||
+                                (pkg.included_guides || [])
+                                  .filter(g => g.tracking_provider)
+                                  .map(g => g.tracking_provider)
+                                  .join(', ')}
+                            </Typography>
+                          )}
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
                             {pkg.descripcion && <Typography variant="caption" color="text.secondary" sx={{ fontSize: isMobile ? '0.65rem' : '0.75rem' }} noWrap>{pkg.descripcion}</Typography>}
                             {pkg.total_boxes && pkg.total_boxes > 0 && (
@@ -7640,8 +7651,17 @@ export default function DashboardClient() {
                   {selectedPackage.tracking}
                 </Typography>
                 {selectedPackage.tracking_provider && (
-                  <Typography variant="caption" color="text.secondary">
-                    Carrier: {selectedPackage.tracking_provider}
+                  <Typography variant="body2" sx={{ mt: 0.5, color: '#333', fontFamily: 'monospace' }}>
+                    🚚 <strong>Guía Proveedor:</strong> {selectedPackage.tracking_provider}
+                  </Typography>
+                )}
+                {/* Para masters: mostrar todas las guías de proveedor concatenadas */}
+                {selectedPackage.is_master && !selectedPackage.tracking_provider && selectedPackage.included_guides && selectedPackage.included_guides.some(g => g.tracking_provider) && (
+                  <Typography variant="body2" sx={{ mt: 0.5, color: '#333' }}>
+                    🚚 <strong>Guías Proveedor:</strong>{' '}
+                    <span style={{ fontFamily: 'monospace' }}>
+                      {selectedPackage.included_guides.filter(g => g.tracking_provider).map(g => g.tracking_provider).join(', ')}
+                    </span>
                   </Typography>
                 )}
               </Box>
@@ -7771,6 +7791,11 @@ export default function DashboardClient() {
                                 />
                               )}
                             </Box>
+                            {guide.tracking_provider && (
+                              <Typography variant="caption" sx={{ display: 'block', color: '#555', fontFamily: 'monospace' }}>
+                                🚚 {guide.tracking_provider}
+                              </Typography>
+                            )}
                             {guide.description && (
                               <Typography variant="caption" color="text.secondary">{guide.description}</Typography>
                             )}
