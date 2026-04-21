@@ -337,17 +337,39 @@ export default function DashboardClient() {
   ], [t]);
 
   const airStatusSteps = useMemo(() => [
-    'Pendiente',
     'En Bodega China',
-    'Organizando Vuelo',
-    'Tránsito a Aeropuerto',
-    'En Aeropuerto',
+    'En Tránsito Internacional',
     'En Aduana',
     'En CEDIS MX',
-    'Procesando',
     'En Ruta',
     'Entregado',
   ], []);
+
+  // Sub-etiqueta granular para AIR (se muestra debajo del timeline de 6 pasos)
+  const getAirSubStatusLabel = (status: string | undefined | null): string | null => {
+    if (!status) return null;
+    const map: Record<string, string> = {
+      pending: 'Pendiente de escaneo',
+      received_origin: 'Recibido en origen',
+      received_china: 'Información de guía aérea',
+      in_transit_transfer: 'Organizando vuelo',
+      in_transit_loading: 'Tránsito a aeropuerto',
+      in_transit_airport_wait: 'En aeropuerto esperando vuelo',
+      in_customs_gz: 'En proceso de aduana',
+      in_customs: 'En aduana',
+      customs_cleared: 'Liberado de aduana',
+      at_cedis: 'Recibido en CEDIS',
+      received_cedis: 'Recibido en CEDIS',
+      arrived_mexico: 'Llegó a México',
+      processing: 'Procesando',
+      dispatched: 'Despachado',
+      out_for_delivery: 'En ruta con paquetería',
+      shipped: 'Enviado',
+      sent: 'Enviado',
+      delivered: 'Entregado al cliente',
+    };
+    return map[status] || null;
+  };
 
   const maritimeStatusSteps = useMemo(() => [
     'En Bodega',
@@ -2928,31 +2950,31 @@ export default function DashboardClient() {
     const isChinaAir = pkg && (pkg.servicio === 'AIR_CHN_MX' || pkg.shipment_type === 'china_air');
     if (isChinaAir) {
       switch (status) {
-        case 'pending': return 0;
+        case 'pending':
         case 'received_origin':
-        case 'received_china': return 1;
-        case 'in_transit_transfer': return 2;
-        case 'in_transit_loading': return 3;
-        case 'in_transit_airport_wait': return 4;
+        case 'received_china': return 0;
+        case 'in_transit_transfer':
+        case 'in_transit_loading':
+        case 'in_transit_airport_wait':
+        case 'in_transit':
+        case 'in_transit_mx': return 1;
         case 'in_customs_gz':
         case 'in_customs':
         case 'at_customs':
-        case 'customs': return 5;
+        case 'customs': return 2;
         case 'customs_cleared':
         case 'received_cedis':
         case 'at_cedis':
         case 'arrived_mexico':
-        case 'in_transit_mx':
-        case 'in_transit': return 6;
-        case 'processing':
-        case 'dispatched': return 7;
+        case 'processing': return 3;
         case 'out_for_delivery':
         case 'in_transit_mty':
         case 'ready_pickup':
+        case 'dispatched':
         case 'shipped':
         case 'sent':
-        case 'enviado': return 8;
-        case 'delivered': return 9;
+        case 'enviado': return 4;
+        case 'delivered': return 5;
         default: return 0;
       }
     }
@@ -4272,6 +4294,12 @@ export default function DashboardClient() {
                         <Typography key={label} variant="caption" sx={{ fontSize: '0.6rem', textAlign: 'center', flex: 1 }}>{label}</Typography>
                       ))}
                     </Box>
+                    )}
+                    {/* Sub-status granular (solo AIR) */}
+                    {(pkg.servicio === 'AIR_CHN_MX' || pkg.shipment_type === 'china_air') && getAirSubStatusLabel(pkg.status) && (
+                      <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', color: ORANGE, fontWeight: 'bold', fontSize: isMobile ? '0.65rem' : '0.7rem', mt: 0.5 }}>
+                        • {getAirSubStatusLabel(pkg.status)}
+                      </Typography>
                     )}
 
                     {/* Footer compacto - Mobile optimized */}
@@ -5887,6 +5915,13 @@ export default function DashboardClient() {
                             </Box>
                           </Box>
 
+                          {/* Sub-status granular (solo AIR) */}
+                          {(pkg.servicio === 'AIR_CHN_MX' || pkg.shipment_type === 'china_air') && getAirSubStatusLabel(pkg.status) && (
+                            <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', color: ORANGE, fontWeight: 'bold', fontSize: '0.7rem', mt: 1 }}>
+                              • {getAirSubStatusLabel(pkg.status)}
+                            </Typography>
+                          )}
+
                           {/* ETA */}
                           <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid #eee' }}>
                             <Typography variant="caption" color="text.secondary">
@@ -6115,6 +6150,13 @@ export default function DashboardClient() {
                               ))}
                             </Box>
                           </Box>
+
+                          {/* Sub-status granular (solo AIR) */}
+                          {(pkg.servicio === 'AIR_CHN_MX' || pkg.shipment_type === 'china_air') && getAirSubStatusLabel(pkg.status) && (
+                            <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', color: ORANGE, fontWeight: 'bold', fontSize: '0.7rem', mt: 1 }}>
+                              • {getAirSubStatusLabel(pkg.status)}
+                            </Typography>
+                          )}
 
                           {/* ETA */}
                           <Box sx={{ mt: 1.5, pt: 1.5, borderTop: '1px solid #eee' }}>
