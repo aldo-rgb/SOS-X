@@ -927,6 +927,14 @@ export default function DashboardClient() {
     id: number; old_status: string | null; new_status: string; trajectory_name: string | null;
     source: string; notes: string | null; created_at: string;
   }>>([]);
+  const [currentStatus, setCurrentStatus] = useState<{
+    package_status?: string | null;
+    receipt_status?: string | null;
+    trajectory_name?: string | null;
+    package_updated_at?: string | null;
+    receipt_created_at?: string | null;
+    last_sync_at?: string | null;
+  } | null>(null);
 
   const handleOpenTrajectory = async (tracking: string) => {
     setTrajectoryOpen(true);
@@ -935,30 +943,20 @@ export default function DashboardClient() {
     setTrajectoryError(null);
     setTrajectoryEvents([]);
     setInternalHistory([]);
+    setCurrentStatus(null);
     try {
       const token = localStorage.getItem('token');
-      // Fetch paralelo: trayectoria MoJie + historial interno SOS-X
-      const [resTraj, resHist] = await Promise.all([
-        fetch(`${API_URL}/api/china/trajectory/${encodeURIComponent(tracking)}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        }),
-        fetch(`${API_URL}/api/china/status-history/${encodeURIComponent(tracking)}`, {
-          headers: { Authorization: `Bearer ${token}` }
-        })
-      ]);
-      const data = await resTraj.json();
-      if (data.success && Array.isArray(data.trayectoria)) {
-        setTrajectoryEvents(data.trayectoria);
+      // Solo consultar historial interno SOS-X (sin MoJie en vivo)
+      const resHist = await fetch(`${API_URL}/api/china/status-history/${encodeURIComponent(tracking)}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      const histData = await resHist.json();
+      if (histData.success) {
+        if (Array.isArray(histData.history)) setInternalHistory(histData.history);
+        if (histData.current) setCurrentStatus(histData.current);
       } else {
-        setTrajectoryError(data.error || data.details || 'No se encontraron movimientos para esta guía');
+        setTrajectoryError(histData.error || 'No se pudo cargar el historial');
       }
-      // Historial interno (best-effort)
-      try {
-        const histData = await resHist.json();
-        if (histData.success && Array.isArray(histData.history)) {
-          setInternalHistory(histData.history);
-        }
-      } catch { /* noop */ }
     } catch (err: any) {
       setTrajectoryError(err?.message || 'Error de conexión');
     } finally {
@@ -8484,7 +8482,7 @@ export default function DashboardClient() {
             <Box sx={{ p: 4, textAlign: 'center' }}>
               <CircularProgress sx={{ color: ORANGE }} />
               <Typography variant="body2" sx={{ mt: 2 }} color="text.secondary">
-                Consultando historial en MoJie...
+                Cargando historial...
               </Typography>
             </Box>
           )}
@@ -8499,73 +8497,65 @@ export default function DashboardClient() {
             </Box>
           )}
 
-          {!trajectoryLoading && !trajectoryError && trajectoryEvents.length === 0 && (
+          {/* Estado actual (banner superior) */}
+          {!trajectoryLoading && !trajectoryError && currentStatus && (() => {
+            const statusLabels: Record<string, string> = {
+              pending: 'Pendiente',
+              received_origin: 'Recibido en Origen',
+              received_china: 'En Bodega China',
+              in_transit_transfer: 'En Tránsito (Transferencia)',
+              in_transit_loading: 'En Proceso a Aeropuerto',
+              in_transit_airport_wait: 'Esperando Vuelo',
+              in_customs_gz: 'En Proceso de Aduana',
+              delivered: 'Entregado',
+              in_transit_international: 'Tránsito Internacional',
+              arrived_mexico: 'Llegó a México',
+              at_cedis: 'En CEDIS',
+              dispatched: 'Despachado'
+            };
+            const currentKey = currentStatus.package_status || currentStatus.receipt_status || '';
+            const currentLabel = statusLabels[currentKey] || currentKey || 'Sin estado';
+            return (
+              <Box sx={{ p: 2, bgcolor: '#fff3e0', borderBottom: '1px solid #ffe0b2' }}>
+                <Typography variant="caption" color="text.secondary">Estado actual</Typography>
+                <Typography variant="h6" fontWeight="bold" sx={{ color: ORANGE }}>
+                  {currentLabel}
+                </Typography>
+                {currentStatus.trajectory_name && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.3 }}>
+                    {currentStatus.trajectory_name}
+                  </Typography>
+                )}
+                {currentStatus.last_sync_at && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.3 }}>
+                    🔄 Última sincronización: {new Date(currentStatus.last_sync_at).toLocaleString('es-MX', {
+                      day: '2-digit', month: 'short', year: 'numeric',
+                      hour: '2-digit', minute: '2-digit'
+                    })}
+                  </Typography>
+                )}
+              </Box>
+            );
+          })()}
+
+          {/* Historial interno SOS-X: timeline de cambios */}
+          {!trajectoryLoading && !trajectoryError && internalHistory.length === 0 && (
             <Box sx={{ p: 4, textAlign: 'center' }}>
               <Typography variant="body2" color="text.secondary">
-                No hay movimientos registrados aún para esta guía.
+                Aún no se han registrado cambios de estado para esta guía.
+              </Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                El historial comenzará a registrarse en la siguiente sincronización con el transportista.
               </Typography>
             </Box>
           )}
 
-          {!trajectoryLoading && trajectoryEvents.length > 0 && (
+          {!trajectoryLoading && !trajectoryError && internalHistory.length > 0 && (
             <Box sx={{ p: 2 }}>
-              {trajectoryEvents.map((evt, idx) => {
-                const isLast = idx === trajectoryEvents.length - 1;
-                const isFirst = idx === 0;
-                return (
-                  <Box key={idx} sx={{ display: 'flex', gap: 2, position: 'relative' }}>
-                    {/* Línea vertical + dot */}
-                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 24 }}>
-                      <Box sx={{
-                        width: 14,
-                        height: 14,
-                        borderRadius: '50%',
-                        bgcolor: isFirst ? ORANGE : '#9e9e9e',
-                        border: isFirst ? '3px solid #fff3e0' : '2px solid #e0e0e0',
-                        boxShadow: isFirst ? `0 0 0 2px ${ORANGE}` : 'none',
-                        mt: 0.5,
-                        flexShrink: 0
-                      }} />
-                      {!isLast && (
-                        <Box sx={{ width: 2, flex: 1, bgcolor: '#e0e0e0', minHeight: 40, mt: 0.5 }} />
-                      )}
-                    </Box>
-                    {/* Contenido */}
-                    <Box sx={{ flex: 1, pb: isLast ? 0 : 2.5 }}>
-                      <Typography
-                        variant="body2"
-                        fontWeight={isFirst ? 'bold' : 'medium'}
-                        sx={{ color: isFirst ? ORANGE : 'text.primary' }}
-                      >
-                        {evt.en || evt.ch || '(sin descripción)'}
-                      </Typography>
-                      {evt.en && evt.ch && evt.en !== evt.ch && (
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.3 }}>
-                          {evt.ch}
-                        </Typography>
-                      )}
-                      {evt.date && (
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                          🕐 {new Date(evt.date).toLocaleString('es-MX', {
-                            day: '2-digit', month: 'short', year: 'numeric',
-                            hour: '2-digit', minute: '2-digit'
-                          })}
-                        </Typography>
-                      )}
-                    </Box>
-                  </Box>
-                );
-              })}
-            </Box>
-          )}
-
-          {/* Historial interno SOS-X: cambios de status con fecha/hora */}
-          {!trajectoryLoading && internalHistory.length > 0 && (
-            <Box sx={{ px: 2, pb: 2 }}>
-              <Typography variant="subtitle2" sx={{ mt: 2, mb: 1.5, color: ORANGE, fontWeight: 'bold', borderTop: '1px solid #e0e0e0', pt: 2 }}>
-                📋 Historial de Cambios (SOS-X)
+              <Typography variant="subtitle2" sx={{ mb: 1.5, color: ORANGE, fontWeight: 'bold' }}>
+                📋 Historial de Cambios
               </Typography>
-              {internalHistory.map((h) => {
+              {internalHistory.map((h, idx) => {
                 const statusLabels: Record<string, string> = {
                   pending: 'Pendiente',
                   received_origin: 'Recibido en Origen',
@@ -8582,35 +8572,54 @@ export default function DashboardClient() {
                 };
                 const sourceLabels: Record<string, string> = {
                   mojie_sync: '🔄 Sync automático',
-                  mojie_webhook: '📡 Webhook MoJie',
+                  mojie_webhook: '📡 Notificación en tiempo real',
                   manual: '✋ Cambio manual',
                   recalc: '🔁 Recalculado',
                   track_fno: '🔍 Rastreo',
                   pull_order: '⬇️ Sync bajo demanda'
                 };
+                const isFirst = idx === 0;
+                const isLast = idx === internalHistory.length - 1;
                 return (
-                  <Box key={h.id} sx={{ display: 'flex', gap: 2, mb: 1.5 }}>
-                    <Box sx={{
-                      width: 10, height: 10, borderRadius: '50%',
-                      bgcolor: '#757575', mt: 0.8, flexShrink: 0,
-                      border: '2px solid #eee'
-                    }} />
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="body2" fontWeight="medium">
+                  <Box key={h.id} sx={{ display: 'flex', gap: 2, position: 'relative' }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 24 }}>
+                      <Box sx={{
+                        width: 14, height: 14, borderRadius: '50%',
+                        bgcolor: isFirst ? ORANGE : '#9e9e9e',
+                        border: isFirst ? '3px solid #fff3e0' : '2px solid #e0e0e0',
+                        boxShadow: isFirst ? `0 0 0 2px ${ORANGE}` : 'none',
+                        mt: 0.5, flexShrink: 0
+                      }} />
+                      {!isLast && (
+                        <Box sx={{ width: 2, flex: 1, bgcolor: '#e0e0e0', minHeight: 40, mt: 0.5 }} />
+                      )}
+                    </Box>
+                    <Box sx={{ flex: 1, pb: isLast ? 0 : 2.5 }}>
+                      <Typography
+                        variant="body2"
+                        fontWeight={isFirst ? 'bold' : 'medium'}
+                        sx={{ color: isFirst ? ORANGE : 'text.primary' }}
+                      >
                         {h.old_status
                           ? `${statusLabels[h.old_status] || h.old_status} → ${statusLabels[h.new_status] || h.new_status}`
                           : statusLabels[h.new_status] || h.new_status}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                        {sourceLabels[h.source] || h.source}
-                        {' · '}
-                        {new Date(h.created_at).toLocaleString('es-MX', {
+                      {h.trajectory_name && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.3 }}>
+                          {h.trajectory_name}
+                        </Typography>
+                      )}
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                        🕐 {new Date(h.created_at).toLocaleString('es-MX', {
                           day: '2-digit', month: 'short', year: 'numeric',
                           hour: '2-digit', minute: '2-digit'
                         })}
                       </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontStyle: 'italic' }}>
+                        {sourceLabels[h.source] || h.source}
+                      </Typography>
                       {h.notes && (
-                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontStyle: 'italic' }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontStyle: 'italic', mt: 0.3 }}>
                           {h.notes}
                         </Typography>
                       )}

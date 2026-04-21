@@ -1343,7 +1343,48 @@ export const trackFNO = async (req: Request, res: Response): Promise<any> => {
 
         console.log(`🔍 Rastreando FNO: ${fno}`);
 
-        // Helper para hacer la llamada con un token dado
+        // Helper: buscar datos en BD local para usar como fallback si MoJie falla
+        const buildLocalFallback = async (): Promise<any | null> => {
+            try {
+                const receiptQ = await pool.query(
+                    `SELECT id, fno, shipping_mark, total_qty, total_weight, total_cbm, status, evidence_urls
+                     FROM china_receipts WHERE fno = $1 LIMIT 1`,
+                    [fno]
+                );
+                if (receiptQ.rows.length === 0) return null;
+                const r = receiptQ.rows[0];
+                const pkgsQ = await pool.query(
+                    `SELECT child_no, trajectory_name, weight, long_cm, width_cm, height_cm,
+                            pro_name, customs_bno, international_tracking, etd, eta
+                     FROM packages WHERE china_receipt_id = $1`,
+                    [r.id]
+                );
+                return {
+                    fno: r.fno,
+                    shippingMark: r.shipping_mark,
+                    totalQty: r.total_qty,
+                    totalWeight: r.total_weight,
+                    totalCbm: r.total_cbm,
+                    evidencias: r.evidence_urls || [],
+                    paquetes: pkgsQ.rows.map((p: any) => ({
+                        childNo: p.child_no,
+                        status: p.trajectory_name,
+                        peso: p.weight,
+                        dimensiones: `${p.long_cm}x${p.width_cm}x${p.height_cm} cm`,
+                        producto: p.pro_name,
+                        codigoAduanal: p.customs_bno,
+                        guiaInternacional: p.international_tracking || 'Pendiente',
+                        etd: p.etd || 'Pendiente',
+                        eta: p.eta || 'Pendiente'
+                    }))
+                };
+            } catch (dbErr: any) {
+                console.warn('⚠️  Fallback BD falló:', dbErr?.message);
+                return null;
+            }
+        };
+
+        // Helper para hacer la llamada con un token dado (timeout 12s)
         const callApi = async (token: string) => {
             const apiResponse = await fetchWithTimeout(
                 `${MJCUSTOMER_API.baseUrl}/api/otherSystem/orderByList/${fno}`,
@@ -1355,7 +1396,7 @@ export const trackFNO = async (req: Request, res: Response): Promise<any> => {
                         'request-from': 'swagger'
                     }
                 },
-                20000
+                12000
             );
             const text = await apiResponse.text();
             let data: MJCustomerOrderResponse | null = null;
@@ -1363,54 +1404,75 @@ export const trackFNO = async (req: Request, res: Response): Promise<any> => {
             return { status: apiResponse.status, data, rawText: text };
         };
 
-        // Obtener token válido
-        let token: string;
-        try {
-            token = await getMJCustomerToken();
-        } catch (tokenErr: any) {
-            console.error('❌ Error obteniendo token MJCustomer:', tokenErr);
-            return res.status(503).json({
-                success: false,
-                error: 'No se pudo autenticar con MoJie',
-                details: tokenErr.message
-            });
-        }
-
-        // Primera llamada
-        let { status: httpStatus, data: apiData, rawText } = await callApi(token);
-
-        // Si 401 o código 401 en payload → refrescar token y reintentar 1 vez
-        const isAuthFail = httpStatus === 401 || (apiData && (apiData.code === 401 || apiData.code === 403));
-        if (isAuthFail) {
-            console.warn('🔄 Token MJCustomer inválido, refrescando...');
-            MJCUSTOMER_API.token = '';
-            MJCUSTOMER_API.tokenExpiry = 0;
+        // Intentamos MoJie pero con deadline máximo global de 40s (muy por debajo del 60s Railway)
+        const mojieFlow = async () => {
+            let token: string;
             try {
+                token = await getMJCustomerToken();
+            } catch (tokenErr: any) {
+                throw new Error(`auth: ${tokenErr.message}`);
+            }
+
+            let { status: httpStatus, data: apiData, rawText } = await callApi(token);
+
+            const isAuthFail = httpStatus === 401 || (apiData && (apiData.code === 401 || apiData.code === 403));
+            if (isAuthFail) {
+                console.warn('🔄 Token MJCustomer inválido, refrescando...');
+                MJCUSTOMER_API.token = '';
+                MJCUSTOMER_API.tokenExpiry = 0;
                 const newToken = await loginToMJCustomer();
                 if (newToken) {
                     ({ status: httpStatus, data: apiData, rawText } = await callApi(newToken));
                 }
-            } catch (refreshErr: any) {
-                console.error('❌ Falló refresh de token:', refreshErr);
             }
+            return { httpStatus, apiData, rawText };
+        };
+
+        let mojieResult: { httpStatus: number; apiData: MJCustomerOrderResponse | null; rawText: string } | null = null;
+        let mojieError: string | null = null;
+
+        try {
+            mojieResult = await Promise.race([
+                mojieFlow(),
+                new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error('Deadline global 40s superado')), 40000)
+                )
+            ]) as any;
+        } catch (err: any) {
+            mojieError = err?.message || String(err);
+            console.error('❌ MoJie flow falló:', mojieError);
         }
 
-        if (!apiData) {
-            console.error('❌ Respuesta no-JSON de MoJie:', rawText?.substring(0, 500));
-            return res.status(502).json({
+        // Si MoJie falló o devolvió error → intentar fallback BD
+        if (!mojieResult || !mojieResult.apiData || mojieResult.apiData.code !== 200 || !mojieResult.apiData.result) {
+            const local = await buildLocalFallback();
+            if (local) {
+                console.log(`  ⚠️  Usando fallback BD local (MoJie: ${mojieError || mojieResult?.apiData?.message || 'sin datos'})`);
+                return res.json({
+                    success: true,
+                    tracking: local,
+                    fromCache: true,
+                    warning: mojieError
+                        ? `MoJie no disponible (${mojieError}). Mostrando últimos datos en caché.`
+                        : `MoJie devolvió: ${mojieResult?.apiData?.message || 'sin datos'}. Mostrando caché local.`
+                });
+            }
+            // Sin MoJie y sin caché
+            if (mojieError) {
+                return res.status(502).json({
+                    success: false,
+                    error: 'MoJie no disponible y no hay datos en caché',
+                    details: mojieError
+                });
+            }
+            return res.status(mojieResult?.httpStatus === 401 ? 401 : 404).json({
                 success: false,
-                error: 'Respuesta inválida de MoJie',
-                details: rawText?.substring(0, 200)
+                error: mojieResult?.apiData?.message || 'FNO no encontrado',
+                apiCode: mojieResult?.apiData?.code
             });
         }
 
-        if (apiData.code !== 200 || !apiData.result) {
-            return res.status(httpStatus === 401 ? 401 : 404).json({
-                success: false,
-                error: apiData.message || 'FNO no encontrado',
-                apiCode: apiData.code
-            });
-        }
+        const { apiData } = mojieResult;
 
         // Procesar resultado
         const order = Array.isArray(apiData.result) ? apiData.result[0] : apiData.result;
@@ -1741,11 +1803,25 @@ export const getChinaStatusHistory = async (req: Request, res: Response): Promis
             ORDER BY h.created_at DESC
         `, [tracking]);
 
+        // Adicional: estado actual del paquete/recepción (para mostrar cuando no hay historial)
+        const currentQ = await pool.query(`
+            SELECT p.id AS package_id, p.tracking_internal, p.child_no, p.status AS package_status,
+                   p.trajectory_name, p.created_at AS package_created_at, p.updated_at AS package_updated_at,
+                   cr.id AS receipt_id, cr.fno, cr.status AS receipt_status,
+                   cr.created_at AS receipt_created_at, cr.last_sync_at
+            FROM packages p
+            LEFT JOIN china_receipts cr ON cr.id = p.china_receipt_id
+            WHERE p.tracking_internal = $1 OR p.child_no = $1 OR cr.fno = $1
+            ORDER BY p.updated_at DESC NULLS LAST
+            LIMIT 1
+        `, [tracking]);
+
         res.json({
             success: true,
             tracking,
             total: result.rows.length,
-            history: result.rows
+            history: result.rows,
+            current: currentQ.rows[0] || null
         });
     } catch (error: any) {
         console.error('❌ Error consultando historial:', error?.stack || error);
