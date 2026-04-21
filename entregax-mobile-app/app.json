@@ -16,7 +16,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.entregax.mobile",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "infoPlist": {
         "NSCameraUsageDescription": "EntregaX usa la cámara para escanear guías, códigos QR y tomar fotos de paquetes.",
         "NSPhotoLibraryUsageDescription": "EntregaX accede a tu galería para adjuntar fotos de paquetes o comprobantes.",
@@ -29,7 +29,7 @@
     },
     "android": {
       "package": "com.entregax.mobile",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
