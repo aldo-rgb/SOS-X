@@ -1674,68 +1674,157 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                   </Typography>
 
                   {/* Formulario de caja actual */}
-                  <Card sx={{ p: 2, mb: 2, border: `2px dashed ${ORANGE}` }}>
-                    <Grid container spacing={2} alignItems="center">
-                      {/* Guía del Proveedor */}
-                      <Grid size={{ xs: 12, sm: 6 }}>
-                        <TextField 
-                          fullWidth 
-                          label={i18n.language === 'es' ? '📦 Guía del Proveedor (Amazon, UPS, etc.)' : '📦 Supplier Tracking'} 
-                          placeholder={i18n.language === 'es' ? 'Escanea o escribe la guía...' : 'Scan or type tracking...'}
-                          value={currentBox.trackingCourier} 
-                          onChange={(e) => setCurrentBox(p => ({ ...p, trackingCourier: e.target.value.toUpperCase() }))}
-                          InputProps={{ startAdornment: <InputAdornment position="start"><QrCodeScannerIcon /></InputAdornment> }}
-                          helperText={i18n.language === 'es' ? 'Guía individual de esta caja' : 'Individual tracking for this box'}
+                  <Card
+                    elevation={0}
+                    sx={{
+                      p: 3,
+                      mb: 2,
+                      borderRadius: 3,
+                      border: `2px dashed ${ORANGE}`,
+                      background: 'linear-gradient(180deg, #FFF8F5 0%, #FFFFFF 100%)',
+                    }}
+                  >
+                    {/* Sección 1: Guía del proveedor */}
+                    <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700, letterSpacing: 1 }}>
+                      1 · {i18n.language === 'es' ? 'Guía del Proveedor' : 'Supplier Tracking'}
+                    </Typography>
+                    <TextField
+                      fullWidth
+                      placeholder={i18n.language === 'es' ? 'Escanea o escribe la guía (Amazon, UPS, etc.)...' : 'Scan or type tracking...'}
+                      value={currentBox.trackingCourier}
+                      onChange={(e) => setCurrentBox(p => ({ ...p, trackingCourier: e.target.value.toUpperCase() }))}
+                      InputProps={{
+                        startAdornment: <InputAdornment position="start"><QrCodeScannerIcon sx={{ color: ORANGE }} /></InputAdornment>,
+                        sx: { bgcolor: 'white', borderRadius: 2 },
+                      }}
+                      sx={{ mt: 1, mb: 2 }}
+                    />
+
+                    <Divider sx={{ my: 2 }} />
+
+                    {/* Sección 2: Peso y medidas */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                      <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700, letterSpacing: 1 }}>
+                        2 · {i18n.language === 'es' ? 'Peso y Medidas' : 'Weight & Dimensions'}
+                      </Typography>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<ScaleIcon />}
+                        onClick={handleReadScale}
+                        sx={{
+                          color: ORANGE,
+                          borderColor: ORANGE,
+                          textTransform: 'none',
+                          fontWeight: 600,
+                          '&:hover': { bgcolor: '#FFF0EA' },
+                        }}
+                      >
+                        {i18n.language === 'es' ? 'Actualizar desde báscula' : 'Update from scale'}
+                      </Button>
+                    </Box>
+
+                    <Grid container spacing={1.5}>
+                      <Grid size={{ xs: 6, sm: 3 }}>
+                        <TextField
+                          fullWidth
+                          inputRef={weightInputRef}
+                          label={t('shipments.weight')}
+                          type="number"
+                          value={currentBox.weight}
+                          onChange={(e) => setCurrentBox(p => ({ ...p, weight: e.target.value }))}
+                          InputProps={{
+                            endAdornment: <InputAdornment position="end">kg</InputAdornment>,
+                            sx: { bgcolor: 'white', borderRadius: 2 },
+                          }}
+                          inputProps={{ step: 0.01, min: 0.01 }}
                         />
                       </Grid>
-                      <Grid size={{ xs: 12, sm: 6 }}></Grid>
-                      
-                      {/* Peso */}
-                      <Grid size={{ xs: 12, sm: 3 }}>
-                        <Box sx={{ display: 'flex', gap: 1 }}>
-                          <TextField inputRef={weightInputRef} fullWidth label={`${t('shipments.weight')} (kg)`} type="number"
-                            value={currentBox.weight} onChange={(e) => setCurrentBox(p => ({ ...p, weight: e.target.value }))}
-                            InputProps={{ startAdornment: <InputAdornment position="start"><ScaleIcon /></InputAdornment>, endAdornment: <InputAdornment position="end">kg</InputAdornment> }}
-                            inputProps={{ step: 0.01, min: 0.01 }} />
-                        </Box>
-                        <Button size="small" onClick={handleReadScale} sx={{ mt: 1, color: ORANGE }}>📡 {t('wizard.readScale')}</Button>
-                      </Grid>
-                      <Grid size={{ xs: 4, sm: 2 }}>
-                        <TextField fullWidth label={t('shipments.length')} type="number" value={currentBox.length}
+                      <Grid size={{ xs: 6, sm: 3 }}>
+                        <TextField
+                          fullWidth
+                          label={t('shipments.length')}
+                          type="number"
+                          value={currentBox.length}
                           onChange={(e) => setCurrentBox(p => ({ ...p, length: e.target.value }))}
-                          InputProps={{ endAdornment: <InputAdornment position="end">cm</InputAdornment> }}
-                          inputProps={{ min: 1 }} />
+                          InputProps={{
+                            endAdornment: <InputAdornment position="end">cm</InputAdornment>,
+                            sx: { bgcolor: 'white', borderRadius: 2 },
+                          }}
+                          inputProps={{ min: 1 }}
+                        />
                       </Grid>
-                      <Grid size={{ xs: 4, sm: 2 }}>
-                        <TextField fullWidth label={t('shipments.width')} type="number" value={currentBox.width}
+                      <Grid size={{ xs: 6, sm: 3 }}>
+                        <TextField
+                          fullWidth
+                          label={t('shipments.width')}
+                          type="number"
+                          value={currentBox.width}
                           onChange={(e) => setCurrentBox(p => ({ ...p, width: e.target.value }))}
-                          InputProps={{ endAdornment: <InputAdornment position="end">cm</InputAdornment> }}
-                          inputProps={{ min: 1 }} />
+                          InputProps={{
+                            endAdornment: <InputAdornment position="end">cm</InputAdornment>,
+                            sx: { bgcolor: 'white', borderRadius: 2 },
+                          }}
+                          inputProps={{ min: 1 }}
+                        />
                       </Grid>
-                      <Grid size={{ xs: 4, sm: 2 }}>
-                        <TextField fullWidth label={t('shipments.height')} type="number" value={currentBox.height}
+                      <Grid size={{ xs: 6, sm: 3 }}>
+                        <TextField
+                          fullWidth
+                          label={t('shipments.height')}
+                          type="number"
+                          value={currentBox.height}
                           onChange={(e) => setCurrentBox(p => ({ ...p, height: e.target.value }))}
-                          InputProps={{ endAdornment: <InputAdornment position="end">cm</InputAdornment> }}
-                          inputProps={{ min: 1 }} />
+                          InputProps={{
+                            endAdornment: <InputAdornment position="end">cm</InputAdornment>,
+                            sx: { bgcolor: 'white', borderRadius: 2 },
+                          }}
+                          inputProps={{ min: 1 }}
+                        />
                       </Grid>
+                    </Grid>
+
+                    <Divider sx={{ my: 2 }} />
+
+                    {/* Sección 3: Cantidad + agregar */}
+                    <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700, letterSpacing: 1 }}>
+                      3 · {i18n.language === 'es' ? 'Cantidad y Agregar' : 'Quantity & Add'}
+                    </Typography>
+                    <Grid container spacing={1.5} alignItems="stretch" sx={{ mt: 0.5 }}>
                       <Grid size={{ xs: 12, sm: 3 }}>
-                        <Box sx={{ display: 'flex', gap: 1, flexDirection: 'column' }}>
-                          <TextField
-                            fullWidth
-                            label={i18n.language === 'es' ? 'Cantidad de cajas' : 'Box quantity'}
-                            type="number"
-                            value={boxQuantity}
-                            onChange={(e) => setBoxQuantity(e.target.value)}
-                            inputProps={{ min: 1, max: 99, step: 1 }}
-                            helperText={parseInt(boxQuantity) > 1 ? '⚠️ Pedirá guías al agregar' : ''}
-                          />
-                          <Button fullWidth variant="contained" startIcon={<AddIcon />} onClick={handleAddBox}
-                            sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)`, py: 1.5 }}>
-                            {parseInt(boxQuantity) > 1
-                              ? (i18n.language === 'es' ? `Agregar ${boxQuantity} cajas` : `Add ${boxQuantity} boxes`)
-                              : t('shipments.addBox')}
-                          </Button>
-                        </Box>
+                        <TextField
+                          fullWidth
+                          label={i18n.language === 'es' ? 'Cantidad' : 'Quantity'}
+                          type="number"
+                          value={boxQuantity}
+                          onChange={(e) => setBoxQuantity(e.target.value)}
+                          inputProps={{ min: 1, max: 99, step: 1 }}
+                          InputProps={{ sx: { bgcolor: 'white', borderRadius: 2 } }}
+                          helperText={parseInt(boxQuantity) > 1 ? (i18n.language === 'es' ? '⚠️ Pedirá guías al agregar' : '⚠️ Will ask for guides') : ' '}
+                        />
+                      </Grid>
+                      <Grid size={{ xs: 12, sm: 9 }}>
+                        <Button
+                          fullWidth
+                          variant="contained"
+                          size="large"
+                          startIcon={<AddIcon />}
+                          onClick={handleAddBox}
+                          sx={{
+                            height: 56,
+                            borderRadius: 2,
+                            background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)`,
+                            textTransform: 'none',
+                            fontSize: '1rem',
+                            fontWeight: 700,
+                            boxShadow: '0 4px 12px rgba(240,90,40,0.25)',
+                            '&:hover': { boxShadow: '0 6px 18px rgba(240,90,40,0.35)' },
+                          }}
+                        >
+                          {parseInt(boxQuantity) > 1
+                            ? (i18n.language === 'es' ? `Agregar ${boxQuantity} cajas` : `Add ${boxQuantity} boxes`)
+                            : t('shipments.addBox')}
+                        </Button>
                       </Grid>
                     </Grid>
                   </Card>

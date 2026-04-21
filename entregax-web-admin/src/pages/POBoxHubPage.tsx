@@ -1332,107 +1332,177 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                     </Typography>
 
                                     {/* Formulario de caja */}
-                                    <Card sx={{ p: 2, mb: 2, border: `2px dashed ${ORANGE}` }}>
-                                        <Grid container spacing={2} alignItems="center">
-                                            {/* Guía del Proveedor */}
-                                            <Grid size={{ xs: 12, sm: 6 }}>
-                                                <TextField 
-                                                    fullWidth 
-                                                    label="📦 Guía del Proveedor (Amazon, UPS, etc.)" 
-                                                    placeholder="Escanea o escribe la guía..."
-                                                    value={bulkCurrentBox.trackingCourier} 
-                                                    onChange={(e) => setBulkCurrentBox(p => ({ ...p, trackingCourier: e.target.value.toUpperCase() }))}
-                                                    InputProps={{ startAdornment: <InputAdornment position="start"><QrCodeScannerIcon /></InputAdornment> }}
-                                                    helperText="Guía individual de esta caja"
-                                                />
-                                            </Grid>
-                                            <Grid size={{ xs: 12, sm: 6 }}></Grid>
-                                            
-                                            {/* Peso */}
-                                            <Grid size={{ xs: 12, sm: 3 }}>
-                                                <TextField 
-                                                    fullWidth 
-                                                    label="Peso (kg)" 
+                                    <Card
+                                        elevation={0}
+                                        sx={{
+                                            p: 3,
+                                            mb: 2,
+                                            borderRadius: 3,
+                                            border: `2px dashed ${ORANGE}`,
+                                            background: 'linear-gradient(180deg, #FFF8F5 0%, #FFFFFF 100%)',
+                                        }}
+                                    >
+                                        {/* Sección 1: Guía del proveedor */}
+                                        <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700, letterSpacing: 1 }}>
+                                            1 · Guía del Proveedor
+                                        </Typography>
+                                        <TextField
+                                            fullWidth
+                                            placeholder="Escanea o escribe la guía (Amazon, UPS, etc.)..."
+                                            value={bulkCurrentBox.trackingCourier}
+                                            onChange={(e) => setBulkCurrentBox(p => ({ ...p, trackingCourier: e.target.value.toUpperCase() }))}
+                                            InputProps={{
+                                                startAdornment: <InputAdornment position="start"><QrCodeScannerIcon sx={{ color: ORANGE }} /></InputAdornment>,
+                                                sx: { bgcolor: 'white', borderRadius: 2 },
+                                            }}
+                                            sx={{ mt: 1, mb: 2 }}
+                                        />
+
+                                        <Divider sx={{ my: 2 }} />
+
+                                        {/* Sección 2: Peso y medidas */}
+                                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                                            <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700, letterSpacing: 1 }}>
+                                                2 · Peso y Medidas
+                                            </Typography>
+                                            <Button
+                                                size="small"
+                                                startIcon={<ScaleIcon />}
+                                                onClick={handleReadBulkScale}
+                                                sx={{
+                                                    color: ORANGE,
+                                                    borderColor: ORANGE,
+                                                    textTransform: 'none',
+                                                    fontWeight: 600,
+                                                    '&:hover': { bgcolor: '#FFF0EA' },
+                                                }}
+                                                variant="outlined"
+                                            >
+                                                Actualizar desde báscula
+                                            </Button>
+                                        </Box>
+
+                                        <Grid container spacing={1.5}>
+                                            <Grid size={{ xs: 6, sm: 3 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Peso"
                                                     type="number"
-                                                    value={bulkCurrentBox.weight} 
+                                                    value={bulkCurrentBox.weight}
                                                     onChange={(e) => setBulkCurrentBox(p => ({ ...p, weight: e.target.value }))}
-                                                    InputProps={{ 
-                                                        startAdornment: <InputAdornment position="start"><ScaleIcon /></InputAdornment>,
-                                                        endAdornment: <InputAdornment position="end">kg</InputAdornment> 
+                                                    InputProps={{
+                                                        endAdornment: <InputAdornment position="end">kg</InputAdornment>,
+                                                        sx: { bgcolor: 'white', borderRadius: 2 },
                                                     }}
                                                     inputProps={{ step: 0.01, min: 0.01 }}
                                                 />
-                                                <Button size="small" onClick={handleReadBulkScale} sx={{ mt: 0.5, color: ORANGE }}>⚖️ Actualizar</Button>
                                             </Grid>
-                                            <Grid size={{ xs: 4, sm: 2 }}>
-                                                <TextField 
-                                                    fullWidth 
-                                                    label="Largo" 
-                                                    type="number" 
+                                            <Grid size={{ xs: 6, sm: 3 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Largo"
+                                                    type="number"
                                                     value={bulkCurrentBox.length}
                                                     onChange={(e) => setBulkCurrentBox(p => ({ ...p, length: e.target.value }))}
-                                                    InputProps={{ endAdornment: <InputAdornment position="end">cm</InputAdornment> }}
+                                                    InputProps={{
+                                                        endAdornment: <InputAdornment position="end">cm</InputAdornment>,
+                                                        sx: { bgcolor: 'white', borderRadius: 2 },
+                                                    }}
                                                     inputProps={{ min: 1 }}
                                                 />
                                             </Grid>
-                                            <Grid size={{ xs: 4, sm: 2 }}>
-                                                <TextField 
-                                                    fullWidth 
-                                                    label="Ancho" 
-                                                    type="number" 
+                                            <Grid size={{ xs: 6, sm: 3 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Ancho"
+                                                    type="number"
                                                     value={bulkCurrentBox.width}
                                                     onChange={(e) => setBulkCurrentBox(p => ({ ...p, width: e.target.value }))}
-                                                    InputProps={{ endAdornment: <InputAdornment position="end">cm</InputAdornment> }}
+                                                    InputProps={{
+                                                        endAdornment: <InputAdornment position="end">cm</InputAdornment>,
+                                                        sx: { bgcolor: 'white', borderRadius: 2 },
+                                                    }}
                                                     inputProps={{ min: 1 }}
                                                 />
                                             </Grid>
-                                            <Grid size={{ xs: 4, sm: 2 }}>
-                                                <TextField 
-                                                    fullWidth 
-                                                    label="Alto" 
-                                                    type="number" 
+                                            <Grid size={{ xs: 6, sm: 3 }}>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Alto"
+                                                    type="number"
                                                     value={bulkCurrentBox.height}
                                                     onChange={(e) => setBulkCurrentBox(p => ({ ...p, height: e.target.value }))}
-                                                    InputProps={{ endAdornment: <InputAdornment position="end">cm</InputAdornment> }}
+                                                    InputProps={{
+                                                        endAdornment: <InputAdornment position="end">cm</InputAdornment>,
+                                                        sx: { bgcolor: 'white', borderRadius: 2 },
+                                                    }}
                                                     inputProps={{ min: 1 }}
                                                 />
                                             </Grid>
+                                        </Grid>
+
+                                        <Divider sx={{ my: 2 }} />
+
+                                        {/* Sección 3: Cantidad + acciones */}
+                                        <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700, letterSpacing: 1 }}>
+                                            3 · Cantidad y Agregar
+                                        </Typography>
+                                        <Grid container spacing={1.5} alignItems="stretch" sx={{ mt: 0.5 }}>
                                             <Grid size={{ xs: 12, sm: 3 }}>
-                                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                                                    <TextField
-                                                        fullWidth
-                                                        label="Cantidad de cajas"
-                                                        type="number"
-                                                        size="small"
-                                                        value={bulkBoxQuantity}
-                                                        onChange={(e) => setBulkBoxQuantity(e.target.value)}
-                                                        inputProps={{ min: 1, max: 99, step: 1 }}
-                                                        helperText={parseInt(bulkBoxQuantity) > 1 ? '⚠️ Pedirá guías' : ''}
-                                                    />
-                                                    <Button 
-                                                        fullWidth 
-                                                        variant="contained" 
-                                                        startIcon={<AddIcon />} 
-                                                        onClick={handleAddBulkBox}
-                                                        sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)`, py: 1.5 }}
-                                                    >
-                                                        {parseInt(bulkBoxQuantity) > 1 ? `Agregar ${bulkBoxQuantity} cajas` : 'Agregar Caja'}
-                                                    </Button>
-                                                    {bulkBoxes.length > 0 && (
-                                                        <Button
-                                                            fullWidth
-                                                            variant="outlined"
-                                                            size="small"
-                                                            sx={{ borderColor: '#9C27B0', color: '#9C27B0', fontSize: '0.7rem', py: 0.5, '&:hover': { bgcolor: '#F3E5F5', borderColor: '#7B1FA2' } }}
-                                                            onClick={() => {
-                                                                const last = bulkBoxes[bulkBoxes.length - 1];
-                                                                setBulkCurrentBox(p => ({ ...p, weight: last.weight, length: last.length, width: last.width, height: last.height }));
-                                                            }}
-                                                        >
-                                                            📋 Copiar medidas anterior
-                                                        </Button>
-                                                    )}
-                                                </Box>
+                                                <TextField
+                                                    fullWidth
+                                                    label="Cantidad"
+                                                    type="number"
+                                                    value={bulkBoxQuantity}
+                                                    onChange={(e) => setBulkBoxQuantity(e.target.value)}
+                                                    inputProps={{ min: 1, max: 99, step: 1 }}
+                                                    InputProps={{ sx: { bgcolor: 'white', borderRadius: 2 } }}
+                                                    helperText={parseInt(bulkBoxQuantity) > 1 ? '⚠️ Pedirá guías al agregar' : ' '}
+                                                />
+                                            </Grid>
+                                            <Grid size={{ xs: 12, sm: 6 }}>
+                                                <Button
+                                                    fullWidth
+                                                    variant="contained"
+                                                    size="large"
+                                                    startIcon={<AddIcon />}
+                                                    onClick={handleAddBulkBox}
+                                                    sx={{
+                                                        height: 56,
+                                                        borderRadius: 2,
+                                                        background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)`,
+                                                        textTransform: 'none',
+                                                        fontSize: '1rem',
+                                                        fontWeight: 700,
+                                                        boxShadow: '0 4px 12px rgba(240,90,40,0.25)',
+                                                        '&:hover': { boxShadow: '0 6px 18px rgba(240,90,40,0.35)' },
+                                                    }}
+                                                >
+                                                    {parseInt(bulkBoxQuantity) > 1 ? `Agregar ${bulkBoxQuantity} cajas` : 'Agregar Caja'}
+                                                </Button>
+                                            </Grid>
+                                            <Grid size={{ xs: 12, sm: 3 }}>
+                                                <Button
+                                                    fullWidth
+                                                    variant="outlined"
+                                                    size="large"
+                                                    disabled={bulkBoxes.length === 0}
+                                                    onClick={() => {
+                                                        const last = bulkBoxes[bulkBoxes.length - 1];
+                                                        if (last) setBulkCurrentBox(p => ({ ...p, weight: last.weight, length: last.length, width: last.width, height: last.height }));
+                                                    }}
+                                                    sx={{
+                                                        height: 56,
+                                                        borderRadius: 2,
+                                                        borderColor: '#9C27B0',
+                                                        color: '#9C27B0',
+                                                        textTransform: 'none',
+                                                        fontWeight: 600,
+                                                        '&:hover': { bgcolor: '#F3E5F5', borderColor: '#7B1FA2' },
+                                                    }}
+                                                >
+                                                    📋 Copiar anterior
+                                                </Button>
                                             </Grid>
                                         </Grid>
                                     </Card>

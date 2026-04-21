@@ -20,6 +20,17 @@ let loopRunning = false;
 let loopAbort = false;
 let latestWeight: number | null = null;
 let latestRaw = '';
+let pollInProgress = false;
+
+async function resetPort() {
+  loopAbort = true;
+  try { await sharedPort?.close(); } catch { /* ignore */ }
+  sharedPort = null;
+  latestWeight = null;
+  latestRaw = '';
+  await new Promise((r) => setTimeout(r, 150));
+  loopAbort = false;
+}
 
 function parseWeight(buffer: string): number | null {
   // Con unidad explícita — tomar la ÚLTIMA ocurrencia (peso más reciente)
@@ -97,15 +108,21 @@ async function openPort(nav: any, forceNew = false) {
 
 async function sendPoll() {
   if (!sharedPort?.writable) return;
-  const writer = sharedPort.writable.getWriter();
+  if (pollInProgress) return; // evitar concurrencia → getWriter lock error
+  pollInProgress = true;
+  let writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   try {
+    writer = sharedPort.writable.getWriter();
     const enc = new TextEncoder();
-    await writer.write(enc.encode('W\r\n'));
-    await writer.write(enc.encode('P\r\n'));
-    await writer.write(enc.encode('S\r\n'));
-    await writer.write(new Uint8Array([0x05])); // ENQ
+    await writer!.write(enc.encode('W\r\n'));
+    await writer!.write(enc.encode('P\r\n'));
+    await writer!.write(enc.encode('S\r\n'));
+    await writer!.write(new Uint8Array([0x05])); // ENQ
   } catch { /* ignore */ }
-  try { writer.releaseLock(); } catch { /* ignore */ }
+  finally {
+    try { writer?.releaseLock(); } catch { /* ignore */ }
+    pollInProgress = false;
+  }
 }
 
 function startReadLoop() {
@@ -138,7 +155,16 @@ function startReadLoop() {
         }
       } catch (e) {
         console.warn('[Báscula] loop error:', e);
-        // Salir del bucle interno; reintenta si el puerto sigue abierto
+        const msg = e instanceof Error ? e.message.toLowerCase() : '';
+        // Dispositivo desconectado / puerto perdido → resetear singleton
+        if (msg.includes('device has been lost') || msg.includes('network') ||
+            msg.includes('disconnect') || msg.includes('not readable')) {
+          try { reader?.releaseLock(); } catch { /* ignore */ }
+          try { await sharedPort?.close(); } catch { /* ignore */ }
+          sharedPort = null;
+          latestWeight = null;
+          break; // salir del loop; próximo readScale() reabrirá el puerto
+        }
         await new Promise((r) => setTimeout(r, 300));
       } finally {
         try { reader?.releaseLock(); } catch { /* ignore */ }
@@ -199,12 +225,9 @@ export function useScaleReader() {
       // Resetear puerto ante cualquier error de apertura/conexión
       if (lm.includes('disconnect') || lm.includes('no port') ||
           lm.includes('access denied') || lm.includes('failed to open') ||
-          lm.includes('not found')) {
-        loopAbort = true;
-        try { await sharedPort?.close(); } catch { /* ignore */ }
-        sharedPort = null;
-        await new Promise((r) => setTimeout(r, 100));
-        loopAbort = false;
+          lm.includes('not found') || lm.includes('device has been lost') ||
+          lm.includes('network')) {
+        await resetPort();
         if (lm.includes('failed to open')) {
           return {
             success: false,
