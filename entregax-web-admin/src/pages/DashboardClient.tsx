@@ -922,7 +922,6 @@ export default function DashboardClient() {
   const [trajectoryLoading, setTrajectoryLoading] = useState(false);
   const [trajectoryError, setTrajectoryError] = useState<string | null>(null);
   const [trajectoryTracking, setTrajectoryTracking] = useState<string>('');
-  const [trajectoryEvents, setTrajectoryEvents] = useState<Array<{ ch: string; en: string; date: string }>>([]);
   const [internalHistory, setInternalHistory] = useState<Array<{
     id: number; old_status: string | null; new_status: string; trajectory_name: string | null;
     source: string; notes: string | null; created_at: string;
@@ -941,7 +940,6 @@ export default function DashboardClient() {
     setTrajectoryTracking(tracking);
     setTrajectoryLoading(true);
     setTrajectoryError(null);
-    setTrajectoryEvents([]);
     setInternalHistory([]);
     setCurrentStatus(null);
     try {
