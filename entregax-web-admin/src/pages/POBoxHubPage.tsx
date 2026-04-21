@@ -267,6 +267,12 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
 
     // =========== Estados para modal de RECEPCIÓN EN SERIE ===========
     const [bulkReceiveOpen, setBulkReceiveOpen] = useState(openBulkReceiveOnMount);
+    // Autofocus guía al abrir modal
+    useEffect(() => {
+        if (bulkReceiveOpen) {
+            setTimeout(() => bulkGuideInputRef.current?.focus(), 300);
+        }
+    }, [bulkReceiveOpen]);
     const [bulkStep, setBulkStep] = useState(0); // 0 = Cajas, 1 = Foto & Cliente
     const [bulkBoxes, setBulkBoxes] = useState<BoxItem[]>([]);
     const [bulkCurrentBox, setBulkCurrentBox] = useState({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
@@ -280,6 +286,8 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     // Refs para cámara
     const videoRef = useRef<HTMLVideoElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
+    const bulkGuideInputRef = useRef<HTMLInputElement>(null);
+    const bulkLengthInputRef = useRef<HTMLInputElement>(null);
     const [cameraOpen, setCameraOpen] = useState(false);
     const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
 
@@ -422,6 +430,13 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const [bulkBoxQuantity, setBulkBoxQuantity] = useState('1');
     const [bulkMultiScanOpen, setBulkMultiScanOpen] = useState(false);
 
+    // Al escanear guía (Enter): leer báscula y saltar a Largo
+    const handleBulkGuideScanned = async () => {
+        if (!bulkCurrentBox.trackingCourier.trim()) return;
+        await handleReadBulkScale();
+        setTimeout(() => bulkLengthInputRef.current?.focus(), 50);
+    };
+
     const handleReadBulkScale = async () => {
         const r = await readBulkScale();
         if (r.success && r.weight !== undefined) {
@@ -461,6 +476,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
         setBulkBoxQuantity('1');
         setBulkError('');
+        setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
     };
 
     const handleBulkMultiScanComplete = (guides: string[]) => {
@@ -476,6 +492,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkMultiScanOpen(false);
         setBulkError('');
         setSnackbar({ open: true, message: `📦 ${newBoxes.length} cajas agregadas`, severity: 'success' });
+        setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
     };
 
     // Eliminar caja
@@ -1348,9 +1365,17 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                         </Typography>
                                         <TextField
                                             fullWidth
+                                            autoFocus
+                                            inputRef={bulkGuideInputRef}
                                             placeholder="Escanea o escribe la guía (Amazon, UPS, etc.)..."
                                             value={bulkCurrentBox.trackingCourier}
                                             onChange={(e) => setBulkCurrentBox(p => ({ ...p, trackingCourier: e.target.value.toUpperCase() }))}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') {
+                                                    e.preventDefault();
+                                                    handleBulkGuideScanned();
+                                                }
+                                            }}
                                             InputProps={{
                                                 startAdornment: <InputAdornment position="start"><QrCodeScannerIcon sx={{ color: ORANGE }} /></InputAdornment>,
                                                 sx: { bgcolor: 'white', borderRadius: 2 },
@@ -1400,6 +1425,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                             <Grid size={{ xs: 6, sm: 3 }}>
                                                 <TextField
                                                     fullWidth
+                                                    inputRef={bulkLengthInputRef}
                                                     label="Largo"
                                                     type="number"
                                                     value={bulkCurrentBox.length}

@@ -277,6 +277,8 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   
   const trackingInputRef = useRef<HTMLInputElement>(null);
   const weightInputRef = useRef<HTMLInputElement>(null);
+  const guideInputRef = useRef<HTMLInputElement>(null);
+  const lengthInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { readScale, liveWeight } = useScaleReader();
@@ -378,7 +380,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     setPaymentOption(null);
     setLeaveInWarehouse(false); // Reset opción dejar en bodega
     setWizardOpen(true);
-    setTimeout(() => weightInputRef.current?.focus(), 300);
+    setTimeout(() => guideInputRef.current?.focus(), 300);
   };
 
   // ============ FUNCIONES DE CÁMARA WEB ============
@@ -886,6 +888,13 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     setCurrentBox(prev => (prev.weight === w ? prev : { ...prev, weight: w }));
   }, [liveWeight, scaleLive]);
 
+  // Al escanear guía (Enter): leer báscula y saltar a Largo
+  const handleGuideScanned = async () => {
+    if (!currentBox.trackingCourier.trim()) return;
+    await handleReadScale();
+    setTimeout(() => lengthInputRef.current?.focus(), 50);
+  };
+
   const handleAddBox = () => {
     const weight = parseFloat(currentBox.weight);
     const length = parseFloat(currentBox.length);
@@ -930,7 +939,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     setCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
     setBoxQuantity('1');
     setSnackbar({ open: true, message: `📦 ${t('wizard.boxAdded', { number: boxes.length + 1 })}`, severity: 'success' });
-    setTimeout(() => weightInputRef.current?.focus(), 100);
+    setTimeout(() => guideInputRef.current?.focus(), 100);
   };
 
   // Agrega N cajas con el peso/medidas actuales y las guías capturadas
@@ -949,7 +958,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     setBoxQuantity('1');
     setMultiScanOpen(false);
     setSnackbar({ open: true, message: `📦 ${newBoxes.length} cajas agregadas`, severity: 'success' });
-    setTimeout(() => weightInputRef.current?.focus(), 100);
+    setTimeout(() => guideInputRef.current?.focus(), 100);
   };
 
   const handleRemoveBox = (id: number) => {
@@ -1690,9 +1699,17 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                     </Typography>
                     <TextField
                       fullWidth
+                      autoFocus
+                      inputRef={guideInputRef}
                       placeholder={i18n.language === 'es' ? 'Escanea o escribe la guía (Amazon, UPS, etc.)...' : 'Scan or type tracking...'}
                       value={currentBox.trackingCourier}
                       onChange={(e) => setCurrentBox(p => ({ ...p, trackingCourier: e.target.value.toUpperCase() }))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleGuideScanned();
+                        }
+                      }}
                       InputProps={{
                         startAdornment: <InputAdornment position="start"><QrCodeScannerIcon sx={{ color: ORANGE }} /></InputAdornment>,
                         sx: { bgcolor: 'white', borderRadius: 2 },
@@ -1743,6 +1760,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                       <Grid size={{ xs: 6, sm: 3 }}>
                         <TextField
                           fullWidth
+                          inputRef={lengthInputRef}
                           label={t('shipments.length')}
                           type="number"
                           value={currentBox.length}
