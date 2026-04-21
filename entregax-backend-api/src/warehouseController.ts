@@ -745,6 +745,29 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
                     WHERE id = $3
                 `, [newStatus, branch_id, packageId]);
             }
+
+            // 📦 Registrar en branch_inventory (para que aparezca en "Inventario por Sucursal")
+            // UPSERT: si el paquete ya estaba en inventario (ej: re-escaneo), actualizar a in_stock
+            try {
+                const inventoryTrackingNumber = packageInfo?.tracking_internal || packageInfo?.fno || barcode;
+                const inventoryPackageType = tableName === 'china_receipts' ? 'china_receipt' : 'package';
+                await pool.query(`
+                    INSERT INTO branch_inventory (
+                        branch_id, package_type, package_id, tracking_number,
+                        status, received_at, received_by, released_at, released_by
+                    ) VALUES ($1, $2, $3, $4, 'in_stock', NOW(), $5, NULL, NULL)
+                    ON CONFLICT (branch_id, package_type, package_id)
+                    DO UPDATE SET
+                        status = 'in_stock',
+                        received_at = NOW(),
+                        received_by = EXCLUDED.received_by,
+                        released_at = NULL,
+                        released_by = NULL,
+                        tracking_number = EXCLUDED.tracking_number
+                `, [branch_id, inventoryPackageType, packageId, inventoryTrackingNumber, workerId]);
+            } catch (invErr) {
+                console.warn('⚠️ No se pudo upsert branch_inventory (no bloqueante):', invErr);
+            }
             
             actionMessage = `📥 Ingreso registrado en ${branch_name}`;
 
@@ -898,6 +921,17 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
                 SET status = $1, current_branch_id = NULL, dispatched_at = NOW(), updated_at = NOW() 
                 WHERE id = $2
             `, [newStatus, packageId]);
+
+            // 📤 Marcar como liberado en branch_inventory
+            try {
+                await pool.query(`
+                    UPDATE branch_inventory
+                    SET status = 'released', released_at = NOW(), released_by = $1
+                    WHERE branch_id = $2 AND package_type = 'package' AND package_id = $3
+                `, [workerId, branch_id, packageId]);
+            } catch (invErr) {
+                console.warn('⚠️ No se pudo actualizar branch_inventory en SALIDA (no bloqueante):', invErr);
+            }
             
             actionMessage = labelUrl 
                 ? `📤 Salida registrada. Imprimiendo etiqueta ${nationalCarrier?.toUpperCase() || 'Nacional'}...`
@@ -1906,21 +1940,72 @@ export const getBranchInventory = async (req: AuthRequest, res: Response): Promi
             params.push(package_type);
             paramIndex++;
         }
+
+        // 🔄 UNION con paquetes que tienen current_branch_id pero aún no están en branch_inventory
+        // (retro-compat para paquetes escaneados antes de implementar el upsert)
+        query += `
+            UNION ALL
+            SELECT
+                -p.id as id,
+                'package' as package_type,
+                p.id as package_id,
+                p.tracking_internal as tracking_number,
+                'in_stock' as status,
+                COALESCE(p.updated_at, p.created_at) as received_at,
+                NULL::timestamp as released_at,
+                b2.name as branch_name,
+                b2.code as branch_code,
+                'Sistema' as received_by_name,
+                (SELECT u.full_name FROM users u WHERE u.id = p.user_id) as client_name,
+                p.weight as weight
+            FROM packages p
+            JOIN branches b2 ON p.current_branch_id = b2.id
+            WHERE p.current_branch_id IS NOT NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM branch_inventory bi2
+                  WHERE bi2.package_type = 'package' AND bi2.package_id = p.id
+              )
+        `;
+        if (branchId) {
+            query += ` AND p.current_branch_id = $${paramIndex}`;
+            params.push(branchId);
+            paramIndex++;
+        }
+        if (status === 'in_stock') {
+            // ya filtrado implícitamente
+        } else if (status === 'released') {
+            // En este UNION solo hay in_stock; descartamos resultados
+            query += ` AND FALSE`;
+        }
+        if (package_type && package_type !== 'package') {
+            query += ` AND FALSE`;
+        }
         
-        query += ` ORDER BY bi.received_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+        query += ` ORDER BY received_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
         params.push(limit, offset);
         
         const result = await pool.query(query, params);
         
-        // Obtener conteos
+        // Obtener conteos (incluye branch_inventory + paquetes con current_branch_id)
         let countQuery = `
+            WITH unified AS (
+                SELECT status, package_type, branch_id FROM branch_inventory
+                UNION ALL
+                SELECT 'in_stock'::varchar as status, 'package'::varchar as package_type, p.current_branch_id as branch_id
+                FROM packages p
+                WHERE p.current_branch_id IS NOT NULL
+                  AND NOT EXISTS (
+                      SELECT 1 FROM branch_inventory bi2
+                      WHERE bi2.package_type = 'package' AND bi2.package_id = p.id
+                  )
+            )
             SELECT 
                 COUNT(*) as total,
                 COUNT(*) FILTER (WHERE status = 'in_stock') as in_stock,
                 COUNT(*) FILTER (WHERE status = 'released') as released,
                 COUNT(*) FILTER (WHERE package_type = 'dhl') as dhl_count,
                 COUNT(*) FILTER (WHERE package_type = 'package') as package_count
-            FROM branch_inventory
+            FROM unified
             WHERE 1=1
         `;
         
