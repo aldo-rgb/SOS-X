@@ -419,8 +419,14 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
   // Chip de estado con colores
   const getStatusChip = (status: string) => {
     const statusConfig: { [key: string]: { label: string; color: 'default' | 'warning' | 'info' | 'success' | 'primary' | 'error' } } = {
-      'received_origin': { label: 'Recibido China', color: 'warning' },
-      'in_transit': { label: 'En Tránsito Aéreo', color: 'info' },
+      'pending': { label: 'Pendiente', color: 'default' },
+      'received_origin': { label: 'En Bodega (Escaneado)', color: 'warning' },
+      'received_china': { label: 'Info Recibida', color: 'warning' },
+      'in_transit_airport_wait': { label: 'En Aeropuerto', color: 'info' },
+      'in_transit_loading': { label: 'Cargando / En Puerto', color: 'info' },
+      'in_transit_transfer': { label: 'En Tránsito Aéreo', color: 'info' },
+      'in_transit': { label: 'En Tránsito', color: 'info' },
+      'in_customs_gz': { label: 'Aduana Guangzhou', color: 'secondary' as any },
       'in_customs': { label: 'En Aduana', color: 'secondary' as any },
       'customs_cleared': { label: 'Liberado', color: 'success' },
       'in_cedis': { label: 'En CEDIS', color: 'primary' },
@@ -431,11 +437,21 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
     return <Chip size="small" label={config.label} color={config.color} />;
   };
 
-  // Calcular estadísticas
+  // Grupos de status para cards/filtros del dashboard
+  const STATUS_GROUPS: Record<string, string[]> = {
+    bodega_china: ['received_origin', 'received_china'],
+    in_transit: ['in_transit', 'in_transit_airport_wait', 'in_transit_loading', 'in_transit_transfer'],
+    customs: ['in_customs', 'in_customs_gz', 'customs_cleared'],
+    delivered: ['delivered']
+  };
+
+  // Calcular estadísticas (suma de todos los status del grupo)
   const getStatusCount = (statusKey: string) => {
     if (!stats?.byStatus) return 0;
-    const found = stats.byStatus.find(s => s.status === statusKey);
-    return found ? parseInt(found.count) : 0;
+    const keys = STATUS_GROUPS[statusKey] || [statusKey];
+    return stats.byStatus
+      .filter(s => keys.includes(s.status))
+      .reduce((acc, s) => acc + parseInt(s.count), 0);
   };
 
   const totalReceipts = stats?.byStatus?.reduce((acc, s) => acc + parseInt(s.count), 0) || 0;
@@ -489,7 +505,7 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
           <Card sx={{ bgcolor: 'warning.light' }}>
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
               <WarehouseIcon sx={{ fontSize: 32, color: 'warning.dark' }} />
-              <Typography variant="h4" fontWeight="bold">{getStatusCount('received_origin')}</Typography>
+              <Typography variant="h4" fontWeight="bold">{getStatusCount('bodega_china')}</Typography>
               <Typography variant="body2">En Bodega China</Typography>
             </CardContent>
           </Card>
@@ -507,7 +523,7 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
           <Card sx={{ bgcolor: 'secondary.light' }}>
             <CardContent sx={{ textAlign: 'center', py: 2 }}>
               <AssignmentIndIcon sx={{ fontSize: 32, color: 'secondary.dark' }} />
-              <Typography variant="h4" fontWeight="bold">{getStatusCount('in_customs')}</Typography>
+              <Typography variant="h4" fontWeight="bold">{getStatusCount('customs')}</Typography>
               <Typography variant="body2">En Aduana</Typography>
             </CardContent>
           </Card>
@@ -566,18 +582,18 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
             />
             <Chip
               label="En Bodega China"
-              color={statusFilter === 'received_origin' ? 'warning' : 'default'}
-              onClick={() => { setStatusFilter('received_origin'); setUnassignedOnly(false); }}
+              color={statusFilter === STATUS_GROUPS.bodega_china.join(',') ? 'warning' : 'default'}
+              onClick={() => { setStatusFilter(STATUS_GROUPS.bodega_china.join(',')); setUnassignedOnly(false); }}
             />
             <Chip
               label="En Tránsito"
-              color={statusFilter === 'in_transit' ? 'info' : 'default'}
-              onClick={() => { setStatusFilter('in_transit'); setUnassignedOnly(false); }}
+              color={statusFilter === STATUS_GROUPS.in_transit.join(',') ? 'info' : 'default'}
+              onClick={() => { setStatusFilter(STATUS_GROUPS.in_transit.join(',')); setUnassignedOnly(false); }}
             />
             <Chip
               label="En Aduana"
-              color={statusFilter === 'in_customs' ? 'secondary' : 'default'}
-              onClick={() => { setStatusFilter('in_customs'); setUnassignedOnly(false); }}
+              color={statusFilter === STATUS_GROUPS.customs.join(',') ? 'secondary' : 'default'}
+              onClick={() => { setStatusFilter(STATUS_GROUPS.customs.join(',')); setUnassignedOnly(false); }}
             />
             <Chip
               label="Entregados"

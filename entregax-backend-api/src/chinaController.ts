@@ -454,8 +454,16 @@ export const getChinaReceipts = async (req: Request, res: Response): Promise<any
         const params: any[] = [];
         
         if (status) {
-            query += ` WHERE cr.status = $1`;
-            params.push(status);
+            // Soporta CSV para agrupar múltiples status: "in_transit_airport_wait,in_transit_loading,in_transit_transfer"
+            const statusList = String(status).split(',').map(s => s.trim()).filter(Boolean);
+            if (statusList.length === 1) {
+                query += ` WHERE cr.status = $1`;
+                params.push(statusList[0]);
+            } else if (statusList.length > 1) {
+                const placeholders = statusList.map((_, i) => `$${i + 1}`).join(', ');
+                query += ` WHERE cr.status IN (${placeholders})`;
+                params.push(...statusList);
+            }
         }
 
         query += ` ORDER BY cr.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
@@ -1515,6 +1523,67 @@ export const getTrajectory = async (req: Request, res: Response): Promise<any> =
 // ADMIN: Listar valores únicos de trajectory_name (status crudo de MoJie)
 // GET /api/china/trajectory-names
 // ============================================
+// ============================================
+// Mapeo de trajectory_name (chino/español) a status interno SOS-X
+// Basado en los valores reales que envía MoJie (api.mjcustomer.com)
+// Orden de prioridad: delivered > in_customs_gz > in_transit_* > received_china > received_origin > pending
+// ============================================
+export function mapTrajectoryToStatus(trajectoryNames: string[]): string {
+    const joined = trajectoryNames.map(t => (t || '').toLowerCase()).join(' | ');
+
+    // 1. Entregado (firmado por destinatario) - prioridad máxima
+    //    "该货件已派送签收" = El envío fue entregado/firmado
+    if (/派送签收|已签收|签收|entregado|delivered/i.test(joined)) {
+        return 'delivered';
+    }
+
+    // 2. En aduana Guangzhou (esperando despacho de importación)
+    //    "航班已抵达机场，等待办理进口清关文件"
+    if (/清关|海关|报关|aduana|customs|despacho/i.test(joined)) {
+        return 'in_customs_gz';
+    }
+
+    // 3. En tránsito - esperando vuelo en aeropuerto
+    //    "已到达机场等待安排航班指示"
+    if (/到达机场|抵达机场|等待安排航班|等待航班/i.test(joined)) {
+        return 'in_transit_airport_wait';
+    }
+
+    // 4. En tránsito - cargando / en puerto
+    //    "该货物正在装车过港接收中"
+    if (/装车|过港/i.test(joined)) {
+        return 'in_transit_loading';
+    }
+
+    // 5. En tránsito - en transferencia / vuelo aéreo
+    //    "空运货物正在安排中转" (también unicode-escaped u7a7au8fd0...)
+    if (/中转|已发货|起飞|航班|transit|tránsito|vuelo|flight/i.test(joined) ||
+        /u7a7au8fd0/.test(joined)) {
+        return 'in_transit_transfer';
+    }
+
+    // 6. Recibido en bodega China - info de guía aérea recibida
+    //    "空运单信息已收到 -广州鹤龙"
+    if (/空运单信息已收到|信息已收到|已收到/i.test(joined)) {
+        return 'received_china';
+    }
+
+    // 7. Recibido en bodega origen - escaneado / en clasificación
+    //    "空运货物已扫描入仓正在分拣中 -广州鹤龙"
+    if (/扫描入仓|入仓|分拣|almacén|bodega|warehouse/i.test(joined)) {
+        return 'received_origin';
+    }
+
+    // 8. Pendiente - reservado, esperando recepción en bodega
+    //    "预约下单，等待仓接收货"
+    if (/预约|下单|等待仓接收|pendiente|pending/i.test(joined)) {
+        return 'pending';
+    }
+
+    // Default: recibido en origen (si ya está en BD asumimos que al menos está en bodega)
+    return 'received_origin';
+}
+
 export const listTrajectoryNames = async (_req: Request, res: Response): Promise<any> => {
     try {
         const result = await pool.query(`
@@ -1540,6 +1609,58 @@ export const listTrajectoryNames = async (_req: Request, res: Response): Promise
             success: false, 
             error: 'Error al listar trajectory_names',
             details: error?.message 
+        });
+    }
+};
+
+// ============================================
+// ADMIN: Recalcular status de china_receipts con base en trajectory_name actual
+// POST /api/china/recalc-statuses
+// No consulta a MoJie; usa los valores que ya tenemos en packages.trajectory_name.
+// ============================================
+export const recalcChinaStatuses = async (_req: Request, res: Response): Promise<any> => {
+    try {
+        console.log('🔁 Recalculando status de china_receipts...');
+
+        // Traer todas las recepciones que NO están en estado final + sus trajectories
+        const receipts = await pool.query(`
+            SELECT cr.id, cr.fno, cr.status,
+                   COALESCE(ARRAY_AGG(p.trajectory_name) FILTER (WHERE p.trajectory_name IS NOT NULL), ARRAY[]::text[]) AS trajectories
+            FROM china_receipts cr
+            LEFT JOIN packages p ON p.china_receipt_id = cr.id
+            WHERE cr.status NOT IN ('delivered', 'received_cdmx', 'completed')
+            GROUP BY cr.id
+        `);
+
+        const summary: Record<string, number> = {};
+        let updated = 0;
+
+        for (const r of receipts.rows) {
+            const newStatus = mapTrajectoryToStatus(r.trajectories || []);
+            summary[newStatus] = (summary[newStatus] || 0) + 1;
+            if (newStatus !== r.status) {
+                await pool.query(
+                    `UPDATE china_receipts SET status = $1, updated_at = NOW() WHERE id = $2`,
+                    [newStatus, r.id]
+                );
+                updated++;
+            }
+        }
+
+        console.log(`✅ Recalculados ${receipts.rows.length}, actualizados ${updated}`);
+
+        res.json({
+            success: true,
+            scanned: receipts.rows.length,
+            updated,
+            distribution: summary
+        });
+    } catch (error: any) {
+        console.error('❌ Error recalculando status:', error?.stack || error);
+        res.status(500).json({
+            success: false,
+            error: 'Error al recalcular status',
+            details: error?.message
         });
     }
 };
@@ -1963,18 +2084,8 @@ export const syncActiveMJCustomerOrders = async (): Promise<{
                     // Determinar status basado en trajectoryName de los paquetes
                     let newStatus = 'received_china'; // default
                     if (orderData.data && Array.isArray(orderData.data)) {
-                        const trajectories = orderData.data.map((p: any) => (p.trajecotryName || '').toLowerCase());
-                        
-                        // Mapeo de status basado en trajectory
-                        if (trajectories.some((t: string) => t.includes('entregado') || t.includes('delivered'))) {
-                            newStatus = 'delivered';
-                        } else if (trajectories.some((t: string) => t.includes('aduana') || t.includes('customs') || t.includes('despacho'))) {
-                            newStatus = 'customs';
-                        } else if (trajectories.some((t: string) => t.includes('tránsito') || t.includes('transit') || t.includes('vuelo') || t.includes('flight'))) {
-                            newStatus = 'in_transit';
-                        } else if (trajectories.some((t: string) => t.includes('almacén') || t.includes('bodega') || t.includes('warehouse'))) {
-                            newStatus = 'received_china';
-                        }
+                        const trajectories = orderData.data.map((p: any) => p.trajecotryName || '');
+                        newStatus = mapTrajectoryToStatus(trajectories);
                     }
                     
                     // Actualizar datos de la orden incluyendo status

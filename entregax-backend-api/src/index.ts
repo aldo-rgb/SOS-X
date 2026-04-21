@@ -424,6 +424,7 @@ import {
   trackFNO,
   getTrajectory,
   listTrajectoryNames,
+  recalcChinaStatuses,
   getCallbackLogs
 } from './chinaController';
 import {
@@ -3264,6 +3265,7 @@ app.put('/api/china/config/token', authenticateToken, requireMinLevel(ROLES.DIRE
 app.get('/api/china/track/:fno', authenticateToken, trackFNO);
 app.get('/api/china/trajectory/:childNo', authenticateToken, getTrajectory);
 app.get('/api/china/trajectory-names', authenticateToken, listTrajectoryNames);
+app.post('/api/china/recalc-statuses', authenticateToken, recalcChinaStatuses);
 
 // ========== GARANTÍA EXTENDIDA (GEX) ==========
 
