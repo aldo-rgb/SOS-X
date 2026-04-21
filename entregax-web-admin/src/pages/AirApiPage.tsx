@@ -590,6 +590,7 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
             <Table size="small">
               <TableHead>
                 <TableRow>
+                  <TableCell>Fecha</TableCell>
                   <TableCell>FNO</TableCell>
                   <TableCell>Cliente</TableCell>
                   <TableCell align="center">Cajas</TableCell>
@@ -603,19 +604,33 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                       <CircularProgress />
                     </TableCell>
                   </TableRow>
                 ) : receipts.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                       <Typography color="text.secondary">No hay recepciones</Typography>
                     </TableCell>
                   </TableRow>
                 ) : (
                   receipts.map((receipt) => (
                     <TableRow key={receipt.id} hover>
+                      <TableCell>
+                        {receipt.created_at ? (
+                          <>
+                            <Typography fontSize="0.8rem" fontWeight="medium">
+                              {new Date(receipt.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {new Date(receipt.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                            </Typography>
+                          </>
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">—</Typography>
+                        )}
+                      </TableCell>
                       <TableCell>
                         <Typography fontWeight="bold" fontSize="0.85rem">{receipt.fno}</Typography>
                         <Typography variant="caption" color="text.secondary">
