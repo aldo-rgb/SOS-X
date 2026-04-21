@@ -289,9 +289,19 @@ export default function BranchManagementPage() {
   };
 
   // Filtrar usuarios que no son clientes (solo empleados/admins)
-  const employeeUsers = users.filter(u => 
-    ['warehouse_ops', 'admin', 'super_admin', 'support', 'sales', 'driver'].includes(u.role)
-  );
+  // Incluye todos los roles internos: gerentes de sucursal, operaciones, mostrador, repartidores, etc.
+  const EMPLOYEE_ROLES = [
+    'super_admin', 'admin', 'director',
+    'branch_manager',       // Gerente de Sucursal
+    'warehouse_ops',        // Operaciones / Bodega
+    'operations',           // Operaciones (alias)
+    'counter_staff',        // Mostrador
+    'customer_service', 'support',
+    'sales',
+    'driver', 'repartidor',
+    'manager',
+  ];
+  const employeeUsers = users.filter(u => EMPLOYEE_ROLES.includes(u.role));
 
   // Usuarios sin sucursal asignada
   const unassignedUsers = employeeUsers.filter(u => !u.branch_id);
