@@ -423,7 +423,7 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
       'received_origin': { label: 'En Bodega (Escaneado)', color: 'warning' },
       'received_china': { label: 'Info Recibida', color: 'warning' },
       'in_transit_airport_wait': { label: 'En Aeropuerto', color: 'info' },
-      'in_transit_loading': { label: 'Cargando / En Puerto', color: 'info' },
+      'in_transit_loading': { label: 'En Proceso a Aeropuerto', color: 'info' },
       'in_transit_transfer': { label: 'En Tránsito Aéreo', color: 'info' },
       'in_transit': { label: 'En Tránsito', color: 'info' },
       'in_customs_gz': { label: 'En Proceso de Aduana', color: 'secondary' as any },
@@ -642,10 +642,10 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
               variant={statusFilter === 'in_transit_transfer' ? 'filled' : 'outlined'}
               onClick={() => { setStatusFilter('in_transit_transfer'); setUnassignedOnly(false); }}
             />
-            {/* 5. Cargando/En Puerto - Mercancía cargada */}
+            {/* 5. En Proceso a Aeropuerto - Mercancía cargada */}
             <Chip
               size="small"
-              label={`5. Cargando/En Puerto (${stats?.byStatus?.find(s => s.status === 'in_transit_loading')?.count || 0})`}
+              label={`5. En Proceso a Aeropuerto (${stats?.byStatus?.find(s => s.status === 'in_transit_loading')?.count || 0})`}
               color={statusFilter === 'in_transit_loading' ? 'info' : 'default'}
               variant={statusFilter === 'in_transit_loading' ? 'filled' : 'outlined'}
               onClick={() => { setStatusFilter('in_transit_loading'); setUnassignedOnly(false); }}
