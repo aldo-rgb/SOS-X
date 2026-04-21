@@ -126,32 +126,53 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
   // Determinar si es multi-guía
   const isMultiPackage = (pkg as any).is_master && ((pkg as any).total_boxes || 1) > 1;
 
-  // 💰 Calcular costo PO Box correcto (recalcula para multi-guía/repack)
+  // 💰 Calcular costo PO Box correcto.
+  // ⚠️ El backend ya calcula el precio real según la tabla pobox_tarifas_volumen
+  // (basado en CBM por caja). NO debemos recalcular con tarifas hardcoded.
+  // Preferimos siempre los valores del backend (pobox_venta_mxn, pobox_venta_usd).
   const calcularCostoPOBox = () => {
     if (!details) return { costoMxn: 0, costoTotal: 0, saldo: 0, totalBoxes: 1, precioUnitarioUsd: 39, tc: 18.09, nivel: 1 };
-    
-    // 🎯 REPACK = 1 caja física (consolidación), Multi-guía normal = N cajas
+
+    // 🎯 Cantidad de cajas (informativo)
     let totalBoxes: number;
     if (isRepackPackage()) {
-      // REPACK: siempre es 1 caja física, sin importar cuántos paquetes originales
       totalBoxes = 1;
     } else {
-      // Multi-guía normal: prioridad childPackages.length > total_boxes > 1
-      totalBoxes = childPackages.length > 0 
-        ? childPackages.length 
+      totalBoxes = childPackages.length > 0
+        ? childPackages.length
         : (details.total_boxes || (pkg as any).total_boxes || 1);
     }
-    
-    const tc = details.registered_exchange_rate || 18.09;
+
+    const tc = Number(details.registered_exchange_rate) || 18.09;
     const nivel = details.pobox_tarifa_nivel || 1;
-    const precioUnitarioUsd = TARIFAS_POBOX_USD[nivel] || 39;
-    const costoPoboxMxn = totalBoxes * precioUnitarioUsd * tc;
-    const gexTotal = (details as any).gex_total_cost || 0;
-    const costoTotal = costoPoboxMxn + (details.national_shipping_cost || 0) + gexTotal;
-    const saldo = costoTotal - (details.monto_pagado || 0);
-    
-    console.log('💰 calcularCostoPOBox:', { isRepack: isRepackPackage(), totalBoxes, tc, nivel, precioUnitarioUsd, costoPoboxMxn, gexTotal, saldo });
-    
+
+    // ✅ Costo PO Box en MXN: usar valor del backend
+    const ventaMxnBackend = Number((details as any).pobox_venta_mxn) || 0;
+    const ventaUsdBackend = Number((details as any).pobox_venta_usd) || 0;
+
+    let costoPoboxMxn = ventaMxnBackend;
+    let costoPoboxUsd = ventaUsdBackend;
+
+    // Fallback solo si el backend no devolvió el dato (paquetes legacy)
+    if (costoPoboxMxn <= 0) {
+      const precioUnitarioFallback = TARIFAS_POBOX_USD[nivel] || 39;
+      costoPoboxUsd = totalBoxes * precioUnitarioFallback;
+      costoPoboxMxn = costoPoboxUsd * tc;
+    } else if (costoPoboxUsd <= 0) {
+      // Derivar USD desde MXN si solo viene MXN
+      costoPoboxUsd = tc > 0 ? costoPoboxMxn / tc : 0;
+    }
+
+    // Precio unitario USD = total USD / cajas (para mostrar el desglose)
+    const precioUnitarioUsd = totalBoxes > 0 ? costoPoboxUsd / totalBoxes : costoPoboxUsd;
+
+    const gexTotal = Number((details as any).gex_total_cost) || 0;
+    const nationalShipping = Number(details.national_shipping_cost) || 0;
+    const costoTotal = costoPoboxMxn + nationalShipping + gexTotal;
+    const saldo = costoTotal - (Number(details.monto_pagado) || 0);
+
+    console.log('💰 calcularCostoPOBox:', { totalBoxes, tc, nivel, precioUnitarioUsd, costoPoboxMxn, ventaMxnBackend, gexTotal, nationalShipping, costoTotal, saldo });
+
     return { costoMxn: costoPoboxMxn, costoTotal, saldo, totalBoxes, precioUnitarioUsd, tc, nivel };
   };
 
@@ -645,15 +666,15 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                   <>
                     <View style={styles.costRow}>
                       <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• 5% Valor Asegurado (${(details.declared_value || 0).toFixed(2)} USD)</Text>
-                      <Text style={styles.costValue}>${(details.gex_insurance_cost || (details.declared_value || 0) * 0.05 * (details.registered_exchange_rate || 18.15)).toFixed(2)} MXN</Text>
+                      <Text style={styles.costValue}>${(Number(details.gex_insurance_cost) || (Number(details.declared_value) || 0) * 0.05 * (Number(details.registered_exchange_rate) || 18.09)).toFixed(2)} MXN</Text>
                     </View>
                     <View style={styles.costRow}>
                       <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• Cargo Fijo GEX</Text>
-                      <Text style={styles.costValue}>${(details.gex_fixed_cost || 625).toFixed(2)} MXN</Text>
+                      <Text style={styles.costValue}>${(Number(details.gex_fixed_cost) || 625).toFixed(2)} MXN</Text>
                     </View>
                     <View style={styles.costRow}>
                       <Text style={[styles.costLabel, { fontWeight: '600' }]}>🛡️ Subtotal Garantía Extendida</Text>
-                      <Text style={[styles.costValue, { color: ORANGE }]}>${(details.gex_total_cost || ((details.declared_value || 0) * 0.05 * (details.registered_exchange_rate || 18.15)) + 625).toFixed(2)} MXN</Text>
+                      <Text style={[styles.costValue, { color: ORANGE }]}>${(Number(details.gex_total_cost) || ((Number(details.declared_value) || 0) * 0.05 * (Number(details.registered_exchange_rate) || 18.09) + (Number(details.gex_fixed_cost) || 625))).toFixed(2)} MXN</Text>
                     </View>
                   </>
                 )}
