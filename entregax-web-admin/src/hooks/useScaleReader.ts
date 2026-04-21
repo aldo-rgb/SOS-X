@@ -1,6 +1,6 @@
 // Hook compartido para leer peso desde báscula USB vía Web Serial API
 // Soporta formatos comunes: "ST,GS, 1.83 kg", "+ 0001.83 kg", "  1.83\r\n", etc.
-import { useRef, useCallback } from 'react';
+import { useCallback } from 'react';
 
 export interface ScaleReadResult {
   success: boolean;
@@ -9,11 +9,62 @@ export interface ScaleReadResult {
   raw?: string;
 }
 
-export function useScaleReader() {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const portRef = useRef<any>(null);
-  const readerRef = useRef<ReadableStreamDefaultReader<Uint8Array> | null>(null);
+// Singleton a nivel de módulo: comparte el puerto entre TODAS las páginas
+// para evitar "The port is already open" al cambiar de modal.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let sharedPort: any = null;
+let sharedReader: ReadableStreamDefaultReader<Uint8Array> | null = null;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function ensurePortOpen(nav: any) {
+  // Reusar puerto previamente autorizado si sigue abierto
+  if (sharedPort) {
+    // Si por algún motivo está cerrado, intentar reabrir
+    if (!sharedPort.readable) {
+      try {
+        await sharedPort.open({
+          baudRate: 9600,
+          dataBits: 8,
+          stopBits: 1,
+          parity: 'none',
+          flowControl: 'none',
+        });
+      } catch (e: unknown) {
+        const m = e instanceof Error ? e.message : '';
+        if (!m.toLowerCase().includes('already open')) throw e;
+      }
+    }
+    return sharedPort;
+  }
+
+  // Buscar puertos ya autorizados antes de pedir uno nuevo
+  let port = null;
+  try {
+    const granted = await nav.serial.getPorts();
+    if (granted && granted.length > 0) port = granted[0];
+  } catch { /* ignore */ }
+
+  if (!port) port = await nav.serial.requestPort();
+
+  try {
+    await port.open({
+      baudRate: 9600,
+      dataBits: 8,
+      stopBits: 1,
+      parity: 'none',
+      flowControl: 'none',
+    });
+  } catch (e: unknown) {
+    const m = e instanceof Error ? e.message : '';
+    // Si ya estaba abierto (otra pestaña/instancia), seguimos usando el handle
+    if (!m.toLowerCase().includes('already open')) throw e;
+  }
+  try { await port.setSignals({ dataTerminalReady: true, requestToSend: true }); } catch { /* ignore */ }
+  sharedPort = port;
+  return port;
+}
+
+export function useScaleReader() {
   const read = useCallback(async (timeoutMs = 8000): Promise<ScaleReadResult> => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const nav = navigator as any;
@@ -21,26 +72,13 @@ export function useScaleReader() {
       return { success: false, error: 'Web Serial API no disponible. Usa Chrome/Edge en HTTPS.' };
     }
     try {
-      let port = portRef.current;
-      if (!port) {
-        port = await nav.serial.requestPort();
-        await port.open({
-          baudRate: 9600,
-          dataBits: 8,
-          stopBits: 1,
-          parity: 'none',
-          flowControl: 'none',
-        });
-        // Activar señales de control para básculas que las requieren
-        try { await port.setSignals({ dataTerminalReady: true, requestToSend: true }); } catch { /* ignore */ }
-        portRef.current = port;
-      }
+      const port = await ensurePortOpen(nav);
 
       // Cancelar reader anterior si quedó abierto
-      if (readerRef.current) {
-        try { await readerRef.current.cancel(); } catch { /* ignore */ }
-        try { readerRef.current.releaseLock(); } catch { /* ignore */ }
-        readerRef.current = null;
+      if (sharedReader) {
+        try { await sharedReader.cancel(); } catch { /* ignore */ }
+        try { sharedReader.releaseLock(); } catch { /* ignore */ }
+        sharedReader = null;
       }
 
       // Enviar comandos de poll comunes para básculas en modo "on demand"
@@ -59,7 +97,7 @@ export function useScaleReader() {
 
       const reader = port.readable?.getReader();
       if (!reader) return { success: false, error: 'No se pudo obtener lector del puerto. Otra app podría tenerlo abierto.' };
-      readerRef.current = reader;
+      sharedReader = reader;
 
       const decoder = new TextDecoder();
       let buffer = '';
@@ -76,7 +114,6 @@ export function useScaleReader() {
 
           buffer += decoder.decode(result.value, { stream: true });
           // Log para debug (visible en consola del navegador)
-          // eslint-disable-next-line no-console
           console.log('[Báscula RX]', JSON.stringify(buffer));
 
           // 1) Intentar match con unidad explícita
@@ -111,13 +148,15 @@ export function useScaleReader() {
         };
       } finally {
         try { reader.releaseLock(); } catch { /* ignore */ }
-        readerRef.current = null;
+        sharedReader = null;
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error conectando báscula';
-      if (msg.toLowerCase().includes('open') || msg.toLowerCase().includes('access')) {
-        try { await portRef.current?.close(); } catch { /* ignore */ }
-        portRef.current = null;
+      // Si el error NO es "already open", resetear el puerto para forzar nueva selección
+      if (!msg.toLowerCase().includes('already open') &&
+          (msg.toLowerCase().includes('open') || msg.toLowerCase().includes('access') || msg.toLowerCase().includes('disconnect'))) {
+        try { await sharedPort?.close(); } catch { /* ignore */ }
+        sharedPort = null;
       }
       return { success: false, error: msg };
     }
