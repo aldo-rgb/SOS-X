@@ -200,6 +200,12 @@ export function useScaleReader() {
         sharedPort = null;
         await new Promise((r) => setTimeout(r, 100));
         loopAbort = false;
+        if (lm.includes('failed to open')) {
+          return {
+            success: false,
+            error: '⚠️ Puerto bloqueado. Causas comunes: (1) Tienes OTRA pestaña de EntregaX abierta — ciérrala. (2) Otra app (Arduino IDE, terminal, driver) tiene el puerto. (3) Desconecta y reconecta el USB de la báscula.',
+          };
+        }
         return { success: false, error: `${msg} — Haz clic en "Leer Báscula" de nuevo para reconectar.` };
       }
       return { success: false, error: msg };
