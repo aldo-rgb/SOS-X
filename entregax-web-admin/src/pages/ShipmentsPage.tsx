@@ -1242,13 +1242,13 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         </div>
         ${label.masterTracking ? `<div class="master-ref">Master: ${label.masterTracking}</div>` : ''}
         
-        <!-- CÓDIGOS: Barcode + QR lado a lado -->
+        <!-- CÓDIGOS: QR arriba + Barcode abajo (ambos más grandes) -->
         <div class="codes-container">
-          <div class="barcode-section">
-            <svg id="barcode-${index}"></svg>
-          </div>
           <div class="qr-section">
             <div id="qr-${index}"></div>
+          </div>
+          <div class="barcode-section">
+            <svg id="barcode-${index}"></svg>
           </div>
         </div>
         
@@ -1261,7 +1261,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         
         <!-- Detalles -->
         <div class="details">
-          ${label.weight ? `<span class="detail-item">⚖️ ${label.weight} kg</span>` : ''}
+          ${label.weight ? `<span class="detail-item">⚖️ ${Number(label.weight).toFixed(2)} kg</span>` : ''}
           ${label.dimensions ? `<span class="detail-item">📐 ${label.dimensions}</span>` : ''}
           ${label.carrier ? `<span class="detail-item">🚚 ${label.carrier}</span>` : ''}
         </div>
@@ -1340,27 +1340,26 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         /* CONTENEDOR DE CÓDIGOS */
         .codes-container {
           display: flex;
+          flex-direction: column;
           justify-content: center;
           align-items: center;
-          gap: 15px;
-          margin: 12px 0;
-          padding: 10px;
+          gap: 10px;
+          margin: 10px 0;
+          padding: 8px;
           background: #fafafa;
           border-radius: 8px;
         }
-        .barcode-section { 
-          flex: 1;
-          text-align: center;
-        }
-        .barcode-section svg { max-width: 100%; height: 45px; }
-        .qr-section { 
-          width: 70px;
-          height: 70px;
+        .qr-section {
           display: flex;
           align-items: center;
           justify-content: center;
         }
-        .qr-section svg { width: 70px; height: 70px; }
+        .qr-section svg { width: 150px; height: 150px; }
+        .barcode-section {
+          width: 100%;
+          text-align: center;
+        }
+        .barcode-section svg { width: 100%; max-width: 320px; height: 80px; }
         
         .divider { border-top: 2px dashed #ccc; margin: 10px 0; }
         
@@ -1414,15 +1413,15 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       </head><body>${labelsHTML}
       <script>
         // Generar códigos de barras
-        ${labelsToPrint.map((label, i) => `JsBarcode("#barcode-${i}", "${label.tracking.replace(/-/g, '')}", { format: "CODE128", width: 1.8, height: 45, displayValue: false });`).join('')}
+        ${labelsToPrint.map((label, i) => `JsBarcode("#barcode-${i}", "${label.tracking.replace(/-/g, '')}", { format: "CODE128", width: 2.4, height: 80, displayValue: false, margin: 0 });`).join('')}
         
-        // Generar códigos QR
+        // Generar códigos QR (más grandes)
         ${labelsToPrint.map((label, i) => `
           (function() {
             var qr = qrcode(0, 'M');
             qr.addData('https://app.entregax.com/track/${label.tracking}');
             qr.make();
-            document.getElementById('qr-${i}').innerHTML = qr.createSvgTag({ cellSize: 2, margin: 0 });
+            document.getElementById('qr-${i}').innerHTML = qr.createSvgTag({ cellSize: 5, margin: 0 });
           })();
         `).join('')}
         
