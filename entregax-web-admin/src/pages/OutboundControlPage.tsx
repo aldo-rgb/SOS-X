@@ -96,6 +96,59 @@ export default function OutboundControlPage() {
     severity: 'success' | 'error' | 'warning' | 'info';
   }>({ open: false, message: '', severity: 'success' });
 
+  // Web Audio API para sonidos de confirmación/error (no requiere archivos)
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const getAudioCtx = () => {
+    if (!audioCtxRef.current) {
+      const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (AC) audioCtxRef.current = new AC();
+    }
+    return audioCtxRef.current;
+  };
+  const playTone = (freq: number, duration = 0.15, type: OscillatorType = 'sine', when = 0, volume = 0.3) => {
+    const ctx = getAudioCtx();
+    if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, ctx.currentTime + when);
+    gain.gain.setValueAtTime(0, ctx.currentTime + when);
+    gain.gain.linearRampToValueAtTime(volume, ctx.currentTime + when + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + when + duration);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime + when);
+    osc.stop(ctx.currentTime + when + duration);
+  };
+  const playSound = (kind: 'success' | 'error' | 'warning') => {
+    try {
+      if (kind === 'success') {
+        // Dos beeps ascendentes agradables
+        playTone(880, 0.12, 'sine', 0, 0.35);
+        playTone(1320, 0.15, 'sine', 0.1, 0.35);
+      } else if (kind === 'error') {
+        // Zumbido grave doble
+        playTone(220, 0.18, 'square', 0, 0.25);
+        playTone(160, 0.25, 'square', 0.18, 0.25);
+      } else {
+        // Warning: un beep medio
+        playTone(600, 0.2, 'triangle', 0, 0.3);
+      }
+      // Vibración del dispositivo (si lo soporta)
+      if ('vibrate' in navigator) {
+        navigator.vibrate(kind === 'success' ? 60 : kind === 'warning' ? [50, 50, 50] : [120, 80, 120]);
+      }
+    } catch (e) { /* ignore */ }
+  };
+  // Notificación unificada con sonido
+  const notify = (message: string, severity: 'success' | 'error' | 'warning' | 'info') => {
+    setSnackbar({ open: true, message, severity });
+    if (severity === 'success' || severity === 'error' || severity === 'warning') {
+      playSound(severity);
+    }
+  };
+
   useEffect(() => {
     loadPackages();
     loadSuppliers();
@@ -203,11 +256,7 @@ export default function OutboundControlPage() {
     
     // Verificar si ya está escaneado
     if (scannedPackages.some(p => p.tracking === tracking)) {
-      setSnackbar({ 
-        open: true, 
-        message: `⚠️ La guía ${tracking} ya fue escaneada`, 
-        severity: 'warning' 
-      });
+      notify(`⚠️ La guía ${tracking} ya fue escaneada`, 'warning');
       setScanInput('');
       return;
     }
@@ -230,17 +279,9 @@ export default function OutboundControlPage() {
         boxId: pkg.box_id,
         description: pkg.description || ''
       }]);
-      setSnackbar({ 
-        open: true, 
-        message: `✅ Guía ${tracking} agregada`, 
-        severity: 'success' 
-      });
+      notify(`✅ Guía ${tracking} agregada`, 'success');
     } else {
-      setSnackbar({ 
-        open: true, 
-        message: `❌ Guía ${tracking} no encontrada o no está lista para salida (podría ser parte de un reempaque o una master)`, 
-        severity: 'error' 
-      });
+      notify(`❌ Guía ${tracking} no encontrada o no está lista para salida (podría ser parte de un reempaque o una master)`, 'error');
     }
     
     setScanInput('');
@@ -664,14 +705,44 @@ export default function OutboundControlPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Snackbar */}
-      <Snackbar 
-        open={snackbar.open} 
-        autoHideDuration={3000} 
+      {/* Snackbar grande y vistoso para escaneo */}
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={snackbar.severity === 'error' ? 5000 : 2500}
         onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        sx={{ mt: { xs: 8, sm: 10 }, zIndex: (theme) => theme.zIndex.modal + 100 }}
       >
-        <Alert severity={snackbar.severity} variant="filled">
+        <Alert
+          severity={snackbar.severity}
+          variant="filled"
+          onClose={() => setSnackbar(prev => ({ ...prev, open: false }))}
+          sx={{
+            minWidth: { xs: 300, sm: 520 },
+            fontSize: { xs: '1rem', sm: '1.25rem' },
+            fontWeight: 700,
+            py: 2.5,
+            px: 3,
+            boxShadow: '0 12px 40px rgba(0,0,0,0.35)',
+            border: '3px solid rgba(255,255,255,0.9)',
+            borderRadius: 3,
+            letterSpacing: 0.3,
+            '& .MuiAlert-icon': { fontSize: 36, mr: 1.5 },
+            animation: snackbar.severity === 'error'
+              ? 'shake 0.5s ease-in-out'
+              : 'pop 0.35s ease-out',
+            '@keyframes pop': {
+              '0%': { transform: 'scale(0.7)', opacity: 0 },
+              '60%': { transform: 'scale(1.05)', opacity: 1 },
+              '100%': { transform: 'scale(1)' },
+            },
+            '@keyframes shake': {
+              '0%, 100%': { transform: 'translateX(0)' },
+              '20%, 60%': { transform: 'translateX(-10px)' },
+              '40%, 80%': { transform: 'translateX(10px)' },
+            },
+          }}
+        >
           {snackbar.message}
         </Alert>
       </Snackbar>
