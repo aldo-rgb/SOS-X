@@ -937,6 +937,41 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
             VALUES ($1, $2, $3, $4, $5, $6, 'success')
         `, [barcode, scanType, packageServiceType, packageId, branch_id, workerId]);
 
+        // 5b. OBTENER INFO DE CONSOLIDACIÓN (si aplica)
+        // El scanner multi-sucursal muestra a qué consolidación pertenece el paquete
+        // y su posición dentro de ella (ej: "Consolidación #45 — Paquete 1 de 3")
+        let consolidationInfo: {
+            id: number;
+            totalPackages: number;
+            packageIndex: number;
+            status?: string;
+        } | null = null;
+        if (tableName === 'packages' && packageId) {
+            try {
+                const consolidationRes = await pool.query(`
+                    SELECT p.consolidation_id,
+                           c.status as cons_status,
+                           (SELECT COUNT(*)::int FROM packages WHERE consolidation_id = p.consolidation_id) as total_packages,
+                           (SELECT COUNT(*)::int FROM packages 
+                              WHERE consolidation_id = p.consolidation_id AND id <= p.id) as package_index
+                    FROM packages p
+                    LEFT JOIN consolidations c ON c.id = p.consolidation_id
+                    WHERE p.id = $1 AND p.consolidation_id IS NOT NULL
+                `, [packageId]);
+                if (consolidationRes.rows.length > 0) {
+                    const r = consolidationRes.rows[0];
+                    consolidationInfo = {
+                        id: r.consolidation_id,
+                        totalPackages: r.total_packages,
+                        packageIndex: r.package_index,
+                        status: r.cons_status,
+                    };
+                }
+            } catch (consErr) {
+                console.warn('⚠️ No se pudo obtener info de consolidación:', consErr);
+            }
+        }
+
         // 6. RESPONDER CON TODA LA INFO (incluyendo labelUrl para impresión automática)
         const trackingNumber = packageInfo?.tracking_internal || packageInfo?.fno || barcode;
         res.json({ 
@@ -959,6 +994,7 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
                 newStatus,
                 sourceTable: tableName
             },
+            consolidation: consolidationInfo,
             branch: {
                 name: branch_name,
                 code: branch_code

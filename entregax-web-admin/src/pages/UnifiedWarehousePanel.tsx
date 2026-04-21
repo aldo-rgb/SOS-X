@@ -111,6 +111,13 @@ interface ScanResult {
   labelUrl?: string;
   nationalTracking?: string;
   nationalCarrier?: string;
+  // Info de consolidación (scanner multi-sucursal)
+  consolidation?: {
+    id: number;
+    totalPackages: number;
+    packageIndex: number;
+    status?: string;
+  } | null;
 }
 
 interface ScanHistoryItem {
@@ -335,7 +342,8 @@ const UnifiedWarehousePanel: React.FC = () => {
         service_type: res.data.package?.serviceType,
         labelUrl: res.data.labelUrl,
         nationalTracking: res.data.nationalTracking,
-        nationalCarrier: res.data.nationalCarrier
+        nationalCarrier: res.data.nationalCarrier,
+        consolidation: res.data.consolidation || null,
       };
       
       setLastResult(result);
@@ -823,6 +831,15 @@ const UnifiedWarehousePanel: React.FC = () => {
                           {lastResult.service_type}
                         </Typography>
                       </Grid>
+                      {/* 📦 Info de consolidación (si el paquete pertenece a una) */}
+                      {lastResult.consolidation && (
+                        <Grid size={{ xs: 12, md: 3 }}>
+                          <Typography variant="caption" color="text.secondary">Consolidación</Typography>
+                          <Typography variant="body1" fontWeight="bold" color="primary">
+                            #{lastResult.consolidation.id} — Paquete {lastResult.consolidation.packageIndex}/{lastResult.consolidation.totalPackages}
+                          </Typography>
+                        </Grid>
+                      )}
                       {/* Mostrar info de guía nacional si existe */}
                       {lastResult.nationalTracking && (
                         <Grid size={{ xs: 6, md: 3 }}>
