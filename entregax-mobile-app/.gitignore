@@ -28,6 +28,14 @@ yarn-error.*
 
 # macOS
 .DS_Store
+
+# Secrets (app store / play store credentials)
+secrets/
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
 *.pem
 
 # local env files
