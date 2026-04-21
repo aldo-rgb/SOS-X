@@ -192,7 +192,14 @@ export default function OutboundControlPage() {
       const parts = raw.split(/[/?#]/).filter(Boolean);
       raw = parts[parts.length - 1] || raw;
     }
-    const tracking = raw.toUpperCase();
+    let tracking = raw.toUpperCase();
+
+    // El código de barras a veces se escanea sin el guión (ej: "US2722344044"),
+    // pero en la BD está como "US-2722344044". Insertar el guión si falta.
+    const noDashMatch = tracking.match(/^(US|MX|CN|DHL|FDX|UPS)(\d{6,})$/);
+    if (noDashMatch) {
+      tracking = `${noDashMatch[1]}-${noDashMatch[2]}`;
+    }
     
     // Verificar si ya está escaneado
     if (scannedPackages.some(p => p.tracking === tracking)) {
@@ -205,10 +212,14 @@ export default function OutboundControlPage() {
       return;
     }
 
-    // Buscar el paquete en la lista
-    const pkg = packages.find(p => 
-      p.tracking_internal?.toUpperCase() === tracking || 
-      p.tracking_provider?.toUpperCase() === tracking
+    // Buscar el paquete en la lista (comparación flexible ignorando guiones)
+    const stripDash = (s?: string | null) => (s || '').toUpperCase().replace(/-/g, '');
+    const trackingNoDash = stripDash(tracking);
+    const pkg = packages.find(p =>
+      p.tracking_internal?.toUpperCase() === tracking ||
+      p.tracking_provider?.toUpperCase() === tracking ||
+      stripDash(p.tracking_internal) === trackingNoDash ||
+      stripDash(p.tracking_provider) === trackingNoDash
     );
 
     if (pkg) {
