@@ -923,6 +923,10 @@ export default function DashboardClient() {
   const [trajectoryError, setTrajectoryError] = useState<string | null>(null);
   const [trajectoryTracking, setTrajectoryTracking] = useState<string>('');
   const [trajectoryEvents, setTrajectoryEvents] = useState<Array<{ ch: string; en: string; date: string }>>([]);
+  const [internalHistory, setInternalHistory] = useState<Array<{
+    id: number; old_status: string | null; new_status: string; trajectory_name: string | null;
+    source: string; notes: string | null; created_at: string;
+  }>>([]);
 
   const handleOpenTrajectory = async (tracking: string) => {
     setTrajectoryOpen(true);
@@ -930,17 +934,31 @@ export default function DashboardClient() {
     setTrajectoryLoading(true);
     setTrajectoryError(null);
     setTrajectoryEvents([]);
+    setInternalHistory([]);
     try {
       const token = localStorage.getItem('token');
-      const res = await fetch(`${API_URL}/api/china/trajectory/${encodeURIComponent(tracking)}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
+      // Fetch paralelo: trayectoria MoJie + historial interno SOS-X
+      const [resTraj, resHist] = await Promise.all([
+        fetch(`${API_URL}/api/china/trajectory/${encodeURIComponent(tracking)}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        }),
+        fetch(`${API_URL}/api/china/status-history/${encodeURIComponent(tracking)}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        })
+      ]);
+      const data = await resTraj.json();
       if (data.success && Array.isArray(data.trayectoria)) {
         setTrajectoryEvents(data.trayectoria);
       } else {
         setTrajectoryError(data.error || data.details || 'No se encontraron movimientos para esta guía');
       }
+      // Historial interno (best-effort)
+      try {
+        const histData = await resHist.json();
+        if (histData.success && Array.isArray(histData.history)) {
+          setInternalHistory(histData.history);
+        }
+      } catch { /* noop */ }
     } catch (err: any) {
       setTrajectoryError(err?.message || 'Error de conexión');
     } finally {
@@ -8532,6 +8550,68 @@ export default function DashboardClient() {
                             day: '2-digit', month: 'short', year: 'numeric',
                             hour: '2-digit', minute: '2-digit'
                           })}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Box>
+          )}
+
+          {/* Historial interno SOS-X: cambios de status con fecha/hora */}
+          {!trajectoryLoading && internalHistory.length > 0 && (
+            <Box sx={{ px: 2, pb: 2 }}>
+              <Typography variant="subtitle2" sx={{ mt: 2, mb: 1.5, color: ORANGE, fontWeight: 'bold', borderTop: '1px solid #e0e0e0', pt: 2 }}>
+                📋 Historial de Cambios (SOS-X)
+              </Typography>
+              {internalHistory.map((h) => {
+                const statusLabels: Record<string, string> = {
+                  pending: 'Pendiente',
+                  received_origin: 'Recibido en Origen',
+                  received_china: 'En Bodega China',
+                  in_transit_transfer: 'En Tránsito (Transferencia)',
+                  in_transit_loading: 'En Proceso a Aeropuerto',
+                  in_transit_airport_wait: 'Esperando Vuelo',
+                  in_customs_gz: 'En Proceso de Aduana',
+                  delivered: 'Entregado',
+                  in_transit_international: 'Tránsito Internacional',
+                  arrived_mexico: 'Llegó a México',
+                  at_cedis: 'En CEDIS',
+                  dispatched: 'Despachado'
+                };
+                const sourceLabels: Record<string, string> = {
+                  mojie_sync: '🔄 Sync automático',
+                  mojie_webhook: '📡 Webhook MoJie',
+                  manual: '✋ Cambio manual',
+                  recalc: '🔁 Recalculado',
+                  track_fno: '🔍 Rastreo',
+                  pull_order: '⬇️ Sync bajo demanda'
+                };
+                return (
+                  <Box key={h.id} sx={{ display: 'flex', gap: 2, mb: 1.5 }}>
+                    <Box sx={{
+                      width: 10, height: 10, borderRadius: '50%',
+                      bgcolor: '#757575', mt: 0.8, flexShrink: 0,
+                      border: '2px solid #eee'
+                    }} />
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="body2" fontWeight="medium">
+                        {h.old_status
+                          ? `${statusLabels[h.old_status] || h.old_status} → ${statusLabels[h.new_status] || h.new_status}`
+                          : statusLabels[h.new_status] || h.new_status}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        {sourceLabels[h.source] || h.source}
+                        {' · '}
+                        {new Date(h.created_at).toLocaleString('es-MX', {
+                          day: '2-digit', month: 'short', year: 'numeric',
+                          hour: '2-digit', minute: '2-digit'
+                        })}
+                      </Typography>
+                      {h.notes && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', fontStyle: 'italic' }}>
+                          {h.notes}
                         </Typography>
                       )}
                     </Box>

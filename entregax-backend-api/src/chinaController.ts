@@ -638,6 +638,19 @@ export const updateChinaReceiptStatus = async (req: Request, res: Response): Pro
                 WHERE china_receipt_id = $2
             `, [packageStatus, id]);
 
+            // Registrar cambio en historial (manual)
+            if (receipt && receipt.status !== status) {
+                await logChinaStatusChange({
+                    chinaReceiptId: Number(id),
+                    fno: receipt.fno,
+                    oldStatus: receipt.status,
+                    newStatus: status,
+                    source: 'manual',
+                    changedBy: (req as any).user?.id || null,
+                    notes: notes || 'Cambio manual desde admin'
+                });
+            }
+
             // Enviar notificación según el status
             if (receipt && receipt.user_id) {
                 const statusMessages: Record<string, string> = {
@@ -1455,7 +1468,8 @@ export const trackFNO = async (req: Request, res: Response): Promise<any> => {
 // ============================================
 export const getTrajectory = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { childNo } = req.params;
+        const { childNo: childNoRaw } = req.params;
+        const childNo: string = String(childNoRaw || '');
         
         if (!childNo) {
             return res.status(400).json({ 
@@ -1479,7 +1493,7 @@ export const getTrajectory = async (req: Request, res: Response): Promise<any> =
                 'Token过期': 'Token de MoJie expirado.'
             };
             for (const key of Object.keys(map)) {
-                if (msg.includes(key)) return map[key];
+                if (msg.includes(key)) return map[key] as string;
             }
             return msg;
         };
@@ -1528,11 +1542,15 @@ export const getTrajectory = async (req: Request, res: Response): Promise<any> =
             });
         }
 
-        // Formatear trayectoria
+        // Formatear trayectoria (devuelve ambos formatos para compatibilidad)
         const trajectory = (apiData.result || []).map(event => ({
             fecha: event.date,
             descripcion: event.en || event.ch,
-            descripcionChino: event.ch
+            descripcionChino: event.ch,
+            // Compat con frontend existente
+            date: event.date,
+            en: event.en,
+            ch: event.ch
         }));
 
         console.log(`  ✅ Trayectoria encontrada: ${trajectory.length} eventos`);
@@ -1554,6 +1572,56 @@ export const getTrajectory = async (req: Request, res: Response): Promise<any> =
         });
     }
 };
+
+// ============================================
+// HELPER: Registra un cambio de status en china_status_history
+// No lanza excepciones para no romper flujos principales (best-effort)
+// ============================================
+export type StatusChangeSource = 'mojie_sync' | 'mojie_webhook' | 'manual' | 'recalc' | 'track_fno' | 'pull_order';
+export interface LogStatusChangeParams {
+    packageId?: number | null;
+    chinaReceiptId?: number | null;
+    trackingInternal?: string | null;
+    childNo?: string | null;
+    fno?: string | null;
+    oldStatus?: string | null;
+    newStatus: string;
+    trajectoryName?: string | null;
+    source: StatusChangeSource;
+    changedBy?: number | null;
+    notes?: string | null;
+}
+
+export async function logChinaStatusChange(params: LogStatusChangeParams): Promise<void> {
+    try {
+        // Evitar registrar cuando no hubo cambio real
+        if (params.oldStatus && params.oldStatus === params.newStatus) return;
+        if (!params.newStatus) return;
+
+        await pool.query(
+            `INSERT INTO china_status_history
+                (package_id, china_receipt_id, tracking_internal, child_no, fno,
+                 old_status, new_status, trajectory_name, source, changed_by, notes)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            [
+                params.packageId ?? null,
+                params.chinaReceiptId ?? null,
+                params.trackingInternal ?? null,
+                params.childNo ?? null,
+                params.fno ?? null,
+                params.oldStatus ?? null,
+                params.newStatus,
+                params.trajectoryName ?? null,
+                params.source,
+                params.changedBy ?? null,
+                params.notes ?? null
+            ]
+        );
+    } catch (err: any) {
+        // Log pero no propagar: historial es informativo
+        console.warn('⚠️  logChinaStatusChange falló:', err?.message || err);
+    }
+}
 
 // ============================================
 // ADMIN: Listar valores únicos de trajectory_name (status crudo de MoJie)
@@ -1650,6 +1718,46 @@ export const listTrajectoryNames = async (_req: Request, res: Response): Promise
 };
 
 // ============================================
+// GET /api/china/status-history/:tracking
+// Devuelve el historial de cambios de status para una gu\u00eda (por tracking interno, childNo o FNO)
+// ============================================
+export const getChinaStatusHistory = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { tracking } = req.params;
+        if (!tracking) {
+            return res.status(400).json({ success: false, error: 'Se requiere tracking/childNo/FNO' });
+        }
+
+        // Buscar por tracking_internal, child_no o fno
+        const result = await pool.query(`
+            SELECT h.id, h.package_id, h.china_receipt_id, h.tracking_internal, h.child_no, h.fno,
+                   h.old_status, h.new_status, h.trajectory_name, h.source, h.notes, h.created_at,
+                   u.name AS changed_by_name
+            FROM china_status_history h
+            LEFT JOIN users u ON u.id = h.changed_by
+            WHERE h.tracking_internal = $1
+               OR h.child_no = $1
+               OR h.fno = $1
+            ORDER BY h.created_at DESC
+        `, [tracking]);
+
+        res.json({
+            success: true,
+            tracking,
+            total: result.rows.length,
+            history: result.rows
+        });
+    } catch (error: any) {
+        console.error('❌ Error consultando historial:', error?.stack || error);
+        res.status(500).json({
+            success: false,
+            error: 'Error al consultar historial',
+            details: error?.message
+        });
+    }
+};
+
+// ============================================
 // ADMIN: Recalcular status de china_receipts con base en trajectory_name actual
 // POST /api/china/recalc-statuses
 // No consulta a MoJie; usa los valores que ya tenemos en packages.trajectory_name.
@@ -1679,6 +1787,15 @@ export const recalcChinaStatuses = async (_req: Request, res: Response): Promise
                     `UPDATE china_receipts SET status = $1, updated_at = NOW() WHERE id = $2`,
                     [newStatus, r.id]
                 );
+                await logChinaStatusChange({
+                    chinaReceiptId: r.id,
+                    fno: r.fno,
+                    oldStatus: r.status,
+                    newStatus,
+                    trajectoryName: (r.trajectories || []).slice(-1)[0] || null,
+                    source: 'recalc',
+                    notes: `Recalculado a partir de ${(r.trajectories||[]).length} trayectorias`
+                });
                 updated++;
             }
         }
@@ -2119,11 +2236,32 @@ export const syncActiveMJCustomerOrders = async (): Promise<{
                     
                     // Determinar status basado en trajectoryName de los paquetes
                     let newStatus = 'received_china'; // default
+                    let lastTrajectory: string | null = null;
                     if (orderData.data && Array.isArray(orderData.data)) {
                         const trajectories = orderData.data.map((p: any) => p.trajecotryName || '');
                         newStatus = mapTrajectoryToStatus(trajectories);
+                        lastTrajectory = trajectories.filter(Boolean).slice(-1)[0] || null;
                     }
-                    
+
+                    // Registrar historial solo si el status cambió
+                    const prevStatusQ = await pool.query(
+                        'SELECT id, status FROM china_receipts WHERE fno = $1 LIMIT 1',
+                        [fno]
+                    );
+                    const prevRow = prevStatusQ.rows[0];
+                    const isTerminal = prevRow && ['delivered','received_cdmx','completed'].includes(prevRow.status);
+                    if (prevRow && !isTerminal && prevRow.status !== newStatus) {
+                        await logChinaStatusChange({
+                            chinaReceiptId: prevRow.id,
+                            fno,
+                            oldStatus: prevRow.status,
+                            newStatus,
+                            trajectoryName: lastTrajectory,
+                            source: 'mojie_sync',
+                            notes: 'Sincronización automática MoJie'
+                        });
+                    }
+
                     // Actualizar datos de la orden incluyendo status
                     await pool.query(`
                         UPDATE china_receipts SET
