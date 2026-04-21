@@ -266,10 +266,41 @@ const UnifiedWarehousePanel: React.FC = () => {
 
   const handleScan = async () => {
     if (!barcode.trim() || !mode) return;
-    
-    // � Normalizar: el scanner a veces omite el guión (lee "US2722344044" en vez de "US-2722344044")
-    // Auto-insertar guión después del prefijo alfabético.
-    let normalized = barcode.trim().toUpperCase();
+
+    // 🔧 Normalizacion del input del scanner:
+    // 1) Re-mapear caracteres por layout teclado ES (Mac):
+    //    Ñ → :   ' → -   ¿ → /   ¡ → !
+    //    (un QR "https://app.entregax.com/track/US-XXXX" puede llegar como
+    //     "httpsÑ--app.entregax.com-track-US'XXXX")
+    // 2) Si es URL .../track/US-XXXX -> extraer solo el tracking
+    // 3) Si viene "US2722..." sin guion -> auto-insertarlo
+
+    let raw = barcode.trim();
+
+    // Paso 1: remap teclado ES Mac
+    raw = raw
+      .replace(/Ñ/g, ':')
+      .replace(/ñ/g, ':')
+      .replace(/'/g, '-')
+      .replace(/¿/g, '/')
+      .replace(/¡/g, '!');
+
+    // Si quedo "https:--..." reconstruir como URL valida
+    if (/^https?:[-/]/i.test(raw)) {
+      raw = raw.replace(/^(https?):-+/i, '$1://');
+      raw = raw.replace(/([a-z]{2,}\.[a-z]{2,})-/gi, '$1/');
+      raw = raw.replace(/track-/gi, 'track/');
+    }
+
+    // Paso 2: extraer tracking de URL (.../track/US-XXXX o .../t/US-XXXX)
+    const urlMatch = raw.match(/(?:track|t)[/-]([A-Z]{2,4}-?\d+)/i);
+    if (urlMatch) {
+      raw = urlMatch[1];
+    }
+
+    let normalized = raw.trim().toUpperCase();
+
+    // Paso 3: auto-insertar guion si viene pegado (US2722344044 -> US-2722344044)
     const prefixMatch = normalized.match(/^(US|AIR|LOG|TRK)(\d+)$/);
     if (prefixMatch) {
       normalized = `${prefixMatch[1]}-${prefixMatch[2]}`;
