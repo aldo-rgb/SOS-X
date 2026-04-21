@@ -1506,13 +1506,11 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup') && { backgroundColor: '#00796B' }
               ]}
               onPress={() => {
+                // Si hay paquetes en "ready_pickup" seleccionados → cambiar método de envío
                 if (selectedIds.length > 0) {
-                  // Verificar si son paquetes en Pick Up
                   const selectedPkgs = packages.filter(p => selectedIds.includes(p.id));
                   const hasPickupPackages = selectedPkgs.some(p => p.status === 'ready_pickup');
-                  
                   if (hasPickupPackages) {
-                    // Navegar a cambiar método de envío (DeliveryInstructions)
                     navigation.navigate('DeliveryInstructions', {
                       package: selectedPkgs[0],
                       packages: selectedPkgs,
@@ -1520,13 +1518,11 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                       token,
                       isChangingFromPickup: true,
                     });
-                  } else {
-                    handleConsolidate();
+                    return;
                   }
-                } else {
-                  // Navegar a la guía de servicios (pantalla de marketing con direcciones)
-                  navigation.navigate('ServicesGuide', { user, token });
                 }
+                // Caso por defecto: guía de servicios con tutoriales y direcciones personalizadas
+                navigation.navigate('ServicesGuide', { user, token });
               }}
             >
               <Ionicons 
