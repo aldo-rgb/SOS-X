@@ -191,7 +191,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // Labels para PO Box USA (terrestre)
     const statusLabels: Record<string, string> = {
       received: t('status.inWarehouse'),
-      in_transit: `🚚 ${t('status.inTransit')}`,
+      in_transit: `🚚 ${t('status.inTransit')} a MTY`,
       processing: `📋 ${t('status.processing')}`,
       shipped: `🚚 ${t('status.shipped')}`,
       ready_pickup: '📍 Pick Up',
@@ -810,9 +810,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                           item.status === 'customs_mx' ? 'shield-lock' :
                           item.status === 'delivered' ? 'check-circle' : 'airplane'
                         ) : (
-                          item.status === 'in_transit' ? 'airplane' : 
+                          item.status === 'in_transit' ? 'truck-fast' : 
                           item.status === 'received' ? 'package-variant' :
-                          item.status === 'shipped' ? 'airplane-takeoff' :
+                          item.status === 'shipped' ? 'truck-delivery' :
                           item.status === 'delivered' ? 'check-circle' :
                           item.status === 'processing' ? 'clipboard-text' : 'package-variant'
                         )
