@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useScaleReader } from '../hooks/useScaleReader';
+import MultiBoxScanDialog from '../components/MultiBoxScanDialog';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import {
@@ -280,6 +281,8 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const { readScale, liveWeight } = useScaleReader();
   const [scaleLive, setScaleLive] = useState(false);
+  const [boxQuantity, setBoxQuantity] = useState('1');
+  const [multiScanOpen, setMultiScanOpen] = useState(false);
   
   // Estados para cámara
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -904,8 +907,17 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       setSnackbar({ open: true, message: '⚠️ Las dimensiones deben ser mayores a 0', severity: 'error' });
       return;
     }
-    
+
     setFormError('');
+    const qty = Math.max(1, parseInt(boxQuantity) || 1);
+
+    if (qty > 1) {
+      // Abre modal para capturar N guías
+      setMultiScanOpen(true);
+      return;
+    }
+
+    // Una sola caja: comportamiento original
     const newBox: BoxItem = {
       id: Date.now(),
       weight: currentBox.weight,
@@ -916,7 +928,27 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     };
     setBoxes(prev => [...prev, newBox]);
     setCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
+    setBoxQuantity('1');
     setSnackbar({ open: true, message: `📦 ${t('wizard.boxAdded', { number: boxes.length + 1 })}`, severity: 'success' });
+    setTimeout(() => weightInputRef.current?.focus(), 100);
+  };
+
+  // Agrega N cajas con el peso/medidas actuales y las guías capturadas
+  const handleMultiScanComplete = (guides: string[]) => {
+    const baseId = Date.now();
+    const newBoxes: BoxItem[] = guides.map((g, i) => ({
+      id: baseId + i,
+      weight: currentBox.weight,
+      length: currentBox.length,
+      width: currentBox.width,
+      height: currentBox.height,
+      trackingCourier: g || '',
+    }));
+    setBoxes(prev => [...prev, ...newBoxes]);
+    setCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
+    setBoxQuantity('1');
+    setMultiScanOpen(false);
+    setSnackbar({ open: true, message: `📦 ${newBoxes.length} cajas agregadas`, severity: 'success' });
     setTimeout(() => weightInputRef.current?.focus(), 100);
   };
 
@@ -1687,10 +1719,23 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                           inputProps={{ min: 1 }} />
                       </Grid>
                       <Grid size={{ xs: 12, sm: 3 }}>
-                        <Button fullWidth variant="contained" startIcon={<AddIcon />} onClick={handleAddBox}
-                          sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)`, py: 1.5 }}>
-                          {t('shipments.addBox')}
-                        </Button>
+                        <Box sx={{ display: 'flex', gap: 1, flexDirection: 'column' }}>
+                          <TextField
+                            fullWidth
+                            label={i18n.language === 'es' ? 'Cantidad de cajas' : 'Box quantity'}
+                            type="number"
+                            value={boxQuantity}
+                            onChange={(e) => setBoxQuantity(e.target.value)}
+                            inputProps={{ min: 1, max: 99, step: 1 }}
+                            helperText={parseInt(boxQuantity) > 1 ? '⚠️ Pedirá guías al agregar' : ''}
+                          />
+                          <Button fullWidth variant="contained" startIcon={<AddIcon />} onClick={handleAddBox}
+                            sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)`, py: 1.5 }}>
+                            {parseInt(boxQuantity) > 1
+                              ? (i18n.language === 'es' ? `Agregar ${boxQuantity} cajas` : `Add ${boxQuantity} boxes`)
+                              : t('shipments.addBox')}
+                          </Button>
+                        </Box>
                       </Grid>
                     </Grid>
                   </Card>
@@ -1707,15 +1752,25 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                               primary={
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                   <span>{box.weight} kg — {box.length} × {box.width} × {box.height} cm</span>
-                                  {box.trackingCourier && (
-                                    <Chip 
-                                      size="small" 
-                                      icon={<QrCodeScannerIcon sx={{ fontSize: 14 }} />} 
-                                      label={box.trackingCourier} 
-                                      variant="outlined" 
-                                      sx={{ borderColor: ORANGE, color: ORANGE }}
-                                    />
-                                  )}
+                                  <Chip
+                                    size="small"
+                                    icon={<QrCodeScannerIcon sx={{ fontSize: 14 }} />}
+                                    label={box.trackingCourier || (i18n.language === 'es' ? 'Sin guía — clic para agregar' : 'No tracking — click to add')}
+                                    variant="outlined"
+                                    clickable
+                                    onClick={() => {
+                                      const current = box.trackingCourier || '';
+                                      const next = window.prompt(
+                                        i18n.language === 'es' ? `Guía del proveedor (caja ${idx + 1}):` : `Supplier tracking (box ${idx + 1}):`,
+                                        current
+                                      );
+                                      if (next !== null) {
+                                        const v = next.trim().toUpperCase();
+                                        setBoxes(prev => prev.map(b => b.id === box.id ? { ...b, trackingCourier: v } : b));
+                                      }
+                                    }}
+                                    sx={{ borderColor: ORANGE, color: box.trackingCourier ? ORANGE : 'grey.500', cursor: 'pointer' }}
+                                  />
                                 </Box>
                               }
                               secondary={`${t('wizard.volume')}: ${((parseFloat(box.length) * parseFloat(box.width) * parseFloat(box.height)) / 1000000).toFixed(4)} CBM`}
@@ -2815,6 +2870,15 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           </DialogActions>
         )}
       </Dialog>
+
+      {/* Multi-box scan dialog (N guías) */}
+      <MultiBoxScanDialog
+        open={multiScanOpen}
+        quantity={Math.max(1, parseInt(boxQuantity) || 1)}
+        initialGuide={currentBox.trackingCourier}
+        onClose={() => setMultiScanOpen(false)}
+        onComplete={handleMultiScanComplete}
+      />
 
       {/* Camera Dialog */}
       <Dialog open={cameraOpen} onClose={closeCamera} maxWidth="md" fullWidth>

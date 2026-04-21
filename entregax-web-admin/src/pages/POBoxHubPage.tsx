@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import useModulePermissions from '../hooks/useModulePermissions';
 import { useScaleReader } from '../hooks/useScaleReader';
+import MultiBoxScanDialog from '../components/MultiBoxScanDialog';
 import {
     Box,
     Typography,
@@ -418,6 +419,8 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     // =========== LÓGICA PARA RECEPCIÓN EN SERIE ===========
     const { readScale: readBulkScale, liveWeight: bulkLiveWeight } = useScaleReader();
     const [bulkScaleLive, setBulkScaleLive] = useState(false);
+    const [bulkBoxQuantity, setBulkBoxQuantity] = useState('1');
+    const [bulkMultiScanOpen, setBulkMultiScanOpen] = useState(false);
 
     const handleReadBulkScale = async () => {
         const r = await readBulkScale();
@@ -449,9 +452,30 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             setBulkError('Completa peso y medidas de la caja');
             return;
         }
+        const qty = Math.max(1, parseInt(bulkBoxQuantity) || 1);
+        if (qty > 1) {
+            setBulkMultiScanOpen(true);
+            return;
+        }
         setBulkBoxes(prev => [...prev, { ...bulkCurrentBox, id: Date.now() }]);
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
+        setBulkBoxQuantity('1');
         setBulkError('');
+    };
+
+    const handleBulkMultiScanComplete = (guides: string[]) => {
+        const baseId = Date.now();
+        const newBoxes = guides.map((g, i) => ({
+            ...bulkCurrentBox,
+            id: baseId + i,
+            trackingCourier: g || '',
+        }));
+        setBulkBoxes(prev => [...prev, ...newBoxes]);
+        setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
+        setBulkBoxQuantity('1');
+        setBulkMultiScanOpen(false);
+        setBulkError('');
+        setSnackbar({ open: true, message: `📦 ${newBoxes.length} cajas agregadas`, severity: 'success' });
     };
 
     // Eliminar caja
@@ -1375,6 +1399,16 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                             </Grid>
                                             <Grid size={{ xs: 12, sm: 3 }}>
                                                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                                    <TextField
+                                                        fullWidth
+                                                        label="Cantidad de cajas"
+                                                        type="number"
+                                                        size="small"
+                                                        value={bulkBoxQuantity}
+                                                        onChange={(e) => setBulkBoxQuantity(e.target.value)}
+                                                        inputProps={{ min: 1, max: 99, step: 1 }}
+                                                        helperText={parseInt(bulkBoxQuantity) > 1 ? '⚠️ Pedirá guías' : ''}
+                                                    />
                                                     <Button 
                                                         fullWidth 
                                                         variant="contained" 
@@ -1382,7 +1416,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                                         onClick={handleAddBulkBox}
                                                         sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)`, py: 1.5 }}
                                                     >
-                                                        Agregar Caja
+                                                        {parseInt(bulkBoxQuantity) > 1 ? `Agregar ${bulkBoxQuantity} cajas` : 'Agregar Caja'}
                                                     </Button>
                                                     {bulkBoxes.length > 0 && (
                                                         <Button
@@ -1417,15 +1451,21 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                                             primary={
                                                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                                                     <span>{box.weight} kg — {box.length} × {box.width} × {box.height} cm</span>
-                                                                    {box.trackingCourier && (
-                                                                        <Chip 
-                                                                            size="small" 
-                                                                            icon={<QrCodeScannerIcon sx={{ fontSize: 14 }} />} 
-                                                                            label={box.trackingCourier} 
-                                                                            variant="outlined" 
-                                                                            sx={{ borderColor: ORANGE, color: ORANGE }}
-                                                                        />
-                                                                    )}
+                                                                    <Chip
+                                                                        size="small"
+                                                                        icon={<QrCodeScannerIcon sx={{ fontSize: 14 }} />}
+                                                                        label={box.trackingCourier || 'Sin guía — clic para agregar'}
+                                                                        variant="outlined"
+                                                                        clickable
+                                                                        onClick={() => {
+                                                                            const next = window.prompt(`Guía del proveedor (caja ${idx + 1}):`, box.trackingCourier || '');
+                                                                            if (next !== null) {
+                                                                                const v = next.trim().toUpperCase();
+                                                                                setBulkBoxes(prev => prev.map(b => b.id === box.id ? { ...b, trackingCourier: v } : b));
+                                                                            }
+                                                                        }}
+                                                                        sx={{ borderColor: ORANGE, color: box.trackingCourier ? ORANGE : 'grey.500', cursor: 'pointer' }}
+                                                                    />
                                                                 </Box>
                                                             }
                                                             secondary={`Volumen: ${((parseFloat(box.length) * parseFloat(box.width) * parseFloat(box.height)) / 1000000).toFixed(4)} CBM`}
@@ -1637,6 +1677,15 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                     </Box>
                 </DialogActions>
             </Dialog>
+
+            {/* Multi-box scan dialog (N guías) */}
+            <MultiBoxScanDialog
+                open={bulkMultiScanOpen}
+                quantity={Math.max(1, parseInt(bulkBoxQuantity) || 1)}
+                initialGuide={bulkCurrentBox.trackingCourier}
+                onClose={() => setBulkMultiScanOpen(false)}
+                onComplete={handleBulkMultiScanComplete}
+            />
 
             {/* =========== MODAL DE INVENTARIO =========== */}
             <Dialog 
