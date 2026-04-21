@@ -1053,6 +1053,27 @@ function encryptWithSM2(plainText: string): string {
 // LOGIN: Obtener token de MJCustomer
 // Intenta primero con h5api/SM2, si falla usa orderSystem
 // ============================================
+
+/**
+ * fetch con timeout explícito. MoJie (api.mjcustomer.com) a veces tarda o
+ * no responde y Railway corta el request con 502. Usamos AbortController.
+ */
+async function fetchWithTimeout(url: string, options: any = {}, timeoutMs: number = 20000): Promise<globalThis.Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const res = await fetch(url, { ...options, signal: controller.signal });
+        return res as unknown as globalThis.Response;
+    } catch (err: any) {
+        if (err?.name === 'AbortError') {
+            throw new Error(`MoJie API timeout (${timeoutMs}ms): ${url}`);
+        }
+        throw err;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
 async function loginToMJCustomer(): Promise<string | null> {
     // Intentar primero con h5api + SM2
     const tokenH5 = await loginWithH5Api();
@@ -1075,7 +1096,7 @@ async function loginWithH5Api(): Promise<string | null> {
         // Encriptar password con SM2
         const encryptedPassword = encryptWithSM2(MJCUSTOMER_API.h5api.password);
         
-        const response = await fetch(
+        const response = await fetchWithTimeout(
             `${MJCUSTOMER_API.baseUrl}/api/sysAuth/login`,
             {
                 method: 'POST',
@@ -1091,7 +1112,8 @@ async function loginWithH5Api(): Promise<string | null> {
                     code: 'string',
                     loginMode: 1
                 })
-            }
+            },
+            15000
         );
 
         const data = await response.json() as { code: number; message: string; result?: { accessToken: string } };
@@ -1126,7 +1148,7 @@ async function loginWithOrderSystem(): Promise<string | null> {
         console.log('🔐 Iniciando login en MJCustomer (orderSystem)...');
         console.log('   Usuario:', MJCUSTOMER_API.orderSystem.username);
         
-        const response = await fetch(
+        const response = await fetchWithTimeout(
             `${MJCUSTOMER_API.baseUrl}/api/appAuth/loginByOrderSystem`,
             {
                 method: 'POST',
@@ -1139,7 +1161,8 @@ async function loginWithOrderSystem(): Promise<string | null> {
                     account: MJCUSTOMER_API.orderSystem.username,
                     password: MJCUSTOMER_API.orderSystem.password
                 })
-            }
+            },
+            15000
         );
 
         const data = await response.json() as { code: number; message: string; result?: { accessToken: string } };
@@ -1301,7 +1324,7 @@ export const trackFNO = async (req: Request, res: Response): Promise<any> => {
 
         // Helper para hacer la llamada con un token dado
         const callApi = async (token: string) => {
-            const apiResponse = await fetch(
+            const apiResponse = await fetchWithTimeout(
                 `${MJCUSTOMER_API.baseUrl}/api/otherSystem/orderByList/${fno}`,
                 {
                     method: 'GET',
@@ -1310,7 +1333,8 @@ export const trackFNO = async (req: Request, res: Response): Promise<any> => {
                         'Accept': 'application/json',
                         'request-from': 'swagger'
                     }
-                }
+                },
+                20000
             );
             const text = await apiResponse.text();
             let data: MJCustomerOrderResponse | null = null;
