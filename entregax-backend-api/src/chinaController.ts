@@ -1299,26 +1299,68 @@ export const trackFNO = async (req: Request, res: Response): Promise<any> => {
 
         console.log(`🔍 Rastreando FNO: ${fno}`);
 
-        // Obtener token válido
-        const token = await getMJCustomerToken();
-
-        // Consultar API de MJCustomer
-        const apiResponse = await fetch(
-            `${MJCUSTOMER_API.baseUrl}/api/otherSystem/orderByList/${fno}`,
-            {
-                method: 'GET',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Accept': 'application/json',
-                    'request-from': 'swagger'
+        // Helper para hacer la llamada con un token dado
+        const callApi = async (token: string) => {
+            const apiResponse = await fetch(
+                `${MJCUSTOMER_API.baseUrl}/api/otherSystem/orderByList/${fno}`,
+                {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Accept': 'application/json',
+                        'request-from': 'swagger'
+                    }
                 }
-            }
-        );
+            );
+            const text = await apiResponse.text();
+            let data: MJCustomerOrderResponse | null = null;
+            try { data = JSON.parse(text) as MJCustomerOrderResponse; } catch { /* noop */ }
+            return { status: apiResponse.status, data, rawText: text };
+        };
 
-        const apiData = await apiResponse.json() as MJCustomerOrderResponse;
-        
+        // Obtener token válido
+        let token: string;
+        try {
+            token = await getMJCustomerToken();
+        } catch (tokenErr: any) {
+            console.error('❌ Error obteniendo token MJCustomer:', tokenErr);
+            return res.status(503).json({
+                success: false,
+                error: 'No se pudo autenticar con MoJie',
+                details: tokenErr.message
+            });
+        }
+
+        // Primera llamada
+        let { status: httpStatus, data: apiData, rawText } = await callApi(token);
+
+        // Si 401 o código 401 en payload → refrescar token y reintentar 1 vez
+        const isAuthFail = httpStatus === 401 || (apiData && (apiData.code === 401 || apiData.code === 403));
+        if (isAuthFail) {
+            console.warn('🔄 Token MJCustomer inválido, refrescando...');
+            MJCUSTOMER_API.token = '';
+            MJCUSTOMER_API.tokenExpiry = 0;
+            try {
+                const newToken = await loginToMJCustomer();
+                if (newToken) {
+                    ({ status: httpStatus, data: apiData, rawText } = await callApi(newToken));
+                }
+            } catch (refreshErr: any) {
+                console.error('❌ Falló refresh de token:', refreshErr);
+            }
+        }
+
+        if (!apiData) {
+            console.error('❌ Respuesta no-JSON de MoJie:', rawText?.substring(0, 500));
+            return res.status(502).json({
+                success: false,
+                error: 'Respuesta inválida de MoJie',
+                details: rawText?.substring(0, 200)
+            });
+        }
+
         if (apiData.code !== 200 || !apiData.result) {
-            return res.status(apiResponse.status === 401 ? 401 : 404).json({
+            return res.status(httpStatus === 401 ? 401 : 404).json({
                 success: false,
                 error: apiData.message || 'FNO no encontrado',
                 apiCode: apiData.code
@@ -1366,11 +1408,11 @@ export const trackFNO = async (req: Request, res: Response): Promise<any> => {
         });
 
     } catch (error: any) {
-        console.error('❌ Error rastreando FNO:', error);
+        console.error('❌ Error rastreando FNO:', error?.stack || error);
         res.status(500).json({ 
             success: false, 
             error: 'Error al consultar tracking',
-            details: error.message 
+            details: error?.message || String(error)
         });
     }
 };

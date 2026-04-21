@@ -372,10 +372,12 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
         // El endpoint track devuelve los datos en 'raw'
         setTrackDialog(prev => ({ ...prev, loading: false, result: data.raw }));
       } else {
+        const msg = data.error || 'No se encontró la guía en el sistema MoJie';
+        const details = data.details ? ` — ${data.details}` : '';
         setTrackDialog(prev => ({ 
           ...prev, 
           loading: false, 
-          error: data.error || 'No se encontró la guía en el sistema MoJie' 
+          error: msg + details
         }));
       }
     } catch (error: any) {
