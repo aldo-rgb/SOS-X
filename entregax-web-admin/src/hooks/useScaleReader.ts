@@ -21,9 +21,10 @@ let latestAt = 0;
 let latestRaw = '';
 
 function parseWeight(buffer: string): number | null {
-  // Con unidad explícita
-  const m = buffer.match(/([+-]?\d+\.?\d*)\s*(kg|g|lb|oz)/i);
-  if (m) {
+  // Con unidad explícita — tomar la ÚLTIMA ocurrencia (peso más reciente)
+  const all = [...buffer.matchAll(/([+-]?\d+\.?\d*)\s*(kg|g|lb|oz)/gi)];
+  if (all.length > 0) {
+    const m = all[all.length - 1];
     let w = Math.abs(parseFloat(m[1]));
     const u = m[2].toLowerCase();
     if (u === 'g') w /= 1000;
@@ -31,14 +32,12 @@ function parseWeight(buffer: string): number | null {
     if (u === 'oz') w *= 0.0283495;
     return Math.round(w * 100) / 100;
   }
-  // Línea numérica sin unidad (asume kg)
-  const lineMatches = buffer.match(/([+-]?\d+\.\d+)\s*[\r\n]/g);
-  if (lineMatches && lineMatches.length > 0) {
-    const last = lineMatches[lineMatches.length - 1].match(/([+-]?\d+\.\d+)/);
-    if (last) {
-      const w = Math.abs(parseFloat(last[1]));
-      return Math.round(w * 100) / 100;
-    }
+  // Línea numérica sin unidad — última línea completa (asume kg)
+  const lines = [...buffer.matchAll(/([+-]?\d+\.\d+)\s*[\r\n]/g)];
+  if (lines.length > 0) {
+    const last = lines[lines.length - 1];
+    const w = Math.abs(parseFloat(last[1]));
+    return Math.round(w * 100) / 100;
   }
   return null;
 }
@@ -138,8 +137,11 @@ export function useScaleReader() {
       await openPort(nav);
       startReadLoop();
 
+      // Invalidar cache previo para forzar una lectura fresca
+      latestWeight = null;
+      latestAt = 0;
+
       const start = Date.now();
-      // Marca el "piso" para considerar lecturas frescas dentro de esta llamada
       const floor = start;
 
       while (Date.now() - start < timeoutMs) {
@@ -156,15 +158,10 @@ export function useScaleReader() {
         await new Promise((r) => setTimeout(r, 150));
       }
 
-      // Si tenemos un peso cacheado (aunque sea de antes) lo devolvemos como fallback
-      if (latestWeight !== null && latestWeight > 0) {
-        return { success: true, weight: latestWeight, raw: latestRaw };
-      }
-
       return {
         success: false,
         error: latestRaw
-          ? `Datos recibidos sin formato reconocible: "${latestRaw.slice(-60)}"`
+          ? `Sin peso fresco. Últimos datos: "${latestRaw.slice(-60)}"`
           : 'Sin datos de la báscula. Verifica que esté encendida, con peso > 0, y en modo de transmisión continua.',
         raw: latestRaw,
       };

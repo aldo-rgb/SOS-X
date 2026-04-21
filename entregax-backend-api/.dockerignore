@@ -4,7 +4,9 @@ dist
 .git
 .gitignore
 *.md
-.env.local
+cd /Users/kmpsdeveloper/Desktop/Proyectos/SOS-X/entregax-mobile-app/ios
+pod install
+open entregaxMobileApp.xcworkspace   # o el nombre real del .xcworkspace.local
 .env.development
 uploads/*
 !uploads/.gitkeep
