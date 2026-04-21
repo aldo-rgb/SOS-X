@@ -426,7 +426,7 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
       'in_transit_loading': { label: 'Cargando / En Puerto', color: 'info' },
       'in_transit_transfer': { label: 'En Tránsito Aéreo', color: 'info' },
       'in_transit': { label: 'En Tránsito', color: 'info' },
-      'in_customs_gz': { label: 'Aduana Guangzhou', color: 'secondary' as any },
+      'in_customs_gz': { label: 'En Proceso de Aduana', color: 'secondary' as any },
       'in_customs': { label: 'En Aduana', color: 'secondary' as any },
       'customs_cleared': { label: 'Liberado', color: 'success' },
       'in_cedis': { label: 'En CEDIS', color: 'primary' },
@@ -654,7 +654,7 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
             />
             <Chip
               size="small"
-              label={`Aduana Guangzhou (${stats?.byStatus?.find(s => s.status === 'in_customs_gz')?.count || 0})`}
+              label={`En Proceso de Aduana (${stats?.byStatus?.find(s => s.status === 'in_customs_gz')?.count || 0})`}
               color={statusFilter === 'in_customs_gz' ? 'secondary' : 'default'}
               variant={statusFilter === 'in_customs_gz' ? 'filled' : 'outlined'}
               onClick={() => { setStatusFilter('in_customs_gz'); setUnassignedOnly(false); }}
