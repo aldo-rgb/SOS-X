@@ -19,6 +19,7 @@ let sharedPort: any = null;
 let loopRunning = false;
 let loopAbort = false;
 let latestWeight: number | null = null;
+let latestWeightAt = 0; // timestamp ms de cuándo se recibió latestWeight
 let latestRaw = '';
 let pollInProgress = false;
 
@@ -27,6 +28,7 @@ async function resetPort() {
   try { await sharedPort?.close(); } catch { /* ignore */ }
   sharedPort = null;
   latestWeight = null;
+  latestWeightAt = 0;
   latestRaw = '';
   await new Promise((r) => setTimeout(r, 150));
   loopAbort = false;
@@ -150,6 +152,7 @@ function startReadLoop() {
           const w = parseWeight(buffer);
           if (w !== null && w >= 0) {
             latestWeight = w;
+            latestWeightAt = Date.now();
             latestRaw = buffer.slice(-120);
           }
         }
@@ -176,7 +179,7 @@ function startReadLoop() {
 }
 
 export function useScaleReader() {
-  const read = useCallback(async (timeoutMs = 8000): Promise<ScaleReadResult> => {
+  const read = useCallback(async (timeoutMs = 2500): Promise<ScaleReadResult> => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const nav = navigator as any;
     if (!('serial' in navigator)) {
@@ -186,25 +189,33 @@ export function useScaleReader() {
       await openPort(nav);
       startReadLoop();
 
-      // Snapshot del peso previo para detectar si hubo cambio
-      const prevWeight = latestWeight;
-      const start = Date.now();
-
-      while (Date.now() - start < timeoutMs) {
-        // Enviar poll cada ~1s por si la báscula es on-demand
-        const elapsed = Date.now() - start;
-        if (elapsed === 0 || elapsed % 1000 < 150) {
-          await sendPoll();
-        }
-
-        // Si hay peso NUEVO (distinto al previo) → devolver como fresco
-        if (latestWeight !== null && latestWeight > 0 && latestWeight !== prevWeight) {
-          return { success: true, weight: latestWeight, raw: latestRaw };
-        }
-        await new Promise((r) => setTimeout(r, 150));
+      // ⚡ FAST PATH: si tenemos un peso reciente (<1200ms) y > 0, devolverlo ya.
+      // La báscula con transmisión continua reporta ~varias veces/s.
+      const FRESH_WINDOW_MS = 1200;
+      if (latestWeight !== null && latestWeight > 0 && (Date.now() - latestWeightAt) < FRESH_WINDOW_MS) {
+        return { success: true, weight: latestWeight, raw: latestRaw };
       }
 
-      // Timeout: si tenemos peso cacheado, devolverlo marcado como "stale"
+      // Enviar un poll inicial inmediato (bascula on-demand)
+      sendPoll();
+
+      const start = Date.now();
+      let lastPollAt = 0;
+      while (Date.now() - start < timeoutMs) {
+        // Poll cada 500ms (antes era 1000ms)
+        if (Date.now() - lastPollAt > 500) {
+          sendPoll();
+          lastPollAt = Date.now();
+        }
+
+        // Aceptar cualquier peso > 0 recibido durante esta lectura
+        if (latestWeight !== null && latestWeight > 0 && (Date.now() - latestWeightAt) < FRESH_WINDOW_MS) {
+          return { success: true, weight: latestWeight, raw: latestRaw };
+        }
+        await new Promise((r) => setTimeout(r, 60));
+      }
+
+      // Timeout: si tenemos peso cacheado viejo, devolverlo marcado como "stale"
       if (latestWeight !== null && latestWeight > 0) {
         return {
           success: true,
