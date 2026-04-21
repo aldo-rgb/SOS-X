@@ -610,54 +610,69 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
             <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'text.secondary', mr: 1 }}>
               DETALLE MOJIE:
             </Typography>
+            {/* 1. Pendiente - Pedido reservado */}
             <Chip
               size="small"
-              label={`Pendiente (${stats?.byStatus?.find(s => s.status === 'pending')?.count || 0})`}
+              label={`1. Pendiente (${stats?.byStatus?.find(s => s.status === 'pending')?.count || 0})`}
               color={statusFilter === 'pending' ? 'default' : 'default'}
               variant={statusFilter === 'pending' ? 'filled' : 'outlined'}
               onClick={() => { setStatusFilter('pending'); setUnassignedOnly(false); }}
             />
+            {/* 2. En Bodega Escaneado - Escaneado al almacén */}
             <Chip
               size="small"
-              label={`Info Recibida (${stats?.byStatus?.find(s => s.status === 'received_china')?.count || 0})`}
-              color={statusFilter === 'received_china' ? 'warning' : 'default'}
-              variant={statusFilter === 'received_china' ? 'filled' : 'outlined'}
-              onClick={() => { setStatusFilter('received_china'); setUnassignedOnly(false); }}
-            />
-            <Chip
-              size="small"
-              label={`En Bodega Escaneado (${stats?.byStatus?.find(s => s.status === 'received_origin')?.count || 0})`}
+              label={`2. En Bodega Escaneado (${stats?.byStatus?.find(s => s.status === 'received_origin')?.count || 0})`}
               color={statusFilter === 'received_origin' ? 'warning' : 'default'}
               variant={statusFilter === 'received_origin' ? 'filled' : 'outlined'}
               onClick={() => { setStatusFilter('received_origin'); setUnassignedOnly(false); }}
             />
+            {/* 3. Info Recibida - Guía aérea recibida */}
             <Chip
               size="small"
-              label={`Cargando/En Puerto (${stats?.byStatus?.find(s => s.status === 'in_transit_loading')?.count || 0})`}
-              color={statusFilter === 'in_transit_loading' ? 'info' : 'default'}
-              variant={statusFilter === 'in_transit_loading' ? 'filled' : 'outlined'}
-              onClick={() => { setStatusFilter('in_transit_loading'); setUnassignedOnly(false); }}
+              label={`3. Info Recibida (${stats?.byStatus?.find(s => s.status === 'received_china')?.count || 0})`}
+              color={statusFilter === 'received_china' ? 'warning' : 'default'}
+              variant={statusFilter === 'received_china' ? 'filled' : 'outlined'}
+              onClick={() => { setStatusFilter('received_china'); setUnassignedOnly(false); }}
             />
+            {/* 4. En Tránsito Aéreo - Organizando transferencia */}
             <Chip
               size="small"
-              label={`En Aeropuerto (${stats?.byStatus?.find(s => s.status === 'in_transit_airport_wait')?.count || 0})`}
-              color={statusFilter === 'in_transit_airport_wait' ? 'info' : 'default'}
-              variant={statusFilter === 'in_transit_airport_wait' ? 'filled' : 'outlined'}
-              onClick={() => { setStatusFilter('in_transit_airport_wait'); setUnassignedOnly(false); }}
-            />
-            <Chip
-              size="small"
-              label={`En Tránsito Aéreo (${stats?.byStatus?.find(s => s.status === 'in_transit_transfer')?.count || 0})`}
+              label={`4. En Tránsito Aéreo (${stats?.byStatus?.find(s => s.status === 'in_transit_transfer')?.count || 0})`}
               color={statusFilter === 'in_transit_transfer' ? 'info' : 'default'}
               variant={statusFilter === 'in_transit_transfer' ? 'filled' : 'outlined'}
               onClick={() => { setStatusFilter('in_transit_transfer'); setUnassignedOnly(false); }}
             />
+            {/* 5. Cargando/En Puerto - Mercancía cargada */}
             <Chip
               size="small"
-              label={`En Proceso de Aduana (${stats?.byStatus?.find(s => s.status === 'in_customs_gz')?.count || 0})`}
+              label={`5. Cargando/En Puerto (${stats?.byStatus?.find(s => s.status === 'in_transit_loading')?.count || 0})`}
+              color={statusFilter === 'in_transit_loading' ? 'info' : 'default'}
+              variant={statusFilter === 'in_transit_loading' ? 'filled' : 'outlined'}
+              onClick={() => { setStatusFilter('in_transit_loading'); setUnassignedOnly(false); }}
+            />
+            {/* 6. En Aeropuerto - Esperando vuelo */}
+            <Chip
+              size="small"
+              label={`6. En Aeropuerto (${stats?.byStatus?.find(s => s.status === 'in_transit_airport_wait')?.count || 0})`}
+              color={statusFilter === 'in_transit_airport_wait' ? 'info' : 'default'}
+              variant={statusFilter === 'in_transit_airport_wait' ? 'filled' : 'outlined'}
+              onClick={() => { setStatusFilter('in_transit_airport_wait'); setUnassignedOnly(false); }}
+            />
+            {/* 7. En Proceso de Aduana */}
+            <Chip
+              size="small"
+              label={`7. En Proceso de Aduana (${stats?.byStatus?.find(s => s.status === 'in_customs_gz')?.count || 0})`}
               color={statusFilter === 'in_customs_gz' ? 'secondary' : 'default'}
               variant={statusFilter === 'in_customs_gz' ? 'filled' : 'outlined'}
               onClick={() => { setStatusFilter('in_customs_gz'); setUnassignedOnly(false); }}
+            />
+            {/* 8. Entregado */}
+            <Chip
+              size="small"
+              label={`8. Entregado (${stats?.byStatus?.find(s => s.status === 'delivered')?.count || 0})`}
+              color={statusFilter === 'delivered' ? 'success' : 'default'}
+              variant={statusFilter === 'delivered' ? 'filled' : 'outlined'}
+              onClick={() => { setStatusFilter('delivered'); setUnassignedOnly(false); }}
             />
           </Box>
 
