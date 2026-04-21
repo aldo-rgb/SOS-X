@@ -1469,26 +1469,62 @@ export const getTrajectory = async (req: Request, res: Response): Promise<any> =
         // Obtener token válido
         const token = await getMJCustomerToken();
 
-        // Consultar API de trayectoria
-        const apiResponse = await fetch(
-            `${MJCUSTOMER_API.baseUrl}/api/orderInfo/orderSystemByTrajectoryData/${childNo}`,
-            {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Accept': 'text/plain',
-                    'request-from': 'swagger'
+        // Helper: traduce errores comunes de MoJie al español
+        const translateMJError = (msg: string | undefined): string => {
+            if (!msg) return 'Trayectoria no encontrada';
+            const map: Record<string, string> = {
+                '子单号不存在': 'Esta guía aún no se registró en el sistema de origen (MoJie). Es posible que el paquete apenas esté siendo procesado.',
+                '订单号不存在': 'El pedido no existe en MoJie.',
+                '未登录': 'Sesión expirada en MoJie.',
+                'Token过期': 'Token de MoJie expirado.'
+            };
+            for (const key of Object.keys(map)) {
+                if (msg.includes(key)) return map[key];
+            }
+            return msg;
+        };
+
+        // Intento 1: consultar trayectoria exacta del childNo
+        const callTrajectory = async (code: string) => {
+            const r = await fetchWithTimeout(
+                `${MJCUSTOMER_API.baseUrl}/api/orderInfo/orderSystemByTrajectoryData/${code}`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Accept': 'text/plain',
+                        'request-from': 'swagger'
+                    }
+                },
+                20000
+            );
+            const text = await r.text();
+            let parsed: TrajectoryResponse | null = null;
+            try { parsed = JSON.parse(text) as TrajectoryResponse; } catch { /* noop */ }
+            return { httpStatus: r.status, data: parsed, rawText: text };
+        };
+
+        let { httpStatus, data: apiData } = await callTrajectory(childNo);
+
+        // Fallback: si childNo no existe, intentar con el FNO padre (quitar sufijo -NNN o similar)
+        if (apiData && apiData.code !== 200) {
+            const fnoMatch = childNo.match(/^([A-Z]+\d+[A-Za-z0-9]*)/);
+            const fno = fnoMatch ? fnoMatch[1] : null;
+            if (fno && fno !== childNo) {
+                console.log(`  🔁 Childno ${childNo} no existe, probando FNO padre: ${fno}`);
+                const fallback = await callTrajectory(fno);
+                if (fallback.data && fallback.data.code === 200) {
+                    apiData = fallback.data;
+                    httpStatus = fallback.httpStatus;
                 }
             }
-        );
+        }
 
-        const apiData = await apiResponse.json() as TrajectoryResponse;
-        
-        if (apiData.code !== 200) {
-            return res.status(apiResponse.status === 401 ? 401 : 404).json({
+        if (!apiData || apiData.code !== 200) {
+            return res.status(httpStatus === 401 ? 401 : 404).json({
                 success: false,
-                error: apiData.message || 'Trayectoria no encontrada',
-                apiCode: apiData.code
+                error: translateMJError(apiData?.message),
+                apiCode: apiData?.code
             });
         }
 
