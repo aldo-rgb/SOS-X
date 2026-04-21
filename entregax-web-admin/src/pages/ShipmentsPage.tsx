@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useScaleReader } from '../hooks/useScaleReader';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import {
@@ -277,6 +278,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   const weightInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const { readScale } = useScaleReader();
   
   // Estados para cámara
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -856,10 +858,15 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     if (createdShipment) fetchPackages();
   };
 
-  const handleReadScale = () => {
-    const simulatedWeight = (Math.random() * 24.5 + 0.5).toFixed(2);
-    setCurrentBox(prev => ({ ...prev, weight: simulatedWeight }));
-    setSnackbar({ open: true, message: `⚖️ ${t('wizard.weightCaptured')}: ${simulatedWeight} kg`, severity: 'success' });
+  const handleReadScale = async () => {
+    const r = await readScale();
+    if (r.success && r.weight !== undefined) {
+      const finalWeight = r.weight.toFixed(2);
+      setCurrentBox(prev => ({ ...prev, weight: finalWeight }));
+      setSnackbar({ open: true, message: `⚖️ ${t('wizard.weightCaptured')}: ${finalWeight} kg`, severity: 'success' });
+    } else {
+      setSnackbar({ open: true, message: `⚠️ ${r.error || 'Error leyendo báscula'}`, severity: 'error' });
+    }
   };
 
   const handleAddBox = () => {

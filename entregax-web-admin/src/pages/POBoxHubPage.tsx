@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import useModulePermissions from '../hooks/useModulePermissions';
+import { useScaleReader } from '../hooks/useScaleReader';
 import {
     Box,
     Typography,
@@ -415,6 +416,18 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     };
 
     // =========== LÓGICA PARA RECEPCIÓN EN SERIE ===========
+    const { readScale: readBulkScale } = useScaleReader();
+
+    const handleReadBulkScale = async () => {
+        const r = await readBulkScale();
+        if (r.success && r.weight !== undefined) {
+            const w = r.weight.toFixed(2);
+            setBulkCurrentBox(p => ({ ...p, weight: w }));
+            setSnackbar({ open: true, message: `⚖️ Peso capturado: ${w} kg`, severity: 'success' });
+        } else {
+            setSnackbar({ open: true, message: `⚠️ ${r.error || 'Error leyendo báscula'}`, severity: 'error' });
+        }
+    };
     
     // Agregar caja al listado
     const handleAddBulkBox = () => {
@@ -1311,6 +1324,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                                     }}
                                                     inputProps={{ step: 0.01, min: 0.01 }}
                                                 />
+                                                <Button size="small" onClick={handleReadBulkScale} sx={{ mt: 0.5, color: ORANGE }}>⚖️ Leer Báscula</Button>
                                             </Grid>
                                             <Grid size={{ xs: 4, sm: 2 }}>
                                                 <TextField 
