@@ -337,11 +337,15 @@ export default function DashboardClient() {
   ], [t]);
 
   const airStatusSteps = useMemo(() => [
-    'Recibido China / En Bodega China',
-    'En Tránsito',
+    'Pendiente',
+    'En Bodega China',
+    'Organizando Vuelo',
+    'Tránsito a Aeropuerto',
+    'En Aeropuerto',
+    'En Aduana',
     'En CEDIS MX',
     'Procesando',
-    'EN RUTA',
+    'En Ruta',
     'Entregado',
   ], []);
 
@@ -2924,21 +2928,31 @@ export default function DashboardClient() {
     const isChinaAir = pkg && (pkg.servicio === 'AIR_CHN_MX' || pkg.shipment_type === 'china_air');
     if (isChinaAir) {
       switch (status) {
-        case 'received_china':
-        case 'received_origin': return 0;
-        case 'in_transit':
+        case 'pending': return 0;
+        case 'received_origin':
+        case 'received_china': return 1;
+        case 'in_transit_transfer': return 2;
+        case 'in_transit_loading': return 3;
+        case 'in_transit_airport_wait': return 4;
+        case 'in_customs_gz':
+        case 'in_customs':
         case 'at_customs':
-        case 'in_transit_mx': return 1;
-        case 'received_cedis': return 2;
+        case 'customs': return 5;
+        case 'customs_cleared':
+        case 'received_cedis':
+        case 'at_cedis':
+        case 'arrived_mexico':
+        case 'in_transit_mx':
+        case 'in_transit': return 6;
         case 'processing':
-        case 'customs': return 3;
+        case 'dispatched': return 7;
         case 'out_for_delivery':
         case 'in_transit_mty':
         case 'ready_pickup':
         case 'shipped':
         case 'sent':
-        case 'enviado': return 4;
-        case 'delivered': return 5;
+        case 'enviado': return 8;
+        case 'delivered': return 9;
         default: return 0;
       }
     }
