@@ -1,6 +1,12 @@
 // Configuración de la API
-// En desarrollo usar tu IP local, en producción cambiar a la URL del servidor
-export const API_URL = 'http://192.168.1.116:3001'; // IP local detectada
+// En desarrollo usa IP local, en producción (TestFlight/App Store) usa Railway
+import Constants from 'expo-constants';
+
+const PROD_API_URL = 'https://sos-x-production.up.railway.app';
+const DEV_API_URL = 'http://192.168.1.116:3001';
+
+// __DEV__ es false en builds de producción (TestFlight/Store)
+export const API_URL = __DEV__ ? DEV_API_URL : (Constants.expoConfig?.extra?.apiUrl || PROD_API_URL);
 
 // Para obtener tu IP local ejecuta: ipconfig (Windows) o ifconfig (Mac/Linux)
 
