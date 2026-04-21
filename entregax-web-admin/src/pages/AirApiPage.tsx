@@ -568,8 +568,11 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
       {/* Tab: Recepciones */}
       {tabValue === 0 && (
         <>
-          {/* Filtros */}
-          <Box sx={{ mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          {/* Filtros - Fila 1: Vista general (grupos) */}
+          <Box sx={{ mb: 1, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'text.secondary', mr: 1 }}>
+              VISTA GENERAL:
+            </Typography>
             <Chip
               label="Todas"
               color={!statusFilter && !unassignedOnly ? 'primary' : 'default'}
@@ -581,24 +584,80 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
               onClick={() => { setUnassignedOnly(!unassignedOnly); setStatusFilter(null); }}
             />
             <Chip
-              label="En Bodega China"
+              label={`En Bodega China (${getStatusCount('bodega_china')})`}
               color={statusFilter === STATUS_GROUPS.bodega_china.join(',') ? 'warning' : 'default'}
               onClick={() => { setStatusFilter(STATUS_GROUPS.bodega_china.join(',')); setUnassignedOnly(false); }}
             />
             <Chip
-              label="En Tránsito"
+              label={`En Tránsito (${getStatusCount('in_transit')})`}
               color={statusFilter === STATUS_GROUPS.in_transit.join(',') ? 'info' : 'default'}
               onClick={() => { setStatusFilter(STATUS_GROUPS.in_transit.join(',')); setUnassignedOnly(false); }}
             />
             <Chip
-              label="En Aduana"
+              label={`En Aduana (${getStatusCount('customs')})`}
               color={statusFilter === STATUS_GROUPS.customs.join(',') ? 'secondary' : 'default'}
               onClick={() => { setStatusFilter(STATUS_GROUPS.customs.join(',')); setUnassignedOnly(false); }}
             />
             <Chip
-              label="Entregados"
+              label={`Entregados (${getStatusCount('delivered')})`}
               color={statusFilter === 'delivered' ? 'success' : 'default'}
               onClick={() => { setStatusFilter('delivered'); setUnassignedOnly(false); }}
+            />
+          </Box>
+
+          {/* Filtros - Fila 2: Detalle por status exacto MoJie */}
+          <Box sx={{ mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+            <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'text.secondary', mr: 1 }}>
+              DETALLE MOJIE:
+            </Typography>
+            <Chip
+              size="small"
+              label={`Pendiente (${stats?.byStatus?.find(s => s.status === 'pending')?.count || 0})`}
+              color={statusFilter === 'pending' ? 'default' : 'default'}
+              variant={statusFilter === 'pending' ? 'filled' : 'outlined'}
+              onClick={() => { setStatusFilter('pending'); setUnassignedOnly(false); }}
+            />
+            <Chip
+              size="small"
+              label={`Info Recibida (${stats?.byStatus?.find(s => s.status === 'received_china')?.count || 0})`}
+              color={statusFilter === 'received_china' ? 'warning' : 'default'}
+              variant={statusFilter === 'received_china' ? 'filled' : 'outlined'}
+              onClick={() => { setStatusFilter('received_china'); setUnassignedOnly(false); }}
+            />
+            <Chip
+              size="small"
+              label={`En Bodega Escaneado (${stats?.byStatus?.find(s => s.status === 'received_origin')?.count || 0})`}
+              color={statusFilter === 'received_origin' ? 'warning' : 'default'}
+              variant={statusFilter === 'received_origin' ? 'filled' : 'outlined'}
+              onClick={() => { setStatusFilter('received_origin'); setUnassignedOnly(false); }}
+            />
+            <Chip
+              size="small"
+              label={`Cargando/En Puerto (${stats?.byStatus?.find(s => s.status === 'in_transit_loading')?.count || 0})`}
+              color={statusFilter === 'in_transit_loading' ? 'info' : 'default'}
+              variant={statusFilter === 'in_transit_loading' ? 'filled' : 'outlined'}
+              onClick={() => { setStatusFilter('in_transit_loading'); setUnassignedOnly(false); }}
+            />
+            <Chip
+              size="small"
+              label={`En Aeropuerto (${stats?.byStatus?.find(s => s.status === 'in_transit_airport_wait')?.count || 0})`}
+              color={statusFilter === 'in_transit_airport_wait' ? 'info' : 'default'}
+              variant={statusFilter === 'in_transit_airport_wait' ? 'filled' : 'outlined'}
+              onClick={() => { setStatusFilter('in_transit_airport_wait'); setUnassignedOnly(false); }}
+            />
+            <Chip
+              size="small"
+              label={`En Tránsito Aéreo (${stats?.byStatus?.find(s => s.status === 'in_transit_transfer')?.count || 0})`}
+              color={statusFilter === 'in_transit_transfer' ? 'info' : 'default'}
+              variant={statusFilter === 'in_transit_transfer' ? 'filled' : 'outlined'}
+              onClick={() => { setStatusFilter('in_transit_transfer'); setUnassignedOnly(false); }}
+            />
+            <Chip
+              size="small"
+              label={`Aduana Guangzhou (${stats?.byStatus?.find(s => s.status === 'in_customs_gz')?.count || 0})`}
+              color={statusFilter === 'in_customs_gz' ? 'secondary' : 'default'}
+              variant={statusFilter === 'in_customs_gz' ? 'filled' : 'outlined'}
+              onClick={() => { setStatusFilter('in_customs_gz'); setUnassignedOnly(false); }}
             />
           </Box>
 
