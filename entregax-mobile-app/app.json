@@ -16,21 +16,20 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.entregax.mobile",
-      "buildNumber": "1",
+      "buildNumber": "2",
       "infoPlist": {
         "NSCameraUsageDescription": "EntregaX usa la cámara para escanear guías, códigos QR y tomar fotos de paquetes.",
         "NSPhotoLibraryUsageDescription": "EntregaX accede a tu galería para adjuntar fotos de paquetes o comprobantes.",
         "NSPhotoLibraryAddUsageDescription": "EntregaX guarda guías y comprobantes generados en tu galería.",
         "NSLocationWhenInUseUsageDescription": "EntregaX usa tu ubicación para mostrar la sucursal más cercana y validar entregas.",
-        "NSBluetoothAlwaysUsageDescription": "EntregaX usa Bluetooth para conectar impresoras y lectores NFC de operación.",
+        "NSBluetoothAlwaysUsageDescription": "EntregaX usa Bluetooth para conectar impresoras de guías.",
         "NSBluetoothPeripheralUsageDescription": "EntregaX usa Bluetooth para conectar impresoras térmicas de guías.",
-        "NFCReaderUsageDescription": "EntregaX usa NFC para leer etiquetas de identificación de paquetes y operadores.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.entregax.mobile",
-      "versionCode": 1,
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -46,16 +45,15 @@
         "android.permission.BLUETOOTH_ADMIN",
         "android.permission.BLUETOOTH_CONNECT",
         "android.permission.BLUETOOTH_SCAN",
-        "android.permission.NFC",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE"
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "react-native-nfc-manager",
       "expo-asset",
       [
         "expo-camera",
@@ -79,9 +77,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "REPLACE_AFTER_EAS_INIT"
+        "projectId": "b6043c48-2360-4a21-afa7-3ea091d6c74c"
       }
     },
-    "owner": "entregax"
+    "owner": "aldozaia"
   }
 }
