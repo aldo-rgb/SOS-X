@@ -423,7 +423,11 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         if (r.success && r.weight !== undefined) {
             const w = r.weight.toFixed(2);
             setBulkCurrentBox(p => ({ ...p, weight: w }));
-            setSnackbar({ open: true, message: `⚖️ Peso capturado: ${w} kg`, severity: 'success' });
+            if (r.stale) {
+                setSnackbar({ open: true, message: `⚠️ Sin peso actualizado. Peso anterior: ${w} kg`, severity: 'info' });
+            } else {
+                setSnackbar({ open: true, message: `⚖️ Peso capturado: ${w} kg`, severity: 'success' });
+            }
         } else {
             setSnackbar({ open: true, message: `⚠️ ${r.error || 'Error leyendo báscula'}`, severity: 'error' });
         }
@@ -1324,7 +1328,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                                     }}
                                                     inputProps={{ step: 0.01, min: 0.01 }}
                                                 />
-                                                <Button size="small" onClick={handleReadBulkScale} sx={{ mt: 0.5, color: ORANGE }}>⚖️ Leer Báscula</Button>
+                                                <Button size="small" onClick={handleReadBulkScale} sx={{ mt: 0.5, color: ORANGE }}>⚖️ Actualizar</Button>
                                             </Grid>
                                             <Grid size={{ xs: 4, sm: 2 }}>
                                                 <TextField 

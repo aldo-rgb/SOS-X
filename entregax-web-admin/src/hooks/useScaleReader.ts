@@ -9,6 +9,7 @@ export interface ScaleReadResult {
   weight?: number;
   error?: string;
   raw?: string;
+  stale?: boolean; // true si el peso es el mismo que ya teníamos (sin actualización)
 }
 
 // ---------- Estado singleton (module-level) ----------
@@ -160,12 +161,9 @@ export function useScaleReader() {
       await openPort(nav);
       startReadLoop();
 
-      // Invalidar cache previo para forzar una lectura fresca
-      latestWeight = null;
-      latestAt = 0;
-
+      // Snapshot del peso previo para detectar si hubo cambio
+      const prevWeight = latestWeight;
       const start = Date.now();
-      const floor = start;
 
       while (Date.now() - start < timeoutMs) {
         // Enviar poll cada ~1s por si la báscula es on-demand
@@ -174,18 +172,26 @@ export function useScaleReader() {
           await sendPoll();
         }
 
-        // Si hay peso reciente (>0) posterior al inicio → devolver
-        if (latestWeight !== null && latestWeight > 0 && latestAt >= floor) {
+        // Si hay peso NUEVO (distinto al previo) → devolver como fresco
+        if (latestWeight !== null && latestWeight > 0 && latestWeight !== prevWeight) {
           return { success: true, weight: latestWeight, raw: latestRaw };
         }
         await new Promise((r) => setTimeout(r, 150));
       }
 
+      // Timeout: si tenemos peso cacheado, devolverlo marcado como "stale"
+      if (latestWeight !== null && latestWeight > 0) {
+        return {
+          success: true,
+          weight: latestWeight,
+          stale: true,
+          raw: latestRaw,
+        };
+      }
+
       return {
         success: false,
-        error: latestRaw
-          ? `Sin peso fresco. Últimos datos: "${latestRaw.slice(-60)}"`
-          : 'Sin datos de la báscula. Verifica que esté encendida, con peso > 0, y en modo de transmisión continua.',
+        error: 'Sin datos de la báscula. Verifica que esté encendida, con peso > 0, y en modo de transmisión continua.',
         raw: latestRaw,
       };
     } catch (err: unknown) {

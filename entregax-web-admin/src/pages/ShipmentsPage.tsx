@@ -863,7 +863,11 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     if (r.success && r.weight !== undefined) {
       const finalWeight = r.weight.toFixed(2);
       setCurrentBox(prev => ({ ...prev, weight: finalWeight }));
-      setSnackbar({ open: true, message: `⚖️ ${t('wizard.weightCaptured')}: ${finalWeight} kg`, severity: 'success' });
+      if (r.stale) {
+        setSnackbar({ open: true, message: `⚠️ Sin peso actualizado. Peso anterior: ${finalWeight} kg`, severity: 'info' });
+      } else {
+        setSnackbar({ open: true, message: `⚖️ ${t('wizard.weightCaptured')}: ${finalWeight} kg`, severity: 'success' });
+      }
     } else {
       setSnackbar({ open: true, message: `⚠️ ${r.error || 'Error leyendo báscula'}`, severity: 'error' });
     }
