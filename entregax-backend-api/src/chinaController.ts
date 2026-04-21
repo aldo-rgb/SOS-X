@@ -1794,7 +1794,7 @@ export const getChinaStatusHistory = async (req: Request, res: Response): Promis
         const result = await pool.query(`
             SELECT h.id, h.package_id, h.china_receipt_id, h.tracking_internal, h.child_no, h.fno,
                    h.old_status, h.new_status, h.trajectory_name, h.source, h.notes, h.created_at,
-                   u.name AS changed_by_name
+                   u.full_name AS changed_by_name
             FROM china_status_history h
             LEFT JOIN users u ON u.id = h.changed_by
             WHERE h.tracking_internal = $1
