@@ -22,6 +22,7 @@ let latestWeight: number | null = null;
 let latestWeightAt = 0; // timestamp ms de cuándo se recibió latestWeight
 let latestRaw = '';
 let pollInProgress = false;
+let portLost = false; // true si el último loop cerró por "device has been lost"
 
 async function resetPort() {
   loopAbort = true;
@@ -166,6 +167,7 @@ function startReadLoop() {
           try { await sharedPort?.close(); } catch { /* ignore */ }
           sharedPort = null;
           latestWeight = null;
+          portLost = true;
           break; // salir del loop; próximo readScale() reabrirá el puerto
         }
         await new Promise((r) => setTimeout(r, 300));
@@ -179,20 +181,26 @@ function startReadLoop() {
 }
 
 export function useScaleReader() {
-  const read = useCallback(async (timeoutMs = 2500): Promise<ScaleReadResult> => {
+  const read = useCallback(async (timeoutMs = 3000): Promise<ScaleReadResult> => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const nav = navigator as any;
     if (!('serial' in navigator)) {
       return { success: false, error: 'Web Serial API no disponible. Usa Chrome/Edge en HTTPS.' };
     }
     try {
-      await openPort(nav);
+      // Si el puerto se perdió (device has been lost), forzar reconexión limpia
+      const wasLost = portLost;
+      if (wasLost) {
+        portLost = false;
+        latestWeight = null;
+        latestWeightAt = 0;
+      }
+      await openPort(nav, wasLost);
       startReadLoop();
 
       // ⚡ FAST PATH: si tenemos un peso reciente (<1200ms) y > 0, devolverlo ya.
-      // La báscula con transmisión continua reporta ~varias veces/s.
       const FRESH_WINDOW_MS = 1200;
-      if (latestWeight !== null && latestWeight > 0 && (Date.now() - latestWeightAt) < FRESH_WINDOW_MS) {
+      if (!wasLost && latestWeight !== null && latestWeight > 0 && (Date.now() - latestWeightAt) < FRESH_WINDOW_MS) {
         return { success: true, weight: latestWeight, raw: latestRaw };
       }
 
@@ -201,18 +209,27 @@ export function useScaleReader() {
 
       const start = Date.now();
       let lastPollAt = 0;
-      while (Date.now() - start < timeoutMs) {
-        // Poll cada 500ms (antes era 1000ms)
-        if (Date.now() - lastPollAt > 500) {
+      // Extender timeout cuando venimos de una reconexión (primer sample tarda más)
+      const actualTimeout = wasLost ? Math.max(timeoutMs, 4000) : timeoutMs;
+      while (Date.now() - start < actualTimeout) {
+        if (Date.now() - lastPollAt > 400) {
           sendPoll();
           lastPollAt = Date.now();
         }
 
-        // Aceptar cualquier peso > 0 recibido durante esta lectura
         if (latestWeight !== null && latestWeight > 0 && (Date.now() - latestWeightAt) < FRESH_WINDOW_MS) {
           return { success: true, weight: latestWeight, raw: latestRaw };
         }
-        await new Promise((r) => setTimeout(r, 60));
+
+        // Si el loop cayó por device lost durante esta lectura, abortar temprano
+        if (portLost) {
+          return {
+            success: false,
+            error: '🔌 La báscula se desconectó. Revisa el cable USB y haz clic en "Actualizar desde báscula" para reconectar.',
+          };
+        }
+
+        await new Promise((r) => setTimeout(r, 50));
       }
 
       // Timeout: si tenemos peso cacheado viejo, devolverlo marcado como "stale"
