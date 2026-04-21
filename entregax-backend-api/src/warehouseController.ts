@@ -627,6 +627,9 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
         let packageInfo: any = null;
 
         // Buscar en packages (tracking interno o de proveedor)
+        // 🔎 Match flexible: el scanner de código de barras a veces omite guiones
+        // (p.ej. lee "US2722344044" pero en DB está "US-2722344044"). Comparamos
+        // ignorando guiones en ambos lados.
         const packageSearch = await pool.query(`
             SELECT id, tracking_internal, tracking_provider, description, user_id, status, service_type,
                    current_branch_id,
@@ -635,6 +638,8 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
             FROM packages 
             WHERE UPPER(tracking_internal) = UPPER($1) 
                OR UPPER(tracking_provider) = UPPER($1)
+               OR UPPER(REPLACE(tracking_internal, '-', '')) = UPPER(REPLACE($1, '-', ''))
+               OR UPPER(REPLACE(tracking_provider, '-', '')) = UPPER(REPLACE($1, '-', ''))
             LIMIT 1
         `, [barcode]);
 
@@ -664,6 +669,7 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
                        (SELECT box_id FROM users WHERE id = cr.user_id) as client_box_id
                 FROM china_receipts cr
                 WHERE UPPER(cr.fno) = UPPER($1)
+                   OR UPPER(REPLACE(cr.fno, '-', '')) = UPPER(REPLACE($1, '-', ''))
                 LIMIT 1
             `, [barcode]);
             

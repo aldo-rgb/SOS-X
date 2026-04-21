@@ -260,8 +260,16 @@ const UnifiedWarehousePanel: React.FC = () => {
   const handleScan = async () => {
     if (!barcode.trim() || !mode) return;
     
+    // � Normalizar: el scanner a veces omite el guión (lee "US2722344044" en vez de "US-2722344044")
+    // Auto-insertar guión después del prefijo alfabético.
+    let normalized = barcode.trim().toUpperCase();
+    const prefixMatch = normalized.match(/^(US|AIR|LOG|TRK)(\d+)$/);
+    if (prefixMatch) {
+      normalized = `${prefixMatch[1]}-${prefixMatch[2]}`;
+    }
+
     // 🔍 VALIDAR TIPO DE GUÍA
-    const trackingType = detectTrackingType(barcode.trim());
+    const trackingType = detectTrackingType(normalized);
     
     // Si es tipo inválido, rechazar inmediatamente
     if (trackingType === 'INVALID') {
@@ -275,7 +283,7 @@ const UnifiedWarehousePanel: React.FC = () => {
     
     // Si es DHL, pedir clave de supervisor
     if (trackingType === 'DHL') {
-      setPendingDhlTracking(barcode.trim());
+      setPendingDhlTracking(normalized);
       setShowSupervisorModal(true);
       setSupervisorPin('');
       setSupervisorError('');
@@ -300,7 +308,7 @@ const UnifiedWarehousePanel: React.FC = () => {
     }
     
     // Para AIR, LOG, US - procesar directamente
-    await processTracking(barcode.trim(), trackingType);
+    await processTracking(normalized, trackingType);
   };
   
   // Procesar guía después de validación
