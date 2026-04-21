@@ -423,6 +423,7 @@ import {
   mojieCallbackEncrypted,
   trackFNO,
   getTrajectory,
+  listTrajectoryNames,
   getCallbackLogs
 } from './chinaController';
 import {
@@ -3262,6 +3263,7 @@ app.put('/api/china/config/token', authenticateToken, requireMinLevel(ROLES.DIRE
 // Rastreo de FNO y trayectoria (consulta sin guardar)
 app.get('/api/china/track/:fno', authenticateToken, trackFNO);
 app.get('/api/china/trajectory/:childNo', authenticateToken, getTrajectory);
+app.get('/api/china/trajectory-names', authenticateToken, listTrajectoryNames);
 
 // ========== GARANTÍA EXTENDIDA (GEX) ==========
 

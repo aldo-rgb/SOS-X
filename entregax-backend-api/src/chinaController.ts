@@ -1488,6 +1488,39 @@ export const getTrajectory = async (req: Request, res: Response): Promise<any> =
 };
 
 // ============================================
+// ADMIN: Listar valores únicos de trajectory_name (status crudo de MoJie)
+// GET /api/china/trajectory-names
+// ============================================
+export const listTrajectoryNames = async (_req: Request, res: Response): Promise<any> => {
+    try {
+        const result = await pool.query(`
+            SELECT 
+                COALESCE(NULLIF(TRIM(trajectory_name), ''), '(vacío)') AS trajectory_name,
+                COUNT(*)::int AS count,
+                MIN(created_at) AS first_seen,
+                MAX(updated_at) AS last_seen
+            FROM packages
+            WHERE trajectory_name IS NOT NULL AND TRIM(trajectory_name) <> ''
+            GROUP BY 1
+            ORDER BY count DESC
+        `);
+
+        res.json({
+            success: true,
+            total: result.rows.length,
+            trajectoryNames: result.rows
+        });
+    } catch (error: any) {
+        console.error('❌ Error listando trajectory_names:', error?.stack || error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Error al listar trajectory_names',
+            details: error?.message 
+        });
+    }
+};
+
+// ============================================
 // PULL: Consultar orden por código desde MJCustomer
 // GET /api/china/pull/:orderCode
 // ============================================
