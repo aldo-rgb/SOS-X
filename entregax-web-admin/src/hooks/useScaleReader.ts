@@ -43,15 +43,26 @@ function parseWeight(buffer: string): number | null {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function openPort(nav: any) {
-  if (sharedPort) return sharedPort;
+async function openPort(nav: any, forceNew = false) {
+  if (sharedPort && !forceNew) {
+    // Verificar que el puerto sigue siendo válido
+    if (sharedPort.readable || sharedPort.writable) return sharedPort;
+    // Puerto inválido, limpiarlo
+    try { await sharedPort.close(); } catch { /* ignore */ }
+    sharedPort = null;
+    loopAbort = true;
+    await new Promise((r) => setTimeout(r, 100));
+    loopAbort = false;
+  }
 
   // Reusar puerto previamente autorizado
   let port = null;
-  try {
-    const granted = await nav.serial.getPorts();
-    if (granted && granted.length > 0) port = granted[0];
-  } catch { /* ignore */ }
+  if (!forceNew) {
+    try {
+      const granted = await nav.serial.getPorts();
+      if (granted && granted.length > 0) port = granted[0];
+    } catch { /* ignore */ }
+  }
   if (!port) port = await nav.serial.requestPort();
 
   try {
@@ -64,7 +75,19 @@ async function openPort(nav: any) {
     });
   } catch (e: unknown) {
     const m = e instanceof Error ? e.message.toLowerCase() : '';
-    if (!m.includes('already open')) throw e;
+    if (m.includes('already open')) {
+      // OK, seguimos con el handle
+    } else if (m.includes('failed to open')) {
+      // Puerto fantasma/ocupado por OS: descartar y forzar nuevo
+      try { await port.close(); } catch { /* ignore */ }
+      if (!forceNew) {
+        sharedPort = null;
+        return openPort(nav, true);
+      }
+      throw e;
+    } else {
+      throw e;
+    }
   }
   try { await port.setSignals({ dataTerminalReady: true, requestToSend: true }); } catch { /* ignore */ }
   sharedPort = port;
@@ -167,12 +190,17 @@ export function useScaleReader() {
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Error conectando báscula';
-      // Errores graves: soltar el puerto para forzar nueva autorización
       const lm = msg.toLowerCase();
-      if (lm.includes('disconnect') || lm.includes('no port') || lm.includes('access denied')) {
+      // Resetear puerto ante cualquier error de apertura/conexión
+      if (lm.includes('disconnect') || lm.includes('no port') ||
+          lm.includes('access denied') || lm.includes('failed to open') ||
+          lm.includes('not found')) {
         loopAbort = true;
         try { await sharedPort?.close(); } catch { /* ignore */ }
         sharedPort = null;
+        await new Promise((r) => setTimeout(r, 100));
+        loopAbort = false;
+        return { success: false, error: `${msg} — Haz clic en "Leer Báscula" de nuevo para reconectar.` };
       }
       return { success: false, error: msg };
     }
