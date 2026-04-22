@@ -76,14 +76,24 @@ interface ShipmentData {
 
 // Normaliza el tracking escaneado desde QR (incluyendo layout de teclado ES roto)
 const extractTracking = (raw: string): string => {
-    let t = raw.trim();
+    const t = raw.trim();
     if (!t) return '';
+    // Si ya parece un tracking válido (XX-YYY[-ZZZ...]), devolverlo tal cual
+    const cleanPattern = /^[A-Z]{2,}[-_'][A-Z0-9]{2,}(?:[-_'][A-Z0-9]{2,})*$/i;
+    if (cleanPattern.test(t)) {
+        return t.replace(/[_']/g, '-').toUpperCase();
+    }
     // Después de "track" en URL
     const afterTrack = t.match(/track[^A-Za-z0-9]+([A-Za-z]{2,})[^A-Za-z0-9]?([A-Za-z0-9]{4,})/i);
     if (afterTrack) return `${afterTrack[1]}-${afterTrack[2]}`.toUpperCase();
-    // Patrón XX-XXXX en texto
-    const allMatches = t.match(/[A-Z]{2,}[-_']?[A-Z0-9]{4,}/gi) || [];
-    const candidate = allMatches.find((m) => !/TREGAX/i.test(m));
+    // Patrón XX-XXXX(-XXXX)* en texto (soporta múltiples guiones)
+    const allMatches = t.match(/[A-Z]{2,}[-_'][A-Z0-9]{2,}(?:[-_'][A-Z0-9]{2,})*/gi) || [];
+    let candidate = allMatches.find((m) => !/TREGAX/i.test(m));
+    if (!candidate) {
+        // Fallback: patrón sin guión
+        const fallback = (t.match(/[A-Z]{2,}[A-Z0-9]{4,}/gi) || []).find((m) => !/TREGAX/i.test(m));
+        candidate = fallback;
+    }
     if (candidate) {
         let c = candidate.replace(/[_']/g, '-').toUpperCase();
         if (!c.includes('-') && c.length > 3) c = c.slice(0, 2) + '-' + c.slice(2);
@@ -173,17 +183,15 @@ export default function RelabelingModulePage() {
   @page { size: 4in 6in; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: Arial, sans-serif; font-size: 10px; padding: 0.18in; width: 4in; height: 6in; display: flex; flex-direction: column; }
-  .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 4px; margin-bottom: 6px; }
-  .header h1 { font-size: 16px; font-weight: 900; }
-  .header .service { display: inline-block; padding: 2px 6px; background: #000; color: #fff; font-size: 9px; font-weight: 700; margin-top: 2px; border-radius: 2px; }
+  .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 6px; }
+  .header .service { display: inline-block; padding: 6px 14px; border: 2px solid #000; color: #000; font-size: 16px; font-weight: 900; letter-spacing: 0.5px; border-radius: 4px; }
   .tracking-big { font-size: 18px; font-weight: 900; text-align: center; margin: 4px 0; font-family: 'Courier New', monospace; }
   .barcode-box { text-align: center; margin: 4px 0; }
   .barcode-box svg { max-height: 85px; width: 100%; }
   .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 6px; font-size: 10px; margin: 4px 0; }
   .info-grid .label { font-weight: 700; color: #555; }
-  .client-box { border: 2px solid #000; padding: 4px; margin: 4px 0; min-height: 52px; }
-  .client-box .name { font-size: 13px; font-weight: 900; }
-  .client-box .box-id { font-size: 11px; font-weight: 700; color: #C1272D; }
+  .client-box { border: 2px solid #000; padding: 6px; margin: 4px 0; text-align: center; }
+  .client-box .box-id { font-size: 22px; font-weight: 900; color: #C1272D; letter-spacing: 1px; }
   .qr-footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 4px; border-top: 1px dashed #999; }
   .qr-box { text-align: center; }
   .qr-box #qrcode img { width: 120px !important; height: 120px !important; }
@@ -195,7 +203,6 @@ export default function RelabelingModulePage() {
 </head>
 <body>
   <div class="header">
-    <h1>🚚 EntregaX</h1>
     <div class="service">${serviceInfo.emoji} ${serviceInfo.label}</div>
   </div>
 
@@ -206,7 +213,6 @@ export default function RelabelingModulePage() {
   </div>
 
   <div class="client-box">
-    <div class="name">${label.clientName}</div>
     <div class="box-id">Box: ${label.clientBoxId}</div>
   </div>
 
