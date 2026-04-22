@@ -50,7 +50,7 @@ interface DelayedPackage {
     days_delayed: number | null;
 }
 
-export default function DelayedPackagesPage() {
+export default function DelayedPackagesPage({ hideActions = false }: { hideActions?: boolean } = {}) {
     const [packages, setPackages] = useState<DelayedPackage[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -223,7 +223,7 @@ export default function DelayedPackagesPage() {
                                 <TableCell>Consolidación</TableCell>
                                 <TableCell>Reportado</TableCell>
                                 <TableCell>Días de retraso</TableCell>
-                                <TableCell align="right">Acciones</TableCell>
+                                {!hideActions && <TableCell align="right">Acciones</TableCell>}
                             </TableRow>
                         </TableHead>
                         <TableBody>
@@ -273,6 +273,7 @@ export default function DelayedPackagesPage() {
                                                 />
                                             ) : '—'}
                                         </TableCell>
+                                        {!hideActions && (
                                         <TableCell align="right">
                                             <Button
                                                 size="small"
@@ -284,6 +285,7 @@ export default function DelayedPackagesPage() {
                                                 Marcar como perdido
                                             </Button>
                                         </TableCell>
+                                        )}
                                     </TableRow>
                                 );
                             })}

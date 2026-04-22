@@ -294,7 +294,7 @@ export default function DashboardBranchManager() {
           </IconButton>
         </DialogTitle>
         <DialogContent sx={{ p: 0 }}>
-          <DelayedPackagesPage />
+          <DelayedPackagesPage hideActions />
         </DialogContent>
       </Dialog>
 
