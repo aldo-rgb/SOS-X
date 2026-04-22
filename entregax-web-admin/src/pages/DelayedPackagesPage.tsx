@@ -21,6 +21,8 @@ import {
     DialogContentText,
     DialogActions,
     IconButton,
+    Checkbox,
+    Toolbar,
 } from '@mui/material';
 import {
     Search as SearchIcon,
@@ -35,6 +37,7 @@ interface DelayedPackage {
     id: number;
     tracking_internal: string;
     status: string;
+    service_type: string | null;
     description: string | null;
     weight: string | number | null;
     consolidation_id: number | null;
@@ -60,6 +63,8 @@ export default function DelayedPackagesPage({ hideActions = false }: { hideActio
     const [lostPassword, setLostPassword] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [successMsg, setSuccessMsg] = useState<string | null>(null);
+    const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+    const [bulkLostOpen, setBulkLostOpen] = useState(false);
 
     const load = async () => {
         setLoading(true);
@@ -114,6 +119,72 @@ export default function DelayedPackagesPage({ hideActions = false }: { hideActio
             load();
         } catch (e: any) {
             setError(e.response?.data?.error || e.message || 'Error al marcar como perdido');
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    const toggleSelect = (id: number) => {
+        setSelectedIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+
+    const toggleSelectAll = (visibleIds: number[]) => {
+        setSelectedIds((prev) => {
+            const allSelected = visibleIds.every((id) => prev.has(id));
+            if (allSelected) {
+                const next = new Set(prev);
+                visibleIds.forEach((id) => next.delete(id));
+                return next;
+            }
+            const next = new Set(prev);
+            visibleIds.forEach((id) => next.add(id));
+            return next;
+        });
+    };
+
+    const openBulkLost = () => {
+        if (selectedIds.size === 0) return;
+        setLostReason('');
+        setLostPassword('');
+        setError(null);
+        setBulkLostOpen(true);
+    };
+
+    const closeBulkLost = () => {
+        if (submitting) return;
+        setBulkLostOpen(false);
+        setLostReason('');
+        setLostPassword('');
+    };
+
+    const confirmBulkLost = async () => {
+        if (selectedIds.size === 0) return;
+        if (!lostReason.trim() || !lostPassword) {
+            setError('Debes escribir los detalles del incidente y tu contraseña');
+            return;
+        }
+        setSubmitting(true);
+        setError(null);
+        try {
+            const res = await api.post('/admin/pobox/packages/mark-lost-bulk', {
+                package_ids: Array.from(selectedIds),
+                reason: lostReason.trim(),
+                password: lostPassword,
+            });
+            setSuccessMsg(
+                `${res.data.marked_count || 0} paquete(s) marcado(s) como perdido(s) por ${res.data.marked_by || 'el usuario'}`
+            );
+            setBulkLostOpen(false);
+            setLostReason('');
+            setLostPassword('');
+            setSelectedIds(new Set());
+            load();
+        } catch (e: any) {
+            setError(e.response?.data?.error || e.message || 'Error al marcar paquetes como perdidos');
         } finally {
             setSubmitting(false);
         }
@@ -215,10 +286,50 @@ export default function DelayedPackagesPage({ hideActions = false }: { hideActio
                 </Paper>
             ) : (
                 <Paper variant="outlined">
+                    {!hideActions && selectedIds.size > 0 && (
+                        <Toolbar sx={{ bgcolor: '#FFEBEE', borderBottom: '1px solid #FFCDD2', minHeight: '56px !important' }}>
+                            <Typography sx={{ flex: 1, fontWeight: 700, color: '#C62828' }}>
+                                {selectedIds.size} paquete(s) seleccionado(s)
+                            </Typography>
+                            <Button
+                                size="small"
+                                onClick={() => setSelectedIds(new Set())}
+                                sx={{ mr: 1 }}
+                            >
+                                Limpiar selección
+                            </Button>
+                            <Button
+                                size="small"
+                                variant="contained"
+                                color="error"
+                                startIcon={<ReportProblemIcon />}
+                                onClick={openBulkLost}
+                            >
+                                Marcar seleccionados como perdidos
+                            </Button>
+                        </Toolbar>
+                    )}
                     <Table size="small">
                         <TableHead>
                             <TableRow>
+                                {!hideActions && (
+                                    <TableCell padding="checkbox">
+                                        <Checkbox
+                                            color="error"
+                                            indeterminate={
+                                                filtered.some((p) => selectedIds.has(p.id)) &&
+                                                !filtered.every((p) => selectedIds.has(p.id))
+                                            }
+                                            checked={
+                                                filtered.length > 0 &&
+                                                filtered.every((p) => selectedIds.has(p.id))
+                                            }
+                                            onChange={() => toggleSelectAll(filtered.map((p) => p.id))}
+                                        />
+                                    </TableCell>
+                                )}
                                 <TableCell>Tracking</TableCell>
+                                <TableCell>Servicio</TableCell>
                                 <TableCell>Cliente</TableCell>
                                 <TableCell>Consolidación</TableCell>
                                 <TableCell>Reportado</TableCell>
@@ -230,7 +341,16 @@ export default function DelayedPackagesPage({ hideActions = false }: { hideActio
                             {filtered.map((p) => {
                                 const days = p.days_delayed != null ? Math.floor(Number(p.days_delayed)) : null;
                                 return (
-                                    <TableRow key={p.id} hover>
+                                    <TableRow key={p.id} hover selected={selectedIds.has(p.id)}>
+                                        {!hideActions && (
+                                            <TableCell padding="checkbox">
+                                                <Checkbox
+                                                    color="error"
+                                                    checked={selectedIds.has(p.id)}
+                                                    onChange={() => toggleSelect(p.id)}
+                                                />
+                                            </TableCell>
+                                        )}
                                         <TableCell>
                                             <Typography sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
                                                 {p.tracking_internal}
@@ -240,6 +360,33 @@ export default function DelayedPackagesPage({ hideActions = false }: { hideActio
                                                     {p.description}
                                                 </Typography>
                                             )}
+                                        </TableCell>
+                                        <TableCell>
+                                            {(() => {
+                                                const st = (p.service_type || '').toUpperCase();
+                                                let label = 'PO Box USA';
+                                                let color: 'primary' | 'info' | 'warning' | 'success' | 'default' = 'primary';
+                                                if (st === 'POBOX_USA' || st === 'AIR' || !st) {
+                                                    label = 'PO Box USA';
+                                                    color = 'primary';
+                                                } else if (st === 'AIR_CHN_MX') {
+                                                    label = 'China Aéreo';
+                                                    color = 'info';
+                                                } else if (st === 'SEA_CHN_MX') {
+                                                    label = 'China Marítimo';
+                                                    color = 'info';
+                                                } else if (st === 'DHL') {
+                                                    label = 'DHL';
+                                                    color = 'warning';
+                                                } else if (st === 'MX_NATIONAL' || st === 'NACIONAL') {
+                                                    label = 'Nacional MX';
+                                                    color = 'success';
+                                                } else {
+                                                    label = st;
+                                                    color = 'default';
+                                                }
+                                                return <Chip label={label} size="small" color={color} variant="outlined" sx={{ fontWeight: 600 }} />;
+                                            })()}
                                         </TableCell>
                                         <TableCell>
                                             <Typography sx={{ fontWeight: 600 }}>{p.user_name || '—'}</Typography>
@@ -346,6 +493,79 @@ export default function DelayedPackagesPage({ hideActions = false }: { hideActio
                         startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : <ReportProblemIcon />}
                     >
                         {submitting ? 'Registrando...' : 'Confirmar como perdido'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Modal: Marcar MÚLTIPLES paquetes como perdidos */}
+            <Dialog open={bulkLostOpen} onClose={closeBulkLost} maxWidth="sm" fullWidth>
+                <DialogTitle sx={{ bgcolor: '#C62828', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <ReportProblemIcon />
+                    Marcar {selectedIds.size} paquete(s) como PERDIDOS
+                </DialogTitle>
+                <DialogContent sx={{ pt: 3 }}>
+                    <DialogContentText sx={{ mb: 2 }}>
+                        Estás por marcar <strong>{selectedIds.size} paquete(s)</strong> como{' '}
+                        <strong style={{ color: '#C62828' }}>PERDIDOS</strong>. Todos compartirán el mismo motivo
+                        de incidente y quedarán registrados con tu usuario.
+                    </DialogContentText>
+
+                    <Paper variant="outlined" sx={{ p: 1, mb: 2, maxHeight: 160, overflow: 'auto', bgcolor: '#fafafa' }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                            Paquetes seleccionados:
+                        </Typography>
+                        {packages
+                            .filter((p) => selectedIds.has(p.id))
+                            .map((p) => (
+                                <Typography
+                                    key={p.id}
+                                    variant="caption"
+                                    sx={{ display: 'block', fontFamily: 'monospace' }}
+                                >
+                                    • {p.tracking_internal} — {p.user_name || 's/cliente'} (Box {p.box_id || 'N/A'})
+                                </Typography>
+                            ))}
+                    </Paper>
+
+                    <TextField
+                        fullWidth
+                        multiline
+                        rows={3}
+                        label="Detalles del incidente (aplica a todos) *"
+                        placeholder="Describe qué pasó, qué investigación se hizo, etc."
+                        value={lostReason}
+                        onChange={(e) => setLostReason(e.target.value)}
+                        sx={{ mb: 2 }}
+                        disabled={submitting}
+                    />
+
+                    <TextField
+                        fullWidth
+                        type="password"
+                        label="Tu contraseña de usuario *"
+                        placeholder="Ingresa tu contraseña para confirmar"
+                        value={lostPassword}
+                        onChange={(e) => setLostPassword(e.target.value)}
+                        disabled={submitting}
+                        autoComplete="current-password"
+                    />
+
+                    {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+
+                    <Alert severity="warning" sx={{ mt: 2 }}>
+                        Esta acción es <strong>masiva e irreversible</strong>. Verifica la lista antes de confirmar.
+                    </Alert>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={closeBulkLost} disabled={submitting}>Cancelar</Button>
+                    <Button
+                        variant="contained"
+                        color="error"
+                        onClick={confirmBulkLost}
+                        disabled={submitting || !lostReason.trim() || !lostPassword}
+                        startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : <ReportProblemIcon />}
+                    >
+                        {submitting ? 'Registrando...' : `Marcar ${selectedIds.size} como perdidos`}
                     </Button>
                 </DialogActions>
             </Dialog>

@@ -236,7 +236,9 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
 
 /**
  * GET /api/admin/customer-service/delayed-packages
- * Lista paquetes marcados como faltantes (no llegaron en su consolidación).
+ * Lista paquetes con retraso:
+ *  - Paquetes marcados como faltantes (missing_on_arrival) cuando su consolidación llegó sin ellos
+ *  - Paquetes cuyo consolidación lleva 5+ días en tránsito y aún no llega a MTY (semáforo rojo)
  */
 export const getDelayedPackages = async (_req: AuthRequest, res: Response): Promise<any> => {
   try {
@@ -245,27 +247,52 @@ export const getDelayedPackages = async (_req: AuthRequest, res: Response): Prom
          p.id,
          p.tracking_internal,
          p.status,
+         p.service_type,
          p.description,
          p.weight,
          p.consolidation_id,
          p.missing_reported_at,
          p.created_at,
          c.master_tracking,
+         c.status AS consolidation_status,
          c.dispatched_at AS consolidation_dispatched_at,
          c.received_mty_at AS consolidation_received_at,
+         c.created_at AS consolidation_created_at,
          u.id AS user_id,
          u.full_name AS user_name,
          u.email AS user_email,
          u.phone AS user_phone,
          u.box_id,
-         EXTRACT(EPOCH FROM (NOW() - p.missing_reported_at)) / 86400 AS days_delayed
+         CASE
+           WHEN p.missing_on_arrival = TRUE AND p.missing_reported_at IS NOT NULL
+             THEN EXTRACT(EPOCH FROM (NOW() - p.missing_reported_at)) / 86400
+           WHEN c.status IN ('in_transit', 'received_partial')
+             THEN EXTRACT(EPOCH FROM (NOW() - COALESCE(c.dispatched_at, c.created_at))) / 86400
+           ELSE NULL
+         END AS days_delayed,
+         CASE
+           WHEN p.missing_on_arrival = TRUE THEN 'faltante'
+           WHEN c.status IN ('in_transit', 'received_partial')
+                AND EXTRACT(EPOCH FROM (NOW() - COALESCE(c.dispatched_at, c.created_at))) / 86400 >= 5
+             THEN 'consolidacion_atrasada'
+           ELSE 'otro'
+         END AS delay_reason
        FROM packages p
        LEFT JOIN consolidations c ON c.id = p.consolidation_id
        LEFT JOIN users u ON u.id = p.user_id
-       WHERE p.missing_on_arrival = TRUE
-         AND COALESCE(p.is_lost, FALSE) = FALSE
+       WHERE COALESCE(p.is_lost, FALSE) = FALSE
          AND p.status NOT IN ('delivered', 'ready_pickup')
-       ORDER BY p.missing_reported_at ASC NULLS LAST`
+         AND (
+           -- Caso 1: paquete faltante reportado
+           p.missing_on_arrival = TRUE
+           OR
+           -- Caso 2: consolidación en tránsito con 5+ días (semáforo rojo)
+           (c.status IN ('in_transit', 'received_partial')
+            AND COALESCE(p.missing_on_arrival, FALSE) = FALSE
+            AND p.status NOT IN ('received_mty')
+            AND EXTRACT(EPOCH FROM (NOW() - COALESCE(c.dispatched_at, c.created_at))) / 86400 >= 5)
+         )
+       ORDER BY days_delayed DESC NULLS LAST`
     );
     res.json({ success: true, packages: result.rows });
   } catch (error: any) {
@@ -395,6 +422,90 @@ export const markPackageAsLost = async (req: AuthRequest, res: Response): Promis
   } catch (error: any) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('markPackageAsLost:', error);
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * POST /api/admin/pobox/packages/mark-lost-bulk
+ * Marca múltiples paquetes como PERDIDOS con el mismo motivo/contraseña.
+ * Body: { package_ids: number[], password: string, reason: string }
+ */
+export const markPackagesAsLostBulk = async (req: AuthRequest, res: Response): Promise<any> => {
+  const client = await pool.connect();
+  try {
+    const { package_ids, password, reason } = req.body as {
+      package_ids?: number[];
+      password?: string;
+      reason?: string;
+    };
+    const userId = req.user?.userId || req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'No autenticado' });
+    }
+    if (!Array.isArray(package_ids) || package_ids.length === 0) {
+      return res.status(400).json({ success: false, error: 'Debes seleccionar al menos un paquete' });
+    }
+    if (!password || !reason || !reason.trim()) {
+      return res.status(400).json({ success: false, error: 'Detalles del incidente y contraseña son obligatorios' });
+    }
+
+    const allowedRoles = ['customer_service', 'branch_manager', 'admin', 'director', 'super_admin'];
+    const userRow = await client.query(
+      `SELECT id, password, role, full_name FROM users WHERE id = $1`,
+      [userId]
+    );
+    if (userRow.rows.length === 0) {
+      return res.status(401).json({ success: false, error: 'Usuario no encontrado' });
+    }
+    const currentUser = userRow.rows[0];
+    if (!allowedRoles.includes(currentUser.role)) {
+      return res.status(403).json({ success: false, error: 'No tienes permisos de Servicio a Cliente' });
+    }
+
+    const passwordValid = await bcrypt.compare(password, currentUser.password);
+    if (!passwordValid) {
+      return res.status(401).json({ success: false, error: 'Contraseña incorrecta' });
+    }
+
+    // Filtrar IDs válidos (numéricos)
+    const validIds = package_ids.map(Number).filter((n) => Number.isFinite(n));
+    if (validIds.length === 0) {
+      return res.status(400).json({ success: false, error: 'No hay IDs válidos' });
+    }
+
+    await client.query('BEGIN');
+    const updateRes = await client.query(
+      `UPDATE packages
+         SET is_lost = TRUE,
+             lost_at = NOW(),
+             lost_by_user_id = $1,
+             lost_reason = $2,
+             status = 'lost',
+             updated_at = NOW()
+       WHERE id = ANY($3::int[])
+         AND COALESCE(is_lost, FALSE) = FALSE
+       RETURNING id, tracking_internal`,
+      [userId, reason.trim(), validIds]
+    );
+    await client.query('COMMIT');
+
+    console.log(`📦❌ ${updateRes.rowCount} paquetes marcados como PERDIDOS (bulk) por ${currentUser.full_name} (${currentUser.role}). Motivo: ${reason.trim()}`);
+
+    res.json({
+      success: true,
+      message: `${updateRes.rowCount} paquete(s) marcado(s) como perdido(s)`,
+      marked_count: updateRes.rowCount,
+      requested_count: validIds.length,
+      trackings: updateRes.rows.map((r) => r.tracking_internal),
+      marked_by: currentUser.full_name,
+    });
+  } catch (error: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('markPackagesAsLostBulk:', error);
     res.status(500).json({ success: false, error: error.message });
   } finally {
     client.release();
