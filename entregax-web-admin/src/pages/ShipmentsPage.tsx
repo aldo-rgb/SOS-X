@@ -1267,10 +1267,6 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         </div>
         
         <div class="description">${label.description || ''}</div>
-        
-        <div class="footer">
-          <small>Impreso: ${new Date().toLocaleString('es-MX')} | Escanea el QR para rastrear</small>
-        </div>
       </div>
     `}).join('');
 
@@ -1355,18 +1351,18 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           align-items: center;
           justify-content: center;
         }
-        .qr-section svg { width: 80px !important; height: 80px !important; }
+        .qr-section svg { width: 120px !important; height: 120px !important; }
         .barcode-section {
           width: 100%;
           text-align: center;
         }
-        .barcode-section svg { width: 100%; max-width: 320px; height: 70px; }
+        .barcode-section svg { width: 100%; max-width: 320px; height: 85px; }
         
         .divider { border-top: 2px dashed #ccc; margin: 4px 0; }
         
-        .client-info { text-align: center; margin: 3px 0; }
+        .client-info { text-align: center; margin: 5px 0; }
         .client-box { 
-          font-size: 24px; 
+          font-size: 36px; 
           color: #F05A28; 
           font-weight: 900; 
           letter-spacing: 2px;
@@ -1376,11 +1372,11 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         
         .details { 
           text-align: center; 
-          font-size: 11px; 
-          margin: 3px 0; 
+          font-size: 13px; 
+          margin: 5px 0; 
           display: flex; 
           justify-content: center; 
-          gap: 8px;
+          gap: 10px;
           flex-wrap: wrap;
         }
         .detail-item {

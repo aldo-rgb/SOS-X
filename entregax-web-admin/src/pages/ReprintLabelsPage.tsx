@@ -181,13 +181,13 @@ export default function ReprintLabelsPage() {
             .tracking-code { font-size: 20px; font-weight: bold; letter-spacing: 1px; }
             .box-indicator { font-size: 13px; color: #333; font-weight: 600; display: inline-block; margin-top: 1px; }
             .qr-section { text-align: center; margin: 3px 0; }
-            .qr-section svg, .qr-section img { width: 85px !important; height: 85px !important; }
+            .qr-section svg, .qr-section img { width: 120px !important; height: 120px !important; }
             .barcode-section { text-align: center; margin: 4px 0; }
-            .barcode-section svg { width: 85%; height: 70px; }
-            .divider { border-top: 2px dashed #ccc; margin: 4px 0; }
-            .client-info { text-align: center; margin: 2px 0; }
-            .client-box { font-size: 42px; color: #F05A28; font-weight: 900; letter-spacing: 2px; line-height: 1; }
-            .details { text-align: center; font-size: 13px; font-weight: 600; margin: 3px 0; display: flex; justify-content: center; gap: 10px; }
+            .barcode-section svg { width: 85%; height: 85px; }
+            .divider { border-top: 2px dashed #ccc; margin: 5px 0; }
+            .client-info { text-align: center; margin: 4px 0; }
+            .client-box { font-size: 52px; color: #F05A28; font-weight: 900; letter-spacing: 3px; line-height: 1; }
+            .details { text-align: center; font-size: 15px; font-weight: 600; margin: 4px 0; display: flex; justify-content: center; gap: 12px; }
             .detail-item { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; }
             .description { text-align: center; font-size: 10px; color: #666; margin-top: 2px; }
             .footer { text-align: center; font-size: 7px; color: #999; border-top: 1px solid #eee; padding-top: 2px; margin-top: auto; }
@@ -214,13 +214,10 @@ export default function ReprintLabelsPage() {
               ${dims ? `<span class="detail-item">📐 ${dims}</span>` : ''}
             </div>
             <div class="description">Hidalgo TX</div>
-            <div class="footer">
-              <small>Impreso: ${new Date().toLocaleString('es-MX')}</small>
-            </div>
           </div>
           <script>
             try { JsBarcode("#barcode", "${pkg.tracking.replace(/-/g, '')}", { format: "CODE128", width: 2.2, height: 70, displayValue: false, margin: 0 }); } catch(e) {}
-            try { var qr = qrcode(0, 'M'); qr.addData('https://app.entregax.com/track/${pkg.tracking}'); qr.make(); document.getElementById('qr').innerHTML = qr.createSvgTag({ cellSize: 2, margin: 0 }); } catch(e) {}
+            try { var qr = qrcode(0, 'M'); qr.addData('https://app.entregax.com/track/${pkg.tracking}'); qr.make(); document.getElementById('qr').innerHTML = qr.createSvgTag({ cellSize: 3, margin: 0 }); } catch(e) {}
             window.onload = function() { setTimeout(function() { window.print(); }, 600); };
           <\/script>
         </body>
