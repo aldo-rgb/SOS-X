@@ -283,7 +283,7 @@ function App() {
   // Cargar notificaciones para clientes
   useEffect(() => {
     const loadNotifications = async () => {
-      if (!isAuthenticated || currentUser?.role !== 'client') return;
+      if (!isAuthenticated || !currentUser) return;
       
       const token = localStorage.getItem('token');
       try {
@@ -295,8 +295,8 @@ function App() {
           let loadedNotifications = data.notifications || [];
           let loadedUnread = data.unreadCount || 0;
           
-          // Agregar notificación de verificación pendiente si no está verificado
-          if (currentUser && !currentUser.isVerified) {
+          // Agregar notificación de verificación pendiente si no está verificado (solo clientes)
+          if (currentUser.role === 'client' && !currentUser.isVerified) {
             const isPendingReview = currentUser.verificationStatus === 'pending_review';
             const verificationNotif = {
               id: -1, // ID especial para no confundir con reales
