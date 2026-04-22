@@ -132,8 +132,13 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
     };
 
     const handleScan = (value: string) => {
-        const tracking = value.trim();
+        let tracking = value.trim();
         if (!tracking) return;
+        // Si escanean el QR (URL completa tipo https://app.entregax.com/track/US-XXXX), extraer solo el tracking
+        const urlMatch = tracking.match(/\/track\/([^/?#\s]+)/i);
+        if (urlMatch) {
+            tracking = urlMatch[1];
+        }
         const pkg = packages.find((p) => p.tracking_internal.toLowerCase() === tracking.toLowerCase());
         if (!pkg) {
             setScanFeedback({ type: 'error', msg: `Guía "${tracking}" no pertenece a esta consolidación` });

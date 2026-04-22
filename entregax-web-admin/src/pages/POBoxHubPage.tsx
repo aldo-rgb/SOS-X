@@ -652,30 +652,30 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                     * { margin: 0; padding: 0; box-sizing: border-box; }
                     body { font-family: 'Arial', sans-serif; }
                     .label {
-                        width: 4in; height: 6in; padding: 0.25in;
+                        width: 4in; height: 6in; padding: 0.2in;
                         border: 2px solid #000; display: flex; flex-direction: column;
-                        margin: 0 auto; position: relative;
+                        margin: 0 auto; position: relative; overflow: hidden;
                     }
-                    .header { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 4px; }
-                    .date-badge { background: #111; color: white; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 4px; }
-                    .master-badge { background: #F05A28; color: white; text-align: center; padding: 5px; font-weight: bold; font-size: 14px; margin-bottom: 8px; }
-                    .tracking-main { text-align: center; margin: 4px 0; }
-                    .tracking-code { font-size: 22px; font-weight: bold; letter-spacing: 1px; }
-                    .box-indicator { font-size: 14px; color: #333; font-weight: 600; display: inline-block; margin-top: 2px; }
-                    .master-ref { text-align: center; font-size: 11px; color: #666; margin: 2px 0; }
-                    .qr-section { text-align: center; margin: 6px 0; }
-                    .qr-section svg, .qr-section img { width: 140px !important; height: 140px !important; }
+                    .header { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 2px; }
+                    .date-badge { background: #111; color: white; padding: 3px 8px; font-size: 11px; font-weight: bold; border-radius: 4px; }
+                    .master-badge { background: #F05A28; color: white; text-align: center; padding: 4px; font-weight: bold; font-size: 13px; margin-bottom: 4px; }
+                    .tracking-main { text-align: center; margin: 2px 0; }
+                    .tracking-code { font-size: 20px; font-weight: bold; letter-spacing: 1px; }
+                    .box-indicator { font-size: 13px; color: #333; font-weight: 600; display: inline-block; margin-top: 1px; }
+                    .master-ref { text-align: center; font-size: 10px; color: #666; margin: 1px 0; }
+                    .qr-section { text-align: center; margin: 3px 0; }
+                    .qr-section svg, .qr-section img { width: 85px !important; height: 85px !important; }
                     .barcode-section { text-align: center; margin: 4px 0; }
-                    .barcode-section svg { width: 85%; height: 65px; }
-                    .divider { border-top: 2px dashed #ccc; margin: 6px 0; }
-                    .client-info { text-align: center; margin: 4px 0; }
-                    .client-box { font-size: 56px; color: #F05A28; font-weight: 900; letter-spacing: 3px; }
-                    .details { text-align: center; font-size: 16px; font-weight: 600; margin: 4px 0; display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; }
-                    .detail-item { background: #f5f5f5; padding: 3px 10px; border-radius: 4px; }
-                    .description { text-align: center; font-size: 11px; color: #666; margin-top: 2px; }
-                    .footer { text-align: center; font-size: 8px; color: #999; border-top: 1px solid #eee; padding-top: 3px; margin-top: auto; }
+                    .barcode-section svg { width: 85%; height: 70px; }
+                    .divider { border-top: 2px dashed #ccc; margin: 4px 0; }
+                    .client-info { text-align: center; margin: 2px 0; }
+                    .client-box { font-size: 42px; color: #F05A28; font-weight: 900; letter-spacing: 2px; line-height: 1; }
+                    .details { text-align: center; font-size: 13px; font-weight: 600; margin: 3px 0; display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; }
+                    .detail-item { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; }
+                    .description { text-align: center; font-size: 10px; color: #666; margin-top: 2px; }
+                    .footer { text-align: center; font-size: 7px; color: #999; border-top: 1px solid #eee; padding-top: 2px; margin-top: auto; }
                     @page { size: 4in 6in; margin: 0; }
-                    @media print { body { margin: 0; padding: 0; } .label { border: none; page-break-inside: avoid; } }
+                    @media print { body { margin: 0; padding: 0; } .label { border: none; page-break-inside: avoid; overflow: hidden; } }
                 </style>
                 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
                 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"><\/script>
@@ -688,7 +688,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                             var qr = qrcode(0, 'M');
                             qr.addData('https://app.entregax.com/track/${label.tracking}');
                             qr.make();
-                            document.getElementById('qr-${i}').innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0 });
+                            document.getElementById('qr-${i}').innerHTML = qr.createSvgTag({ cellSize: 2, margin: 0 });
                         } catch(e) {}
                     })();
                 `).join('')}

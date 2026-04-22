@@ -114,8 +114,8 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
 
     // Traer paquetes de la consolidación
     const pkgRes = await client.query(
-      `SELECT id, tracking_internal, status FROM packages WHERE consolidation_id = $1 FOR UPDATE`,
-      [id]
+      `SELECT id, tracking_internal, status FROM packages WHERE consolidation_id = $1::int FOR UPDATE`,
+      [Number(id)]
     );
     if (pkgRes.rows.length === 0) {
       await client.query('ROLLBACK');
@@ -168,14 +168,15 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
 
     // Actualizar estado de consolidación
     const newStatus = missing.length === 0 ? 'received_mty' : 'received_partial';
+    const isComplete = missing.length === 0;
     await client.query(
       `UPDATE consolidations
          SET status = $1,
-             received_mty_at = CASE WHEN $1 = 'received_mty' THEN NOW() ELSE received_mty_at END,
-             received_mty_by = $2,
+             received_mty_at = CASE WHEN $2::boolean THEN NOW() ELSE received_mty_at END,
+             received_mty_by = $3,
              updated_at = NOW()
-       WHERE id = $3`,
-      [newStatus, userId || null, id]
+       WHERE id = $4`,
+      [newStatus, isComplete, userId || null, Number(id)]
     );
 
     // Notificar a todos los usuarios con permiso sobre 'ops_usa_pobox' si hay faltantes
@@ -207,7 +208,7 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
       for (const row of receiversRes.rows) {
         await client.query(
           `INSERT INTO notifications (user_id, title, message, type, icon, action_url, data)
-           VALUES ($1, $2, $3, 'warning', '⚠️', $4, $5)`,
+           VALUES ($1::int, $2::varchar, $3::text, 'warning'::varchar, '⚠️'::varchar, $4::varchar, $5::jsonb)`,
           [row.id, title, message, actionUrl, JSON.stringify(data)]
         );
       }
