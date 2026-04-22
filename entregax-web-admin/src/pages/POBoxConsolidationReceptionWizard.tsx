@@ -114,12 +114,14 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
         setError(null);
         try {
             const res = await api.get(`/admin/pobox/consolidations/${c.id}/packages`);
-            setPackages(res.data.packages || []);
-            // Pre-marcar los que ya fueron recibidos previamente (en consolidación parcial)
+            const pkgs: Pkg[] = res.data.packages || [];
+            setPackages(pkgs);
+            // Pre-marcar los que ya fueron recibidos en MTY previamente (consolidación parcial)
+            // Solo quedan por escanear los que están missing_on_arrival=TRUE
             const preScanned = new Set<number>(
-                (res.data.packages || [])
-                    .filter((p: Pkg) => !p.missing_on_arrival && (p.status === 'received' || p.status === 'ready_pickup' || p.status === 'delivered'))
-                    .map((p: Pkg) => p.id)
+                pkgs
+                    .filter((p) => !p.missing_on_arrival)
+                    .map((p) => p.id)
             );
             setScannedIds(preScanned);
             setSelected(c);
@@ -371,21 +373,35 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
                         <List dense>
                             {packages.map((p) => {
                                 const isScanned = scannedIds.has(p.id);
+                                // "Ya recibido previamente" = no está missing en BD y ya venía pre-marcado
+                                const alreadyReceived = !p.missing_on_arrival && isScanned;
+                                // "Pendiente nuevo escaneo" = estaba missing en la recepción anterior
+                                const wasPreviouslyMissing = p.missing_on_arrival === true;
                                 return (
                                     <ListItem
                                         key={p.id}
-                                        onClick={() => toggleManual(p.id)}
+                                        onClick={() => {
+                                            if (alreadyReceived) return; // no permitir desmarcar ya recibidos
+                                            toggleManual(p.id);
+                                        }}
                                         sx={{
-                                            cursor: 'pointer',
-                                            bgcolor: isScanned ? '#e8f5e9' : 'transparent',
+                                            cursor: alreadyReceived ? 'default' : 'pointer',
+                                            bgcolor: alreadyReceived
+                                                ? '#e0f2f1' // ya recibido (teal claro)
+                                                : isScanned
+                                                    ? '#e8f5e9' // escaneado ahora (verde)
+                                                    : wasPreviouslyMissing
+                                                        ? '#fff4e5' // esperando scan (amarillo claro)
+                                                        : 'transparent',
                                             borderBottom: '1px solid #eee',
+                                            opacity: alreadyReceived ? 0.85 : 1,
                                         }}
                                     >
                                         <ListItemIcon>
                                             {isScanned ? (
                                                 <CheckCircleIcon color="success" />
                                             ) : (
-                                                <UncheckedIcon color="disabled" />
+                                                <UncheckedIcon color={wasPreviouslyMissing ? 'warning' : 'disabled'} />
                                             )}
                                         </ListItemIcon>
                                         <ListItemText
@@ -394,8 +410,14 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
                                                     <Typography sx={{ fontWeight: 600, fontFamily: 'monospace' }}>
                                                         {p.tracking_internal}
                                                     </Typography>
-                                                    {p.missing_on_arrival && (
-                                                        <Chip label="ANTES FALTANTE" size="small" color="warning" />
+                                                    {alreadyReceived && (
+                                                        <Chip label="✓ YA RECIBIDO" size="small" color="success" variant="outlined" />
+                                                    )}
+                                                    {wasPreviouslyMissing && !isScanned && (
+                                                        <Chip label="⏳ ESPERANDO ESCANEO" size="small" color="warning" />
+                                                    )}
+                                                    {wasPreviouslyMissing && isScanned && (
+                                                        <Chip label="🎉 RECUPERADO" size="small" color="success" />
                                                     )}
                                                 </Stack>
                                             }

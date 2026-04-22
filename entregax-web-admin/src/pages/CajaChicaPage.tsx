@@ -1358,8 +1358,17 @@ const CajaChicaPage: React.FC = () => {
                     <Typography variant="h6" fontWeight="bold">{consolidacionAPagar.supplier_name}</Typography>
                   </Grid>
                   <Grid size={{ xs: 6 }}>
-                    <Typography variant="body2" color="text.secondary">Paquetes</Typography>
-                    <Typography variant="h6">{consolidacionAPagar.package_count}</Typography>
+                    <Typography variant="body2" color="text.secondary">Paquetes a pagar</Typography>
+                    <Typography variant="h6">
+                      {Math.max(0, Number(consolidacionAPagar.package_count || 0) - Number(consolidacionAPagar.missing_count || 0) - Number(consolidacionAPagar.lost_count || 0))}
+                      {' / '}
+                      {consolidacionAPagar.package_count}
+                    </Typography>
+                    {(Number(consolidacionAPagar.missing_count || 0) + Number(consolidacionAPagar.lost_count || 0)) > 0 && (
+                      <Typography variant="caption" color="warning.main">
+                        {Number(consolidacionAPagar.missing_count || 0) + Number(consolidacionAPagar.lost_count || 0)} pendiente(s) de llegar
+                      </Typography>
+                    )}
                   </Grid>
                   <Grid size={{ xs: 6 }}>
                     <Typography variant="body2" color="text.secondary">Total USD</Typography>
