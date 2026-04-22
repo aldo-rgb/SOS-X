@@ -16,6 +16,10 @@ import {
   Chip,
   LinearProgress,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  IconButton,
 } from '@mui/material';
 import {
   TrendingUp as TrendingUpIcon,
@@ -26,10 +30,12 @@ import {
   AttachMoney as MoneyIcon,
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
-  Schedule as ScheduleIcon,
   Store as StoreIcon,
+  LocalShipping as LocalShippingIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
+import DelayedPackagesPage from './DelayedPackagesPage';
 
 interface BranchStats {
   sucursal: {
@@ -71,15 +77,30 @@ export default function DashboardBranchManager() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<BranchStats | null>(null);
   const [userName, setUserName] = useState('');
+  const [delayedCount, setDelayedCount] = useState<number>(0);
+  const [delayedOpen, setDelayedOpen] = useState(false);
 
   useEffect(() => {
     loadData();
+    loadDelayedCount();
     const user = localStorage.getItem('user');
     if (user) {
       const parsed = JSON.parse(user);
       setUserName(parsed.name?.split(' ')[0] || 'Gerente');
     }
+    const iv = setInterval(loadDelayedCount, 60000);
+    return () => clearInterval(iv);
   }, []);
+
+  const loadDelayedCount = async () => {
+    try {
+      const res = await api.get('/admin/customer-service/delayed-packages');
+      const list = res.data?.packages || [];
+      setDelayedCount(list.length);
+    } catch (err) {
+      console.error('Error loading delayed count:', err);
+    }
+  };
 
   const loadData = async () => {
     setLoading(true);
@@ -220,22 +241,62 @@ export default function DashboardBranchManager() {
           </Paper>
         </Grid>
 
-        {/* Por Cobrar */}
+        {/* Guías con Retraso (click para ver detalles) */}
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Paper sx={{ p: 3, height: '100%', background: 'linear-gradient(135deg, #C62828 0%, #EF5350 100%)', color: 'white' }}>
+          <Paper
+            onClick={() => setDelayedOpen(true)}
+            sx={{
+              p: 3,
+              height: '100%',
+              background: delayedCount > 0
+                ? 'linear-gradient(135deg, #C62828 0%, #EF5350 100%)'
+                : 'linear-gradient(135deg, #616161 0%, #9E9E9E 100%)',
+              color: 'white',
+              cursor: 'pointer',
+              transition: 'transform 0.2s, box-shadow 0.2s',
+              '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 },
+            }}
+          >
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <Box>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>Pendiente Cobro</Typography>
-                <Typography variant="h3" fontWeight="bold">{stats?.paquetes.pendientes_cobro || 0}</Typography>
-                <Typography variant="caption">paquetes</Typography>
+                <Typography variant="body2" sx={{ opacity: 0.9 }}>Guías con Retraso</Typography>
+                <Typography variant="h3" fontWeight="bold">{delayedCount}</Typography>
+                <Typography variant="caption">
+                  {delayedCount === 0 ? 'sin retrasos' : delayedCount === 1 ? 'paquete retrasado' : 'paquetes retrasados'}
+                </Typography>
               </Box>
               <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                <ScheduleIcon />
+                <LocalShippingIcon />
               </Avatar>
             </Box>
+            <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.85, fontSize: '0.7rem' }}>
+              Click para ver detalles →
+            </Typography>
           </Paper>
         </Grid>
       </Grid>
+
+      {/* Modal: Detalle de Guías con Retraso */}
+      <Dialog
+        open={delayedOpen}
+        onClose={() => setDelayedOpen(false)}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 2, minHeight: '70vh' } }}
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#F05A28', color: 'white' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <LocalShippingIcon />
+            <Typography variant="h6" fontWeight={700}>Guías con Retraso</Typography>
+          </Box>
+          <IconButton onClick={() => setDelayedOpen(false)} sx={{ color: 'white' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          <DelayedPackagesPage />
+        </DialogContent>
+      </Dialog>
 
       {/* Resumen Operativo y Accesos Rápidos */}
       <Grid container spacing={3}>
