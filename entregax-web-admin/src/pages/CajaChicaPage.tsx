@@ -60,6 +60,8 @@ import {
   ExpandLess as ExpandLessIcon,
   Person as PersonIcon,
   CheckCircle as CheckCircleIcon,
+  PictureAsPdf as PictureAsPdfIcon,
+  WhatsApp as WhatsAppIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -146,6 +148,9 @@ interface ConsolidacionPendiente {
     tracking: string;
     description: string;
     weight: number;
+    pkg_length?: number;
+    pkg_width?: number;
+    pkg_height?: number;
     pobox_service_cost: number;
     pobox_cost_usd: number;
     costing_paid: boolean;
@@ -305,6 +310,163 @@ const CajaChicaPage: React.FC = () => {
     setPagoConsolidacionRef('');
     setPagoConsolidacionNotas('');
     setPagoConsolidacionDialogOpen(true);
+  };
+
+  // ====== Reporte: solo paquetes que SÍ se pagan (no missing, no lost, no pagados) ======
+  const getReporteRows = () => {
+    const rows: Array<{
+      consolidacion_id: number;
+      supplier_name: string;
+      tracking: string;
+      client: string;
+      description: string;
+      weight: number;
+      dims: string;
+      usd: number;
+      tc: number;
+      mxn: number;
+      status: string;
+    }> = [];
+    let totalUsd = 0;
+    let totalMxn = 0;
+    consolidacionesPendientes.forEach((c) => {
+      (c.packages || []).forEach((p) => {
+        if (p.missing_on_arrival || p.is_lost || p.costing_paid) return;
+        const usd = Number(p.pobox_cost_usd || 0);
+        const mxn = Number(p.pobox_service_cost || 0);
+        const tc = usd > 0 ? mxn / usd : 0;
+        const dims = p.pkg_length && p.pkg_width && p.pkg_height
+          ? `${Number(p.pkg_length)}×${Number(p.pkg_width)}×${Number(p.pkg_height)} cm`
+          : '—';
+        rows.push({
+          consolidacion_id: c.id,
+          supplier_name: c.supplier_name,
+          tracking: p.tracking,
+          client: `${p.client_name || '—'} (${p.client_box_id || 'N/A'})`,
+          description: p.description || '—',
+          weight: Number(p.weight || 0),
+          dims,
+          usd,
+          tc,
+          mxn,
+          status: p.status || '—',
+        });
+        totalUsd += usd;
+        totalMxn += mxn;
+      });
+    });
+    return { rows, totalUsd, totalMxn };
+  };
+
+  // Generar PDF imprimible (HTML → window.print → guardar como PDF)
+  const handleGenerarPDF = () => {
+    const { rows, totalUsd, totalMxn } = getReporteRows();
+    if (rows.length === 0) {
+      setSnackbar({ open: true, message: 'No hay guías pagables para reportar', severity: 'info' });
+      return;
+    }
+    const fecha = new Date().toLocaleString('es-MX');
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><title>Reporte Pagos Proveedor</title>
+<style>
+  @page { size: letter landscape; margin: 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: Arial, sans-serif; font-size: 10px; color: #222; margin: 0; }
+  h1 { font-size: 16px; margin: 0 0 4px 0; color: #C1272D; }
+  .sub { color: #666; font-size: 10px; margin-bottom: 10px; }
+  table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  th { background: #1a1a1a; color: #fff; padding: 6px 4px; text-align: left; font-size: 9px; }
+  td { padding: 5px 4px; border-bottom: 1px solid #ddd; font-size: 9px; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tr.group { background: #fff3ea; font-weight: 700; }
+  .totals { margin-top: 12px; border: 2px solid #C1272D; padding: 8px 12px; display: flex; justify-content: space-between; }
+  .totals .big { font-size: 14px; font-weight: 900; color: #C1272D; }
+  .footer { margin-top: 12px; font-size: 9px; color: #999; text-align: center; }
+</style></head><body>
+<h1>🚚 EntregaX · Reporte de Pagos a Proveedores</h1>
+<div class="sub">Generado: ${fecha} · Incluye SOLO guías recibidas en MTY (pendientes de pago). No incluye faltantes ni perdidas.</div>
+<table>
+  <thead>
+    <tr>
+      <th>Consolidación</th>
+      <th>Proveedor</th>
+      <th>Guía</th>
+      <th>Cliente</th>
+      <th>Descripción</th>
+      <th class="num">Peso (lb)</th>
+      <th>Medidas</th>
+      <th class="num">USD</th>
+      <th class="num">TC</th>
+      <th class="num">MXN</th>
+      <th>Status</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${rows.map(r => `
+      <tr>
+        <td>#${r.consolidacion_id}</td>
+        <td>${r.supplier_name || '—'}</td>
+        <td style="font-family:monospace;font-weight:600">${r.tracking}</td>
+        <td>${r.client}</td>
+        <td>${r.description}</td>
+        <td class="num">${r.weight.toFixed(2)}</td>
+        <td>${r.dims}</td>
+        <td class="num">$${r.usd.toFixed(2)}</td>
+        <td class="num">${r.tc.toFixed(2)}</td>
+        <td class="num">$${r.mxn.toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
+        <td>${r.status}</td>
+      </tr>`).join('')}
+  </tbody>
+</table>
+<div class="totals">
+  <div>Total guías a pagar: <strong>${rows.length}</strong></div>
+  <div>Total USD: <span class="big">$${totalUsd.toFixed(2)}</span></div>
+  <div>Total MXN a pagar: <span class="big">$${totalMxn.toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2})}</span></div>
+</div>
+<div class="footer">Las guías faltantes o perdidas NO se incluyen en el total hasta que lleguen a CEDIS MTY.</div>
+<script>window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 300); });</script>
+</body></html>`;
+    const w = window.open('', '_blank', 'width=1200,height=800');
+    if (!w) {
+      setSnackbar({ open: true, message: 'Permite ventanas emergentes para generar el PDF', severity: 'error' });
+      return;
+    }
+    w.document.write(html);
+    w.document.close();
+  };
+
+  // Enviar reporte por WhatsApp (texto resumen, abre wa.me)
+  const handleEnviarWhatsApp = () => {
+    const { rows, totalUsd, totalMxn } = getReporteRows();
+    if (rows.length === 0) {
+      setSnackbar({ open: true, message: 'No hay guías pagables para enviar', severity: 'info' });
+      return;
+    }
+    const fecha = new Date().toLocaleDateString('es-MX');
+    // Agrupar por consolidación para mensaje más compacto
+    const byCons = new Map<number, typeof rows>();
+    rows.forEach(r => {
+      const arr = byCons.get(r.consolidacion_id) || [];
+      arr.push(r);
+      byCons.set(r.consolidacion_id, arr);
+    });
+    let msg = `*🚚 EntregaX · Pagos a Proveedor*\n`;
+    msg += `_Fecha:_ ${fecha}\n\n`;
+    byCons.forEach((items, consId) => {
+      const supplier = items[0]?.supplier_name || '—';
+      msg += `*Consolidación #${consId}* — ${supplier}\n`;
+      items.forEach(r => {
+        msg += `• \`${r.tracking}\` · ${r.weight.toFixed(1)}lb · $${r.usd.toFixed(2)} USD · $${r.mxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})} MXN\n`;
+      });
+      msg += `\n`;
+    });
+    msg += `━━━━━━━━━━━━━━━━\n`;
+    msg += `*Total guías:* ${rows.length}\n`;
+    msg += `*Total USD:* $${totalUsd.toFixed(2)}\n`;
+    msg += `*Total MXN a pagar:* $${totalMxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}\n\n`;
+    msg += `_No incluye guías faltantes ni perdidas._`;
+    const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+    window.open(url, '_blank');
   };
 
   // Confirmar pago de consolidación a proveedor
@@ -1323,7 +1485,27 @@ const CajaChicaPage: React.FC = () => {
             </Box>
           )}
         </DialogContent>
-        <DialogActions sx={{ p: 2 }}>
+        <DialogActions sx={{ p: 2, gap: 1, justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<PictureAsPdfIcon />}
+              onClick={handleGenerarPDF}
+              disabled={consolidacionesPendientes.length === 0}
+            >
+              Descargar PDF
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<WhatsAppIcon />}
+              onClick={handleEnviarWhatsApp}
+              disabled={consolidacionesPendientes.length === 0}
+              sx={{ color: '#25D366', borderColor: '#25D366', '&:hover': { borderColor: '#1ebd5a', bgcolor: 'rgba(37,211,102,0.08)' } }}
+            >
+              Enviar por WhatsApp
+            </Button>
+          </Box>
           <Button onClick={() => setPagoProveedorDialogOpen(false)}>
             Cerrar
           </Button>
