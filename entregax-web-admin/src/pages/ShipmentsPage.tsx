@@ -1282,25 +1282,26 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         .label { 
           width: 4in; 
           height: 6in; 
-          padding: 0.25in; 
+          padding: 0.18in; 
           border: 2px solid #000; 
           display: flex; 
           flex-direction: column; 
           margin: 0 auto; 
           position: relative;
+          overflow: hidden;
         }
         .header { 
           display: flex; 
           justify-content: space-between; 
           align-items: center; 
-          margin-bottom: 8px;
+          margin-bottom: 2px;
         }
-        .logo { font-size: 20px; font-weight: bold; color: #F05A28; }
+        .logo { font-size: 18px; font-weight: bold; color: #F05A28; }
         .date-badge { 
           background: #111; 
           color: white; 
-          padding: 4px 10px; 
-          font-size: 12px; 
+          padding: 2px 8px; 
+          font-size: 10px; 
           font-weight: bold; 
           border-radius: 4px;
         }
@@ -1308,34 +1309,34 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           background: #F05A28; 
           color: white; 
           text-align: center; 
-          padding: 5px; 
+          padding: 3px; 
           font-weight: bold; 
-          font-size: 14px;
-          margin-bottom: 8px; 
+          font-size: 12px;
+          margin-bottom: 3px; 
         }
         .destination-big {
           text-align: center;
-          font-size: 48px;
+          font-size: 32px;
           font-weight: 900;
           color: #111;
-          letter-spacing: 4px;
+          letter-spacing: 3px;
           background: #f0f0f0;
-          padding: 8px;
-          margin-bottom: 10px;
-          border: 3px solid #111;
+          padding: 4px;
+          margin-bottom: 4px;
+          border: 2px solid #111;
         }
-        .tracking-main { text-align: center; margin: 8px 0; }
-        .tracking-code { font-size: 22px; font-weight: bold; letter-spacing: 1px; }
+        .tracking-main { text-align: center; margin: 3px 0; }
+        .tracking-code { font-size: 18px; font-weight: bold; letter-spacing: 1px; }
         .box-indicator { 
-          font-size: 16px; 
+          font-size: 12px; 
           background: #111; 
           color: white; 
-          padding: 4px 12px; 
-          border-radius: 15px; 
+          padding: 2px 10px; 
+          border-radius: 12px; 
           display: inline-block; 
-          margin-top: 6px; 
+          margin-top: 3px; 
         }
-        .master-ref { text-align: center; font-size: 11px; color: #666; margin: 4px 0; }
+        .master-ref { text-align: center; font-size: 10px; color: #666; margin: 2px 0; }
         
         /* CONTENEDOR DE CÓDIGOS */
         .codes-container {
@@ -1343,69 +1344,69 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           flex-direction: column;
           justify-content: center;
           align-items: center;
-          gap: 10px;
-          margin: 10px 0;
-          padding: 8px;
+          gap: 4px;
+          margin: 4px 0;
+          padding: 4px;
           background: #fafafa;
-          border-radius: 8px;
+          border-radius: 6px;
         }
         .qr-section {
           display: flex;
           align-items: center;
           justify-content: center;
         }
-        .qr-section svg { width: 150px; height: 150px; }
+        .qr-section svg { width: 80px !important; height: 80px !important; }
         .barcode-section {
           width: 100%;
           text-align: center;
         }
-        .barcode-section svg { width: 100%; max-width: 320px; height: 80px; }
+        .barcode-section svg { width: 100%; max-width: 320px; height: 70px; }
         
-        .divider { border-top: 2px dashed #ccc; margin: 10px 0; }
+        .divider { border-top: 2px dashed #ccc; margin: 4px 0; }
         
-        .client-info { text-align: center; margin: 8px 0; }
+        .client-info { text-align: center; margin: 3px 0; }
         .client-box { 
-          font-size: 28px; 
+          font-size: 24px; 
           color: #F05A28; 
           font-weight: 900; 
           letter-spacing: 2px;
+          line-height: 1;
         }
-        .client-name { font-size: 16px; font-weight: bold; margin-top: 4px; }
+        .client-name { font-size: 14px; font-weight: bold; margin-top: 2px; }
         
         .details { 
           text-align: center; 
-          font-size: 13px; 
-          margin: 8px 0; 
+          font-size: 11px; 
+          margin: 3px 0; 
           display: flex; 
           justify-content: center; 
-          gap: 15px;
+          gap: 8px;
           flex-wrap: wrap;
         }
         .detail-item {
           background: #f5f5f5;
-          padding: 3px 8px;
+          padding: 2px 6px;
           border-radius: 4px;
         }
         .description { 
           text-align: center; 
-          font-size: 12px; 
+          font-size: 10px; 
           color: #666; 
-          flex-grow: 1;
-          margin-top: 5px;
+          margin-top: 2px;
         }
         .footer { 
           text-align: center; 
-          font-size: 9px; 
+          font-size: 7px; 
           color: #999; 
           border-top: 1px solid #eee; 
-          padding-top: 5px;
+          padding-top: 2px;
           margin-top: auto;
         }
         
         @page { size: 4in 6in; margin: 0; }
         @media print {
           body { margin: 0; padding: 0; }
-          .label { border: none; page-break-inside: avoid; }
+          .label { border: none; page-break-inside: avoid; overflow: hidden; }
         }
       </style>
       <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
@@ -1421,7 +1422,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
             var qr = qrcode(0, 'M');
             qr.addData('https://app.entregax.com/track/${label.tracking}');
             qr.make();
-            document.getElementById('qr-${i}').innerHTML = qr.createSvgTag({ cellSize: 5, margin: 0 });
+            document.getElementById('qr-${i}').innerHTML = qr.createSvgTag({ cellSize: 2, margin: 0 });
           })();
         `).join('')}
         
