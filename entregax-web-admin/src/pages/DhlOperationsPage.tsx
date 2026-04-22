@@ -4,6 +4,7 @@
 // ============================================
 
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import useModulePermissions from '../hooks/useModulePermissions';
 import {
   Box,
@@ -55,6 +56,7 @@ import {
   Pending as PendingIcon,
   AccessTime as TimeIcon,
   Lock as LockIcon,
+  ArrowBack as ArrowBackIcon,
 } from '@mui/icons-material';
 import DhlReceptionWizard from './DhlReceptionWizard';
 import axios from 'axios';
@@ -115,6 +117,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
 const CEDIS_MODULES = ['reception', 'storage', 'picking', 'packing', 'dispatch', 'transfers', 'scanning', 'inventory_count'];
 
 export default function DhlOperationsPage() {
+  const navigate = useNavigate();
   const { allowedModules, loading: permLoading, canEdit } = useModulePermissions('ops_mx_cedis', CEDIS_MODULES);
   const [tabValue, setTabValue] = useState(0);
   const [shipments, setShipments] = useState<DhlShipment[]>([]);
@@ -340,6 +343,9 @@ export default function DhlOperationsPage() {
       {/* Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <IconButton onClick={() => navigate(-1)} sx={{ mr: 1 }} aria-label="Atrás">
+            <ArrowBackIcon />
+          </IconButton>
           <DhlIcon sx={{ fontSize: 40, color: DHL_COLOR, mr: 2 }} />
           <Box>
             <Typography variant="h4" fontWeight="bold">

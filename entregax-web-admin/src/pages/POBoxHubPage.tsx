@@ -88,6 +88,7 @@ import OutboundControlPage from './OutboundControlPage';
 import POBoxCajaPage from './POBoxCajaPage';
 import POBoxQuoterPage from './POBoxQuoterPage';
 import RepackPage from './RepackPage';
+import POBoxConsolidationReceptionWizard from './POBoxConsolidationReceptionWizard';
 
 // Interfaces para cotización
 interface CotizacionResultado {
@@ -176,7 +177,7 @@ const PAQUETERIAS = [
 
 const ORANGE = '#F05A28';
 
-const POBOX_MODULES = ['receive', 'entry', 'exit', 'collect', 'quote', 'repack', 'inventory'];
+const POBOX_MODULES = ['receive', 'receive_consolidation', 'entry', 'exit', 'collect', 'quote', 'repack', 'inventory'];
 
 // Definición de las opciones del menú - ORDEN: Recibir, Entrada, Salida, Cobrar, Cotizar, Reempaque, Inventario
 const POBOX_MENU_OPTIONS = [
@@ -187,6 +188,14 @@ const POBOX_MENU_OPTIONS = [
         bgGradient: 'linear-gradient(135deg, #388E3C 0%, #66BB6A 100%)',
         bgColor: '#e8f5e9',
         iconColor: '#4CAF50',
+    },
+    {
+        id: 'receive_consolidation',
+        icon: <AllInboxIcon sx={{ fontSize: 48 }} />,
+        color: '#F05A28',
+        bgGradient: 'linear-gradient(135deg, #D84315 0%, #FF7043 100%)',
+        bgColor: '#fff3e0',
+        iconColor: '#F05A28',
     },
     {
         id: 'entry',
@@ -881,6 +890,9 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             case 'receive':
                 // Recibir paquetería - Wizard de recepción
                 return <ShipmentsPage users={users} warehouseLocation="usa_pobox" />;
+            case 'receive_consolidation':
+                // Recepción de consolidaciones en MTY (escaneo y validación de faltantes)
+                return <POBoxConsolidationReceptionWizard onBack={handleBackToMenu} />;
             case 'entry':
                 // Entrada - Abre directamente el wizard de recepción
                 return <ShipmentsPage users={users} warehouseLocation="usa_pobox" openWizardOnMount={true} />;
@@ -2007,6 +2019,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
 function getDefaultTitle(id: string): string {
     const titles: Record<string, string> = {
         receive: 'Recibir Paquetería',
+        receive_consolidation: 'Recibir Consolidación',
         entry: 'Entrada',
         exit: 'Salida',
         collect: 'Cobrar',
@@ -2020,6 +2033,7 @@ function getDefaultTitle(id: string): string {
 function getDefaultDescription(id: string): string {
     const descriptions: Record<string, string> = {
         receive: 'Recepción en serie - Bodega Hidalgo TX',
+        receive_consolidation: 'Escanear y validar consolidaciones que llegan a MTY',
         entry: 'Ver paquetes recibidos en bodega',
         exit: 'Procesar consolidaciones y despachos',
         collect: 'Gestionar cobros y pagos pendientes',

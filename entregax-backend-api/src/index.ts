@@ -848,6 +848,13 @@ import {
   getPoboxPaymentHistory
 } from './poboxPaymentController';
 import {
+  listInTransitConsolidations,
+  getConsolidationPackages,
+  receiveConsolidation,
+  getDelayedPackages,
+  markPackageAsFound,
+} from './poboxConsolidationController';
+import {
   uploadVoucher, confirmVoucherAmount, completeVoucherPayment,
   getOrderVouchers, deleteVoucher,
   getAdminPendingVouchers, getAdminOrderVouchers, approveVoucher, rejectVoucher,
@@ -2696,6 +2703,13 @@ app.get('/api/pobox/payment/status/:paymentId', authenticateToken, getPoboxPayme
 app.post('/api/pobox/payment/cash/confirm', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), confirmPoboxCashPayment); // Admin confirma pago efectivo
 app.get('/api/pobox/payment/history', authenticateToken, getPoboxPaymentHistory); // Historial del cliente
 app.get('/api/admin/pobox/payments/pending', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getPoboxPendingPayments); // Admin: Pagos pendientes
+
+// --- RUTAS DE RECEPCIÓN DE CONSOLIDACIONES PO BOX (MTY) ---
+app.get('/api/admin/pobox/consolidations/in-transit', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), listInTransitConsolidations);
+app.get('/api/admin/pobox/consolidations/:id/packages', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getConsolidationPackages);
+app.post('/api/admin/pobox/consolidations/:id/receive', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), receiveConsolidation);
+app.post('/api/admin/pobox/packages/:id/mark-found', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), markPackageAsFound);
+app.get('/api/admin/customer-service/delayed-packages', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getDelayedPackages);
 app.post('/webhooks/pobox/openpay', handlePoboxOpenpayWebhook); // Webhook OpenPay (sin auth)
 app.get('/webhooks/pobox/openpay/callback', handlePoboxOpenpayCallback); // Callback después de pago (sin auth)
 

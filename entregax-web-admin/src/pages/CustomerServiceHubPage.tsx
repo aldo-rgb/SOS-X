@@ -14,12 +14,14 @@ import WhatshotIcon from '@mui/icons-material/Whatshot';
 import PersonSearchIcon from '@mui/icons-material/PersonSearch';
 import HeadsetMicIcon from '@mui/icons-material/HeadsetMic';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
+import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 
 // Importar las páginas individuales
 import UnifiedLeadsPage from './UnifiedLeadsPage';
 import CRMClientsPage from './CRMClientsPage';
 import SupportBoardPage from './SupportBoardPage';
 import CarteraVencidaPage from './CarteraVencidaPage';
+import DelayedPackagesPage from './DelayedPackagesPage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -29,6 +31,7 @@ const TOOL_PERMISSIONS: Record<string, string> = {
   'clients': 'cs_clients',
   'support': 'cs_support',
   'cartera': 'cs_cartera', // Este panel podría no existir aún, usamos cs_clients como fallback
+  'delayed': 'cs_support', // Usa el mismo permiso que soporte
 };
 
 interface User {
@@ -45,7 +48,7 @@ interface CustomerServiceHubPageProps {
   onRefresh: () => void;
 }
 
-type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera';
+type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed';
 
 export default function CustomerServiceHubPage({ users: _users, loading: _loading, onRefresh: _onRefresh }: CustomerServiceHubPageProps) {
   const { t } = useTranslation();
@@ -57,7 +60,8 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
     atRiskClients: number;
     openTickets: number;
     escalatedTickets: number;
-  }>({ pendingLeads: 0, activeClients: 0, atRiskClients: 0, openTickets: 0, escalatedTickets: 0 });
+    delayedPackages: number;
+  }>({ pendingLeads: 0, activeClients: 0, atRiskClients: 0, openTickets: 0, escalatedTickets: 0, delayedPackages: 0 });
 
   const token = localStorage.getItem('token');
   const savedUser = localStorage.getItem('user');
@@ -130,8 +134,19 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
         }
 
         if (!cancelled) {
-          setHubStats({ pendingLeads, activeClients, atRiskClients, openTickets, escalatedTickets });
+          setHubStats({ pendingLeads, activeClients, atRiskClients, openTickets, escalatedTickets, delayedPackages: 0 });
         }
+
+        // Cargar paquetes con retraso
+        try {
+          const delayedRes = await fetch(`${API_URL}/api/admin/customer-service/delayed-packages`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (delayedRes.ok && !cancelled) {
+            const delayedData = await delayedRes.json();
+            setHubStats((prev) => ({ ...prev, delayedPackages: (delayedData.packages || []).length }));
+          }
+        } catch {}
       } catch (err) {
         console.error('Error loading hub stats:', err);
       }
@@ -182,6 +197,14 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
       icon: <AccountBalanceWalletIcon sx={{ fontSize: 40 }} />,
       color: '#EF4444',
       bgColor: 'rgba(239, 68, 68, 0.1)',
+    },
+    {
+      key: 'delayed',
+      title: t('customerService.delayed.title', 'Guías con Retraso'),
+      description: t('customerService.delayed.description', 'Paquetes cuya consolidación llegó a MTY sin ellos'),
+      icon: <LocalShippingIcon sx={{ fontSize: 40 }} />,
+      color: '#F05A28',
+      bgColor: 'rgba(240, 90, 40, 0.1)',
     },
   ];
 
@@ -250,6 +273,22 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
     );
   }
 
+  if (activeView === 'delayed') {
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <IconButton onClick={() => setActiveView('hub')} sx={{ bgcolor: 'rgba(0,0,0,0.05)' }}>
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight={700}>
+            {t('customerService.delayed.title', 'Guías con Retraso')}
+          </Typography>
+        </Box>
+        <DelayedPackagesPage />
+      </Box>
+    );
+  }
+
   // Hub principal
   // Filtrar herramientas según permisos
   const filteredTools = serviceTools.filter(tool => hasPermission(tool.key));
@@ -292,6 +331,7 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           const badgeCount = tool.key === 'leads' ? hubStats.pendingLeads
             : tool.key === 'support' ? hubStats.escalatedTickets
             : tool.key === 'clients' ? hubStats.atRiskClients
+            : tool.key === 'delayed' ? hubStats.delayedPackages
             : 0;
           return (
             <Paper
