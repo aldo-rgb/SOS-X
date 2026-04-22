@@ -853,6 +853,7 @@ import {
   receiveConsolidation,
   getDelayedPackages,
   markPackageAsFound,
+  markPackageAsLost,
 } from './poboxConsolidationController';
 import {
   uploadVoucher, confirmVoucherAmount, completeVoucherPayment,
@@ -2709,6 +2710,7 @@ app.get('/api/admin/pobox/consolidations/in-transit', authenticateToken, require
 app.get('/api/admin/pobox/consolidations/:id/packages', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getConsolidationPackages);
 app.post('/api/admin/pobox/consolidations/:id/receive', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), receiveConsolidation);
 app.post('/api/admin/pobox/packages/:id/mark-found', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), markPackageAsFound);
+app.post('/api/admin/pobox/packages/:id/mark-lost', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), markPackageAsLost);
 app.get('/api/admin/customer-service/delayed-packages', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getDelayedPackages);
 app.post('/webhooks/pobox/openpay', handlePoboxOpenpayWebhook); // Webhook OpenPay (sin auth)
 app.get('/webhooks/pobox/openpay/callback', handlePoboxOpenpayCallback); // Callback después de pago (sin auth)

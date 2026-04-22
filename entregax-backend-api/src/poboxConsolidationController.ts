@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import bcrypt from 'bcrypt';
 import { pool } from './db';
 
 interface AuthRequest extends Request {
@@ -262,6 +263,7 @@ export const getDelayedPackages = async (_req: AuthRequest, res: Response): Prom
        LEFT JOIN consolidations c ON c.id = p.consolidation_id
        LEFT JOIN users u ON u.id = p.user_id
        WHERE p.missing_on_arrival = TRUE
+         AND COALESCE(p.is_lost, FALSE) = FALSE
          AND p.status NOT IN ('delivered', 'ready_pickup')
        ORDER BY p.missing_reported_at ASC NULLS LAST`
     );
@@ -311,5 +313,90 @@ export const markPackageAsFound = async (req: AuthRequest, res: Response): Promi
   } catch (error: any) {
     console.error('markPackageAsFound:', error);
     res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * POST /api/admin/pobox/packages/:id/mark-lost
+ * Marca un paquete como PERDIDO.
+ * Requiere: rol de servicio a cliente o superior + verificación de contraseña del usuario actual.
+ * Body: { password: string, reason: string }
+ */
+export const markPackageAsLost = async (req: AuthRequest, res: Response): Promise<any> => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    const { password, reason } = req.body as { password?: string; reason?: string };
+    const userId = req.user?.userId || req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'No autenticado' });
+    }
+    if (!password || !reason || !reason.trim()) {
+      return res.status(400).json({ success: false, error: 'Detalles del incidente y contraseña son obligatorios' });
+    }
+
+    // Verificar rol con permisos suficientes (CS, gerente, admin, director, super_admin)
+    const allowedRoles = ['customer_service', 'branch_manager', 'admin', 'director', 'super_admin'];
+    const userRow = await client.query(
+      `SELECT id, password, role, full_name FROM users WHERE id = $1`,
+      [userId]
+    );
+    if (userRow.rows.length === 0) {
+      return res.status(401).json({ success: false, error: 'Usuario no encontrado' });
+    }
+    const currentUser = userRow.rows[0];
+    if (!allowedRoles.includes(currentUser.role)) {
+      return res.status(403).json({ success: false, error: 'No tienes permisos de Servicio a Cliente para realizar esta acción' });
+    }
+
+    // Verificar contraseña
+    const passwordValid = await bcrypt.compare(password, currentUser.password);
+    if (!passwordValid) {
+      return res.status(401).json({ success: false, error: 'Contraseña incorrecta' });
+    }
+
+    // Verificar que el paquete existe y está marcado como faltante
+    const pkgRow = await client.query(
+      `SELECT id, tracking_internal, missing_on_arrival, is_lost FROM packages WHERE id = $1`,
+      [id]
+    );
+    if (pkgRow.rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Paquete no encontrado' });
+    }
+    if (pkgRow.rows[0].is_lost) {
+      return res.status(400).json({ success: false, error: 'El paquete ya está marcado como perdido' });
+    }
+
+    await client.query('BEGIN');
+
+    await client.query(
+      `UPDATE packages
+         SET is_lost = TRUE,
+             lost_at = NOW(),
+             lost_by_user_id = $1,
+             lost_reason = $2,
+             status = 'lost',
+             updated_at = NOW()
+       WHERE id = $3`,
+      [userId, reason.trim(), id]
+    );
+
+    await client.query('COMMIT');
+
+    console.log(`📦❌ Paquete ${pkgRow.rows[0].tracking_internal} (id=${id}) marcado como PERDIDO por ${currentUser.full_name} (${currentUser.role}). Motivo: ${reason.trim()}`);
+
+    res.json({
+      success: true,
+      message: 'Paquete marcado como perdido',
+      tracking: pkgRow.rows[0].tracking_internal,
+      marked_by: currentUser.full_name,
+    });
+  } catch (error: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('markPackageAsLost:', error);
+    res.status(500).json({ success: false, error: error.message });
+  } finally {
+    client.release();
   }
 };

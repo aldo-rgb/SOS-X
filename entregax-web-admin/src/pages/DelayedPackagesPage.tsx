@@ -21,15 +21,13 @@ import {
     DialogContentText,
     DialogActions,
     IconButton,
-    Tooltip,
 } from '@mui/material';
 import {
     Search as SearchIcon,
     Refresh as RefreshIcon,
     CheckCircle as CheckCircleIcon,
     Warning as WarningIcon,
-    Phone as PhoneIcon,
-    Email as EmailIcon,
+    ReportProblem as ReportProblemIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -57,7 +55,11 @@ export default function DelayedPackagesPage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [search, setSearch] = useState('');
-    const [confirmFound, setConfirmFound] = useState<DelayedPackage | null>(null);
+    const [lostTarget, setLostTarget] = useState<DelayedPackage | null>(null);
+    const [lostReason, setLostReason] = useState('');
+    const [lostPassword, setLostPassword] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
     const load = async () => {
         setLoading(true);
@@ -76,13 +78,44 @@ export default function DelayedPackagesPage() {
         load();
     }, []);
 
-    const markFound = async (pkg: DelayedPackage) => {
+    const openLostModal = (pkg: DelayedPackage) => {
+        setLostTarget(pkg);
+        setLostReason('');
+        setLostPassword('');
+        setError(null);
+    };
+
+    const closeLostModal = () => {
+        if (submitting) return;
+        setLostTarget(null);
+        setLostReason('');
+        setLostPassword('');
+    };
+
+    const confirmMarkLost = async () => {
+        if (!lostTarget) return;
+        if (!lostReason.trim() || !lostPassword) {
+            setError('Debes escribir los detalles del incidente y tu contraseña');
+            return;
+        }
+        setSubmitting(true);
+        setError(null);
         try {
-            await api.post(`/admin/pobox/packages/${pkg.id}/mark-found`);
-            setConfirmFound(null);
+            const res = await api.post(`/admin/pobox/packages/${lostTarget.id}/mark-lost`, {
+                reason: lostReason.trim(),
+                password: lostPassword,
+            });
+            setSuccessMsg(
+                `Paquete ${res.data.tracking || lostTarget.tracking_internal} marcado como perdido por ${res.data.marked_by || 'el usuario'}`
+            );
+            setLostTarget(null);
+            setLostReason('');
+            setLostPassword('');
             load();
         } catch (e: any) {
-            setError(e.response?.data?.error || e.message);
+            setError(e.response?.data?.error || e.message || 'Error al marcar como perdido');
+        } finally {
+            setSubmitting(false);
         }
     };
 
@@ -124,6 +157,7 @@ export default function DelayedPackagesPage() {
             </Stack>
 
             {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
+            {successMsg && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccessMsg(null)}>{successMsg}</Alert>}
 
             <TextField
                 fullWidth
@@ -165,7 +199,6 @@ export default function DelayedPackagesPage() {
                                 <TableCell>Consolidación</TableCell>
                                 <TableCell>Reportado</TableCell>
                                 <TableCell>Días de retraso</TableCell>
-                                <TableCell>Contacto</TableCell>
                                 <TableCell align="right">Acciones</TableCell>
                             </TableRow>
                         </TableHead>
@@ -216,33 +249,15 @@ export default function DelayedPackagesPage() {
                                                 />
                                             ) : '—'}
                                         </TableCell>
-                                        <TableCell>
-                                            <Stack direction="row" spacing={0.5}>
-                                                {p.user_phone && (
-                                                    <Tooltip title={p.user_phone}>
-                                                        <IconButton size="small" href={`tel:${p.user_phone}`}>
-                                                            <PhoneIcon fontSize="small" />
-                                                        </IconButton>
-                                                    </Tooltip>
-                                                )}
-                                                {p.user_email && (
-                                                    <Tooltip title={p.user_email}>
-                                                        <IconButton size="small" href={`mailto:${p.user_email}`}>
-                                                            <EmailIcon fontSize="small" />
-                                                        </IconButton>
-                                                    </Tooltip>
-                                                )}
-                                            </Stack>
-                                        </TableCell>
                                         <TableCell align="right">
                                             <Button
                                                 size="small"
                                                 variant="outlined"
-                                                color="success"
-                                                startIcon={<CheckCircleIcon />}
-                                                onClick={() => setConfirmFound(p)}
+                                                color="error"
+                                                startIcon={<ReportProblemIcon />}
+                                                onClick={() => openLostModal(p)}
                                             >
-                                                Marcar encontrado
+                                                Marcar como perdido
                                             </Button>
                                         </TableCell>
                                     </TableRow>
@@ -253,18 +268,58 @@ export default function DelayedPackagesPage() {
                 </Paper>
             )}
 
-            <Dialog open={!!confirmFound} onClose={() => setConfirmFound(null)}>
-                <DialogTitle>Marcar paquete como encontrado</DialogTitle>
-                <DialogContent>
-                    <DialogContentText>
-                        ¿Confirmas que el paquete <strong>{confirmFound?.tracking_internal}</strong> ya llegó a MTY?
-                        Se marcará como recibido y se eliminará de esta lista.
+            {/* Modal: Marcar como perdido */}
+            <Dialog open={!!lostTarget} onClose={closeLostModal} maxWidth="sm" fullWidth>
+                <DialogTitle sx={{ bgcolor: '#C62828', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <ReportProblemIcon />
+                    Marcar paquete como PERDIDO
+                </DialogTitle>
+                <DialogContent sx={{ pt: 3 }}>
+                    <DialogContentText sx={{ mb: 2 }}>
+                        Estás por marcar el paquete <strong>{lostTarget?.tracking_internal}</strong>
+                        {lostTarget?.user_name && <> del cliente <strong>{lostTarget.user_name}</strong></>} como <strong style={{ color: '#C62828' }}>PERDIDO</strong>.
+                        Esta acción quedará registrada con tu usuario.
                     </DialogContentText>
+
+                    <TextField
+                        fullWidth
+                        multiline
+                        rows={3}
+                        label="Detalles del incidente *"
+                        placeholder="Describe qué pasó, qué investigación se hizo, etc."
+                        value={lostReason}
+                        onChange={(e) => setLostReason(e.target.value)}
+                        sx={{ mb: 2 }}
+                        disabled={submitting}
+                    />
+
+                    <TextField
+                        fullWidth
+                        type="password"
+                        label="Tu contraseña de usuario *"
+                        placeholder="Ingresa tu contraseña para confirmar"
+                        value={lostPassword}
+                        onChange={(e) => setLostPassword(e.target.value)}
+                        disabled={submitting}
+                        autoComplete="current-password"
+                    />
+
+                    {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
+
+                    <Alert severity="warning" sx={{ mt: 2 }}>
+                        Solo usuarios con permisos de Servicio a Cliente (o superior) pueden realizar esta acción.
+                    </Alert>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setConfirmFound(null)}>Cancelar</Button>
-                    <Button variant="contained" color="success" onClick={() => confirmFound && markFound(confirmFound)}>
-                        Confirmar
+                    <Button onClick={closeLostModal} disabled={submitting}>Cancelar</Button>
+                    <Button
+                        variant="contained"
+                        color="error"
+                        onClick={confirmMarkLost}
+                        disabled={submitting || !lostReason.trim() || !lostPassword}
+                        startIcon={submitting ? <CircularProgress size={16} color="inherit" /> : <ReportProblemIcon />}
+                    >
+                        {submitting ? 'Registrando...' : 'Confirmar como perdido'}
                     </Button>
                 </DialogActions>
             </Dialog>
