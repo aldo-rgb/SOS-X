@@ -134,10 +134,15 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
     const handleScan = (value: string) => {
         let tracking = value.trim();
         if (!tracking) return;
-        // Si escanean el QR (URL completa tipo https://app.entregax.com/track/US-XXXX), extraer solo el tracking
-        const urlMatch = tracking.match(/\/track\/([^/?#\s]+)/i);
-        if (urlMatch) {
-            tracking = urlMatch[1];
+        // El lector puede escanear el QR con URL completa O en layout de teclado distinto (ñ='/', '='/')
+        // Extraer cualquier patrón tipo "US-XXXX" del texto
+        const trackingMatch = tracking.match(/[A-Z]{2}[-_]?[A-Z0-9]{4,}/i);
+        if (trackingMatch) {
+            tracking = trackingMatch[0].replace(/_/g, '-').toUpperCase();
+            // Asegurar guion entre prefijo y el resto (US-XXXX)
+            if (!tracking.includes('-') && tracking.length > 2) {
+                tracking = tracking.slice(0, 2) + '-' + tracking.slice(2);
+            }
         }
         const pkg = packages.find((p) => p.tracking_internal.toLowerCase() === tracking.toLowerCase());
         if (!pkg) {
