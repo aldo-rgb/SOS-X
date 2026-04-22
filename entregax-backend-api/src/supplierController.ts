@@ -223,7 +223,6 @@ export const getConsolidacionesPendientes = async (_req: Request, res: Response)
                     LEFT JOIN users u ON p.user_id = u.id
                     WHERE p.consolidation_id = $1 
                     AND p.supplier_id = $2
-                    AND (p.costing_paid IS NULL OR p.costing_paid = FALSE)
                     ORDER BY
                         CASE WHEN COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE THEN 1 ELSE 0 END,
                         p.tracking_internal
