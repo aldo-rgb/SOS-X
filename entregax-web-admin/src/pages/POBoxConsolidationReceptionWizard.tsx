@@ -155,15 +155,21 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
             }
         }
         const pkg = packages.find((p) => p.tracking_internal.toLowerCase() === tracking.toLowerCase());
-        if (!pkg) {
+        // Fallback: comparar ignorando guiones (el scanner a veces lee "US-913340208502"
+        // cuando el tracking real es "US-9133402085-02" porque el segundo guión no viene
+        // codificado en el barcode)
+        const normalize = (s: string) => s.replace(/[-_\s]/g, '').toLowerCase();
+        const pkgFallback = pkg || packages.find((p) => normalize(p.tracking_internal) === normalize(tracking));
+        const matched = pkg || pkgFallback;
+        if (!matched) {
             setScanFeedback({ type: 'error', msg: `Guía "${tracking}" no pertenece a esta consolidación` });
-        } else if (scannedIds.has(pkg.id)) {
-            setScanFeedback({ type: 'info', msg: `Ya escaneado: ${pkg.tracking_internal}` });
+        } else if (scannedIds.has(matched.id)) {
+            setScanFeedback({ type: 'info', msg: `Ya escaneado: ${matched.tracking_internal}` });
         } else {
             const next = new Set(scannedIds);
-            next.add(pkg.id);
+            next.add(matched.id);
             setScannedIds(next);
-            setScanFeedback({ type: 'success', msg: `✓ ${pkg.tracking_internal}` });
+            setScanFeedback({ type: 'success', msg: `✓ ${matched.tracking_internal}` });
         }
         setScanInput('');
     };
