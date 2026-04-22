@@ -144,9 +144,9 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
     if (scanned.length > 0) {
       await client.query(
         `UPDATE packages
-           SET status = 'received',
+           SET status = 'received_mty',
                received_at = COALESCE(received_at, NOW()),
-               dispatched_at = NOW(),
+               dispatched_at = COALESCE(dispatched_at, NOW()),
                missing_on_arrival = FALSE,
                missing_reported_at = NULL,
                updated_at = NOW()
@@ -283,9 +283,9 @@ export const markPackageAsFound = async (req: AuthRequest, res: Response): Promi
     const { id } = req.params;
     await pool.query(
       `UPDATE packages
-         SET status = 'received',
+         SET status = 'received_mty',
              received_at = COALESCE(received_at, NOW()),
-             dispatched_at = NOW(),
+             dispatched_at = COALESCE(dispatched_at, NOW()),
              missing_on_arrival = FALSE,
              missing_reported_at = NULL,
              updated_at = NOW()

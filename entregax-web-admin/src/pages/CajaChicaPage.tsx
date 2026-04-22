@@ -131,8 +131,13 @@ interface ConsolidacionPendiente {
   id: number;
   status: string;
   package_count: number;
+  missing_count?: number;
+  lost_count?: number;
+  has_missing?: boolean;
   total_cost_mxn: number;
   total_cost_usd: number;
+  pending_cost_mxn?: number;
+  pending_cost_usd?: number;
   supplier_name: string;
   supplier_id: number;
   created_at: string;
@@ -144,6 +149,9 @@ interface ConsolidacionPendiente {
     pobox_service_cost: number;
     pobox_cost_usd: number;
     costing_paid: boolean;
+    status?: string;
+    missing_on_arrival?: boolean;
+    is_lost?: boolean;
     client_name: string;
     client_box_id: string;
   }>;
@@ -1179,33 +1187,53 @@ const CajaChicaPage: React.FC = () => {
                           </TableCell>
                           <TableCell>
                             <Chip 
-                              label={consolidacion.status === 'in_transit' ? 'En Tránsito' : consolidacion.status}
+                              label={
+                                consolidacion.status === 'in_transit' ? 'En Tránsito'
+                                  : consolidacion.status === 'received_partial' ? `Parcial (${consolidacion.missing_count || 0} faltante${(consolidacion.missing_count || 0) === 1 ? '' : 's'})`
+                                  : consolidacion.status === 'received_mty' ? 'Recibida'
+                                  : consolidacion.status
+                              }
                               size="small"
-                              color={consolidacion.status === 'in_transit' ? 'info' : 'default'}
+                              color={
+                                consolidacion.status === 'in_transit' ? 'info'
+                                  : consolidacion.status === 'received_partial' ? 'warning'
+                                  : consolidacion.status === 'received_mty' ? 'success'
+                                  : 'default'
+                              }
                             />
                           </TableCell>
                           <TableCell align="right">
                             <Typography fontWeight="bold" color="success.main">
                               ${Number(consolidacion.total_cost_usd || 0).toFixed(2)}
                             </Typography>
+                            {consolidacion.has_missing && Number(consolidacion.pending_cost_usd || 0) > 0 && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                + ${Number(consolidacion.pending_cost_usd).toFixed(2)} pdte.
+                              </Typography>
+                            )}
                           </TableCell>
                           <TableCell align="right">
                             <Typography fontWeight="bold" color="primary.main">
                               {formatCurrency(Number(consolidacion.total_cost_mxn || 0))}
                             </Typography>
+                            {consolidacion.has_missing && Number(consolidacion.pending_cost_mxn || 0) > 0 && (
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                + {formatCurrency(Number(consolidacion.pending_cost_mxn))} pdte.
+                              </Typography>
+                            )}
                           </TableCell>
                           <TableCell align="center">
                             <Button
                               variant="contained"
                               size="small"
-                              color="warning"
+                              color={consolidacion.has_missing ? 'warning' : 'warning'}
                               startIcon={<PaymentIcon />}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleIniciarPagoConsolidacion(consolidacion);
                               }}
                             >
-                              Pagar
+                              {consolidacion.has_missing ? 'Pagar parcial' : 'Pagar'}
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -1226,14 +1254,22 @@ const CajaChicaPage: React.FC = () => {
                                       <TableCell align="right">Peso (lb)</TableCell>
                                       <TableCell align="right">USD</TableCell>
                                       <TableCell align="right">MXN</TableCell>
+                                      <TableCell align="center">Estatus</TableCell>
                                       <TableCell align="center">Pagado</TableCell>
                                     </TableRow>
                                   </TableHead>
                                   <TableBody>
-                                    {consolidacion.packages?.map((pkg) => (
-                                      <TableRow key={pkg.id}>
+                                    {consolidacion.packages?.map((pkg) => {
+                                      const isMissing = pkg.missing_on_arrival === true;
+                                      const isLost = pkg.is_lost === true;
+                                      const problema = isLost || isMissing;
+                                      return (
+                                      <TableRow
+                                        key={pkg.id}
+                                        sx={problema ? { bgcolor: isLost ? '#FFEBEE' : '#FFF3E0' } : undefined}
+                                      >
                                         <TableCell>
-                                          <Typography variant="body2" fontFamily="monospace">
+                                          <Typography variant="body2" fontFamily="monospace" sx={{ textDecoration: isLost ? 'line-through' : 'none' }}>
                                             {pkg.tracking}
                                           </Typography>
                                         </TableCell>
@@ -1247,17 +1283,29 @@ const CajaChicaPage: React.FC = () => {
                                           </Typography>
                                         </TableCell>
                                         <TableCell align="right">{Number(pkg.weight || 0).toFixed(2)}</TableCell>
-                                        <TableCell align="right">${Number(pkg.pobox_cost_usd || 0).toFixed(2)}</TableCell>
-                                        <TableCell align="right">{formatCurrency(Number(pkg.pobox_service_cost || 0))}</TableCell>
+                                        <TableCell align="right" sx={problema ? { color: 'text.disabled' } : undefined}>${Number(pkg.pobox_cost_usd || 0).toFixed(2)}</TableCell>
+                                        <TableCell align="right" sx={problema ? { color: 'text.disabled' } : undefined}>{formatCurrency(Number(pkg.pobox_service_cost || 0))}</TableCell>
+                                        <TableCell align="center">
+                                          {isLost ? (
+                                            <Chip label="Perdido" size="small" color="error" variant="filled" />
+                                          ) : isMissing ? (
+                                            <Chip label="No llegó a MTY" size="small" color="warning" variant="filled" />
+                                          ) : (
+                                            <Chip label="Recibida" size="small" color="success" variant="outlined" />
+                                          )}
+                                        </TableCell>
                                         <TableCell align="center">
                                           {pkg.costing_paid ? (
                                             <CheckCircleIcon color="success" fontSize="small" />
+                                          ) : problema ? (
+                                            <Typography variant="caption" color="text.disabled">No se paga</Typography>
                                           ) : (
                                             <Typography variant="caption" color="warning.main">Pendiente</Typography>
                                           )}
                                         </TableCell>
                                       </TableRow>
-                                    ))}
+                                    );
+                                    })}
                                   </TableBody>
                                 </Table>
                               </Box>

@@ -1182,6 +1182,7 @@ export const pagarConsolidacionProveedor = async (req: AuthRequest, res: Respons
     }
 
     // Verificar que la consolidación existe y tiene paquetes pendientes de pago
+    // Sólo consideramos paquetes que llegaron (no missing, no lost) para el pago
     const consolidacionResult = await pool.query(`
       SELECT 
         c.id,
@@ -1195,6 +1196,8 @@ export const pagarConsolidacionProveedor = async (req: AuthRequest, res: Respons
       LEFT JOIN suppliers s ON p.supplier_id = s.id
       WHERE c.id = $1
       AND (p.costing_paid IS NULL OR p.costing_paid = FALSE)
+      AND COALESCE(p.missing_on_arrival, FALSE) = FALSE
+      AND COALESCE(p.is_lost, FALSE) = FALSE
       GROUP BY c.id, s.id, s.name
     `, [consolidation_id]);
 
@@ -1233,7 +1236,8 @@ export const pagarConsolidacionProveedor = async (req: AuthRequest, res: Respons
 
     const transaccionId = transaccionResult.rows[0].id;
 
-    // Marcar todos los paquetes de la consolidación como pagados al proveedor
+    // Marcar SOLO los paquetes que llegaron como pagados al proveedor
+    // (los missing_on_arrival/is_lost quedan pendientes hasta que lleguen o se resuelvan)
     const updateResult = await pool.query(`
       UPDATE packages 
       SET 
@@ -1244,6 +1248,8 @@ export const pagarConsolidacionProveedor = async (req: AuthRequest, res: Respons
       WHERE consolidation_id = $2
       AND supplier_id = $3
       AND (costing_paid IS NULL OR costing_paid = FALSE)
+      AND COALESCE(missing_on_arrival, FALSE) = FALSE
+      AND COALESCE(is_lost, FALSE) = FALSE
       RETURNING id, tracking_internal
     `, [referencia || `CAJA-${transaccionId}`, consolidation_id, consolidacion.supplier_id]);
 

@@ -174,6 +174,7 @@ export const getConsolidacionesPendientes = async (_req: Request, res: Response)
         console.log('📋 [DEBUG] Últimas 5 consolidaciones:', debugResult.rows);
         
         // Obtener consolidaciones con paquetes pendientes de pago (costing_paid = false o null)
+        // Los totales SOLO incluyen paquetes que llegaron (no missing, no lost)
         const result = await pool.query(`
             SELECT 
                 c.id,
@@ -182,8 +183,12 @@ export const getConsolidacionesPendientes = async (_req: Request, res: Response)
                 s.id as supplier_id,
                 s.name as supplier_name,
                 COUNT(p.id) as package_count,
-                COALESCE(SUM(p.pobox_service_cost), 0) as total_cost_mxn,
-                COALESCE(SUM(p.pobox_cost_usd), 0) as total_cost_usd
+                COUNT(p.id) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE AND COALESCE(p.is_lost, FALSE) = FALSE) AS missing_count,
+                COUNT(p.id) FILTER (WHERE COALESCE(p.is_lost, FALSE) = TRUE) AS lost_count,
+                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE), 0) as total_cost_mxn,
+                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE), 0) as total_cost_usd,
+                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE), 0) as pending_cost_mxn,
+                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE), 0) as pending_cost_usd
             FROM consolidations c
             JOIN packages p ON p.consolidation_id = c.id
             LEFT JOIN suppliers s ON p.supplier_id = s.id
@@ -206,6 +211,9 @@ export const getConsolidacionesPendientes = async (_req: Request, res: Response)
                         p.pobox_service_cost,
                         p.pobox_cost_usd,
                         p.costing_paid,
+                        p.status,
+                        COALESCE(p.missing_on_arrival, FALSE) AS missing_on_arrival,
+                        COALESCE(p.is_lost, FALSE) AS is_lost,
                         u.full_name as client_name,
                         u.box_id as client_box_id
                     FROM packages p
@@ -213,11 +221,14 @@ export const getConsolidacionesPendientes = async (_req: Request, res: Response)
                     WHERE p.consolidation_id = $1 
                     AND p.supplier_id = $2
                     AND (p.costing_paid IS NULL OR p.costing_paid = FALSE)
-                    ORDER BY p.tracking_internal
+                    ORDER BY
+                        CASE WHEN COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE THEN 1 ELSE 0 END,
+                        p.tracking_internal
                 `, [consolidation.id, consolidation.supplier_id]);
                 
                 return {
                     ...consolidation,
+                    has_missing: Number(consolidation.missing_count) > 0 || Number(consolidation.lost_count) > 0,
                     packages: packagesResult.rows
                 };
             })
