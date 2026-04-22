@@ -29,9 +29,7 @@ import {
   DialogContent,
   DialogActions,
   Button,
-  CircularProgress,
 } from '@mui/material';
-import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import MenuIcon from '@mui/icons-material/Menu';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
@@ -274,7 +272,6 @@ function App() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifModalOpen, setNotifModalOpen] = useState(false);
-  const [markingAsRead, setMarkingAsRead] = useState(false);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [pendingVerifications, setPendingVerifications] = useState<number>(0);
@@ -360,7 +357,6 @@ function App() {
   // Función para marcar todas como leídas
   const markAllNotificationsAsRead = async () => {
     const token = localStorage.getItem('token');
-    setMarkingAsRead(true);
     try {
       await fetch(`${API_URL}/notifications/read-all`, {
         method: 'PUT',
@@ -371,8 +367,6 @@ function App() {
       setUnreadCount(0);
     } catch (error) {
       console.error('Error marcando todas como leídas:', error);
-    } finally {
-      setMarkingAsRead(false);
     }
   };
 

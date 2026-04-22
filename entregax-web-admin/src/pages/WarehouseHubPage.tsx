@@ -22,6 +22,7 @@ import {
     Warehouse as WarehouseIcon,
     LocationOn as LocationIcon,
     Inventory as InventoryIcon,
+    Print as PrintIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 
@@ -34,6 +35,7 @@ import DhlOperationsPage from './DhlOperationsPage';
 import UnifiedWarehousePanel from './UnifiedWarehousePanel';
 import BranchInventoryPage from './BranchInventoryPage';
 import POBoxHubPage from './POBoxHubPage';
+import RelabelingModulePage from './RelabelingModulePage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -94,6 +96,13 @@ const WAREHOUSE_PANELS = {
         flag: '📦',
         component: 'branchInventory',
     },
+    reetiquetado: {
+        icon: <PrintIcon sx={{ fontSize: 48 }} />,
+        color: '#F05A28',
+        bgGradient: 'linear-gradient(135deg, #F05A28 0%, #FF8A5B 100%)',
+        flag: '🏷️',
+        component: 'relabeling',
+    },
 };
 
 interface Props {
@@ -109,6 +118,7 @@ const PANEL_TO_LOCATION: Record<string, string> = {
     'ops_mx_national': 'mx_national',
     'ops_scanner': 'scanner_unificado',
     'ops_inventory': 'inventario_sucursal',
+    'ops_relabeling': 'reetiquetado',
 };
 
 export default function WarehouseHubPage({ users = [] }: Props) {
@@ -122,6 +132,7 @@ export default function WarehouseHubPage({ users = [] }: Props) {
         { code: 'mx_cedis', name: 'CEDIS MX', services: ['inventory'] },
         { code: 'scanner_unificado', name: 'Scanner Unificado', services: ['scanner'] },
         { code: 'inventario_sucursal', name: 'Inventario Sucursal', services: ['inventory'] },
+        { code: 'reetiquetado', name: 'Módulo de Reetiquetado', services: ['reprint'] },
     ];
     
     const [locations, setLocations] = useState<WarehouseLocation[]>([]);
@@ -250,6 +261,8 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                     <UnifiedWarehousePanel />
                 ) : selectedPanel === 'inventario_sucursal' ? (
                     <BranchInventoryPage />
+                ) : selectedPanel === 'reetiquetado' ? (
+                    <RelabelingModulePage />
                 ) : (
                     <WarehouseReceptionPage warehouseLocation={selectedPanel} />
                 )}

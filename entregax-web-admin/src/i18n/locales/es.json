@@ -503,6 +503,10 @@
       "inventario_sucursal": {
         "title": "Inventario por Sucursal",
         "subtitle": "Control de paquetes en bodega"
+      },
+      "reetiquetado": {
+        "title": "Módulo de Reetiquetado",
+        "subtitle": "Reimprime etiquetas de cualquier servicio y embarque"
       }
     },
     "newPackage": "Nuevo Paquete",
