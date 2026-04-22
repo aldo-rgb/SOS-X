@@ -112,7 +112,8 @@ interface POBoxCostResult {
     precioVentaMxn?: number;       // PRECIO VENTA MXN (según tarifa)
     nivelTarifa?: number;          // Nivel de tarifa aplicado (1, 2, 3)
     cantidadCajas?: number;        // Número de cajas
-    desglosePorCaja?: { cbm: number; costoUsd: number; nivel: number }[];  // Desglose por caja
+    desglosePorCaja?: { cbm: number; costoUsd: number; nivel: number; costoInternoUsd: number; costoInternoMxn: number }[];  // Desglose por caja
+    tcFinal?: number;              // TC usado (para hijas multi-pieza)
 }
 
 const calculatePOBoxCost = async (
@@ -148,7 +149,8 @@ const calculatePOBoxCost = async (
         let totalCbm = 0;
         let totalVentaUsd = 0;
         let nivelPredominante = 1;
-        const desglosePorCaja: { cbm: number; costoUsd: number; nivel: number }[] = [];
+        const desglosePorCaja: { cbm: number; costoUsd: number; nivel: number; costoInternoUsd: number; costoInternoMxn: number }[] = [];
+        const costosInternosUsdPorCaja: number[] = [];
         
         for (const box of boxes) {
             const length_cm = box.length || 0;
@@ -191,13 +193,7 @@ const calculatePOBoxCost = async (
             totalVentaUsd += boxVentaUsd;
             if (boxNivel > nivelPredominante) nivelPredominante = boxNivel;
             
-            desglosePorCaja.push({
-                cbm: boxCbm,
-                costoUsd: boxVentaUsd,
-                nivel: boxNivel
-            });
-            
-            // COSTO INTERNO (para cálculo de margen)
+            // COSTO INTERNO (para cálculo de margen) por caja
             const length_pulg = length_cm / 2.54;
             const width_pulg = width_cm / 2.54;
             const height_pulg = height_cm / 2.54;
@@ -205,6 +201,15 @@ const calculatePOBoxCost = async (
             const pie3 = volumePulg / parseFloat(config.dimensional_divisor);
             const boxCostUsd = pie3 * parseFloat(config.base_rate);
             totalCostUsd += boxCostUsd;
+            costosInternosUsdPorCaja.push(boxCostUsd);
+            
+            desglosePorCaja.push({
+                cbm: boxCbm,
+                costoUsd: boxVentaUsd,
+                nivel: boxNivel,
+                costoInternoUsd: boxCostUsd,
+                costoInternoMxn: 0 // se llena después con tcFinal
+            });
         }
 
         // 5. COSTO INTERNO: Convertir a MXN
@@ -214,6 +219,8 @@ const calculatePOBoxCost = async (
             poboxServiceCost = minCost;
             totalCostUsd = minCost / tcFinal;
         }
+        // Llenar costo interno MXN por caja con el tcFinal
+        desglosePorCaja.forEach((d) => { d.costoInternoMxn = d.costoInternoUsd * tcFinal; });
 
         // 6. Precio de venta total en MXN
         const precioVentaMxn = totalVentaUsd * tcFinal;
@@ -252,7 +259,8 @@ const calculatePOBoxCost = async (
             nivelTarifa: nivelPredominante,  // Nivel más alto aplicado
             // Nuevo: desglose para la app
             cantidadCajas: boxes.length,
-            desglosePorCaja
+            desglosePorCaja,
+            tcFinal
         };
     } catch (error) {
         console.error('Error calculando costo PO Box:', error);
@@ -629,7 +637,10 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                 receivedAt: new Date().toISOString()
             });
         } else {
-            // Calcular totales incluyendo envío nacional
+            // 🟦 MULTI-PIEZA: el master se guarda con costos en 0.
+            // Cada caja hija lleva su propio costo individual (desglosePorCaja[i]).
+            // Esto evita doble cobro y permite que el reporte de pagos a proveedor
+            // sume correctamente caja por caja.
             const totalCostMxn = costResult.totalMxn + nationalShippingCost;
             const masterResult = await client.query(
                 `INSERT INTO packages 
@@ -642,8 +653,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                   registered_exchange_rate, pobox_cost_usd, pobox_tarifa_nivel, pobox_venta_usd, national_shipping_cost,
                   assigned_address_id, needs_instructions, national_carrier)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, 0, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22,
-                         $23, $24, $23, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34,
-                         $35, $36, $37) 
+                         $23, $24, $23, 0, $25, $26, $27, $28, $29, 0, NULL, 0, $30, $31, $32, $33)
                  RETURNING *`,
                 [user?.id || null, user?.box_id || null, masterTracking, trackingProvider || null, description, totalWeight, 
                  declaredValue || null, notes || null, initialStatus, totalBoxes, safeCarrier,
@@ -651,8 +661,8 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                  safeDestination.zip || null, safeDestination.phone || null, safeDestination.contact || null, imageUrl || null,
                  serviceType, wLocation, hasGex, consolidationId,
                  totalCostMxn, costResult.cbm,
-                 costResult.poboxServiceCost, costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn,
-                 costResult.registeredExchangeRate, costResult.poboxCostUsd, costResult.nivelTarifa || null, costResult.precioVentaUsd || null, nationalShippingCost,
+                 costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn,
+                 costResult.registeredExchangeRate, nationalShippingCost,
                  defaultAddressId, defaultAddressId ? false : true, effectiveNationalCarrier]
             );
             masterPackage = masterResult.rows[0];
@@ -671,6 +681,13 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                 const box = boxes[i] as BoxItem;
                 const boxNumber = i + 1;
                 const childTracking = `${masterTracking}-${String(boxNumber).padStart(2, '0')}`;
+                // 💰 Costo individual de esta caja (calculado en calculatePOBoxCost)
+                const desglose = costResult.desglosePorCaja?.[i];
+                const childPoboxCostUsd = desglose?.costoInternoUsd || 0;
+                const childPoboxCostMxn = desglose?.costoInternoMxn || 0;
+                const childPoboxVentaUsd = desglose?.costoUsd || 0;
+                const childNivelTarifa = desglose?.nivel || null;
+                const childTcFinal = costResult.tcFinal || costResult.registeredExchangeRate || 0;
 
                 const childResult = await client.query(
                     `INSERT INTO packages 
@@ -678,13 +695,16 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                       pkg_length, pkg_width, pkg_height, status,
                       is_master, master_id, box_number, total_boxes, carrier,
                       destination_country, destination_city, destination_address,
-                      service_type, warehouse_location, consolidation_id)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) 
+                      service_type, warehouse_location, consolidation_id,
+                      pobox_service_cost, pobox_cost_usd, pobox_tarifa_nivel, pobox_venta_usd, registered_exchange_rate)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+                             $21, $22, $23, $24, $25) 
                      RETURNING *`,
                     [user?.id || null, user?.box_id || null, childTracking, box.trackingCourier || trackingProvider || null, description, box.weight, 
                      box.length, box.width, box.height, initialStatus, masterPackage.id, boxNumber, totalBoxes,
                      safeCarrier, safeDestination.country, safeDestination.city, safeDestination.address,
-                     serviceType, wLocation, consolidationId]
+                     serviceType, wLocation, consolidationId,
+                     childPoboxCostMxn, childPoboxCostUsd, childNivelTarifa, childPoboxVentaUsd, childTcFinal]
                 );
                 childPackages.push(childResult.rows[0]);
 
