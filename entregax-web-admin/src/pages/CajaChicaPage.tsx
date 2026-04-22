@@ -380,12 +380,8 @@ const CajaChicaPage: React.FC = () => {
           reasonNoCount = 'No llegó a MTY';
         } else if (p.costing_paid) {
           statusLabel = 'YA PAGADA';
-          countsToTotal = false;
-          reasonNoCount = 'Pagada previamente';
         } else if (p.status && p.status !== 'received_mty') {
           statusLabel = 'EN TRÁNSITO';
-          countsToTotal = false;
-          reasonNoCount = 'Aún no llega a MTY';
         }
 
         rows.push({
@@ -445,7 +441,7 @@ const CajaChicaPage: React.FC = () => {
   .footer { margin-top: 12px; font-size: 9px; color: #999; text-align: center; }
 </style></head><body>
 <h1>🚚 EntregaX · Reporte de Pagos a Proveedores</h1>
-<div class="sub">Generado: ${fecha} · ${selectedCount} consolidación(es) · ${rows.length} guía(s) · ${countableCount} pagable(s), ${nonCountableCount} no suma(n) al total</div>
+<div class="sub">Generado: ${fecha} · ${selectedCount} consolidación(es) · ${rows.length} guía(s) · ${countableCount} suma(n), ${nonCountableCount} no suma(n) al total</div>
 <table>
   <thead>
     <tr>
@@ -460,7 +456,6 @@ const CajaChicaPage: React.FC = () => {
       <th class="num">TC</th>
       <th class="num">MXN</th>
       <th>Status</th>
-      <th>Cuenta</th>
     </tr>
   </thead>
   <tbody>
@@ -468,15 +463,11 @@ const CajaChicaPage: React.FC = () => {
       const rowStyle = r.countsToTotal
         ? ''
         : r.statusLabel === 'PERDIDA' ? 'background:#ffebee;color:#999;'
-        : r.statusLabel === 'FALTANTE' ? 'background:#fff3e0;color:#999;'
-        : r.statusLabel === 'YA PAGADA' ? 'background:#e8f5e9;color:#999;'
-        : 'background:#e3f2fd;color:#666;';
+        : 'background:#fff3e0;color:#999;';
       const tachado = r.statusLabel === 'PERDIDA' ? 'text-decoration:line-through;' : '';
-      const statusColor = r.countsToTotal ? '#2e7d32'
-        : r.statusLabel === 'PERDIDA' ? '#c62828'
-        : r.statusLabel === 'FALTANTE' ? '#ef6c00'
-        : r.statusLabel === 'YA PAGADA' ? '#2e7d32'
-        : '#1565c0';
+      const statusColor = r.countsToTotal
+        ? (r.statusLabel === 'YA PAGADA' ? '#2e7d32' : r.statusLabel === 'EN TRÁNSITO' ? '#1565c0' : '#2e7d32')
+        : r.statusLabel === 'PERDIDA' ? '#c62828' : '#ef6c00';
       return `
       <tr style="${rowStyle}">
         <td>#${r.consolidacion_id}</td>
@@ -490,17 +481,16 @@ const CajaChicaPage: React.FC = () => {
         <td class="num">${r.tc.toFixed(2)}</td>
         <td class="num">$${r.mxn.toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
         <td style="color:${statusColor};font-weight:700">${r.statusLabel}</td>
-        <td style="text-align:center;font-weight:700;color:${r.countsToTotal ? '#2e7d32' : '#c62828'}">${r.countsToTotal ? '✓ SÍ' : '✗ NO'}</td>
       </tr>`;
     }).join('')}
   </tbody>
 </table>
 <div class="totals">
-  <div>Guías pagables: <strong>${countableCount}</strong> de ${rows.length}</div>
+  <div>Guías que suman: <strong>${countableCount}</strong> de ${rows.length}</div>
   <div>Total USD: <span class="big">$${totalUsd.toFixed(2)}</span></div>
-  <div>Total MXN a pagar: <span class="big">$${totalMxn.toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2})}</span></div>
+  <div>Total MXN: <span class="big">$${totalMxn.toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2})}</span></div>
 </div>
-<div class="footer">Las guías marcadas como FALTANTE, PERDIDA, EN TRÁNSITO o YA PAGADA NO se suman al total de este pago.</div>
+<div class="footer">Las guías marcadas como FALTANTE o PERDIDA NO se suman al total de este reporte.</div>
 <script>window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 300); });</script>
 </body></html>`;
     const w = window.open('', '_blank', 'width=1200,height=800');
@@ -539,19 +529,17 @@ const CajaChicaPage: React.FC = () => {
       items.forEach(r => {
         const marker = r.countsToTotal ? '✅'
           : r.statusLabel === 'PERDIDA' ? '❌'
-          : r.statusLabel === 'FALTANTE' ? '⚠️'
-          : r.statusLabel === 'YA PAGADA' ? '💰'
-          : '🚛';
+          : '⚠️';
         const suffix = r.countsToTotal ? '' : ` _(${r.statusLabel} — no suma)_`;
         msg += `${marker} \`${r.tracking}\` · ${r.weight.toFixed(1)}lb · $${r.usd.toFixed(2)} USD · $${r.mxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})} MXN${suffix}\n`;
       });
       msg += `\n`;
     });
     msg += `━━━━━━━━━━━━━━━━\n`;
-    msg += `*Guías pagables:* ${countableCount} de ${rows.length}\n`;
+    msg += `*Guías que suman:* ${countableCount} de ${rows.length}\n`;
     msg += `*Total USD:* $${totalUsd.toFixed(2)}\n`;
-    msg += `*Total MXN a pagar:* $${totalMxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}\n\n`;
-    msg += `_Las guías faltantes, perdidas, en tránsito o ya pagadas NO se suman al total._`;
+    msg += `*Total MXN:* $${totalMxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}\n\n`;
+    msg += `_Las guías faltantes o perdidas NO se suman al total._`;
     const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
     window.open(url, '_blank');
   };
