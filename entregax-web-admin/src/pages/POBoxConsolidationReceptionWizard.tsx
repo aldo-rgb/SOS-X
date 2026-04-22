@@ -42,6 +42,7 @@ interface Consolidation {
     total_packages: number;
     missing_packages: number;
     dispatched_at: string | null;
+    created_at: string | null;
     user_name: string | null;
     box_id: string | null;
 }
@@ -262,16 +263,42 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
                         </Box>
                     ) : (
                         <List>
-                            {consolidations.map((c) => (
+                            {consolidations.map((c) => {
+                                const startDate = c.dispatched_at || c.created_at;
+                                const days = startDate
+                                    ? Math.floor((Date.now() - new Date(startDate).getTime()) / (1000 * 60 * 60 * 24))
+                                    : null;
+                                const semaforoColor: 'success' | 'warning' | 'error' | 'default' =
+                                    days === null ? 'default'
+                                    : days <= 2 ? 'success'
+                                    : days <= 4 ? 'warning'
+                                    : 'error';
+                                const semaforoEmoji =
+                                    days === null ? '⚪'
+                                    : days <= 2 ? '🟢'
+                                    : days <= 4 ? '🟡'
+                                    : '🔴';
+                                return (
                                 <ListItem
                                     key={c.id}
                                     onClick={() => openConsolidation(c)}
                                     secondaryAction={
-                                        <Chip
-                                            label={c.status === 'received_partial' ? 'PARCIAL' : 'EN TRÁNSITO'}
-                                            color={c.status === 'received_partial' ? 'warning' : 'primary'}
-                                            size="small"
-                                        />
+                                        <Stack direction="column" spacing={0.5} alignItems="flex-end">
+                                            <Chip
+                                                label={c.status === 'received_partial' ? 'PARCIAL' : 'EN TRÁNSITO'}
+                                                color={c.status === 'received_partial' ? 'warning' : 'primary'}
+                                                size="small"
+                                            />
+                                            {days !== null && (
+                                                <Chip
+                                                    label={`${semaforoEmoji} ${days} día${days === 1 ? '' : 's'}`}
+                                                    color={semaforoColor}
+                                                    size="small"
+                                                    variant="filled"
+                                                    sx={{ fontWeight: 700 }}
+                                                />
+                                            )}
+                                        </Stack>
                                     }
                                     sx={{
                                         cursor: 'pointer',
@@ -301,12 +328,14 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
                                         secondary={
                                             <>
                                                 {c.user_name} · Box {c.box_id || 'N/A'} · {c.total_packages} paquete(s) · {Number(c.total_weight || 0).toFixed(2)} kg
-                                                {c.dispatched_at && ` · Enviado: ${new Date(c.dispatched_at).toLocaleDateString()}`}
+                                                {c.created_at && <><br />Creada: {new Date(c.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</>}
+                                                {c.dispatched_at && ` · Enviada: ${new Date(c.dispatched_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}`}
                                             </>
                                         }
                                     />
                                 </ListItem>
-                            ))}
+                                );
+                            })}
                         </List>
                     )}
                 </Paper>
