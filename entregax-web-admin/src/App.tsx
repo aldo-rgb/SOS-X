@@ -620,6 +620,180 @@ function App() {
     return t(`roles.${role}`, role);
   };
 
+  // UI de notificaciones (campana + menú + modal) reutilizable en portal cliente y panel admin
+  const renderNotificationsUI = (iconColor: string = 'text.secondary', hoverColor: string = 'primary.main') => (
+    <>
+      <Tooltip title="Notificaciones">
+        <IconButton
+          onClick={(e) => setNotifAnchorEl(e.currentTarget)}
+          sx={{ color: iconColor, '&:hover': { color: hoverColor } }}
+        >
+          <Badge badgeContent={unreadCount} color="error">
+            <NotificationsIcon />
+          </Badge>
+        </IconButton>
+      </Tooltip>
+      <Menu
+        anchorEl={notifAnchorEl}
+        open={Boolean(notifAnchorEl)}
+        onClose={() => setNotifAnchorEl(null)}
+        PaperProps={{ sx: { width: 360, maxHeight: 480, mt: 1 } }}
+        transformOrigin={{ horizontal: 'right', vertical: 'top' }}
+        anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
+      >
+        <Box sx={{ p: 2, borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="subtitle1" fontWeight="bold">🔔 Notificaciones</Typography>
+          {unreadCount > 0 && (
+            <Typography variant="caption" sx={{ bgcolor: '#F05A28', color: 'white', px: 1, py: 0.25, borderRadius: 1 }}>
+              {unreadCount} nuevas
+            </Typography>
+          )}
+        </Box>
+        {notifications.length === 0 ? (
+          <Box sx={{ p: 3, textAlign: 'center' }}>
+            <Typography variant="body2" color="text.secondary">No tienes notificaciones</Typography>
+          </Box>
+        ) : (
+          notifications.slice(0, 5).map((notif, index) => {
+            const fecha = new Date(notif.created_at);
+            const ahora = new Date();
+            const diffMs = ahora.getTime() - fecha.getTime();
+            const diffMins = Math.floor(diffMs / 60000);
+            const diffHours = Math.floor(diffMs / 3600000);
+            const diffDays = Math.floor(diffMs / 86400000);
+            let tiempoRelativo = '';
+            if (diffMins < 60) tiempoRelativo = `Hace ${diffMins} min`;
+            else if (diffHours < 24) tiempoRelativo = `Hace ${diffHours} hora${diffHours > 1 ? 's' : ''}`;
+            else tiempoRelativo = `Hace ${diffDays} día${diffDays > 1 ? 's' : ''}`;
+
+            const titleLower = (notif.title || '').toLowerCase();
+            const messageLower = (notif.message || '').toLowerCase();
+            const esMaritimo = titleLower.includes('marítimo') || titleLower.includes('maritimo') || notif.message?.includes('LOG');
+            const esAereo = titleLower.includes('aéreo') || titleLower.includes('aereo') || (notif.message?.includes('CN') && !notif.message?.includes('LOG'));
+            const esPOBox = titleLower.includes('po box') || titleLower.includes('pobox') || messageLower.includes('po box') || messageLower.includes('pobox');
+
+            let emoji = '📦';
+            if (notif.type === 'VERIFICATION_PENDING') {
+              emoji = notif.icon === 'clock-outline' ? '⏳' : '⚠️';
+            } else if (esMaritimo) emoji = '🚢';
+            else if (esAereo) emoji = '✈️';
+            else if (esPOBox) emoji = '🚚';
+            else if (notif.icon === 'cash-check') emoji = '💳';
+            else if (notif.icon === 'check-circle') emoji = '✅';
+            else if (notif.icon === 'truck-delivery') emoji = '🚚';
+
+            const isVerificationNotif = notif.type === 'VERIFICATION_PENDING';
+
+            return (
+              <MenuItem
+                key={notif.id}
+                onClick={() => {
+                  if (!notif.is_read) markNotificationAsRead(notif.id);
+                  if (isVerificationNotif) {
+                    setNotifAnchorEl(null);
+                    setShowClientProfile(true);
+                  }
+                }}
+                sx={{
+                  py: 1.5,
+                  borderBottom: index < notifications.length - 1 ? '1px solid #f5f5f5' : 'none',
+                  bgcolor: isVerificationNotif ? 'rgba(255,152,0,0.1)' : (notif.is_read ? 'transparent' : 'rgba(240,90,40,0.05)'),
+                  borderLeft: isVerificationNotif ? '3px solid #ff9800' : 'none',
+                }}
+              >
+                <Box sx={{ width: '100%' }}>
+                  <Typography variant="body2" fontWeight="600">
+                    {emoji} {notif.title}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+                    {notif.message?.substring(0, 60)}{notif.message?.length > 60 ? '...' : ''}
+                  </Typography>
+                  <Typography variant="caption" display="block" color="primary" sx={{ mt: 0.5 }}>
+                    {tiempoRelativo}
+                  </Typography>
+                </Box>
+              </MenuItem>
+            );
+          })
+        )}
+        <Divider />
+        <Box sx={{ p: 1, textAlign: 'center' }}>
+          <Typography
+            variant="body2"
+            sx={{ color: '#F05A28', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
+            onClick={() => { setNotifAnchorEl(null); setNotifModalOpen(true); }}
+          >
+            Ver todas las notificaciones
+          </Typography>
+        </Box>
+      </Menu>
+
+      <Dialog
+        open={notifModalOpen}
+        onClose={() => setNotifModalOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3 } }}
+      >
+        <DialogTitle sx={{ bgcolor: '#F05A28', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            🔔 Todas las Notificaciones
+            {unreadCount > 0 && <Badge badgeContent={unreadCount} color="error" sx={{ ml: 1 }} />}
+          </Box>
+          {unreadCount > 0 && (
+            <Button size="small" variant="outlined" onClick={markAllNotificationsAsRead} sx={{ color: 'white', borderColor: 'white', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' } }}>
+              Marcar todas como leídas
+            </Button>
+          )}
+        </DialogTitle>
+        <DialogContent sx={{ p: 0, maxHeight: '70vh' }}>
+          {notifications.length === 0 ? (
+            <Box sx={{ p: 4, textAlign: 'center' }}>
+              <Typography variant="body1" color="text.secondary">No tienes notificaciones</Typography>
+            </Box>
+          ) : (
+            notifications.map((notif, index) => {
+              const fecha = new Date(notif.created_at);
+              const ahora = new Date();
+              const diffMs = ahora.getTime() - fecha.getTime();
+              const diffMins = Math.floor(diffMs / 60000);
+              const diffHours = Math.floor(diffMs / 3600000);
+              const diffDays = Math.floor(diffMs / 86400000);
+              let tiempoRelativo = '';
+              if (diffMins < 60) tiempoRelativo = `Hace ${diffMins} min`;
+              else if (diffHours < 24) tiempoRelativo = `Hace ${diffHours} hora${diffHours > 1 ? 's' : ''}`;
+              else tiempoRelativo = `Hace ${diffDays} día${diffDays > 1 ? 's' : ''}`;
+              return (
+                <Box
+                  key={notif.id}
+                  onClick={() => { if (!notif.is_read) markNotificationAsRead(notif.id); }}
+                  sx={{
+                    p: 2,
+                    borderBottom: index < notifications.length - 1 ? '1px solid #f0f0f0' : 'none',
+                    bgcolor: notif.is_read ? 'transparent' : 'rgba(240,90,40,0.05)',
+                    cursor: 'pointer',
+                    '&:hover': { bgcolor: 'rgba(240,90,40,0.08)' },
+                  }}
+                >
+                  <Typography variant="body2" fontWeight="600">{notif.title}</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                    {notif.message}
+                  </Typography>
+                  <Typography variant="caption" color="primary" sx={{ display: 'block', mt: 0.5 }}>
+                    {tiempoRelativo}
+                  </Typography>
+                </Box>
+              );
+            })
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setNotifModalOpen(false)} sx={{ color: '#666' }}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+    </>
+  );
+
   // Si es un cliente, mostrar portal de cliente simplificado (sin sidebar completo)
   const isClient = currentUser?.role && ['client', 'Client', 'cliente', 'Cliente'].includes(currentUser.role);
   if (isClient) {
@@ -712,252 +886,7 @@ function App() {
                     </Box>
                   </MenuItem>
                 </Menu>
-                <Tooltip title="Notificaciones">
-                  <IconButton 
-                    onClick={(e) => setNotifAnchorEl(e.currentTarget)}
-                    sx={{ color: 'rgba(255,255,255,0.7)', '&:hover': { color: 'white' } }}
-                  >
-                    <Badge badgeContent={unreadCount} color="error">
-                      <NotificationsIcon />
-                    </Badge>
-                  </IconButton>
-                </Tooltip>
-                {/* Menú de Notificaciones */}
-                <Menu
-                  anchorEl={notifAnchorEl}
-                  open={Boolean(notifAnchorEl)}
-                  onClose={() => setNotifAnchorEl(null)}
-                  PaperProps={{
-                    sx: {
-                      width: 360,
-                      maxHeight: 480,
-                      mt: 1,
-                    }
-                  }}
-                  transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-                  anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
-                >
-                  <Box sx={{ p: 2, borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <Typography variant="subtitle1" fontWeight="bold">🔔 Notificaciones</Typography>
-                    {unreadCount > 0 && (
-                      <Typography variant="caption" sx={{ bgcolor: '#F05A28', color: 'white', px: 1, py: 0.25, borderRadius: 1 }}>
-                        {unreadCount} nuevas
-                      </Typography>
-                    )}
-                  </Box>
-                  {notifications.length === 0 ? (
-                    <Box sx={{ p: 3, textAlign: 'center' }}>
-                      <Typography variant="body2" color="text.secondary">No tienes notificaciones</Typography>
-                    </Box>
-                  ) : (
-                    notifications.slice(0, 5).map((notif, index) => {
-                      // Calcular tiempo relativo
-                      const fecha = new Date(notif.created_at);
-                      const ahora = new Date();
-                      const diffMs = ahora.getTime() - fecha.getTime();
-                      const diffMins = Math.floor(diffMs / 60000);
-                      const diffHours = Math.floor(diffMs / 3600000);
-                      const diffDays = Math.floor(diffMs / 86400000);
-                      let tiempoRelativo = '';
-                      if (diffMins < 60) tiempoRelativo = `Hace ${diffMins} min`;
-                      else if (diffHours < 24) tiempoRelativo = `Hace ${diffHours} hora${diffHours > 1 ? 's' : ''}`;
-                      else tiempoRelativo = `Hace ${diffDays} día${diffDays > 1 ? 's' : ''}`;
-                      
-                      // Detectar tipo de servicio por título/mensaje
-                      const titleLower = (notif.title || '').toLowerCase();
-                      const messageLower = (notif.message || '').toLowerCase();
-                      
-                      // Marítimo: LOG en tracking o "marítimo" en título
-                      const esMaritimo = titleLower.includes('marítimo') || 
-                                         titleLower.includes('maritimo') ||
-                                         notif.message?.includes('LOG');
-                      
-                      // Aéreo: "aéreo" en título o tracking con AIR/CN sin LOG
-                      const esAereo = titleLower.includes('aéreo') || 
-                                      titleLower.includes('aereo') ||
-                                      (notif.message?.includes('CN') && !notif.message?.includes('LOG'));
-                      
-                      // PO Box: "po box" o "pobox" en título/mensaje
-                      const esPOBox = titleLower.includes('po box') || 
-                                      titleLower.includes('pobox') ||
-                                      messageLower.includes('po box') ||
-                                      messageLower.includes('pobox');
-                      
-                      // Asignar emoji según tipo de servicio o tipo especial
-                      let emoji = '📦'; // default paquete
-                      if (notif.type === 'VERIFICATION_PENDING') {
-                        emoji = notif.icon === 'clock-outline' ? '⏳' : '⚠️';
-                      } else if (esMaritimo) emoji = '🚢';
-                      else if (esAereo) emoji = '✈️';
-                      else if (esPOBox) emoji = '🚚';
-                      else if (notif.icon === 'cash-check') emoji = '💳';
-                      else if (notif.icon === 'check-circle') emoji = '✅';
-                      else if (notif.icon === 'truck-delivery') emoji = '🚚';
-                      
-                      // Estilo especial para verificación pendiente
-                      const isVerificationNotif = notif.type === 'VERIFICATION_PENDING';
-                      
-                      return (
-                        <MenuItem 
-                          key={notif.id}
-                          onClick={() => {
-                            if (isVerificationNotif) {
-                              // Navegar a perfil para completar verificación
-                              setNotifAnchorEl(null);
-                              setShowClientProfile(true);
-                            }
-                          }}
-                          sx={{ 
-                            py: 1.5, 
-                            borderBottom: index < notifications.length - 1 ? '1px solid #f5f5f5' : 'none',
-                            bgcolor: isVerificationNotif 
-                              ? 'rgba(255,152,0,0.1)' 
-                              : (notif.is_read ? 'transparent' : 'rgba(240,90,40,0.05)'),
-                            borderLeft: isVerificationNotif ? '3px solid #ff9800' : 'none',
-                          }}
-                        >
-                          <Box sx={{ width: '100%' }}>
-                            <Typography variant="body2" fontWeight="600">
-                              {emoji} {notif.title}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-                              {notif.message?.substring(0, 60)}{notif.message?.length > 60 ? '...' : ''}
-                            </Typography>
-                            <Typography variant="caption" display="block" color="primary" sx={{ mt: 0.5 }}>
-                              {tiempoRelativo}
-                            </Typography>
-                          </Box>
-                        </MenuItem>
-                      );
-                    })
-                  )}
-                  <Divider />
-                  <Box sx={{ p: 1, textAlign: 'center' }}>
-                    <Typography 
-                      variant="body2" 
-                      sx={{ color: '#F05A28', cursor: 'pointer', '&:hover': { textDecoration: 'underline' } }}
-                      onClick={() => { setNotifAnchorEl(null); setNotifModalOpen(true); }}
-                    >
-                      Ver todas las notificaciones
-                    </Typography>
-                  </Box>
-                </Menu>
-
-                {/* Modal de Todas las Notificaciones */}
-                <Dialog 
-                  open={notifModalOpen} 
-                  onClose={() => setNotifModalOpen(false)} 
-                  maxWidth="sm" 
-                  fullWidth
-                  PaperProps={{ sx: { borderRadius: 3 } }}
-                >
-                  <DialogTitle sx={{ 
-                    bgcolor: '#F05A28', 
-                    color: 'white', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'space-between' 
-                  }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      🔔 Todas las Notificaciones
-                      {unreadCount > 0 && (
-                        <Badge badgeContent={unreadCount} color="error" sx={{ ml: 1 }} />
-                      )}
-                    </Box>
-                    {unreadCount > 0 && (
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        onClick={markAllNotificationsAsRead}
-                        disabled={markingAsRead}
-                        sx={{ 
-                          color: 'white', 
-                          borderColor: 'rgba(255,255,255,0.5)',
-                          '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' }
-                        }}
-                        startIcon={markingAsRead ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}
-                      >
-                        Marcar todas leídas
-                      </Button>
-                    )}
-                  </DialogTitle>
-                  <DialogContent sx={{ p: 0, maxHeight: 500 }}>
-                    {notifications.length === 0 ? (
-                      <Box sx={{ p: 4, textAlign: 'center' }}>
-                        <Typography color="text.secondary">No tienes notificaciones</Typography>
-                      </Box>
-                    ) : (
-                      notifications.map((notif, index) => {
-                        // Calcular tiempo relativo
-                        const fecha = new Date(notif.created_at);
-                        const ahora = new Date();
-                        const diffMs = ahora.getTime() - fecha.getTime();
-                        const diffMins = Math.floor(diffMs / 60000);
-                        const diffHours = Math.floor(diffMs / 3600000);
-                        const diffDays = Math.floor(diffMs / 86400000);
-                        let tiempoRelativo = '';
-                        if (diffMins < 60) tiempoRelativo = `Hace ${diffMins} min`;
-                        else if (diffHours < 24) tiempoRelativo = `Hace ${diffHours} hora${diffHours > 1 ? 's' : ''}`;
-                        else tiempoRelativo = `Hace ${diffDays} día${diffDays > 1 ? 's' : ''}`;
-                        
-                        // Detectar tipo de servicio
-                        const titleLower = (notif.title || '').toLowerCase();
-                        const esMaritimo = titleLower.includes('marítimo') || titleLower.includes('maritimo') || notif.message?.includes('LOG');
-                        const esAereo = titleLower.includes('aéreo') || titleLower.includes('aereo') || (notif.message?.includes('CN') && !notif.message?.includes('LOG'));
-                        const esPOBox = titleLower.includes('po box') || titleLower.includes('pobox');
-                        
-                        let emoji = '📦';
-                        if (esMaritimo) emoji = '🚢';
-                        else if (esAereo) emoji = '✈️';
-                        else if (esPOBox) emoji = '🚚';
-                        else if (notif.icon === 'cash-check') emoji = '💳';
-                        else if (notif.icon === 'check-circle') emoji = '✅';
-                        
-                        return (
-                          <Box 
-                            key={notif.id}
-                            sx={{ 
-                              p: 2, 
-                              borderBottom: index < notifications.length - 1 ? '1px solid #f0f0f0' : 'none',
-                              bgcolor: notif.is_read ? 'transparent' : 'rgba(240,90,40,0.05)',
-                              display: 'flex',
-                              alignItems: 'flex-start',
-                              gap: 2,
-                              '&:hover': { bgcolor: notif.is_read ? '#fafafa' : 'rgba(240,90,40,0.08)' }
-                            }}
-                          >
-                            <Typography sx={{ fontSize: 28 }}>{emoji}</Typography>
-                            <Box sx={{ flex: 1 }}>
-                              <Typography variant="body2" fontWeight="600">
-                                {notif.title}
-                              </Typography>
-                              <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-                                {notif.message}
-                              </Typography>
-                              <Typography variant="caption" color="primary" sx={{ mt: 0.5, display: 'block' }}>
-                                {tiempoRelativo}
-                              </Typography>
-                            </Box>
-                            {!notif.is_read && (
-                              <Tooltip title="Marcar como leída">
-                                <IconButton 
-                                  size="small" 
-                                  onClick={() => markNotificationAsRead(notif.id)}
-                                  sx={{ color: '#F05A28' }}
-                                >
-                                  <CheckCircleIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            )}
-                          </Box>
-                        );
-                      })
-                    )}
-                  </DialogContent>
-                  <DialogActions sx={{ p: 2, bgcolor: '#f5f5f5' }}>
-                    <Button onClick={() => setNotifModalOpen(false)} sx={{ color: '#666' }}>Cerrar</Button>
-                  </DialogActions>
-                </Dialog>
+                {renderNotificationsUI('rgba(255,255,255,0.7)', 'white')}
                 <Tooltip title={currentUser?.name || 'Usuario'}>
                   <IconButton onClick={(e) => setAnchorEl(e.currentTarget)}>
                     <Avatar sx={{ bgcolor: '#F05A28', width: 36, height: 36 }}>
@@ -1440,6 +1369,9 @@ function App() {
                   </Box>
                 </MenuItem>
               </Menu>
+
+              {/* Notificaciones */}
+              {renderNotificationsUI('text.secondary', 'primary.main')}
 
               {/* User Menu */}
               <IconButton onClick={(e) => setAnchorEl(e.currentTarget)}>
