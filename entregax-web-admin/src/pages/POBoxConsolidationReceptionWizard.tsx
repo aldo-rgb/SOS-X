@@ -134,14 +134,21 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
     const handleScan = (value: string) => {
         let tracking = value.trim();
         if (!tracking) return;
-        // El lector puede escanear el QR con URL completa O en layout de teclado distinto (ñ='/', '='/')
-        // Extraer cualquier patrón tipo "US-XXXX" del texto
-        const trackingMatch = tracking.match(/[A-Z]{2}[-_]?[A-Z0-9]{4,}/i);
-        if (trackingMatch) {
-            tracking = trackingMatch[0].replace(/_/g, '-').toUpperCase();
-            // Asegurar guion entre prefijo y el resto (US-XXXX)
-            if (!tracking.includes('-') && tracking.length > 2) {
-                tracking = tracking.slice(0, 2) + '-' + tracking.slice(2);
+        // El lector puede escanear el QR con URL completa O en layout de teclado distinto
+        // (ES convierte ':'->'Ñ' y '/'->''') dando cosas como "httpsÑ--app.entregax.com-track-US'UHNT5870"
+        // Primero buscar lo que viene después de "track" (el separador puede ser /, -, ', etc.)
+        const afterTrack = tracking.match(/track[^A-Za-z0-9]+([A-Za-z]{2})[^A-Za-z0-9]?([A-Za-z0-9]{4,})/i);
+        if (afterTrack) {
+            tracking = `${afterTrack[1]}-${afterTrack[2]}`.toUpperCase();
+        } else {
+            // Fallback: buscar patrón XX-XXXX pero excluyendo "ENTREGAX"
+            const allMatches = tracking.match(/[A-Z]{2}[-_']?[A-Z0-9]{4,}/gi) || [];
+            const candidate = allMatches.find((m) => !/TREGAX/i.test(m));
+            if (candidate) {
+                tracking = candidate.replace(/[_']/g, '-').toUpperCase();
+                if (!tracking.includes('-') && tracking.length > 2) {
+                    tracking = tracking.slice(0, 2) + '-' + tracking.slice(2);
+                }
             }
         }
         const pkg = packages.find((p) => p.tracking_internal.toLowerCase() === tracking.toLowerCase());
