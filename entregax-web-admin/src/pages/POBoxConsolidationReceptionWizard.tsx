@@ -117,12 +117,15 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
             const res = await api.get(`/admin/pobox/consolidations/${c.id}/packages`);
             const pkgs: Pkg[] = res.data.packages || [];
             setPackages(pkgs);
-            // Pre-marcar los que ya fueron recibidos en MTY previamente (consolidación parcial)
-            // Solo quedan por escanear los que están missing_on_arrival=TRUE
+            // Pre-marcar SOLO si la consolidación es parcial (ya se abrió antes): en ese
+            // caso las guías con status 'received_mty' ya fueron escaneadas previamente.
+            // Para consolidaciones nuevas (in_transit) nada debe estar pre-marcado.
             const preScanned = new Set<number>(
-                pkgs
-                    .filter((p) => !p.missing_on_arrival)
-                    .map((p) => p.id)
+                c.status === 'received_partial'
+                    ? pkgs
+                        .filter((p) => p.status === 'received_mty' && !p.missing_on_arrival)
+                        .map((p) => p.id)
+                    : []
             );
             setScannedIds(preScanned);
             setSelected(c);
