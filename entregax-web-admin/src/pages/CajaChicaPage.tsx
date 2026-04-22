@@ -368,7 +368,7 @@ const CajaChicaPage: React.FC = () => {
         const mxn = Number(p.pobox_service_cost || 0);
         const tc = usd > 0 ? mxn / usd : 0;
         const dims = p.pkg_length && p.pkg_width && p.pkg_height
-          ? `${Number(p.pkg_length)}×${Number(p.pkg_width)}×${Number(p.pkg_height)} cm`
+          ? `${(Number(p.pkg_length) * 0.393701).toFixed(1)}×${(Number(p.pkg_width) * 0.393701).toFixed(1)}×${(Number(p.pkg_height) * 0.393701).toFixed(1)} in`
           : '—';
 
         let statusLabel = 'A PAGAR';
@@ -452,10 +452,8 @@ const CajaChicaPage: React.FC = () => {
       <th>Consolidación</th>
       <th>Proveedor</th>
       <th>Guía</th>
-      <th>Cliente</th>
-      <th>Descripción</th>
-      <th class="num">Peso (lb)</th>
-      <th>Medidas</th>
+      <th class="num">Peso (kg)</th>
+      <th>Medidas (in)</th>
       <th class="num">USD</th>
       <th class="num">TC</th>
       <th class="num">MXN</th>
@@ -477,8 +475,6 @@ const CajaChicaPage: React.FC = () => {
         <td>#${r.consolidacion_id}</td>
         <td>${r.supplier_name || '—'}</td>
         <td style="font-family:monospace;font-weight:600;${tachado}">${r.tracking}</td>
-        <td>${r.client}</td>
-        <td>${r.description}</td>
         <td class="num">${r.weight.toFixed(2)}</td>
         <td>${r.dims}</td>
         <td class="num">$${r.usd.toFixed(2)}</td>

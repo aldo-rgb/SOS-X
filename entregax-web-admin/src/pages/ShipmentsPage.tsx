@@ -323,6 +323,35 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
 
   const getToken = () => localStorage.getItem('token') || '';
 
+  // 🔧 SUPER ADMIN: permisos para edición manual de estado
+  const isSuperAdmin = (() => {
+    try { return JSON.parse(localStorage.getItem('user') || '{}').role === 'super_admin'; }
+    catch { return false; }
+  })();
+  const [editingStatus, setEditingStatus] = useState(false);
+  const [manualStatus, setManualStatus] = useState<PackageStatus>('received_mty');
+  const [savingStatus, setSavingStatus] = useState(false);
+
+  const handleManualStatusUpdate = async () => {
+    if (!selectedPackage) return;
+    setSavingStatus(true);
+    try {
+      const resp = await axios.patch(
+        `${API_URL}/packages/${selectedPackage.id}/status`,
+        { status: manualStatus, notes: `[Super Admin] Estado corregido manualmente` },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setSelectedPackage({ ...selectedPackage, status: manualStatus });
+      setPackages(prev => prev.map(p => p.id === selectedPackage.id ? { ...p, status: manualStatus } : p));
+      setEditingStatus(false);
+      setSnackbar({ open: true, message: resp.data.message || 'Estado actualizado', severity: 'success' });
+    } catch (err: any) {
+      setSnackbar({ open: true, message: err.response?.data?.error || 'Error al actualizar estado', severity: 'error' });
+    } finally {
+      setSavingStatus(false);
+    }
+  };
+
   const fetchPackages = useCallback(async () => {
     setLoading(true);
     try {
@@ -3074,7 +3103,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       </Dialog>
 
       {/* Details Dialog */}
-      <Dialog open={detailsOpen} onClose={() => setDetailsOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog open={detailsOpen} onClose={() => { setDetailsOpen(false); setEditingStatus(false); }} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ bgcolor: BLACK, color: 'white' }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="h6">📦 {t('shipments.shipmentDetails')}</Typography>
@@ -3150,7 +3179,56 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                     </Box>
                   )}
                 </Grid>
-                <Grid size={6}><Typography variant="body2" color="text.secondary">{t('common.status')}</Typography><Chip icon={<span>{getStatusIcon(selectedPackage.status)}</span>} label={getStatusLabel(selectedPackage.status)} color={getStatusColor(selectedPackage.status)} /></Grid>
+                <Grid size={6}>
+                  <Typography variant="body2" color="text.secondary">{t('common.status')}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Chip icon={<span>{getStatusIcon(selectedPackage.status)}</span>} label={getStatusLabel(selectedPackage.status)} color={getStatusColor(selectedPackage.status)} />
+                    {isSuperAdmin && !editingStatus && (
+                      <Tooltip title="🔧 Super Admin: editar estado manualmente">
+                        <IconButton size="small" onClick={() => { setManualStatus(selectedPackage.status); setEditingStatus(true); }}>
+                          <EditIcon sx={{ fontSize: 16, color: 'warning.main' }} />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </Box>
+                  {isSuperAdmin && editingStatus && (
+                    <Box sx={{ mt: 1, p: 1.2, border: '1px dashed', borderColor: 'warning.main', borderRadius: 1, bgcolor: 'rgba(240,90,40,0.05)' }}>
+                      <Typography variant="caption" sx={{ color: 'warning.main', fontWeight: 700, display: 'block', mb: 0.5 }}>
+                        🔧 Cambiar estado (Super Admin)
+                      </Typography>
+                      <FormControl fullWidth size="small" sx={{ mb: 1 }}>
+                        <Select
+                          value={manualStatus}
+                          onChange={(e) => setManualStatus(e.target.value as PackageStatus)}
+                          disabled={savingStatus}
+                        >
+                          <MenuItem value="in_transit">🚚 EN TRANSITO A MTY NL</MenuItem>
+                          <MenuItem value="received">📦 Recibido CEDIS HIDALGO TX</MenuItem>
+                          <MenuItem value="received_mty">🏢 RECIBIDO EN CEDIS MTY</MenuItem>
+                          <MenuItem value="processing">⚙️ Procesando</MenuItem>
+                          <MenuItem value="customs">⚙️ En Aduana</MenuItem>
+                          <MenuItem value="ready_pickup">🛣️ En Ruta / Listo Recoger</MenuItem>
+                          <MenuItem value="delivered">✅ ENTREGADO</MenuItem>
+                        </Select>
+                      </FormControl>
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        <Button
+                          size="small"
+                          color="warning"
+                          variant="contained"
+                          startIcon={savingStatus ? <CircularProgress size={14} /> : <SaveIcon />}
+                          onClick={handleManualStatusUpdate}
+                          disabled={savingStatus || manualStatus === selectedPackage.status}
+                        >
+                          Aplicar
+                        </Button>
+                        <Button size="small" onClick={() => setEditingStatus(false)} disabled={savingStatus}>
+                          Cancelar
+                        </Button>
+                      </Box>
+                    </Box>
+                  )}
+                </Grid>
                 <Grid size={6}><Typography variant="body2" color="text.secondary">{t('shipments.totalWeight')}</Typography><Typography>{selectedPackage.weight ? `${selectedPackage.weight} kg` : '-'}</Typography></Grid>
                 <Grid size={6}><Typography variant="body2" color="text.secondary">{t('shipments.boxes')}</Typography><Typography>{selectedPackage.totalBoxes || 1}</Typography></Grid>
                 <Grid size={12}><Typography variant="body2" color="text.secondary">{t('common.description')}</Typography><Typography>{selectedPackage.description}</Typography></Grid>
