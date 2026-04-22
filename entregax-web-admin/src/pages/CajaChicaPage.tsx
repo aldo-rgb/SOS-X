@@ -40,6 +40,7 @@ import {
   Tab,
   Avatar,
   Divider,
+  Checkbox,
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
 import {
@@ -185,6 +186,11 @@ const CajaChicaPage: React.FC = () => {
   const [pagoConsolidacionRef, setPagoConsolidacionRef] = useState('');
   const [pagoConsolidacionNotas, setPagoConsolidacionNotas] = useState('');
   const [procesandoPagoProveedor, setProcesandoPagoProveedor] = useState(false);
+  const [selectedConsolidaciones, setSelectedConsolidaciones] = useState<Set<number>>(new Set());
+  const [pagoMultipleDialogOpen, setPagoMultipleDialogOpen] = useState(false);
+  const [pagoMultipleRef, setPagoMultipleRef] = useState('');
+  const [pagoMultipleNotas, setPagoMultipleNotas] = useState('');
+  const [procesandoPagoMultiple, setProcesandoPagoMultiple] = useState(false);
 
   // Búsqueda de cliente
   const [_clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null);
@@ -312,7 +318,26 @@ const CajaChicaPage: React.FC = () => {
     setPagoConsolidacionDialogOpen(true);
   };
 
-  // ====== Reporte: solo paquetes que SÍ se pagan (no missing, no lost, no pagados) ======
+  // Toggle selección de consolidación
+  const toggleSelectConsolidacion = (id: number) => {
+    setSelectedConsolidaciones(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllConsolidaciones = () => {
+    if (selectedConsolidaciones.size === consolidacionesPendientes.length) {
+      setSelectedConsolidaciones(new Set());
+    } else {
+      setSelectedConsolidaciones(new Set(consolidacionesPendientes.map(c => c.id)));
+    }
+  };
+
+  // ====== Reporte: TODAS las guías de las consolidaciones seleccionadas.
+  // Muestra todas (en tránsito/faltantes/perdidas/pagadas) pero solo SUMA al total
+  // las que son pagables ahora (recibidas en MTY, no faltantes, no perdidas, no pagadas).
   const getReporteRows = () => {
     const rows: Array<{
       consolidacion_id: number;
@@ -326,18 +351,43 @@ const CajaChicaPage: React.FC = () => {
       tc: number;
       mxn: number;
       status: string;
+      statusLabel: string;
+      countsToTotal: boolean;
+      reasonNoCount?: string;
     }> = [];
     let totalUsd = 0;
     let totalMxn = 0;
-    consolidacionesPendientes.forEach((c) => {
+    const selected = consolidacionesPendientes.filter(c => selectedConsolidaciones.has(c.id));
+    selected.forEach((c) => {
       (c.packages || []).forEach((p) => {
-        if (p.missing_on_arrival || p.is_lost || p.costing_paid) return;
         const usd = Number(p.pobox_cost_usd || 0);
         const mxn = Number(p.pobox_service_cost || 0);
         const tc = usd > 0 ? mxn / usd : 0;
         const dims = p.pkg_length && p.pkg_width && p.pkg_height
           ? `${Number(p.pkg_length)}×${Number(p.pkg_width)}×${Number(p.pkg_height)} cm`
           : '—';
+
+        let statusLabel = 'A PAGAR';
+        let countsToTotal = true;
+        let reasonNoCount: string | undefined;
+        if (p.is_lost) {
+          statusLabel = 'PERDIDA';
+          countsToTotal = false;
+          reasonNoCount = 'Paquete perdido';
+        } else if (p.missing_on_arrival) {
+          statusLabel = 'FALTANTE';
+          countsToTotal = false;
+          reasonNoCount = 'No llegó a MTY';
+        } else if (p.costing_paid) {
+          statusLabel = 'YA PAGADA';
+          countsToTotal = false;
+          reasonNoCount = 'Pagada previamente';
+        } else if (p.status && p.status !== 'received_mty') {
+          statusLabel = 'EN TRÁNSITO';
+          countsToTotal = false;
+          reasonNoCount = 'Aún no llega a MTY';
+        }
+
         rows.push({
           consolidacion_id: c.id,
           supplier_name: c.supplier_name,
@@ -350,21 +400,32 @@ const CajaChicaPage: React.FC = () => {
           tc,
           mxn,
           status: p.status || '—',
+          statusLabel,
+          countsToTotal,
+          reasonNoCount,
         });
-        totalUsd += usd;
-        totalMxn += mxn;
+        if (countsToTotal) {
+          totalUsd += usd;
+          totalMxn += mxn;
+        }
       });
     });
-    return { rows, totalUsd, totalMxn };
+    return { rows, totalUsd, totalMxn, selectedCount: selected.length };
   };
 
   // Generar PDF imprimible (HTML → window.print → guardar como PDF)
   const handleGenerarPDF = () => {
-    const { rows, totalUsd, totalMxn } = getReporteRows();
-    if (rows.length === 0) {
-      setSnackbar({ open: true, message: 'No hay guías pagables para reportar', severity: 'info' });
+    if (selectedConsolidaciones.size === 0) {
+      setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' });
       return;
     }
+    const { rows, totalUsd, totalMxn, selectedCount } = getReporteRows();
+    if (rows.length === 0) {
+      setSnackbar({ open: true, message: 'Las consolidaciones seleccionadas no tienen guías', severity: 'info' });
+      return;
+    }
+    const countableCount = rows.filter(r => r.countsToTotal).length;
+    const nonCountableCount = rows.length - countableCount;
     const fecha = new Date().toLocaleString('es-MX');
     const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><title>Reporte Pagos Proveedor</title>
@@ -384,7 +445,7 @@ const CajaChicaPage: React.FC = () => {
   .footer { margin-top: 12px; font-size: 9px; color: #999; text-align: center; }
 </style></head><body>
 <h1>🚚 EntregaX · Reporte de Pagos a Proveedores</h1>
-<div class="sub">Generado: ${fecha} · Incluye SOLO guías recibidas en MTY (pendientes de pago). No incluye faltantes ni perdidas.</div>
+<div class="sub">Generado: ${fecha} · ${selectedCount} consolidación(es) · ${rows.length} guía(s) · ${countableCount} pagable(s), ${nonCountableCount} no suma(n) al total</div>
 <table>
   <thead>
     <tr>
@@ -399,14 +460,28 @@ const CajaChicaPage: React.FC = () => {
       <th class="num">TC</th>
       <th class="num">MXN</th>
       <th>Status</th>
+      <th>Cuenta</th>
     </tr>
   </thead>
   <tbody>
-    ${rows.map(r => `
-      <tr>
+    ${rows.map(r => {
+      const rowStyle = r.countsToTotal
+        ? ''
+        : r.statusLabel === 'PERDIDA' ? 'background:#ffebee;color:#999;'
+        : r.statusLabel === 'FALTANTE' ? 'background:#fff3e0;color:#999;'
+        : r.statusLabel === 'YA PAGADA' ? 'background:#e8f5e9;color:#999;'
+        : 'background:#e3f2fd;color:#666;';
+      const tachado = r.statusLabel === 'PERDIDA' ? 'text-decoration:line-through;' : '';
+      const statusColor = r.countsToTotal ? '#2e7d32'
+        : r.statusLabel === 'PERDIDA' ? '#c62828'
+        : r.statusLabel === 'FALTANTE' ? '#ef6c00'
+        : r.statusLabel === 'YA PAGADA' ? '#2e7d32'
+        : '#1565c0';
+      return `
+      <tr style="${rowStyle}">
         <td>#${r.consolidacion_id}</td>
         <td>${r.supplier_name || '—'}</td>
-        <td style="font-family:monospace;font-weight:600">${r.tracking}</td>
+        <td style="font-family:monospace;font-weight:600;${tachado}">${r.tracking}</td>
         <td>${r.client}</td>
         <td>${r.description}</td>
         <td class="num">${r.weight.toFixed(2)}</td>
@@ -414,16 +489,18 @@ const CajaChicaPage: React.FC = () => {
         <td class="num">$${r.usd.toFixed(2)}</td>
         <td class="num">${r.tc.toFixed(2)}</td>
         <td class="num">$${r.mxn.toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-        <td>${r.status}</td>
-      </tr>`).join('')}
+        <td style="color:${statusColor};font-weight:700">${r.statusLabel}</td>
+        <td style="text-align:center;font-weight:700;color:${r.countsToTotal ? '#2e7d32' : '#c62828'}">${r.countsToTotal ? '✓ SÍ' : '✗ NO'}</td>
+      </tr>`;
+    }).join('')}
   </tbody>
 </table>
 <div class="totals">
-  <div>Total guías a pagar: <strong>${rows.length}</strong></div>
+  <div>Guías pagables: <strong>${countableCount}</strong> de ${rows.length}</div>
   <div>Total USD: <span class="big">$${totalUsd.toFixed(2)}</span></div>
   <div>Total MXN a pagar: <span class="big">$${totalMxn.toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2})}</span></div>
 </div>
-<div class="footer">Las guías faltantes o perdidas NO se incluyen en el total hasta que lleguen a CEDIS MTY.</div>
+<div class="footer">Las guías marcadas como FALTANTE, PERDIDA, EN TRÁNSITO o YA PAGADA NO se suman al total de este pago.</div>
 <script>window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 300); });</script>
 </body></html>`;
     const w = window.open('', '_blank', 'width=1200,height=800');
@@ -437,13 +514,17 @@ const CajaChicaPage: React.FC = () => {
 
   // Enviar reporte por WhatsApp (texto resumen, abre wa.me)
   const handleEnviarWhatsApp = () => {
-    const { rows, totalUsd, totalMxn } = getReporteRows();
-    if (rows.length === 0) {
-      setSnackbar({ open: true, message: 'No hay guías pagables para enviar', severity: 'info' });
+    if (selectedConsolidaciones.size === 0) {
+      setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' });
       return;
     }
+    const { rows, totalUsd, totalMxn } = getReporteRows();
+    if (rows.length === 0) {
+      setSnackbar({ open: true, message: 'Las consolidaciones seleccionadas no tienen guías', severity: 'info' });
+      return;
+    }
+    const countableCount = rows.filter(r => r.countsToTotal).length;
     const fecha = new Date().toLocaleDateString('es-MX');
-    // Agrupar por consolidación para mensaje más compacto
     const byCons = new Map<number, typeof rows>();
     rows.forEach(r => {
       const arr = byCons.get(r.consolidacion_id) || [];
@@ -456,17 +537,82 @@ const CajaChicaPage: React.FC = () => {
       const supplier = items[0]?.supplier_name || '—';
       msg += `*Consolidación #${consId}* — ${supplier}\n`;
       items.forEach(r => {
-        msg += `• \`${r.tracking}\` · ${r.weight.toFixed(1)}lb · $${r.usd.toFixed(2)} USD · $${r.mxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})} MXN\n`;
+        const marker = r.countsToTotal ? '✅'
+          : r.statusLabel === 'PERDIDA' ? '❌'
+          : r.statusLabel === 'FALTANTE' ? '⚠️'
+          : r.statusLabel === 'YA PAGADA' ? '💰'
+          : '🚛';
+        const suffix = r.countsToTotal ? '' : ` _(${r.statusLabel} — no suma)_`;
+        msg += `${marker} \`${r.tracking}\` · ${r.weight.toFixed(1)}lb · $${r.usd.toFixed(2)} USD · $${r.mxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})} MXN${suffix}\n`;
       });
       msg += `\n`;
     });
     msg += `━━━━━━━━━━━━━━━━\n`;
-    msg += `*Total guías:* ${rows.length}\n`;
+    msg += `*Guías pagables:* ${countableCount} de ${rows.length}\n`;
     msg += `*Total USD:* $${totalUsd.toFixed(2)}\n`;
     msg += `*Total MXN a pagar:* $${totalMxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}\n\n`;
-    msg += `_No incluye guías faltantes ni perdidas._`;
+    msg += `_Las guías faltantes, perdidas, en tránsito o ya pagadas NO se suman al total._`;
     const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
     window.open(url, '_blank');
+  };
+
+  // Pago múltiple de consolidaciones seleccionadas
+  const handleIniciarPagoMultiple = () => {
+    if (selectedConsolidaciones.size === 0) {
+      setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' });
+      return;
+    }
+    setPagoMultipleRef('');
+    setPagoMultipleNotas('');
+    setPagoMultipleDialogOpen(true);
+  };
+
+  const handleConfirmarPagoMultiple = async () => {
+    const selected = consolidacionesPendientes.filter(c => selectedConsolidaciones.has(c.id));
+    const pagables = selected.filter(c => Number(c.total_cost_mxn || 0) > 0);
+    if (pagables.length === 0) {
+      setSnackbar({ open: true, message: 'Ninguna de las consolidaciones seleccionadas tiene monto a pagar', severity: 'warning' });
+      return;
+    }
+    setProcesandoPagoMultiple(true);
+    let pagadas = 0;
+    let paquetesActualizados = 0;
+    let totalMxn = 0;
+    const errores: string[] = [];
+    for (const c of pagables) {
+      try {
+        const response = await api.post('/caja-chica/pagar-consolidacion', {
+          consolidation_id: c.id,
+          monto: Number(c.total_cost_mxn),
+          referencia: pagoMultipleRef || null,
+          notas: pagoMultipleNotas ? `${pagoMultipleNotas} [Pago múltiple]` : 'Pago múltiple de consolidaciones'
+        });
+        pagadas++;
+        paquetesActualizados += Number(response.data?.packages_updated || 0);
+        totalMxn += Number(c.total_cost_mxn);
+      } catch (error: unknown) {
+        const axiosError = error as { response?: { data?: { error?: string } } };
+        errores.push(`#${c.id}: ${axiosError.response?.data?.error || 'error'}`);
+      }
+    }
+    setProcesandoPagoMultiple(false);
+    setPagoMultipleDialogOpen(false);
+    setSelectedConsolidaciones(new Set());
+    if (errores.length === 0) {
+      setSnackbar({
+        open: true,
+        message: `✅ ${pagadas} consolidación(es) pagadas · ${paquetesActualizados} paquetes · ${formatCurrency(totalMxn)}`,
+        severity: 'success'
+      });
+    } else {
+      setSnackbar({
+        open: true,
+        message: `Pagadas ${pagadas}/${pagables.length}. Errores: ${errores.join('; ')}`,
+        severity: 'warning'
+      });
+    }
+    fetchConsolidacionesPendientes();
+    loadData();
   };
 
   // Confirmar pago de consolidación a proveedor
@@ -1301,6 +1447,14 @@ const CajaChicaPage: React.FC = () => {
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={{ bgcolor: 'grey.100' }}>
+                      <TableCell padding="checkbox">
+                        <Checkbox
+                          color="primary"
+                          indeterminate={selectedConsolidaciones.size > 0 && selectedConsolidaciones.size < consolidacionesPendientes.length}
+                          checked={consolidacionesPendientes.length > 0 && selectedConsolidaciones.size === consolidacionesPendientes.length}
+                          onChange={toggleSelectAllConsolidaciones}
+                        />
+                      </TableCell>
                       <TableCell width={40}></TableCell>
                       <TableCell><strong>Consolidación</strong></TableCell>
                       <TableCell><strong>Proveedor</strong></TableCell>
@@ -1316,12 +1470,20 @@ const CajaChicaPage: React.FC = () => {
                       <React.Fragment key={consolidacion.id}>
                         <TableRow 
                           hover
+                          selected={selectedConsolidaciones.has(consolidacion.id)}
                           sx={{ 
                             '& > td': { borderBottom: expandedConsolidaciones.has(consolidacion.id) ? 'none' : undefined },
                             cursor: 'pointer'
                           }}
                           onClick={() => toggleExpandConsolidacion(consolidacion.id)}
                         >
+                          <TableCell padding="checkbox" onClick={(e) => e.stopPropagation()}>
+                            <Checkbox
+                              color="primary"
+                              checked={selectedConsolidaciones.has(consolidacion.id)}
+                              onChange={() => toggleSelectConsolidacion(consolidacion.id)}
+                            />
+                          </TableCell>
                           <TableCell>
                             <IconButton size="small">
                               {expandedConsolidaciones.has(consolidacion.id) ? <ExpandLessIcon /> : <ExpandMoreIcon />}
@@ -1405,7 +1567,7 @@ const CajaChicaPage: React.FC = () => {
                         {/* Paquetes expandidos */}
                         {expandedConsolidaciones.has(consolidacion.id) && (
                           <TableRow>
-                            <TableCell colSpan={8} sx={{ p: 0, bgcolor: 'grey.50' }}>
+                            <TableCell colSpan={9} sx={{ p: 0, bgcolor: 'grey.50' }}>
                               <Box sx={{ p: 2 }}>
                                 <Typography variant="subtitle2" gutterBottom>
                                   Paquetes en esta consolidación:
@@ -1485,29 +1647,154 @@ const CajaChicaPage: React.FC = () => {
             </Box>
           )}
         </DialogContent>
-        <DialogActions sx={{ p: 2, gap: 1, justifyContent: 'space-between' }}>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button
-              variant="outlined"
-              color="error"
-              startIcon={<PictureAsPdfIcon />}
-              onClick={handleGenerarPDF}
-              disabled={consolidacionesPendientes.length === 0}
-            >
-              Descargar PDF
-            </Button>
-            <Button
-              variant="outlined"
-              startIcon={<WhatsAppIcon />}
-              onClick={handleEnviarWhatsApp}
-              disabled={consolidacionesPendientes.length === 0}
-              sx={{ color: '#25D366', borderColor: '#25D366', '&:hover': { borderColor: '#1ebd5a', bgcolor: 'rgba(37,211,102,0.08)' } }}
-            >
-              Enviar por WhatsApp
+        <DialogActions sx={{ p: 2, gap: 1, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+            <Typography variant="body2" color={selectedConsolidaciones.size > 0 ? 'primary.main' : 'text.secondary'} fontWeight={selectedConsolidaciones.size > 0 ? 'bold' : 'normal'}>
+              {selectedConsolidaciones.size === 0
+                ? 'Selecciona consolidaciones para generar reporte o pagar'
+                : `${selectedConsolidaciones.size} consolidación(es) seleccionada(s)`}
+            </Typography>
+          </Box>
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Tooltip title={selectedConsolidaciones.size === 0 ? 'Selecciona al menos una consolidación' : ''}>
+              <span>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<PictureAsPdfIcon />}
+                  onClick={handleGenerarPDF}
+                  disabled={selectedConsolidaciones.size === 0}
+                >
+                  Descargar PDF
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip title={selectedConsolidaciones.size === 0 ? 'Selecciona al menos una consolidación' : ''}>
+              <span>
+                <Button
+                  variant="outlined"
+                  startIcon={<WhatsAppIcon />}
+                  onClick={handleEnviarWhatsApp}
+                  disabled={selectedConsolidaciones.size === 0}
+                  sx={{ color: '#25D366', borderColor: '#25D366', '&:hover': { borderColor: '#1ebd5a', bgcolor: 'rgba(37,211,102,0.08)' } }}
+                >
+                  Enviar por WhatsApp
+                </Button>
+              </span>
+            </Tooltip>
+            <Tooltip title={selectedConsolidaciones.size === 0 ? 'Selecciona al menos una consolidación' : 'Pagar todas las seleccionadas (omite faltantes y perdidas)'}>
+              <span>
+                <Button
+                  variant="contained"
+                  color="warning"
+                  startIcon={<PaymentIcon />}
+                  onClick={handleIniciarPagoMultiple}
+                  disabled={selectedConsolidaciones.size === 0}
+                >
+                  Pagar {selectedConsolidaciones.size > 0 ? `(${selectedConsolidaciones.size})` : ''}
+                </Button>
+              </span>
+            </Tooltip>
+            <Button onClick={() => setPagoProveedorDialogOpen(false)}>
+              Cerrar
             </Button>
           </Box>
-          <Button onClick={() => setPagoProveedorDialogOpen(false)}>
-            Cerrar
+        </DialogActions>
+      </Dialog>
+
+      {/* Diálogo: Pago múltiple de consolidaciones */}
+      <Dialog
+        open={pagoMultipleDialogOpen}
+        onClose={() => !procesandoPagoMultiple && setPagoMultipleDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: 'warning.main', color: 'white' }}>
+          💰 Pagar múltiples consolidaciones
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          {(() => {
+            const selected = consolidacionesPendientes.filter(c => selectedConsolidaciones.has(c.id));
+            const totalMxn = selected.reduce((s, c) => s + Number(c.total_cost_mxn || 0), 0);
+            const totalUsd = selected.reduce((s, c) => s + Number(c.total_cost_usd || 0), 0);
+            const pagables = selected.filter(c => Number(c.total_cost_mxn || 0) > 0);
+            const sinMonto = selected.length - pagables.length;
+            return (
+              <Box>
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Se procesará el pago de <strong>{pagables.length}</strong> consolidación(es).
+                  {sinMonto > 0 && <> {sinMonto} será(n) omitida(s) por no tener monto pagable.</>}
+                  <br />
+                  <strong>Las guías faltantes y perdidas no se suman ni se marcan como pagadas.</strong>
+                </Alert>
+                <TableContainer component={Paper} variant="outlined" sx={{ mb: 2, maxHeight: 280 }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell><strong>Consolidación</strong></TableCell>
+                        <TableCell><strong>Proveedor</strong></TableCell>
+                        <TableCell align="right"><strong>MXN</strong></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {selected.map(c => (
+                        <TableRow key={c.id}>
+                          <TableCell>#{c.id}</TableCell>
+                          <TableCell>{c.supplier_name}</TableCell>
+                          <TableCell align="right">
+                            {Number(c.total_cost_mxn || 0) > 0
+                              ? formatCurrency(Number(c.total_cost_mxn))
+                              : <Typography variant="caption" color="text.disabled">Sin monto</Typography>}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+                <Paper sx={{ p: 2, bgcolor: 'warning.light', mb: 2 }}>
+                  <Grid container spacing={1}>
+                    <Grid size={{ xs: 6 }}>
+                      <Typography variant="caption" color="text.secondary">Total USD</Typography>
+                      <Typography variant="h6" fontWeight="bold">${totalUsd.toFixed(2)}</Typography>
+                    </Grid>
+                    <Grid size={{ xs: 6 }}>
+                      <Typography variant="caption" color="text.secondary">Total MXN a pagar</Typography>
+                      <Typography variant="h6" fontWeight="bold" color="primary.dark">{formatCurrency(totalMxn)}</Typography>
+                    </Grid>
+                  </Grid>
+                </Paper>
+                <TextField
+                  fullWidth
+                  label="Referencia de pago (opcional)"
+                  value={pagoMultipleRef}
+                  onChange={(e) => setPagoMultipleRef(e.target.value)}
+                  sx={{ mb: 2 }}
+                  placeholder="Ej: Transferencia BBVA 1234"
+                />
+                <TextField
+                  fullWidth
+                  label="Notas (opcional)"
+                  value={pagoMultipleNotas}
+                  onChange={(e) => setPagoMultipleNotas(e.target.value)}
+                  multiline
+                  rows={2}
+                />
+              </Box>
+            );
+          })()}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setPagoMultipleDialogOpen(false)} disabled={procesandoPagoMultiple}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            color="warning"
+            startIcon={<PaymentIcon />}
+            onClick={handleConfirmarPagoMultiple}
+            disabled={procesandoPagoMultiple}
+          >
+            {procesandoPagoMultiple ? 'Procesando...' : 'Confirmar pago'}
           </Button>
         </DialogActions>
       </Dialog>
