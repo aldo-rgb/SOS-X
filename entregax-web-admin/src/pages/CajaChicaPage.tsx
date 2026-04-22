@@ -1228,12 +1228,15 @@ const CajaChicaPage: React.FC = () => {
                               size="small"
                               color={consolidacion.has_missing ? 'warning' : 'warning'}
                               startIcon={<PaymentIcon />}
+                              disabled={Number(consolidacion.total_cost_mxn || 0) <= 0}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 handleIniciarPagoConsolidacion(consolidacion);
                               }}
                             >
-                              {consolidacion.has_missing ? 'Pagar parcial' : 'Pagar'}
+                              {Number(consolidacion.total_cost_mxn || 0) <= 0
+                                ? 'Esperando llegada'
+                                : consolidacion.has_missing ? 'Pagar parcial' : 'Pagar'}
                             </Button>
                           </TableCell>
                         </TableRow>
