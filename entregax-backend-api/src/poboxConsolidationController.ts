@@ -400,3 +400,46 @@ export const markPackageAsLost = async (req: AuthRequest, res: Response): Promis
     client.release();
   }
 };
+
+/**
+ * GET /api/admin/customer-service/lost-packages
+ * Lista el historial de paquetes marcados como PERDIDOS.
+ */
+export const getLostPackages = async (_req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const result = await pool.query(
+      `SELECT 
+         p.id,
+         p.tracking_internal,
+         p.status,
+         p.description,
+         p.weight,
+         p.consolidation_id,
+         p.is_lost,
+         p.lost_at,
+         p.lost_reason,
+         p.lost_by_user_id,
+         p.missing_reported_at,
+         p.created_at,
+         c.master_tracking,
+         u.id AS user_id,
+         u.full_name AS user_name,
+         u.email AS user_email,
+         u.phone AS user_phone,
+         u.box_id,
+         lu.full_name AS lost_by_user_name,
+         lu.role AS lost_by_user_role,
+         EXTRACT(EPOCH FROM (NOW() - p.lost_at)) / 86400 AS days_since_lost
+       FROM packages p
+       LEFT JOIN consolidations c ON c.id = p.consolidation_id
+       LEFT JOIN users u ON u.id = p.user_id
+       LEFT JOIN users lu ON lu.id = p.lost_by_user_id
+       WHERE COALESCE(p.is_lost, FALSE) = TRUE
+       ORDER BY p.lost_at DESC NULLS LAST`
+    );
+    res.json({ success: true, packages: result.rows });
+  } catch (error: any) {
+    console.error('getLostPackages:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};

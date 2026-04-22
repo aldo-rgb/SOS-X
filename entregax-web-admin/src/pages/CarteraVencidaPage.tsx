@@ -41,6 +41,7 @@ import RemoveIcon from '@mui/icons-material/Remove';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import GavelIcon from '@mui/icons-material/Gavel';
+import ReportProblemIcon from '@mui/icons-material/ReportProblem';
 import DrawIcon from '@mui/icons-material/Draw';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import PersonIcon from '@mui/icons-material/Person';
@@ -189,6 +190,11 @@ export default function CarteraVencidaPage() {
   const [abandonoDialog, setAbandonoDialog] = useState(false);
   const [selectedForAbandono, setSelectedForAbandono] = useState<CarteraItem[]>([]);
   const [abandonoUrl, setAbandonoUrl] = useState('');
+
+  // Paquetes perdidos
+  const [lostPackages, setLostPackages] = useState<any[]>([]);
+  const [lostLoading, setLostLoading] = useState(false);
+  const [lostSearch, setLostSearch] = useState('');
 
   // Cargar dashboard
   const loadDashboard = useCallback(async () => {
@@ -345,6 +351,24 @@ export default function CarteraVencidaPage() {
     loadDashboard();
   }, [loadDashboard]);
 
+  // Cargar paquetes perdidos
+  const loadLostPackages = useCallback(async () => {
+    setLostLoading(true);
+    try {
+      const response = await api.get('/admin/customer-service/lost-packages');
+      setLostPackages(response.data?.packages || []);
+    } catch (error) {
+      console.error('Error cargando paquetes perdidos:', error);
+    }
+    setLostLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (tab === 3) {
+      loadLostPackages();
+    }
+  }, [tab, loadLostPackages]);
+
   // Renderizar semáforo
   const renderSemaforo = (semaforo: string) => {
     const colors: Record<string, string> = {
@@ -387,6 +411,7 @@ export default function CarteraVencidaPage() {
           <Tab icon={<ReceiptLongIcon />} label="Dashboard" />
           <Tab icon={<SearchIcon />} label="Buscar Guías" />
           <Tab icon={<GavelIcon />} label="Abandono" />
+          <Tab icon={<ReportProblemIcon />} label="Perdidas" />
         </Tabs>
       </Paper>
 
@@ -781,6 +806,120 @@ export default function CarteraVencidaPage() {
             >
               Generar Documento de Abandono ({selectedForAbandono.length} guías)
             </Button>
+          </Paper>
+        </Box>
+      )}
+
+      {/* Perdidas Tab */}
+      {tab === 3 && (
+        <Box>
+          <Alert severity="error" sx={{ mb: 3 }} icon={<ReportProblemIcon />}>
+            <Typography variant="body2" fontWeight={600}>Historial de Guías Perdidas</Typography>
+            <Typography variant="body2">
+              Paquetes marcados como perdidos por Servicio a Cliente. Esta acción es definitiva y queda registrada con el usuario que la autorizó.
+            </Typography>
+          </Alert>
+
+          <Paper sx={{ p: 2 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, gap: 2, flexWrap: 'wrap' }}>
+              <Typography variant="h6">
+                {lostPackages.length} {lostPackages.length === 1 ? 'guía perdida' : 'guías perdidas'}
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                <TextField
+                  size="small"
+                  placeholder="Buscar tracking, cliente, email…"
+                  value={lostSearch}
+                  onChange={(e) => setLostSearch(e.target.value)}
+                  InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+                  sx={{ minWidth: 260 }}
+                />
+                <Button size="small" variant="outlined" startIcon={<RefreshIcon />} onClick={loadLostPackages} disabled={lostLoading}>
+                  Refrescar
+                </Button>
+              </Box>
+            </Box>
+
+            {lostLoading ? (
+              <Box sx={{ textAlign: 'center', py: 4 }}><CircularProgress /></Box>
+            ) : lostPackages.length === 0 ? (
+              <Alert severity="success">No hay guías registradas como perdidas.</Alert>
+            ) : (
+              (() => {
+                const q = lostSearch.trim().toLowerCase();
+                const filtered = q
+                  ? lostPackages.filter((p) =>
+                      [p.tracking_internal, p.master_tracking, p.user_name, p.user_email, p.box_id, p.lost_reason]
+                        .filter(Boolean)
+                        .some((v: string) => String(v).toLowerCase().includes(q))
+                    )
+                  : lostPackages;
+                if (filtered.length === 0) {
+                  return (
+                    <Alert severity="warning">
+                      Ningún resultado para "{lostSearch}". Hay {lostPackages.length} guía(s) perdidas pero ninguna coincide.
+                      <Button size="small" sx={{ ml: 2 }} onClick={() => setLostSearch('')}>Limpiar búsqueda</Button>
+                    </Alert>
+                  );
+                }
+                return (
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>Tracking</TableCell>
+                        <TableCell>Master</TableCell>
+                        <TableCell>Cliente</TableCell>
+                        <TableCell>Motivo</TableCell>
+                        <TableCell>Marcado por</TableCell>
+                        <TableCell align="center">Perdido el</TableCell>
+                        <TableCell align="center">Días</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {filtered.map((p: any) => (
+                        <TableRow key={p.id} hover>
+                          <TableCell>
+                            <Typography variant="body2" fontWeight={700}>{p.tracking_internal}</Typography>
+                            {p.description && <Typography variant="caption" color="text.secondary">{p.description}</Typography>}
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="caption">{p.master_tracking || '—'}</Typography>
+                          </TableCell>
+                          <TableCell>
+                            {p.box_id && <Typography variant="caption" fontWeight={700} color="primary.main">📦 {p.box_id}</Typography>}
+                            <Typography variant="body2">{p.user_name || '—'}</Typography>
+                            {p.user_email && <Typography variant="caption" color="text.secondary">{p.user_email}</Typography>}
+                          </TableCell>
+                          <TableCell sx={{ maxWidth: 280 }}>
+                            <Tooltip title={p.lost_reason || ''}>
+                              <Typography variant="body2" sx={{ overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
+                                {p.lost_reason || '—'}
+                              </Typography>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="body2">{p.lost_by_user_name || '—'}</Typography>
+                            {p.lost_by_user_role && <Typography variant="caption" color="text.secondary">{p.lost_by_user_role}</Typography>}
+                          </TableCell>
+                          <TableCell align="center">
+                            <Typography variant="caption">
+                              {p.lost_at ? new Date(p.lost_at).toLocaleString('es-MX') : '—'}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="center">
+                            <Chip
+                              size="small"
+                              color="error"
+                              label={p.days_since_lost != null ? `${Math.floor(Number(p.days_since_lost))} d` : '—'}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                );
+              })()
+            )}
           </Paper>
         </Box>
       )}
