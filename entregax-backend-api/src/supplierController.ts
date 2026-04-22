@@ -173,8 +173,9 @@ export const getConsolidacionesPendientes = async (_req: Request, res: Response)
         `);
         console.log('📋 [DEBUG] Últimas 5 consolidaciones:', debugResult.rows);
         
-        // Obtener consolidaciones con paquetes pendientes de pago (costing_paid = false o null)
-        // Los totales SOLO incluyen paquetes que llegaron (no missing, no lost)
+        // Obtener consolidaciones con al menos un paquete pendiente (ya sea por pagar,
+        // faltante o perdido). Los totales incluyen TODAS las guías (pagadas + pendientes)
+        // separadas en aggregates para que el frontend pueda mostrar el desglose.
         const result = await pool.query(`
             SELECT 
                 c.id,
@@ -185,16 +186,25 @@ export const getConsolidacionesPendientes = async (_req: Request, res: Response)
                 COUNT(p.id) as package_count,
                 COUNT(p.id) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE AND COALESCE(p.is_lost, FALSE) = FALSE) AS missing_count,
                 COUNT(p.id) FILTER (WHERE COALESCE(p.is_lost, FALSE) = TRUE) AS lost_count,
-                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE), 0) as total_cost_mxn,
-                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE), 0) as total_cost_usd,
+                -- Total PENDIENTE de pago AHORA (unpaid + no missing + no lost)
+                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = FALSE), 0) as total_cost_mxn,
+                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = FALSE), 0) as total_cost_usd,
+                -- Total YA PAGADO (no missing + no lost + paid)
+                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = TRUE), 0) as paid_cost_mxn,
+                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = TRUE), 0) as paid_cost_usd,
+                -- Total FALTANTE/PERDIDO (no suma al pago)
                 COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE), 0) as pending_cost_mxn,
-                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE), 0) as pending_cost_usd
+                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE), 0) as pending_cost_usd,
+                -- Total COMPLETO de la consolidación (todo excepto perdidas/faltantes)
+                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE), 0) as all_cost_mxn,
+                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE), 0) as all_cost_usd
             FROM consolidations c
             JOIN packages p ON p.consolidation_id = c.id
             LEFT JOIN suppliers s ON p.supplier_id = s.id
-            WHERE (p.costing_paid IS NULL OR p.costing_paid = FALSE)
-            AND p.supplier_id IS NOT NULL
+            WHERE p.supplier_id IS NOT NULL
             GROUP BY c.id, c.status, c.created_at, s.id, s.name
+            -- Solo consolidaciones que TODAVÍA tienen algo pendiente
+            HAVING COUNT(p.id) FILTER (WHERE COALESCE(p.costing_paid, FALSE) = FALSE) > 0
             ORDER BY c.created_at DESC
         `);
         

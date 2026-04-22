@@ -141,6 +141,10 @@ interface ConsolidacionPendiente {
   total_cost_usd: number;
   pending_cost_mxn?: number;
   pending_cost_usd?: number;
+  paid_cost_mxn?: number;
+  paid_cost_usd?: number;
+  all_cost_mxn?: number;
+  all_cost_usd?: number;
   supplier_name: string;
   supplier_id: number;
   created_at: string;
@@ -1411,19 +1415,25 @@ const CajaChicaPage: React.FC = () => {
                   Resumen Total
                 </Typography>
                 <Grid container spacing={2}>
-                  <Grid size={{ xs: 4 }}>
+                  <Grid size={{ xs: 3 }}>
                     <Typography variant="body2" color="text.secondary">Consolidaciones</Typography>
                     <Typography variant="h5" fontWeight="bold">{consolidacionesPendientes.length}</Typography>
                   </Grid>
-                  <Grid size={{ xs: 4 }}>
-                    <Typography variant="body2" color="text.secondary">Total USD</Typography>
-                    <Typography variant="h5" fontWeight="bold" color="success.dark">
-                      ${consolidacionesPendientes.reduce((sum, c) => sum + Number(c.total_cost_usd || 0), 0).toFixed(2)}
+                  <Grid size={{ xs: 3 }}>
+                    <Typography variant="body2" color="text.secondary">Valor total (USD)</Typography>
+                    <Typography variant="h6" fontWeight="bold" color="success.dark">
+                      ${consolidacionesPendientes.reduce((sum, c) => sum + Number(c.all_cost_usd || c.total_cost_usd || 0), 0).toFixed(2)}
                     </Typography>
                   </Grid>
-                  <Grid size={{ xs: 4 }}>
-                    <Typography variant="body2" color="text.secondary">Total MXN</Typography>
-                    <Typography variant="h5" fontWeight="bold" color="primary.dark">
+                  <Grid size={{ xs: 3 }}>
+                    <Typography variant="body2" color="text.secondary">Valor total (MXN)</Typography>
+                    <Typography variant="h6" fontWeight="bold" color="primary.dark">
+                      {formatCurrency(consolidacionesPendientes.reduce((sum, c) => sum + Number(c.all_cost_mxn || c.total_cost_mxn || 0), 0))}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 3 }}>
+                    <Typography variant="body2" color="text.secondary">Pendiente de pago (MXN)</Typography>
+                    <Typography variant="h6" fontWeight="bold" color="warning.dark">
                       {formatCurrency(consolidacionesPendientes.reduce((sum, c) => sum + Number(c.total_cost_mxn || 0), 0))}
                     </Typography>
                   </Grid>
@@ -1516,21 +1526,41 @@ const CajaChicaPage: React.FC = () => {
                           </TableCell>
                           <TableCell align="right">
                             <Typography fontWeight="bold" color="success.main">
-                              ${Number(consolidacion.total_cost_usd || 0).toFixed(2)}
+                              ${Number(consolidacion.all_cost_usd || consolidacion.total_cost_usd || 0).toFixed(2)}
                             </Typography>
+                            {Number(consolidacion.paid_cost_usd || 0) > 0 && (
+                              <Typography variant="caption" color="success.dark" sx={{ display: 'block' }}>
+                                ✓ ${Number(consolidacion.paid_cost_usd).toFixed(2)} pagado
+                              </Typography>
+                            )}
+                            {Number(consolidacion.total_cost_usd || 0) > 0 && (
+                              <Typography variant="caption" color="warning.dark" sx={{ display: 'block' }}>
+                                ○ ${Number(consolidacion.total_cost_usd).toFixed(2)} pdte
+                              </Typography>
+                            )}
                             {consolidacion.has_missing && Number(consolidacion.pending_cost_usd || 0) > 0 && (
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                                + ${Number(consolidacion.pending_cost_usd).toFixed(2)} pdte.
+                              <Typography variant="caption" color="error.main" sx={{ display: 'block' }}>
+                                ⚠ ${Number(consolidacion.pending_cost_usd).toFixed(2)} faltante
                               </Typography>
                             )}
                           </TableCell>
                           <TableCell align="right">
                             <Typography fontWeight="bold" color="primary.main">
-                              {formatCurrency(Number(consolidacion.total_cost_mxn || 0))}
+                              {formatCurrency(Number(consolidacion.all_cost_mxn || consolidacion.total_cost_mxn || 0))}
                             </Typography>
+                            {Number(consolidacion.paid_cost_mxn || 0) > 0 && (
+                              <Typography variant="caption" color="success.dark" sx={{ display: 'block' }}>
+                                ✓ {formatCurrency(Number(consolidacion.paid_cost_mxn))} pagado
+                              </Typography>
+                            )}
+                            {Number(consolidacion.total_cost_mxn || 0) > 0 && (
+                              <Typography variant="caption" color="warning.dark" sx={{ display: 'block' }}>
+                                ○ {formatCurrency(Number(consolidacion.total_cost_mxn))} pdte
+                              </Typography>
+                            )}
                             {consolidacion.has_missing && Number(consolidacion.pending_cost_mxn || 0) > 0 && (
-                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                                + {formatCurrency(Number(consolidacion.pending_cost_mxn))} pdte.
+                              <Typography variant="caption" color="error.main" sx={{ display: 'block' }}>
+                                ⚠ {formatCurrency(Number(consolidacion.pending_cost_mxn))} faltante
                               </Typography>
                             )}
                           </TableCell>
@@ -1547,7 +1577,7 @@ const CajaChicaPage: React.FC = () => {
                               }}
                             >
                               {Number(consolidacion.total_cost_mxn || 0) <= 0
-                                ? 'Esperando llegada'
+                                ? (Number(consolidacion.paid_cost_mxn || 0) > 0 ? 'Ya pagada' : 'Esperando llegada')
                                 : consolidacion.has_missing ? 'Pagar parcial' : 'Pagar'}
                             </Button>
                           </TableCell>
@@ -1666,7 +1696,7 @@ const CajaChicaPage: React.FC = () => {
                   disabled={selectedConsolidaciones.size === 0}
                   sx={{ color: '#25D366', borderColor: '#25D366', '&:hover': { borderColor: '#1ebd5a', bgcolor: 'rgba(37,211,102,0.08)' } }}
                 >
-                  Enviar por WhatsApp
+                  WhatsApp
                 </Button>
               </span>
             </Tooltip>
