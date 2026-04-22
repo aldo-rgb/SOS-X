@@ -150,7 +150,14 @@ export default function DelayedPackagesPage() {
                         Paquetes cuya consolidación llegó a MTY sin ellos
                     </Typography>
                 </Box>
-                <Chip label={`${filtered.length} paquete(s)`} color="warning" />
+                <Chip
+                    label={
+                        search.trim() && filtered.length !== packages.length
+                            ? `${filtered.length} de ${packages.length} paquete(s)`
+                            : `${filtered.length} paquete(s)`
+                    }
+                    color="warning"
+                />
                 <IconButton onClick={load}>
                     <RefreshIcon />
                 </IconButton>
@@ -181,13 +188,30 @@ export default function DelayedPackagesPage() {
                 </Box>
             ) : filtered.length === 0 ? (
                 <Paper sx={{ p: 4, textAlign: 'center' }}>
-                    <CheckCircleIcon sx={{ fontSize: 60, color: 'success.main' }} />
-                    <Typography variant="h6" sx={{ mt: 2 }}>
-                        No hay guías con retraso
-                    </Typography>
-                    <Typography color="text.secondary">
-                        Todas las consolidaciones llegaron completas.
-                    </Typography>
+                    {search.trim() && packages.length > 0 ? (
+                        <>
+                            <SearchIcon sx={{ fontSize: 60, color: 'warning.main' }} />
+                            <Typography variant="h6" sx={{ mt: 2 }}>
+                                Ningún resultado para "{search}"
+                            </Typography>
+                            <Typography color="text.secondary" sx={{ mb: 2 }}>
+                                Hay {packages.length} paquete(s) con retraso pero no coinciden con tu búsqueda.
+                            </Typography>
+                            <Button variant="outlined" onClick={() => setSearch('')} startIcon={<RefreshIcon />}>
+                                Limpiar búsqueda
+                            </Button>
+                        </>
+                    ) : (
+                        <>
+                            <CheckCircleIcon sx={{ fontSize: 60, color: 'success.main' }} />
+                            <Typography variant="h6" sx={{ mt: 2 }}>
+                                No hay guías con retraso
+                            </Typography>
+                            <Typography color="text.secondary">
+                                Todas las consolidaciones llegaron completas.
+                            </Typography>
+                        </>
+                    )}
                 </Paper>
             ) : (
                 <Paper variant="outlined">
