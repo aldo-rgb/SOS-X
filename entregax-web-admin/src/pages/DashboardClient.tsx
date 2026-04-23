@@ -5013,62 +5013,44 @@ export default function DashboardClient() {
                       </Alert>
                     )}
                     
-                    {/* Total Pendiente por Pagar - Grande como en la app */}
-                    <Paper 
-                      sx={{ 
-                        p: 2.5, 
-                        mb: 2, 
-                        background: (stats?.financiero?.saldo_pendiente || 0) > 0 
-                          ? 'linear-gradient(135deg, #F05A28 0%, #d94d1f 100%)' 
+                    {/* Total = suma de Cotizaciones Generadas Pendientes de Pago.
+                        Click → abre modal con detalle de cada cotización. */}
+                    <Paper
+                      onClick={() => {
+                        if ((pendingPayments?.invoices?.length || 0) > 0) {
+                          setShowPendingPayments(true);
+                          loadPaymentOrders();
+                        }
+                      }}
+                      sx={{
+                        p: 2.5,
+                        mb: 2,
+                        background: (pendingPayments?.totalPending || 0) > 0
+                          ? 'linear-gradient(135deg, #F05A28 0%, #d94d1f 100%)'
                           : 'linear-gradient(135deg, #4CAF50 0%, #388E3C 100%)',
-                        textAlign: 'center', 
-                        borderRadius: 2 
+                        textAlign: 'center',
+                        borderRadius: 2,
+                        cursor: (pendingPayments?.invoices?.length || 0) > 0 ? 'pointer' : 'default',
+                        transition: 'all 0.2s',
+                        '&:hover': (pendingPayments?.invoices?.length || 0) > 0
+                          ? { transform: 'translateY(-2px)', boxShadow: 4 }
+                          : undefined,
                       }}
                     >
-                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)' }}>Total Pendiente por Pagar</Typography>
-                      <Typography variant="h4" fontWeight="bold" sx={{ color: 'white', my: 0.5 }}>
-                        {formatCurrency(stats?.financiero?.saldo_pendiente || 0)}
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.85)' }}>
+                        💼 Total Cotizaciones Pendientes
                       </Typography>
-                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.7)' }}>MXN</Typography>
+                      <Typography variant="h4" fontWeight="bold" sx={{ color: 'white', my: 0.5 }}>
+                        {formatCurrency(pendingPayments?.totalPending || 0)}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: 'rgba(255,255,255,0.8)' }}>
+                        {(pendingPayments?.invoices?.length || 0) > 0
+                          ? `${pendingPayments?.invoices?.length} cotización(es) · Click para ver detalle`
+                          : 'Sin cotizaciones pendientes'}
+                      </Typography>
                     </Paper>
 
-                    {/* Desglose por Tipo de Servicio */}
-                    {stats?.financiero?.saldo_por_servicio && stats.financiero.saldo_por_servicio.length > 0 && (
-                      <Paper sx={{ p: 2, mb: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                        <Typography variant="subtitle2" fontWeight="bold" gutterBottom sx={{ color: 'text.secondary' }}>
-                          📊 Pendiente por Tipo de Servicio
-                        </Typography>
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                          {stats.financiero.saldo_por_servicio.map((item, index) => (
-                            <Box 
-                              key={index}
-                              sx={{ 
-                                display: 'flex', 
-                                justifyContent: 'space-between', 
-                                alignItems: 'center',
-                                p: 1.5,
-                                bgcolor: 'white',
-                                borderRadius: 1,
-                                border: '1px solid #e0e0e0'
-                              }}
-                            >
-                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Typography fontSize="1.2rem">{item.icono}</Typography>
-                                <Typography variant="body2" fontWeight="medium">{item.servicio}</Typography>
-                              </Box>
-                              <Box sx={{ textAlign: 'right' }}>
-                                <Typography variant="body2" fontWeight="bold" color="error.main">
-                                  ${item.monto.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">{item.moneda || 'MXN'}</Typography>
-                              </Box>
-                            </Box>
-                          ))}
-                        </Box>
-                      </Paper>
-                    )}
-
-                    {/* Cotizaciones Pendientes de Pago */}
+                    {/* Cotizaciones Pendientes de Pago - resumen rápido */}
                     {(pendingPayments?.totalPending || 0) > 0 && (
                       <Paper 
                         sx={{ 
