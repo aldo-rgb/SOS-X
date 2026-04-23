@@ -296,6 +296,7 @@ export default function UserPanelPermissionsPage() {
       'customer_service': 'Servicio Cliente',
       'warehouse_ops': 'Bodega',
       'repartidor': 'Repartidor',
+      'accountant': 'Contador',
     };
     return roleLabels[role] || role;
   };
@@ -366,6 +367,7 @@ export default function UserPanelPermissionsPage() {
               <MenuItem value="customer_service">Servicio Cliente</MenuItem>
               <MenuItem value="warehouse_ops">Bodega</MenuItem>
               <MenuItem value="repartidor">Repartidor</MenuItem>
+              <MenuItem value="accountant">Contador</MenuItem>
             </Select>
           </FormControl>
           <Button

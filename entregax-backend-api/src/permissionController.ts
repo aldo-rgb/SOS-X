@@ -9,7 +9,8 @@ const CONFIGURABLE_ROLES = [
   'Gerente de Sucursal',
   'Servicio a Cliente',
   'Personal de Mostrador',
-  'Operaciones de Bodega'
+  'Operaciones de Bodega',
+  'Contador'
 ];
 
 // ============================================

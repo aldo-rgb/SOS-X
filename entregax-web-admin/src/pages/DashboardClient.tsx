@@ -108,7 +108,6 @@ import {
   Home as HomeIcon,
   Payments as PaymentsIcon,
   Cancel as CancelIcon,
-  Visibility as VisibilityIcon,
   AttachFile as AttachFileIcon,
 } from '@mui/icons-material';
 import { Collapse } from '@mui/material';

@@ -49,6 +49,7 @@ const CONFIGURABLE_ROLES = [
   'Servicio a Cliente',
   'Personal de Mostrador',
   'Operaciones',
+  'Contador',
 ];
 
 // Colores para las categorías

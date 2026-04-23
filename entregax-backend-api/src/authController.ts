@@ -433,6 +433,7 @@ export const ROLES = {
     COUNTER_STAFF: 'counter_staff',    // Personal de mostrador
     WAREHOUSE_OPS: 'warehouse_ops',    // Operaciones de bodega
     REPARTIDOR: 'repartidor',          // Repartidor / Delivery driver
+    ACCOUNTANT: 'accountant',          // Contador (portal contable)
     CLIENT: 'client'                   // Cliente final
 } as const;
 
@@ -447,6 +448,7 @@ const ROLE_HIERARCHY: Record<string, number> = {
     'advisor': 62,
     'sub_advisor': 61,
     [ROLES.COUNTER_STAFF]: 60,
+    [ROLES.ACCOUNTANT]: 55,
     [ROLES.WAREHOUSE_OPS]: 40,
     [ROLES.REPARTIDOR]: 35,
     [ROLES.CLIENT]: 10,
@@ -460,6 +462,8 @@ const ROLE_HIERARCHY: Record<string, number> = {
     'Counter Staff': 60,
     'Advisor': 62,
     'Sub Advisor': 61,
+    'Accountant': 55,
+    'Contador': 55,
     'Warehouse Ops': 40,
     'Repartidor': 35,
     'Client': 10
@@ -482,6 +486,10 @@ function normalizeRoleForHierarchy(role: string): string {
         'customer_service': ROLES.CUSTOMER_SERVICE,
         'Counter Staff': ROLES.COUNTER_STAFF,
         'counter_staff': ROLES.COUNTER_STAFF,
+        'Accountant': ROLES.ACCOUNTANT,
+        'accountant': ROLES.ACCOUNTANT,
+        'Contador': ROLES.ACCOUNTANT,
+        'contador': ROLES.ACCOUNTANT,
         'Warehouse Ops': ROLES.WAREHOUSE_OPS,
         'warehouse_ops': ROLES.WAREHOUSE_OPS,
         'Repartidor': ROLES.REPARTIDOR,
@@ -501,6 +509,7 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     [ROLES.CUSTOMER_SERVICE]: ['clients:*', 'support:*', 'crm:*', 'quotes:read'], // Servicio a cliente
     [ROLES.OPERACIONES]: ['shipments:*', 'maritime:*', 'quotes:read', 'reports:read'], // Operaciones marítimas
     [ROLES.COUNTER_STAFF]: ['shipments:read', 'shipments:create', 'quotes:*', 'clients:read'],
+    [ROLES.ACCOUNTANT]: ['accounting:*', 'invoices:*', 'reports:read'],
     [ROLES.WAREHOUSE_OPS]: ['shipments:read', 'shipments:update_status', 'inventory:*'],
     [ROLES.REPARTIDOR]: ['deliveries:*', 'shipments:read', 'shipments:update_status'], // Entregas
     [ROLES.CLIENT]: ['profile:read', 'profile:update', 'shipments:own', 'quotes:own']
