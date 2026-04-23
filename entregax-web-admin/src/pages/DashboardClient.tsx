@@ -10494,7 +10494,14 @@ export default function DashboardClient() {
                 <Typography variant="subtitle2" sx={{ mb: 2, color: '#666' }}>
                   📊 Detalle por tipo de servicio
                 </Typography>
-                {serviceCredits.map((c: any) => {
+                {/* Deduplicar por servicio (uno por tipo) y excluir terrestre_nacional */}
+                {Array.from(
+                  new Map(
+                    serviceCredits
+                      .filter((c: any) => c?.service && c.service !== 'terrestre_nacional')
+                      .map((c: any) => [c.service, c])
+                  ).values()
+                ).map((c: any) => {
                   const limit = Number(c.credit_limit || 0);
                   const used = Number(c.used_credit || 0);
                   const available = Number(c.available_credit || 0);

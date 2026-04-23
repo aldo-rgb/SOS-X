@@ -107,7 +107,10 @@ export const getUserServiceCredits = async (req: AuthRequest, res: Response): Pr
     await ensureServiceCreditsTable();
     const userId = req.params.userId || req.user?.userId;
 
-    // Obtener todos los créditos del usuario con info de la empresa
+    // Obtener todos los créditos del usuario con info de la empresa.
+    // Usamos DISTINCT ON para quedarnos con UNA sola fila por servicio aunque
+    // existan múltiples service_companies (p. ej. varios RFC de PO Box).
+    // Excluimos terrestre_nacional (servicio deshabilitado).
     const result = await pool.query(`
       SELECT 
         usc.*,
@@ -123,18 +126,32 @@ export const getUserServiceCredits = async (req: AuthRequest, res: Response): Pr
          AND pi.status IN ('pending', 'partial') 
          AND pi.due_date < CURRENT_DATE) as overdue_amount
       FROM user_service_credits usc
-      JOIN service_companies sc ON usc.service = sc.service
+      LEFT JOIN LATERAL (
+        SELECT company_name, legal_name
+        FROM service_companies
+        WHERE service = usc.service AND is_active = TRUE
+        ORDER BY id
+        LIMIT 1
+      ) sc ON TRUE
       WHERE usc.user_id = $1
-      ORDER BY sc.id
+        AND usc.service <> 'terrestre_nacional'
+      ORDER BY
+        CASE usc.service
+          WHEN 'aereo' THEN 1
+          WHEN 'maritimo' THEN 2
+          WHEN 'dhl_liberacion' THEN 3
+          WHEN 'po_box' THEN 4
+          ELSE 99
+        END
     `, [userId]);
 
-    // Si no tiene créditos, devolver estructura vacía con todos los servicios
+    // Si no tiene créditos, devolver estructura vacía con todos los servicios (1 por servicio)
     if (result.rows.length === 0) {
       const servicesRes = await pool.query(`
-        SELECT service, company_name, legal_name 
+        SELECT DISTINCT ON (service) service, company_name, legal_name 
         FROM service_companies 
-        WHERE is_active = TRUE 
-        ORDER BY id
+        WHERE is_active = TRUE AND service <> 'terrestre_nacional'
+        ORDER BY service, id
       `);
       
       const emptyCredits = servicesRes.rows.map(s => ({
