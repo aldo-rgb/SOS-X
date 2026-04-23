@@ -370,6 +370,7 @@ export const updateAllServiceCredits = async (req: AuthRequest, res: Response): 
 
 export const getClientsWithServiceCredits = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
+    await ensureServiceCreditsTable();
     const { service, hasCredit, isBlocked, search } = req.query;
 
     // Base query para clientes
@@ -406,7 +407,8 @@ export const getClientsWithServiceCredits = async (req: AuthRequest, res: Respon
     const clientsWithCredits: ClientWithServiceCredits[] = [];
 
     for (const client of clientsRes.rows) {
-      // Obtener créditos del cliente
+      // Obtener créditos del cliente (una fila por servicio; LATERAL evita
+      // que un JOIN con múltiples RFCs por servicio duplique las filas)
       const creditsRes = await pool.query(`
         SELECT 
           usc.*,
@@ -421,9 +423,23 @@ export const getClientsWithServiceCredits = async (req: AuthRequest, res: Respon
            AND pi.status IN ('pending', 'partial') 
            AND pi.due_date < CURRENT_DATE) as overdue_amount
         FROM user_service_credits usc
-        JOIN service_companies sc ON usc.service = sc.service
+        LEFT JOIN LATERAL (
+          SELECT company_name
+          FROM service_companies
+          WHERE service = usc.service AND is_active = TRUE
+          ORDER BY id
+          LIMIT 1
+        ) sc ON TRUE
         WHERE usc.user_id = $1
-        ORDER BY sc.id
+          AND usc.service <> 'terrestre_nacional'
+        ORDER BY
+          CASE usc.service
+            WHEN 'aereo' THEN 1
+            WHEN 'maritimo' THEN 2
+            WHEN 'dhl_liberacion' THEN 3
+            WHEN 'po_box' THEN 4
+            ELSE 99
+          END
       `, [client.id]);
 
       // Si hay filtro de servicio, verificar
