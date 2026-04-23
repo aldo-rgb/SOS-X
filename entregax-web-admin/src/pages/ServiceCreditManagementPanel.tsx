@@ -37,6 +37,8 @@ import {
   MenuItem,
   Divider,
   TableContainer,
+  Snackbar,
+  Slide,
 } from '@mui/material';
 import {
   Edit as EditIcon,
@@ -144,6 +146,16 @@ export default function ServiceCreditManagementPanel() {
   const [saving, setSaving] = useState(false);
   const [editCredits, setEditCredits] = useState<ServiceCredit[]>([]);
 
+  // Snackbar / toast de feedback
+  const [toast, setToast] = useState<{ open: boolean; severity: 'success' | 'error' | 'info' | 'warning'; message: string }>({
+    open: false,
+    severity: 'success',
+    message: ''
+  });
+  const showToast = (severity: 'success' | 'error' | 'info' | 'warning', message: string) => {
+    setToast({ open: true, severity, message });
+  };
+
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
@@ -245,18 +257,17 @@ export default function ServiceCreditManagementPanel() {
           notes: c.notes
         }))
       });
-      alert(`✅ Créditos actualizados para ${selectedClient.full_name}`);
+      showToast('success', `Créditos actualizados para ${selectedClient.full_name}`);
       setOpenModal(false);
       loadData();
     } catch (error: any) {
       console.error('Error saving credits:', error);
       const detail = error?.response?.data?.detail || error?.response?.data?.error || error?.message || 'Error desconocido';
-      alert(`❌ Error al guardar los créditos:\n${detail}`);
+      showToast('error', `Error al guardar los créditos: ${detail}`);
     } finally {
       setSaving(false);
     }
   };
-
   const formatCurrency = (amount: number | string) => {
     const num = typeof amount === 'string' ? parseFloat(amount) : amount;
     return new Intl.NumberFormat('es-MX', {
@@ -729,6 +740,36 @@ export default function ServiceCreditManagementPanel() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Snackbar / Toast de feedback */}
+      <Snackbar
+        open={toast.open}
+        autoHideDuration={toast.severity === 'error' ? 6000 : 3500}
+        onClose={() => setToast(t => ({ ...t, open: false }))}
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        TransitionComponent={(props) => <Slide {...props} direction="left" />}
+      >
+        <Alert
+          severity={toast.severity}
+          variant="filled"
+          onClose={() => setToast(t => ({ ...t, open: false }))}
+          sx={{
+            minWidth: 320,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+            borderRadius: 2,
+            fontWeight: 500,
+            alignItems: 'center',
+            ...(toast.severity === 'success' && {
+              background: `linear-gradient(135deg, ${GREEN} 0%, #2E7D32 100%)`,
+            }),
+            ...(toast.severity === 'error' && {
+              background: `linear-gradient(135deg, ${RED} 0%, #C62828 100%)`,
+            }),
+          }}
+        >
+          {toast.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
