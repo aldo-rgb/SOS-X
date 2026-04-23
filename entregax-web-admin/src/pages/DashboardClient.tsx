@@ -5119,14 +5119,28 @@ export default function DashboardClient() {
                             borderRadius: 2,
                             cursor: 'pointer',
                             transition: 'all 0.2s',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            gap: 1,
+                            minHeight: 110,
                             '&:hover': { bgcolor: ORANGE + '15', transform: 'translateY(-2px)', boxShadow: 2 },
                           }}
                         >
                           <Typography variant="caption" color="text.secondary">{t('cd.account.creditAvailable')}</Typography>
-                          <Typography variant="h5" fontWeight="bold" color="primary.main">
-                            {formatCurrency(walletStatus?.available_credit || stats?.financiero.credito_disponible || 0)}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 600, display: 'block', mt: 0.5 }}>
+                          <Chip
+                            label="Crédito activo"
+                            size="small"
+                            sx={{
+                              bgcolor: ORANGE,
+                              color: '#fff',
+                              fontWeight: 700,
+                              fontSize: '0.75rem',
+                              px: 1,
+                            }}
+                          />
+                          <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 600 }}>
                             Ver detalle por servicio →
                           </Typography>
                         </Paper>
