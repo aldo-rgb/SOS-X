@@ -1190,6 +1190,7 @@ export default function DashboardClient() {
     loadReferralData();
     loadPendingPayments();
     loadPaymentOrders();
+    loadServiceCredits();
     loadCarouselSlides();
     loadAdvisorInfo();
     loadFiscalData();
@@ -5229,8 +5230,13 @@ export default function DashboardClient() {
                       {renderPaymentOrdersTabs()}
                     </Paper>
 
+                    {(() => {
+                      const hasAnyCredit = (serviceCreditsTotals?.credit_limit || 0) > 0
+                        || (serviceCredits || []).some((c: any) => Number(c?.credit_limit || 0) > 0)
+                        || !!walletStatus?.has_credit;
+                      return (
                     <Grid container spacing={2}>
-                      <Grid size={6}>
+                      <Grid size={hasAnyCredit ? 6 : 12}>
                         <Paper
                           sx={{
                             p: 2,
@@ -5251,6 +5257,7 @@ export default function DashboardClient() {
                           </Typography>
                         </Paper>
                       </Grid>
+                      {hasAnyCredit && (
                       <Grid size={6}>
                         <Paper
                           onClick={() => { setShowCreditsModal(true); loadServiceCredits(); }}
@@ -5286,7 +5293,10 @@ export default function DashboardClient() {
                           </Typography>
                         </Paper>
                       </Grid>
+                      )}
                     </Grid>
+                      );
+                    })()}
 
                     {/* Crédito si lo tiene */}
                     {walletStatus?.has_credit && (
