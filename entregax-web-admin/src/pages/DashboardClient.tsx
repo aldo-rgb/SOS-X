@@ -5102,7 +5102,20 @@ export default function DashboardClient() {
 
                     <Grid container spacing={2}>
                       <Grid size={6}>
-                        <Paper sx={{ p: 2, bgcolor: GREEN + '20', textAlign: 'center', borderRadius: 2 }}>
+                        <Paper
+                          sx={{
+                            p: 2,
+                            bgcolor: GREEN + '20',
+                            textAlign: 'center',
+                            borderRadius: 2,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            gap: 1,
+                            minHeight: 120,
+                          }}
+                        >
                           <Typography variant="caption" color="text.secondary">{t('cd.account.balanceFavor')}</Typography>
                           <Typography variant="h5" fontWeight="bold" color="success.main">
                             {formatCurrency(walletStatus?.wallet_balance || stats?.financiero.saldo_favor || 0)}
@@ -5124,11 +5137,10 @@ export default function DashboardClient() {
                             justifyContent: 'center',
                             alignItems: 'center',
                             gap: 1,
-                            minHeight: 110,
+                            minHeight: 120,
                             '&:hover': { bgcolor: ORANGE + '15', transform: 'translateY(-2px)', boxShadow: 2 },
                           }}
                         >
-                          <Typography variant="caption" color="text.secondary">{t('cd.account.creditAvailable')}</Typography>
                           <Chip
                             label="Crédito activo"
                             size="small"
