@@ -105,9 +105,10 @@ BEGIN
 END $$;
 
 -- Insertar configuración para po_box si no existe
+-- (usa UNIQUE(service) para evitar duplicados; ON CONFLICT sin target antes no detectaba conflicto)
 INSERT INTO service_companies (service, company_name, legal_name, rfc, is_active)
 VALUES ('po_box', 'EntregaX PO Box', 'ENTREGAX SERVICIOS POSTALES S.A. DE C.V.', 'ESP000000XXX', TRUE)
-ON CONFLICT DO NOTHING;
+ON CONFLICT (service) DO NOTHING;
 
 -- Comentarios para documentación
 COMMENT ON TABLE pobox_payments IS 'Pagos de paquetes PO Box USA - Integrado con OpenPay Multi-Empresa, Caja Chica y Dashboard de Cobranza';
