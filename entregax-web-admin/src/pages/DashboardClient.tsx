@@ -11002,6 +11002,15 @@ export default function DashboardClient() {
                                   }}
                                   ><DownloadIcon fontSize="small" /></IconButton>
                                 </Tooltip>
+                                {paymentOrderTab === 'active' && (
+                                  <Tooltip title="Cancelar Orden" arrow>
+                                    <IconButton
+                                      size="small"
+                                      sx={{ color: '#C62828', '&:hover': { bgcolor: 'rgba(198,40,40,0.08)' } }}
+                                      onClick={() => cancelPaymentOrder(order.id, order.payment_reference)}
+                                    ><DeleteIcon fontSize="small" /></IconButton>
+                                  </Tooltip>
+                                )}
                               </Box>
                           </TableCell>
                         </TableRow>
