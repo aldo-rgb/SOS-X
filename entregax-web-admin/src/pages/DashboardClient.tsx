@@ -107,6 +107,8 @@ import {
   Home as HomeIcon,
   Payments as PaymentsIcon,
   Cancel as CancelIcon,
+  Visibility as VisibilityIcon,
+  AttachFile as AttachFileIcon,
 } from '@mui/icons-material';
 import { Collapse } from '@mui/material';
 import api from '../services/api';
@@ -10528,11 +10530,11 @@ export default function DashboardClient() {
                             )}
                           </TableCell>
                           <TableCell align="center" onClick={(e: any) => e.stopPropagation()}>
-                              <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                              <Box sx={{ display: 'flex', gap: 0.25, justifyContent: 'center' }}>
                                 <Tooltip title="Ver Detalles" arrow>
                                   <IconButton
                                     size="small"
-                                    sx={{ bgcolor: ORANGE, color: '#fff', width: 30, height: 30, fontSize: '15px', '&:hover': { bgcolor: '#E55A00' } }}
+                                    sx={{ color: ORANGE, '&:hover': { bgcolor: 'rgba(255,107,0,0.08)' } }}
                                     onClick={() => {
                                       setPaymentInstructionsDialog({
                                         open: true,
@@ -10544,22 +10546,22 @@ export default function DashboardClient() {
                                         branchInfo: order.branch_info || { nombre: 'CEDIS Monterrey', direccion: 'Av. Industrial #123', telefono: '81 1234 5678', horario: 'L-V 9-18' },
                                       });
                                     }}
-                                  >📄</IconButton>
+                                  ><VisibilityIcon fontSize="small" /></IconButton>
                                 </Tooltip>
-                                <Tooltip title="Subir Pago" arrow>
+                                <Tooltip title="Subir Comprobante" arrow>
                                   <IconButton
                                     size="small"
-                                    sx={{ bgcolor: '#4CAF50', color: '#fff', width: 30, height: 30, fontSize: '15px', '&:hover': { bgcolor: '#388E3C' } }}
+                                    sx={{ color: ORANGE, '&:hover': { bgcolor: 'rgba(255,107,0,0.08)' } }}
                                     onClick={() => {
                                       setVoucherDialog({ open: true, order });
                                       loadVoucherList(order.id);
                                     }}
-                                  >📎</IconButton>
+                                  ><AttachFileIcon fontSize="small" /></IconButton>
                                 </Tooltip>
                                 <Tooltip title="Descargar PDF" arrow>
                                   <IconButton
                                     size="small"
-                                    sx={{ bgcolor: '#1565C0', color: '#fff', width: 30, height: 30, fontSize: '15px', '&:hover': { bgcolor: '#0D47A1' } }}
+                                    sx={{ color: ORANGE, '&:hover': { bgcolor: 'rgba(255,107,0,0.08)' } }}
                                     onClick={() => {
                                     const userData = JSON.parse(localStorage.getItem('user') || '{}');
                                     const bankInfo = order.bank_info || { banco: 'BBVA México', clabe: '012580001234567890', cuenta: '1234567890', beneficiario: 'ENTREGAX' };
@@ -10580,7 +10582,7 @@ export default function DashboardClient() {
                                       }
                                     }
                                   }}
-                                  >📥</IconButton>
+                                  ><DownloadIcon fontSize="small" /></IconButton>
                                 </Tooltip>
                               </Box>
                           </TableCell>
