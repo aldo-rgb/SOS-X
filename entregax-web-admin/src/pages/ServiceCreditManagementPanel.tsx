@@ -132,10 +132,17 @@ export default function ServiceCreditManagementPanel() {
   const [clients, setClients] = useState<Client[]>([]);
   const [summary, setSummary] = useState<SummaryData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchInput, setSearchInput] = useState(''); // lo que el usuario escribe (sin debounce)
+  const [searchTerm, setSearchTerm] = useState('');   // lo que realmente se envía al API (debounced)
   const [filterService, setFilterService] = useState('all');
   const [filterHasCredit, setFilterHasCredit] = useState(false);
   const [filterBlocked, setFilterBlocked] = useState(false);
+
+  // Debounce 400ms para la búsqueda
+  useEffect(() => {
+    const t = setTimeout(() => setSearchTerm(searchInput.trim()), 400);
+    return () => clearTimeout(t);
+  }, [searchInput]);
   
   // Estado para expandir filas
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
@@ -276,7 +283,9 @@ export default function ServiceCreditManagementPanel() {
     }).format(num || 0);
   };
 
-  if (loading) {
+  // Solo mostrar loader de pantalla completa en la carga inicial (antes de tener summary).
+  // En búsquedas/refresh posteriores mantenemos la UI montada para no perder el foco del input.
+  if (loading && !summary) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
         <CircularProgress />
@@ -383,8 +392,8 @@ export default function ServiceCreditManagementPanel() {
               fullWidth
               size="small"
               placeholder="Buscar por nombre, email, Box ID..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
