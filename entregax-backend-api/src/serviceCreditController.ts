@@ -253,25 +253,59 @@ export const updateAllServiceCredits = async (req: AuthRequest, res: Response): 
       return res.status(400).json({ error: 'Se requiere un array de créditos' });
     }
 
+    // Validar que el userId exista (evita FK violation silenciosa)
+    const userCheck = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
+    if (userCheck.rowCount === 0) {
+      return res.status(404).json({ error: `Usuario ${userId} no encontrado` });
+    }
+
+    // Validar adminId (si no existe en users, guardar null para evitar FK violation)
+    let safeAdminId: number | null = null;
+    if (adminId) {
+      const adminCheck = await pool.query('SELECT id FROM users WHERE id = $1', [adminId]);
+      if (adminCheck.rowCount && adminCheck.rowCount > 0) {
+        safeAdminId = Number(adminId);
+      }
+    }
+
     const results = [];
-    
+
     for (const credit of credits) {
       if (!credit.service) continue;
-      
-      const result = await pool.query(`
-        INSERT INTO user_service_credits (user_id, service, credit_limit, credit_days, is_blocked, notes, approved_by, approved_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-        ON CONFLICT (user_id, service) DO UPDATE SET
-          credit_limit = COALESCE($3, user_service_credits.credit_limit),
-          credit_days = COALESCE($4, user_service_credits.credit_days),
-          is_blocked = COALESCE($5, user_service_credits.is_blocked),
-          notes = COALESCE($6, user_service_credits.notes),
-          approved_by = $7,
-          updated_at = NOW()
-        RETURNING *
-      `, [userId, credit.service, credit.credit_limit, credit.credit_days, credit.is_blocked, credit.notes, adminId]);
 
-      results.push(result.rows[0]);
+      // Normalizar tipos para evitar errores de cast en PG
+      const creditLimit = credit.credit_limit === null || credit.credit_limit === undefined || credit.credit_limit === ''
+        ? null
+        : Number(credit.credit_limit);
+      const creditDays = credit.credit_days === null || credit.credit_days === undefined || credit.credit_days === ''
+        ? null
+        : parseInt(String(credit.credit_days), 10);
+      const isBlocked = credit.is_blocked === null || credit.is_blocked === undefined
+        ? null
+        : Boolean(credit.is_blocked);
+      const notes = credit.notes === undefined ? null : credit.notes;
+
+      try {
+        const result = await pool.query(`
+          INSERT INTO user_service_credits (user_id, service, credit_limit, credit_days, is_blocked, notes, approved_by, approved_at)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+          ON CONFLICT (user_id, service) DO UPDATE SET
+            credit_limit = COALESCE($3, user_service_credits.credit_limit),
+            credit_days = COALESCE($4, user_service_credits.credit_days),
+            is_blocked = COALESCE($5, user_service_credits.is_blocked),
+            notes = COALESCE($6, user_service_credits.notes),
+            approved_by = $7,
+            updated_at = NOW()
+          RETURNING *
+        `, [userId, credit.service, creditLimit, creditDays, isBlocked, notes, safeAdminId]);
+
+        results.push(result.rows[0]);
+      } catch (innerErr: any) {
+        console.error(`❌ Error guardando crédito para service=${credit.service}:`, innerErr?.message, {
+          userId, adminId: safeAdminId, credit
+        });
+        throw innerErr;
+      }
     }
 
     res.json({
@@ -279,9 +313,13 @@ export const updateAllServiceCredits = async (req: AuthRequest, res: Response): 
       message: 'Créditos actualizados',
       credits: results
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error updating all service credits:', error);
-    res.status(500).json({ error: 'Error actualizando créditos' });
+    res.status(500).json({
+      error: 'Error actualizando créditos',
+      detail: error?.message || String(error),
+      code: error?.code
+    });
   }
 };
 

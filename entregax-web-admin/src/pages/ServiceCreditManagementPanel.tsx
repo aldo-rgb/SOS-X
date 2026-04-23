@@ -248,9 +248,10 @@ export default function ServiceCreditManagementPanel() {
       alert(`✅ Créditos actualizados para ${selectedClient.full_name}`);
       setOpenModal(false);
       loadData();
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error saving credits:', error);
-      alert("Error al guardar los créditos");
+      const detail = error?.response?.data?.detail || error?.response?.data?.error || error?.message || 'Error desconocido';
+      alert(`❌ Error al guardar los créditos:\n${detail}`);
     } finally {
       setSaving(false);
     }
