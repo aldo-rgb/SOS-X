@@ -1189,6 +1189,7 @@ export default function DashboardClient() {
     loadWalletStatus();
     loadReferralData();
     loadPendingPayments();
+    loadPaymentOrders();
     loadCarouselSlides();
     loadAdvisorInfo();
     loadFiscalData();
@@ -3128,6 +3129,179 @@ export default function DashboardClient() {
     }).format(amount);
   };
 
+  // Helper: tabs (Órdenes / Historial) + tabla de órdenes de pago.
+  // Se usa INLINE en Mi Monedero y también dentro del modal de Cuentas por Pagar.
+  const renderPaymentOrdersTabs = () => (
+    <>
+      <Box sx={{ display: 'flex', borderBottom: '2px solid #eee', mt: 1 }}>
+        <Box
+          onClick={() => setPaymentOrderTab('active')}
+          sx={{ px: 3, py: 1.5, cursor: 'pointer', fontWeight: 'bold', fontSize: 14, color: paymentOrderTab === 'active' ? '#FF6B00' : '#999', borderBottom: paymentOrderTab === 'active' ? '3px solid #FF6B00' : '3px solid transparent', transition: 'all 0.2s' }}
+        >📋 Órdenes de Pago</Box>
+        <Box
+          onClick={() => setPaymentOrderTab('history')}
+          sx={{ px: 3, py: 1.5, cursor: 'pointer', fontWeight: 'bold', fontSize: 14, color: paymentOrderTab === 'history' ? '#2E7D32' : '#999', borderBottom: paymentOrderTab === 'history' ? '3px solid #2E7D32' : '3px solid transparent', transition: 'all 0.2s' }}
+        >✅ Historial</Box>
+      </Box>
+
+      <Box sx={{ minHeight: 200 }}>
+        {loadingPaymentOrders ? (
+          <Box sx={{ textAlign: 'center', py: 6 }}>
+            <CircularProgress size={40} sx={{ color: ORANGE }} />
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>Cargando órdenes...</Typography>
+          </Box>
+        ) : paymentOrders.length === 0 ? (
+          <Box sx={{ textAlign: 'center', py: 6 }}>
+            <ReceiptIcon sx={{ fontSize: 60, color: '#CCC', mb: 2 }} />
+            <Typography variant="h6" color="text.secondary" fontWeight="bold">Sin órdenes de pago</Typography>
+            <Typography variant="body2" color="text.secondary">No se han generado órdenes de pago aún</Typography>
+          </Box>
+        ) : (
+          <Box sx={{ overflowX: 'auto' }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow sx={{ bgcolor: '#f8f8f8' }}>
+                <TableCell><strong>Referencia</strong></TableCell>
+                <TableCell><strong>Método</strong></TableCell>
+                <TableCell align="right"><strong>Monto</strong></TableCell>
+                <TableCell><strong>Estado</strong></TableCell>
+                <TableCell><strong>Fecha</strong></TableCell>
+                <TableCell align="center"><strong>Acciones</strong></TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {paymentOrders.filter((o: any) => {
+                const completedStatuses = ['completed', 'paid'];
+                if (paymentOrderTab === 'history') return completedStatuses.includes(o.status);
+                return !completedStatuses.includes(o.status);
+              }).map((order: any) => {
+                const statusMap: Record<string, { color: string; label: string }> = {
+                  pending_payment: { color: '#E65100', label: '⏳ Pendiente' },
+                  completed: { color: '#2E7D32', label: '✅ Pagado' },
+                  paid: { color: '#2E7D32', label: '✅ Pagado' },
+                  vouchers_submitted: { color: '#1565C0', label: '📎 Comprobantes enviados' },
+                  vouchers_partial: { color: '#F57C00', label: '📎 Pago parcial' },
+                  failed: { color: '#C62828', label: '❌ Fallido' },
+                  expired: { color: '#757575', label: '⏰ Expirado' },
+                  pending: { color: '#1565C0', label: '🔄 Procesando' },
+                };
+                const st = statusMap[order.status] || statusMap.pending;
+                const methodMap: Record<string, string> = {
+                  cash: '💵 Sucursal',
+                  paypal: '🅿️ PayPal',
+                  card: '💳 Tarjeta',
+                  spei: '🏦 SPEI',
+                };
+                return (
+                  <Fragment key={order.id}>
+                  <TableRow hover sx={{ cursor: 'pointer' }} onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight="bold">{order.payment_reference}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        📦 {Array.isArray(order.packages) ? order.packages.length : Array.isArray(order.package_ids) ? order.package_ids.length : 0} paquete(s) {expandedOrderId === order.id ? '▴' : '▾'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">{methodMap[order.payment_method] || order.payment_method}</Typography>
+                    </TableCell>
+                    <TableCell align="right">
+                      <Typography variant="body2" fontWeight="bold" sx={{ color: ORANGE }}>
+                        {formatCurrency(Number(order.amount) || 0)} {order.currency}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip label={st.label} size="small" sx={{ bgcolor: st.color + '15', color: st.color, fontWeight: 'bold', fontSize: '0.7rem' }} />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="caption">
+                        {new Date(order.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </Typography>
+                      {order.paid_at && (
+                        <Typography variant="caption" display="block" sx={{ color: '#2E7D32' }}>
+                          Pagado: {new Date(order.paid_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })}
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell align="center" onClick={(e: any) => e.stopPropagation()}>
+                      <Box sx={{ display: 'flex', gap: 0.25, justifyContent: 'center' }}>
+                        <Tooltip title="Ver Detalles" arrow>
+                          <IconButton
+                            size="small"
+                            sx={{ color: ORANGE, '&:hover': { bgcolor: 'rgba(255,107,0,0.08)' } }}
+                            onClick={() => {
+                              setPaymentInstructionsDialog({
+                                open: true,
+                                reference: order.payment_reference,
+                                amount: Number(order.amount),
+                                currency: order.currency || 'MXN',
+                                expiresAt: '',
+                                bankInfo: order.bank_info || { banco: 'BBVA México', clabe: '012580001234567890', cuenta: '1234567890', beneficiario: 'ENTREGAX', concepto: order.payment_reference },
+                                branchInfo: order.branch_info || { nombre: 'CEDIS Monterrey', direccion: 'Av. Industrial #123', telefono: '81 1234 5678', horario: 'L-V 9-18' },
+                              });
+                            }}
+                          ><VisibilityIcon fontSize="small" /></IconButton>
+                        </Tooltip>
+                        <Tooltip title="Subir Comprobante" arrow>
+                          <IconButton
+                            size="small"
+                            sx={{ color: ORANGE, '&:hover': { bgcolor: 'rgba(255,107,0,0.08)' } }}
+                            onClick={() => {
+                              setVoucherDialog({ open: true, order });
+                              loadVoucherList(order.id);
+                            }}
+                          ><AttachFileIcon fontSize="small" /></IconButton>
+                        </Tooltip>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                  {expandedOrderId === order.id && Array.isArray(order.packages) && order.packages.length > 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} sx={{ bgcolor: '#fafafa', py: 0, px: 2 }}>
+                        <Table size="small">
+                          <TableBody>
+                            {order.packages.map((pkg: any) => (
+                              <TableRow key={pkg.id} sx={{ '&:last-child td': { borderBottom: 0 } }}>
+                                <TableCell sx={{ py: 0.5 }}>
+                                  <Typography variant="body2" fontWeight="bold">{pkg.tracking_internal}</Typography>
+                                  <Typography variant="caption" color="text.secondary">
+                                    {pkg.descripcion || ''}{pkg.weight ? ` · ${Number(pkg.weight).toFixed(1)} lb` : ''}
+                                  </Typography>
+                                </TableCell>
+                                <TableCell sx={{ py: 0.5 }}>
+                                  {pkg.national_carrier && (
+                                    <Typography variant="caption">🚚 {getCarrierDisplayName(pkg.national_carrier)}</Typography>
+                                  )}
+                                </TableCell>
+                                <TableCell align="right" sx={{ py: 0.5 }}>
+                                  <Typography variant="body2" fontWeight="bold" sx={{ color: ORANGE }}>
+                                    {formatCurrency(Number(pkg.saldo_pendiente || pkg.assigned_cost_mxn || 0))}
+                                  </Typography>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  </Fragment>
+                );
+              })}
+            </TableBody>
+          </Table>
+          </Box>
+        )}
+        {!loadingPaymentOrders && paymentOrderTab === 'history' && paymentOrders.filter((o: any) => ['completed', 'paid'].includes(o.status)).length === 0 && (
+          <Box sx={{ textAlign: 'center', py: 6 }}>
+            <Typography sx={{ fontSize: 50, mb: 1 }}>📋</Typography>
+            <Typography variant="h6" color="text.secondary" fontWeight="bold">Sin pagos completados</Typography>
+            <Typography variant="body2" color="text.secondary">Los pagos aprobados aparecerán aquí</Typography>
+          </Box>
+        )}
+      </Box>
+    </>
+  );
+
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
@@ -5050,37 +5224,10 @@ export default function DashboardClient() {
                       </Typography>
                     </Paper>
 
-                    {/* Cotizaciones Pendientes de Pago - resumen rápido */}
-                    {(pendingPayments?.totalPending || 0) > 0 && (
-                      <Paper 
-                        sx={{ 
-                          p: 2, 
-                          mb: 2, 
-                          bgcolor: '#FFF3E0', 
-                          border: '1px solid #FFE0B2',
-                          borderRadius: 2 
-                        }}
-                      >
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Box>
-                            <Typography variant="caption" color="text.secondary">
-                              📋 Cotizaciones Generadas Pdte. de Pago
-                            </Typography>
-                            <Typography variant="h6" fontWeight="bold" color="warning.dark">
-                              {formatCurrency(pendingPayments?.totalPending || 0)}
-                            </Typography>
-                          </Box>
-                          <Button 
-                            size="small"
-                            variant="outlined"
-                            color="warning"
-                            onClick={() => { setShowPendingPayments(true); loadPaymentOrders(); }}
-                          >
-                            Ver ({pendingPayments?.invoices?.length || 0})
-                          </Button>
-                        </Box>
-                      </Paper>
-                    )}
+                    {/* Órdenes de Pago e Historial - INLINE (antes estaba dentro de un modal) */}
+                    <Paper sx={{ mb: 2, borderRadius: 2, overflow: 'hidden', border: '1px solid #eee' }}>
+                      {renderPaymentOrdersTabs()}
+                    </Paper>
 
                     <Grid container spacing={2}>
                       <Grid size={6}>
