@@ -2497,6 +2497,21 @@ export default function DashboardClient() {
         const response = await api.post('/pobox/payment/cash/create', cashData);
         
         if (response.data.success) {
+          // Si el backend reutilizó una orden existente, no mostrar instrucciones;
+          // avisar al usuario y abrir "Mis Cuentas por Pagar" para que la vea ahí
+          if (response.data.reused) {
+            setPaymentModalOpen(false);
+            setSelectedPackageIds([]);
+            setSnackbar({
+              open: true,
+              message: `⚠️ Ya existe una orden de pago generada para estos paquetes: ${response.data.reference}. Consúltala en "Mis Cuentas por Pagar".`,
+              severity: 'warning'
+            });
+            setShowPendingPayments(true);
+            loadPaymentOrders();
+            return;
+          }
+
           // Mostrar dialog con instrucciones de pago
           setPaymentInstructionsDialog({
             open: true,
