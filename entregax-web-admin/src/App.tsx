@@ -203,13 +203,13 @@ const menuItemsConfig: Array<{
     icon: <DashboardCustomizeIcon />, 
     subItems: [
       { key: 'panelsAdmin', icon: <BuildIcon /> },         // Herramientas Administrativas
+      { key: 'accounting', icon: <ReceiptLongIcon /> },     // Portal Contable multi-empresa
       { key: 'panelsOperations', icon: <InventoryIcon /> }, // Herramientas de Operación
       { key: 'panelsService', icon: <HeadsetMicIcon /> },   // Servicio a Cliente
       // { key: 'tesoreriaSucursal', icon: <AccountBalanceWalletIcon /> }, // Tesorería Sucursal - OCULTO
     ]
   },
   { key: 'cajaChica', icon: <LocalAtmIcon /> }, // Caja CC (Control Cobros) - pagos de clientes
-  { key: 'accounting', icon: <ReceiptLongIcon /> }, // Portal Contable multi-empresa
   { key: 'commissions', icon: <MonetizationOnIcon /> },
   { key: 'permissions', icon: <SecurityIcon /> },
   { key: 'legalDocs', icon: <DescriptionIcon /> }, // Documentos Legales - solo super_admin
@@ -415,7 +415,13 @@ function App() {
   // Función para verificar si el usuario tiene permisos en una categoría
   const hasPermissionInCategory = (category: string): boolean => {
     if (isSuperAdmin) return true;
-    
+
+    // Accounting: visible para roles financieros/directivos y accountant (se filtra por rol arriba)
+    if (category === 'accounting') {
+      const role = currentUser?.role || '';
+      return ['admin', 'director', 'finanzas', 'accountant', 'super_admin'].includes(role);
+    }
+
     const categoryPrefixes: Record<string, string[]> = {
       'panelsAdmin': ['admin_'],
       'panelsOperations': ['ops_'],
@@ -439,24 +445,24 @@ function App() {
         return true;
       }
       
-      // admin: Dashboard, Reportes Ventas, Herramientas (incluye Tesorería), Caja CC
+      // admin: Dashboard, Reportes Ventas, Herramientas (incluye Contabilidad/Tesorería), Caja CC
       if (role === 'admin') {
-        return ['dashboard', 'salesReport', 'panels', 'cajaChica', 'accounting'].includes(item.key);
+        return ['dashboard', 'salesReport', 'panels', 'cajaChica'].includes(item.key);
       }
       
-      // director: Dashboard, Herramientas (incluye Tesorería), Caja CC
+      // director: Dashboard, Herramientas (incluye Contabilidad/Tesorería), Caja CC
       if (role === 'director') {
-        return ['dashboard', 'panels', 'cajaChica', 'accounting'].includes(item.key);
+        return ['dashboard', 'panels', 'cajaChica'].includes(item.key);
       }
       
-      // finanzas: Dashboard, Herramientas (incluye Tesorería), Caja CC
+      // finanzas: Dashboard, Herramientas (incluye Contabilidad/Tesorería), Caja CC
       if (role === 'finanzas') {
-        return ['dashboard', 'panels', 'cajaChica', 'accounting'].includes(item.key);
+        return ['dashboard', 'panels', 'cajaChica'].includes(item.key);
       }
 
-      // accountant: solo Dashboard + Portal Contable
+      // accountant: solo Dashboard + Herramientas (donde solo verá Contabilidad)
       if (role === 'accountant') {
-        return ['dashboard', 'accounting'].includes(item.key);
+        return ['dashboard', 'panels'].includes(item.key);
       }
       
       // advisor / sub_advisor: Solo dashboard (panel completo interno)
@@ -1239,6 +1245,7 @@ function App() {
       const currentSubKey = menuItems[selectedIndex]?.subItems?.[selectedSubIndex]?.key;
       switch (currentSubKey) {
         case 'panelsAdmin': return <AdminHubPage users={users} loading={loading} onRefresh={fetchUsers} panelPermissions={userPanelPermissions} permissionsReady={permissionsLoaded} />; // Administración
+        case 'accounting': return <AccountingHubPage />; // Contabilidad
         case 'panelsOperations': return <WarehouseHubPage users={users} />; // Operaciones (Bodegas)
         case 'panelsService': return <CustomerServiceHubPage users={users} loading={loading} onRefresh={fetchUsers} />; // Servicio a Cliente
         case 'tesoreriaSucursal': return <TesoreriaSucursalPage />; // Tesorería Sucursal

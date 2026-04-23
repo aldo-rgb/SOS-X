@@ -1143,6 +1143,39 @@ export const handleOpenpayPaymentCallback = async (req: Request, res: Response):
           );
 
           console.log(`✅ OpenPay callback: ${pkgIds.length} paquetes marcados como pagados`);
+
+          // 🧾 Facturación automática si el cliente la solicitó
+          if (String(invoiceRequired) === 'true') {
+            try {
+              const existing = await pool.query(
+                `SELECT uuid_sat FROM facturas_emitidas WHERE payment_id = $1 LIMIT 1`,
+                [paymentRef]
+              );
+              if (existing.rows.length === 0) {
+                const svcType = await getServiceTypeFromPackages(pkgIds);
+                const invoiceResult = await createInvoice({
+                  paymentId: String(paymentRef),
+                  paymentType: 'openpay',
+                  userId: parsedUserId,
+                  amount: parsedAmount,
+                  currency: 'MXN',
+                  paymentMethod: 'card',
+                  description: `Servicio de Logística - ${pkgIds.length} paquete(s)`,
+                  packageIds: pkgIds,
+                  serviceType: svcType,
+                });
+                if (invoiceResult.success) {
+                  console.log(`🧾 Factura OpenPay emitida: ${invoiceResult.uuid}`);
+                } else {
+                  console.error(`⚠️ No se pudo emitir factura OpenPay: ${invoiceResult.error}`);
+                }
+              } else {
+                console.log(`🧾 Factura ya existente para paymentRef=${paymentRef}`);
+              }
+            } catch (invErr: any) {
+              console.error('❌ Error emitiendo factura OpenPay callback:', invErr.message);
+            }
+          }
         }
       }
     }
@@ -1223,6 +1256,37 @@ export const handleOpenpayPaymentWebhook = async (req: Request, res: Response): 
               );
 
               console.log(`✅ OpenPay webhook: ${checkResult.rows.length} paquetes marcados como pagados`);
+
+              // 🧾 Facturación automática si el cliente la solicitó (persistido en metadata)
+              if (metadata.invoiceRequired === true || metadata.invoiceRequired === 'true') {
+                try {
+                  const existing = await pool.query(
+                    `SELECT uuid_sat FROM facturas_emitidas WHERE payment_id = $1 LIMIT 1`,
+                    [orderId]
+                  );
+                  if (existing.rows.length === 0) {
+                    const svcType = metadata.serviceType || await getServiceTypeFromPackages(packageIds);
+                    const invoiceResult = await createInvoice({
+                      paymentId: String(orderId),
+                      paymentType: 'openpay',
+                      userId: userId,
+                      amount: amount,
+                      currency: metadata.currency || 'MXN',
+                      paymentMethod: 'card',
+                      description: `Servicio de Logística - ${packageIds.length} paquete(s)`,
+                      packageIds: packageIds,
+                      serviceType: svcType,
+                    });
+                    if (invoiceResult.success) {
+                      console.log(`🧾 Factura OpenPay (webhook) emitida: ${invoiceResult.uuid}`);
+                    } else {
+                      console.error(`⚠️ No se pudo emitir factura OpenPay webhook: ${invoiceResult.error}`);
+                    }
+                  }
+                } catch (invErr: any) {
+                  console.error('❌ Error emitiendo factura OpenPay webhook:', invErr.message);
+                }
+              }
             }
           }
         }
@@ -1320,6 +1384,38 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
         );
 
         console.log(`✅ PayPal callback: ${pkgIds.length} paquetes marcados como pagados`);
+
+        // 🧾 Facturación automática si el cliente la solicitó
+        if (String(invoiceRequired) === 'true') {
+          try {
+            const payId = String(paymentRef || paypalOrderId);
+            const existing = await pool.query(
+              `SELECT uuid_sat FROM facturas_emitidas WHERE payment_id = $1 LIMIT 1`,
+              [payId]
+            );
+            if (existing.rows.length === 0) {
+              const svcType = await getServiceTypeFromPackages(pkgIds);
+              const invoiceResult = await createInvoice({
+                paymentId: payId,
+                paymentType: 'paypal',
+                userId: parsedUserId,
+                amount: parsedAmount,
+                currency: captureDetails?.amount?.currency_code || 'USD',
+                paymentMethod: 'paypal',
+                description: `Servicio de Logística - ${pkgIds.length} paquete(s)`,
+                packageIds: pkgIds,
+                serviceType: svcType,
+              });
+              if (invoiceResult.success) {
+                console.log(`🧾 Factura PayPal emitida: ${invoiceResult.uuid}`);
+              } else {
+                console.error(`⚠️ No se pudo emitir factura PayPal: ${invoiceResult.error}`);
+              }
+            }
+          } catch (invErr: any) {
+            console.error('❌ Error emitiendo factura PayPal callback:', invErr.message);
+          }
+        }
       }
 
       return res.redirect(`${frontendUrl}/?paymentSuccess=true&ref=${paymentRef || paypalOrderId}`);

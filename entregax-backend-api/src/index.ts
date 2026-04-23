@@ -861,6 +861,21 @@ import {
   listAccountants,
   grantAccountantPermission,
   revokeAccountantPermission,
+  listCategories,
+  createCategory,
+  updateCategory,
+  deleteCategory,
+  listProducts,
+  createProduct,
+  updateProduct,
+  deleteProduct,
+  adjustProductStock,
+  listReceivedInvoices,
+  getReceivedInvoiceDetail,
+  uploadReceivedInvoice,
+  deleteReceivedInvoice,
+  listBankMovements,
+  syncBankMovements,
 } from './accountingController';
 import {
   listInTransitConsolidations,
@@ -2732,6 +2747,29 @@ app.get('/api/accounting/:emitterId/pending-stamp', authenticateToken, listPendi
 app.get('/api/accounting/accountants', authenticateToken, listAccountants);
 app.post('/api/accounting/accountants/:userId/permissions', authenticateToken, grantAccountantPermission);
 app.delete('/api/accounting/accountants/:userId/permissions/:emitterId', authenticateToken, revokeAccountantPermission);
+
+// Inventarios: categorías
+app.get('/api/accounting/:emitterId/categories', authenticateToken, listCategories);
+app.post('/api/accounting/:emitterId/categories', authenticateToken, createCategory);
+app.put('/api/accounting/:emitterId/categories/:categoryId', authenticateToken, updateCategory);
+app.delete('/api/accounting/:emitterId/categories/:categoryId', authenticateToken, deleteCategory);
+
+// Inventarios: productos
+app.get('/api/accounting/:emitterId/products', authenticateToken, listProducts);
+app.post('/api/accounting/:emitterId/products', authenticateToken, createProduct);
+app.put('/api/accounting/:emitterId/products/:productId', authenticateToken, updateProduct);
+app.delete('/api/accounting/:emitterId/products/:productId', authenticateToken, deleteProduct);
+app.post('/api/accounting/:emitterId/products/:productId/stock', authenticateToken, adjustProductStock);
+
+// Facturas recibidas
+app.get('/api/accounting/:emitterId/received-invoices', authenticateToken, listReceivedInvoices);
+app.get('/api/accounting/:emitterId/received-invoices/:invoiceId', authenticateToken, getReceivedInvoiceDetail);
+app.post('/api/accounting/:emitterId/received-invoices/upload', authenticateToken, uploadReceivedInvoice);
+app.delete('/api/accounting/:emitterId/received-invoices/:invoiceId', authenticateToken, deleteReceivedInvoice);
+
+// Movimientos bancarios (Belvo) por empresa
+app.get('/api/accounting/:emitterId/bank-movements', authenticateToken, listBankMovements);
+app.post('/api/accounting/:emitterId/bank-movements/sync', authenticateToken, syncBankMovements);
 app.get('/api/pobox/payment/status/:paymentId', authenticateToken, getPoboxPaymentStatus);
 app.post('/api/pobox/payment/cash/confirm', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), confirmPoboxCashPayment); // Admin confirma pago efectivo
 app.get('/api/pobox/payment/history', authenticateToken, getPoboxPaymentHistory); // Historial del cliente

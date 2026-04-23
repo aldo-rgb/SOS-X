@@ -239,7 +239,7 @@ export const createInvoice = async (
     packageIds?: number[];
     serviceType?: string; // 'po_box', 'aereo', 'maritimo', etc.
   }
-): Promise<{ success: boolean; uuid?: string; pdfUrl?: string; xmlUrl?: string; error?: string }> => {
+): Promise<{ success: boolean; uuid?: string; pdfUrl?: string; xmlUrl?: string; emitterId?: number; error?: string }> => {
   try {
     // 1. Obtener datos fiscales del usuario
     const userResult = await pool.query(`
@@ -271,10 +271,11 @@ export const createInvoice = async (
     
     let apiKey: string | null = null;
     let emitterAlias: string | null = null;
+    let emitterId: number | null = null;
 
     // Primero intentar por servicio específico
     const configByService = await pool.query(`
-      SELECT fe.api_key, fe.alias, fe.is_sandbox
+      SELECT fe.id, fe.api_key, fe.alias, fe.is_sandbox
       FROM service_company_config scc
       JOIN fiscal_emitters fe ON scc.emitter_id = fe.id
       WHERE scc.service_type = $1 AND scc.is_active = TRUE AND fe.is_active = TRUE
@@ -283,11 +284,12 @@ export const createInvoice = async (
     if (configByService.rows.length > 0 && configByService.rows[0].api_key) {
       apiKey = configByService.rows[0].api_key;
       emitterAlias = configByService.rows[0].alias;
+      emitterId = configByService.rows[0].id;
       console.log(`🔑 Facturapi API key from service config (${serviceType}) -> ${emitterAlias}`);
     } else {
       // Fallback: buscar emisor activo por defecto
       const defaultEmitter = await pool.query(`
-        SELECT api_key, alias, is_sandbox
+        SELECT id, api_key, alias, is_sandbox
         FROM fiscal_emitters 
         WHERE is_active = TRUE AND api_key IS NOT NULL
         ORDER BY id LIMIT 1
@@ -296,6 +298,7 @@ export const createInvoice = async (
       if (defaultEmitter.rows.length > 0) {
         apiKey = defaultEmitter.rows[0].api_key;
         emitterAlias = defaultEmitter.rows[0].alias;
+        emitterId = defaultEmitter.rows[0].id;
         console.log(`🔑 Facturapi API key from default emitter -> ${emitterAlias}`);
       }
     }
@@ -376,10 +379,10 @@ export const createInvoice = async (
         receptor_rfc, receptor_razon_social, receptor_codigo_postal,
         receptor_regimen_fiscal, receptor_uso_cfdi,
         subtotal, total, currency, payment_form,
-        folio, serie, pdf_url, xml_url, status
+        folio, serie, pdf_url, xml_url, status, fiscal_emitter_id
       ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-        $11, $12, $13, $14, $15, $16, $17, $18, 'valid'
+        $11, $12, $13, $14, $15, $16, $17, $18, 'valid', $19
       )
     `, [
       factura.id,
@@ -400,15 +403,17 @@ export const createInvoice = async (
       factura.series,
       `https://www.facturapi.io/v2/invoices/${factura.id}/pdf`,
       `https://www.facturapi.io/v2/invoices/${factura.id}/xml`,
+      emitterId,
     ]);
 
-    console.log(`✅ Factura creada: ${factura.uuid} por ${emitterAlias}`);
+    console.log(`✅ Factura creada: ${factura.uuid} por ${emitterAlias} (emitterId=${emitterId})`);
 
     return { 
       success: true, 
       uuid: factura.uuid,
       pdfUrl: `https://www.facturapi.io/v2/invoices/${factura.id}/pdf`,
-      xmlUrl: `https://www.facturapi.io/v2/invoices/${factura.id}/xml`
+      xmlUrl: `https://www.facturapi.io/v2/invoices/${factura.id}/xml`,
+      ...(emitterId ? { emitterId } : {}),
     };
 
   } catch (error: any) {
