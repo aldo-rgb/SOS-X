@@ -3597,7 +3597,8 @@ export default function DashboardClient() {
 
       {/* Tabs de navegación - Desktop only */}
       {!isMobile && (
-        <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
+        <Paper sx={{ borderRadius: 3, overflow: 'hidden', display: 'flex', alignItems: 'center' }}>
+          <Box sx={{ flex: 1, minWidth: 0 }}>
           <Tabs 
             value={(() => {
               // Mapear activeTab a índice de Tab visual
@@ -3648,6 +3649,27 @@ export default function DashboardClient() {
             <Tab icon={<HomeIcon />} label="Direcciones de Envío" iconPosition="start" />
             <Tab icon={<TicketIcon />} label="Mis Tickets" iconPosition="start" />
           </Tabs>
+          </Box>
+          <Button
+            variant="contained"
+            startIcon={<WalletIcon />}
+            onClick={() => { setShowPendingPayments(true); loadPaymentOrders(); }}
+            sx={{
+              mx: 2,
+              flexShrink: 0,
+              bgcolor: ORANGE,
+              color: '#fff',
+              fontWeight: 700,
+              textTransform: 'none',
+              borderRadius: 2,
+              px: 2.5,
+              py: 1,
+              boxShadow: '0 2px 8px rgba(255,107,0,0.3)',
+              '&:hover': { bgcolor: '#E55A00', boxShadow: '0 4px 12px rgba(255,107,0,0.4)' },
+            }}
+          >
+            Mis Cuentas por Pagar
+          </Button>
         </Paper>
       )}
 
