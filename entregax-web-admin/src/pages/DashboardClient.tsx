@@ -3597,13 +3597,12 @@ export default function DashboardClient() {
 
       {/* Tabs de navegación - Desktop only */}
       {!isMobile && (
-        <Paper sx={{ borderRadius: 3, overflow: 'hidden', display: 'flex', alignItems: 'center' }}>
-          <Box sx={{ flex: 1, minWidth: 0 }}>
+        <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
           <Tabs 
             value={(() => {
               // Mapear activeTab a índice de Tab visual
               // activeTab: 0=Envíos, 1=Cotizador, 2=MiCuenta, 3=Facturas, 4=Direcciones, 7=Tickets
-              // Tabs: 0=Envíos, 1=Pagos, 2=Cotizador, 3=MiCuenta, 4=Facturas, 5=Direcciones, 6=Tickets
+              // Tabs: 0=Envíos, 1=Pagos, 2=Cotizador, 3=MiCuenta, 4=Facturas, 5=Direcciones, 6=Tickets, 7=Cuentas por Pagar
               const reverseMapping: {[key: number]: number} = {
                 0: 0,  // Envíos → Envíos
                 1: 2,  // Cotizador → Cotizador
@@ -3618,6 +3617,12 @@ export default function DashboardClient() {
               // Tab 1 es "Pago a Proveedores" - mostrar en construcción
               if (v === 1) {
                 setSnackbar({ open: true, message: '🚧 Pago a Proveedores: Próximamente disponible', severity: 'info' });
+                return;
+              }
+              // Tab 7 es "Mis Cuentas por Pagar" - abrir modal sin cambiar tab activa
+              if (v === 7) {
+                setShowPendingPayments(true);
+                loadPaymentOrders();
                 return;
               }
               // Ajustar índice para los demás tabs
@@ -3648,28 +3653,17 @@ export default function DashboardClient() {
             <Tab icon={<ReceiptIcon />} label={t('cd.tabs.invoices')} iconPosition="start" />
             <Tab icon={<HomeIcon />} label="Direcciones de Envío" iconPosition="start" />
             <Tab icon={<TicketIcon />} label="Mis Tickets" iconPosition="start" />
+            <Tab
+              icon={<WalletIcon />}
+              label="Mis Cuentas por Pagar"
+              iconPosition="start"
+              sx={{
+                color: ORANGE,
+                fontWeight: 700,
+                '&.Mui-selected': { color: ORANGE },
+              }}
+            />
           </Tabs>
-          </Box>
-          <Button
-            variant="contained"
-            startIcon={<WalletIcon />}
-            onClick={() => { setShowPendingPayments(true); loadPaymentOrders(); }}
-            sx={{
-              mx: 2,
-              flexShrink: 0,
-              bgcolor: ORANGE,
-              color: '#fff',
-              fontWeight: 700,
-              textTransform: 'none',
-              borderRadius: 2,
-              px: 2.5,
-              py: 1,
-              boxShadow: '0 2px 8px rgba(255,107,0,0.3)',
-              '&:hover': { bgcolor: '#E55A00', boxShadow: '0 4px 12px rgba(255,107,0,0.4)' },
-            }}
-          >
-            Mis Cuentas por Pagar
-          </Button>
         </Paper>
       )}
 
