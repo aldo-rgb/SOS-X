@@ -731,7 +731,13 @@ function LabelTab({ token }: { token: string | null }) {
         <CardContent>
           <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
             <Typography variant="h6" fontWeight="bold">📋 Guías Generadas ({totalShipments})</Typography>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+              <TextField size="small" type="date" label="Desde" value={dateFrom}
+                onChange={e => setDateFrom(e.target.value)}
+                InputLabelProps={{ shrink: true }} sx={{ width: 150 }} />
+              <TextField size="small" type="date" label="Hasta" value={dateTo}
+                onChange={e => setDateTo(e.target.value)}
+                InputLabelProps={{ shrink: true }} sx={{ width: 150 }} />
               <TextField size="small" placeholder="Buscar guía, destino..." value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleSearch()}
@@ -740,6 +746,11 @@ function LabelTab({ token }: { token: string | null }) {
                 sx={{ color: PQTX_COLOR, borderColor: PQTX_COLOR }}>
                 Buscar
               </Button>
+              {(dateFrom || dateTo) && (
+                <Button variant="text" size="small" onClick={handleClearDates} sx={{ color: '#666' }}>
+                  Limpiar
+                </Button>
+              )}
               <Tooltip title="Recargar">
                 <IconButton onClick={() => loadShipments(page, searchTerm)} size="small">
                   <RefreshIcon />
@@ -747,6 +758,33 @@ function LabelTab({ token }: { token: string | null }) {
               </Tooltip>
             </Box>
           </Box>
+
+          {totals && totals.count > 0 && (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: '#FFF8E1', border: '1px solid #FFE082', borderRadius: 1, display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+              <Box>
+                <Typography variant="caption" sx={{ color: '#666' }}>Guías</Typography>
+                <Typography variant="body1" fontWeight="bold">{totals.count}</Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" sx={{ color: '#666' }}>Costo PQTX</Typography>
+                <Typography variant="body1" fontWeight="bold" sx={{ color: '#D32F2F' }}>
+                  ${totals.costTotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" sx={{ color: '#666' }}>Cobrado al cliente</Typography>
+                <Typography variant="body1" fontWeight="bold" sx={{ color: '#2E7D32' }}>
+                  ${totals.clientPrice.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+                </Typography>
+              </Box>
+              <Box>
+                <Typography variant="caption" sx={{ color: '#666' }}>Utilidad</Typography>
+                <Typography variant="body1" fontWeight="bold" sx={{ color: PQTX_COLOR }}>
+                  ${totals.profit.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+                </Typography>
+              </Box>
+            </Box>
+          )}
 
           {shipmentsLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
