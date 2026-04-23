@@ -626,15 +626,20 @@ function LabelTab({ token }: { token: string | null }) {
   const [shipments, setShipments] = useState<any[]>([]);
   const [shipmentsLoading, setShipmentsLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [totalShipments, setTotalShipments] = useState(0);
+  const [totals, setTotals] = useState<{ costTotal: number; costSubtotal: number; clientPrice: number; profit: number; count: number } | null>(null);
   const [page, setPage] = useState(0);
   const PAGE_SIZE = 20;
 
-  const loadShipments = useCallback(async (pageNum = 0, search = searchTerm) => {
+  const loadShipments = useCallback(async (pageNum = 0, search = searchTerm, df = dateFrom, dt = dateTo) => {
     setShipmentsLoading(true);
     try {
       const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(pageNum * PAGE_SIZE) });
       if (search.trim()) params.set('search', search.trim());
+      if (df) params.set('date_from', df);
+      if (dt) params.set('date_to', dt);
       const res = await fetch(`${API_URL}/api/admin/paquete-express/shipments?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -642,15 +647,17 @@ function LabelTab({ token }: { token: string | null }) {
       if (data.success) {
         setShipments(data.shipments || []);
         setTotalShipments(data.total || 0);
+        setTotals(data.totals || null);
       }
     } catch (err) { console.error(err); } finally { setShipmentsLoading(false); }
-  }, [token, searchTerm]);
+  }, [token, searchTerm, dateFrom, dateTo]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { loadShipments(0, ''); }, [token]);
 
-  const handleSearch = () => { setPage(0); loadShipments(0, searchTerm); };
-  const handlePageChange = (newPage: number) => { setPage(newPage); loadShipments(newPage, searchTerm); };
+  const handleSearch = () => { setPage(0); loadShipments(0, searchTerm, dateFrom, dateTo); };
+  const handleClearDates = () => { setDateFrom(''); setDateTo(''); setPage(0); loadShipments(0, searchTerm, '', ''); };
+  const handlePageChange = (newPage: number) => { setPage(newPage); loadShipments(newPage, searchTerm, dateFrom, dateTo); };
 
   const openPdf = (guia: string, format: string) => {
     if (!guia.trim()) return;
@@ -760,6 +767,8 @@ function LabelTab({ token }: { token: string | null }) {
                       <TableCell sx={{ fontWeight: 'bold' }}>Destino</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }} align="center">Pzas</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }} align="right">Peso</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }} align="right">Costo PQTX</TableCell>
+                      <TableCell sx={{ fontWeight: 'bold' }} align="right">Cobrado</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }}>Estado</TableCell>
                       <TableCell sx={{ fontWeight: 'bold' }} align="center">Acciones</TableCell>
                     </TableRow>
@@ -802,6 +811,26 @@ function LabelTab({ token }: { token: string | null }) {
                         </TableCell>
                         <TableCell align="center">{s.pieces || 1}</TableCell>
                         <TableCell align="right">{s.weight ? `${Number(s.weight).toFixed(1)} kg` : '-'}</TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" fontWeight={600} color="#BF360C">
+                            ${s.total ? Number(s.total).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+                          </Typography>
+                          {s.subtotal && (
+                            <Typography variant="caption" color="text.secondary">
+                              Sub: ${Number(s.subtotal).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" fontWeight={700} color="#1976D2">
+                            ${s.client_price ? Number(s.client_price).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+                          </Typography>
+                          {s.client_price && s.total && (
+                            <Typography variant="caption" color={Number(s.client_price) - Number(s.total) >= 0 ? '#2E7D32' : '#C62828'}>
+                              +${(Number(s.client_price) - Number(s.total)).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </Typography>
+                          )}
+                        </TableCell>
                         <TableCell>
                           <Chip size="small"
                             label={s.status === 'generated' ? 'Activa' : s.status === 'cancelled' ? 'Cancelada' : s.status}

@@ -798,7 +798,7 @@ export async function pqtxLabelZpl(req: Request, res: Response) {
 // ============================================
 export async function pqtxListShipments(req: Request, res: Response) {
   try {
-    const { search, status, limit = '50', offset = '0' } = req.query;
+    const { search, status, limit = '50', offset = '0', date_from, date_to } = req.query;
     let where = 'WHERE 1=1';
     const params: any[] = [];
     let idx = 1;
@@ -813,13 +813,44 @@ export async function pqtxListShipments(req: Request, res: Response) {
       params.push(status);
       idx++;
     }
+    if (date_from) {
+      where += ` AND s.created_at >= $${idx}`;
+      params.push(date_from);
+      idx++;
+    }
+    if (date_to) {
+      where += ` AND s.created_at <= $${idx}`;
+      params.push(`${date_to} 23:59:59`);
+      idx++;
+    }
 
     const countRes = await pool.query(`SELECT COUNT(*) as total FROM pqtx_shipments s ${where}`, params);
     const total = parseInt(countRes.rows[0].total);
 
+    // 💰 Totales del rango filtrado (independientes del paginado)
+    const sumsRes = await pool.query(
+      `SELECT
+         COALESCE(SUM(s.total), 0)::float    AS sum_cost_total,
+         COALESCE(SUM(s.subtotal), 0)::float AS sum_cost_subtotal,
+         COUNT(*)::int                        AS count_all
+       FROM pqtx_shipments s ${where}`,
+      params
+    );
+
     params.push(Number(limit), Number(offset));
     const result = await pool.query(
-      `SELECT s.*, u.full_name as created_by_name
+      `SELECT
+         s.*,
+         u.full_name AS created_by_name,
+         -- 💰 Precio de venta al cliente (misma regla que pqtxClientQuote):
+         --   Si costo_total / pieces < 300  => 400 * pieces
+         --   Si costo_total / pieces >= 300 => (ceil(costo/pieces) + 100) * pieces
+         CASE
+           WHEN COALESCE(s.pieces, 1) <= 0 OR s.total IS NULL THEN NULL
+           WHEN (s.total / GREATEST(s.pieces, 1)) < 300
+             THEN 400 * GREATEST(s.pieces, 1)
+           ELSE (CEIL(s.total / GREATEST(s.pieces, 1)) + 100) * GREATEST(s.pieces, 1)
+         END::numeric AS client_price
        FROM pqtx_shipments s
        LEFT JOIN users u ON u.id = s.created_by
        ${where}
@@ -828,7 +859,35 @@ export async function pqtxListShipments(req: Request, res: Response) {
       params
     );
 
-    res.json({ success: true, shipments: result.rows, total, limit: Number(limit), offset: Number(offset) });
+    // Calcular suma de client_price para el rango filtrado (mismo WHERE sin limit/offset)
+    const rangeParams = params.slice(0, idx - 1);
+    const clientSumRes = await pool.query(
+      `SELECT COALESCE(SUM(
+         CASE
+           WHEN COALESCE(s.pieces, 1) <= 0 OR s.total IS NULL THEN 0
+           WHEN (s.total / GREATEST(s.pieces, 1)) < 300
+             THEN 400 * GREATEST(s.pieces, 1)
+           ELSE (CEIL(s.total / GREATEST(s.pieces, 1)) + 100) * GREATEST(s.pieces, 1)
+         END
+       ), 0)::float AS sum_client_price
+       FROM pqtx_shipments s ${where}`,
+      rangeParams
+    );
+
+    res.json({
+      success: true,
+      shipments: result.rows,
+      total,
+      limit: Number(limit),
+      offset: Number(offset),
+      totals: {
+        costTotal: sumsRes.rows[0].sum_cost_total,
+        costSubtotal: sumsRes.rows[0].sum_cost_subtotal,
+        clientPrice: clientSumRes.rows[0].sum_client_price,
+        profit: clientSumRes.rows[0].sum_client_price - sumsRes.rows[0].sum_cost_total,
+        count: sumsRes.rows[0].count_all,
+      },
+    });
   } catch (error: any) {
     console.error('Error listando guías PQTX:', error.message);
     res.status(500).json({ success: false, error: error.message });
