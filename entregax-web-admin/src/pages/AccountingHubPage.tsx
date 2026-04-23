@@ -118,7 +118,7 @@ export default function AccountingHubPage() {
         ) : (
           <Grid container spacing={3} justifyContent="center">
             {emitters.map((e) => (
-              <Grid item xs={12} sm={6} md={4} key={e.id}>
+              <Grid size={{ xs: 12, sm: 6, md: 4 }} key={e.id}>
                 <Card sx={{ border: `2px solid #e5e7eb`, borderRadius: 3, transition: 'all 0.2s',
                   '&:hover': { borderColor: ORANGE, transform: 'translateY(-4px)', boxShadow: '0 8px 24px rgba(240,90,40,0.2)' }
                 }}>
@@ -255,16 +255,16 @@ function EmitterDashboard({ emitter }: { emitter: Emitter }) {
     <Box>
       {/* KPIs */}
       <Grid container spacing={2} sx={{ mb: 2 }}>
-        <Grid item xs={6} md={3}>
+        <Grid size={{ xs: 6, md: 3 }}>
           <KpiCard color={ORANGE} label="Facturas Activas" value={loadingSummary ? '…' : String(summary?.stats?.invoices_active || 0)} icon={<ReceiptLongIcon />} />
         </Grid>
-        <Grid item xs={6} md={3}>
+        <Grid size={{ xs: 6, md: 3 }}>
           <KpiCard color={BLACK} label="Monto Facturado" value={loadingSummary ? '…' : fmt(summary?.stats?.invoice_amount_active || 0)} icon={<CheckCircleIcon />} />
         </Grid>
-        <Grid item xs={6} md={3}>
+        <Grid size={{ xs: 6, md: 3 }}>
           <KpiCard color={RED} label="Canceladas" value={loadingSummary ? '…' : String(summary?.stats?.invoices_canceled || 0)} icon={<CancelIcon />} />
         </Grid>
-        <Grid item xs={6} md={3}>
+        <Grid size={{ xs: 6, md: 3 }}>
           <KpiCard color={ORANGE} label="Pendientes timbrar" value={loadingSummary ? '…' : String(summary?.stats?.pending_to_stamp || 0)} icon={<PendingActionsIcon />} />
         </Grid>
       </Grid>
@@ -686,13 +686,13 @@ function ProductDialog({ open, row, categories, onClose, onSave }: any) {
       <DialogTitle sx={{ bgcolor: BLACK, color: 'white' }}>{row ? 'Editar producto' : 'Nuevo producto / servicio'}</DialogTitle>
       <DialogContent sx={{ pt: 3 }}>
         <Grid container spacing={2} sx={{ mt: 0 }}>
-          <Grid item xs={12} md={8}>
+          <Grid size={{ xs: 12, md: 8 }}>
             <TextField label="Descripción *" value={form.description || ''} onChange={(e) => setForm({ ...form, description: e.target.value })} fullWidth size="small" />
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <TextField label="SKU / Código" value={form.sku || ''} onChange={(e) => setForm({ ...form, sku: e.target.value })} fullWidth size="small" />
           </Grid>
-          <Grid item xs={12} md={6}>
+          <Grid size={{ xs: 12, md: 6 }}>
             <FormControl size="small" fullWidth>
               <InputLabel>Categoría</InputLabel>
               <Select label="Categoría" value={form.category_id || ''} onChange={(e) => {
@@ -710,20 +710,20 @@ function ProductDialog({ open, row, categories, onClose, onSave }: any) {
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <TextField label="Clave SAT ProdServ *" value={form.sat_clave_prod_serv || ''} onChange={(e) => setForm({ ...form, sat_clave_prod_serv: e.target.value })} fullWidth size="small" helperText="Ej: 78101800" />
           </Grid>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <TextField label="Clave Unidad SAT *" value={form.sat_clave_unidad || 'H87'} onChange={(e) => setForm({ ...form, sat_clave_unidad: e.target.value })} fullWidth size="small" helperText="Ej: H87" />
           </Grid>
 
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <TextField label="Unidad (visual)" value={form.unit_measure || 'Pieza'} onChange={(e) => setForm({ ...form, unit_measure: e.target.value })} fullWidth size="small" />
           </Grid>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <TextField label="Precio unitario" type="number" inputProps={{ step: 0.01 }} value={form.unit_price ?? 0} onChange={(e) => setForm({ ...form, unit_price: parseFloat(e.target.value) })} fullWidth size="small" />
           </Grid>
-          <Grid item xs={6} md={2}>
+          <Grid size={{ xs: 6, md: 2 }}>
             <FormControl size="small" fullWidth>
               <InputLabel>Moneda</InputLabel>
               <Select label="Moneda" value={form.currency || 'MXN'} onChange={(e) => setForm({ ...form, currency: e.target.value })}>
@@ -732,26 +732,26 @@ function ProductDialog({ open, row, categories, onClose, onSave }: any) {
               </Select>
             </FormControl>
           </Grid>
-          <Grid item xs={6} md={2}>
+          <Grid size={{ xs: 6, md: 2 }}>
             <TextField label="IVA" type="number" inputProps={{ step: 0.01, min: 0, max: 1 }} value={form.tax_rate ?? 0.16} onChange={(e) => setForm({ ...form, tax_rate: parseFloat(e.target.value) })} fullWidth size="small" helperText="0.16 = 16%" />
           </Grid>
-          <Grid item xs={6} md={2}>
+          <Grid size={{ xs: 6, md: 2 }}>
             <FormControlLabel control={<Switch checked={!!form.tax_included} onChange={(e) => setForm({ ...form, tax_included: e.target.checked })} />} label="IVA incl." />
           </Grid>
 
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <TextField label="Stock inicial" type="number" inputProps={{ step: 0.01 }} value={form.stock_qty ?? 0} onChange={(e) => setForm({ ...form, stock_qty: parseFloat(e.target.value) })} fullWidth size="small" disabled={!!row} helperText={row ? 'Usa movimiento de stock' : ''} />
           </Grid>
-          <Grid item xs={6} md={3}>
+          <Grid size={{ xs: 6, md: 3 }}>
             <TextField label="Stock mínimo" type="number" inputProps={{ step: 0.01 }} value={form.min_stock ?? 0} onChange={(e) => setForm({ ...form, min_stock: parseFloat(e.target.value) })} fullWidth size="small" />
           </Grid>
-          <Grid item xs={12} md={4}>
+          <Grid size={{ xs: 12, md: 4 }}>
             <TextField label="Código de barras" value={form.barcode || ''} onChange={(e) => setForm({ ...form, barcode: e.target.value })} fullWidth size="small" />
           </Grid>
-          <Grid item xs={12} md={2}>
+          <Grid size={{ xs: 12, md: 2 }}>
             <FormControlLabel control={<Switch checked={!!form.is_service} onChange={(e) => setForm({ ...form, is_service: e.target.checked })} />} label="Servicio" />
           </Grid>
-          <Grid item xs={12}>
+          <Grid size={{ xs: 12 }}>
             <TextField label="Notas" value={form.notes || ''} onChange={(e) => setForm({ ...form, notes: e.target.value })} fullWidth size="small" multiline rows={2} />
           </Grid>
         </Grid>
@@ -974,20 +974,20 @@ function ReceivedInvoiceDetailDialog({ invoice, onClose }: any) {
       </DialogTitle>
       <DialogContent sx={{ pt: 3 }}>
         <Grid container spacing={2} sx={{ mb: 2 }}>
-          <Grid item xs={12} md={6}>
+          <Grid size={{ xs: 12, md: 6 }}>
             <Typography variant="caption" color="text.secondary">Emisor</Typography>
             <Typography variant="body2" fontWeight="bold">{invoice.emisor_nombre}</Typography>
             <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{invoice.emisor_rfc}</Typography>
           </Grid>
-          <Grid item xs={12} md={6}>
+          <Grid size={{ xs: 12, md: 6 }}>
             <Typography variant="caption" color="text.secondary">Receptor</Typography>
             <Typography variant="body2" fontWeight="bold">{invoice.receptor_nombre}</Typography>
             <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{invoice.receptor_rfc}</Typography>
           </Grid>
-          <Grid item xs={6} md={3}><Typography variant="caption" color="text.secondary">Subtotal</Typography><Typography fontWeight="bold">{fmt(parseFloat(invoice.subtotal))}</Typography></Grid>
-          <Grid item xs={6} md={3}><Typography variant="caption" color="text.secondary">IVA</Typography><Typography fontWeight="bold">{fmt(parseFloat(invoice.iva))}</Typography></Grid>
-          <Grid item xs={6} md={3}><Typography variant="caption" color="text.secondary">Total</Typography><Typography fontWeight="bold" sx={{ color: ORANGE }}>{fmt(parseFloat(invoice.total))}</Typography></Grid>
-          <Grid item xs={6} md={3}><Typography variant="caption" color="text.secondary">Fecha</Typography><Typography>{fmtDate(invoice.fecha_emision)}</Typography></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><Typography variant="caption" color="text.secondary">Subtotal</Typography><Typography fontWeight="bold">{fmt(parseFloat(invoice.subtotal))}</Typography></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><Typography variant="caption" color="text.secondary">IVA</Typography><Typography fontWeight="bold">{fmt(parseFloat(invoice.iva))}</Typography></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><Typography variant="caption" color="text.secondary">Total</Typography><Typography fontWeight="bold" sx={{ color: ORANGE }}>{fmt(parseFloat(invoice.total))}</Typography></Grid>
+          <Grid size={{ xs: 6, md: 3 }}><Typography variant="caption" color="text.secondary">Fecha</Typography><Typography>{fmtDate(invoice.fecha_emision)}</Typography></Grid>
         </Grid>
 
         <Divider sx={{ my: 2 }} />
