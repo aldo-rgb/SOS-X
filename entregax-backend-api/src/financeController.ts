@@ -12,9 +12,10 @@ import { pool } from './db';
 
 interface AuthRequest extends Request {
   user?: {
-    id: number;
+    userId: number;
     email: string;
-    level: number;
+    role?: string;
+    level?: number;
   };
 }
 
@@ -50,7 +51,7 @@ const generateVirtualClabe = (userId: number): string => {
 
 export const getWalletStatus = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
 
     const result = await pool.query(`
       SELECT 
@@ -117,7 +118,7 @@ export const getWalletStatus = async (req: AuthRequest, res: Response): Promise<
 
 export const getTransactionHistory = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     const { limit = 50, offset = 0, type } = req.query;
 
     let query = `
@@ -419,7 +420,7 @@ export const payCredit = async (req: AuthRequest, res: Response): Promise<any> =
   const client = await pool.connect();
   
   try {
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
     const { amount, invoice_id } = req.body;
 
     if (!amount || amount <= 0) {
@@ -524,7 +525,7 @@ export const payCredit = async (req: AuthRequest, res: Response): Promise<any> =
 
 export const manualDeposit = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const adminId = req.user?.id;
+    const adminId = req.user?.userId;
     const { user_id, amount, description, type = 'deposit_spei' } = req.body;
 
     if (!user_id || !amount || amount <= 0) {
@@ -567,7 +568,7 @@ export const manualDeposit = async (req: AuthRequest, res: Response): Promise<an
 
 export const updateCreditLine = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const adminId = req.user?.id;
+    const adminId = req.user?.userId;
     const { user_id, credit_limit, credit_days, notes, is_active } = req.body;
 
     if (!user_id) {
@@ -769,7 +770,7 @@ export const getClientsFinancialStatus = async (req: AuthRequest, res: Response)
 
 export const updateClientCredit = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const adminId = req.user?.id;
+    const adminId = req.user?.userId;
     const { clientId } = req.params;
     const { has_credit, credit_limit, credit_days, is_credit_blocked } = req.body;
 

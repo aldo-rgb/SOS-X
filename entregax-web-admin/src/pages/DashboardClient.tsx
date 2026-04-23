@@ -84,6 +84,7 @@ import {
   Add as AddIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
+  Check as CheckIcon,
   CreditCard as CreditCardIcon,
   AccountBalance as AccountBalanceIcon,
   Star as StarIcon,
@@ -1093,6 +1094,25 @@ export default function DashboardClient() {
   const [voucherConfirming, setVoucherConfirming] = useState(false);
   const [voucherCompleting, setVoucherCompleting] = useState(false);
 
+  // Cancelar orden de pago - confirm dialog
+  const [cancelOrderDialog, setCancelOrderDialog] = useState<{ open: boolean; orderId: number | null; reference: string }>({ open: false, orderId: null, reference: '' });
+  const [cancelOrderLoading, setCancelOrderLoading] = useState(false);
+
+  // Pagar en línea (tarjeta / PayPal) desde diálogo de Instrucciones
+  const [onlinePayDialog, setOnlinePayDialog] = useState<{ open: boolean; order: any | null }>({ open: false, order: null });
+  const [onlinePayLoading, setOnlinePayLoading] = useState<'card' | 'paypal' | 'wallet' | 'credit' | null>(null);
+  const [onlinePayInvoice, setOnlinePayInvoice] = useState(false);
+  // Aplicación parcial de crédito: cuando el crédito del servicio < monto total, el usuario
+  // puede aplicar ese crédito y pagar el restante con tarjeta/paypal/saldo.
+  const [creditPartial, setCreditPartial] = useState<{ service: string; creditAmount: number; applied: boolean } | null>(null);
+  // Aplicación parcial de saldo a favor: el usuario puede aplicar parte (o todo) del wallet
+  // y combinar con crédito y/o una pasarela externa.
+  const [walletPartial, setWalletPartial] = useState<{ walletAmount: number; applied: boolean } | null>(null);
+  // Edición manual del monto de crédito a aplicar (redistribuye saldo+crédito vs pasarela)
+  const [adjustingGateway, setAdjustingGateway] = useState(false);
+  const [editingCreditAmount, setEditingCreditAmount] = useState(false);
+  const [creditInput, setCreditInput] = useState<string>('');
+
   const loadVoucherList = async (orderId: number) => {
     try {
       const res = await api.get(`/payment/voucher/${orderId}`);
@@ -1684,21 +1704,588 @@ export default function DashboardClient() {
   };
 
   const cancelPaymentOrder = async (orderId: number, reference?: string) => {
-    if (!window.confirm(`¿Estás seguro de cancelar la orden de pago${reference ? ` ${reference}` : ''}?\n\nLos paquetes volverán a estar disponibles para pago.`)) {
-      return;
-    }
+    setCancelOrderDialog({ open: true, orderId, reference: reference || '' });
+  };
+
+  const confirmCancelPaymentOrder = async () => {
+    const { orderId } = cancelOrderDialog;
+    if (!orderId) return;
+    setCancelOrderLoading(true);
     try {
       const response = await api.delete(`/pobox/payment/order/${orderId}`);
       if (response.data?.success) {
         setSnackbar({ open: true, message: `🗑️ Orden cancelada correctamente`, severity: 'success' });
         loadPaymentOrders();
         loadPendingPayments();
+        setCancelOrderDialog({ open: false, orderId: null, reference: '' });
       } else {
         setSnackbar({ open: true, message: response.data?.error || 'No se pudo cancelar', severity: 'error' });
       }
     } catch (e: any) {
       const msg = e?.response?.data?.message || e?.response?.data?.error || e.message;
       setSnackbar({ open: true, message: `❌ ${msg}`, severity: 'error' });
+    } finally {
+      setCancelOrderLoading(false);
+    }
+  };
+
+  // Abrir "Subir Comprobante" desde el diálogo de Instrucciones de Pago
+  const openVoucherFromInstructions = () => {
+    if (!paymentInstructionsDialog) return;
+    const ref = paymentInstructionsDialog.reference;
+    const order = paymentOrders.find((o: any) => o.payment_reference === ref);
+    if (!order) {
+      setSnackbar({ open: true, message: 'No se encontró la orden. Recarga la página.', severity: 'warning' });
+      return;
+    }
+    setPaymentInstructionsDialog(null);
+    setVoucherDialog({ open: true, order });
+    loadVoucherList(order.id);
+  };
+
+  // Abrir selector de pago en línea (Tarjeta / PayPal) desde Instrucciones
+  const openOnlinePayFromInstructions = () => {
+    if (!paymentInstructionsDialog) return;
+    const ref = paymentInstructionsDialog.reference;
+    const order = paymentOrders.find((o: any) => o.payment_reference === ref);
+    if (!order) {
+      setSnackbar({ open: true, message: 'No se encontró la orden. Recarga la página.', severity: 'warning' });
+      return;
+    }
+    setPaymentInstructionsDialog(null);
+    setOnlinePayDialog({ open: true, order });
+    // Refrescar saldo y créditos para que aparezcan métodos internos actualizados
+    try { loadWalletStatus(); } catch {}
+    try { loadServiceCredits(); } catch {}
+    // Si la orden ya tiene crédito aplicado previamente (pago externo que no se concretó),
+    // hidratar el estado para mostrar el banner y permitir revertir.
+    const preApplied = Number(order?.credit_applied || 0);
+    if (preApplied > 0 && order?.credit_service) {
+      setCreditPartial({ service: order.credit_service, creditAmount: preApplied, applied: true });
+    } else {
+      setCreditPartial(null);
+    }
+    // Hidratar estado de wallet aplicado previamente
+    const preWallet = Number(order?.wallet_applied || 0);
+    if (preWallet > 0) {
+      setWalletPartial({ walletAmount: preWallet, applied: true });
+    } else {
+      setWalletPartial(null);
+    }
+  };
+
+  // Revertir crédito previamente aplicado (cuando pago externo no se completó o usuario decide quitarlo)
+  const revertAppliedCredit = async (): Promise<boolean> => {
+    const order = onlinePayDialog.order;
+    if (!order) return false;
+    try {
+      const res = await api.post(`/pobox/payment/order/${order.id}/revert-credit`);
+      if (res.data?.success) {
+        const restoredAmount = Number(res.data.new_amount) || (Number(order.amount) + (creditPartial?.creditAmount || 0));
+        setOnlinePayDialog((prev) => prev.order ? {
+          ...prev,
+          order: { ...prev.order, amount: restoredAmount, credit_applied: 0, credit_service: null }
+        } : prev);
+        setCreditPartial(null);
+        if (typeof loadWalletStatus === 'function') loadWalletStatus();
+        if (typeof loadServiceCredits === 'function') loadServiceCredits();
+        loadPaymentOrders();
+        setSnackbar({ open: true, message: '✅ Crédito revertido', severity: 'success' });
+        return true;
+      }
+      return false;
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || e.message;
+      setSnackbar({ open: true, message: `❌ ${msg}`, severity: 'error' });
+      return false;
+    }
+  };
+
+  // Revertir saldo a favor previamente aplicado
+  const revertAppliedWallet = async (): Promise<boolean> => {
+    const order = onlinePayDialog.order;
+    if (!order) return false;
+    try {
+      const res = await api.post(`/pobox/payment/order/${order.id}/revert-wallet`);
+      if (res.data?.success) {
+        const restoredAmount = Number(res.data.new_amount) || (Number(order.amount) + (walletPartial?.walletAmount || 0));
+        setOnlinePayDialog((prev) => prev.order ? {
+          ...prev,
+          order: { ...prev.order, amount: restoredAmount, wallet_applied: 0 }
+        } : prev);
+        setWalletPartial(null);
+        if (typeof loadWalletStatus === 'function') loadWalletStatus();
+        loadPaymentOrders();
+        setSnackbar({ open: true, message: '✅ Saldo a favor revertido', severity: 'success' });
+        return true;
+      }
+      return false;
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || e.message;
+      setSnackbar({ open: true, message: `❌ ${msg}`, severity: 'error' });
+      return false;
+    }
+  };
+
+  // Obtener los IDs de paquete de una orden (soporta formato packages[] o package_ids[])
+  const getOrderPackageIds = (order: any): number[] => {
+    if (Array.isArray(order?.packages) && order.packages.length > 0) {
+      return order.packages.map((p: any) => Number(p.id)).filter(Boolean);
+    }
+    if (Array.isArray(order?.package_ids)) {
+      return order.package_ids.map((id: any) => Number(id)).filter(Boolean);
+    }
+    return [];
+  };
+
+  // Ajustar manualmente el monto a pagar con pasarela (tarjeta/PayPal).
+  // Redistribuye: primero saldo a favor, luego crédito, para cubrir (originalTotal - desiredGateway).
+  const adjustGatewayAmount = async (desiredGateway: number): Promise<boolean> => {
+    const order = onlinePayDialog.order;
+    if (!order) return false;
+    const currentAmount = Number(order.amount) || 0;
+    const creditAppliedDb = Number(order.credit_applied || 0);
+    const walletAppliedDb = Number(order.wallet_applied || 0);
+    const originalTotal = currentAmount + creditAppliedDb + walletAppliedDb;
+    const walletAvail = Number(walletStatus?.wallet_balance || 0) + walletAppliedDb;
+    const creditAvail = Number(serviceCreditsTotals?.available_credit || 0) + creditAppliedDb;
+    const maxInternal = walletAvail + creditAvail;
+    const minGateway = Math.max(0, originalTotal - maxInternal);
+
+    if (desiredGateway < 0 || desiredGateway > originalTotal + 0.01) {
+      setSnackbar({ open: true, message: `El monto debe estar entre ${formatCurrency(minGateway)} y ${formatCurrency(originalTotal)}`, severity: 'error' });
+      return false;
+    }
+    if (desiredGateway < minGateway - 0.01) {
+      setSnackbar({ open: true, message: `El mínimo con tus recursos disponibles es ${formatCurrency(minGateway)}`, severity: 'error' });
+      return false;
+    }
+
+    setAdjustingGateway(true);
+    try {
+      // 1) Revertir aplicaciones previas llamando directamente a la API
+      if (walletAppliedDb > 0) {
+        const r = await api.post(`/pobox/payment/order/${order.id}/revert-wallet`);
+        if (!r.data?.success) throw new Error(r.data?.message || r.data?.error || 'No se pudo revertir saldo');
+      }
+      if (creditAppliedDb > 0) {
+        const r = await api.post(`/pobox/payment/order/${order.id}/revert-credit`);
+        if (!r.data?.success) throw new Error(r.data?.message || r.data?.error || 'No se pudo revertir crédito');
+      }
+
+      // 2) Calcular distribución total requerida desde recursos internos
+      const needed = Math.max(0, originalTotal - desiredGateway);
+      let newAmount = originalTotal;
+      let finalCreditApplied = 0;
+      let finalWalletApplied = 0;
+      let finalCreditService: string | null = null;
+
+      if (needed > 0.009) {
+        // 3) Aplicar saldo a favor primero
+        const walletToApply = Math.min(walletAvail, needed);
+        let remaining = needed;
+        if (walletToApply > 0.009) {
+          const res = await api.post(`/pobox/payment/order/${order.id}/apply-wallet`, { wallet_amount: walletToApply });
+          if (!res.data?.success) throw new Error(res.data?.message || res.data?.error || 'Error al aplicar saldo a favor');
+          finalWalletApplied = Number(res.data.wallet_applied) || walletToApply;
+          newAmount = Number(res.data.new_amount);
+          remaining -= finalWalletApplied;
+        }
+
+        // 4) Aplicar crédito para el resto
+        if (remaining > 0.009) {
+          // Elegir servicio: el que ya tenía la orden (al revertir se le restauró el crédito)
+          // o el que tenga más disponible en el state local
+          const prevService = order.credit_service || creditPartial?.service;
+          let service = prevService;
+          if (!service) {
+            const sorted = serviceCredits.slice().sort((a: any, b: any) => Number(b.available_credit || 0) - Number(a.available_credit || 0));
+            service = sorted[0]?.service;
+          }
+          if (!service) throw new Error('No se encontró una línea de crédito disponible');
+          const res = await api.post(`/pobox/payment/order/${order.id}/apply-credit`, {
+            service,
+            credit_amount: remaining,
+          });
+          if (!res.data?.success) throw new Error(res.data?.message || res.data?.error || 'Error al aplicar crédito');
+          finalCreditApplied = Number(res.data.credit_applied) || remaining;
+          finalCreditService = service;
+          newAmount = Number(res.data.new_amount);
+        }
+      } else {
+        newAmount = originalTotal;
+      }
+
+      // 5) Actualizar estado local
+      setOnlinePayDialog((prev) => prev.order ? {
+        ...prev,
+        order: {
+          ...prev.order,
+          amount: newAmount,
+          credit_applied: finalCreditApplied,
+          credit_service: finalCreditService,
+          wallet_applied: finalWalletApplied,
+        }
+      } : prev);
+      setWalletPartial(finalWalletApplied > 0 ? { walletAmount: finalWalletApplied, applied: true } : null);
+      setCreditPartial(finalCreditApplied > 0 && finalCreditService ? { service: finalCreditService, creditAmount: finalCreditApplied, applied: true } : null);
+
+      if (typeof loadWalletStatus === 'function') loadWalletStatus();
+      if (typeof loadServiceCredits === 'function') loadServiceCredits();
+      setEditingCreditAmount(false);
+      setSnackbar({ open: true, message: `✅ Pagarás ${formatCurrency(newAmount)} con tarjeta/PayPal`, severity: 'success' });
+      return true;
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || e?.message || 'Error al redistribuir';
+      setSnackbar({ open: true, message: `❌ ${msg}`, severity: 'error' });
+      // Recargar para reflejar estado real en BD
+      loadPaymentOrders();
+      if (typeof loadWalletStatus === 'function') loadWalletStatus();
+      if (typeof loadServiceCredits === 'function') loadServiceCredits();
+      return false;
+    } finally {
+      setAdjustingGateway(false);
+    }
+  };
+
+  // Ajustar manualmente el monto de CRÉDITO a aplicar. El restante se calcula automáticamente.
+  const adjustCreditAmount = async (desiredCredit: number): Promise<boolean> => {
+    const order = onlinePayDialog.order;
+    if (!order) return false;
+    const currentAmount = Number(order.amount) || 0;
+    const creditAppliedDb = Number(order.credit_applied || 0);
+    const walletAppliedDb = Number(order.wallet_applied || 0);
+    const originalTotal = currentAmount + creditAppliedDb + walletAppliedDb;
+    // Mantener wallet igual; ajustar crédito; el restante = total - wallet - credit
+    const desiredGateway = Math.max(0, originalTotal - walletAppliedDb - desiredCredit);
+    // Validar disponibilidad total del servicio (lo ya aplicado + disponible actual)
+    const creditAvail = Number(serviceCreditsTotals?.available_credit || 0) + creditAppliedDb;
+    if (desiredCredit > creditAvail + 0.01) {
+      setSnackbar({ open: true, message: `❌ Crédito máximo disponible: ${formatCurrency(creditAvail)}`, severity: 'error' });
+      return false;
+    }
+    if (desiredCredit < 0) {
+      setSnackbar({ open: true, message: '❌ El monto no puede ser negativo', severity: 'error' });
+      return false;
+    }
+    const ok = await adjustGatewayAmount(desiredGateway);
+    if (ok) setEditingCreditAmount(false);
+    return ok;
+  };
+
+
+  // Helper: construye invoiceData desde fiscalData si el usuario pidió factura
+  const buildOnlineInvoicePayload = () => {
+    if (!onlinePayInvoice) return { invoiceRequired: false, invoiceData: null };
+    if (!fiscalData || !fiscalData.hasCompleteData) {
+      setSnackbar({ open: true, message: '⚠️ Completa tus datos fiscales antes de solicitar factura', severity: 'warning' });
+      setFiscalModalOpen(true);
+      return null;
+    }
+    return {
+      invoiceRequired: true,
+      invoiceData: {
+        razon_social: fiscalData.fiscal_razon_social || '',
+        rfc: fiscalData.fiscal_rfc || '',
+        codigo_postal: fiscalData.fiscal_codigo_postal || '',
+        regimen_fiscal: fiscalData.fiscal_regimen_fiscal || '',
+        uso_cfdi: fiscalData.fiscal_uso_cfdi || '',
+      },
+    };
+  };
+
+  // Procesar pago en línea con Tarjeta (OpenPay)
+  const handlePayOnlineCard = async () => {
+    const order = onlinePayDialog.order;
+    if (!order) return;
+    const packageIds = getOrderPackageIds(order);
+    if (packageIds.length === 0) {
+      setSnackbar({ open: true, message: 'La orden no tiene paquetes asociados', severity: 'error' });
+      return;
+    }
+    const invoice = buildOnlineInvoicePayload();
+    if (invoice === null) return;
+    setOnlinePayLoading('card');
+    let creditAppliedInThisAttempt = false;
+    let walletAppliedInThisAttempt = false;
+    try {
+      // Si hay saldo a favor parcial pendiente y NO ha sido aplicado, aplicarlo primero
+      let amount = Number(order.amount) || 0;
+      if (walletPartial && !walletPartial.applied) {
+        const rw = await applyWalletFirst();
+        if (!rw) { setOnlinePayLoading(null); return; }
+        if (rw.completed) { setOnlinePayLoading(null); return; }
+        amount = rw.newAmount;
+        walletAppliedInThisAttempt = true;
+      }
+      // Si hay crédito parcial pendiente y NO ha sido aplicado todavía, aplicarlo ahora
+      if (creditPartial && !creditPartial.applied) {
+        const r = await applyCreditFirst();
+        if (!r) { setOnlinePayLoading(null); return; }
+        if (r.completed) { setOnlinePayLoading(null); return; }
+        amount = r.newAmount;
+        creditAppliedInThisAttempt = true;
+      }
+      const payload = {
+        packageIds,
+        paymentMethod: 'card',
+        total: Math.round(amount * 100) / 100,
+        currency: order.currency || 'MXN',
+        ...invoice,
+        paymentOrderId: order.id,
+        paymentReference: order.payment_reference,
+        returnUrl: `${window.location.origin}/payment-callback`,
+        cancelUrl: `${window.location.origin}/payment-cancelled`,
+      };
+      const res = await api.post('/payments/openpay/card', payload);
+      if (res.data?.success) {
+        if (res.data.requiresRedirection && res.data.paymentUrl) {
+          setSnackbar({ open: true, message: 'Redirigiendo a OpenPay...', severity: 'info' });
+          setTimeout(() => { window.location.href = res.data.paymentUrl; }, 1200);
+        } else if (res.data.status === 'completed') {
+          setSnackbar({ open: true, message: '✅ Pago procesado con tarjeta exitosamente', severity: 'success' });
+          setOnlinePayDialog({ open: false, order: null });
+          loadPaymentOrders();
+          loadData();
+        } else {
+          setSnackbar({ open: true, message: res.data.message || '📋 Solicitud registrada', severity: 'info' });
+          setOnlinePayDialog({ open: false, order: null });
+        }
+      } else {
+        throw new Error(res.data?.error || 'Error procesando pago');
+      }
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || e.message;
+      setSnackbar({ open: true, message: `❌ ${msg}`, severity: 'error' });
+      // Si recién aplicamos crédito en este intento y el pago falló antes del redirect, revertir
+      if (creditAppliedInThisAttempt) {
+        try { await revertAppliedCredit(); } catch (_e) { /* noop */ }
+      }
+      if (walletAppliedInThisAttempt) {
+        try { await revertAppliedWallet(); } catch (_e) { /* noop */ }
+      }
+    } finally {
+      setOnlinePayLoading(null);
+    }
+  };
+
+  // Procesar pago en línea con PayPal
+  const handlePayOnlinePaypal = async () => {
+    const order = onlinePayDialog.order;
+    if (!order) return;
+    const packageIds = getOrderPackageIds(order);
+    if (packageIds.length === 0) {
+      setSnackbar({ open: true, message: 'La orden no tiene paquetes asociados', severity: 'error' });
+      return;
+    }
+    setOnlinePayLoading('paypal');
+    let creditAppliedInThisAttempt = false;
+    let walletAppliedInThisAttempt = false;
+    try {
+      const invoice = buildOnlineInvoicePayload();
+      if (invoice === null) { setOnlinePayLoading(null); return; }
+      let amount = Number(order.amount) || 0;
+      // Aplicar saldo a favor parcial si hay pendiente
+      if (walletPartial && !walletPartial.applied) {
+        const rw = await applyWalletFirst();
+        if (!rw) { setOnlinePayLoading(null); return; }
+        if (rw.completed) { setOnlinePayLoading(null); return; }
+        amount = rw.newAmount;
+        walletAppliedInThisAttempt = true;
+      }
+      // Si hay crédito parcial pendiente y NO ha sido aplicado todavía, aplicarlo ahora
+      if (creditPartial && !creditPartial.applied) {
+        const r = await applyCreditFirst();
+        if (!r) { setOnlinePayLoading(null); return; }
+        if (r.completed) { setOnlinePayLoading(null); return; }
+        amount = r.newAmount;
+        creditAppliedInThisAttempt = true;
+      }
+      const payload = {
+        packageIds,
+        paymentMethod: 'paypal',
+        total: Math.round(amount * 100) / 100,
+        currency: order.currency || 'MXN',
+        ...invoice,
+        paymentOrderId: order.id,
+        paymentReference: order.payment_reference,
+        returnUrl: `${window.location.origin}/payment-callback`,
+        cancelUrl: `${window.location.origin}/payment-cancelled`,
+      };
+      const res = await api.post('/payments/paypal/create', payload);
+      if (res.data?.success) {
+        if (res.data.approvalUrl) {
+          setSnackbar({ open: true, message: 'Redirigiendo a PayPal...', severity: 'info' });
+          setTimeout(() => { window.location.href = res.data.approvalUrl; }, 1200);
+        } else {
+          setSnackbar({ open: true, message: res.data.message || '📋 Solicitud registrada', severity: 'info' });
+          setOnlinePayDialog({ open: false, order: null });
+        }
+      } else {
+        throw new Error(res.data?.error || 'Error creando pago PayPal');
+      }
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || e.message;
+      setSnackbar({ open: true, message: `❌ ${msg}`, severity: 'error' });
+      if (creditAppliedInThisAttempt) {
+        try { await revertAppliedCredit(); } catch (_e) { /* noop */ }
+      }
+      if (walletAppliedInThisAttempt) {
+        try { await revertAppliedWallet(); } catch (_e) { /* noop */ }
+      }
+    } finally {
+      setOnlinePayLoading(null);
+    }
+  };
+
+  // Aplica crédito parcial al backend y actualiza el order local; devuelve la nueva cantidad a pagar.
+  // Si newAmount === 0, cierra y refresca (pago 100% cubierto con crédito).
+  const applyCreditFirst = async (): Promise<{ newAmount: number; completed: boolean } | null> => {
+    if (!creditPartial) return { newAmount: Number(onlinePayDialog.order?.amount) || 0, completed: false };
+    const order = onlinePayDialog.order;
+    if (!order) return null;
+    try {
+      const res = await api.post(`/pobox/payment/order/${order.id}/apply-credit`, {
+        service: creditPartial.service,
+        credit_amount: creditPartial.creditAmount,
+      });
+      if (!res.data?.success) throw new Error(res.data?.error || 'Error al aplicar crédito');
+      const newAmount = Number(res.data.new_amount) || 0;
+      const completed = !!res.data.completed;
+      if (completed) {
+        setSnackbar({ open: true, message: res.data.message || '✅ Pago cubierto con crédito', severity: 'success' });
+        setOnlinePayDialog({ open: false, order: null });
+        setOnlinePayInvoice(false);
+        setCreditPartial(null);
+        loadPaymentOrders();
+        loadData();
+        if (typeof loadWalletStatus === 'function') loadWalletStatus();
+        if (typeof loadServiceCredits === 'function') loadServiceCredits();
+      } else {
+        // Actualiza el order local: amount reducido y credit_applied reflejado. Mantener creditPartial con applied=true.
+        const applied = Number(res.data.credit_applied) || creditPartial.creditAmount;
+        setOnlinePayDialog((prev) => prev.order ? {
+          ...prev,
+          order: { ...prev.order, amount: newAmount, credit_applied: applied, credit_service: creditPartial.service }
+        } : prev);
+        setCreditPartial({ service: creditPartial.service, creditAmount: applied, applied: true });
+        if (typeof loadServiceCredits === 'function') loadServiceCredits();
+      }
+      return { newAmount, completed };
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || e.message;
+      setSnackbar({ open: true, message: `❌ ${msg}`, severity: 'error' });
+      return null;
+    }
+  };
+
+  // Aplica saldo a favor parcial al backend y actualiza el order local.
+  const applyWalletFirst = async (): Promise<{ newAmount: number; completed: boolean } | null> => {
+    if (!walletPartial) return { newAmount: Number(onlinePayDialog.order?.amount) || 0, completed: false };
+    const order = onlinePayDialog.order;
+    if (!order) return null;
+    try {
+      const res = await api.post(`/pobox/payment/order/${order.id}/apply-wallet`, {
+        wallet_amount: walletPartial.walletAmount,
+      });
+      if (!res.data?.success) throw new Error(res.data?.error || 'Error al aplicar saldo');
+      const newAmount = Number(res.data.new_amount) || 0;
+      const completed = !!res.data.completed;
+      if (completed) {
+        setSnackbar({ open: true, message: res.data.message || '✅ Pago cubierto con saldo a favor', severity: 'success' });
+        setOnlinePayDialog({ open: false, order: null });
+        setOnlinePayInvoice(false);
+        setCreditPartial(null);
+        setWalletPartial(null);
+        loadPaymentOrders();
+        loadData();
+        if (typeof loadWalletStatus === 'function') loadWalletStatus();
+        if (typeof loadServiceCredits === 'function') loadServiceCredits();
+      } else {
+        const applied = Number(res.data.wallet_applied) || walletPartial.walletAmount;
+        setOnlinePayDialog((prev) => prev.order ? {
+          ...prev,
+          order: { ...prev.order, amount: newAmount, wallet_applied: applied }
+        } : prev);
+        setWalletPartial({ walletAmount: applied, applied: true });
+        if (typeof loadWalletStatus === 'function') loadWalletStatus();
+      }
+      return { newAmount, completed };
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || e.message;
+      setSnackbar({ open: true, message: `❌ ${msg}`, severity: 'error' });
+      return null;
+    }
+  };
+
+  // Pagar con Saldo a Favor (wallet) o Crédito disponible
+  const handlePayInternal = async (method: 'wallet' | 'credit') => {
+    const order = onlinePayDialog.order;
+    if (!order) return;
+    // Validar saldo
+    const amount = Number(order.amount) || 0;
+    if (method === 'wallet') {
+      const bal = Number(walletStatus?.wallet_balance || 0);
+      // Si viene de crédito parcial, el saldo debe cubrir (total - credito)
+      const effectiveAmount = creditPartial ? Math.max(0, amount - creditPartial.creditAmount) : amount;
+      if (bal < effectiveAmount) {
+        setSnackbar({ open: true, message: `❌ Saldo insuficiente. Disponible: ${formatCurrency(bal)}`, severity: 'error' });
+        return;
+      }
+    } else {
+      // method === 'credit' (sin restante)
+      if (walletStatus?.is_credit_blocked) {
+        setSnackbar({ open: true, message: '❌ Tu línea de crédito está bloqueada', severity: 'error' });
+        return;
+      }
+      const pkgs: any[] = Array.isArray(order?.packages) ? order.packages : [];
+      const orderService = (pkgs[0]?.service_type || order?.service_type || 'po_box') as string;
+      const svc = (serviceCredits || []).find(
+        (c: any) => c?.service === orderService && !c?.is_blocked && Number(c?.credit_limit || 0) > 0
+      );
+      const avail = svc ? Number(svc.available_credit || 0) : 0;
+      if (!svc || avail <= 0) {
+        setSnackbar({ open: true, message: `❌ No tienes crédito disponible para este servicio`, severity: 'error' });
+        return;
+      }
+      if (avail < amount) {
+        setSnackbar({ open: true, message: `❌ Crédito insuficiente. Disponible: ${formatCurrency(avail)}`, severity: 'error' });
+        return;
+      }
+    }
+    setOnlinePayLoading(method);
+    try {
+      // Si hay crédito parcial pendiente (solo aplica cuando method=wallet) y NO ha sido aplicado, aplicarlo ahora
+      if (method === 'wallet' && creditPartial && !creditPartial.applied) {
+        const r = await applyCreditFirst();
+        if (!r) { setOnlinePayLoading(null); return; }
+        if (r.completed) { setOnlinePayLoading(null); return; }
+        // El order.amount ya fue actualizado por applyCreditFirst
+      }
+      const pkgs: any[] = Array.isArray(order?.packages) ? order.packages : [];
+      const orderService = (pkgs[0]?.service_type || order?.service_type || 'po_box') as string;
+      const res = await api.post(`/pobox/payment/order/${order.id}/pay-internal`, {
+        method,
+        requiere_factura: false, // crédito y wallet nunca generan CFDI
+        service: method === 'credit' ? orderService : undefined,
+      });
+      if (res.data?.success) {
+        setSnackbar({ open: true, message: res.data.message || '✅ Pago procesado', severity: 'success' });
+        setOnlinePayDialog({ open: false, order: null });
+        setOnlinePayInvoice(false);
+        setCreditPartial(null);
+        loadPaymentOrders();
+        loadData();
+        if (typeof loadWalletStatus === 'function') loadWalletStatus();
+        if (typeof loadServiceCredits === 'function') loadServiceCredits();
+      } else {
+        throw new Error(res.data?.error || 'Error al procesar pago');
+      }
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || e.message;
+      setSnackbar({ open: true, message: `❌ ${msg}`, severity: 'error' });
+    } finally {
+      setOnlinePayLoading(null);
     }
   };
 
@@ -3180,11 +3767,10 @@ export default function DashboardClient() {
           <Table size="small">
             <TableHead>
               <TableRow sx={{ bgcolor: '#f8f8f8' }}>
-                <TableCell><strong>Referencia</strong></TableCell>
-                <TableCell><strong>Método</strong></TableCell>
-                <TableCell align="right"><strong>Monto</strong></TableCell>
-                <TableCell><strong>Estado</strong></TableCell>
-                <TableCell><strong>Fecha</strong></TableCell>
+                <TableCell align="center"><strong>Referencia</strong></TableCell>
+                <TableCell align="center"><strong>Monto</strong></TableCell>
+                <TableCell align="center"><strong>Estado</strong></TableCell>
+                <TableCell align="center"><strong>Fecha</strong></TableCell>
                 <TableCell align="center"><strong>Acciones</strong></TableCell>
               </TableRow>
             </TableHead>
@@ -3205,12 +3791,6 @@ export default function DashboardClient() {
                   pending: { color: '#1565C0', label: '🔄 Procesando' },
                 };
                 const st = statusMap[order.status] || statusMap.pending;
-                const methodMap: Record<string, string> = {
-                  cash: '💵 Sucursal',
-                  paypal: '🅿️ PayPal',
-                  card: '💳 Tarjeta',
-                  spei: '🏦 SPEI',
-                };
                 return (
                   <Fragment key={order.id}>
                   <TableRow hover sx={{ cursor: 'pointer' }} onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}>
@@ -3219,9 +3799,6 @@ export default function DashboardClient() {
                       <Typography variant="caption" color="text.secondary">
                         📦 {Array.isArray(order.packages) ? order.packages.length : Array.isArray(order.package_ids) ? order.package_ids.length : 0} paquete(s) {expandedOrderId === order.id ? '▴' : '▾'}
                       </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2">{methodMap[order.payment_method] || order.payment_method}</Typography>
                     </TableCell>
                     <TableCell align="right">
                       <Typography variant="body2" fontWeight="bold" sx={{ color: ORANGE }}>
@@ -3243,33 +3820,25 @@ export default function DashboardClient() {
                     </TableCell>
                     <TableCell align="center" onClick={(e: any) => e.stopPropagation()}>
                       <Box sx={{ display: 'flex', gap: 0.25, justifyContent: 'center' }}>
-                        <Tooltip title="Ver Detalles" arrow>
-                          <IconButton
-                            size="small"
-                            sx={{ color: ORANGE, '&:hover': { bgcolor: 'rgba(255,107,0,0.08)' } }}
-                            onClick={() => {
-                              setPaymentInstructionsDialog({
-                                open: true,
-                                reference: order.payment_reference,
-                                amount: Number(order.amount),
-                                currency: order.currency || 'MXN',
-                                expiresAt: '',
-                                bankInfo: order.bank_info || { banco: 'BBVA México', clabe: '012580001234567890', cuenta: '1234567890', beneficiario: 'ENTREGAX', concepto: order.payment_reference },
-                                branchInfo: order.branch_info || { nombre: 'CEDIS Monterrey', direccion: 'Av. Industrial #123', telefono: '81 1234 5678', horario: 'L-V 9-18' },
-                              });
-                            }}
-                          ><VisibilityIcon fontSize="small" /></IconButton>
-                        </Tooltip>
-                        <Tooltip title="Subir Comprobante" arrow>
-                          <IconButton
-                            size="small"
-                            sx={{ color: ORANGE, '&:hover': { bgcolor: 'rgba(255,107,0,0.08)' } }}
-                            onClick={() => {
-                              setVoucherDialog({ open: true, order });
-                              loadVoucherList(order.id);
-                            }}
-                          ><AttachFileIcon fontSize="small" /></IconButton>
-                        </Tooltip>
+                        {paymentOrderTab === 'active' && (
+                          <Tooltip title="Pagar" arrow>
+                            <IconButton
+                              size="small"
+                              sx={{ color: ORANGE, '&:hover': { bgcolor: 'rgba(255,107,0,0.08)' } }}
+                              onClick={() => {
+                                setPaymentInstructionsDialog({
+                                  open: true,
+                                  reference: order.payment_reference,
+                                  amount: Number(order.amount),
+                                  currency: order.currency || 'MXN',
+                                  expiresAt: '',
+                                  bankInfo: order.bank_info || { banco: 'BBVA México', clabe: '012580001234567890', cuenta: '1234567890', beneficiario: 'ENTREGAX', concepto: order.payment_reference },
+                                  branchInfo: order.branch_info || { nombre: 'CEDIS Monterrey', direccion: 'Av. Industrial #123', telefono: '81 1234 5678', horario: 'L-V 9-18' },
+                                });
+                              }}
+                            ><MoneyIcon fontSize="small" /></IconButton>
+                          </Tooltip>
+                        )}
                         {paymentOrderTab === 'active' && (
                           <Tooltip title="Cancelar Orden" arrow>
                             <IconButton
@@ -3284,7 +3853,7 @@ export default function DashboardClient() {
                   </TableRow>
                   {expandedOrderId === order.id && Array.isArray(order.packages) && order.packages.length > 0 && (
                     <TableRow>
-                      <TableCell colSpan={6} sx={{ bgcolor: '#fafafa', py: 0, px: 2 }}>
+                      <TableCell colSpan={5} sx={{ bgcolor: '#fafafa', py: 0, px: 2 }}>
                         <Table size="small">
                           <TableBody>
                             {order.packages.map((pkg: any) => (
@@ -9899,16 +10468,590 @@ export default function DashboardClient() {
             </Box>
           )}
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button 
-            variant="contained" 
-            fullWidth 
-            onClick={() => setPaymentInstructionsDialog(null)}
-            sx={{ bgcolor: '#16a34a', '&:hover': { bgcolor: '#15803d' }, borderRadius: 2, py: 1.5, fontWeight: 'bold' }}
+        <DialogActions sx={{ px: 3, pb: 2, pt: 1, gap: 1, flexDirection: { xs: 'column', sm: 'row' } }}>
+          <Button
+            variant="outlined"
+            fullWidth
+            startIcon={<AttachFileIcon />}
+            onClick={openVoucherFromInstructions}
+            sx={{
+              borderColor: ORANGE,
+              color: ORANGE,
+              borderRadius: 2,
+              py: 1.3,
+              fontWeight: 'bold',
+              textTransform: 'none',
+              '&:hover': { borderColor: '#d65100', bgcolor: 'rgba(255,107,0,0.05)' },
+            }}
           >
-            Entendido
+            Subir Comprobante
+          </Button>
+          <Button
+            variant="contained"
+            fullWidth
+            startIcon={<CreditCardIcon />}
+            onClick={openOnlinePayFromInstructions}
+            sx={{
+              background: 'linear-gradient(135deg, #1976D2 0%, #0D47A1 100%)',
+              borderRadius: 2,
+              py: 1.3,
+              fontWeight: 'bold',
+              textTransform: 'none',
+              boxShadow: '0 4px 12px rgba(25,118,210,0.3)',
+              '&:hover': { background: 'linear-gradient(135deg, #0D47A1 0%, #002171 100%)' },
+            }}
+          >
+            Pagar en Línea
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* Dialog: Pagar en Línea (selector Tarjeta / PayPal / Saldo / Crédito) */}
+      <Dialog
+        open={!!onlinePayDialog.open}
+        onClose={() => { if (!onlinePayLoading) { setOnlinePayDialog({ open: false, order: null }); setOnlinePayInvoice(false); setCreditPartial(null); setWalletPartial(null); } }}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}
+      >
+        <Box sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, ${BLACK} 100%)`, color: 'white', px: 3, py: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <CreditCardIcon />
+            <Typography variant="h6" fontWeight="bold">Pagar en Línea</Typography>
+          </Box>
+          <IconButton
+            size="small"
+            onClick={() => { if (!onlinePayLoading) { setOnlinePayDialog({ open: false, order: null }); setOnlinePayInvoice(false); setCreditPartial(null); setWalletPartial(null); } }}
+            sx={{ color: 'white' }}
+            disabled={!!onlinePayLoading}
+          >
+            <CloseIcon />
+          </IconButton>
+        </Box>
+        <DialogContent sx={{ pt: 3 }}>
+          {onlinePayDialog.order && (() => {
+            const currentAmount = Number(onlinePayDialog.order.amount) || 0;
+            // Si ya hay crédito aplicado en BD, el total original = amount + credit_applied
+            const creditAppliedDb = Number(onlinePayDialog.order.credit_applied || 0);
+            const walletAppliedDb = Number(onlinePayDialog.order.wallet_applied || 0);
+            const originalTotal = currentAmount + creditAppliedDb + walletAppliedDb;
+            const showBreakdown = creditAppliedDb > 0 || walletAppliedDb > 0;
+            return (
+            <Box sx={{ mb: 2, p: 2, bgcolor: '#fafafa', borderRadius: 2, border: '1px solid #e5e7eb' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                <Typography variant="caption" color="text.secondary">Referencia</Typography>
+                <Typography variant="body2" fontWeight="bold" sx={{ color: ORANGE }}>{onlinePayDialog.order.payment_reference}</Typography>
+              </Box>
+              {showBreakdown && (
+                <>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.25 }}>
+                    <Typography variant="caption" color="text.secondary">Total original</Typography>
+                    <Typography variant="caption" sx={{ textDecoration: 'line-through', color: '#94a3b8' }}>
+                      {formatCurrency(originalTotal)} {onlinePayDialog.order.currency || 'MXN'}
+                    </Typography>
+                  </Box>
+                  {creditAppliedDb > 0 && (
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.25 }}>
+                      <Typography variant="caption" sx={{ color: BLACK }}>Crédito aplicado</Typography>
+                      <Typography variant="caption" sx={{ color: BLACK, fontWeight: 'bold' }}>
+                        − {formatCurrency(creditAppliedDb)}
+                      </Typography>
+                    </Box>
+                  )}
+                  {walletAppliedDb > 0 && (
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.25 }}>
+                      <Typography variant="caption" sx={{ color: BLACK }}>Saldo a favor aplicado</Typography>
+                      <Typography variant="caption" sx={{ color: BLACK, fontWeight: 'bold' }}>
+                        − {formatCurrency(walletAppliedDb)}
+                      </Typography>
+                    </Box>
+                  )}
+                </>
+              )}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.5 }}>
+                <Typography variant="body2" sx={{ color: BLACK, fontWeight: 700 }}>
+                  {showBreakdown ? 'Restante por pagar' : 'Total a pagar'}
+                </Typography>
+                <Typography variant="body1" fontWeight={700} sx={{ color: BLACK }}>
+                  {formatCurrency(currentAmount)} {onlinePayDialog.order.currency || 'MXN'}
+                </Typography>
+              </Box>
+              {(creditPartial || walletPartial) && (
+                <Box sx={{ mt: 0.75, pt: 0.75, borderTop: '1px dashed #e5e7eb' }}>
+                  {creditPartial && (
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.25 }}>
+                      <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 'bold' }}>
+                        {creditPartial.applied ? '✓ Crédito aplicado' : 'Crédito a aplicar'}
+                      </Typography>
+                      {editingCreditAmount ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Box sx={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            border: `2px solid ${ORANGE}`,
+                            borderRadius: 1.5,
+                            bgcolor: 'white',
+                            px: 0.75,
+                            height: 32,
+                          }}>
+                            <Typography sx={{ color: '#94a3b8', fontWeight: 600, fontSize: '0.8rem', mr: 0.25 }}>$</Typography>
+                            <TextField
+                              variant="standard"
+                              value={creditInput}
+                              onChange={(e) => { setCreditInput(e.target.value.replace(/[^0-9.]/g, '')); }}
+                              onFocus={(e) => e.target.select()}
+                              onKeyDown={async (e) => {
+                                if (e.key === 'Enter') {
+                                  const val = parseFloat(creditInput);
+                                  if (!isNaN(val)) await adjustCreditAmount(val);
+                                } else if (e.key === 'Escape') {
+                                  setEditingCreditAmount(false);
+                                  setCreditInput('');
+                                }
+                              }}
+                              disabled={adjustingGateway}
+                              autoFocus
+                              InputProps={{ disableUnderline: true, inputProps: { inputMode: 'decimal', style: { textAlign: 'right', fontWeight: 700, fontSize: '0.85rem', padding: 0, width: 85 } } }}
+                            />
+                          </Box>
+                          <IconButton
+                            size="small"
+                            onClick={async () => {
+                              const val = parseFloat(creditInput);
+                              if (!isNaN(val)) await adjustCreditAmount(val);
+                            }}
+                            disabled={adjustingGateway}
+                            sx={{ bgcolor: ORANGE, color: 'white', width: 28, height: 28, borderRadius: 1.5, '&:hover': { bgcolor: BLACK } }}
+                          >
+                            {adjustingGateway ? <CircularProgress size={12} sx={{ color: 'white' }} /> : <CheckIcon sx={{ fontSize: 16 }} />}
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            onClick={() => { setEditingCreditAmount(false); setCreditInput(''); }}
+                            disabled={adjustingGateway}
+                            sx={{ bgcolor: '#f1f5f9', color: '#64748b', width: 28, height: 28, borderRadius: 1.5, '&:hover': { color: '#D32F2F' } }}
+                          >
+                            <CloseIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        </Box>
+                      ) : (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Box
+                            onClick={() => { if (!onlinePayLoading && !adjustingGateway) { setCreditInput(String(creditPartial.creditAmount.toFixed(2))); setEditingCreditAmount(true); } }}
+                            sx={{
+                              display: 'flex', alignItems: 'center', gap: 0.5,
+                              px: 0.75, py: 0.25, borderRadius: 1,
+                              cursor: onlinePayLoading ? 'not-allowed' : 'pointer',
+                              border: '1px dashed transparent',
+                              '&:hover': onlinePayLoading ? {} : { borderColor: ORANGE, bgcolor: '#fff7ed' },
+                            }}
+                          >
+                            <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 'bold' }}>
+                              {formatCurrency(creditPartial.creditAmount)}
+                            </Typography>
+                            <EditIcon sx={{ fontSize: 12, color: ORANGE, opacity: 0.7 }} />
+                          </Box>
+                          <Button
+                            size="small"
+                            onClick={async () => {
+                              if (creditPartial.applied) {
+                                await revertAppliedCredit();
+                              } else {
+                                setCreditPartial(null);
+                              }
+                            }}
+                            disabled={!!onlinePayLoading || adjustingGateway}
+                            sx={{ textTransform: 'none', color: '#D32F2F', minWidth: 'auto', p: '2px 6px', fontSize: '0.7rem' }}
+                          >
+                            Quitar
+                          </Button>
+                        </Box>
+                      )}
+                    </Box>
+                  )}
+                  {walletPartial && (
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.25 }}>
+                      <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 'bold' }}>
+                        {walletPartial.applied ? '✓ Saldo a favor aplicado' : 'Saldo a favor a aplicar'}
+                      </Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 'bold' }}>
+                          {formatCurrency(walletPartial.walletAmount)}
+                        </Typography>
+                        <Button
+                          size="small"
+                          onClick={async () => {
+                            if (walletPartial.applied) {
+                              await revertAppliedWallet();
+                            } else {
+                              setWalletPartial(null);
+                            }
+                          }}
+                          disabled={!!onlinePayLoading}
+                          sx={{ textTransform: 'none', color: '#D32F2F', minWidth: 'auto', p: '2px 6px', fontSize: '0.7rem' }}
+                        >
+                          Quitar
+                        </Button>
+                      </Box>
+                    </Box>
+                  )}
+                  {(() => {
+                    const creditPending = creditPartial && !creditPartial.applied ? creditPartial.creditAmount : 0;
+                    const walletPending = walletPartial && !walletPartial.applied ? walletPartial.walletAmount : 0;
+                    const pending = creditPending + walletPending;
+                    if (pending <= 0) return null;
+                    const remaining = Math.max(0, currentAmount - pending);
+                    return (
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5, pt: 0.5, borderTop: '1px dashed #e5e7eb' }}>
+                        <Typography variant="caption" sx={{ color: '#D32F2F', fontWeight: 'bold' }}>
+                          Restante tras aplicar
+                        </Typography>
+                        <Typography variant="body2" fontWeight="bold" sx={{ color: remaining > 0 ? '#D32F2F' : BLACK }}>
+                          {formatCurrency(remaining)} {onlinePayDialog.order.currency || 'MXN'}
+                        </Typography>
+                      </Box>
+                    );
+                  })()}
+                </Box>
+              )}
+            </Box>
+            );
+          })()}
+
+          <Typography variant="subtitle2" sx={{ mb: 1.5, color: '#555' }}>Selecciona tu método de pago:</Typography>
+
+          {/* Opción Tarjeta */}
+          <Paper
+            onClick={() => !onlinePayLoading && handlePayOnlineCard()}
+            sx={{
+              p: 2,
+              mb: 1.5,
+              cursor: onlinePayLoading ? 'not-allowed' : 'pointer',
+              border: '2px solid #e5e7eb',
+              borderRadius: 2,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              transition: 'all 0.2s',
+              opacity: onlinePayLoading && onlinePayLoading !== 'card' ? 0.4 : 1,
+              '&:hover': onlinePayLoading ? {} : { borderColor: ORANGE, bgcolor: '#fff7ed', transform: 'translateY(-1px)', boxShadow: 2 },
+            }}
+          >
+            <Avatar sx={{ bgcolor: BLACK, width: 48, height: 48 }}>
+              <CreditCardIcon />
+            </Avatar>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="body1" fontWeight="bold">Tarjeta de Crédito/Débito</Typography>
+              <Typography variant="caption" color="text.secondary">VISA, Master Card, AMEX</Typography>
+            </Box>
+            {onlinePayLoading === 'card' ? (
+              <CircularProgress size={24} sx={{ color: ORANGE }} />
+            ) : (
+              <ChevronRightIcon sx={{ color: '#999' }} />
+            )}
+          </Paper>
+
+          {/* Opción PayPal */}
+          <Paper
+            onClick={() => !onlinePayLoading && handlePayOnlinePaypal()}
+            sx={{
+              p: 2,
+              mb: 1,
+              cursor: onlinePayLoading ? 'not-allowed' : 'pointer',
+              border: '2px solid #e5e7eb',
+              borderRadius: 2,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 2,
+              transition: 'all 0.2s',
+              opacity: onlinePayLoading && onlinePayLoading !== 'paypal' ? 0.4 : 1,
+              '&:hover': onlinePayLoading ? {} : { borderColor: ORANGE, bgcolor: '#fff7ed', transform: 'translateY(-1px)', boxShadow: 2 },
+            }}
+          >
+            <Avatar sx={{ bgcolor: BLACK, width: 48, height: 48, fontWeight: 'bold', fontSize: 14 }}>
+              PP
+            </Avatar>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="body1" fontWeight="bold">PayPal</Typography>
+              <Typography variant="caption" color="text.secondary">Paga con tu cuenta PayPal o tarjeta</Typography>
+            </Box>
+            {onlinePayLoading === 'paypal' ? (
+              <CircularProgress size={24} sx={{ color: ORANGE }} />
+            ) : (
+              <ChevronRightIcon sx={{ color: '#999' }} />
+            )}
+          </Paper>
+
+          {/* Opción Saldo a Favor (solo si tiene saldo) */}
+          {Number(walletStatus?.wallet_balance || 0) > 0 && (() => {
+            const bal = Number(walletStatus?.wallet_balance || 0);
+            const totalAmount = Number(onlinePayDialog.order?.amount) || 0;
+            // creditPartial con applied=false aún no descuenta; si applied=true el amount del order ya es el restante
+            const creditPending = creditPartial && !creditPartial.applied ? creditPartial.creditAmount : 0;
+            const effectiveAmount = Math.max(0, totalAmount - creditPending);
+            const coversFull = bal >= effectiveAmount;
+            const selected = !!walletPartial;
+            const canApplyPartial = effectiveAmount > 0;
+            const disabled = !!onlinePayLoading || !canApplyPartial;
+            const borderColor = selected ? ORANGE : '#e5e7eb';
+            const bgColor = selected ? '#fff7ed' : 'transparent';
+            return (
+              <Paper
+                onClick={() => {
+                  if (disabled) return;
+                  if (selected) {
+                    if (walletPartial?.applied) {
+                      revertAppliedWallet();
+                    } else {
+                      setWalletPartial(null);
+                    }
+                    return;
+                  }
+                  // Si cubre 100% y no hay crédito parcial → pago directo con wallet
+                  if (coversFull && !creditPartial) {
+                    handlePayInternal('wallet');
+                    return;
+                  }
+                  // Selección parcial: min(saldo, restante)
+                  const walletAmount = Math.min(bal, effectiveAmount);
+                  if (walletAmount <= 0) return;
+                  setWalletPartial({ walletAmount, applied: false });
+                }}
+                sx={{
+                  p: 2,
+                  mb: 1.5,
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                  border: `2px solid ${borderColor}`,
+                  bgcolor: bgColor,
+                  borderRadius: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  transition: 'all 0.2s',
+                  opacity: disabled && onlinePayLoading !== 'wallet' ? 0.5 : 1,
+                  '&:hover': disabled ? {} : { borderColor: ORANGE, bgcolor: '#fff7ed', transform: 'translateY(-1px)', boxShadow: 2 },
+                }}
+              >
+                <Avatar sx={{ bgcolor: ORANGE, width: 48, height: 48 }}>
+                  <WalletIcon />
+                </Avatar>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="body1" fontWeight="bold">
+                    Saldo a Favor {selected && '✓'}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    Disponible: {formatCurrency(bal)}
+                  </Typography>
+                  {selected && (
+                    <Typography variant="caption" sx={{ display: 'block', color: ORANGE, mt: 0.25, fontWeight: 'bold' }}>
+                      ✓ Se aplicarán {formatCurrency(walletPartial!.walletAmount)}
+                    </Typography>
+                  )}
+                </Box>
+                {onlinePayLoading === 'wallet' ? (
+                  <CircularProgress size={24} sx={{ color: ORANGE }} />
+                ) : (
+                  <ChevronRightIcon sx={{ color: '#999' }} />
+                )}
+              </Paper>
+            );
+          })()}
+
+          {/* Opción Crédito Disponible (filtrado por tipo de servicio de la orden) */}
+          {(() => {
+            const order = onlinePayDialog.order;
+            const pkgs: any[] = Array.isArray(order?.packages) ? order.packages : [];
+            const orderService = (pkgs[0]?.service_type || order?.service_type || 'po_box') as string;
+
+            const svc = (serviceCredits || []).find(
+              (c: any) => c?.service === orderService && !c?.is_blocked && Number(c?.credit_limit || 0) > 0
+            );
+            const serviceAvail = svc ? Number(svc.available_credit || 0) : 0;
+
+            if (!svc || serviceAvail <= 0) return null;
+            if (walletStatus?.is_credit_blocked) return null;
+
+            const avail = serviceAvail;
+            const amount = Number(order?.amount) || 0;
+            const insufficient = avail < amount;
+            const selected = !!creditPartial && creditPartial.service === orderService;
+            const disabled = !!onlinePayLoading;
+            const serviceNames: Record<string, string> = {
+              aereo: '✈️ Aéreo',
+              maritimo: '🚢 Marítimo',
+              terrestre_nacional: '🚚 Terrestre Nacional',
+              dhl_liberacion: '📦 DHL Liberación',
+              po_box: '📮 PO Box USA',
+            };
+            const serviceLabel = serviceNames[orderService] || orderService;
+            const borderColor = selected ? BLACK : '#e5e7eb';
+            const bgColor = selected ? '#fafafa' : 'transparent';
+            return (
+              <Paper
+                onClick={() => {
+                  if (disabled) return;
+                  if (insufficient) {
+                    // Toggle modo parcial (aún no aplicado en backend)
+                    if (selected) {
+                      if (creditPartial?.applied) {
+                        // Ya aplicado en BD: revertir
+                        revertAppliedCredit();
+                      } else {
+                        setCreditPartial(null);
+                      }
+                    } else {
+                      setCreditPartial({ service: orderService, creditAmount: avail, applied: false });
+                    }
+                  } else {
+                    // Crédito suficiente: pagar 100%
+                    handlePayInternal('credit');
+                  }
+                }}
+                sx={{
+                  p: 2,
+                  mb: 1.5,
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                  border: `2px solid ${borderColor}`,
+                  bgcolor: bgColor,
+                  borderRadius: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  transition: 'all 0.2s',
+                  opacity: disabled && onlinePayLoading !== 'credit' ? 0.5 : 1,
+                  '&:hover': disabled ? {} : { borderColor: BLACK, bgcolor: '#fafafa', transform: 'translateY(-1px)', boxShadow: 2 },
+                }}
+              >
+                <Avatar sx={{ bgcolor: BLACK, width: 48, height: 48, fontWeight: 'bold', fontSize: 14 }}>
+                  $
+                </Avatar>
+                <Box sx={{ flex: 1 }}>
+                  <Typography variant="body1" fontWeight="bold">
+                    Crédito Disponible {selected && '✓'}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                    {serviceLabel} · Disponible: {formatCurrency(avail)}
+                  </Typography>
+                  {selected && (
+                    <Typography variant="caption" sx={{ display: 'block', color: ORANGE, mt: 0.25, fontWeight: 'bold' }}>
+                      ✓ Se aplicarán {formatCurrency(creditPartial!.creditAmount)}
+                    </Typography>
+                  )}
+                </Box>
+                {onlinePayLoading === 'credit' ? (
+                  <CircularProgress size={24} sx={{ color: BLACK }} />
+                ) : (
+                  <ChevronRightIcon sx={{ color: '#999' }} />
+                )}
+              </Paper>
+            );
+          })()}
+
+          {/* Botón: Confirmar pago combinado si wallet + crédito cubren 100% */}
+          {(() => {
+            const order = onlinePayDialog.order;
+            if (!order) return null;
+            const currentAmount = Number(order.amount) || 0;
+            const creditPending = creditPartial && !creditPartial.applied ? creditPartial.creditAmount : 0;
+            const walletPending = walletPartial && !walletPartial.applied ? walletPartial.walletAmount : 0;
+            // Monto que aún queda tras aplicar los partials pendientes
+            const afterPartials = Math.max(0, currentAmount - creditPending - walletPending);
+            const hasPending = (creditPartial && !creditPartial.applied) || (walletPartial && !walletPartial.applied);
+            // Mostrar botón sólo cuando hay partials pendientes y cubren 100%
+            if (!hasPending || afterPartials > 0.009) return null;
+            return (
+              <Button
+                fullWidth
+                variant="contained"
+                disabled={!!onlinePayLoading}
+                onClick={async () => {
+                  setOnlinePayLoading('wallet');
+                  try {
+                    // Aplicar crédito primero si pendiente
+                    if (creditPartial && !creditPartial.applied) {
+                      const rc = await applyCreditFirst();
+                      if (!rc) { setOnlinePayLoading(null); return; }
+                      if (rc.completed) { setOnlinePayLoading(null); return; }
+                    }
+                    // Aplicar wallet (esto debería cubrir el 100% y cerrar)
+                    if (walletPartial && !walletPartial.applied) {
+                      const rw = await applyWalletFirst();
+                      if (!rw) { setOnlinePayLoading(null); return; }
+                    }
+                  } finally {
+                    setOnlinePayLoading(null);
+                  }
+                }}
+                sx={{
+                  mt: 2,
+                  py: 1.5,
+                  bgcolor: ORANGE,
+                  color: 'white',
+                  '&:hover': { bgcolor: BLACK },
+                  fontWeight: 'bold',
+                  fontSize: '0.95rem',
+                }}
+              >
+                {onlinePayLoading === 'wallet' ? <CircularProgress size={22} sx={{ color: 'white' }} /> : '✅ Confirmar pago con Saldo/Crédito'}
+              </Button>
+            );
+          })()}
+
+          {/* Toggle solicitar factura: disponible siempre que exista remanente para pasarela */}
+          {(() => {
+            const order = onlinePayDialog.order;
+            if (!order) return true;
+            const currentAmount = Number(order.amount) || 0;
+            const creditPending = creditPartial && !creditPartial.applied ? creditPartial.creditAmount : 0;
+            const walletPending = walletPartial && !walletPartial.applied ? walletPartial.walletAmount : 0;
+            const gatewayRemaining = Math.max(0, currentAmount - creditPending - walletPending);
+            return gatewayRemaining > 0.009;
+          })() && (
+          <Box sx={{ mt: 2, p: 2, bgcolor: '#fafafa', borderRadius: 2, border: '1px dashed #cbd5e1' }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={onlinePayInvoice}
+                  onChange={(e) => setOnlinePayInvoice(e.target.checked)}
+                  disabled={!!onlinePayLoading}
+                  sx={{
+                    '& .MuiSwitch-switchBase.Mui-checked': { color: ORANGE },
+                    '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { backgroundColor: ORANGE },
+                  }}
+                />
+              }
+              label={
+                <Box>
+                  <Typography variant="body2" fontWeight="bold">¿Requiero Factura?</Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Se emitirá CFDI por el monto pagado con tarjeta.
+                  </Typography>
+                </Box>
+              }
+            />
+            {onlinePayInvoice && (!fiscalData || !fiscalData.hasCompleteData) && (
+              <Alert severity="warning" sx={{ mt: 1, fontSize: '0.78rem' }}
+                action={
+                  <Button size="small" onClick={() => setFiscalModalOpen(true)} sx={{ color: '#B26A00', fontWeight: 'bold' }}>
+                    Completar
+                  </Button>
+                }
+              >
+                Datos fiscales incompletos.
+              </Alert>
+            )}
+            {onlinePayInvoice && fiscalData?.hasCompleteData && (
+              <Typography variant="caption" sx={{ display: 'block', mt: 1, color: '#2E7D32' }}>
+                ✓ Factura a: <b>{fiscalData.fiscal_razon_social}</b> · RFC: {fiscalData.fiscal_rfc}
+              </Typography>
+            )}
+          </Box>
+          )}
+
+          <Alert severity="info" sx={{ mt: 2, fontSize: '0.8rem' }}>
+            🔒 Tus datos de pago son procesados por proveedores certificados. EntregaX no almacena información de tu tarjeta.
+          </Alert>
+        </DialogContent>
       </Dialog>
 
       {/* Carrusel de Servicios - Solo en tab Envíos */}
@@ -10118,9 +11261,11 @@ export default function DashboardClient() {
                             <Typography variant="body1" fontWeight="bold">
                               {method.name}
                             </Typography>
-                            <Typography variant="body2" color="text.secondary">
-                              {method.description}
-                            </Typography>
+                            {method.description && (
+                              <Typography variant="body2" color="text.secondary">
+                                {method.description}
+                              </Typography>
+                            )}
                           </Box>
                         </Box>
                       </Paper>
@@ -10132,7 +11277,8 @@ export default function DashboardClient() {
             </FormControl>
           </Paper>
 
-          {/* Facturación */}
+          {/* Facturación - oculta en Pago en Sucursal */}
+          {selectedPaymentMethod !== 'branch' && (
           <Paper sx={{ p: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
               <Box sx={{ fontSize: '1.2rem', mr: 1 }}>🧾</Box>
@@ -10142,18 +11288,11 @@ export default function DashboardClient() {
               <Switch
                 checked={requiresInvoice}
                 onChange={(e) => setRequiresInvoice(e.target.checked)}
-                disabled={selectedPaymentMethod === 'branch'}
                 sx={{ ml: 'auto' }}
               />
             </Box>
 
-            {selectedPaymentMethod === 'branch' && (
-              <Alert severity="info" sx={{ mb: 2 }}>
-                📄 {t('cd.payment.branchNoInvoice')}
-              </Alert>
-            )}
-
-            {requiresInvoice && selectedPaymentMethod !== 'branch' && (
+            {requiresInvoice && (
               <Box sx={{ mt: 2 }}>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                   {!requiresInvoice ? t('cd.payment.noInvoiceLater') : t('cd.payment.completeInvoiceData')}
@@ -10308,6 +11447,7 @@ export default function DashboardClient() {
               </Box>
             )}
           </Paper>
+          )}
         </DialogContent>
         <DialogActions sx={{ p: 3, bgcolor: '#f8f9fa' }}>
           <Button 
@@ -10330,7 +11470,7 @@ export default function DashboardClient() {
             }}
           >
             {paymentLoading ? t('common.processing') : (getSelectedPackages().length > 1
-              ? `🧾 ${t('cd.payment.generateButton', { amount: formatCurrency(getSelectedPackages().reduce((sum, p) => sum + getPackageTotalMXN(p), 0)) })}`
+              ? `🧾 ${t('cd.payment.generateButton')}`
               : `💳 ${t('cd.payment.payButton', { amount: formatCurrency(getSelectedPackages().reduce((sum, p) => sum + getPackageTotalMXN(p), 0)) })}`)}
           </Button>
         </DialogActions>
@@ -10886,11 +12026,10 @@ export default function DashboardClient() {
                 <Table size="small">
                   <TableHead>
                     <TableRow sx={{ bgcolor: '#f8f8f8' }}>
-                      <TableCell><strong>Referencia</strong></TableCell>
-                      <TableCell><strong>Método</strong></TableCell>
-                      <TableCell align="right"><strong>Monto</strong></TableCell>
-                      <TableCell><strong>Estado</strong></TableCell>
-                      <TableCell><strong>Fecha</strong></TableCell>
+                      <TableCell align="center"><strong>Referencia</strong></TableCell>
+                      <TableCell align="center"><strong>Monto</strong></TableCell>
+                      <TableCell align="center"><strong>Estado</strong></TableCell>
+                      <TableCell align="center"><strong>Fecha</strong></TableCell>
                       <TableCell align="center"><strong>Acciones</strong></TableCell>
                     </TableRow>
                   </TableHead>
@@ -10911,12 +12050,6 @@ export default function DashboardClient() {
                         pending: { color: '#1565C0', label: '🔄 Procesando' },
                       };
                       const st = statusMap[order.status] || statusMap.pending;
-                      const methodMap: Record<string, string> = {
-                        cash: '💵 Sucursal',
-                        paypal: '🅿️ PayPal',
-                        card: '💳 Tarjeta',
-                        spei: '🏦 SPEI',
-                      };
                       return (
                         <Fragment key={order.id}>
                         <TableRow hover sx={{ cursor: 'pointer' }} onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}>
@@ -10925,9 +12058,6 @@ export default function DashboardClient() {
                             <Typography variant="caption" color="text.secondary">
                               📦 {Array.isArray(order.packages) ? order.packages.length : Array.isArray(order.package_ids) ? order.package_ids.length : 0} paquete(s) {expandedOrderId === order.id ? '▴' : '▾'}
                             </Typography>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2">{methodMap[order.payment_method] || order.payment_method}</Typography>
                           </TableCell>
                           <TableCell align="right">
                             <Typography variant="body2" fontWeight="bold" sx={{ color: ORANGE }}>
@@ -10949,33 +12079,25 @@ export default function DashboardClient() {
                           </TableCell>
                           <TableCell align="center" onClick={(e: any) => e.stopPropagation()}>
                               <Box sx={{ display: 'flex', gap: 0.25, justifyContent: 'center' }}>
-                                <Tooltip title="Ver Detalles" arrow>
-                                  <IconButton
-                                    size="small"
-                                    sx={{ color: ORANGE, '&:hover': { bgcolor: 'rgba(255,107,0,0.08)' } }}
-                                    onClick={() => {
-                                      setPaymentInstructionsDialog({
-                                        open: true,
-                                        reference: order.payment_reference,
-                                        amount: Number(order.amount),
-                                        currency: order.currency || 'MXN',
-                                        expiresAt: '',
-                                        bankInfo: order.bank_info || { banco: 'BBVA México', clabe: '012580001234567890', cuenta: '1234567890', beneficiario: 'ENTREGAX', concepto: order.payment_reference },
-                                        branchInfo: order.branch_info || { nombre: 'CEDIS Monterrey', direccion: 'Av. Industrial #123', telefono: '81 1234 5678', horario: 'L-V 9-18' },
-                                      });
-                                    }}
-                                  ><VisibilityIcon fontSize="small" /></IconButton>
-                                </Tooltip>
-                                <Tooltip title="Subir Comprobante" arrow>
-                                  <IconButton
-                                    size="small"
-                                    sx={{ color: ORANGE, '&:hover': { bgcolor: 'rgba(255,107,0,0.08)' } }}
-                                    onClick={() => {
-                                      setVoucherDialog({ open: true, order });
-                                      loadVoucherList(order.id);
-                                    }}
-                                  ><AttachFileIcon fontSize="small" /></IconButton>
-                                </Tooltip>
+                                {paymentOrderTab === 'active' && (
+                                  <Tooltip title="Pagar" arrow>
+                                    <IconButton
+                                      size="small"
+                                      sx={{ color: ORANGE, '&:hover': { bgcolor: 'rgba(255,107,0,0.08)' } }}
+                                      onClick={() => {
+                                        setPaymentInstructionsDialog({
+                                          open: true,
+                                          reference: order.payment_reference,
+                                          amount: Number(order.amount),
+                                          currency: order.currency || 'MXN',
+                                          expiresAt: '',
+                                          bankInfo: order.bank_info || { banco: 'BBVA México', clabe: '012580001234567890', cuenta: '1234567890', beneficiario: 'ENTREGAX', concepto: order.payment_reference },
+                                          branchInfo: order.branch_info || { nombre: 'CEDIS Monterrey', direccion: 'Av. Industrial #123', telefono: '81 1234 5678', horario: 'L-V 9-18' },
+                                        });
+                                      }}
+                                    ><MoneyIcon fontSize="small" /></IconButton>
+                                  </Tooltip>
+                                )}
                                 <Tooltip title="Descargar PDF" arrow>
                                   <IconButton
                                     size="small"
@@ -11016,7 +12138,7 @@ export default function DashboardClient() {
                         </TableRow>
                         {expandedOrderId === order.id && Array.isArray(order.packages) && order.packages.length > 0 && (
                           <TableRow>
-                            <TableCell colSpan={6} sx={{ bgcolor: '#fafafa', py: 0, px: 2 }}>
+                            <TableCell colSpan={5} sx={{ bgcolor: '#fafafa', py: 0, px: 2 }}>
                               <Table size="small">
                                 <TableBody>
                                   {order.packages.map((pkg: any) => (
@@ -11064,6 +12186,116 @@ export default function DashboardClient() {
             {t('common.close')}
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* =============== DIALOG: CANCELAR ORDEN DE PAGO =============== */}
+      <Dialog
+        open={cancelOrderDialog.open}
+        onClose={() => !cancelOrderLoading && setCancelOrderDialog({ open: false, orderId: null, reference: '' })}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}
+      >
+        <Box sx={{
+          background: 'linear-gradient(135deg, #C62828 0%, #E53935 100%)',
+          color: '#fff',
+          px: 3,
+          py: 2.5,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1.5,
+        }}>
+          <Box sx={{
+            bgcolor: 'rgba(255,255,255,0.2)',
+            borderRadius: '50%',
+            width: 44,
+            height: 44,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 22,
+          }}>🗑️</Box>
+          <Box>
+            <Typography variant="h6" fontWeight={800} sx={{ lineHeight: 1.2 }}>
+              Cancelar Orden de Pago
+            </Typography>
+            <Typography variant="caption" sx={{ opacity: 0.9 }}>
+              Esta acción no se puede deshacer
+            </Typography>
+          </Box>
+        </Box>
+        <Box sx={{ p: 3 }}>
+          <Typography variant="body2" sx={{ mb: 2, color: '#444' }}>
+            ¿Estás seguro que deseas cancelar la orden de pago?
+          </Typography>
+          {cancelOrderDialog.reference && (
+            <Box sx={{
+              bgcolor: '#FFF3E0',
+              border: '1px solid #FFCC80',
+              borderRadius: 2,
+              px: 2,
+              py: 1.5,
+              mb: 2,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 1,
+            }}>
+              <Typography variant="caption" sx={{ color: '#666', fontWeight: 600 }}>Referencia:</Typography>
+              <Typography variant="body2" fontWeight={800} sx={{ color: '#E65100', fontFamily: 'monospace' }}>
+                {cancelOrderDialog.reference}
+              </Typography>
+            </Box>
+          )}
+          <Box sx={{
+            bgcolor: '#E3F2FD',
+            border: '1px solid #90CAF9',
+            borderRadius: 2,
+            px: 2,
+            py: 1.5,
+            display: 'flex',
+            gap: 1,
+            alignItems: 'flex-start',
+          }}>
+            <Box sx={{ fontSize: 18 }}>ℹ️</Box>
+            <Typography variant="caption" sx={{ color: '#1565C0', lineHeight: 1.5 }}>
+              Los paquetes incluidos en esta orden volverán a estar <strong>disponibles para pago</strong> y podrás generar una nueva orden cuando lo desees.
+            </Typography>
+          </Box>
+        </Box>
+        <Box sx={{ display: 'flex', gap: 1, px: 3, pb: 3 }}>
+          <Button
+            fullWidth
+            variant="outlined"
+            disabled={cancelOrderLoading}
+            onClick={() => setCancelOrderDialog({ open: false, orderId: null, reference: '' })}
+            sx={{
+              color: '#666',
+              borderColor: '#DDD',
+              fontWeight: 700,
+              py: 1.2,
+              '&:hover': { borderColor: '#999', bgcolor: '#FAFAFA' },
+            }}
+          >
+            No, mantener
+          </Button>
+          <Button
+            fullWidth
+            variant="contained"
+            disabled={cancelOrderLoading}
+            onClick={confirmCancelPaymentOrder}
+            startIcon={cancelOrderLoading ? <CircularProgress size={16} sx={{ color: '#fff' }} /> : <DeleteIcon />}
+            sx={{
+              background: 'linear-gradient(135deg, #C62828 0%, #E53935 100%)',
+              color: '#fff',
+              fontWeight: 700,
+              py: 1.2,
+              boxShadow: '0 4px 12px rgba(198,40,40,0.3)',
+              '&:hover': { background: 'linear-gradient(135deg, #B71C1C 0%, #D32F2F 100%)' },
+            }}
+          >
+            {cancelOrderLoading ? 'Cancelando...' : 'Sí, cancelar'}
+          </Button>
+        </Box>
       </Dialog>
 
       {/* =============== DIALOG: SUBIR COMPROBANTE =============== */}

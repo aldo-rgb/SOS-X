@@ -97,6 +97,7 @@
     "warranties": "Warranty GEX",
     "commissions": "Commissions",
     "cajaChica": "Petty Cash",
+    "accounting": "Accounting",
     "tesoreriaSucursal": "Treasury",
     "permissions": "Permissions",
     "legalDocs": "Legal Documents",
@@ -1340,7 +1341,7 @@
       "cardDesc": "OpenPay - Visa, Mastercard, AMEX",
       "paypalDesc": "Fast and secure international payment",
       "branch": "Branch Payment",
-      "branchDesc": "Cash at Branch",
+      "branchDesc": "",
       "packagesTitle": "Packages to Pay",
       "packagesCount": "{{count}} package(s) selected",
       "noDescription": "No description",
@@ -1360,7 +1361,8 @@
       "processing": "Processing...",
       "payAmount": "Pay {{amount}}",
       "payButton": "Pay {{amount}}",
-      "generateButton": "Generate {{amount}}"
+      "generateButton": "Generate Order",
+      "title": "Generate Payment Order"
     },
     "fiscal": {
       "razonSocial": "Legal Name",

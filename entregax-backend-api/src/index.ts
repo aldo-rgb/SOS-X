@@ -846,8 +846,22 @@ import {
   handlePoboxOpenpayCallback,
   getPoboxPendingPayments,
   getPoboxPaymentHistory,
-  cancelPoboxPaymentOrder
+  cancelPoboxPaymentOrder,
+  payPoboxOrderInternal,
+  applyCreditToPoboxOrder,
+  revertCreditFromPoboxOrder,
+  applyWalletToPoboxOrder,
+  revertWalletFromPoboxOrder
 } from './poboxPaymentController';
+import {
+  getMyEmitters,
+  getEmitterSummary,
+  listEmitterInvoices,
+  listPendingStamp,
+  listAccountants,
+  grantAccountantPermission,
+  revokeAccountantPermission,
+} from './accountingController';
 import {
   listInTransitConsolidations,
   getConsolidationPackages,
@@ -2704,6 +2718,20 @@ app.post('/api/pobox/payment/capture', authenticateToken, capturePoboxPaypalPaym
 app.post('/api/pobox/payment/openpay/create', authenticateToken, createPoboxOpenpayPayment);  // OpenPay tarjeta
 app.post('/api/pobox/payment/cash/create', authenticateToken, createPoboxCashPayment);   // Efectivo/Transferencia
 app.delete('/api/pobox/payment/order/:id', authenticateToken, cancelPoboxPaymentOrder); // Cancelar orden de pago
+app.post('/api/pobox/payment/order/:id/pay-internal', authenticateToken, payPoboxOrderInternal); // Pago con saldo/crédito
+app.post('/api/pobox/payment/order/:id/apply-credit', authenticateToken, applyCreditToPoboxOrder); // Aplicar crédito parcial
+app.post('/api/pobox/payment/order/:id/revert-credit', authenticateToken, revertCreditFromPoboxOrder); // Revertir crédito parcial
+app.post('/api/pobox/payment/order/:id/apply-wallet', authenticateToken, applyWalletToPoboxOrder); // Aplicar saldo a favor parcial
+app.post('/api/pobox/payment/order/:id/revert-wallet', authenticateToken, revertWalletFromPoboxOrder); // Revertir saldo a favor
+
+// ========== PORTAL CONTABLE (Multi-Empresa) ==========
+app.get('/api/accounting/my-emitters', authenticateToken, getMyEmitters);
+app.get('/api/accounting/:emitterId/summary', authenticateToken, getEmitterSummary);
+app.get('/api/accounting/:emitterId/invoices', authenticateToken, listEmitterInvoices);
+app.get('/api/accounting/:emitterId/pending-stamp', authenticateToken, listPendingStamp);
+app.get('/api/accounting/accountants', authenticateToken, listAccountants);
+app.post('/api/accounting/accountants/:userId/permissions', authenticateToken, grantAccountantPermission);
+app.delete('/api/accounting/accountants/:userId/permissions/:emitterId', authenticateToken, revokeAccountantPermission);
 app.get('/api/pobox/payment/status/:paymentId', authenticateToken, getPoboxPaymentStatus);
 app.post('/api/pobox/payment/cash/confirm', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), confirmPoboxCashPayment); // Admin confirma pago efectivo
 app.get('/api/pobox/payment/history', authenticateToken, getPoboxPaymentHistory); // Historial del cliente

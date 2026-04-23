@@ -642,7 +642,9 @@ export const getAdminServiceSummary = async (req: AuthRequest, res: Response): P
 export const processOpenPayCard = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userId = req.user?.userId;
-    const { packageIds, paymentMethod, total, currency, company, returnUrl, cancelUrl, invoiceRequired, invoiceData } = req.body;
+    const { packageIds, paymentMethod, total: rawTotal, currency, company, returnUrl, cancelUrl, invoiceRequired, invoiceData } = req.body;
+    // Redondear a 2 decimales para evitar errores de precisión (flotantes JS)
+    const total = Math.round(Number(rawTotal || 0) * 100) / 100;
 
     console.log('📦 Processing OpenPay card payment:', {
       userId,

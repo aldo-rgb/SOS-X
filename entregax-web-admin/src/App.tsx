@@ -77,6 +77,7 @@ import AdminHubPage from './pages/AdminHubPage';
 import CajaChicaPage from './pages/CajaChicaPage';
 import TesoreriaSucursalPage from './pages/TesoreriaSucursalPage';
 import WarehouseHubPage from './pages/WarehouseHubPage';
+import AccountingHubPage from './pages/AccountingHubPage';
 import SecurityIcon from '@mui/icons-material/Security';
 import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import NotificationsIcon from '@mui/icons-material/Notifications';
@@ -208,6 +209,7 @@ const menuItemsConfig: Array<{
     ]
   },
   { key: 'cajaChica', icon: <LocalAtmIcon /> }, // Caja CC (Control Cobros) - pagos de clientes
+  { key: 'accounting', icon: <ReceiptLongIcon /> }, // Portal Contable multi-empresa
   { key: 'commissions', icon: <MonetizationOnIcon /> },
   { key: 'permissions', icon: <SecurityIcon /> },
   { key: 'legalDocs', icon: <DescriptionIcon /> }, // Documentos Legales - solo super_admin
@@ -439,17 +441,22 @@ function App() {
       
       // admin: Dashboard, Reportes Ventas, Herramientas (incluye Tesorería), Caja CC
       if (role === 'admin') {
-        return ['dashboard', 'salesReport', 'panels', 'cajaChica'].includes(item.key);
+        return ['dashboard', 'salesReport', 'panels', 'cajaChica', 'accounting'].includes(item.key);
       }
       
       // director: Dashboard, Herramientas (incluye Tesorería), Caja CC
       if (role === 'director') {
-        return ['dashboard', 'panels', 'cajaChica'].includes(item.key);
+        return ['dashboard', 'panels', 'cajaChica', 'accounting'].includes(item.key);
       }
       
       // finanzas: Dashboard, Herramientas (incluye Tesorería), Caja CC
       if (role === 'finanzas') {
-        return ['dashboard', 'panels', 'cajaChica'].includes(item.key);
+        return ['dashboard', 'panels', 'cajaChica', 'accounting'].includes(item.key);
+      }
+
+      // accountant: solo Dashboard + Portal Contable
+      if (role === 'accountant') {
+        return ['dashboard', 'accounting'].includes(item.key);
       }
       
       // advisor / sub_advisor: Solo dashboard (panel completo interno)
@@ -1281,6 +1288,7 @@ function App() {
         return null; // No renderiza nada, debe seleccionar un submenú
       case 'commissions': return <CommissionsPage />; // Comisiones (incluye tipos de servicio)
       case 'cajaChica': return <CajaChicaPage />; // Caja CC (Control de Cobros)
+      case 'accounting': return <AccountingHubPage />; // Portal Contable multi-empresa
       case 'tesoreriaSucursal': return <TesoreriaSucursalPage />; // Tesorería por Sucursal
       case 'permissions': return <PermissionsPage />; // Matriz de Permisos
       case 'legalDocs': return <LegalDocumentsPage />; // Documentos Legales (Contratos y Aviso Privacidad)

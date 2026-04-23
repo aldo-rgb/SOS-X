@@ -1424,7 +1424,12 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
                 p.status,
                 p.created_at,
                 p.paid_at,
-                p.expires_at
+                p.expires_at,
+                p.credit_applied,
+                p.credit_service,
+                p.credit_applied_at,
+                p.wallet_applied,
+                p.wallet_applied_at
             FROM pobox_payments p
             WHERE p.user_id = $1 AND p.status != 'cancelled'
             ORDER BY p.created_at DESC
@@ -1502,17 +1507,17 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
  */
 export const cancelPoboxPaymentOrder = async (req: AuthRequest, res: Response): Promise<any> => {
     try {
-        const userId = req.user?.id;
+        const userId = (req.user as any)?.userId || (req.user as any)?.id;
         if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
-        const orderId = parseInt(req.params.id, 10);
+        const orderId = parseInt(String(req.params.id), 10);
         if (!orderId || isNaN(orderId)) {
             return res.status(400).json({ error: 'ID de orden inválido' });
         }
 
         // Verificar que la orden pertenezca al usuario y esté en estado cancelable
         const orderRes = await pool.query(
-            `SELECT id, user_id, status, payment_reference
+            `SELECT id, user_id, status, payment_reference, credit_applied, credit_service, wallet_applied
              FROM pobox_payments
              WHERE id = $1`,
             [orderId]
@@ -1535,10 +1540,47 @@ export const cancelPoboxPaymentOrder = async (req: AuthRequest, res: Response): 
             });
         }
 
+        // Reintegrar crédito si se había aplicado parcialmente
+        const creditApplied = parseFloat(order.credit_applied || 0);
+        if (creditApplied > 0 && order.credit_service) {
+            try {
+                await pool.query(
+                    `UPDATE user_service_credits
+                     SET used_credit = GREATEST(0, COALESCE(used_credit,0) - $1), updated_at = NOW()
+                     WHERE user_id = $2 AND service = $3`,
+                    [creditApplied, userId, order.credit_service]
+                );
+                console.log(`↩️ Crédito reintegrado: $${creditApplied} al servicio ${order.credit_service} (usuario ${userId})`);
+            } catch (e) {
+                console.warn('No se pudo reintegrar crédito al cancelar:', e);
+            }
+        }
+
+        // Reintegrar saldo a favor si se había aplicado parcialmente
+        const walletApplied = parseFloat(order.wallet_applied || 0);
+        if (walletApplied > 0) {
+            try {
+                await pool.query(
+                    `UPDATE users SET wallet_balance = COALESCE(wallet_balance,0) + $1 WHERE id = $2`,
+                    [walletApplied, userId]
+                );
+                try {
+                    await pool.query(
+                        `INSERT INTO financial_transactions (user_id, type, amount, description, reference_id, reference_type, created_at)
+                         VALUES ($1, 'refund', $2, $3, $4, 'pobox_payment', NOW())`,
+                        [userId, walletApplied, `Reversa por cancelación de orden ${order.payment_reference}`, orderId]
+                    );
+                } catch {}
+                console.log(`↩️ Saldo a favor reintegrado: $${walletApplied} (usuario ${userId})`);
+            } catch (e) {
+                console.warn('No se pudo reintegrar saldo al cancelar:', e);
+            }
+        }
+
         // Marcar como cancelled
         await pool.query(
             `UPDATE pobox_payments
-             SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+             SET status = 'cancelled'
              WHERE id = $1`,
             [orderId]
         );
@@ -1566,5 +1608,767 @@ export const cancelPoboxPaymentOrder = async (req: AuthRequest, res: Response): 
     } catch (error) {
         console.error('Error cancelando orden de pago PO Box:', error);
         res.status(500).json({ error: 'Error al cancelar orden de pago' });
+    }
+};
+
+/**
+ * Pagar orden con saldo interno: Saldo a favor (wallet) o Crédito disponible
+ * body: { method: 'wallet' | 'credit', requiere_factura?: boolean }
+ *
+ * Reglas:
+ *  - Si method = 'wallet', descuenta del users.wallet_balance (no se permite factura).
+ *  - Si method = 'credit', incrementa used_credit hasta available_credit.
+ *  - Marca la orden como completed, paquetes como pagados, y genera factura si aplica.
+ */
+export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Promise<any> => {
+    const client = await pool.connect();
+    try {
+        const userId = (req.user as any)?.userId || (req.user as any)?.id;
+        if (!userId) return res.status(401).json({ error: 'No autenticado' });
+
+        const orderId = parseInt(String(req.params.id), 10);
+        if (!orderId || isNaN(orderId)) {
+            return res.status(400).json({ error: 'ID de orden inválido' });
+        }
+
+        const { method, requiere_factura, service } = req.body || {};
+        if (!method || !['wallet', 'credit'].includes(method)) {
+            return res.status(400).json({ error: 'Método inválido. Usa wallet o credit.' });
+        }
+
+        await client.query('BEGIN');
+
+        // Obtener orden
+        const orderRes = await client.query(
+            `SELECT id, user_id, status, amount, currency, payment_reference, package_ids
+             FROM pobox_payments
+             WHERE id = $1
+             FOR UPDATE`,
+            [orderId]
+        );
+        if (orderRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Orden no encontrada' });
+        }
+        const order = orderRes.rows[0];
+        if (Number(order.user_id) !== Number(userId)) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ error: 'No autorizado para esta orden' });
+        }
+
+        const payableStatuses = ['pending_payment', 'pending', 'vouchers_partial'];
+        if (!payableStatuses.includes(order.status)) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({
+                error: 'No se puede pagar',
+                message: `La orden está en estado "${order.status}".`
+            });
+        }
+
+        const amount = parseFloat(order.amount);
+
+        // Obtener monedero / crédito
+        const userRes = await client.query(
+            `SELECT wallet_balance, credit_limit, used_credit, is_credit_blocked
+             FROM users WHERE id = $1 FOR UPDATE`,
+            [userId]
+        );
+        if (userRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Usuario no encontrado' });
+        }
+        const u = userRes.rows[0];
+        const walletBalance = parseFloat(u.wallet_balance || 0);
+        const creditLimit = parseFloat(u.credit_limit || 0);
+        const usedCredit = parseFloat(u.used_credit || 0);
+        const availableCredit = Math.max(0, creditLimit - usedCredit);
+
+        if (method === 'wallet') {
+            if (walletBalance < amount) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    error: 'Saldo insuficiente',
+                    message: `Saldo disponible: $${walletBalance.toFixed(2)}. Requerido: $${amount.toFixed(2)}.`
+                });
+            }
+            await client.query(
+                `UPDATE users SET wallet_balance = wallet_balance - $1 WHERE id = $2`,
+                [amount, userId]
+            );
+        } else if (method === 'credit') {
+            if (u.is_credit_blocked) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({ error: 'Línea de crédito bloqueada' });
+            }
+
+            // Crédito disponible: si viene "service", usar sólo ese; sino el mejor de la tabla
+            let serviceAvail = 0;
+            let serviceRow: any = null;
+            try {
+                const svcRes = service
+                    ? await client.query(
+                        `SELECT id, service, credit_limit, used_credit, is_blocked
+                         FROM user_service_credits
+                         WHERE user_id = $1 AND service = $2 AND COALESCE(is_blocked,false) = FALSE
+                         LIMIT 1
+                         FOR UPDATE`,
+                        [userId, service]
+                    )
+                    : await client.query(
+                        `SELECT id, service, credit_limit, used_credit, is_blocked
+                         FROM user_service_credits
+                         WHERE user_id = $1 AND COALESCE(is_blocked,false) = FALSE
+                         ORDER BY (COALESCE(credit_limit,0) - COALESCE(used_credit,0)) DESC
+                         LIMIT 1
+                         FOR UPDATE`,
+                        [userId]
+                    );
+                if (svcRes.rows.length > 0) {
+                    serviceRow = svcRes.rows[0];
+                    serviceAvail = Math.max(
+                        0,
+                        parseFloat(serviceRow.credit_limit || 0) - parseFloat(serviceRow.used_credit || 0)
+                    );
+                }
+            } catch (e) {
+                // Tabla puede no existir; continuar con crédito wallet
+            }
+
+            // Si el cliente eligió un servicio específico, NO usar crédito wallet como fallback
+            const bestAvail = service ? serviceAvail : Math.max(availableCredit, serviceAvail);
+            if (bestAvail < amount) {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    error: 'Crédito insuficiente',
+                    message: `Crédito disponible: $${bestAvail.toFixed(2)}. Requerido: $${amount.toFixed(2)}.`
+                });
+            }
+
+            // Preferir el crédito de servicio si cubre o si fue solicitado explícitamente
+            if (serviceRow && serviceAvail >= amount) {
+                await client.query(
+                    `UPDATE user_service_credits SET used_credit = COALESCE(used_credit,0) + $1, updated_at = NOW() WHERE id = $2`,
+                    [amount, serviceRow.id]
+                );
+            } else if (!service) {
+                await client.query(
+                    `UPDATE users SET used_credit = COALESCE(used_credit, 0) + $1 WHERE id = $2`,
+                    [amount, userId]
+                );
+            } else {
+                // service solicitado pero sin cupo (no debería ocurrir por validación anterior)
+                await client.query('ROLLBACK');
+                return res.status(400).json({ error: 'Crédito insuficiente para el servicio seleccionado' });
+            }
+        }
+
+        // Factura: solo aplica al monto pagado externamente; crédito y wallet no generan CFDI
+        const willInvoice = false;
+
+        // Marcar orden pagada
+        await client.query(
+            `UPDATE pobox_payments SET
+                status = 'completed',
+                paid_at = CURRENT_TIMESTAMP,
+                payment_method = $1,
+                requiere_factura = $2
+             WHERE id = $3`,
+            [method === 'wallet' ? 'wallet' : 'credit', willInvoice, orderId]
+        );
+
+        // Marcar paquetes como pagados
+        const packageIds = typeof order.package_ids === 'string'
+            ? JSON.parse(order.package_ids)
+            : order.package_ids;
+
+        if (Array.isArray(packageIds) && packageIds.length > 0) {
+            await client.query(
+                `UPDATE packages SET
+                    payment_status = 'paid',
+                    monto_pagado = COALESCE(assigned_cost_mxn, 0),
+                    saldo_pendiente = 0,
+                    costing_paid = TRUE,
+                    client_paid = TRUE,
+                    costing_paid_at = CURRENT_TIMESTAMP
+                 WHERE id = ANY($1)`,
+                [packageIds]
+            );
+        }
+
+        // Log en webhook_logs para dashboard
+        try {
+            await client.query(
+                `INSERT INTO openpay_webhook_logs (
+                    transaction_id, monto_recibido, monto_neto, concepto,
+                    fecha_pago, estatus_procesamiento, user_id, tipo_pago, service_type
+                 ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, $5, 'POBOX_USA')`,
+                [
+                    `INTERNAL-${order.payment_reference}`,
+                    amount,
+                    `Pago PO Box (${method === 'wallet' ? 'Saldo a favor' : 'Crédito'}) - ${Array.isArray(packageIds) ? packageIds.length : 0} paquete(s)`,
+                    userId,
+                    method === 'wallet' ? 'wallet' : 'credit',
+                ]
+            );
+        } catch (logErr) {
+            console.warn('No se pudo registrar webhook log interno:', logErr);
+        }
+
+        await client.query('COMMIT');
+
+        // Generar comisiones
+        generateCommissionsForPackages(packageIds).catch(err =>
+            console.error('Error generando comisiones (pago interno):', err)
+        );
+
+        // Facturación automática (sólo crédito + requiere_factura)
+        if (willInvoice) {
+            try {
+                const invoiceResult = await createInvoice({
+                    paymentId: `INTERNAL-${order.payment_reference}`,
+                    paymentType: 'pobox',
+                    userId: userId,
+                    amount: amount,
+                    currency: order.currency || 'MXN',
+                    paymentMethod: method,
+                    description: `Servicio PO Box USA - ${Array.isArray(packageIds) ? packageIds.length : 0} paquete(s)`,
+                    packageIds: packageIds,
+                    serviceType: 'po_box'
+                });
+                if (invoiceResult?.success) {
+                    await pool.query(
+                        `UPDATE pobox_payments SET facturada = TRUE, factura_uuid = $1, factura_created_at = CURRENT_TIMESTAMP WHERE id = $2`,
+                        [invoiceResult.uuid, orderId]
+                    );
+                } else {
+                    await pool.query(
+                        `UPDATE pobox_payments SET factura_error = $1 WHERE id = $2`,
+                        [invoiceResult?.error || 'unknown', orderId]
+                    );
+                }
+            } catch (invErr: any) {
+                console.error('Error generando factura automática (interno):', invErr?.message || invErr);
+            }
+        }
+
+        return res.json({
+            success: true,
+            message: method === 'wallet'
+                ? '✅ Pago procesado con tu saldo a favor'
+                : '✅ Pago procesado con tu línea de crédito',
+            reference: order.payment_reference,
+            method,
+            amount,
+            invoice_requested: willInvoice
+        });
+    } catch (error: any) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error('Error en pago interno PO Box:', error);
+        res.status(500).json({ error: 'Error al procesar pago interno', message: error?.message });
+    } finally {
+        client.release();
+    }
+};
+
+/**
+ * Aplica parcialmente crédito (por servicio) a una orden pobox_payments y reduce el monto pendiente.
+ * body: { service: string, credit_amount: number }
+ *
+ * - Descuenta credit_amount del user_service_credits.used_credit
+ * - Actualiza pobox_payments: amount = amount - credit_amount, credit_applied += credit_amount, credit_service, credit_applied_at
+ * - Si amount restante llega a 0, marca la orden como completed y los paquetes pagados.
+ * - Si queda monto pendiente, deja la orden abierta para completarse con otro método (tarjeta/paypal/saldo).
+ */
+export const applyCreditToPoboxOrder = async (req: AuthRequest, res: Response): Promise<any> => {
+    const client = await pool.connect();
+    try {
+        const userId = (req.user as any)?.userId || (req.user as any)?.id;
+        if (!userId) return res.status(401).json({ error: 'No autenticado' });
+
+        const orderId = parseInt(String(req.params.id), 10);
+        if (!orderId || isNaN(orderId)) return res.status(400).json({ error: 'ID de orden inválido' });
+
+        const { service, credit_amount } = req.body || {};
+        const reqAmount = Number(credit_amount || 0);
+        if (!service || !(reqAmount > 0)) {
+            return res.status(400).json({ error: 'Parámetros inválidos (service, credit_amount)' });
+        }
+
+        await client.query('BEGIN');
+
+        const orderRes = await client.query(
+            `SELECT id, user_id, status, amount, currency, payment_reference, package_ids, credit_applied
+             FROM pobox_payments WHERE id = $1 FOR UPDATE`,
+            [orderId]
+        );
+        if (orderRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Orden no encontrada' });
+        }
+        const order = orderRes.rows[0];
+        if (Number(order.user_id) !== Number(userId)) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ error: 'No autorizado' });
+        }
+        const payableStatuses = ['pending_payment', 'pending', 'vouchers_partial'];
+        if (!payableStatuses.includes(order.status)) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Orden no pagable' });
+        }
+
+        const orderAmount = parseFloat(order.amount);
+        const applied = Math.min(reqAmount, orderAmount); // no exceder el monto pendiente
+
+        // Validar bloqueo global
+        const u = await client.query(`SELECT is_credit_blocked FROM users WHERE id = $1`, [userId]);
+        if (u.rows[0]?.is_credit_blocked) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Línea de crédito bloqueada' });
+        }
+
+        // Buscar línea de crédito del servicio
+        const svcRes = await client.query(
+            `SELECT id, credit_limit, used_credit, is_blocked
+             FROM user_service_credits
+             WHERE user_id = $1 AND service = $2 AND COALESCE(is_blocked,false) = FALSE
+             FOR UPDATE`,
+            [userId, service]
+        );
+        if (svcRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'No tienes crédito disponible para este servicio' });
+        }
+        const svcRow = svcRes.rows[0];
+        const svcAvail = Math.max(0, parseFloat(svcRow.credit_limit || 0) - parseFloat(svcRow.used_credit || 0));
+        if (svcAvail < applied) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({
+                error: 'Crédito insuficiente',
+                message: `Crédito disponible: $${svcAvail.toFixed(2)}. Solicitado: $${applied.toFixed(2)}`
+            });
+        }
+
+        // Descontar crédito de servicio
+        await client.query(
+            `UPDATE user_service_credits SET used_credit = COALESCE(used_credit,0) + $1, updated_at = NOW() WHERE id = $2`,
+            [applied, svcRow.id]
+        );
+
+        // Actualizar orden
+        const newAmount = Math.max(0, orderAmount - applied);
+        await client.query(
+            `UPDATE pobox_payments SET
+                amount = $1,
+                credit_applied = COALESCE(credit_applied,0) + $2,
+                credit_service = $3,
+                credit_applied_at = CURRENT_TIMESTAMP
+             WHERE id = $4`,
+            [newAmount, applied, service, orderId]
+        );
+
+        let completed = false;
+        if (newAmount <= 0.009) {
+            // Pago cubierto 100% con crédito
+            await client.query(
+                `UPDATE pobox_payments SET status='completed', paid_at=CURRENT_TIMESTAMP, payment_method='credit' WHERE id=$1`,
+                [orderId]
+            );
+
+            const packageIds = typeof order.package_ids === 'string' ? JSON.parse(order.package_ids) : order.package_ids;
+            if (Array.isArray(packageIds) && packageIds.length > 0) {
+                await client.query(
+                    `UPDATE packages SET
+                        payment_status='paid',
+                        monto_pagado = COALESCE(assigned_cost_mxn, 0),
+                        saldo_pendiente = 0,
+                        costing_paid = TRUE,
+                        client_paid = TRUE,
+                        costing_paid_at = CURRENT_TIMESTAMP
+                     WHERE id = ANY($1)`,
+                    [packageIds]
+                );
+            }
+            try {
+                await client.query(
+                    `INSERT INTO openpay_webhook_logs (
+                        transaction_id, monto_recibido, monto_neto, concepto,
+                        fecha_pago, estatus_procesamiento, user_id, tipo_pago, service_type
+                     ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'credit', 'POBOX_USA')`,
+                    [
+                        `CREDIT-${order.payment_reference}`,
+                        applied,
+                        `Pago PO Box (Crédito ${service}) - ${Array.isArray(packageIds) ? packageIds.length : 0} paquete(s)`,
+                        userId,
+                    ]
+                );
+            } catch (logErr) {
+                console.warn('No se pudo registrar log crédito:', logErr);
+            }
+
+            completed = true;
+            await client.query('COMMIT');
+            if (Array.isArray(packageIds)) {
+                generateCommissionsForPackages(packageIds).catch(err =>
+                    console.error('Error comisiones (crédito total):', err)
+                );
+            }
+        } else {
+            await client.query('COMMIT');
+        }
+
+        return res.json({
+            success: true,
+            message: completed
+                ? '✅ Pago cubierto totalmente con crédito'
+                : `✅ Crédito aplicado. Restante: $${newAmount.toFixed(2)}`,
+            credit_applied: applied,
+            new_amount: newAmount,
+            completed,
+            reference: order.payment_reference
+        });
+    } catch (error: any) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error('Error aplicando crédito:', error);
+        res.status(500).json({ error: 'Error al aplicar crédito', message: error?.message });
+    } finally {
+        client.release();
+    }
+};
+
+/**
+ * REVERTIR crédito aplicado a una orden PO Box (si el pago externo no se concretó).
+ * - Devuelve el crédito a user_service_credits (used_credit -= credit_applied)
+ * - Restaura pobox_payments.amount += credit_applied
+ * - Limpia credit_applied, credit_service, credit_applied_at
+ * - Solo permitido si la orden sigue en status pending/pending_payment/vouchers_partial
+ */
+export const revertCreditFromPoboxOrder = async (req: AuthRequest, res: Response): Promise<any> => {
+    const orderId = parseInt(req.params.id as string);
+    const userId = (req.user as any)?.userId || (req.user as any)?.id;
+    if (!userId) return res.status(401).json({ error: 'No autorizado' });
+    if (!orderId) return res.status(400).json({ error: 'ID de orden inválido' });
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const orderRes = await client.query(
+            `SELECT id, user_id, status, amount, credit_applied, credit_service, payment_reference
+             FROM pobox_payments WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+            [orderId, userId]
+        );
+        if (orderRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Orden no encontrada' });
+        }
+        const order = orderRes.rows[0];
+        const allowedStatuses = ['pending_payment', 'pending', 'vouchers_partial'];
+        if (!allowedStatuses.includes(order.status)) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: `No se puede revertir crédito en una orden con status ${order.status}` });
+        }
+
+        const creditApplied = parseFloat(order.credit_applied || 0);
+        if (creditApplied <= 0) {
+            await client.query('ROLLBACK');
+            return res.json({ success: true, message: 'No había crédito aplicado', reverted: 0 });
+        }
+
+        const service = order.credit_service;
+        if (service) {
+            await client.query(
+                `UPDATE user_service_credits
+                 SET used_credit = GREATEST(0, COALESCE(used_credit,0) - $1),
+                     updated_at = NOW()
+                 WHERE user_id = $2 AND service = $3`,
+                [creditApplied, userId, service]
+            );
+        }
+
+        const updRes = await client.query(
+            `UPDATE pobox_payments
+             SET amount = COALESCE(amount,0) + $2,
+                 credit_applied = 0,
+                 credit_service = NULL,
+                 credit_applied_at = NULL
+             WHERE id = $1
+             RETURNING amount`,
+            [orderId, creditApplied]
+        );
+
+        await client.query('COMMIT');
+
+        return res.json({
+            success: true,
+            message: `✅ Crédito revertido: $${creditApplied.toFixed(2)}`,
+            reverted: creditApplied,
+            new_amount: parseFloat(updRes.rows[0].amount),
+            reference: order.payment_reference
+        });
+    } catch (error: any) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error('Error revirtiendo crédito:', error);
+        res.status(500).json({ error: 'Error al revertir crédito', message: error?.message });
+    } finally {
+        client.release();
+    }
+};
+
+/**
+ * Aplica parcialmente SALDO A FAVOR (wallet) a una orden pobox_payments y reduce el monto pendiente.
+ * body: { wallet_amount: number }
+ *
+ * - Descuenta wallet_amount del users.wallet_balance
+ * - Actualiza pobox_payments: amount = amount - wallet_amount, wallet_applied += wallet_amount, wallet_applied_at
+ * - Registra financial_transactions tipo 'payment' por trazabilidad
+ * - Si amount restante llega a 0, marca la orden como completed y los paquetes pagados.
+ */
+export const applyWalletToPoboxOrder = async (req: AuthRequest, res: Response): Promise<any> => {
+    const client = await pool.connect();
+    try {
+        const userId = (req.user as any)?.userId || (req.user as any)?.id;
+        if (!userId) return res.status(401).json({ error: 'No autenticado' });
+
+        const orderId = parseInt(String(req.params.id), 10);
+        if (!orderId || isNaN(orderId)) return res.status(400).json({ error: 'ID de orden inválido' });
+
+        const { wallet_amount } = req.body || {};
+        const reqAmount = Number(wallet_amount || 0);
+        if (!(reqAmount > 0)) {
+            return res.status(400).json({ error: 'Parámetro inválido (wallet_amount)' });
+        }
+
+        await client.query('BEGIN');
+
+        const orderRes = await client.query(
+            `SELECT id, user_id, status, amount, currency, payment_reference, package_ids, wallet_applied
+             FROM pobox_payments WHERE id = $1 FOR UPDATE`,
+            [orderId]
+        );
+        if (orderRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Orden no encontrada' });
+        }
+        const order = orderRes.rows[0];
+        if (Number(order.user_id) !== Number(userId)) {
+            await client.query('ROLLBACK');
+            return res.status(403).json({ error: 'No autorizado' });
+        }
+        const payableStatuses = ['pending_payment', 'pending', 'vouchers_partial'];
+        if (!payableStatuses.includes(order.status)) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: 'Orden no pagable' });
+        }
+
+        const orderAmount = parseFloat(order.amount);
+        const applied = Math.min(reqAmount, orderAmount);
+
+        // Validar saldo disponible
+        const uRes = await client.query(
+            `SELECT wallet_balance FROM users WHERE id = $1 FOR UPDATE`,
+            [userId]
+        );
+        const walletBalance = parseFloat(uRes.rows[0]?.wallet_balance || 0);
+        if (walletBalance < applied) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({
+                error: 'Saldo insuficiente',
+                message: `Saldo disponible: $${walletBalance.toFixed(2)}. Solicitado: $${applied.toFixed(2)}`
+            });
+        }
+
+        // Descontar saldo
+        const newWallet = walletBalance - applied;
+        await client.query(
+            `UPDATE users SET wallet_balance = $1 WHERE id = $2`,
+            [newWallet, userId]
+        );
+
+        // Registrar transacción (si la tabla existe) — usar SAVEPOINT para no abortar el tx
+        try {
+            await client.query('SAVEPOINT sp_fintx');
+            await client.query(
+                `INSERT INTO financial_transactions
+                 (user_id, type, amount, balance_after, description, reference_id, reference_type, created_at)
+                 VALUES ($1, 'payment', $2, $3, $4, $5, 'pobox_payment', NOW())`,
+                [
+                    userId,
+                    -applied,
+                    newWallet,
+                    `Aplicado a orden ${order.payment_reference}`,
+                    orderId,
+                ]
+            );
+            await client.query('RELEASE SAVEPOINT sp_fintx');
+        } catch (e) {
+            await client.query('ROLLBACK TO SAVEPOINT sp_fintx').catch(() => {});
+            console.warn('No se pudo registrar financial_transactions (wallet):', (e as any)?.message);
+        }
+
+        // Actualizar orden
+        const newAmount = Math.max(0, orderAmount - applied);
+        await client.query(
+            `UPDATE pobox_payments SET
+                amount = $1,
+                wallet_applied = COALESCE(wallet_applied,0) + $2,
+                wallet_applied_at = CURRENT_TIMESTAMP
+             WHERE id = $3`,
+            [newAmount, applied, orderId]
+        );
+
+        let completed = false;
+        if (newAmount <= 0.009) {
+            await client.query(
+                `UPDATE pobox_payments SET status='completed', paid_at=CURRENT_TIMESTAMP, payment_method='wallet' WHERE id=$1`,
+                [orderId]
+            );
+
+            const packageIds = typeof order.package_ids === 'string' ? JSON.parse(order.package_ids) : order.package_ids;
+            if (Array.isArray(packageIds) && packageIds.length > 0) {
+                await client.query(
+                    `UPDATE packages SET
+                        payment_status='paid',
+                        monto_pagado = COALESCE(assigned_cost_mxn, 0),
+                        saldo_pendiente = 0,
+                        costing_paid = TRUE,
+                        client_paid = TRUE,
+                        costing_paid_at = CURRENT_TIMESTAMP
+                     WHERE id = ANY($1)`,
+                    [packageIds]
+                );
+            }
+            try {
+                await client.query(
+                    `INSERT INTO openpay_webhook_logs (
+                        transaction_id, monto_recibido, monto_neto, concepto,
+                        fecha_pago, estatus_procesamiento, user_id, tipo_pago, service_type
+                     ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'wallet', 'POBOX_USA')`,
+                    [
+                        `WALLET-${order.payment_reference}`,
+                        applied,
+                        `Pago PO Box (Saldo a favor) - ${Array.isArray(packageIds) ? packageIds.length : 0} paquete(s)`,
+                        userId,
+                    ]
+                );
+            } catch (logErr) {
+                console.warn('No se pudo registrar log wallet:', logErr);
+            }
+
+            completed = true;
+            await client.query('COMMIT');
+            if (Array.isArray(packageIds)) {
+                generateCommissionsForPackages(packageIds).catch(err =>
+                    console.error('Error comisiones (wallet total):', err)
+                );
+            }
+        } else {
+            await client.query('COMMIT');
+        }
+
+        return res.json({
+            success: true,
+            message: completed
+                ? '✅ Pago cubierto totalmente con saldo a favor'
+                : `✅ Saldo aplicado. Restante: $${newAmount.toFixed(2)}`,
+            wallet_applied: applied,
+            new_amount: newAmount,
+            new_wallet_balance: newWallet,
+            completed,
+            reference: order.payment_reference
+        });
+    } catch (error: any) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error('Error aplicando saldo a favor:', error);
+        res.status(500).json({ error: 'Error al aplicar saldo a favor', message: error?.message });
+    } finally {
+        client.release();
+    }
+};
+
+/**
+ * REVERTIR saldo a favor aplicado a una orden (si el pago externo no se concretó).
+ */
+export const revertWalletFromPoboxOrder = async (req: AuthRequest, res: Response): Promise<any> => {
+    const orderId = parseInt(req.params.id as string);
+    const userId = (req.user as any)?.userId || (req.user as any)?.id;
+    if (!userId) return res.status(401).json({ error: 'No autorizado' });
+    if (!orderId) return res.status(400).json({ error: 'ID de orden inválido' });
+
+    const client = await pool.connect();
+    try {
+        await client.query('BEGIN');
+
+        const orderRes = await client.query(
+            `SELECT id, user_id, status, amount, wallet_applied, payment_reference
+             FROM pobox_payments WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+            [orderId, userId]
+        );
+        if (orderRes.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Orden no encontrada' });
+        }
+        const order = orderRes.rows[0];
+        const allowedStatuses = ['pending_payment', 'pending', 'vouchers_partial'];
+        if (!allowedStatuses.includes(order.status)) {
+            await client.query('ROLLBACK');
+            return res.status(400).json({ error: `No se puede revertir saldo en una orden con status ${order.status}` });
+        }
+
+        const walletApplied = parseFloat(order.wallet_applied || 0);
+        if (walletApplied <= 0) {
+            await client.query('ROLLBACK');
+            return res.json({ success: true, message: 'No había saldo aplicado', reverted: 0 });
+        }
+
+        // Reintegrar al wallet del usuario
+        const uRes = await client.query(
+            `UPDATE users SET wallet_balance = COALESCE(wallet_balance,0) + $1 WHERE id = $2 RETURNING wallet_balance`,
+            [walletApplied, userId]
+        );
+        const newBalance = parseFloat(uRes.rows[0]?.wallet_balance || 0);
+
+        try {
+            await client.query(
+                `INSERT INTO financial_transactions
+                 (user_id, type, amount, balance_after, description, reference_id, reference_type, created_at)
+                 VALUES ($1, 'refund', $2, $3, $4, $5, 'pobox_payment', NOW())`,
+                [
+                    userId,
+                    walletApplied,
+                    newBalance,
+                    `Reversa de saldo aplicado a orden ${order.payment_reference}`,
+                    orderId,
+                ]
+            );
+        } catch (e) {
+            console.warn('No se pudo registrar reversa en financial_transactions:', (e as any)?.message);
+        }
+
+        const updRes = await client.query(
+            `UPDATE pobox_payments
+             SET amount = COALESCE(amount,0) + $2,
+                 wallet_applied = 0,
+                 wallet_applied_at = NULL
+             WHERE id = $1
+             RETURNING amount`,
+            [orderId, walletApplied]
+        );
+
+        await client.query('COMMIT');
+
+        return res.json({
+            success: true,
+            message: `✅ Saldo revertido: $${walletApplied.toFixed(2)}`,
+            reverted: walletApplied,
+            new_amount: parseFloat(updRes.rows[0].amount),
+            new_wallet_balance: newBalance,
+            reference: order.payment_reference
+        });
+    } catch (error: any) {
+        await client.query('ROLLBACK').catch(() => {});
+        console.error('Error revirtiendo saldo a favor:', error);
+        res.status(500).json({ error: 'Error al revertir saldo a favor', message: error?.message });
+    } finally {
+        client.release();
     }
 };
