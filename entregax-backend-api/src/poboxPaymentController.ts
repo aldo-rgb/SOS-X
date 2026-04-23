@@ -671,23 +671,8 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
 
         // Verificar que ningún paquete esté ya en una orden de pago pendiente
         const dupCheck = await checkDuplicatePackagesInOrders(packageIds, userId);
-        if (dupCheck.hasDuplicates) {
-            // Si es el mismo set exacto, lo manejará el bloque de abajo (reutilizar)
-            // Si son paquetes parciales en otra orden, bloquear
-            const dupRefs = [...new Set(dupCheck.duplicates.map(d => d.reference))];
-            const sortedReq = [...packageIds].sort((a, b) => a - b);
-            // Verificar si es exactamente la misma orden (permitir reutilizar)
-            const isSameOrder = dupRefs.length === 1;
-            if (!isSameOrder) {
-                return res.status(400).json({ 
-                    error: 'Paquetes ya en orden de pago',
-                    message: `Algunos paquetes ya están en una orden de pago pendiente (${dupRefs.join(', ')}). Cancela o paga esa orden primero.`,
-                    duplicates: dupCheck.duplicates
-                });
-            }
-        }
 
-        // ✨ NUEVO: Verificar si ya existe un pago pendiente para estos mismos paquetes
+        // ✨ NUEVO: Verificar si ya existe un pago pendiente para estos mismos paquetes (match exacto)
         const sortedPackageIds = [...packageIds].sort((a, b) => a - b);
         const existingPayment = await pool.query(`
             SELECT 
@@ -699,10 +684,20 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
               AND pp.payment_method = 'cash'
               AND pp.package_ids::jsonb @> $2::jsonb
               AND pp.package_ids::jsonb <@ $2::jsonb
-              AND pp.expires_at > CURRENT_TIMESTAMP
+              AND (pp.expires_at IS NULL OR pp.expires_at > CURRENT_TIMESTAMP)
             ORDER BY pp.created_at DESC
             LIMIT 1
         `, [userId, JSON.stringify(sortedPackageIds)]);
+
+        // Si hay duplicados pero NO hay match exacto, rechazar (evita órdenes con paquetes solapados)
+        if (dupCheck.hasDuplicates && existingPayment.rows.length === 0) {
+            const dupRefs = [...new Set(dupCheck.duplicates.map(d => d.reference))];
+            return res.status(400).json({ 
+                error: 'Paquetes ya en orden de pago',
+                message: `Algunos paquetes ya están en una orden de pago pendiente (${dupRefs.join(', ')}). Cancela o paga esa orden primero.`,
+                duplicates: dupCheck.duplicates
+            });
+        }
 
         // Si ya existe un pago pendiente válido, devolver ese
         if (existingPayment.rows.length > 0) {
