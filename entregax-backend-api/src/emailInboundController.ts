@@ -613,7 +613,17 @@ const extractTextFromPdf = async (pdfData: string | Buffer): Promise<string> => 
     let pdfBuffer: Buffer;
     
     if (typeof pdfData === 'string') {
-      if (pdfData.startsWith('data:')) {
+      if (pdfData.startsWith('http://') || pdfData.startsWith('https://')) {
+        // 🌐 URL remota (S3, etc.): descargar con fetch
+        console.log('🌐 Descargando PDF desde URL remota:', pdfData.substring(0, 80));
+        const resp = await fetch(pdfData);
+        if (!resp.ok) {
+          throw new Error(`No se pudo descargar el PDF (HTTP ${resp.status}): ${pdfData.substring(0, 80)}`);
+        }
+        const arrayBuffer = await resp.arrayBuffer();
+        pdfBuffer = Buffer.from(arrayBuffer);
+        console.log('✅ PDF descargado:', pdfBuffer.length, 'bytes');
+      } else if (pdfData.startsWith('data:')) {
         const commaIndex = pdfData.indexOf(',');
         const base64Data = commaIndex > -1 ? pdfData.substring(commaIndex + 1) : pdfData;
         pdfBuffer = Buffer.from(base64Data, 'base64');
@@ -622,6 +632,14 @@ const extractTextFromPdf = async (pdfData: string | Buffer): Promise<string> => 
       }
     } else {
       pdfBuffer = pdfData;
+    }
+    
+    // 🛡️ Validar magic bytes: todo PDF válido empieza con %PDF-
+    const header = pdfBuffer.subarray(0, 5).toString('latin1');
+    if (!header.startsWith('%PDF-')) {
+      const preview = pdfBuffer.subarray(0, 16).toString('hex');
+      console.error(`❌ PDF inválido: header esperado '%PDF-', recibido '${header}' (hex: ${preview})`);
+      throw new Error(`PDF corrupto o no es un PDF válido (header: '${header.replace(/[^\x20-\x7e]/g, '?')}'). Vuelve a subir el archivo.`);
     }
     
     console.log('📄 Extrayendo texto de PDF con pdfjs-dist, buffer size:', pdfBuffer.length, 'bytes');
@@ -747,7 +765,15 @@ const convertPdfToImage = async (pdfData: string | Buffer): Promise<string> => {
     let pdfBuffer: Buffer;
     
     if (typeof pdfData === 'string') {
-      if (pdfData.startsWith('data:')) {
+      if (pdfData.startsWith('http://') || pdfData.startsWith('https://')) {
+        console.log('🌐 Descargando PDF desde URL remota (Puppeteer):', pdfData.substring(0, 80));
+        const resp = await fetch(pdfData);
+        if (!resp.ok) {
+          throw new Error(`No se pudo descargar el PDF (HTTP ${resp.status})`);
+        }
+        const arrayBuffer = await resp.arrayBuffer();
+        pdfBuffer = Buffer.from(arrayBuffer);
+      } else if (pdfData.startsWith('data:')) {
         const commaIndex = pdfData.indexOf(',');
         const base64Data = commaIndex > -1 ? pdfData.substring(commaIndex + 1) : pdfData;
         pdfBuffer = Buffer.from(base64Data, 'base64');
@@ -756,6 +782,12 @@ const convertPdfToImage = async (pdfData: string | Buffer): Promise<string> => {
       }
     } else {
       pdfBuffer = pdfData;
+    }
+    
+    // 🛡️ Validar magic bytes antes de gastar Puppeteer
+    const header = pdfBuffer.subarray(0, 5).toString('latin1');
+    if (!header.startsWith('%PDF-')) {
+      throw new Error(`PDF corrupto o no es un PDF válido (header: '${header.replace(/[^\x20-\x7e]/g, '?')}'). Vuelve a subir el archivo.`);
     }
     
     console.log('📄 PDF Buffer size:', pdfBuffer.length, 'bytes');
@@ -891,7 +923,8 @@ const extractBlDataFromUrl = async (pdfUrl: string): Promise<any> => {
   console.log('🔄 PDF URL preview:', pdfUrl?.substring(0, 80));
   
   // Verificar que tenemos una URL válida
-  if (!pdfUrl || pdfUrl.length < 100) {
+  const isRemoteUrl = pdfUrl?.startsWith('http://') || pdfUrl?.startsWith('https://');
+  if (!pdfUrl || (!isRemoteUrl && pdfUrl.length < 100)) {
     console.error('❌ URL de PDF inválida o muy corta');
     return {};
   }
@@ -2812,7 +2845,9 @@ export const reExtractDraftData = async (req: Request, res: Response): Promise<a
     let blExtractionError: string | null = null;
     
     // Verificar que tenemos un PDF válido
-    if (!draft.pdf_url || draft.pdf_url.length < 100) {
+    // Nota: puede ser data URL (muy largo) o URL HTTPS (S3, ~80-200 chars)
+    const isRemoteUrl = draft.pdf_url?.startsWith('http://') || draft.pdf_url?.startsWith('https://');
+    if (!draft.pdf_url || (!isRemoteUrl && draft.pdf_url.length < 100)) {
       console.log('⚠️ PDF URL inválido o muy corto, no se puede extraer BL');
       blExtractionError = 'No hay PDF válido para extraer datos del BL';
     } else {

@@ -493,9 +493,10 @@ export default function InboundEmailsPage() {
                 const error = await res.json();
                 setSnackbar({ open: true, message: error.error || 'Error al extraer datos', severity: 'error' });
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error re-extracting:', error);
-            setSnackbar({ open: true, message: 'Error al extraer datos del BL', severity: 'error' });
+            const msg = error?.message || 'Error al extraer datos del BL';
+            setSnackbar({ open: true, message: `❌ ${msg}`, severity: 'error' });
         } finally {
             setExtracting(false);
         }
