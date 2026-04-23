@@ -693,7 +693,7 @@ export async function pqtxLabelPdf(req: Request, res: Response) {
         } catch { /* ignore */ }
       } else if (contentType.includes('text/html')) {
         const titleMatch = bodyPreview.match(/<title>([^<]+)<\/title>/i);
-        if (titleMatch) errorMessage = `PQTX: ${titleMatch[1].trim()}`;
+        if (titleMatch && titleMatch[1]) errorMessage = `PQTX: ${titleMatch[1].trim()}`;
       } else if (bodyPreview.trim().length > 0 && bodyPreview.length < 300) {
         errorMessage = `PQTX: ${bodyPreview.trim()}`;
       }

@@ -456,12 +456,14 @@ export const getClientsWithServiceCredits = async (req: AuthRequest, res: Respon
 
 export const getServiceCreditsSummary = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
+    // Una fila por servicio (agrupamos por service para no duplicar po_box)
+    // Excluimos terrestre_nacional: servicio deshabilitado
     const result = await pool.query(`
       SELECT 
         sc.service,
-        sc.company_name,
-        sc.legal_name,
-        sc.rfc,
+        MIN(sc.company_name) as company_name,
+        MIN(sc.legal_name) as legal_name,
+        MIN(sc.rfc) as rfc,
         COALESCE(credits.clients_count, 0) as clients_with_credit,
         COALESCE(credits.total_limit, 0) as total_credit_limit,
         COALESCE(credits.total_used, 0) as total_credit_used,
@@ -494,7 +496,18 @@ export const getServiceCreditsSummary = async (req: AuthRequest, res: Response):
         GROUP BY service
       ) invoices ON sc.service = invoices.service
       WHERE sc.is_active = TRUE
-      ORDER BY sc.id
+        AND sc.service <> 'terrestre_nacional'
+      GROUP BY sc.service, credits.clients_count, credits.total_limit, credits.total_used,
+               credits.total_available, credits.blocked_count,
+               invoices.pending_count, invoices.pending_amount, invoices.overdue_amount
+      ORDER BY
+        CASE sc.service
+          WHEN 'aereo' THEN 1
+          WHEN 'maritimo' THEN 2
+          WHEN 'dhl_liberacion' THEN 3
+          WHEN 'po_box' THEN 4
+          ELSE 99
+        END
     `);
 
     // Totales generales

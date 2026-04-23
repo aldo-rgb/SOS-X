@@ -68,9 +68,9 @@ const SERVICE_COLORS: Record<string, string> = {
 const SERVICE_LABELS: Record<string, string> = {
   aereo: '✈️ Aéreo',
   maritimo: '🚢 Marítimo',
-  terrestre_nacional: '🚚 Terrestre',
   dhl_liberacion: '📦 DHL',
   po_box: '📬 PO Box'
+  // terrestre_nacional: deshabilitado
 };
 
 interface ServiceCredit {
@@ -189,7 +189,7 @@ export default function ServiceCreditManagementPanel() {
     
     // Si el cliente no tiene créditos, crear estructura vacía para todos los servicios
     if (client.service_credits.length === 0) {
-      const services = ['aereo', 'maritimo', 'terrestre_nacional', 'dhl_liberacion', 'po_box'];
+      const services = ['aereo', 'maritimo', 'dhl_liberacion', 'po_box'];
       setEditCredits(services.map(s => ({
         service: s,
         credit_limit: 0,
@@ -199,10 +199,10 @@ export default function ServiceCreditManagementPanel() {
         is_blocked: false
       })));
     } else {
-      // Asegurar que todos los servicios estén presentes
-      const services = ['aereo', 'maritimo', 'terrestre_nacional', 'dhl_liberacion', 'po_box'];
-      const existingServices = client.service_credits.map(c => c.service);
-      const credits = [...client.service_credits];
+      // Asegurar que todos los servicios estén presentes (terrestre_nacional deshabilitado)
+      const services = ['aereo', 'maritimo', 'dhl_liberacion', 'po_box'];
+      const existingServices = client.service_credits.map(c => c.service).filter(s => s !== 'terrestre_nacional');
+      const credits = client.service_credits.filter(c => c.service !== 'terrestre_nacional');
       
       services.forEach(s => {
         if (!existingServices.includes(s)) {
@@ -282,8 +282,8 @@ export default function ServiceCreditManagementPanel() {
       
       {summary && (
         <Grid container spacing={2} sx={{ mb: 3 }}>
-          {summary.services.map(svc => (
-            <Grid size={{ xs: 12, sm: 6, md: 2.4 }} key={svc.service}>
+          {summary.services.filter(svc => svc.service !== 'terrestre_nacional').map(svc => (
+            <Grid size={{ xs: 12, sm: 6, md: 3 }} key={svc.service}>
               <Card sx={{ 
                 bgcolor: `${SERVICE_COLORS[svc.service]}15`,
                 borderLeft: `4px solid ${SERVICE_COLORS[svc.service]}`
