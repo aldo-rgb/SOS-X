@@ -1052,6 +1052,27 @@ export default function DashboardClient() {
   const [showPendingPayments, setShowPendingPayments] = useState(false);
   const [paymentOrders, setPaymentOrders] = useState<any[]>([]);
   const [loadingPaymentOrders, setLoadingPaymentOrders] = useState(false);
+
+  // Créditos por servicio (modal)
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
+  const [serviceCredits, setServiceCredits] = useState<any[]>([]);
+  const [serviceCreditsTotals, setServiceCreditsTotals] = useState<{ credit_limit: number; used_credit: number; available_credit: number } | null>(null);
+  const [loadingServiceCredits, setLoadingServiceCredits] = useState(false);
+
+  const loadServiceCredits = async () => {
+    try {
+      setLoadingServiceCredits(true);
+      const res = await api.get('/my/service-credits');
+      if (res.data?.success) {
+        setServiceCredits(res.data.credits || []);
+        setServiceCreditsTotals(res.data.totals || null);
+      }
+    } catch (e) {
+      console.error('Error cargando créditos por servicio:', e);
+    } finally {
+      setLoadingServiceCredits(false);
+    }
+  };
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
   const [paymentInstructionsDialog, setPaymentInstructionsDialog] = useState<{
     open: boolean;
@@ -5089,10 +5110,24 @@ export default function DashboardClient() {
                         </Paper>
                       </Grid>
                       <Grid size={6}>
-                        <Paper sx={{ p: 2, bgcolor: 'grey.50', textAlign: 'center', borderRadius: 2 }}>
+                        <Paper
+                          onClick={() => { setShowCreditsModal(true); loadServiceCredits(); }}
+                          sx={{
+                            p: 2,
+                            bgcolor: 'grey.50',
+                            textAlign: 'center',
+                            borderRadius: 2,
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            '&:hover': { bgcolor: ORANGE + '15', transform: 'translateY(-2px)', boxShadow: 2 },
+                          }}
+                        >
                           <Typography variant="caption" color="text.secondary">{t('cd.account.creditAvailable')}</Typography>
                           <Typography variant="h5" fontWeight="bold" color="primary.main">
                             {formatCurrency(walletStatus?.available_credit || stats?.financiero.credito_disponible || 0)}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 600, display: 'block', mt: 0.5 }}>
+                            Ver detalle por servicio →
                           </Typography>
                         </Paper>
                       </Grid>
@@ -10404,6 +10439,148 @@ export default function DashboardClient() {
             sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' } }}
           >
             {t('cd.addPayment.addMethod')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* =============== DIALOG: CRÉDITOS POR SERVICIO =============== */}
+      <Dialog
+        open={showCreditsModal}
+        onClose={() => setShowCreditsModal(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: ORANGE, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <WalletIcon /> Mis Créditos por Servicio
+          </Box>
+          <IconButton onClick={() => setShowCreditsModal(false)} sx={{ color: 'white' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {/* Totales */}
+          <Box sx={{ p: 3, bgcolor: `linear-gradient(135deg, ${ORANGE}, #E55A00)`, background: `linear-gradient(135deg, ${ORANGE}, #E55A00)`, color: '#fff', textAlign: 'center' }}>
+            <Typography variant="caption" sx={{ opacity: 0.9 }}>Crédito Total Disponible</Typography>
+            <Typography variant="h3" fontWeight="bold" sx={{ my: 0.5 }}>
+              {formatCurrency(serviceCreditsTotals?.available_credit || 0)}
+            </Typography>
+            <Typography variant="caption" sx={{ opacity: 0.9 }}>MXN</Typography>
+            <Box sx={{ display: 'flex', gap: 2, mt: 2, justifyContent: 'center' }}>
+              <Box>
+                <Typography variant="caption" sx={{ opacity: 0.85, display: 'block' }}>Límite</Typography>
+                <Typography variant="body2" fontWeight="bold">{formatCurrency(serviceCreditsTotals?.credit_limit || 0)}</Typography>
+              </Box>
+              <Box sx={{ borderLeft: '1px solid rgba(255,255,255,0.3)' }} />
+              <Box>
+                <Typography variant="caption" sx={{ opacity: 0.85, display: 'block' }}>Utilizado</Typography>
+                <Typography variant="body2" fontWeight="bold">{formatCurrency(serviceCreditsTotals?.used_credit || 0)}</Typography>
+              </Box>
+            </Box>
+          </Box>
+
+          {/* Desglose por servicio */}
+          <Box sx={{ p: 3 }}>
+            {loadingServiceCredits ? (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <CircularProgress sx={{ color: ORANGE }} />
+              </Box>
+            ) : serviceCredits.length === 0 ? (
+              <Alert severity="info">
+                No tienes líneas de crédito activas. Contacta a tu asesor si deseas solicitar crédito.
+              </Alert>
+            ) : (
+              <>
+                <Typography variant="subtitle2" sx={{ mb: 2, color: '#666' }}>
+                  📊 Detalle por tipo de servicio
+                </Typography>
+                {serviceCredits.map((c: any) => {
+                  const limit = Number(c.credit_limit || 0);
+                  const used = Number(c.used_credit || 0);
+                  const available = Number(c.available_credit || 0);
+                  const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+                  const serviceNames: Record<string, string> = {
+                    aereo: '✈️ Aéreo',
+                    maritimo: '🚢 Marítimo',
+                    terrestre_nacional: '🚚 Terrestre Nacional',
+                    dhl_liberacion: '📦 DHL Liberación',
+                    po_box: '📮 PO Box USA',
+                  };
+                  return (
+                    <Paper
+                      key={c.service}
+                      variant="outlined"
+                      sx={{
+                        p: 2,
+                        mb: 1.5,
+                        borderRadius: 2,
+                        borderColor: c.is_blocked ? '#f44336' : limit === 0 ? '#e0e0e0' : '#FFE0C0',
+                        bgcolor: c.is_blocked ? '#FFEBEE' : 'transparent',
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Box>
+                          <Typography variant="body1" fontWeight="bold">
+                            {serviceNames[c.service] || c.service}
+                          </Typography>
+                          {c.company_name && (
+                            <Typography variant="caption" color="text.secondary">{c.company_name}</Typography>
+                          )}
+                        </Box>
+                        {c.is_blocked ? (
+                          <Chip label="🚫 Bloqueado" color="error" size="small" />
+                        ) : limit > 0 ? (
+                          <Chip label={`${c.credit_days || 15} días`} size="small" sx={{ bgcolor: ORANGE + '20', color: ORANGE, fontWeight: 'bold' }} />
+                        ) : (
+                          <Chip label="Sin crédito" size="small" sx={{ bgcolor: 'grey.200' }} />
+                        )}
+                      </Box>
+
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                        <Typography variant="caption" color="text.secondary">Disponible</Typography>
+                        <Typography variant="body2" fontWeight="bold" color="success.main">
+                          {formatCurrency(available)} MXN
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                        <Typography variant="caption" color="text.secondary">Utilizado</Typography>
+                        <Typography variant="body2" fontWeight="bold" sx={{ color: used > 0 ? '#E65100' : '#999' }}>
+                          {formatCurrency(used)} MXN
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                        <Typography variant="caption" color="text.secondary">Límite</Typography>
+                        <Typography variant="body2" fontWeight="bold">
+                          {formatCurrency(limit)} MXN
+                        </Typography>
+                      </Box>
+
+                      {limit > 0 && (
+                        <Box sx={{ width: '100%', height: 6, bgcolor: 'grey.200', borderRadius: 3, overflow: 'hidden' }}>
+                          <Box sx={{
+                            width: `${pct}%`,
+                            height: '100%',
+                            bgcolor: pct > 85 ? '#f44336' : pct > 60 ? '#FF9800' : '#4CAF50',
+                            transition: 'width 0.3s',
+                          }} />
+                        </Box>
+                      )}
+
+                      {Number(c.overdue_amount || 0) > 0 && (
+                        <Alert severity="warning" sx={{ mt: 1, py: 0.5 }}>
+                          ⚠️ Vencido: {formatCurrency(Number(c.overdue_amount))} MXN
+                        </Alert>
+                      )}
+                    </Paper>
+                  );
+                })}
+              </>
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          <Button onClick={() => setShowCreditsModal(false)} sx={{ color: ORANGE }}>
+            Cerrar
           </Button>
         </DialogActions>
       </Dialog>
