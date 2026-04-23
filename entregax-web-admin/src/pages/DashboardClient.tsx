@@ -1683,6 +1683,25 @@ export default function DashboardClient() {
     }
   };
 
+  const cancelPaymentOrder = async (orderId: number, reference?: string) => {
+    if (!window.confirm(`¿Estás seguro de cancelar la orden de pago${reference ? ` ${reference}` : ''}?\n\nLos paquetes volverán a estar disponibles para pago.`)) {
+      return;
+    }
+    try {
+      const response = await api.delete(`/pobox/payment/order/${orderId}`);
+      if (response.data?.success) {
+        setSnackbar({ open: true, message: `🗑️ Orden cancelada correctamente`, severity: 'success' });
+        loadPaymentOrders();
+        loadPendingPayments();
+      } else {
+        setSnackbar({ open: true, message: response.data?.error || 'No se pudo cancelar', severity: 'error' });
+      }
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.response?.data?.error || e.message;
+      setSnackbar({ open: true, message: `❌ ${msg}`, severity: 'error' });
+    }
+  };
+
   // Cargar direcciones de envío de cada servicio
   const loadServiceAddresses = async () => {
     try {
@@ -3251,6 +3270,15 @@ export default function DashboardClient() {
                             }}
                           ><AttachFileIcon fontSize="small" /></IconButton>
                         </Tooltip>
+                        {paymentOrderTab === 'active' && (
+                          <Tooltip title="Cancelar Orden" arrow>
+                            <IconButton
+                              size="small"
+                              sx={{ color: '#C62828', '&:hover': { bgcolor: 'rgba(198,40,40,0.08)' } }}
+                              onClick={() => cancelPaymentOrder(order.id, order.payment_reference)}
+                            ><DeleteIcon fontSize="small" /></IconButton>
+                          </Tooltip>
+                        )}
                       </Box>
                     </TableCell>
                   </TableRow>

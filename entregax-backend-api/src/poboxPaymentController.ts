@@ -1496,3 +1496,75 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
         res.status(500).json({ error: 'Error al obtener historial' });
     }
 };
+/**
+ * Cancelar/Eliminar una orden de pago pendiente del cliente
+ * Solo permite cancelar si la orden está en estado pendiente (no pagada)
+ */
+export const cancelPoboxPaymentOrder = async (req: AuthRequest, res: Response): Promise<any> => {
+    try {
+        const userId = req.user?.id;
+        if (!userId) return res.status(401).json({ error: 'No autenticado' });
+
+        const orderId = parseInt(req.params.id, 10);
+        if (!orderId || isNaN(orderId)) {
+            return res.status(400).json({ error: 'ID de orden inválido' });
+        }
+
+        // Verificar que la orden pertenezca al usuario y esté en estado cancelable
+        const orderRes = await pool.query(
+            `SELECT id, user_id, status, payment_reference
+             FROM pobox_payments
+             WHERE id = $1`,
+            [orderId]
+        );
+
+        if (orderRes.rows.length === 0) {
+            return res.status(404).json({ error: 'Orden no encontrada' });
+        }
+
+        const order = orderRes.rows[0];
+        if (Number(order.user_id) !== Number(userId)) {
+            return res.status(403).json({ error: 'No autorizado para esta orden' });
+        }
+
+        const cancelableStatuses = ['pending_payment', 'pending', 'vouchers_partial'];
+        if (!cancelableStatuses.includes(order.status)) {
+            return res.status(400).json({
+                error: 'No se puede cancelar',
+                message: `La orden está en estado "${order.status}" y no puede ser cancelada.`
+            });
+        }
+
+        // Marcar como cancelled
+        await pool.query(
+            `UPDATE pobox_payments
+             SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
+             WHERE id = $1`,
+            [orderId]
+        );
+
+        // Limpiar el log del dashboard para que los paquetes vuelvan a estar disponibles
+        try {
+            await pool.query(
+                `UPDATE openpay_webhook_logs
+                 SET estatus_procesamiento = 'cancelled'
+                 WHERE transaction_id = $1
+                   AND estatus_procesamiento = 'pending_payment'`,
+                [order.payment_reference]
+            );
+        } catch (e) {
+            console.warn('No se pudo actualizar webhook log al cancelar orden', e);
+        }
+
+        console.log(`🗑️ Orden de pago cancelada: ${order.payment_reference} (id ${orderId})`);
+
+        return res.json({
+            success: true,
+            message: 'Orden de pago cancelada correctamente',
+            reference: order.payment_reference
+        });
+    } catch (error) {
+        console.error('Error cancelando orden de pago PO Box:', error);
+        res.status(500).json({ error: 'Error al cancelar orden de pago' });
+    }
+};

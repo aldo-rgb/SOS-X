@@ -845,7 +845,8 @@ import {
   handlePoboxOpenpayWebhook,
   handlePoboxOpenpayCallback,
   getPoboxPendingPayments,
-  getPoboxPaymentHistory
+  getPoboxPaymentHistory,
+  cancelPoboxPaymentOrder
 } from './poboxPaymentController';
 import {
   listInTransitConsolidations,
@@ -2702,6 +2703,7 @@ app.post('/api/pobox/payment/create', authenticateToken, createPoboxPaypalPaymen
 app.post('/api/pobox/payment/capture', authenticateToken, capturePoboxPaypalPayment);    // Captura PayPal
 app.post('/api/pobox/payment/openpay/create', authenticateToken, createPoboxOpenpayPayment);  // OpenPay tarjeta
 app.post('/api/pobox/payment/cash/create', authenticateToken, createPoboxCashPayment);   // Efectivo/Transferencia
+app.delete('/api/pobox/payment/order/:id', authenticateToken, cancelPoboxPaymentOrder); // Cancelar orden de pago
 app.get('/api/pobox/payment/status/:paymentId', authenticateToken, getPoboxPaymentStatus);
 app.post('/api/pobox/payment/cash/confirm', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), confirmPoboxCashPayment); // Admin confirma pago efectivo
 app.get('/api/pobox/payment/history', authenticateToken, getPoboxPaymentHistory); // Historial del cliente
