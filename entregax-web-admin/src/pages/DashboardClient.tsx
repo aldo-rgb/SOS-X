@@ -917,8 +917,7 @@ export default function DashboardClient() {
   
   // Modal de Pago
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'card' | 'paypal' | 'branch'>('card');
-  const [requiresInvoice, setRequiresInvoice] = useState(false);
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'card' | 'paypal' | 'branch'>('card');  const [requiresInvoice, setRequiresInvoice] = useState(false);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [invoiceData, setInvoiceData] = useState({
     rfc: '',
@@ -4306,7 +4305,14 @@ export default function DashboardClient() {
                       px: isMobile ? 1.5 : 2,
                     }}
                     startIcon={<MoneyIcon sx={{ fontSize: isMobile ? 16 : 20 }} />}
-                    onClick={() => setPaymentModalOpen(true)}
+                    onClick={() => {
+                      // Multi-paquete: forzar Pago en Sucursal (solo opción disponible)
+                      if (getSelectedPackages().length > 1) {
+                        setSelectedPaymentMethod('branch');
+                        setRequiresInvoice(false);
+                      }
+                      setPaymentModalOpen(true);
+                    }}
                   >
                     {isMobile ? 'Pagar' : t('cd.packages.pay')}
                   </Button>
@@ -10021,6 +10027,10 @@ export default function DashboardClient() {
                 }}
               >
                 {paymentGatewayMethods.filter((method) => {
+                  // Multi-paquete: solo Pago en Sucursal
+                  if (getSelectedPackages().length > 1 && method.id !== 'branch') {
+                    return false;
+                  }
                   if (method.id === 'branch') {
                     const total = getSelectedPackages().reduce((sum, p) => sum + getPackageTotalMXN(p), 0);
                     return total >= 2500;
@@ -10262,7 +10272,9 @@ export default function DashboardClient() {
               fontSize: '1.1rem'
             }}
           >
-            {paymentLoading ? t('common.processing') : `💳 ${t('cd.payment.payButton', { amount: formatCurrency(getSelectedPackages().reduce((sum, p) => sum + getPackageTotalMXN(p), 0)) })}`}
+            {paymentLoading ? t('common.processing') : (getSelectedPackages().length > 1
+              ? `🧾 ${t('cd.payment.generateButton', { amount: formatCurrency(getSelectedPackages().reduce((sum, p) => sum + getPackageTotalMXN(p), 0)) })}`
+              : `💳 ${t('cd.payment.payButton', { amount: formatCurrency(getSelectedPackages().reduce((sum, p) => sum + getPackageTotalMXN(p), 0)) })}`)}
           </Button>
         </DialogActions>
       </Dialog>

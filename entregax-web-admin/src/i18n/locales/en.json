@@ -1348,7 +1348,7 @@
       "shippingInfo": "Shipping Information",
       "nextDestination": "Next Destination:",
       "destinationValue": "Warehouse → National Delivery",
-      "selectMethod": "Select your payment method",
+      "selectMethod": "Payment Instructions",
       "requireInvoice": "Do I need an invoice?",
       "branchNoInvoice": "Branch payment does not allow generating a fiscal invoice. Only a payment receipt is issued.",
       "invoiceInstructions": "If you need a CFDI 4.0 invoice, it will be generated automatically after payment with your fiscal data.",
@@ -1358,7 +1358,9 @@
       "fiscalComplete": "Fiscal data complete",
       "fiscalCompleteDetail": "Your saved fiscal data will be used to generate the invoice.",
       "processing": "Processing...",
-      "payAmount": "Pay {{amount}}"
+      "payAmount": "Pay {{amount}}",
+      "payButton": "Pay {{amount}}",
+      "generateButton": "Generate {{amount}}"
     },
     "fiscal": {
       "razonSocial": "Legal Name",

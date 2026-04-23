@@ -128,6 +128,14 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
     }
   }, [packages.length]);
 
+  // 📦 Multi-paquete: forzar pago en sucursal (único método permitido)
+  useEffect(() => {
+    if (packages.length > 1) {
+      setSelectedPaymentType('cash');
+      setRequireInvoice(false);
+    }
+  }, [packages.length]);
+
   // 🧾 Cargar datos fiscales y catálogos al montar
   useEffect(() => {
     loadFiscalData();
@@ -853,13 +861,16 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
           {/* ============ PASARELA DE PAGO ============ */}
           <Card style={styles.paymentCard}>
             <Card.Content>
-              <Text style={styles.paymentTitle}>💳 Selecciona tu método de pago</Text>
+              <Text style={styles.paymentTitle}>� Instrucciones de Pago</Text>
               <Divider style={styles.divider} />
 
               <RadioButton.Group
                 onValueChange={(value) => setSelectedPaymentType(value as PaymentType)}
                 value={selectedPaymentType}
               >
+                {/* Tarjeta y PayPal solo disponibles para pago individual (1 guía) */}
+                {packages.length <= 1 && (
+                <>
                 {/* Opción: Tarjeta */}
                 <TouchableOpacity
                   style={[
@@ -899,6 +910,8 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                     <Text style={styles.paymentOptionSublabel}>Pago rápido y seguro</Text>
                   </View>
                 </TouchableOpacity>
+                </>
+                )}
 
                 {/* Opción: Efectivo/Transferencia - Siempre disponible */}
                 <TouchableOpacity

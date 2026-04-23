@@ -1179,7 +1179,7 @@
       "shippingInfo": "运输信息",
       "nextDestination": "下一个目的地：",
       "destinationValue": "仓库 → 国内配送",
-      "selectMethod": "选择您的支付方式",
+      "selectMethod": "支付说明",
       "requireInvoice": "需要发票吗？",
       "branchNoInvoice": "网点付款不能生成税务发票。仅开具付款凭证。",
       "invoiceInstructions": "如果需要CFDI 4.0发票，付款后将使用您的税务信息自动生成。",
@@ -1189,7 +1189,8 @@
       "fiscalComplete": "税务信息完整",
       "fiscalCompleteDetail": "将使用您保存的税务信息生成发票。",
       "processing": "处理中...",
-      "payAmount": "支付 {{amount}}"
+      "payAmount": "支付 {{amount}}",
+      "generateButton": "生成 {{amount}}"
     },
     "fiscal": {
       "razonSocial": "公司名称",
