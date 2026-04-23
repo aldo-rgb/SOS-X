@@ -36,6 +36,30 @@ async function ensureServiceCreditsTable() {
       CREATE INDEX IF NOT EXISTS idx_usc_user ON user_service_credits(user_id);
       CREATE INDEX IF NOT EXISTS idx_usc_service ON user_service_credits(service);
     `);
+
+    // Garantiza la restricción UNIQUE(user_id, service) incluso en instalaciones
+    // antiguas donde la tabla se creó sin este constraint (causa del error
+    // "there is no unique or exclusion constraint matching the ON CONFLICT specification").
+    await pool.query(`
+      DO $$
+      BEGIN
+        -- Limpiar duplicados previos manteniendo el de mayor credit_limit
+        DELETE FROM user_service_credits a
+        USING user_service_credits b
+        WHERE a.user_id = b.user_id
+          AND a.service = b.service
+          AND a.id < b.id;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint
+          WHERE conname = 'user_service_credits_user_id_service_key'
+        ) THEN
+          ALTER TABLE user_service_credits
+          ADD CONSTRAINT user_service_credits_user_id_service_key
+          UNIQUE (user_id, service);
+        END IF;
+      END $$;
+    `);
     // Also ensure payment_invoices exists for the summary queries
     await pool.query(`
       CREATE TABLE IF NOT EXISTS payment_invoices (

@@ -659,8 +659,13 @@ export default function ServiceCreditManagementPanel() {
                         type="number"
                         size="small"
                         fullWidth
-                        value={credit.credit_limit}
-                        onChange={(e) => handleCreditChange(credit.service, 'credit_limit', parseFloat(e.target.value) || 0)}
+                        value={credit.credit_limit === 0 ? '' : credit.credit_limit}
+                        placeholder="0"
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          handleCreditChange(credit.service, 'credit_limit', v === '' ? 0 : (parseFloat(v) || 0));
+                        }}
                         InputProps={{
                           startAdornment: <InputAdornment position="start">$</InputAdornment>,
                         }}
@@ -672,8 +677,13 @@ export default function ServiceCreditManagementPanel() {
                         type="number"
                         size="small"
                         fullWidth
-                        value={credit.credit_days}
-                        onChange={(e) => handleCreditChange(credit.service, 'credit_days', parseInt(e.target.value) || 15)}
+                        value={credit.credit_days === 0 ? '' : credit.credit_days}
+                        placeholder="15"
+                        onFocus={(e) => e.target.select()}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          handleCreditChange(credit.service, 'credit_days', v === '' ? 0 : (parseInt(v) || 0));
+                        }}
                       />
                     </Grid>
                     <Grid size={{ xs: 12 }}>
