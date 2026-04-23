@@ -4306,6 +4306,35 @@ export default function DashboardClient() {
                     }}
                     startIcon={<MoneyIcon sx={{ fontSize: isMobile ? 16 : 20 }} />}
                     onClick={() => {
+                      // 🔒 Validar que ningún paquete esté ya en una orden de pago activa
+                      const activeStatuses = ['pending_payment', 'pending', 'vouchers_submitted', 'vouchers_partial'];
+                      const pkgsInOrders = new Set<number>();
+                      paymentOrders.forEach((o: any) => {
+                        if (!activeStatuses.includes(o.status)) return;
+                        const ids = Array.isArray(o.packages)
+                          ? o.packages.map((p: any) => Number(p.id))
+                          : Array.isArray(o.package_ids)
+                            ? o.package_ids.map((id: any) => Number(id))
+                            : [];
+                        ids.forEach((id: number) => pkgsInOrders.add(id));
+                      });
+                      const conflict = selectedPackageIds.filter(id => pkgsInOrders.has(Number(id)));
+                      if (conflict.length > 0) {
+                        const conflictTrackings = getSelectedPackages()
+                          .filter(p => conflict.includes(Number(p.id)))
+                          .map(p => (p as any).tracking_internal || (p as any).tracking || p.id)
+                          .slice(0, 3)
+                          .join(', ');
+                        setSnackbar({
+                          open: true,
+                          message: `⚠️ ${conflict.length} paquete(s) ya están en una orden de pago: ${conflictTrackings}${conflict.length > 3 ? '...' : ''}. Revisa "Mis Cuentas por Pagar".`,
+                          severity: 'warning',
+                        });
+                        setShowPendingPayments(true);
+                        loadPaymentOrders();
+                        return;
+                      }
+
                       // Multi-paquete: forzar Pago en Sucursal (solo opción disponible)
                       if (getSelectedPackages().length > 1) {
                         setSelectedPaymentMethod('branch');
