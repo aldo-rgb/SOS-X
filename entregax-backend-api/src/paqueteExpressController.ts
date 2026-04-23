@@ -663,14 +663,52 @@ export async function pqtxLabelPdf(req: Request, res: Response) {
       url += '&measure=4x6';
     }
 
+    console.log(`📄 [PQTX Label PDF] Solicitando: ${url}`);
+
     const response = await axios.get(url, {
       responseType: 'arraybuffer',
       timeout: 20000,
+      // No tirar en status 4xx/5xx para poder leer el body de error de PQTX
+      validateStatus: () => true,
     });
+
+    const buffer = Buffer.from(response.data);
+    const contentType = String(response.headers['content-type'] || '').toLowerCase();
+    const header = buffer.subarray(0, 5).toString('latin1');
+
+    console.log(`📄 [PQTX Label PDF] status=${response.status} size=${buffer.length} content-type="${contentType}" header="${header}"`);
+
+    // 🛡️ Validar que realmente sea un PDF (magic bytes %PDF-)
+    if (response.status !== 200 || !header.startsWith('%PDF-')) {
+      // PQTX devolvió HTML, JSON o texto de error
+      let errorMessage = `PQTX no devolvió un PDF válido (HTTP ${response.status})`;
+      const bodyPreview = buffer.toString('utf8', 0, Math.min(buffer.length, 500));
+      console.error(`❌ [PQTX Label PDF] Respuesta inválida. Body preview:\n${bodyPreview}`);
+
+      // Intentar extraer mensaje útil
+      if (contentType.includes('application/json')) {
+        try {
+          const json = JSON.parse(bodyPreview);
+          errorMessage = json.error || json.message || json.desTrans || errorMessage;
+        } catch { /* ignore */ }
+      } else if (contentType.includes('text/html')) {
+        const titleMatch = bodyPreview.match(/<title>([^<]+)<\/title>/i);
+        if (titleMatch) errorMessage = `PQTX: ${titleMatch[1].trim()}`;
+      } else if (bodyPreview.trim().length > 0 && bodyPreview.length < 300) {
+        errorMessage = `PQTX: ${bodyPreview.trim()}`;
+      }
+
+      return res.status(502).json({
+        success: false,
+        error: errorMessage,
+        tracking: trackingNumber,
+        pqtxStatus: response.status,
+      });
+    }
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `inline; filename=PQTX_${trackingNumber}.pdf`);
-    res.send(response.data);
+    res.send(buffer);
   } catch (error: any) {
     console.error('Error en PQTX etiqueta PDF:', error.message);
     res.status(500).json({ success: false, error: error.message });
