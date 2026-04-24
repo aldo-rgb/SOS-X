@@ -4,7 +4,7 @@ import {
   Button, Chip, CircularProgress, Alert, Tabs, Tab, Table, TableHead, TableRow, TableCell,
   TableBody, IconButton, TextField, InputAdornment, Menu, MenuItem, Divider, Tooltip,
   Dialog, DialogTitle, DialogContent, DialogActions, FormControl, InputLabel, Select,
-  FormControlLabel, Switch, Stack,
+  FormControlLabel, Switch, Stack, Snackbar,
 } from '@mui/material';
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
@@ -28,6 +28,9 @@ import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
 import SyncIcon from '@mui/icons-material/Sync';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
+import PaidIcon from '@mui/icons-material/Paid';
+import ThumbUpIcon from '@mui/icons-material/ThumbUp';
+import ThumbDownIcon from '@mui/icons-material/ThumbDown';
 import axios from 'axios';
 
 const ORANGE = '#F05A28';
@@ -286,6 +289,7 @@ function EmitterDashboard({ emitter }: { emitter: Emitter }) {
           <Tab label="Pendientes por Timbrar" icon={<PendingActionsIcon />} iconPosition="start" />
           <Tab label="Inventarios" icon={<Inventory2Icon />} iconPosition="start" />
           <Tab label="Facturas Recibidas" icon={<MoveToInboxIcon />} iconPosition="start" />
+          <Tab label="Cuentas por Pagar" icon={<PaidIcon />} iconPosition="start" />
           <Tab label="Movimientos Banco" icon={<AccountBalanceIcon />} iconPosition="start" />
         </Tabs>
 
@@ -294,7 +298,8 @@ function EmitterDashboard({ emitter }: { emitter: Emitter }) {
           {tab === 1 && <PendingStampTab emitter={emitter} />}
           {tab === 2 && <InventoryTab emitter={emitter} />}
           {tab === 3 && <ReceivedInvoicesTab emitter={emitter} />}
-          {tab === 4 && <BankMovementsTab emitter={emitter} />}
+          {tab === 4 && <AccountsPayableTab emitter={emitter} />}
+          {tab === 5 && <BankMovementsTab emitter={emitter} />}
         </Box>
       </Paper>
     </Box>
@@ -1286,6 +1291,254 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
           </Table>
         </Paper>
       )}
+    </Box>
+  );
+}
+
+// =======================================================================
+// CUENTAS POR PAGAR (Facturama + manual + descarga masiva)
+// =======================================================================
+function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [totals, setTotals] = useState<any>({});
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState<'pending' | 'approved' | 'rejected' | 'paid'>('pending');
+  const [search, setSearch] = useState('');
+  const [actionDlg, setActionDlg] = useState<{ open: boolean; mode: 'approve' | 'reject' | 'pay' | null; row: any | null }>({ open: false, mode: null, row: null });
+  const [actionForm, setActionForm] = useState<any>({});
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' as 'success' | 'error' | 'info' | 'warning' });
+  const [syncing, setSyncing] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const params: any = { status: statusFilter };
+      if (search.trim()) params.q = search.trim();
+      const res = await api.get(`/accounting/${emitter.id}/payables`, { params });
+      setRows(res.data.data || []);
+      setTotals(res.data.totals || {});
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error cargando CxP', severity: 'error' });
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [emitter.id, statusFilter]);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      const today = new Date();
+      const ago = new Date(today); ago.setDate(today.getDate() - 30);
+      const r = await api.post(`/admin/facturama/sync/${emitter.id}`, {
+        from: ago.toISOString().slice(0, 10),
+        to: today.toISOString().slice(0, 10)
+      });
+      setSnackbar({ open: true, message: `✅ ${r.data.inserted} nuevas, ${r.data.skipped} omitidas`, severity: 'success' });
+      load();
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.detail || e.response?.data?.error || 'Error sincronizando con Facturama', severity: 'error' });
+    } finally { setSyncing(false); }
+  };
+
+  const openAction = (mode: 'approve' | 'reject' | 'pay', row: any) => {
+    setActionForm(mode === 'pay'
+      ? { paid_amount: row.total, paid_reference: '', paid_at: new Date().toISOString().slice(0, 10) }
+      : mode === 'approve'
+        ? { due_date: '', scheduled_payment_date: '', notes: '' }
+        : { reason: '' });
+    setActionDlg({ open: true, mode, row });
+  };
+
+  const submitAction = async () => {
+    const { mode, row } = actionDlg;
+    if (!row || !mode) return;
+    try {
+      await api.post(`/accounting/${emitter.id}/payables/${row.id}/${mode}`, actionForm);
+      setSnackbar({ open: true, message: '✅ Operación realizada', severity: 'success' });
+      setActionDlg({ open: false, mode: null, row: null });
+      load();
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e.response?.data?.error || 'Error en operación', severity: 'error' });
+    }
+  };
+
+  const fmt = (n: any) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(parseFloat(n) || 0);
+  const fmtDate = (d: any) => d ? new Date(d).toLocaleDateString() : '—';
+  const sourceLabel = (s: string) => ({
+    facturama_webhook: 'Facturama (webhook)',
+    facturama_sync:    'Facturama (sync)',
+    manual:            'Manual',
+    sat_descarga_masiva: 'SAT'
+  } as any)[s] || s || '—';
+
+  return (
+    <Box>
+      {/* KPIs */}
+      <Grid container spacing={2} sx={{ mb: 2 }}>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <Card sx={{ borderLeft: `4px solid #ed6c02` }}><CardContent>
+            <Typography variant="caption" color="text.secondary">Pendientes de aprobar</Typography>
+            <Typography variant="h6" fontWeight="bold">{totals.pending_count || 0}</Typography>
+            <Typography variant="caption">{fmt(totals.pending_total)}</Typography>
+          </CardContent></Card>
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <Card sx={{ borderLeft: `4px solid #1976d2` }}><CardContent>
+            <Typography variant="caption" color="text.secondary">Aprobadas sin pagar</Typography>
+            <Typography variant="h6" fontWeight="bold">{totals.approved_unpaid_count || 0}</Typography>
+            <Typography variant="caption">{fmt(totals.approved_unpaid_total)}</Typography>
+          </CardContent></Card>
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <Card sx={{ borderLeft: `4px solid #2e7d32` }}><CardContent>
+            <Typography variant="caption" color="text.secondary">Pagadas</Typography>
+            <Typography variant="h6" fontWeight="bold">{totals.paid_count || 0}</Typography>
+            <Typography variant="caption">{fmt(totals.paid_total)}</Typography>
+          </CardContent></Card>
+        </Grid>
+        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+          <Card sx={{ borderLeft: `4px solid ${ORANGE}` }}><CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Facturama</Typography>
+              <Typography variant="body2" fontWeight={600}>Sincronizar 30 días</Typography>
+            </Box>
+            <IconButton onClick={handleSync} disabled={syncing} sx={{ bgcolor: ORANGE, color: 'white', '&:hover': { bgcolor: BLACK } }}>
+              {syncing ? <CircularProgress size={18} sx={{ color: 'white' }} /> : <SyncIcon />}
+            </IconButton>
+          </CardContent></Card>
+        </Grid>
+      </Grid>
+
+      {/* Filtros */}
+      <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+        <Tabs value={statusFilter} onChange={(_, v) => setStatusFilter(v)} sx={{ '& .MuiTabs-indicator': { bgcolor: ORANGE } }}>
+          <Tab value="pending"  label={`Pendientes (${totals.pending_count || 0})`} />
+          <Tab value="approved" label={`Aprobadas (${totals.approved_unpaid_count || 0})`} />
+          <Tab value="paid"     label={`Pagadas (${totals.paid_count || 0})`} />
+          <Tab value="rejected" label="Rechazadas" />
+        </Tabs>
+        <Box sx={{ flex: 1 }} />
+        <TextField size="small" placeholder="Buscar UUID, RFC, folio…" value={search}
+          onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && load()}
+          sx={{ minWidth: 280 }}
+          InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }} />
+        <Button onClick={load} variant="contained" size="small" sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: BLACK }, textTransform: 'none' }}>Filtrar</Button>
+      </Box>
+
+      {loading ? (
+        <Box sx={{ py: 4, textAlign: 'center' }}><CircularProgress sx={{ color: ORANGE }} /></Box>
+      ) : rows.length === 0 ? (
+        <Alert severity="info">Sin facturas en este estado.</Alert>
+      ) : (
+        <Paper>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell>Proveedor</TableCell>
+                <TableCell>UUID / Folio</TableCell>
+                <TableCell>Origen</TableCell>
+                <TableCell>Emisión</TableCell>
+                <TableCell>Vencimiento</TableCell>
+                <TableCell align="right">Total</TableCell>
+                <TableCell>Estado</TableCell>
+                <TableCell align="center">Acciones</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {rows.map(r => (
+                <TableRow key={r.id} hover>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight={600}>{r.emisor_nombre || '—'}</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>{r.emisor_rfc || ''}</Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{r.uuid_sat?.slice(0, 8)}…</Typography>
+                    <Typography variant="caption" display="block" color="text.secondary">{[r.serie, r.folio].filter(Boolean).join(' ')}</Typography>
+                  </TableCell>
+                  <TableCell><Chip size="small" label={sourceLabel(r.detection_source)} variant="outlined" /></TableCell>
+                  <TableCell>{fmtDate(r.fecha_emision)}</TableCell>
+                  <TableCell>{fmtDate(r.due_date)}</TableCell>
+                  <TableCell align="right" sx={{ fontWeight: 600 }}>{fmt(r.total)} <Typography variant="caption" color="text.secondary">{r.moneda}</Typography></TableCell>
+                  <TableCell>
+                    {r.payment_status === 'paid' ? (
+                      <Chip size="small" color="success" label="Pagada" icon={<PaidIcon />} />
+                    ) : r.approval_status === 'approved' ? (
+                      <Chip size="small" color="info" label="Aprobada" icon={<CheckCircleIcon />} />
+                    ) : r.approval_status === 'rejected' ? (
+                      <Chip size="small" color="error" label="Rechazada" icon={<CancelIcon />} />
+                    ) : (
+                      <Chip size="small" color="warning" label="Pendiente" icon={<PendingActionsIcon />} />
+                    )}
+                  </TableCell>
+                  <TableCell align="center">
+                    <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                      {r.pdf_url && <IconButton size="small" component="a" href={r.pdf_url} target="_blank"><PictureAsPdfIcon fontSize="small" /></IconButton>}
+                      {r.xml_url && <IconButton size="small" component="a" href={r.xml_url} target="_blank"><CodeIcon fontSize="small" /></IconButton>}
+                      {r.approval_status === 'pending' && (
+                        <>
+                          <Tooltip title="Aprobar"><IconButton size="small" color="success" onClick={() => openAction('approve', r)}><ThumbUpIcon fontSize="small" /></IconButton></Tooltip>
+                          <Tooltip title="Rechazar"><IconButton size="small" color="error" onClick={() => openAction('reject', r)}><ThumbDownIcon fontSize="small" /></IconButton></Tooltip>
+                        </>
+                      )}
+                      {r.approval_status === 'approved' && r.payment_status !== 'paid' && (
+                        <Tooltip title="Marcar como pagada"><IconButton size="small" color="primary" onClick={() => openAction('pay', r)}><PaidIcon fontSize="small" /></IconButton></Tooltip>
+                      )}
+                    </Box>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Paper>
+      )}
+
+      {/* Diálogo de acción */}
+      <Dialog open={actionDlg.open} onClose={() => setActionDlg({ open: false, mode: null, row: null })} maxWidth="sm" fullWidth>
+        <DialogTitle>
+          {actionDlg.mode === 'approve' && '✅ Aprobar factura'}
+          {actionDlg.mode === 'reject'  && '❌ Rechazar factura'}
+          {actionDlg.mode === 'pay'     && '💰 Marcar como pagada'}
+        </DialogTitle>
+        <DialogContent>
+          {actionDlg.row && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              <strong>{actionDlg.row.emisor_nombre}</strong> · {fmt(actionDlg.row.total)} {actionDlg.row.moneda}
+            </Alert>
+          )}
+          {actionDlg.mode === 'approve' && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+              <TextField type="date" label="Fecha de vencimiento" InputLabelProps={{ shrink: true }} size="small"
+                value={actionForm.due_date} onChange={(e) => setActionForm({ ...actionForm, due_date: e.target.value })} />
+              <TextField type="date" label="Fecha programada de pago" InputLabelProps={{ shrink: true }} size="small"
+                value={actionForm.scheduled_payment_date} onChange={(e) => setActionForm({ ...actionForm, scheduled_payment_date: e.target.value })} />
+              <TextField label="Notas (opcional)" size="small" multiline rows={2}
+                value={actionForm.notes} onChange={(e) => setActionForm({ ...actionForm, notes: e.target.value })} />
+            </Box>
+          )}
+          {actionDlg.mode === 'reject' && (
+            <TextField label="Motivo del rechazo" size="small" fullWidth multiline rows={3} sx={{ mt: 1 }}
+              value={actionForm.reason} onChange={(e) => setActionForm({ ...actionForm, reason: e.target.value })} />
+          )}
+          {actionDlg.mode === 'pay' && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+              <TextField label="Monto pagado" type="number" size="small"
+                value={actionForm.paid_amount} onChange={(e) => setActionForm({ ...actionForm, paid_amount: e.target.value })} />
+              <TextField label="Referencia / folio de pago" size="small"
+                value={actionForm.paid_reference} onChange={(e) => setActionForm({ ...actionForm, paid_reference: e.target.value })} />
+              <TextField type="date" label="Fecha de pago" InputLabelProps={{ shrink: true }} size="small"
+                value={actionForm.paid_at} onChange={(e) => setActionForm({ ...actionForm, paid_at: e.target.value })} />
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setActionDlg({ open: false, mode: null, row: null })}>Cancelar</Button>
+          <Button variant="contained" onClick={submitAction} sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: BLACK } }}>Confirmar</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
+        <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>{snackbar.message}</Alert>
+      </Snackbar>
     </Box>
   );
 }

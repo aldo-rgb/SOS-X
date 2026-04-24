@@ -149,6 +149,20 @@ export default function FiscalPage() {
   const [belvoStats, setBelvoStats] = useState<any>(null);
   const [syncingBelvo, setSyncingBelvo] = useState<number | null>(null);
 
+  // Modal Facturama (recepción CFDI)
+  const [openFacturamaModal, setOpenFacturamaModal] = useState(false);
+  const [selectedEmpresaFacturama, setSelectedEmpresaFacturama] = useState<any>(null);
+  const [facturamaForm, setFacturamaForm] = useState({
+    facturama_username: '',
+    facturama_password: '',
+    facturama_environment: 'sandbox',
+    facturama_reception_enabled: true,
+    facturama_webhook_secret: ''
+  });
+  const [facturamaConfig, setFacturamaConfig] = useState<any>(null);
+  const [savingFacturama, setSavingFacturama] = useState(false);
+  const [syncingFacturama, setSyncingFacturama] = useState(false);
+
   const getToken = () => localStorage.getItem('token');
 
   const loadData = useCallback(async () => {
@@ -521,6 +535,87 @@ export default function FiscalPage() {
     }
   };
 
+  // ========== FUNCIONES DE FACTURAMA ==========
+  const handleOpenFacturamaModal = async (emitter: any) => {
+    setSelectedEmpresaFacturama(emitter);
+    setFacturamaConfig(null);
+    setFacturamaForm({
+      facturama_username: '',
+      facturama_password: '',
+      facturama_environment: emitter.facturama_environment || 'sandbox',
+      facturama_reception_enabled: emitter.facturama_reception_enabled ?? true,
+      facturama_webhook_secret: ''
+    });
+    setOpenFacturamaModal(true);
+    try {
+      const r = await axios.get(`${API_URL}/admin/facturama/config/${emitter.id}`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      setFacturamaConfig(r.data);
+      setFacturamaForm(f => ({
+        ...f,
+        facturama_username: r.data.facturama_username || '',
+        facturama_environment: r.data.facturama_environment || 'sandbox',
+        facturama_reception_enabled: r.data.facturama_reception_enabled ?? true
+      }));
+    } catch { /* sin config previa */ }
+  };
+
+  const handleSaveFacturamaConfig = async () => {
+    if (!selectedEmpresaFacturama) return;
+    if (!facturamaForm.facturama_username || !facturamaForm.facturama_password) {
+      setSnackbar({ open: true, message: 'Usuario y contraseña son requeridos', severity: 'error' });
+      return;
+    }
+    setSavingFacturama(true);
+    try {
+      const r = await axios.post(`${API_URL}/admin/facturama/config`, {
+        emitter_id: selectedEmpresaFacturama.id,
+        ...facturamaForm
+      }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      const okText = r.data.connection_ok ? '✅ Conexión validada' : '⚠️ Guardado, pero conexión no validada';
+      setSnackbar({
+        open: true,
+        message: `${okText}. Webhook URL: ${r.data.webhook_url}`,
+        severity: r.data.connection_ok ? 'success' : 'warning'
+      });
+      setOpenFacturamaModal(false);
+      loadData();
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.error || 'Error guardando Facturama', severity: 'error' });
+    } finally {
+      setSavingFacturama(false);
+    }
+  };
+
+  const handleSyncFacturama = async () => {
+    if (!selectedEmpresaFacturama) return;
+    setSyncingFacturama(true);
+    try {
+      const today = new Date();
+      const monthAgo = new Date(today);
+      monthAgo.setDate(today.getDate() - 30);
+      const r = await axios.post(`${API_URL}/admin/facturama/sync/${selectedEmpresaFacturama.id}`, {
+        from: monthAgo.toISOString().slice(0, 10),
+        to: today.toISOString().slice(0, 10)
+      }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setSnackbar({
+        open: true,
+        message: `✅ Sincronización: ${r.data.inserted} nuevas, ${r.data.skipped} omitidas (de ${r.data.total_found})`,
+        severity: 'success'
+      });
+      loadData();
+    } catch (error: any) {
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.detail || error.response?.data?.error || 'Error sincronizando',
+        severity: 'error'
+      });
+    } finally {
+      setSyncingFacturama(false);
+    }
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
@@ -653,6 +748,7 @@ export default function FiscalPage() {
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Banco</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>PayPal</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Belvo</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>Facturama</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Estado' : 'Status'}</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Acciones' : 'Actions'}</TableCell>
                 </TableRow>
@@ -779,6 +875,32 @@ export default function FiscalPage() {
                         </Tooltip>
                       )}
                     </TableCell>
+                    {/* Facturama */}
+                    <TableCell align="center">
+                      {(emitter as any).facturama_configured ? (
+                        <Tooltip title={`Facturama (${(emitter as any).facturama_environment || 'sandbox'}) - Recepción ${(emitter as any).facturama_reception_enabled ? 'ON' : 'OFF'}`}>
+                          <Chip
+                            icon={<ReceiptLongIcon />}
+                            label={(emitter as any).facturama_environment === 'production' ? 'Prod' : 'Sand'}
+                            color={(emitter as any).facturama_environment === 'production' ? 'success' : 'warning'}
+                            size="small"
+                            onClick={() => handleOpenFacturamaModal(emitter)}
+                            sx={{ cursor: 'pointer' }}
+                          />
+                        </Tooltip>
+                      ) : (
+                        <Tooltip title="Configurar Facturama para recepción automática de CFDI (Cuentas por Pagar)">
+                          <Chip
+                            icon={<SettingsIcon />}
+                            label="Configurar"
+                            color="default"
+                            size="small"
+                            onClick={() => handleOpenFacturamaModal(emitter)}
+                            sx={{ cursor: 'pointer' }}
+                          />
+                        </Tooltip>
+                      )}
+                    </TableCell>
                     <TableCell align="center">
                       <Chip 
                         label={emitter.is_active ? (i18n.language === 'es' ? 'Activa' : 'Active') : (i18n.language === 'es' ? 'Inactiva' : 'Inactive')}
@@ -794,7 +916,7 @@ export default function FiscalPage() {
                   </TableRow>
                 )) : (
                   <TableRow>
-                    <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
                       <BusinessIcon sx={{ fontSize: 48, color: 'grey.300', mb: 1 }} />
                       <Typography color="text.secondary">
                         {i18n.language === 'es' ? 'No hay empresas registradas. Agrega tu primera empresa emisora.' : 'No companies registered. Add your first issuing company.'}
@@ -1433,6 +1555,114 @@ export default function FiscalPage() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setOpenBelvoModal(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ========== MODAL FACTURAMA — Recepción CFDI ========== */}
+      <Dialog open={openFacturamaModal} onClose={() => setOpenFacturamaModal(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#0a3d62', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ReceiptLongIcon /> Facturama — Recepción Automática de CFDI
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3, mt: 1 }}>
+          {selectedEmpresaFacturama && (
+            <>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Configurando para: <strong>{selectedEmpresaFacturama.alias}</strong> ({selectedEmpresaFacturama.rfc}).
+                Las facturas recibidas entrarán automáticamente a Cuentas por Pagar como <strong>Pendientes de Aprobación</strong>.
+              </Alert>
+
+              {facturamaConfig?.facturama_configured && (
+                <Alert severity="success" sx={{ mb: 2 }}>
+                  Ya configurado · ambiente: <strong>{facturamaConfig.facturama_environment}</strong>
+                  {facturamaConfig.facturama_last_sync && (
+                    <> · última sync: {new Date(facturamaConfig.facturama_last_sync).toLocaleString()}
+                       ({facturamaConfig.facturama_last_sync_count || 0} facturas)</>
+                  )}
+                </Alert>
+              )}
+
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Ambiente</InputLabel>
+                  <Select
+                    label="Ambiente"
+                    value={facturamaForm.facturama_environment}
+                    onChange={(e) => setFacturamaForm(f => ({ ...f, facturama_environment: e.target.value as string }))}
+                  >
+                    <MenuItem value="sandbox">Sandbox (pruebas)</MenuItem>
+                    <MenuItem value="production">Producción</MenuItem>
+                  </Select>
+                </FormControl>
+
+                <TextField
+                  label="Usuario Facturama"
+                  fullWidth
+                  size="small"
+                  value={facturamaForm.facturama_username}
+                  onChange={(e) => setFacturamaForm(f => ({ ...f, facturama_username: e.target.value }))}
+                  helperText="Usuario o email de la cuenta Facturama (multi-emisor)"
+                />
+
+                <TextField
+                  label="Contraseña Facturama"
+                  type="password"
+                  fullWidth
+                  size="small"
+                  value={facturamaForm.facturama_password}
+                  onChange={(e) => setFacturamaForm(f => ({ ...f, facturama_password: e.target.value }))}
+                  helperText={facturamaConfig?.has_password ? 'Dejar vacío para conservar la actual' : 'Contraseña de la cuenta'}
+                />
+
+                <TextField
+                  label="Webhook Secret (HMAC SHA256)"
+                  fullWidth
+                  size="small"
+                  value={facturamaForm.facturama_webhook_secret}
+                  onChange={(e) => setFacturamaForm(f => ({ ...f, facturama_webhook_secret: e.target.value }))}
+                  helperText="Opcional. Se usa para validar la firma del webhook entrante."
+                />
+
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={facturamaForm.facturama_reception_enabled}
+                      onChange={(e) => setFacturamaForm(f => ({ ...f, facturama_reception_enabled: e.target.checked }))}
+                    />
+                  }
+                  label="Activar recepción automática de CFDI"
+                />
+
+                <Alert severity="warning" sx={{ fontSize: 12 }}>
+                  📡 <strong>Webhook URL</strong> (configurar en Facturama tras guardar):<br/>
+                  <code style={{ fontSize: 11 }}>
+                    {`${API_URL.replace('/api','')}/api/webhooks/facturama/${selectedEmpresaFacturama.id}`}
+                  </code>
+                </Alert>
+              </Box>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          {facturamaConfig?.facturama_configured && (
+            <Button
+              onClick={handleSyncFacturama}
+              disabled={syncingFacturama}
+              startIcon={syncingFacturama ? <CircularProgress size={16} /> : <SyncIcon />}
+            >
+              Sincronizar últimos 30 días
+            </Button>
+          )}
+          <Box sx={{ flex: 1 }} />
+          <Button onClick={() => setOpenFacturamaModal(false)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveFacturamaConfig}
+            disabled={savingFacturama}
+            startIcon={savingFacturama ? <CircularProgress size={16} /> : <SaveIcon />}
+            sx={{ bgcolor: '#0a3d62', '&:hover': { bgcolor: '#082c47' } }}
+          >
+            Guardar
+          </Button>
         </DialogActions>
       </Dialog>
 

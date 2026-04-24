@@ -173,6 +173,17 @@ import {
   webhookHandler as handleBelvoWebhook,
 } from './belvoController';
 import {
+  getFacturamaConfig,
+  saveFacturamaConfig,
+  testFacturamaConnection,
+  syncFacturamaReceived,
+  handleFacturamaWebhook,
+  listAccountsPayable,
+  approveAccountPayable,
+  rejectAccountPayable,
+  markPayablePaid,
+} from './facturamaController';
+import {
   getServiceInstructions,
   getAllServiceInstructions,
   updateServiceInstructions,
@@ -3019,6 +3030,21 @@ app.post('/api/admin/belvo/match', authenticateToken, requireMinLevel(ROLES.ADMI
 app.post('/api/admin/belvo/ignore', authenticateToken, requireMinLevel(ROLES.ADMIN), belvoIgnoreTransaction);
 // Webhook (público, recibe notificaciones de Belvo)
 app.post('/api/webhooks/belvo', handleBelvoWebhook);
+
+// ============================================
+// FACTURAMA — Recepción automática de CFDI multi-emisor + Cuentas por Pagar
+// ============================================
+app.get('/api/admin/facturama/config/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getFacturamaConfig);
+app.post('/api/admin/facturama/config', authenticateToken, requireMinLevel(ROLES.DIRECTOR), saveFacturamaConfig);
+app.post('/api/admin/facturama/test/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), testFacturamaConnection);
+app.post('/api/admin/facturama/sync/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), syncFacturamaReceived);
+// Webhook público (firma validada con secret por emisor)
+app.post('/api/webhooks/facturama/:emitterId', handleFacturamaWebhook);
+// Cuentas por Pagar (admin/director/super_admin/contador con permiso al emisor)
+app.get('/api/accounting/:emitterId/payables', authenticateToken, listAccountsPayable);
+app.post('/api/accounting/:emitterId/payables/:invoiceId/approve', authenticateToken, approveAccountPayable);
+app.post('/api/accounting/:emitterId/payables/:invoiceId/reject', authenticateToken, rejectAccountPayable);
+app.post('/api/accounting/:emitterId/payables/:invoiceId/pay', authenticateToken, markPayablePaid);
 // Cliente: obtener su CLABE para pagar
 app.get('/api/my-clabe', authenticateToken, async (req: Request, res: Response) => {
   const userId = (req as any).user?.userId;
