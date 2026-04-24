@@ -2,11 +2,12 @@
  * fiscalController.ts
  * 
  * Controlador para manejo de datos fiscales y facturación CFDI 4.0
- * Integración con Facturapi
+ * Integración con Facturama (multiemisor)
  */
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { FacturamaClient, FacturamaError } from './facturamaClient';
 
 // Interfaz extendida de Request con usuario autenticado
 interface AuthRequest extends Request {
@@ -184,6 +185,7 @@ export const getFacturasUsuario = async (req: AuthRequest, res: Response): Promi
     const result = await pool.query(`
       SELECT 
         id,
+        facturama_id,
         facturapi_id,
         uuid_sat,
         receptor_rfc,
@@ -214,7 +216,7 @@ export const getFacturasUsuario = async (req: AuthRequest, res: Response): Promi
 };
 
 // ============================================
-// CREAR FACTURA CON FACTURAPI
+// CREAR FACTURA CON FACTURAMA
 // (Llamado desde webhook de Openpay cuando el pago es exitoso)
 // ============================================
 
@@ -265,46 +267,40 @@ export const createInvoice = async (
       return { success: false, error: 'Datos fiscales incompletos' };
     }
 
-    // 2. Obtener API key de Facturapi desde fiscal_emitters
-    // Buscar por tipo de servicio o usar el emisor activo por defecto
+    // 2. Resolver emisor (con credenciales Facturama). Buscar por servicio o por defecto.
     const serviceType = SERVICE_TYPE_MAP_FISCAL[paymentData.serviceType || 'po_box'] || 'POBOX_USA';
     
-    let apiKey: string | null = null;
-    let emitterAlias: string | null = null;
-    let emitterId: number | null = null;
+    let emitter: any = null;
 
-    // Primero intentar por servicio específico
     const configByService = await pool.query(`
-      SELECT fe.id, fe.api_key, fe.alias, fe.is_sandbox
+      SELECT fe.id, fe.alias, fe.rfc, fe.business_name, fe.fiscal_regime, fe.zip_code,
+             fe.facturama_username, fe.facturama_password, fe.facturama_environment
       FROM service_company_config scc
       JOIN fiscal_emitters fe ON scc.emitter_id = fe.id
       WHERE scc.service_type = $1 AND scc.is_active = TRUE AND fe.is_active = TRUE
+        AND fe.facturama_username IS NOT NULL AND fe.facturama_password IS NOT NULL
     `, [serviceType]);
 
-    if (configByService.rows.length > 0 && configByService.rows[0].api_key) {
-      apiKey = configByService.rows[0].api_key;
-      emitterAlias = configByService.rows[0].alias;
-      emitterId = configByService.rows[0].id;
-      console.log(`🔑 Facturapi API key from service config (${serviceType}) -> ${emitterAlias}`);
+    if (configByService.rows.length > 0) {
+      emitter = configByService.rows[0];
+      console.log(`🔑 Facturama emisor por servicio (${serviceType}) -> ${emitter.alias}`);
     } else {
-      // Fallback: buscar emisor activo por defecto
       const defaultEmitter = await pool.query(`
-        SELECT id, api_key, alias, is_sandbox
+        SELECT id, alias, rfc, business_name, fiscal_regime, zip_code,
+               facturama_username, facturama_password, facturama_environment
         FROM fiscal_emitters 
-        WHERE is_active = TRUE AND api_key IS NOT NULL
+        WHERE is_active = TRUE
+          AND facturama_username IS NOT NULL AND facturama_password IS NOT NULL
         ORDER BY id LIMIT 1
       `);
-
       if (defaultEmitter.rows.length > 0) {
-        apiKey = defaultEmitter.rows[0].api_key;
-        emitterAlias = defaultEmitter.rows[0].alias;
-        emitterId = defaultEmitter.rows[0].id;
-        console.log(`🔑 Facturapi API key from default emitter -> ${emitterAlias}`);
+        emitter = defaultEmitter.rows[0];
+        console.log(`🔑 Facturama emisor por defecto -> ${emitter.alias}`);
       }
     }
 
-    if (!apiKey) {
-      return { success: false, error: 'API key de Facturapi no configurada para este servicio' };
+    if (!emitter) {
+      return { success: false, error: 'No hay emisor con credenciales Facturama configurado para este servicio' };
     }
 
     // 3. Mapear método de pago a clave SAT
@@ -317,65 +313,57 @@ export const createInvoice = async (
         paymentForm = '03'; // Transferencia electrónica
         break;
       case 'paypal':
-        paymentForm = '31'; // Intermediario pagos (como PayPal)
+        paymentForm = '31'; // Intermediario pagos
         break;
       default:
-        paymentForm = '99'; // Por definir
+        paymentForm = '99';
     }
 
-    // 4. Construir payload para Facturapi
-    const invoiceData = {
-      customer: {
-        legal_name: fiscalData.fiscal_razon_social,
-        tax_id: fiscalData.fiscal_rfc,
-        tax_system: fiscalData.fiscal_regimen_fiscal,
-        zip: fiscalData.fiscal_codigo_postal,
-        email: fiscalData.email
-      },
-      items: [{
-        product: {
-          description: paymentData.description || `Servicio de Logística - ${paymentData.packageIds?.length || 1} paquete(s)`,
-          product_key: '78101800', // Clave SAT: Servicios de envío, embalaje y entrega
-          price: paymentData.amount
+    // 4. Timbrar con Facturama
+    let factura: any;
+    try {
+      const facturama = new FacturamaClient({
+        id: emitter.id,
+        rfc: emitter.rfc,
+        business_name: emitter.business_name,
+        fiscal_regime: emitter.fiscal_regime,
+        zip_code: emitter.zip_code,
+        facturama_username: emitter.facturama_username,
+        facturama_password: emitter.facturama_password,
+        facturama_environment: emitter.facturama_environment
+      });
+
+      factura = await facturama.invoices.create({
+        customer: {
+          legal_name: fiscalData.fiscal_razon_social,
+          tax_id: fiscalData.fiscal_rfc,
+          tax_system: fiscalData.fiscal_regimen_fiscal,
+          address: { zip: fiscalData.fiscal_codigo_postal },
+          email: fiscalData.email
         },
-        quantity: 1
-      }],
-      use: fiscalData.fiscal_uso_cfdi || 'G03',
-      payment_form: paymentForm,
-      payment_method: 'PUE', // Pago en una sola exhibición
-      currency: paymentData.currency || 'MXN'
-    };
-
-    // 5. Llamar a Facturapi
-    const facturapiResponse = await fetch('https://www.facturapi.io/v2/invoices', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(invoiceData)
-    });
-
-    if (!facturapiResponse.ok) {
-      const errorData = await facturapiResponse.json() as { message?: string };
-      console.error('❌ Error Facturapi:', errorData);
-      return { success: false, error: errorData.message || 'Error al crear factura' };
+        items: [{
+          quantity: 1,
+          product: {
+            description: paymentData.description || `Servicio de Logística - ${paymentData.packageIds?.length || 1} paquete(s)`,
+            product_key: '78101800',
+            price: paymentData.amount,
+            taxes: [{ type: 'IVA', rate: 0.16 }]
+          }
+        }],
+        use: fiscalData.fiscal_uso_cfdi || 'G03',
+        payment_form: paymentForm,
+        payment_method: 'PUE',
+        currency: paymentData.currency || 'MXN'
+      });
+    } catch (err: any) {
+      console.error('❌ Error Facturama:', err.message, err.details);
+      return { success: false, error: err.message || 'Error al crear factura' };
     }
 
-    const factura = await facturapiResponse.json() as {
-      id: string;
-      uuid: string;
-      subtotal: number;
-      total: number;
-      currency: string;
-      folio_number: string;
-      series: string;
-    };
-
-    // 6. Guardar factura en base de datos
+    // 5. Guardar factura en base de datos
     await pool.query(`
       INSERT INTO facturas_emitidas (
-        facturapi_id, uuid_sat, user_id, payment_id, payment_type,
+        facturama_id, uuid_sat, user_id, payment_id, payment_type,
         receptor_rfc, receptor_razon_social, receptor_codigo_postal,
         receptor_regimen_fiscal, receptor_uso_cfdi,
         subtotal, total, currency, payment_form,
@@ -400,20 +388,20 @@ export const createInvoice = async (
       factura.currency,
       paymentForm,
       factura.folio_number,
-      factura.series,
-      `https://www.facturapi.io/v2/invoices/${factura.id}/pdf`,
-      `https://www.facturapi.io/v2/invoices/${factura.id}/xml`,
-      emitterId,
+      factura.series || null,
+      factura.pdf_url,
+      factura.xml_url,
+      emitter.id,
     ]);
 
-    console.log(`✅ Factura creada: ${factura.uuid} por ${emitterAlias} (emitterId=${emitterId})`);
+    console.log(`✅ Factura creada: ${factura.uuid} por ${emitter.alias} (emitterId=${emitter.id})`);
 
     return { 
       success: true, 
       uuid: factura.uuid,
-      pdfUrl: `https://www.facturapi.io/v2/invoices/${factura.id}/pdf`,
-      xmlUrl: `https://www.facturapi.io/v2/invoices/${factura.id}/xml`,
-      ...(emitterId ? { emitterId } : {}),
+      pdfUrl: factura.pdf_url,
+      xmlUrl: factura.xml_url,
+      emitterId: emitter.id,
     };
 
   } catch (error: any) {

@@ -7106,7 +7106,7 @@ app.post('/api/caja-chica/pagar-consolidacion', authenticateToken, pagarConsolid
 
 // ============================================
 // DATOS FISCALES Y FACTURACIÓN CFDI 4.0
-// Para emisión de facturas electrónicas con Facturapi
+// Para emisión de facturas electrónicas con Facturama
 // ============================================
 app.get('/api/fiscal/data', authenticateToken, getFiscalData);
 app.post('/api/fiscal/data', authenticateToken, updateFiscalData);

@@ -1,10 +1,10 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
-import Facturapi from 'facturapi';
+import { FacturamaClient, FacturamaError } from './facturamaClient';
 
 // ============================================
 // SISTEMA DE FACTURACIÓN FISCAL CFDI
-// Integración con Facturapi (Multi-RFC)
+// Integración con Facturama (Multi-RFC, Multiemisor)
 // ============================================
 
 // ========== EMISORES (TUS EMPRESAS) ==========
@@ -226,11 +226,12 @@ export const generateInvoice = async (req: Request, res: Response): Promise<any>
         const { consolidationId, fiscalProfileId, paymentForm } = req.body;
         const userId = (req as any).user?.id;
 
-        // 1. Obtener datos de la Orden y Empresa Emisora
+        // 1. Obtener datos de la Orden y Empresa Emisora (con credenciales Facturama)
         const orderQuery = await pool.query(
             `SELECT c.id, c.payment_status, c.shipping_cost, c.service_type, c.user_id,
-                    fe.id as emitter_id, fe.api_key as emitter_key, fe.rfc as emitter_rfc,
-                    fe.business_name as emitter_name
+                    fe.id as emitter_id, fe.rfc as emitter_rfc, fe.business_name as emitter_name,
+                    fe.fiscal_regime as emitter_regime, fe.zip_code as emitter_zip,
+                    fe.facturama_username, fe.facturama_password, fe.facturama_environment
              FROM consolidations c
              LEFT JOIN commission_rates cr ON c.service_type = cr.service_type
              LEFT JOIN fiscal_emitters fe ON cr.fiscal_emitter_id = fe.id
@@ -261,8 +262,8 @@ export const generateInvoice = async (req: Request, res: Response): Promise<any>
             return res.status(400).json({ error: 'Esta orden ya fue facturada', uuid: existingInvoice.rows[0].uuid });
         }
 
-        if (!order.emitter_key) {
-            return res.status(500).json({ error: 'Error de configuración: Este servicio no tiene empresa facturadora asignada o falta la API Key de Facturapi' });
+        if (!order.facturama_username || !order.facturama_password) {
+            return res.status(500).json({ error: 'Este servicio no tiene empresa facturadora asignada o falta la configuración Facturama (username/password) en el emisor.' });
         }
 
         // 2. Obtener Datos del Cliente (Receptor)
@@ -276,8 +277,17 @@ export const generateInvoice = async (req: Request, res: Response): Promise<any>
             return res.status(400).json({ error: 'Perfil fiscal no encontrado' });
         }
 
-        // 3. Inicializar Facturapi con la API KEY de la empresa correcta (Multi-RFC)
-        const facturapi = new Facturapi(order.emitter_key);
+        // 3. Inicializar Facturama con las credenciales del emisor (Multi-RFC / Multiemisor)
+        const facturama = new FacturamaClient({
+            id: order.emitter_id,
+            rfc: order.emitter_rfc,
+            business_name: order.emitter_name,
+            fiscal_regime: order.emitter_regime,
+            zip_code: order.emitter_zip,
+            facturama_username: order.facturama_username,
+            facturama_password: order.facturama_password,
+            facturama_environment: order.facturama_environment
+        });
 
         // 4. Determinar clave de producto SAT según servicio
         let productKey = '78101802'; // Default: Servicios de transporte de carga aérea
@@ -293,13 +303,13 @@ export const generateInvoice = async (req: Request, res: Response): Promise<any>
 
         const unitPrice = parseFloat(order.shipping_cost);
 
-        console.log('📄 Generando factura con Facturapi...');
+        console.log('📄 Generando factura con Facturama...');
         console.log(`   Emisor: ${order.emitter_name} (${order.emitter_rfc})`);
         console.log(`   Receptor: ${client.business_name} (${client.rfc})`);
         console.log(`   Monto: $${unitPrice} MXN`);
 
-        // 5. Crear Factura REAL en el SAT vía Facturapi
-        const invoice = await facturapi.invoices.create({
+        // 5. Crear Factura REAL en el SAT vía Facturama
+        const invoice = await facturama.invoices.create({
             customer: {
                 legal_name: client.business_name,
                 tax_id: client.rfc,
@@ -321,25 +331,26 @@ export const generateInvoice = async (req: Request, res: Response): Promise<any>
                     }]
                 }
             }],
-            payment_form: paymentForm || '04', // 04 = Tarjeta de crédito, 28 = Tarjeta de débito, 31 = Transferencia
-            use: client.tax_use || 'G03' // Gastos en general
+            payment_form: paymentForm || '04',
+            use: client.tax_use || 'G03'
         });
 
         console.log('✅ Factura timbrada exitosamente:', invoice.uuid);
 
         // 6. Guardar Factura en BD
         await pool.query(
-            `INSERT INTO invoices (consolidation_id, fiscal_emitter_id, fiscal_profile_id, uuid, folio, status, pdf_url, xml_url, amount)
-             VALUES ($1, $2, $3, $4, $5, 'generated', $6, $7, $8)`,
+            `INSERT INTO invoices (consolidation_id, fiscal_emitter_id, fiscal_profile_id, uuid, folio, status, pdf_url, xml_url, amount, facturama_id)
+             VALUES ($1, $2, $3, $4, $5, 'generated', $6, $7, $8, $9)`,
             [
                 consolidationId, 
                 order.emitter_id, 
                 client.id, 
                 invoice.uuid, 
-                invoice.folio_number?.toString() || invoice.series + invoice.folio_number,
-                invoice.verification_url, // URL de verificación SAT (también sirve como PDF link)
-                invoice.verification_url,
-                unitPrice
+                invoice.folio_number?.toString() || (invoice.series || '') + invoice.folio_number,
+                invoice.pdf_url,
+                invoice.xml_url,
+                unitPrice,
+                invoice.id
             ]
         );
 
@@ -361,10 +372,9 @@ export const generateInvoice = async (req: Request, res: Response): Promise<any>
         });
 
     } catch (error: any) {
-        console.error('❌ Error Facturapi:', error.message || error);
+        console.error('❌ Error Facturama:', error.message || error);
         
-        // Errores específicos de Facturapi
-        if (error.type === 'FacturapiError') {
+        if (error?.type === 'FacturamaError' || error instanceof FacturamaError) {
             return res.status(400).json({ 
                 error: 'Error al timbrar factura', 
                 details: error.message,
@@ -381,43 +391,28 @@ export const downloadInvoicePdf = async (req: Request, res: Response): Promise<a
     try {
         const { invoiceId } = req.params;
 
-        // Obtener la factura y su API key
         const invoiceQuery = await pool.query(
-            `SELECT i.uuid, i.pdf_url, fe.api_key 
+            `SELECT i.uuid, i.facturama_id, i.fiscal_emitter_id
              FROM invoices i
-             JOIN fiscal_emitters fe ON i.fiscal_emitter_id = fe.id
              WHERE i.id = $1`,
             [invoiceId]
         );
 
         const invoice = invoiceQuery.rows[0];
-        if (!invoice || !invoice.api_key) {
+        if (!invoice) {
             return res.status(404).json({ error: 'Factura no encontrada' });
         }
 
-        const facturapi = new Facturapi(invoice.api_key);
-        const pdfData = await facturapi.invoices.downloadPdf(invoice.uuid);
+        const facturama = await FacturamaClient.fromEmitterId(invoice.fiscal_emitter_id);
+        const buf = await facturama.invoices.downloadPdf(invoice.facturama_id || invoice.uuid);
 
         res.setHeader('Content-Type', 'application/pdf');
         res.setHeader('Content-Disposition', `attachment; filename=factura-${invoice.uuid}.pdf`);
-        
-        // Manejar diferentes tipos de respuesta de Facturapi
-        if (pdfData instanceof Buffer) {
-            res.send(pdfData);
-        } else if (typeof pdfData === 'object' && 'arrayBuffer' in pdfData) {
-            // Es un Blob
-            const buffer = Buffer.from(await (pdfData as Blob).arrayBuffer());
-            res.send(buffer);
-        } else if (typeof pdfData === 'object' && 'pipe' in pdfData) {
-            // Es un stream
-            (pdfData as NodeJS.ReadableStream).pipe(res);
-        } else {
-            res.send(pdfData);
-        }
+        res.send(buf);
 
     } catch (error: any) {
         console.error('Error downloading PDF:', error);
-        res.status(500).json({ error: 'Error al descargar PDF' });
+        res.status(500).json({ error: 'Error al descargar PDF', details: error.message });
     }
 };
 
@@ -427,43 +422,27 @@ export const downloadInvoiceXml = async (req: Request, res: Response): Promise<a
         const { invoiceId } = req.params;
 
         const invoiceQuery = await pool.query(
-            `SELECT i.uuid, fe.api_key 
+            `SELECT i.uuid, i.facturama_id, i.fiscal_emitter_id
              FROM invoices i
-             JOIN fiscal_emitters fe ON i.fiscal_emitter_id = fe.id
              WHERE i.id = $1`,
             [invoiceId]
         );
 
         const invoice = invoiceQuery.rows[0];
-        if (!invoice || !invoice.api_key) {
+        if (!invoice) {
             return res.status(404).json({ error: 'Factura no encontrada' });
         }
 
-        const facturapi = new Facturapi(invoice.api_key);
-        const xmlData = await facturapi.invoices.downloadXml(invoice.uuid);
+        const facturama = await FacturamaClient.fromEmitterId(invoice.fiscal_emitter_id);
+        const xml = await facturama.invoices.downloadXml(invoice.facturama_id || invoice.uuid);
 
         res.setHeader('Content-Type', 'application/xml');
         res.setHeader('Content-Disposition', `attachment; filename=factura-${invoice.uuid}.xml`);
-        
-        // Manejar diferentes tipos de respuesta de Facturapi
-        if (xmlData instanceof Buffer) {
-            res.send(xmlData);
-        } else if (typeof xmlData === 'object' && 'arrayBuffer' in xmlData) {
-            // Es un Blob
-            const buffer = Buffer.from(await (xmlData as Blob).arrayBuffer());
-            res.send(buffer);
-        } else if (typeof xmlData === 'object' && 'pipe' in xmlData) {
-            // Es un stream
-            (xmlData as NodeJS.ReadableStream).pipe(res);
-        } else if (typeof xmlData === 'string') {
-            res.send(xmlData);
-        } else {
-            res.send(xmlData);
-        }
+        res.send(xml);
 
     } catch (error: any) {
         console.error('Error downloading XML:', error);
-        res.status(500).json({ error: 'Error al descargar XML' });
+        res.status(500).json({ error: 'Error al descargar XML', details: error.message });
     }
 };
 
@@ -473,20 +452,19 @@ export const sendInvoiceByEmail = async (req: Request, res: Response): Promise<a
         const { invoiceId, email } = req.body;
 
         const invoiceQuery = await pool.query(
-            `SELECT i.uuid, fe.api_key 
+            `SELECT i.uuid, i.facturama_id, i.fiscal_emitter_id
              FROM invoices i
-             JOIN fiscal_emitters fe ON i.fiscal_emitter_id = fe.id
              WHERE i.id = $1`,
             [invoiceId]
         );
 
         const invoice = invoiceQuery.rows[0];
-        if (!invoice || !invoice.api_key) {
+        if (!invoice) {
             return res.status(404).json({ error: 'Factura no encontrada' });
         }
 
-        const facturapi = new Facturapi(invoice.api_key);
-        await facturapi.invoices.sendByEmail(invoice.uuid, { email });
+        const facturama = await FacturamaClient.fromEmitterId(invoice.fiscal_emitter_id);
+        await facturama.invoices.sendByEmail(invoice.facturama_id || invoice.uuid, { email });
 
         res.json({ message: 'Factura enviada por email exitosamente' });
 
@@ -555,9 +533,8 @@ export const cancelInvoice = async (req: Request, res: Response): Promise<any> =
         // '04' = Operación nominativa relacionada en la factura global
 
         const invoiceQuery = await pool.query(
-            `SELECT i.*, fe.api_key 
+            `SELECT i.*, i.facturama_id
              FROM invoices i
-             JOIN fiscal_emitters fe ON i.fiscal_emitter_id = fe.id
              WHERE i.id = $1`,
             [invoiceId]
         );
@@ -572,9 +549,9 @@ export const cancelInvoice = async (req: Request, res: Response): Promise<any> =
             return res.status(400).json({ error: 'La factura ya está cancelada' });
         }
 
-        // Cancelar en SAT vía Facturapi
-        const facturapi = new Facturapi(invoice.api_key);
-        await facturapi.invoices.cancel(invoice.uuid, {
+        // Cancelar en SAT vía Facturama
+        const facturama = await FacturamaClient.fromEmitterId(invoice.fiscal_emitter_id);
+        await facturama.invoices.cancel(invoice.facturama_id || invoice.uuid, {
             motive: motive || '02' // Default: Error sin relación
         });
 
@@ -591,7 +568,7 @@ export const cancelInvoice = async (req: Request, res: Response): Promise<any> =
     } catch (error: any) {
         console.error('Error cancelling invoice:', error);
         
-        if (error.type === 'FacturapiError') {
+        if (error?.type === 'FacturamaError' || error instanceof FacturamaError) {
             return res.status(400).json({ 
                 error: 'Error al cancelar factura', 
                 details: error.message 
@@ -605,24 +582,14 @@ export const cancelInvoice = async (req: Request, res: Response): Promise<any> =
 // Validar RFC ante SAT
 export const validateRfc = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { rfc, apiKey } = req.body;
+        const { rfc } = req.body;
 
         if (!rfc) {
             return res.status(400).json({ error: 'RFC es requerido' });
         }
 
-        // Usar una API key cualquiera para validar
-        let key = apiKey;
-        if (!key) {
-            const emitterQuery = await pool.query('SELECT api_key FROM fiscal_emitters WHERE is_active = TRUE LIMIT 1');
-            if (emitterQuery.rows.length === 0) {
-                return res.status(500).json({ error: 'No hay empresas emisoras configuradas' });
-            }
-            key = emitterQuery.rows[0].api_key;
-        }
-
-        const facturapi = new Facturapi(key);
-        const validation = await facturapi.tools.validateTaxId(rfc);
+        const facturama = await FacturamaClient.firstActive();
+        const validation = await facturama.tools.validateTaxId(rfc);
 
         res.json({
             rfc: rfc.toUpperCase(),
@@ -870,9 +837,11 @@ export const stampServiceInvoice = async (req: Request, res: Response): Promise<
     try {
         const { id } = req.params;
         
-        // Obtener la factura y el emisor
+        // Obtener la factura y el emisor (con credenciales Facturama)
         const invoiceQuery = await pool.query(`
-            SELECT si.*, fe.api_key, fe.rfc as emitter_rfc, fe.business_name as emitter_name
+            SELECT si.*, fe.rfc as emitter_rfc, fe.business_name as emitter_name,
+                   fe.fiscal_regime as emitter_regime, fe.zip_code as emitter_zip,
+                   fe.facturama_username, fe.facturama_password, fe.facturama_environment
             FROM service_invoices si
             JOIN fiscal_emitters fe ON si.fiscal_emitter_id = fe.id
             WHERE si.id = $1
@@ -884,14 +853,23 @@ export const stampServiceInvoice = async (req: Request, res: Response): Promise<
         
         const invoice = invoiceQuery.rows[0];
         
-        if (!invoice.api_key) {
-            return res.status(400).json({ error: 'El emisor no tiene API Key configurada' });
+        if (!invoice.facturama_username || !invoice.facturama_password) {
+            return res.status(400).json({ error: 'El emisor no tiene credenciales Facturama configuradas' });
         }
         
-        // Timbrar con Facturapi
-        const facturapi = new Facturapi(invoice.api_key);
+        // Timbrar con Facturama
+        const facturama = new FacturamaClient({
+            id: invoice.fiscal_emitter_id,
+            rfc: invoice.emitter_rfc,
+            business_name: invoice.emitter_name,
+            fiscal_regime: invoice.emitter_regime,
+            zip_code: invoice.emitter_zip,
+            facturama_username: invoice.facturama_username,
+            facturama_password: invoice.facturama_password,
+            facturama_environment: invoice.facturama_environment
+        });
         
-        const cfdi = await facturapi.invoices.create({
+        const cfdi = await facturama.invoices.create({
             type: 'I',
             customer: {
                 legal_name: invoice.receiver_name,
@@ -910,7 +888,7 @@ export const stampServiceInvoice = async (req: Request, res: Response): Promise<
             payment_form: '03',
             payment_method: 'PUE',
             use: 'G03'
-        }) as any;
+        });
         
         // Actualizar factura con datos del timbrado
         await pool.query(`
@@ -920,9 +898,10 @@ export const stampServiceInvoice = async (req: Request, res: Response): Promise<
                 invoice_folio = $2,
                 pdf_url = $3,
                 xml_url = $4,
+                facturama_id = $5,
                 timbrado_at = NOW()
-            WHERE id = $5
-        `, [cfdi.uuid, cfdi.folio_number, cfdi.pdf_url, cfdi.xml_url, id]);
+            WHERE id = $6
+        `, [cfdi.uuid, cfdi.folio_number, cfdi.pdf_url, cfdi.xml_url, cfdi.id, id]);
         
         res.json({ 
             message: 'Factura timbrada exitosamente', 

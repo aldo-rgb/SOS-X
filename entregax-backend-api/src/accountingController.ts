@@ -108,7 +108,7 @@ export const getEmitterSummary = async (req: AuthRequest, res: Response): Promis
         if (eRes.rows.length === 0) return res.status(404).json({ error: 'Empresa no encontrada' });
         const emitter = eRes.rows[0];
 
-        // Facturas emitidas vía facturapi
+        // Facturas emitidas vía Facturama
         const invCnt = await pool.query(`SELECT COUNT(*)::int AS total,
              COUNT(*) FILTER (WHERE status='valid' OR status IS NULL)::int AS activas,
              COUNT(*) FILTER (WHERE status='canceled' OR canceled_at IS NOT NULL)::int AS canceladas,
@@ -117,6 +117,7 @@ export const getEmitterSummary = async (req: AuthRequest, res: Response): Promis
              WHERE payment_id IN (
                 SELECT id FROM pobox_payments WHERE 1=1
              )
+             OR facturama_id IS NOT NULL
              OR facturapi_id IS NOT NULL`
         ).catch(() => ({ rows: [{ total: 0, activas: 0, canceladas: 0, monto_activo: 0 }] }));
 
@@ -181,7 +182,7 @@ export const listEmitterInvoices = async (req: AuthRequest, res: Response): Prom
         const where = conds.length ? `WHERE ${conds.join(' AND ')}` : '';
 
         const r = await pool.query(`
-            SELECT f.id, f.facturapi_id, f.uuid_sat, f.folio, f.serie, f.receptor_rfc, f.receptor_razon_social,
+            SELECT f.id, f.facturama_id, f.facturapi_id, f.uuid_sat, f.folio, f.serie, f.receptor_rfc, f.receptor_razon_social,
                    f.subtotal, f.total, f.currency, f.payment_form, f.status, f.canceled_at, f.cancellation_reason,
                    f.pdf_url, f.xml_url, f.created_at,
                    u.full_name AS cliente_nombre, u.email AS cliente_email

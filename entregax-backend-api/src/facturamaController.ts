@@ -29,6 +29,38 @@ const FACTURAMA_PATHS = {
     deleteWebhook:  '/Webhook/{id}'
 };
 
+// Endpoints candidatos para probar credenciales (varían según plan API Web vs Multiemisor)
+const FACTURAMA_TEST_ENDPOINTS = [
+    '/api-lite/2/cfdis?keyword=&take=1',  // API Lite (multiemisor moderno)
+    '/2/cfdis?take=1',                    // API Web v2
+    '/api-lite/cfdis?type=Issued&take=1', // legacy
+    '/Account',                           // perfil de cuenta
+    '/Catalogs/Currencies'                // catálogo (requiere auth)
+];
+
+async function probeFacturamaCredentials(baseUrl: string, username: string, password: string) {
+    for (const path of FACTURAMA_TEST_ENDPOINTS) {
+        try {
+            const r = await axios.get(`${baseUrl}${path}`, {
+                ...getFacturamaAuth(username, password),
+                validateStatus: () => true
+            });
+            if (r.status >= 200 && r.status < 300) {
+                return { ok: true, endpoint: path, status: r.status };
+            }
+            // 401/403 = credenciales malas → cortar y reportar
+            if (r.status === 401 || r.status === 403) {
+                return { ok: false, endpoint: path, status: r.status, message: r.data?.Message || 'Credenciales rechazadas' };
+            }
+            // 404 = endpoint no existe en su plan → seguimos con el siguiente
+        } catch (err: any) {
+            // network error: continuar
+            console.warn(`[Facturama] probe ${path} falló:`, err.message);
+        }
+    }
+    return { ok: false, message: 'Ningún endpoint de prueba respondió OK (probable plan/path distinto, igualmente se guardó)' };
+}
+
 const getFacturamaUrl = (env: string) =>
     env === 'production' ? FACTURAMA_BASE_URL_PRODUCTION : FACTURAMA_BASE_URL_SANDBOX;
 
@@ -102,22 +134,14 @@ export const saveFacturamaConfig = async (req: AuthRequest, res: Response): Prom
 
         const env = facturama_environment === 'production' ? 'production' : 'sandbox';
 
-        // Probar credenciales (un endpoint barato)
+        // Probar credenciales contra varios endpoints conocidos
         const baseUrl = getFacturamaUrl(env);
-        let connectionOk = false;
-        let connectionDetail: string | null = null;
-        try {
-            const testRes = await axios.get(
-                `${baseUrl}/api-lite/cfdis?type=Issued&take=1`,
-                getFacturamaAuth(facturama_username, facturama_password)
-            );
-            connectionOk = testRes.status >= 200 && testRes.status < 300;
-        } catch (err: any) {
-            connectionDetail = err.response?.data?.Message
-                || err.response?.statusText
-                || err.message;
-            // No bloqueamos guardado: si las credenciales son del sandbox antes de
-            // crear cuenta, igual permitimos persistir y luego se valida.
+        const probe = await probeFacturamaCredentials(baseUrl, facturama_username, facturama_password);
+        const connectionOk = probe.ok;
+        const connectionDetail = probe.ok
+            ? `OK via ${probe.endpoint}`
+            : (probe.message || 'Conexión no validada');
+        if (!probe.ok) {
             console.warn(`[Facturama] credenciales no validadas para emisor ${emitter_id}:`, connectionDetail);
         }
 
@@ -163,18 +187,11 @@ export const testFacturamaConnection = async (req: Request, res: Response): Prom
             return res.status(400).json({ ok: false, error: 'Credenciales Facturama no configuradas' });
         }
         const baseUrl = getFacturamaUrl(cfg.facturama_environment || 'sandbox');
-        try {
-            const r = await axios.get(
-                `${baseUrl}/api-lite/cfdis?type=Issued&take=1`,
-                getFacturamaAuth(cfg.facturama_username, cfg.facturama_password)
-            );
-            res.json({ ok: true, status: r.status, environment: cfg.facturama_environment });
-        } catch (err: any) {
-            res.status(400).json({
-                ok: false,
-                status: err.response?.status,
-                error: err.response?.data?.Message || err.message
-            });
+        const probe = await probeFacturamaCredentials(baseUrl, cfg.facturama_username, cfg.facturama_password);
+        if (probe.ok) {
+            res.json({ ok: true, status: probe.status, endpoint: probe.endpoint, environment: cfg.facturama_environment });
+        } else {
+            res.status(400).json({ ok: false, status: probe.status, error: probe.message, environment: cfg.facturama_environment });
         }
     } catch (e: any) {
         res.status(500).json({ ok: false, error: e.message });

@@ -952,7 +952,7 @@ function UploadXmlDialog({ open, emitterId, onClose, onUploaded }: any) {
           >
             <UploadFileIcon sx={{ fontSize: 48, color: ORANGE, mb: 1 }} />
             <Typography variant="body2" fontWeight="bold">{file ? file.name : 'Haz clic o arrastra el archivo .xml del CFDI'}</Typography>
-            <Typography variant="caption" color="text.secondary">Solo XML timbrado por el SAT (Facturapi, Contpaqi, etc.)</Typography>
+            <Typography variant="caption" color="text.secondary">Solo XML timbrado por el SAT (Facturama, Contpaqi, etc.)</Typography>
             <input ref={inputRef} type="file" accept=".xml,text/xml,application/xml" hidden onChange={(e) => setFile(e.target.files?.[0] || null)} />
           </Box>
           <FormControlLabel control={<Switch checked={importInv} onChange={(e) => setImportInv(e.target.checked)} />} label="Cargar conceptos al inventario automáticamente (solo tipo Ingreso)" />
