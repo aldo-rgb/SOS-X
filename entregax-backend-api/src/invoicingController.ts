@@ -1043,32 +1043,76 @@ export const getEmitterByServiceType = async (req: Request, res: Response): Prom
 /**
  * GET /api/admin/invoices/:invoiceId/cancellation-status
  * Consulta el estatus de cancelación de un CFDI ante el SAT vía Facturama.
- * Útil para refrescar el estado mientras una solicitud está "pending_cancellation".
+ * Soporta lookup en `invoices`, `facturas_emitidas` y `facturas_recibidas`
+ * (en ese orden). Sincroniza el estado en BD si SAT confirma cancelación.
+ *
+ * Query opcional: ?source=invoices|emitidas|recibidas para forzar tabla.
  */
 export const getInvoiceCancellationStatus = async (req: Request, res: Response): Promise<any> => {
     try {
         const { invoiceId } = req.params;
+        const source = String(req.query.source || '').toLowerCase();
 
-        const r = await pool.query(
-            `SELECT i.id, i.uuid, i.facturama_id, i.fiscal_emitter_id, i.status
-               FROM invoices i WHERE i.id = $1`,
-            [invoiceId]
-        );
-        const invoice = r.rows[0];
-        if (!invoice) return res.status(404).json({ error: 'Factura no encontrada' });
+        let row: any = null;
+        let table: 'invoices' | 'facturas_emitidas' | 'facturas_recibidas' | null = null;
 
-        const facturama = await FacturamaClient.fromEmitterId(invoice.fiscal_emitter_id);
-        const result = await facturama.invoices.getStatus(invoice.facturama_id || invoice.uuid);
+        const tryEmitidas = async () => {
+            const q = await pool.query(
+                `SELECT id, uuid_sat AS uuid, facturama_id, fiscal_emitter_id, status
+                   FROM facturas_emitidas WHERE id = $1`,
+                [invoiceId]
+            ).catch(() => ({ rows: [] }));
+            if (q.rows[0]) { row = q.rows[0]; table = 'facturas_emitidas'; }
+        };
+        const tryInvoices = async () => {
+            const q = await pool.query(
+                `SELECT id, uuid, facturama_id, fiscal_emitter_id, status
+                   FROM invoices WHERE id = $1`,
+                [invoiceId]
+            ).catch(() => ({ rows: [] }));
+            if (q.rows[0]) { row = q.rows[0]; table = 'invoices'; }
+        };
+        const tryRecibidas = async () => {
+            const q = await pool.query(
+                `SELECT id, uuid_sat AS uuid, facturama_id, fiscal_emitter_id,
+                        approval_status AS status
+                   FROM facturas_recibidas WHERE id = $1`,
+                [invoiceId]
+            ).catch(() => ({ rows: [] }));
+            if (q.rows[0]) { row = q.rows[0]; table = 'facturas_recibidas'; }
+        };
+
+        if (source === 'emitidas') await tryEmitidas();
+        else if (source === 'invoices') await tryInvoices();
+        else if (source === 'recibidas') await tryRecibidas();
+        else {
+            await tryEmitidas();
+            if (!row) await tryInvoices();
+            if (!row) await tryRecibidas();
+        }
+
+        if (!row) return res.status(404).json({ error: 'CFDI no encontrado' });
+
+        const facturama = await FacturamaClient.fromEmitterId(row.fiscal_emitter_id);
+        const result = await facturama.invoices.getStatus(row.facturama_id || row.uuid);
 
         // Sincronizar BD si SAT confirma cancelación
-        if (result.status === 'cancelled' && invoice.status !== 'cancelled') {
-            await pool.query(`UPDATE invoices SET status='cancelled' WHERE id=$1`, [invoiceId]);
+        if (result.status === 'cancelled') {
+            if (table === 'invoices') {
+                await pool.query(`UPDATE invoices SET status='cancelled' WHERE id=$1`, [invoiceId]);
+            } else if (table === 'facturas_emitidas') {
+                await pool.query(
+                    `UPDATE facturas_emitidas SET status='canceled', canceled_at=COALESCE(canceled_at, NOW()) WHERE id=$1`,
+                    [invoiceId]
+                );
+            }
         }
 
         res.json({
             invoiceId,
-            uuid: invoice.uuid,
-            db_status: invoice.status,
+            source: table,
+            uuid: row.uuid,
+            db_status: row.status,
             sat_status: result.status,
             sat_status_raw: result.sat_status,
             cancellation_status_raw: result.cancellation_status
@@ -1084,35 +1128,53 @@ export const getInvoiceCancellationStatus = async (req: Request, res: Response):
 
 /**
  * POST /api/admin/invoices/respond-cancellation
- * body: { invoiceId, accept: boolean }
+ * body: { invoiceId, accept: boolean, source?: 'recibidas'|'emitidas'|'invoices' }
  * Responde (acepta/rechaza) una solicitud de cancelación recibida sobre un CFDI
- * donde nuestra empresa figura como RECEPTOR (CxP).
+ * donde nuestra empresa figura como RECEPTOR (típicamente facturas_recibidas / CxP).
  */
 export const respondInvoiceCancellation = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { invoiceId, accept } = req.body;
+        const { invoiceId, accept, source } = req.body;
         if (typeof accept !== 'boolean') {
             return res.status(400).json({ error: 'Falta el campo "accept" (boolean)' });
         }
 
-        // facturas recibidas viven en otra tabla; si tu front pasa un id de
-        // facturas_recibidas, ajusta esta query. Aquí soportamos ambos casos.
         let row: any = null;
-        const fr = await pool.query(
-            `SELECT id, facturama_id, uuid_sat AS uuid, fiscal_emitter_id
-               FROM facturas_recibidas WHERE id = $1`,
-            [invoiceId]
-        ).catch(() => ({ rows: [] }));
-        if (fr.rows.length) row = fr.rows[0];
 
-        if (!row) {
-            const inv = await pool.query(
+        const tryRecibidas = async () => {
+            const q = await pool.query(
+                `SELECT id, facturama_id, uuid_sat AS uuid, fiscal_emitter_id
+                   FROM facturas_recibidas WHERE id = $1`,
+                [invoiceId]
+            ).catch(() => ({ rows: [] }));
+            if (q.rows[0]) row = q.rows[0];
+        };
+        const tryEmitidas = async () => {
+            const q = await pool.query(
+                `SELECT id, facturama_id, uuid_sat AS uuid, fiscal_emitter_id
+                   FROM facturas_emitidas WHERE id = $1`,
+                [invoiceId]
+            ).catch(() => ({ rows: [] }));
+            if (q.rows[0]) row = q.rows[0];
+        };
+        const tryInvoices = async () => {
+            const q = await pool.query(
                 `SELECT id, facturama_id, uuid, fiscal_emitter_id
                    FROM invoices WHERE id = $1`,
                 [invoiceId]
-            );
-            row = inv.rows[0];
+            ).catch(() => ({ rows: [] }));
+            if (q.rows[0]) row = q.rows[0];
+        };
+
+        if (source === 'emitidas') await tryEmitidas();
+        else if (source === 'invoices') await tryInvoices();
+        else {
+            // default: receptor (CxP) primero
+            await tryRecibidas();
+            if (!row) await tryEmitidas();
+            if (!row) await tryInvoices();
         }
+
         if (!row) return res.status(404).json({ error: 'CFDI no encontrado' });
 
         const facturama = await FacturamaClient.fromEmitterId(row.fiscal_emitter_id);

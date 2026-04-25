@@ -31,6 +31,8 @@ import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import PaidIcon from '@mui/icons-material/Paid';
 import ThumbUpIcon from '@mui/icons-material/ThumbUp';
 import ThumbDownIcon from '@mui/icons-material/ThumbDown';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import DoNotDisturbAltIcon from '@mui/icons-material/DoNotDisturbAlt';
 import axios from 'axios';
 
 const ORANGE = '#F05A28';
@@ -414,6 +416,19 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
                       </IconButton>
                     </Tooltip>
                   )}
+                  <Tooltip title="Refrescar estatus SAT">
+                    <IconButton size="small" onClick={async () => {
+                      try {
+                        const res = await api.get(`/admin/invoices/${r.id}/cancellation-status`, { params: { source: 'emitidas' } });
+                        alert(`Estatus SAT: ${res.data.sat_status}\nDB: ${res.data.db_status}`);
+                        load();
+                      } catch (e: any) {
+                        alert(e?.response?.data?.error || 'Error consultando SAT');
+                      }
+                    }}>
+                      <RefreshIcon fontSize="small" sx={{ color: ORANGE }} />
+                    </IconButton>
+                  </Tooltip>
                 </TableCell>
               </TableRow>
             ))}
@@ -1482,6 +1497,30 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
                       {r.approval_status === 'approved' && r.payment_status !== 'paid' && (
                         <Tooltip title="Marcar como pagada"><IconButton size="small" color="primary" onClick={() => openAction('pay', r)}><PaidIcon fontSize="small" /></IconButton></Tooltip>
                       )}
+                      <Tooltip title="Aceptar cancelación SAT (proveedor solicitó cancelar)">
+                        <IconButton size="small" sx={{ color: '#2e7d32' }} onClick={async () => {
+                          if (!confirm(`¿Aceptar cancelación del CFDI ${r.uuid_sat?.slice(0, 8)}…? Esto comunica al SAT que aceptas que el proveedor cancele.`)) return;
+                          try {
+                            await api.post('/admin/invoices/respond-cancellation', { invoiceId: r.id, accept: true, source: 'recibidas' });
+                            setSnackbar({ open: true, message: 'Cancelación aceptada ante el SAT', severity: 'success' });
+                            load();
+                          } catch (e: any) {
+                            setSnackbar({ open: true, message: e?.response?.data?.error || 'Error', severity: 'error' });
+                          }
+                        }}><CheckCircleIcon fontSize="small" /></IconButton>
+                      </Tooltip>
+                      <Tooltip title="Rechazar cancelación SAT">
+                        <IconButton size="small" sx={{ color: RED }} onClick={async () => {
+                          if (!confirm(`¿Rechazar la cancelación del CFDI ${r.uuid_sat?.slice(0, 8)}…? El proveedor no podrá cancelarla.`)) return;
+                          try {
+                            await api.post('/admin/invoices/respond-cancellation', { invoiceId: r.id, accept: false, source: 'recibidas' });
+                            setSnackbar({ open: true, message: 'Cancelación rechazada ante el SAT', severity: 'success' });
+                            load();
+                          } catch (e: any) {
+                            setSnackbar({ open: true, message: e?.response?.data?.error || 'Error', severity: 'error' });
+                          }
+                        }}><DoNotDisturbAltIcon fontSize="small" /></IconButton>
+                      </Tooltip>
                     </Box>
                   </TableCell>
                 </TableRow>
