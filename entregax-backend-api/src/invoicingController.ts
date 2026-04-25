@@ -1035,3 +1035,101 @@ export const getEmitterByServiceType = async (req: Request, res: Response): Prom
         res.status(500).json({ error: 'Error al obtener configuración' });
     }
 };
+
+// ============================================
+// CANCELACIONES — STATUS Y RESPUESTA AL RECEPTOR
+// ============================================
+
+/**
+ * GET /api/admin/invoices/:invoiceId/cancellation-status
+ * Consulta el estatus de cancelación de un CFDI ante el SAT vía Facturama.
+ * Útil para refrescar el estado mientras una solicitud está "pending_cancellation".
+ */
+export const getInvoiceCancellationStatus = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { invoiceId } = req.params;
+
+        const r = await pool.query(
+            `SELECT i.id, i.uuid, i.facturama_id, i.fiscal_emitter_id, i.status
+               FROM invoices i WHERE i.id = $1`,
+            [invoiceId]
+        );
+        const invoice = r.rows[0];
+        if (!invoice) return res.status(404).json({ error: 'Factura no encontrada' });
+
+        const facturama = await FacturamaClient.fromEmitterId(invoice.fiscal_emitter_id);
+        const result = await facturama.invoices.getStatus(invoice.facturama_id || invoice.uuid);
+
+        // Sincronizar BD si SAT confirma cancelación
+        if (result.status === 'cancelled' && invoice.status !== 'cancelled') {
+            await pool.query(`UPDATE invoices SET status='cancelled' WHERE id=$1`, [invoiceId]);
+        }
+
+        res.json({
+            invoiceId,
+            uuid: invoice.uuid,
+            db_status: invoice.status,
+            sat_status: result.status,
+            sat_status_raw: result.sat_status,
+            cancellation_status_raw: result.cancellation_status
+        });
+    } catch (error: any) {
+        console.error('Error getInvoiceCancellationStatus:', error);
+        if (error?.type === 'FacturamaError') {
+            return res.status(400).json({ error: error.message, details: error.details });
+        }
+        res.status(500).json({ error: 'Error consultando estatus de cancelación' });
+    }
+};
+
+/**
+ * POST /api/admin/invoices/respond-cancellation
+ * body: { invoiceId, accept: boolean }
+ * Responde (acepta/rechaza) una solicitud de cancelación recibida sobre un CFDI
+ * donde nuestra empresa figura como RECEPTOR (CxP).
+ */
+export const respondInvoiceCancellation = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { invoiceId, accept } = req.body;
+        if (typeof accept !== 'boolean') {
+            return res.status(400).json({ error: 'Falta el campo "accept" (boolean)' });
+        }
+
+        // facturas recibidas viven en otra tabla; si tu front pasa un id de
+        // facturas_recibidas, ajusta esta query. Aquí soportamos ambos casos.
+        let row: any = null;
+        const fr = await pool.query(
+            `SELECT id, facturama_id, uuid_sat AS uuid, fiscal_emitter_id
+               FROM facturas_recibidas WHERE id = $1`,
+            [invoiceId]
+        ).catch(() => ({ rows: [] }));
+        if (fr.rows.length) row = fr.rows[0];
+
+        if (!row) {
+            const inv = await pool.query(
+                `SELECT id, facturama_id, uuid, fiscal_emitter_id
+                   FROM invoices WHERE id = $1`,
+                [invoiceId]
+            );
+            row = inv.rows[0];
+        }
+        if (!row) return res.status(404).json({ error: 'CFDI no encontrado' });
+
+        const facturama = await FacturamaClient.fromEmitterId(row.fiscal_emitter_id);
+        const result = await facturama.invoices.respondCancellation(
+            row.facturama_id || row.uuid,
+            accept
+        );
+
+        res.json({
+            message: accept ? 'Cancelación aceptada' : 'Cancelación rechazada',
+            result
+        });
+    } catch (error: any) {
+        console.error('Error respondInvoiceCancellation:', error);
+        if (error?.type === 'FacturamaError') {
+            return res.status(400).json({ error: error.message, details: error.details });
+        }
+        res.status(500).json({ error: 'Error respondiendo cancelación' });
+    }
+};

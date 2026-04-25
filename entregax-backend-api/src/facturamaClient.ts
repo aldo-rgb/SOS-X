@@ -303,6 +303,53 @@ export class FacturamaClient {
             const r = await this.http.post(`/cfdi?${params.toString()}`);
             if (r.status < 200 || r.status >= 300) throwFromResponse('Facturama sendByEmail falló', r);
             return r.data;
+        },
+
+        /**
+         * Consultar el estatus actual de un CFDI ante el SAT.
+         * Devuelve estatus normalizado:
+         *   - 'active'                : vigente
+         *   - 'cancelled'             : cancelado y aceptado por SAT
+         *   - 'pending_cancellation'  : esperando aceptación del receptor (≤ 72h)
+         *   - 'rejected_cancellation' : el receptor rechazó la cancelación
+         *   - 'unknown'
+         */
+        getStatus: async (idOrUuid: string): Promise<{
+            status: 'active' | 'cancelled' | 'pending_cancellation' | 'rejected_cancellation' | 'unknown';
+            sat_status?: string;
+            cancellation_status?: string;
+            raw: any;
+        }> => {
+            const r = await this.http.get(`/cfdi/${idOrUuid}/status?type=issued`);
+            if (r.status < 200 || r.status >= 300) throwFromResponse('Facturama getStatus falló', r);
+            const d = r.data || {};
+            const sat = String(d.Status || d.SatStatus || d.status || '').toLowerCase();
+            const cancel = String(d.CancellationStatus || d.cancellation_status || '').toLowerCase();
+
+            let status: 'active' | 'cancelled' | 'pending_cancellation' | 'rejected_cancellation' | 'unknown' = 'unknown';
+            if (sat.includes('cancel') && (cancel.includes('accept') || cancel.includes('aceptad') || sat === 'cancelled' || sat === 'cancelado')) {
+                status = 'cancelled';
+            } else if (cancel.includes('pend') || sat.includes('pend')) {
+                status = 'pending_cancellation';
+            } else if (cancel.includes('reject') || cancel.includes('rechaz')) {
+                status = 'rejected_cancellation';
+            } else if (sat.includes('vig') || sat === 'active' || sat === 'valid' || sat === '') {
+                status = 'active';
+            }
+
+            return { status, sat_status: d.Status, cancellation_status: d.CancellationStatus, raw: d };
+        },
+
+        /**
+         * Aceptar o rechazar una solicitud de cancelación recibida (sólo para CFDIs
+         * recibidos donde nuestra empresa es el RECEPTOR).
+         * Endpoint: PUT /cfdi-received/{id}?action=accept|reject
+         */
+        respondCancellation: async (idOrUuid: string, accept: boolean) => {
+            const action = accept ? 'accept' : 'reject';
+            const r = await this.http.put(`/cfdi-received/${idOrUuid}?action=${action}`);
+            if (r.status < 200 || r.status >= 300) throwFromResponse(`Facturama ${action} cancelación falló`, r);
+            return r.data;
         }
     };
 

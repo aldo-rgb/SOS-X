@@ -123,6 +123,8 @@ import {
   getUserInvoices,
   getAllInvoices,
   cancelInvoice,
+  getInvoiceCancellationStatus,
+  respondInvoiceCancellation,
   downloadInvoicePdf,
   downloadInvoiceXml,
   sendInvoiceByEmail,
@@ -2980,6 +2982,8 @@ app.put('/api/admin/fiscal/emitters', authenticateToken, requireMinLevel(ROLES.D
 app.post('/api/admin/fiscal/assign-service', authenticateToken, requireMinLevel(ROLES.DIRECTOR), assignEmitterToService);
 app.get('/api/admin/invoices', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAllInvoices);
 app.post('/api/admin/invoices/cancel', authenticateToken, requireMinLevel(ROLES.DIRECTOR), cancelInvoice);
+app.get('/api/admin/invoices/:invoiceId/cancellation-status', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getInvoiceCancellationStatus);
+app.post('/api/admin/invoices/respond-cancellation', authenticateToken, requireMinLevel(ROLES.DIRECTOR), respondInvoiceCancellation);
 
 // Admin: Configuración de servicios por empresa (qué empresa cobra cada servicio)
 app.get('/api/admin/fiscal/service-config', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getServiceCompanyConfig);
