@@ -3784,13 +3784,13 @@ export default function DashboardClient() {
                   pending_payment: { color: '#E65100', label: '⏳ Pendiente' },
                   completed: { color: '#2E7D32', label: '✅ Pagado' },
                   paid: { color: '#2E7D32', label: '✅ Pagado' },
-                  vouchers_submitted: { color: '#1565C0', label: '📎 Comprobantes enviados' },
-                  vouchers_partial: { color: '#F57C00', label: '📎 Pago parcial' },
+                  vouchers_submitted: { color: '#1565C0', label: '� Procesando' },
+                  vouchers_partial: { color: '#F57C00', label: '🔄 Procesando' },
                   failed: { color: '#C62828', label: '❌ Fallido' },
                   expired: { color: '#757575', label: '⏰ Expirado' },
-                  pending: { color: '#1565C0', label: '🔄 Procesando' },
+                  pending: { color: '#E65100', label: '⏳ Pendiente' },
                 };
-                const st = statusMap[order.status] || statusMap.pending;
+                const st = statusMap[order.status] || statusMap.pending_payment;
                 return (
                   <Fragment key={order.id}>
                   <TableRow hover sx={{ cursor: 'pointer' }} onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}>
@@ -12087,13 +12087,13 @@ export default function DashboardClient() {
                         pending_payment: { color: '#E65100', label: '⏳ Pendiente' },
                         completed: { color: '#2E7D32', label: '✅ Pagado' },
                         paid: { color: '#2E7D32', label: '✅ Pagado' },
-                        vouchers_submitted: { color: '#1565C0', label: '📎 Comprobantes enviados' },
-                        vouchers_partial: { color: '#F57C00', label: '📎 Pago parcial' },
+                        vouchers_submitted: { color: '#1565C0', label: '� Procesando' },
+                        vouchers_partial: { color: '#F57C00', label: '🔄 Procesando' },
                         failed: { color: '#C62828', label: '❌ Fallido' },
                         expired: { color: '#757575', label: '⏰ Expirado' },
-                        pending: { color: '#1565C0', label: '🔄 Procesando' },
+                        pending: { color: '#E65100', label: '⏳ Pendiente' },
                       };
-                      const st = statusMap[order.status] || statusMap.pending;
+                      const st = statusMap[order.status] || statusMap.pending_payment;
                       return (
                         <Fragment key={order.id}>
                         <TableRow hover sx={{ cursor: 'pointer' }} onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}>

@@ -642,7 +642,7 @@ export const getAdminServiceSummary = async (req: AuthRequest, res: Response): P
 export const processOpenPayCard = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userId = req.user?.userId;
-    const { packageIds, paymentMethod, total: rawTotal, currency, company, returnUrl, cancelUrl, invoiceRequired, invoiceData } = req.body;
+    const { packageIds, paymentMethod, total: rawTotal, currency, company, returnUrl, cancelUrl, invoiceRequired, invoiceData, paymentOrderId, paymentReference } = req.body;
     // Redondear a 2 decimales para evitar errores de precisión (flotantes JS)
     const total = Math.round(Number(rawTotal || 0) * 100) / 100;
 
@@ -652,7 +652,9 @@ export const processOpenPayCard = async (req: AuthRequest, res: Response): Promi
       total,
       currency,
       company,
-      invoiceRequired
+      invoiceRequired,
+      paymentOrderId,
+      paymentReference
     });
 
     // Validar datos requeridos
@@ -678,6 +680,30 @@ export const processOpenPayCard = async (req: AuthRequest, res: Response): Promi
 
     if (packagesCheck.rows.length === 0) {
       return res.status(400).json({ success: false, error: 'No se encontraron paquetes válidos' });
+    }
+
+    // Si el pago viene desde una orden PO Box, marcar método de pago desde el inicio
+    // para que el dashboard no muestre "Efectivo" mientras completa el callback.
+    try {
+      if (paymentOrderId) {
+        await pool.query(
+          `UPDATE pobox_payments
+           SET payment_method = 'card',
+               requiere_factura = $1
+           WHERE id = $2 AND user_id = $3`,
+          [!!invoiceRequired, Number(paymentOrderId), userId]
+        );
+      } else if (paymentReference) {
+        await pool.query(
+          `UPDATE pobox_payments
+           SET payment_method = 'card',
+               requiere_factura = $1
+           WHERE payment_reference = $2 AND user_id = $3`,
+          [!!invoiceRequired, String(paymentReference), userId]
+        );
+      }
+    } catch (preUpdErr: any) {
+      console.warn('⚠️ No se pudo pre-actualizar método PO Box (OpenPay):', preUpdErr?.message || preUpdErr);
     }
 
     // Obtener datos del usuario
@@ -724,7 +750,7 @@ export const processOpenPayCard = async (req: AuthRequest, res: Response): Promi
         userId, total, 
         `Pago con tarjeta - ${packageIds.length} paquete(s)`,
         paymentRef,
-        JSON.stringify({ packageIds, currency: currency || 'MXN', serviceType, invoiceRequired })
+        JSON.stringify({ packageIds, currency: currency || 'MXN', serviceType, invoiceRequired, invoiceData, paymentOrderId, paymentReference })
       ]);
     } catch (txErr: any) {
       console.log('Note: financial_transactions insert:', txErr.message);
@@ -735,8 +761,6 @@ export const processOpenPayCard = async (req: AuthRequest, res: Response): Promi
     const cleanDescription = `Pago EntregaX ${packageCount} ${packageCount === 1 ? 'paquete' : 'paquetes'}`;
     
     const callbackBaseUrl = process.env.API_URL || 'https://sos-x-production.up.railway.app';
-    const frontendBaseUrl = returnUrl ? new URL(returnUrl).origin : 'https://entregax.app';
-
     const chargeData = {
       method: 'card',
       amount: total,
@@ -745,7 +769,7 @@ export const processOpenPayCard = async (req: AuthRequest, res: Response): Promi
       order_id: paymentRef,
       confirm: false,
       send_email: false,
-      redirect_url: `${callbackBaseUrl}/api/payments/openpay/callback?paymentRef=${paymentRef}&userId=${userId}&packageIds=${packageIds.join(',')}&amount=${total}&invoiceRequired=${invoiceRequired || false}`,
+      redirect_url: `${callbackBaseUrl}/api/payments/openpay/callback?paymentRef=${paymentRef}&userId=${userId}&packageIds=${packageIds.join(',')}&amount=${total}&invoiceRequired=${invoiceRequired || false}&paymentOrderId=${paymentOrderId || ''}&paymentReference=${encodeURIComponent(String(paymentReference || ''))}&successRedirect=${encodeURIComponent(String(returnUrl || ''))}&cancelRedirect=${encodeURIComponent(String(cancelUrl || ''))}`,
       customer: {
         name: user.full_name?.split(' ')[0] || 'Cliente',
         last_name: user.full_name?.split(' ').slice(1).join(' ') || 'EntregaX',
@@ -799,7 +823,7 @@ export const processOpenPayCard = async (req: AuthRequest, res: Response): Promi
 export const createPayPalPayment = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const userId = req.user?.userId;
-    const { packageIds, paymentMethod, total, currency, company, returnUrl, cancelUrl, invoiceRequired, invoiceData } = req.body;
+    const { packageIds, paymentMethod, total, currency, company, returnUrl, cancelUrl, invoiceRequired, invoiceData, paymentOrderId, paymentReference } = req.body;
 
     console.log('📦 Creating PayPal payment:', {
       userId,
@@ -807,7 +831,9 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
       total,
       currency,
       company,
-      invoiceRequired
+      invoiceRequired,
+      paymentOrderId,
+      paymentReference
     });
 
     // Validar datos requeridos
@@ -823,6 +849,30 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
         success: false, 
         error: 'El monto del pago debe ser mayor a 0' 
       });
+    }
+
+    // Si el pago viene desde una orden PO Box, marcar método de pago desde el inicio
+    // para evitar que en dashboard aparezca como "Efectivo".
+    try {
+      if (paymentOrderId) {
+        await pool.query(
+          `UPDATE pobox_payments
+           SET payment_method = 'paypal',
+               requiere_factura = $1
+           WHERE id = $2 AND user_id = $3`,
+          [!!invoiceRequired, Number(paymentOrderId), userId]
+        );
+      } else if (paymentReference) {
+        await pool.query(
+          `UPDATE pobox_payments
+           SET payment_method = 'paypal',
+               requiere_factura = $1
+           WHERE payment_reference = $2 AND user_id = $3`,
+          [!!invoiceRequired, String(paymentReference), userId]
+        );
+      }
+    } catch (preUpdErr: any) {
+      console.warn('⚠️ No se pudo pre-actualizar método PO Box (PayPal):', preUpdErr?.message || preUpdErr);
     }
 
     // Obtener credenciales de PayPal desde la BD
@@ -852,7 +902,7 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
         userId, total,
         `Pago con PayPal - ${packageIds.length} paquete(s)`,
         paymentRef,
-        JSON.stringify({ packageIds, currency: currency || 'MXN', invoiceRequired })
+        JSON.stringify({ packageIds, currency: currency || 'MXN', invoiceRequired, invoiceData, paymentOrderId, paymentReference })
       ]);
     } catch (txErr: any) {
       console.log('Note: financial_transactions insert:', txErr.message);
@@ -862,7 +912,6 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
     const token = await getPayPalToken(credentials);
     const paypalApiUrl = credentials.isSandbox ? PAYPAL_SANDBOX_URL : PAYPAL_PROD_URL;
 
-    const frontendBaseUrl = returnUrl ? new URL(returnUrl).origin : 'https://entregax.app';
     const callbackBaseUrl = process.env.API_URL || 'https://sos-x-production.up.railway.app';
 
     // Crear orden en PayPal
@@ -882,8 +931,8 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
           brand_name: 'EntregaX',
           landing_page: 'LOGIN',
           user_action: 'PAY_NOW',
-          return_url: `${callbackBaseUrl}/api/payments/paypal/callback?paymentRef=${paymentRef}&userId=${userId}&packageIds=${packageIds.join(',')}&amount=${total}&invoiceRequired=${invoiceRequired || false}`,
-          cancel_url: cancelUrl || `${frontendBaseUrl}/payment/cancel`
+          return_url: `${callbackBaseUrl}/api/payments/paypal/callback?paymentRef=${paymentRef}&userId=${userId}&packageIds=${packageIds.join(',')}&amount=${total}&invoiceRequired=${invoiceRequired || false}&paymentOrderId=${paymentOrderId || ''}&paymentReference=${encodeURIComponent(String(paymentReference || ''))}&successRedirect=${encodeURIComponent(String(returnUrl || ''))}&cancelRedirect=${encodeURIComponent(String(cancelUrl || ''))}`,
+          cancel_url: String(cancelUrl || `${process.env.FRONTEND_URL || 'https://entregax.app'}/payment/cancel`)
         }
       },
       {
@@ -1083,11 +1132,21 @@ export const testConfirmPayment = async (req: AuthRequest, res: Response): Promi
 // ============================================
 export const handleOpenpayPaymentCallback = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { paymentRef, userId, packageIds, amount, invoiceRequired, id: transactionId } = req.query;
+    const { paymentRef, userId, packageIds, amount, invoiceRequired, paymentOrderId, paymentReference, successRedirect, cancelRedirect, id: transactionId } = req.query;
 
     console.log(`📱 Callback OpenPay General - paymentRef: ${paymentRef}, transactionId: ${transactionId}`);
 
     const frontendUrl = process.env.FRONTEND_URL || 'https://entregax.app';
+    const fallbackSuccess = `${frontendUrl}/?paymentSuccess=true&ref=${paymentRef || 'unknown'}`;
+    const fallbackError = `${frontendUrl}/?paymentError=true`;
+    const normalizeRedirect = (value: any, fallback: string): string => {
+      const candidate = String(value || '').trim();
+      if (!candidate) return fallback;
+      if (candidate.startsWith('entregax://') || candidate.startsWith('exp://') || candidate.startsWith('https://entregax.app')) {
+        return candidate;
+      }
+      return fallback;
+    };
 
     // Verificar si ya fue procesado por el webhook
     // Intentar capturar el pago basándonos en los query params
@@ -1124,8 +1183,8 @@ export const handleOpenpayPaymentCallback = async (req: Request, res: Response):
             await pool.query(`
               INSERT INTO openpay_webhook_logs (
                 transaction_id, monto_recibido, monto_neto, concepto,
-                fecha_pago, estatus_procesamiento, user_id, tipo_pago
-              ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 'procesado', $5, 'tarjeta')
+                fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method
+              ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 'procesado', $5, 'tarjeta', 'card')
             `, [
               transactionId || paymentRef,
               parsedAmount,
@@ -1135,6 +1194,34 @@ export const handleOpenpayPaymentCallback = async (req: Request, res: Response):
             ]);
           } catch (logErr: any) {
             console.log('Note: webhook_logs insert:', logErr.message);
+          }
+
+          // Si este pago viene de una orden PO Box, marcarla como pagada
+          try {
+            const requiresInvoice = String(invoiceRequired) === 'true';
+            if (paymentOrderId) {
+              await pool.query(
+                `UPDATE pobox_payments
+                 SET status = 'completed',
+                     paid_at = CURRENT_TIMESTAMP,
+                     payment_method = 'card',
+                     requiere_factura = $1
+                 WHERE id = $2 AND user_id = $3`,
+                [requiresInvoice, Number(paymentOrderId), parsedUserId]
+              );
+            } else if (paymentReference) {
+              await pool.query(
+                `UPDATE pobox_payments
+                 SET status = 'completed',
+                     paid_at = CURRENT_TIMESTAMP,
+                     payment_method = 'card',
+                     requiere_factura = $1
+                 WHERE payment_reference = $2 AND user_id = $3`,
+                [requiresInvoice, String(paymentReference), parsedUserId]
+              );
+            }
+          } catch (ordErr: any) {
+            console.error('⚠️ No se pudo actualizar pobox_payments (OpenPay callback):', ordErr.message);
           }
 
           // Generar comisiones
@@ -1166,8 +1253,40 @@ export const handleOpenpayPaymentCallback = async (req: Request, res: Response):
                 });
                 if (invoiceResult.success) {
                   console.log(`🧾 Factura OpenPay emitida: ${invoiceResult.uuid}`);
+                  if (paymentOrderId) {
+                    await pool.query(
+                      `UPDATE pobox_payments
+                       SET facturada = TRUE,
+                           factura_uuid = $1,
+                           factura_created_at = CURRENT_TIMESTAMP,
+                           factura_error = NULL
+                       WHERE id = $2 AND user_id = $3`,
+                      [invoiceResult.uuid, Number(paymentOrderId), parsedUserId]
+                    );
+                  } else if (paymentReference) {
+                    await pool.query(
+                      `UPDATE pobox_payments
+                       SET facturada = TRUE,
+                           factura_uuid = $1,
+                           factura_created_at = CURRENT_TIMESTAMP,
+                           factura_error = NULL
+                       WHERE payment_reference = $2 AND user_id = $3`,
+                      [invoiceResult.uuid, String(paymentReference), parsedUserId]
+                    );
+                  }
                 } else {
                   console.error(`⚠️ No se pudo emitir factura OpenPay: ${invoiceResult.error}`);
+                  if (paymentOrderId) {
+                    await pool.query(
+                      `UPDATE pobox_payments SET factura_error = $1 WHERE id = $2 AND user_id = $3`,
+                      [invoiceResult.error || 'unknown', Number(paymentOrderId), parsedUserId]
+                    );
+                  } else if (paymentReference) {
+                    await pool.query(
+                      `UPDATE pobox_payments SET factura_error = $1 WHERE payment_reference = $2 AND user_id = $3`,
+                      [invoiceResult.error || 'unknown', String(paymentReference), parsedUserId]
+                    );
+                  }
                 }
               } else {
                 console.log(`🧾 Factura ya existente para paymentRef=${paymentRef}`);
@@ -1180,13 +1299,19 @@ export const handleOpenpayPaymentCallback = async (req: Request, res: Response):
       }
     }
 
-    // Redirigir al dashboard del cliente con mensaje de éxito
-    res.redirect(`${frontendUrl}/?paymentSuccess=true&ref=${paymentRef || 'unknown'}`);
+    // Redirigir a la app móvil (si viene deep link), si no al frontend web.
+    res.redirect(normalizeRedirect(successRedirect, fallbackSuccess));
 
   } catch (error) {
     console.error('❌ Error en callback OpenPay:', error);
     const frontendUrl = process.env.FRONTEND_URL || 'https://entregax.app';
-    res.redirect(`${frontendUrl}/?paymentError=true`);
+    const cancelRedirect = (req.query as any)?.cancelRedirect;
+    const fallbackError = `${frontendUrl}/?paymentError=true`;
+    const candidate = String(cancelRedirect || '').trim();
+    if (candidate && (candidate.startsWith('entregax://') || candidate.startsWith('exp://') || candidate.startsWith('https://entregax.app'))) {
+      return res.redirect(candidate);
+    }
+    res.redirect(fallbackError);
   }
 };
 
@@ -1243,11 +1368,41 @@ export const handleOpenpayPaymentWebhook = async (req: Request, res: Response): 
                 await pool.query(`
                   INSERT INTO openpay_webhook_logs (
                     transaction_id, monto_recibido, monto_neto, concepto,
-                    fecha_pago, estatus_procesamiento, user_id, tipo_pago
-                  ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 'procesado', $5, 'tarjeta')
+                    fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method
+                  ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 'procesado', $5, 'tarjeta', 'card')
                 `, [transactionId, amount, montoNeto, `Pago tarjeta webhook - ${packageIds.length} paquete(s)`, userId]);
               } catch (logErr: any) {
                 console.log('Note: webhook_logs insert:', logErr.message);
+              }
+
+              // Si viene asociado a orden PO Box, marcarla como pagada
+              try {
+                const paymentOrderId = metadata.paymentOrderId;
+                const paymentReference = metadata.paymentReference;
+                const requiresInvoice = metadata.invoiceRequired === true || metadata.invoiceRequired === 'true';
+                if (paymentOrderId) {
+                  await pool.query(
+                    `UPDATE pobox_payments
+                     SET status = 'completed',
+                         paid_at = CURRENT_TIMESTAMP,
+                         payment_method = 'card',
+                         requiere_factura = $1
+                     WHERE id = $2 AND user_id = $3`,
+                    [requiresInvoice, Number(paymentOrderId), userId]
+                  );
+                } else if (paymentReference) {
+                  await pool.query(
+                    `UPDATE pobox_payments
+                     SET status = 'completed',
+                         paid_at = CURRENT_TIMESTAMP,
+                         payment_method = 'card',
+                         requiere_factura = $1
+                     WHERE payment_reference = $2 AND user_id = $3`,
+                    [requiresInvoice, String(paymentReference), userId]
+                  );
+                }
+              } catch (ordErr: any) {
+                console.error('⚠️ No se pudo actualizar pobox_payments (OpenPay webhook):', ordErr.message);
               }
 
               // Generar comisiones
@@ -1279,8 +1434,40 @@ export const handleOpenpayPaymentWebhook = async (req: Request, res: Response): 
                     });
                     if (invoiceResult.success) {
                       console.log(`🧾 Factura OpenPay (webhook) emitida: ${invoiceResult.uuid}`);
+                      if (metadata.paymentOrderId) {
+                        await pool.query(
+                          `UPDATE pobox_payments
+                           SET facturada = TRUE,
+                               factura_uuid = $1,
+                               factura_created_at = CURRENT_TIMESTAMP,
+                               factura_error = NULL
+                           WHERE id = $2 AND user_id = $3`,
+                          [invoiceResult.uuid, Number(metadata.paymentOrderId), userId]
+                        );
+                      } else if (metadata.paymentReference) {
+                        await pool.query(
+                          `UPDATE pobox_payments
+                           SET facturada = TRUE,
+                               factura_uuid = $1,
+                               factura_created_at = CURRENT_TIMESTAMP,
+                               factura_error = NULL
+                           WHERE payment_reference = $2 AND user_id = $3`,
+                          [invoiceResult.uuid, String(metadata.paymentReference), userId]
+                        );
+                      }
                     } else {
                       console.error(`⚠️ No se pudo emitir factura OpenPay webhook: ${invoiceResult.error}`);
+                      if (metadata.paymentOrderId) {
+                        await pool.query(
+                          `UPDATE pobox_payments SET factura_error = $1 WHERE id = $2 AND user_id = $3`,
+                          [invoiceResult.error || 'unknown', Number(metadata.paymentOrderId), userId]
+                        );
+                      } else if (metadata.paymentReference) {
+                        await pool.query(
+                          `UPDATE pobox_payments SET factura_error = $1 WHERE payment_reference = $2 AND user_id = $3`,
+                          [invoiceResult.error || 'unknown', String(metadata.paymentReference), userId]
+                        );
+                      }
                     }
                   }
                 } catch (invErr: any) {
@@ -1305,15 +1492,25 @@ export const handleOpenpayPaymentWebhook = async (req: Request, res: Response): 
 // ============================================
 export const handlePayPalPaymentCallback = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { paymentRef, userId, packageIds, amount, invoiceRequired, token: paypalOrderId, PayerID } = req.query;
+    const { paymentRef, userId, packageIds, amount, invoiceRequired, paymentOrderId, paymentReference, successRedirect, cancelRedirect, token: paypalOrderId, PayerID } = req.query;
 
     console.log(`📱 Callback PayPal General - paymentRef: ${paymentRef}, orderId: ${paypalOrderId}`);
 
     const frontendUrl = process.env.FRONTEND_URL || 'https://entregax.app';
+    const fallbackSuccess = `${frontendUrl}/?paymentSuccess=true&ref=${paymentRef || paypalOrderId}`;
+    const fallbackError = `${frontendUrl}/?paymentError=true`;
+    const normalizeRedirect = (value: any, fallback: string): string => {
+      const candidate = String(value || '').trim();
+      if (!candidate) return fallback;
+      if (candidate.startsWith('entregax://') || candidate.startsWith('exp://') || candidate.startsWith('https://entregax.app')) {
+        return candidate;
+      }
+      return fallback;
+    };
 
     if (!paypalOrderId) {
       console.error('❌ PayPal callback sin orderId');
-      return res.redirect(`${frontendUrl}/payment/error`);
+      return res.redirect(normalizeRedirect(cancelRedirect, `${frontendUrl}/payment/error`));
     }
 
     // Capturar el pago en PayPal
@@ -1322,7 +1519,7 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
       credentials = await getPaypalCredentials();
     } catch (credError: any) {
       console.error('❌ Error obteniendo credenciales PayPal para captura:', credError.message);
-      return res.redirect(`${frontendUrl}/payment/error`);
+      return res.redirect(normalizeRedirect(cancelRedirect, `${frontendUrl}/payment/error`));
     }
 
     const paypalToken = await getPayPalToken(credentials);
@@ -1366,8 +1563,8 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
           await pool.query(`
             INSERT INTO openpay_webhook_logs (
               transaction_id, monto_recibido, monto_neto, concepto,
-              fecha_pago, estatus_procesamiento, user_id, tipo_pago
-            ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'paypal')
+              fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method
+            ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'paypal', 'paypal')
           `, [
             captureDetails?.id || paypalOrderId,
             parsedAmount,
@@ -1376,6 +1573,34 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
           ]);
         } catch (logErr: any) {
           console.log('Note: webhook_logs insert:', logErr.message);
+        }
+
+        // Si este pago viene de una orden PO Box, marcarla como pagada
+        try {
+          const requiresInvoice = String(invoiceRequired) === 'true';
+          if (paymentOrderId) {
+            await pool.query(
+              `UPDATE pobox_payments
+               SET status = 'completed',
+                   paid_at = CURRENT_TIMESTAMP,
+                   payment_method = 'paypal',
+                   requiere_factura = $1
+               WHERE id = $2 AND user_id = $3`,
+              [requiresInvoice, Number(paymentOrderId), parsedUserId]
+            );
+          } else if (paymentReference) {
+            await pool.query(
+              `UPDATE pobox_payments
+               SET status = 'completed',
+                   paid_at = CURRENT_TIMESTAMP,
+                   payment_method = 'paypal',
+                   requiere_factura = $1
+               WHERE payment_reference = $2 AND user_id = $3`,
+              [requiresInvoice, String(paymentReference), parsedUserId]
+            );
+          }
+        } catch (ordErr: any) {
+          console.error('⚠️ No se pudo actualizar pobox_payments (PayPal callback):', ordErr.message);
         }
 
         // Generar comisiones
@@ -1408,8 +1633,40 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
               });
               if (invoiceResult.success) {
                 console.log(`🧾 Factura PayPal emitida: ${invoiceResult.uuid}`);
+                if (paymentOrderId) {
+                  await pool.query(
+                    `UPDATE pobox_payments
+                     SET facturada = TRUE,
+                         factura_uuid = $1,
+                         factura_created_at = CURRENT_TIMESTAMP,
+                         factura_error = NULL
+                     WHERE id = $2 AND user_id = $3`,
+                    [invoiceResult.uuid, Number(paymentOrderId), parsedUserId]
+                  );
+                } else if (paymentReference) {
+                  await pool.query(
+                    `UPDATE pobox_payments
+                     SET facturada = TRUE,
+                         factura_uuid = $1,
+                         factura_created_at = CURRENT_TIMESTAMP,
+                         factura_error = NULL
+                     WHERE payment_reference = $2 AND user_id = $3`,
+                    [invoiceResult.uuid, String(paymentReference), parsedUserId]
+                  );
+                }
               } else {
                 console.error(`⚠️ No se pudo emitir factura PayPal: ${invoiceResult.error}`);
+                if (paymentOrderId) {
+                  await pool.query(
+                    `UPDATE pobox_payments SET factura_error = $1 WHERE id = $2 AND user_id = $3`,
+                    [invoiceResult.error || 'unknown', Number(paymentOrderId), parsedUserId]
+                  );
+                } else if (paymentReference) {
+                  await pool.query(
+                    `UPDATE pobox_payments SET factura_error = $1 WHERE payment_reference = $2 AND user_id = $3`,
+                    [invoiceResult.error || 'unknown', String(paymentReference), parsedUserId]
+                  );
+                }
               }
             }
           } catch (invErr: any) {
@@ -1418,15 +1675,20 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
         }
       }
 
-      return res.redirect(`${frontendUrl}/?paymentSuccess=true&ref=${paymentRef || paypalOrderId}`);
+      return res.redirect(normalizeRedirect(successRedirect, fallbackSuccess));
     } else {
       console.error('❌ PayPal captura no completada:', capture.data.status);
-      return res.redirect(`${frontendUrl}/?paymentError=true&status=${capture.data.status}`);
+      return res.redirect(normalizeRedirect(cancelRedirect, `${frontendUrl}/?paymentError=true&status=${capture.data.status}`));
     }
 
   } catch (error: any) {
     console.error('❌ Error en callback PayPal:', error.response?.data || error.message);
     const frontendUrl = process.env.FRONTEND_URL || 'https://entregax.app';
+    const cancelRedirect = (req.query as any)?.cancelRedirect;
+    const candidate = String(cancelRedirect || '').trim();
+    if (candidate && (candidate.startsWith('entregax://') || candidate.startsWith('exp://') || candidate.startsWith('https://entregax.app'))) {
+      return res.redirect(candidate);
+    }
     res.redirect(`${frontendUrl}/?paymentError=true`);
   }
 };

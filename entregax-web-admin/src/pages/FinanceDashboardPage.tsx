@@ -96,6 +96,37 @@ const SERVICE_LABELS: Record<string, { label: string; color: string }> = {
 // Colores para empresas
 const EMPRESA_COLORS = ['#303F9F', '#9b59b6', '#e74c3c', '#27ae60', '#f39c12', '#3498db'];
 
+// Formas de pago: etiqueta + color + icono (emoji)
+const PAYMENT_METHOD_LABELS: Record<string, { label: string; color: string; icon: string }> = {
+  cash: { label: 'Efectivo', color: '#27ae60', icon: '💵' },
+  efectivo: { label: 'Efectivo', color: '#27ae60', icon: '💵' },
+  spei: { label: 'SPEI', color: '#1565C0', icon: '🏦' },
+  transfer: { label: 'SPEI', color: '#1565C0', icon: '🏦' },
+  transferencia: { label: 'SPEI', color: '#1565C0', icon: '🏦' },
+  card: { label: 'Tarjeta', color: '#6A1B9A', icon: '💳' },
+  tarjeta: { label: 'Tarjeta', color: '#6A1B9A', icon: '💳' },
+  openpay: { label: 'Tarjeta', color: '#6A1B9A', icon: '💳' },
+  paypal: { label: 'PayPal', color: '#0070BA', icon: '🅿️' },
+  wallet: { label: 'Saldo a favor', color: '#00838F', icon: '👛' },
+  credit: { label: 'Crédito', color: '#AD1457', icon: '📊' },
+};
+
+const getPaymentMethodInfo = (method?: string) => {
+  const key = String(method || '').toLowerCase().trim();
+  return PAYMENT_METHOD_LABELS[key] || { label: method || 'N/D', color: '#757575', icon: '💰' };
+};
+
+// Formatear fecha/hora en zona horaria de México (evita desfase por UTC)
+const MX_TZ = 'America/Mexico_City';
+const formatDateMX = (v?: string | Date | null) => {
+  if (!v) return '-';
+  try { return new Date(v).toLocaleDateString('es-MX', { timeZone: MX_TZ, day: '2-digit', month: '2-digit', year: 'numeric' }); } catch { return '-'; }
+};
+const formatTimeMX = (v?: string | Date | null) => {
+  if (!v) return '';
+  try { return new Date(v).toLocaleTimeString('es-MX', { timeZone: MX_TZ, hour: '2-digit', minute: '2-digit', hour12: true }); } catch { return ''; }
+};
+
 interface KPIs {
   ingresos_hoy: number;
   ingresos_hoy_neto: number;
@@ -126,6 +157,8 @@ interface Transaccion {
   guias_pagadas?: string;
   estatus: string;
   referencia?: string;
+  credit_applied?: number;
+  wallet_applied?: number;
 }
 
 interface IngresoPorServicio {
@@ -736,9 +769,31 @@ export default function FinanceDashboardPage() {
   })) || [];
 
   // Filtrar transacciones
+  const getTransactionMethods = (t: Transaccion) => {
+    const methods: string[] = [];
+    const base = String(t.metodo || '').toLowerCase().trim();
+
+    if (base) methods.push(base);
+    if (Number(t.credit_applied || 0) > 0) methods.push('credit');
+    if (Number(t.wallet_applied || 0) > 0) methods.push('wallet');
+
+    if (methods.length === 0) methods.push('cash');
+    return Array.from(new Set(methods));
+  };
+
+  const normalizeMethod = (method: string) => {
+    const key = String(method || '').toLowerCase().trim();
+    if (['efectivo', 'cash'].includes(key)) return 'cash';
+    if (['card', 'tarjeta', 'openpay'].includes(key)) return 'card';
+    if (['spei', 'transfer', 'transferencia'].includes(key)) return 'spei';
+    return key;
+  };
+
   const filteredTransacciones = data?.transacciones.filter((t) => {
     const matchCliente = !filterCliente || t.cliente?.toLowerCase().includes(filterCliente.toLowerCase());
-    const matchMetodo = filterMetodo === 'all' || t.metodo === filterMetodo;
+    const methods = getTransactionMethods(t).map(normalizeMethod);
+    const selectedMethod = normalizeMethod(filterMetodo);
+    const matchMetodo = filterMetodo === 'all' || methods.includes(selectedMethod);
     return matchCliente && matchMetodo;
   }) || [];
 
@@ -1076,8 +1131,8 @@ export default function FinanceDashboardPage() {
                 <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Cliente</TableCell>
                 <TableCell align="right" sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Monto</TableCell>
                 <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Servicio</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Banco/CLABE</TableCell>
-                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Fecha</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Forma de Pago</TableCell>
+                <TableCell sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Fecha de Pago</TableCell>
                 <TableCell align="center" sx={{ fontWeight: 'bold', bgcolor: 'grey.100', color: '#000' }}>Acciones</TableCell>
               </TableRow>
             </TableHead>
@@ -1113,17 +1168,39 @@ export default function FinanceDashboardPage() {
                       />
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2">{payment.banco || '-'}</Typography>
-                      <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                        {payment.clabe || ''}
-                      </Typography>
+                      {(() => {
+                        const methods: string[] = [];
+                        if (Number(payment.credit_applied) > 0) methods.push('credit');
+                        if (Number(payment.wallet_applied) > 0) methods.push('wallet');
+                        const base = String(payment.payment_method || '').toLowerCase();
+                        // Si aún queda saldo pendiente (monto > 0) el método base completa el pago
+                        if (Number(payment.monto) > 0 && base) methods.push(base);
+                        if (methods.length === 0) methods.push(base || 'cash');
+                        // Deduplicar preservando orden
+                        const unique = Array.from(new Set(methods));
+                        return (
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                            {unique.map((m, idx) => {
+                              const info = getPaymentMethodInfo(m);
+                              return (
+                                <Chip
+                                  key={`${m}-${idx}`}
+                                  label={`${info.icon} ${info.label}`}
+                                  size="small"
+                                  sx={{ bgcolor: info.color, color: 'white', fontWeight: 'bold', fontSize: '0.7rem' }}
+                                />
+                              );
+                            })}
+                          </Box>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <Typography variant="body2">
-                        {new Date(payment.created_at).toLocaleDateString('es-MX')}
+                        {formatDateMX(payment.created_at)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {new Date(payment.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                        {formatTimeMX(payment.created_at)}
                       </Typography>
                     </TableCell>
                     <TableCell align="center">
@@ -1245,8 +1322,11 @@ export default function FinanceDashboardPage() {
                 >
                   <MenuItem value="all">Todos</MenuItem>
                   <MenuItem value="efectivo">Efectivo</MenuItem>
+                  <MenuItem value="card">Tarjeta</MenuItem>
                   <MenuItem value="spei">SPEI</MenuItem>
                   <MenuItem value="paypal">PayPal</MenuItem>
+                  <MenuItem value="credit">Crédito</MenuItem>
+                  <MenuItem value="wallet">Saldo a favor</MenuItem>
                 </Select>
               </FormControl>
             </Box>
@@ -1269,10 +1349,10 @@ export default function FinanceDashboardPage() {
                       <TableRow key={`${tx.metodo}-${tx.id}`} hover>
                         <TableCell>
                           <Typography variant="body2">
-                            {new Date(tx.fecha_hora).toLocaleDateString('es-MX')}
+                              {formatDateMX(tx.fecha_hora)}
                           </Typography>
                           <Typography variant="caption" color="text.secondary">
-                            {new Date(tx.fecha_hora).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                              {formatTimeMX(tx.fecha_hora)}
                           </Typography>
                         </TableCell>
                         <TableCell>
@@ -1286,16 +1366,19 @@ export default function FinanceDashboardPage() {
                           </Typography>
                         </TableCell>
                         <TableCell align="center">
-                          <Chip
-                            icon={tx.metodo === 'spei' ? <AccountBalance /> : tx.metodo === 'paypal' ? <Payment /> : <LocalAtm />}
-                            label={tx.metodo === 'spei' ? 'SPEI' : tx.metodo === 'paypal' ? 'PayPal' : 'Efectivo'}
-                            size="small"
-                            sx={{
-                              bgcolor: tx.metodo === 'spei' ? GREEN : tx.metodo === 'paypal' ? PAYPAL_BLUE : YELLOW,
-                              color: 'white',
-                              fontWeight: 'bold',
-                            }}
-                          />
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, justifyContent: 'center' }}>
+                            {getTransactionMethods(tx).map((method, idx) => {
+                              const info = getPaymentMethodInfo(method);
+                              return (
+                                <Chip
+                                  key={`${tx.id}-${method}-${idx}`}
+                                  label={`${info.icon} ${info.label}`}
+                                  size="small"
+                                  sx={{ bgcolor: info.color, color: 'white', fontWeight: 'bold' }}
+                                />
+                              );
+                            })}
+                          </Box>
                         </TableCell>
                         <TableCell>
                           {tx.concepto && tx.concepto.length > 50 ? (
@@ -1503,10 +1586,10 @@ export default function FinanceDashboardPage() {
                   <TableRow key={`${tx.metodo}-${tx.id}`} hover>
                     <TableCell>
                       <Typography variant="body2">
-                        {new Date(tx.fecha_hora).toLocaleDateString('es-MX')}
+                        {formatDateMX(tx.fecha_hora)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {new Date(tx.fecha_hora).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                        {formatTimeMX(tx.fecha_hora)}
                       </Typography>
                     </TableCell>
                     <TableCell>
@@ -1528,16 +1611,19 @@ export default function FinanceDashboardPage() {
                       </Typography>
                     </TableCell>
                     <TableCell align="center">
-                      <Chip
-                        icon={tx.metodo === 'spei' ? <AccountBalance /> : tx.metodo === 'paypal' ? <Payment /> : <LocalAtm />}
-                        label={tx.metodo === 'spei' ? 'SPEI' : tx.metodo === 'paypal' ? 'PayPal' : 'Efectivo'}
-                        size="small"
-                        sx={{
-                          bgcolor: tx.metodo === 'spei' ? GREEN : tx.metodo === 'paypal' ? PAYPAL_BLUE : YELLOW,
-                          color: 'white',
-                          fontWeight: 'bold',
-                        }}
-                      />
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, justifyContent: 'center' }}>
+                        {getTransactionMethods(tx).map((method, idx) => {
+                          const info = getPaymentMethodInfo(method);
+                          return (
+                            <Chip
+                              key={`${tx.id}-${method}-${idx}`}
+                              label={`${info.icon} ${info.label}`}
+                              size="small"
+                              sx={{ bgcolor: info.color, color: 'white', fontWeight: 'bold' }}
+                            />
+                          );
+                        })}
+                      </Box>
                     </TableCell>
                     <TableCell align="center">
                       <Chip

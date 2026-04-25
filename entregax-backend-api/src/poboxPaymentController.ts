@@ -1631,7 +1631,7 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
             return res.status(400).json({ error: 'ID de orden inválido' });
         }
 
-        const { method, requiere_factura, service } = req.body || {};
+        const { method, service } = req.body || {};
         if (!method || !['wallet', 'credit'].includes(method)) {
             return res.status(400).json({ error: 'Método inválido. Usa wallet o credit.' });
         }
@@ -1762,7 +1762,8 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
             }
         }
 
-        // Factura: solo aplica al monto pagado externamente; crédito y wallet no generan CFDI
+        // Regla de negocio: pago interno (wallet/crédito) NO genera factura.
+        // La factura se solicita únicamente en el flujo de tarjeta/PayPal.
         const willInvoice = false;
 
         // Marcar orden pagada
@@ -1800,8 +1801,8 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
             await client.query(
                 `INSERT INTO openpay_webhook_logs (
                     transaction_id, monto_recibido, monto_neto, concepto,
-                    fecha_pago, estatus_procesamiento, user_id, tipo_pago, service_type
-                 ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, $5, 'POBOX_USA')`,
+                    fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method, service_type
+                 ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, $5, $5, 'POBOX_USA')`,
                 [
                     `INTERNAL-${order.payment_reference}`,
                     amount,
@@ -1821,7 +1822,7 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
             console.error('Error generando comisiones (pago interno):', err)
         );
 
-        // Facturación automática (sólo crédito + requiere_factura)
+        // Facturación automática (no aplica en pagos internos)
         if (willInvoice) {
             try {
                 const invoiceResult = await createInvoice({

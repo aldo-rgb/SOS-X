@@ -4327,7 +4327,9 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
           'Caja CC' as origen,
           'completado' as estatus,
           t.service_type,
-          NULL as referencia
+          NULL as referencia,
+          0 as credit_applied,
+          0 as wallet_applied
         FROM caja_chica_transacciones t
         LEFT JOIN users u ON t.cliente_id = u.id
         WHERE t.tipo = 'ingreso' 
@@ -4341,24 +4343,35 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       (
         SELECT 
           owl.id,
-          owl.fecha_pago as fecha_hora,
+          COALESCE(pp.paid_at, owl.processed_at, owl.fecha_pago, owl.created_at) as fecha_hora,
           u.full_name as cliente,
           owl.monto_recibido as monto_bruto,
           owl.monto_neto,
           owl.monto_recibido - owl.monto_neto as comision,
-          COALESCE(owl.payment_method, owl.tipo_pago, 'spei') as metodo,
+          COALESCE(pp.payment_method, owl.payment_method, owl.tipo_pago, 'spei') as metodo,
           owl.concepto,
           COALESCE(fe.alias, 'Empresa') as origen,
           owl.estatus_procesamiento as estatus,
           owl.service_type,
-          owl.transaction_id as referencia
+          owl.transaction_id as referencia,
+          COALESCE(pp.credit_applied, 0) as credit_applied,
+          COALESCE(pp.wallet_applied, 0) as wallet_applied
         FROM openpay_webhook_logs owl
         LEFT JOIN users u ON owl.user_id = u.id
         LEFT JOIN fiscal_emitters fe ON owl.empresa_id = fe.id
+        LEFT JOIN pobox_payments pp ON (
+          pp.payment_reference = owl.transaction_id
+          OR pp.id::text = (owl.payload_json->>'payment_id')
+        )
         WHERE owl.estatus_procesamiento = 'procesado'
-          AND owl.fecha_pago >= $1 AND owl.fecha_pago <= $2
+          AND (
+            (owl.fecha_pago >= $1 AND owl.fecha_pago <= $2)
+            OR
+            (COALESCE(pp.paid_at, owl.processed_at, owl.fecha_pago, owl.created_at) >= $1
+             AND COALESCE(pp.paid_at, owl.processed_at, owl.fecha_pago, owl.created_at) <= $2)
+          )
           ${serviceFilter ? "AND owl.service_type = $3" : ""}
-        ORDER BY owl.fecha_pago DESC
+        ORDER BY COALESCE(pp.paid_at, owl.processed_at, owl.fecha_pago, owl.created_at) DESC
         LIMIT 50
       )
       ORDER BY fecha_hora DESC
@@ -4472,7 +4485,10 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         concepto: t.concepto,
         origen: t.origen,
         estatus: t.estatus,
-        service_type: t.service_type
+        service_type: t.service_type,
+        referencia: t.referencia,
+        credit_applied: parseFloat(t.credit_applied) || 0,
+        wallet_applied: parseFloat(t.wallet_applied) || 0
       })),
       
       // Servicios disponibles para filtrar
@@ -5490,11 +5506,14 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
         fe.bank_name as banco,
         fe.bank_clabe as clabe,
         b.name as sucursal_nombre,
+        COALESCE(pp.credit_applied, 0) as credit_applied,
+        COALESCE(pp.wallet_applied, 0) as wallet_applied,
         'webhook' as source
       FROM openpay_webhook_logs owl
       LEFT JOIN users u ON owl.user_id = u.id
       LEFT JOIN fiscal_emitters fe ON owl.empresa_id = fe.id
       LEFT JOIN branches b ON owl.branch_id = b.id
+      LEFT JOIN pobox_payments pp ON pp.payment_reference = owl.transaction_id
       ${whereClause1}
       ORDER BY owl.fecha_pago DESC
     `, params1);
@@ -5515,6 +5534,8 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
         pp.voucher_count,
         'POBOX_USA' as tipo_servicio,
         pp.payment_method,
+        COALESCE(pp.credit_applied, 0) as credit_applied,
+        COALESCE(pp.wallet_applied, 0) as wallet_applied,
         u.full_name as cliente,
         u.email as cliente_email,
         u.phone as telefono,
@@ -5534,6 +5555,8 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
       created_at: r.created_at,
       tipo_servicio: r.tipo_servicio,
       payment_method: r.payment_method || 'cash',
+      credit_applied: parseFloat(r.credit_applied) || 0,
+      wallet_applied: parseFloat(r.wallet_applied) || 0,
       cliente: r.cliente || 'Cliente desconocido',
       cliente_email: r.cliente_email,
       telefono: r.telefono,
@@ -5565,6 +5588,8 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
         created_at: r.created_at,
         tipo_servicio: r.tipo_servicio,
         payment_method: r.payment_method || 'cash',
+        credit_applied: parseFloat(r.credit_applied) || 0,
+        wallet_applied: parseFloat(r.wallet_applied) || 0,
         cliente: r.cliente || 'Cliente desconocido',
         cliente_email: r.cliente_email,
         telefono: r.telefono,
