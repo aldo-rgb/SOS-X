@@ -150,6 +150,8 @@ export default function LegalDocumentsPage() {
 
   const getDocumentLabel = (type: string) => {
     switch (type) {
+      case 'privacy_policy':
+        return 'Política de Privacidad (Empresa)';
       case 'privacy_notice':
         return 'Aviso de Privacidad (Empleados)';
       case 'advisor_privacy_notice':
@@ -163,6 +165,8 @@ export default function LegalDocumentsPage() {
 
   const getDocumentIcon = (type: string) => {
     switch (type) {
+      case 'privacy_policy':
+        return '🛡️';
       case 'privacy_notice':
         return '🔒';
       case 'advisor_privacy_notice':

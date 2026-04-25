@@ -847,7 +847,9 @@ import {
   createLegalDocument,
   getLegalDocumentHistory,
   getPublicServiceContract,
-  getPublicPrivacyNotice
+  getPublicPrivacyNotice,
+  getPublicAdvisorPrivacyNotice,
+  renderPublicPrivacyPoliciesPage
 } from './legalDocumentsController';
 import {
   createPoboxPaypalPayment,
@@ -7188,6 +7190,11 @@ app.get('/api/legal-documents/:id/history', authenticateToken, requireRole('supe
 // Endpoints públicos para apps
 app.get('/api/public/legal/service-contract', getPublicServiceContract);
 app.get('/api/public/legal/privacy-notice', getPublicPrivacyNotice);
+app.get('/api/public/legal/advisor-privacy-notice', getPublicAdvisorPrivacyNotice);
+
+// URL pública web (entregax.app) para políticas de privacidad
+app.get('/legal/privacy-policy', renderPublicPrivacyPoliciesPage);
+app.get('/privacy-policy', renderPublicPrivacyPoliciesPage);
 
 // Manejador de rutas no encontradas (404) - Devolver JSON en lugar de HTML
 app.use((_req: Request, res: Response) => {

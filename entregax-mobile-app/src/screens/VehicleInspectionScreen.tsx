@@ -9,6 +9,7 @@ import {
   Alert,
   ActivityIndicator,
   TextInput,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -60,7 +61,8 @@ const STEPS = [
   { title: 'Declaración', subtitle: 'Reporte de daños o incidentes' },
 ];
 
-export default function VehicleInspectionScreen({ navigation }: any) {
+export default function VehicleInspectionScreen({ navigation, route }: any) {
+  const token = route?.params?.token;
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -88,16 +90,24 @@ export default function VehicleInspectionScreen({ navigation }: any) {
     setLoading(true);
     try {
       // Cargar vehículos disponibles
-      const vehiclesRes = await api.get('/api/fleet/available-vehicles');
-      setVehicles(vehiclesRes.data.vehicles || []);
+      const vehiclesRes = await api.get('/api/fleet/available-vehicles', {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      const vehiclesData = Array.isArray(vehiclesRes.data)
+        ? vehiclesRes.data
+        : (vehiclesRes.data?.vehicles || []);
+      setVehicles(vehiclesData);
 
       // Verificar si ya hizo inspección hoy
-      const checkRes = await api.get('/api/fleet/inspection/check-today');
-      if (checkRes.data.already_inspected) {
+      const checkRes = await api.get('/api/fleet/inspection/today', {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (checkRes.data?.has_inspection || checkRes.data?.already_inspected) {
         setAlreadyInspected(true);
       }
     } catch (error) {
       console.error('Error cargando datos:', error);
+      Alert.alert('Error', 'No se pudieron cargar tus vehículos asignados. Intenta de nuevo.');
     } finally {
       setLoading(false);
     }
@@ -113,25 +123,62 @@ export default function VehicleInspectionScreen({ navigation }: any) {
   };
 
   const takePhoto = async (field: PhotoField) => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permiso requerido', 'Necesitamos acceso a la cámara para tomar fotos');
-      return;
-    }
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Permiso requerido',
+          'Necesitamos acceso a la cámara para tomar fotos.',
+          permission.canAskAgain
+            ? [{ text: 'OK' }]
+            : [
+                { text: 'Cancelar', style: 'cancel' },
+                { text: 'Abrir Configuración', onPress: () => Linking.openSettings() },
+              ]
+        );
+        return;
+      }
 
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['images'],
-      allowsEditing: false,
-      quality: 0.7,
-    });
-
-    if (!result.canceled && result.assets && result.assets[0]) {
-      // En producción, aquí subirías la imagen a un servidor
-      // Por ahora guardamos la URI local
-      setInspectionData({
-        ...inspectionData,
-        [field]: result.assets[0].uri,
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.7,
       });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        // En producción, aquí subirías la imagen a un servidor
+        // Por ahora guardamos la URI local
+        setInspectionData({
+          ...inspectionData,
+          [field]: result.assets[0].uri,
+        });
+      }
+    } catch (error) {
+      // En simulador iOS la cámara puede no estar disponible.
+      Alert.alert(
+        'Cámara no disponible',
+        'No se pudo abrir la cámara. Puedes seleccionar una imagen desde la galería.',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          {
+            text: 'Abrir Galería',
+            onPress: async () => {
+              const galleryResult = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: false,
+                quality: 0.7,
+              });
+
+              if (!galleryResult.canceled && galleryResult.assets && galleryResult.assets[0]) {
+                setInspectionData({
+                  ...inspectionData,
+                  [field]: galleryResult.assets[0].uri,
+                });
+              }
+            },
+          },
+        ]
+      );
     }
   };
 
@@ -195,6 +242,8 @@ export default function VehicleInspectionScreen({ navigation }: any) {
         is_cabin_clean: inspectionData.is_cabin_clean,
         has_new_damage: inspectionData.has_new_damage,
         damage_notes: inspectionData.damage_notes,
+      }, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
 
       Alert.alert(

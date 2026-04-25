@@ -801,10 +801,32 @@ export default function MyProfileScreen({ navigation, route }: Props) {
 
   const verificationInfo = getVerificationStatusInfo();
 
+  const handleBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+
+    // Fallback cuando la pantalla se abrió sin historial en el stack
+    const nav = navigation as any;
+    if (user?.role === 'repartidor') {
+      nav.replace('DriverHome', { user, token });
+      return;
+    }
+
+    const employeeRoles = ['warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager'];
+    if (employeeRoles.includes(user?.role)) {
+      nav.replace('EmployeeHome', { user, token });
+      return;
+    }
+
+    nav.replace('Home', { user, token });
+  };
+
   return (
     <View style={styles.container}>
       <Appbar.Header style={styles.appbar}>
-        <Appbar.BackAction onPress={() => navigation.goBack()} color="white" />
+        <Appbar.BackAction onPress={handleBack} color="white" />
         <Appbar.Content title={t('profile.title')} titleStyle={styles.appbarTitle} />
       </Appbar.Header>
 

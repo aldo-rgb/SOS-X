@@ -123,6 +123,10 @@ export default function ChangePasswordScreen({ navigation, route }: ChangePasswo
             {
               text: 'Continuar',
               onPress: () => {
+                if (user.role === 'repartidor') {
+                  navigation.replace('DriverHome', { user, token });
+                  return;
+                }
                 navigation.replace('EmployeeHome', { user, token });
               },
             },

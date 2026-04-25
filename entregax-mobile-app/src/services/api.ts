@@ -389,3 +389,5 @@ export const getCarouselSlidesApi = async (): Promise<{
 
   return response.json();
 };
+
+export default api;

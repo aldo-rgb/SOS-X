@@ -1,6 +1,12 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 
+const getAuthUserId = (req: Request): number | null => {
+  const rawId = (req as any).user?.userId ?? (req as any).user?.id;
+  const id = Number(rawId);
+  return Number.isFinite(id) && id > 0 ? id : null;
+};
+
 // ==================== VEHÍCULOS ====================
 
 // Interface para el mapa de vehículos
@@ -432,7 +438,7 @@ export const getMaintenanceHistory = async (req: Request, res: Response) => {
 export const createMaintenance = async (req: Request, res: Response) => {
   try {
     const { vehicleId } = req.params;
-    const userId = (req as any).user?.userId;
+    const userId = getAuthUserId(req);
     const {
       service_type, description, service_date, mileage_at_service, cost,
       workshop_name, mechanic_name, invoice_number, invoice_url,
@@ -522,7 +528,7 @@ export const getInspections = async (req: Request, res: Response) => {
 export const reviewInspection = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user?.userId;
+    const userId = getAuthUserId(req);
     const { status, notes } = req.body;
     
     const result = await pool.query(`
@@ -548,13 +554,17 @@ export const reviewInspection = async (req: Request, res: Response) => {
 // Obtener vehículos disponibles para el chofer
 export const getAvailableVehicles = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.userId;
+    const userId = getAuthUserId(req);
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Sesión no válida' });
+    }
     
-    // Vehículos activos asignados al chofer o sin asignar
+    // Vehículos activos asignados al chofer autenticado
     const result = await pool.query(`
       SELECT id, economic_number, vehicle_type, brand, model, year, license_plates, current_mileage
       FROM vehicles
-      WHERE status = 'active' AND (assigned_driver_id = $1 OR assigned_driver_id IS NULL)
+      WHERE status = 'active' AND assigned_driver_id = $1
       ORDER BY economic_number
     `, [userId]);
     
@@ -568,7 +578,11 @@ export const getAvailableVehicles = async (req: Request, res: Response) => {
 // Registrar inspección diaria (desde la app del chofer)
 export const submitDailyInspection = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.userId;
+    const userId = getAuthUserId(req);
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Sesión no válida' });
+    }
     const {
       vehicle_id, inspection_type, reported_mileage, odometer_photo_url,
       front_photo_url, back_photo_url, left_side_photo_url, right_side_photo_url,
@@ -591,9 +605,20 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
     }
     
     // Validar kilometraje (no puede ser menor al actual)
-    const vehicle = await pool.query('SELECT current_mileage FROM vehicles WHERE id = $1', [vehicle_id]);
+    const vehicle = await pool.query(
+      'SELECT current_mileage, assigned_driver_id, status FROM vehicles WHERE id = $1',
+      [vehicle_id]
+    );
     if (vehicle.rows.length === 0) {
       return res.status(404).json({ error: 'Vehículo no encontrado' });
+    }
+
+    if (vehicle.rows[0].status !== 'active') {
+      return res.status(400).json({ error: 'El vehículo no está activo para inspección' });
+    }
+
+    if (Number(vehicle.rows[0].assigned_driver_id) !== userId) {
+      return res.status(403).json({ error: 'No tienes permiso para inspeccionar este vehículo' });
     }
     
     if (reported_mileage < vehicle.rows[0].current_mileage) {
@@ -665,7 +690,11 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
 // Verificar si el chofer ya hizo inspección hoy
 export const checkTodayInspection = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.userId;
+    const userId = getAuthUserId(req);
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Sesión no válida' });
+    }
     const { type } = req.query; // 'check_in' o 'check_out'
     
     const result = await pool.query(`
@@ -715,7 +744,7 @@ export const getFleetAlerts = async (req: Request, res: Response) => {
 export const resolveAlert = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const userId = (req as any).user?.userId;
+    const userId = getAuthUserId(req);
     
     const result = await pool.query(`
       UPDATE fleet_alerts SET is_resolved = TRUE, resolved_by = $1, resolved_at = NOW()

@@ -29,6 +29,7 @@ type RootStackParamList = {
   Verification: { user: any; token: string };
   Home: { user: any; token: string };
   EmployeeHome: { user: any; token: string };
+  DriverHome: { user: any; token: string };
   AdvisorDashboard: { user: any; token: string };
 };
 
@@ -73,6 +74,14 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           currentPassword: password,
         });
       } else {
+        if (userData.role === 'repartidor') {
+          navigation.replace('DriverHome', {
+            user: userData,
+            token,
+          });
+          return;
+        }
+
         // Verificar si es empleado (incluyendo asesores) - van al EmployeeHomeScreen
         if (EMPLOYEE_ROLES.includes(userData.role)) {
           navigation.replace('EmployeeHome', {

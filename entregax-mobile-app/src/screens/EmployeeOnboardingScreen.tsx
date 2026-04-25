@@ -200,7 +200,11 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
               if (onComplete) {
                 onComplete();
               } else if (navigation) {
-                navigation.replace('EmployeeHome', { user, token: route?.params?.token });
+                if (user?.role === 'repartidor') {
+                  navigation.replace('DriverHome', { user, token: route?.params?.token });
+                } else {
+                  navigation.replace('EmployeeHome', { user, token: route?.params?.token });
+                }
               }
             }
           }]
@@ -323,8 +327,12 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
             if (onComplete) {
               onComplete();
             } else if (navigation) {
-              // Los empleados regresan a EmployeeHome
-              navigation.replace('EmployeeHome', { user, token: route?.params?.token });
+              // Repartidor va a su dashboard principal, resto a EmployeeHome
+              if (user?.role === 'repartidor') {
+                navigation.replace('DriverHome', { user, token: route?.params?.token });
+              } else {
+                navigation.replace('EmployeeHome', { user, token: route?.params?.token });
+              }
             }
           }
         }]

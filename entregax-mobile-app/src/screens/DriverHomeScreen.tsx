@@ -43,7 +43,9 @@ interface QuickAction {
   condition?: string;
 }
 
-export default function DriverHomeScreen({ navigation }: any) {
+export default function DriverHomeScreen({ navigation, route }: any) {
+  const token = route?.params?.token;
+  const user = route?.params?.user;
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState<DayStats>({
@@ -72,24 +74,37 @@ export default function DriverHomeScreen({ navigation }: any) {
 
   const loadDayData = async () => {
     try {
-      // Cargar estadísticas de ruta
-      const routeRes = await api.get('/api/driver/route-today');
-      if (routeRes.data.success) {
-        const route = routeRes.data.route;
+      // Cargar estadísticas de ruta (resistente a cambios de forma del payload)
+      try {
+        const routeRes = await api.get('/api/driver/route-today', {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
+        const route = routeRes.data?.route || routeRes.data?.data?.route || routeRes.data?.data || {};
+        const pendingPackages = Array.isArray(route.pendingPackages) ? route.pendingPackages : [];
+        const loadedPackages = Array.isArray(route.loadedPackages) ? route.loadedPackages : [];
+
+        const deliveredToday = Number(route.deliveredToday) || 0;
+        const totalAssignedFromApi = Number(route.totalAssigned) || 0;
+        const totalAssignedComputed = pendingPackages.length + loadedPackages.length + deliveredToday;
+
         setStats({
-          totalAssigned: route.totalAssigned,
-          loadedToday: route.loadedToday,
-          deliveredToday: route.deliveredToday,
-          pendingToLoad: route.pendingToLoad,
-          pendingDelivery: route.loadedPackages?.length || 0,
+          totalAssigned: totalAssignedFromApi > 0 ? totalAssignedFromApi : totalAssignedComputed,
+          loadedToday: Number(route.loadedToday) || 0,
+          deliveredToday,
+          pendingToLoad: Number(route.pendingToLoad) || pendingPackages.length,
+          pendingDelivery: loadedPackages.length,
           returnedToday: 0, // TODO: Agregar al backend
         });
+      } catch (routeError) {
+        console.error('Error cargando ruta del repartidor:', routeError);
       }
 
       // Verificar inspección del día
       try {
-        const inspRes = await api.get('/api/fleet/inspection/today');
-        setInspectionDone(inspRes.data.already_inspected || false);
+        const inspRes = await api.get('/api/fleet/inspection/today', {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
+        setInspectionDone(inspRes.data?.has_inspection || inspRes.data?.already_inspected || false);
       } catch {
         setInspectionDone(false);
       }
@@ -131,6 +146,17 @@ export default function DriverHomeScreen({ navigation }: any) {
   };
 
   const journeyStatus = getJourneyStatus();
+
+  const handleBackToEmployeeHome = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    navigation.navigate('EmployeeHome', {
+      user: route?.params?.user,
+      token: route?.params?.token,
+    });
+  };
 
   // Acciones rápidas dinámicas basadas en el estado
   const quickActions: QuickAction[] = [
@@ -194,6 +220,9 @@ export default function DriverHomeScreen({ navigation }: any) {
       >
         {/* Header */}
         <View style={styles.header}>
+          <TouchableOpacity style={styles.backButtonHeader} onPress={handleBackToEmployeeHome}>
+            <MaterialIcons name="arrow-back" size={24} color="#333" />
+          </TouchableOpacity>
           <View>
             <Text style={styles.greeting}>{getGreeting()} 👋</Text>
             <Text style={styles.dateText}>
@@ -206,7 +235,7 @@ export default function DriverHomeScreen({ navigation }: any) {
           </View>
           <TouchableOpacity 
             style={styles.profileButton}
-            onPress={() => navigation.navigate('Profile')}
+            onPress={() => navigation.navigate('MyProfile', { user, token })}
           >
             <MaterialIcons name="account-circle" size={40} color="#F05A28" />
           </TouchableOpacity>
@@ -269,6 +298,20 @@ export default function DriverHomeScreen({ navigation }: any) {
           </View>
         </View>
 
+        {/* Botón de asistencia */}
+        <TouchableOpacity
+          style={styles.attendanceCard}
+          onPress={() => navigation.navigate('AttendanceChecker', { user, token })}
+        >
+          <View style={styles.attendanceLeft}>
+            <View style={styles.attendanceIconBox}>
+              <MaterialIcons name="schedule" size={28} color="#4CAF50" />
+            </View>
+            <Text style={styles.attendanceText}>Checar Asistencia</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={30} color="#4CAF50" />
+        </TouchableOpacity>
+
         {/* Quick Actions */}
         <Text style={styles.sectionTitle}>Acciones Rápidas</Text>
         
@@ -280,7 +323,7 @@ export default function DriverHomeScreen({ navigation }: any) {
                 styles.actionCard,
                 !action.enabled && styles.actionCardDisabled
               ]}
-              onPress={() => action.enabled && navigation.navigate(action.screen)}
+              onPress={() => action.enabled && navigation.navigate(action.screen, { user, token })}
               disabled={!action.enabled}
             >
               <View style={[styles.actionIconBox, { backgroundColor: action.color }]}>
@@ -336,6 +379,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     backgroundColor: '#fff',
+  },
+  backButtonHeader: {
+    marginRight: 10,
+    padding: 4,
   },
   greeting: {
     fontSize: 24,
@@ -441,6 +488,40 @@ const styles = StyleSheet.create({
   progressLabel: {
     fontSize: 14,
     color: '#666',
+  },
+
+  // Attendance
+  attendanceCard: {
+    marginHorizontal: 15,
+    marginTop: 4,
+    marginBottom: 8,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: '#4CAF50',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  attendanceLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  attendanceIconBox: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#E8F5E9',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  attendanceText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#2E2E2E',
   },
   
   // Section Title
