@@ -48,7 +48,6 @@ import {
   Refresh,
   Receipt,
   ArrowBack,
-  Payment,
   Business,
   Search,
   CheckCircle,
