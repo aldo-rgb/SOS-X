@@ -16,13 +16,16 @@ const TRACKING_PUBLIC_SQL = `COALESCE(
 
 const TRACKING_MATCH_SQL = `(
     ${TRACKING_PUBLIC_SQL} = $1
-    OR p.skydropx_label_id = $1
-    OR p.dhl_awb = $1
+    OR to_jsonb(p)->>'skydropx_label_id' = $1
+    OR to_jsonb(p)->>'dhl_awb' = $1
 )`;
 
 const DELIVERY_STATUS_SQL = `COALESCE(
     to_jsonb(p)->>'delivery_status',
-    to_jsonb(p)->>'status'
+    CASE
+        WHEN to_jsonb(p)->>'status' = 'in_transit' THEN 'out_for_delivery'
+        ELSE to_jsonb(p)->>'status'
+    END
 )`;
 
 const ASSIGNED_DRIVER_SQL = `to_jsonb(p)->>'assigned_driver_id'`;
@@ -32,6 +35,15 @@ const DELIVERY_CITY_SQL = `COALESCE(to_jsonb(p)->>'delivery_city', to_jsonb(p)->
 const DELIVERY_ZIP_SQL = `COALESCE(to_jsonb(p)->>'delivery_zip', to_jsonb(p)->>'destination_zip')`;
 const RECIPIENT_NAME_SQL = `COALESCE(to_jsonb(p)->>'recipient_name', to_jsonb(p)->>'destination_contact')`;
 const RECIPIENT_PHONE_SQL = `COALESCE(to_jsonb(p)->>'recipient_phone', to_jsonb(p)->>'destination_phone')`;
+const NATIONAL_TRACKING_SQL = `COALESCE(
+    to_jsonb(p)->>'national_tracking',
+    to_jsonb(p)->>'skydropx_label_id',
+    to_jsonb(p)->>'dhl_awb'
+)`;
+const NATIONAL_CARRIER_SQL = `COALESCE(
+    to_jsonb(p)->>'national_carrier',
+    to_jsonb(p)->>'carrier'
+)`;
 const LOADED_AT_SQL = `to_jsonb(p)->>'loaded_at'`;
 const HAS_LABEL_SQL = `(
     to_jsonb(p)->>'national_label_url' IS NOT NULL
@@ -42,6 +54,9 @@ const HAS_LABEL_SQL = `(
 
 let packageStatusColumnCache: 'delivery_status' | 'status' | null = null;
 let packageBranchSqlCache: string | null = null;
+const packageColumnsCache = new Set<string>();
+let outForDeliveryWriteStatusCache: 'out_for_delivery' | 'in_transit' | null = null;
+let inCedisWriteStatusCache: 'in_cedis' | 'received_mty' | null = null;
 
 const getPackageStatusColumn = async (): Promise<'delivery_status' | 'status'> => {
         if (packageStatusColumnCache) return packageStatusColumnCache;
@@ -58,6 +73,67 @@ const getPackageStatusColumn = async (): Promise<'delivery_status' | 'status'> =
 
         packageStatusColumnCache = result.rows.length > 0 ? 'delivery_status' : 'status';
         return packageStatusColumnCache;
+};
+
+const hasPackageColumn = async (columnName: string): Promise<boolean> => {
+        if (packageColumnsCache.has(columnName)) return true;
+
+        const result = await pool.query(
+                `
+                    SELECT 1
+                    FROM information_schema.columns
+                    WHERE table_name = 'packages'
+                        AND column_name = $1
+                    LIMIT 1
+                `,
+                [columnName]
+        );
+
+        const exists = result.rows.length > 0;
+        if (exists) packageColumnsCache.add(columnName);
+        return exists;
+};
+
+const getOutForDeliveryWriteStatus = async (): Promise<'out_for_delivery' | 'in_transit'> => {
+        const statusColumn = await getPackageStatusColumn();
+        if (statusColumn === 'delivery_status') return 'out_for_delivery';
+
+        if (outForDeliveryWriteStatusCache) return outForDeliveryWriteStatusCache;
+
+        const result = await pool.query(
+                `
+                    SELECT 1
+                    FROM pg_type t
+                    JOIN pg_enum e ON e.enumtypid = t.oid
+                    WHERE t.typname = 'package_status'
+                        AND e.enumlabel = 'out_for_delivery'
+                    LIMIT 1
+                `
+        );
+
+        outForDeliveryWriteStatusCache = result.rows.length > 0 ? 'out_for_delivery' : 'in_transit';
+        return outForDeliveryWriteStatusCache;
+};
+
+const getInCedisWriteStatus = async (): Promise<'in_cedis' | 'received_mty'> => {
+        const statusColumn = await getPackageStatusColumn();
+        if (statusColumn === 'delivery_status') return 'in_cedis';
+
+        if (inCedisWriteStatusCache) return inCedisWriteStatusCache;
+
+        const result = await pool.query(
+                `
+                    SELECT 1
+                    FROM pg_type t
+                    JOIN pg_enum e ON e.enumtypid = t.oid
+                    WHERE t.typname = 'package_status'
+                        AND e.enumlabel = 'in_cedis'
+                    LIMIT 1
+                `
+        );
+
+        inCedisWriteStatusCache = result.rows.length > 0 ? 'in_cedis' : 'received_mty';
+        return inCedisWriteStatusCache;
 };
 
     const getPackageBranchSql = async (alias: string = 'p'): Promise<string> => {
@@ -128,24 +204,21 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         const pkgRes = await pool.query(`
             SELECT 
                 p.id, 
-            ${TRACKING_PUBLIC_SQL} as tracking_number,
-                p.assigned_driver_id, 
+                ${TRACKING_PUBLIC_SQL} as tracking_number,
+                ${ASSIGNED_DRIVER_SQL} as assigned_driver_id,
                 ${DELIVERY_STATUS_SQL} as delivery_status,
-                p.loaded_at,
-                p.client_id,
-                p.payment_status,
-                p.national_label_url,
-                p.national_tracking,
-                p.skydropx_label_id,
-                p.dhl_awb,
+                ${LOADED_AT_SQL} as loaded_at,
+                ${PAYMENT_STATUS_SQL} as payment_status,
+                to_jsonb(p)->>'national_label_url' as national_label_url,
+                to_jsonb(p)->>'national_tracking' as national_tracking,
+                to_jsonb(p)->>'skydropx_label_id' as skydropx_label_id,
+                to_jsonb(p)->>'dhl_awb' as dhl_awb,
                 ${packageBranchSql} as package_branch_id,
-                u.full_name as driver_name,
-                c.full_name as client_name,
-                c.email as client_email
+                NULL::text as driver_name,
+                NULL::text as client_name,
+                NULL::text as client_email
             FROM packages p
-            LEFT JOIN users u ON p.assigned_driver_id = u.id
-            LEFT JOIN users c ON p.client_id = c.id
-                WHERE ${TRACKING_MATCH_SQL}
+            WHERE ${TRACKING_MATCH_SQL}
         `, [barcode]);
 
         if (pkgRes.rows.length === 0) {
@@ -170,7 +243,7 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         }
 
         // 2. REGLA DE SEGURIDAD: ¿Le toca a este chofer?
-        if (pkg.assigned_driver_id && pkg.assigned_driver_id !== driverId) {
+        if (pkg.assigned_driver_id && Number(pkg.assigned_driver_id) !== driverId) {
             // Obtener nombre del chofer asignado para el mensaje
             const assignedDriverName = pkg.driver_name || 'otro chofer';
             return res.status(403).json({ 
@@ -201,7 +274,7 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         }
 
         // 4. VALIDAR QUE EL PAQUETE ESTÉ EN ESTADO CORRECTO PARA CARGAR
-        const validStatusesToLoad = ['in_cedis', 'ready_for_pickup', 'assigned', 'received_mty', 'inspected', 'pending_inspection'];
+        const validStatusesToLoad = ['in_cedis', 'ready_for_pickup', 'assigned', 'received_mty', 'inspected', 'pending_inspection', 'returned_to_warehouse'];
         if (!validStatusesToLoad.includes(pkg.delivery_status) && pkg.delivery_status !== 'out_for_delivery') {
             return res.status(400).json({ 
                 error: `⚠️ Este paquete no puede cargarse. Estado actual: ${pkg.delivery_status}`,
@@ -212,20 +285,36 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
 
         // 5. MARCAR COMO CARGADO (OUT FOR DELIVERY)
         const statusColumn = await getPackageStatusColumn();
-        await pool.query(`
-            UPDATE packages 
-            SET ${statusColumn} = 'out_for_delivery', 
-                assigned_driver_id = COALESCE(assigned_driver_id, $2),
-                loaded_at = NOW(),
-                updated_at = NOW()
-            WHERE id = $1
-        `, [pkg.id, driverId]);
+        const outForDeliveryStatus = await getOutForDeliveryWriteStatus();
+        const hasAssignedDriverColumn = await hasPackageColumn('assigned_driver_id');
+        const hasLoadedAtColumn = await hasPackageColumn('loaded_at');
+
+        const setParts: string[] = [`${statusColumn} = '${outForDeliveryStatus}'`, 'updated_at = NOW()'];
+        const values: any[] = [pkg.id];
+
+        if (hasAssignedDriverColumn) {
+            values.push(driverId);
+            setParts.push(`assigned_driver_id = COALESCE(assigned_driver_id, $${values.length})`);
+        }
+
+        if (hasLoadedAtColumn) {
+            setParts.push('loaded_at = NOW()');
+        }
+
+        await pool.query(
+            `UPDATE packages SET ${setParts.join(', ')} WHERE id = $1`,
+            values
+        );
 
         // 6. REGISTRAR EN HISTORIAL DE PAQUETE
-        await pool.query(`
-            INSERT INTO package_history (package_id, status, notes, created_by, created_at)
-            VALUES ($1, 'out_for_delivery', 'Paquete cargado en unidad de reparto', $2, NOW())
-        `, [pkg.id, driverId]);
+        try {
+            await pool.query(`
+                INSERT INTO package_history (package_id, status, notes, created_by, created_at)
+                VALUES ($1, 'out_for_delivery', 'Paquete cargado en unidad de reparto', $2, NOW())
+            `, [pkg.id, driverId]);
+        } catch (historyError) {
+            console.warn('No se pudo registrar package_history en scanPackageToLoad:', historyError);
+        }
 
         // TODO: Enviar notificación al cliente
         // await sendPushNotification(pkg.client_id, '🚚 En Camino', 'Tu paquete ha sido cargado en la unidad de reparto.');
@@ -264,6 +353,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
     try {
         const driverBranchId = await getDriverBranchId(driverId);
         const packageBranchSql = await getPackageBranchSql('p');
+        const hasAssignedDriverColumn = await hasPackageColumn('assigned_driver_id');
 
         // Si el repartidor tiene sucursal, mostrar paquetes listos de su CEDIS
         // (pagados + etiquetados) tal como se ve en panel de etiquetado.
@@ -280,7 +370,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ${RECIPIENT_PHONE_SQL} as recipient_phone
                 FROM packages p
                 WHERE ${packageBranchSql} = $1
-                  AND ${DELIVERY_STATUS_SQL} IN ('in_cedis', 'ready_for_pickup', 'assigned', 'received_mty', 'inspected', 'pending_inspection')
+                  AND ${DELIVERY_STATUS_SQL} IN ('in_cedis', 'ready_for_pickup', 'assigned', 'received_mty', 'inspected', 'pending_inspection', 'returned_to_warehouse')
                   AND ${PAYMENT_STATUS_SQL} = 'paid'
                                     AND ${HAS_LABEL_SQL}
                 ORDER BY p.updated_at ASC NULLS LAST, p.created_at ASC
@@ -297,35 +387,60 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ${RECIPIENT_PHONE_SQL} as recipient_phone
                 FROM packages p
                 WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
-                  AND ${DELIVERY_STATUS_SQL} IN ('in_cedis', 'ready_for_pickup', 'assigned', 'received_mty', 'inspected', 'pending_inspection')
+                  AND ${DELIVERY_STATUS_SQL} IN ('in_cedis', 'ready_for_pickup', 'assigned', 'received_mty', 'inspected', 'pending_inspection', 'returned_to_warehouse')
                 ORDER BY p.created_at ASC
             `, [driverId]);
 
         // Obtener lista de paquetes ya cargados (out for delivery)
-        const loadedRes = await pool.query(`
-            SELECT 
-                p.id,
-                ${TRACKING_PUBLIC_SQL} as tracking_number,
-                ${DELIVERY_STATUS_SQL} as delivery_status,
-                ${DELIVERY_ADDRESS_SQL} as delivery_address,
-                ${DELIVERY_CITY_SQL} as delivery_city,
-                ${DELIVERY_ZIP_SQL} as delivery_zip,
-                ${RECIPIENT_NAME_SQL} as recipient_name,
-                ${RECIPIENT_PHONE_SQL} as recipient_phone,
-                ${LOADED_AT_SQL} as loaded_at
-            FROM packages p
-            WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
-              AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
-            ORDER BY p.updated_at ASC, p.created_at ASC
-        `, [driverId]);
+        const loadedRes = hasAssignedDriverColumn
+            ? await pool.query(`
+                SELECT 
+                    p.id,
+                    ${TRACKING_PUBLIC_SQL} as tracking_number,
+                    ${DELIVERY_STATUS_SQL} as delivery_status,
+                    ${DELIVERY_ADDRESS_SQL} as delivery_address,
+                    ${DELIVERY_CITY_SQL} as delivery_city,
+                    ${DELIVERY_ZIP_SQL} as delivery_zip,
+                    ${RECIPIENT_NAME_SQL} as recipient_name,
+                    ${RECIPIENT_PHONE_SQL} as recipient_phone,
+                    ${LOADED_AT_SQL} as loaded_at,
+                    ${NATIONAL_TRACKING_SQL} as national_tracking,
+                    ${NATIONAL_CARRIER_SQL} as national_carrier
+                FROM packages p
+                WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
+                  AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
+                ORDER BY p.updated_at ASC, p.created_at ASC
+            `, [driverId])
+            : driverBranchId
+                ? await pool.query(`
+                    SELECT 
+                        p.id,
+                        ${TRACKING_PUBLIC_SQL} as tracking_number,
+                        ${DELIVERY_STATUS_SQL} as delivery_status,
+                        ${DELIVERY_ADDRESS_SQL} as delivery_address,
+                        ${DELIVERY_CITY_SQL} as delivery_city,
+                        ${DELIVERY_ZIP_SQL} as delivery_zip,
+                        ${RECIPIENT_NAME_SQL} as recipient_name,
+                        ${RECIPIENT_PHONE_SQL} as recipient_phone,
+                        ${LOADED_AT_SQL} as loaded_at,
+                        ${NATIONAL_TRACKING_SQL} as national_tracking,
+                        ${NATIONAL_CARRIER_SQL} as national_carrier
+                    FROM packages p
+                    WHERE ${packageBranchSql} = $1
+                      AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
+                    ORDER BY p.updated_at ASC, p.created_at ASC
+                `, [driverBranchId])
+                : { rows: [] as any[] };
 
-                const deliveredTodayRes = await pool.query(`
-                        SELECT COUNT(*) as delivered_today
-                        FROM packages p
-                        WHERE to_jsonb(p)->>'assigned_driver_id' = $1::text
-                            AND COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') = 'delivered'
-                            AND DATE(p.updated_at) = CURRENT_DATE
-                `, [driverId]);
+                const deliveredTodayRes = hasAssignedDriverColumn
+                    ? await pool.query(`
+                            SELECT COUNT(*) as delivered_today
+                            FROM packages p
+                            WHERE to_jsonb(p)->>'assigned_driver_id' = $1::text
+                                AND COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') IN ('delivered', 'sent')
+                                AND DATE(p.updated_at) = CURRENT_DATE
+                    `, [driverId])
+                    : { rows: [{ delivered_today: '0' }] };
 
                 const deliveredToday = parseInt(deliveredTodayRes.rows[0]?.delivered_today) || 0;
                 const pendingToLoad = pendingRes.rows.length;
@@ -391,7 +506,7 @@ export const scanPackageReturn = async (req: Request, res: Response): Promise<an
             SELECT 
                 p.id, 
                 ${TRACKING_PUBLIC_SQL} as tracking_number,
-                p.assigned_driver_id, 
+                ${ASSIGNED_DRIVER_SQL} as assigned_driver_id,
                 ${DELIVERY_STATUS_SQL} as delivery_status,
                 ${packageBranchSql} as package_branch_id
             FROM packages p
@@ -408,11 +523,21 @@ export const scanPackageReturn = async (req: Request, res: Response): Promise<an
         const pkg = pkgRes.rows[0];
 
         // 2. VALIDAR QUE SEA DEL CHOFER QUE LO TENÍA
-        if (pkg.assigned_driver_id !== driverId) {
+        if (pkg.assigned_driver_id && Number(pkg.assigned_driver_id) !== driverId) {
             return res.status(403).json({ 
                 error: '⛔ Este paquete no estaba asignado a ti.',
                 barcode
             });
+        }
+
+        if (!pkg.assigned_driver_id) {
+            const driverBranchId = await getDriverBranchId(driverId);
+            if (!driverBranchId || Number(pkg.package_branch_id) !== driverBranchId) {
+                return res.status(403).json({
+                    error: '⛔ Este paquete no pertenece a tu sucursal asignada.',
+                    barcode
+                });
+            }
         }
 
         // 3. VALIDAR QUE ESTABA EN RUTA
@@ -424,17 +549,33 @@ export const scanPackageReturn = async (req: Request, res: Response): Promise<an
             });
         }
 
-        // 4. DEVOLVER A CEDIS
+        // 4. DEVOLVER A BODEGA
         const statusColumn = await getPackageStatusColumn();
-        await pool.query(`
-            UPDATE packages 
-            SET ${statusColumn} = 'in_cedis', 
-                loaded_at = NULL,
-                return_reason = $2,
-                return_count = COALESCE(return_count, 0) + 1,
-                updated_at = NOW()
-            WHERE id = $1
-        `, [pkg.id, reason]);
+        const returnStatus = 'returned_to_warehouse';
+        const hasLoadedAtColumn = await hasPackageColumn('loaded_at');
+        const hasReturnReasonColumn = await hasPackageColumn('return_reason');
+        const hasReturnCountColumn = await hasPackageColumn('return_count');
+
+        const setParts: string[] = [`${statusColumn} = '${returnStatus}'`, 'updated_at = NOW()'];
+        const values: any[] = [pkg.id];
+
+        if (hasLoadedAtColumn) {
+            setParts.push('loaded_at = NULL');
+        }
+
+        if (hasReturnReasonColumn) {
+            values.push(reason);
+            setParts.push(`return_reason = $${values.length}`);
+        }
+
+        if (hasReturnCountColumn) {
+            setParts.push('return_count = COALESCE(return_count, 0) + 1');
+        }
+
+        await pool.query(
+            `UPDATE packages SET ${setParts.join(', ')} WHERE id = $1`,
+            values
+        );
 
         // 5. REGISTRAR EN HISTORIAL
         const reasonLabels: Record<string, string> = {
@@ -447,10 +588,14 @@ export const scanPackageReturn = async (req: Request, res: Response): Promise<an
             'other': 'Otro motivo'
         };
 
-        await pool.query(`
-            INSERT INTO package_history (package_id, status, notes, created_by, created_at)
-            VALUES ($1, 'returned_to_cedis', $2, $3, NOW())
-        `, [pkg.id, `Retornado a CEDIS: ${reasonLabels[reason] || reason}`, driverId]);
+        try {
+            await pool.query(`
+                INSERT INTO package_history (package_id, status, notes, created_by, created_at)
+                VALUES ($1, 'returned_to_warehouse', $2, $3, NOW())
+            `, [pkg.id, `Retornado a CEDIS: ${reasonLabels[reason] || reason}`, driverId]);
+        } catch (historyError) {
+            console.warn('No se pudo registrar package_history en scanPackageReturn:', historyError);
+        }
 
         return res.json({ 
             success: true, 
@@ -481,19 +626,39 @@ export const getPackagesToReturn = async (req: Request, res: Response): Promise<
     }
 
     try {
-        const packagesRes = await pool.query(`
-            SELECT 
-                                p.id,
-                                ${TRACKING_PUBLIC_SQL} as tracking_number,
-                                p.delivery_address,
-                                p.delivery_city,
-                                p.recipient_name,
-                                p.loaded_at
-                        FROM packages p
-                        WHERE p.assigned_driver_id = $1 
-                            AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
-                        ORDER BY p.loaded_at ASC
-        `, [driverId]);
+        const hasAssignedDriverColumn = await hasPackageColumn('assigned_driver_id');
+        const driverBranchId = await getDriverBranchId(driverId);
+        const packageBranchSql = await getPackageBranchSql('p');
+
+        const packagesRes = hasAssignedDriverColumn
+            ? await pool.query(`
+                SELECT 
+                    p.id,
+                    ${TRACKING_PUBLIC_SQL} as tracking_number,
+                    ${DELIVERY_ADDRESS_SQL} as delivery_address,
+                    ${DELIVERY_CITY_SQL} as delivery_city,
+                    ${RECIPIENT_NAME_SQL} as recipient_name,
+                    ${LOADED_AT_SQL} as loaded_at
+                FROM packages p
+                WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
+                    AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
+                ORDER BY p.updated_at ASC, p.created_at ASC
+            `, [driverId])
+            : driverBranchId
+                ? await pool.query(`
+                    SELECT 
+                        p.id,
+                        ${TRACKING_PUBLIC_SQL} as tracking_number,
+                        ${DELIVERY_ADDRESS_SQL} as delivery_address,
+                        ${DELIVERY_CITY_SQL} as delivery_city,
+                        ${RECIPIENT_NAME_SQL} as recipient_name,
+                        ${LOADED_AT_SQL} as loaded_at
+                    FROM packages p
+                    WHERE ${packageBranchSql} = $1
+                        AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
+                    ORDER BY p.updated_at ASC, p.created_at ASC
+                `, [driverBranchId])
+                : { rows: [] as any[] };
 
         return res.json({
             success: true,
@@ -518,6 +683,7 @@ export const getPackagesToReturn = async (req: Request, res: Response): Promise<
 export const confirmDelivery = async (req: Request, res: Response): Promise<any> => {
     const { barcode, signatureBase64, photoBase64, recipientName, notes } = req.body;
     const driverId = getAuthUserId(req);
+    const recipientNameTrimmed = String(recipientName || '').trim();
 
     if (!barcode) {
         return res.status(400).json({ error: '❌ Código de barras requerido.' });
@@ -528,14 +694,19 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
     }
 
     try {
+        const packageBranchSql = await getPackageBranchSql('p');
+
         // 1. BUSCAR EL PAQUETE
         const pkgRes = await pool.query(`
             SELECT 
                 p.id, 
                 ${TRACKING_PUBLIC_SQL} as tracking_number,
-                p.assigned_driver_id, 
+                ${ASSIGNED_DRIVER_SQL} as assigned_driver_id,
                 ${DELIVERY_STATUS_SQL} as delivery_status,
-                p.client_id
+                ${packageBranchSql} as package_branch_id,
+                ${NATIONAL_TRACKING_SQL} as national_tracking,
+                ${NATIONAL_CARRIER_SQL} as national_carrier,
+                NULL::int as client_id
             FROM packages p
             WHERE ${TRACKING_MATCH_SQL}
         `, [barcode]);
@@ -548,13 +719,30 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
         }
 
         const pkg = pkgRes.rows[0];
+        const nationalCarrier = String(pkg.national_carrier || '').toLowerCase();
+        const isEntregaLocal = nationalCarrier.includes('entregax') || nationalCarrier.includes('local');
+        const requiresCarrierGuideScan = !!pkg.national_tracking && !isEntregaLocal;
+
+        if (!requiresCarrierGuideScan && !recipientNameTrimmed) {
+            return res.status(400).json({ error: '❌ El nombre de quien recibe es obligatorio.' });
+        }
 
         // 2. VALIDAR ASIGNACIÓN
-        if (pkg.assigned_driver_id !== driverId) {
+        if (pkg.assigned_driver_id && Number(pkg.assigned_driver_id) !== driverId) {
             return res.status(403).json({ 
                 error: '⛔ Este paquete no está asignado a ti.',
                 barcode
             });
+        }
+
+        if (!pkg.assigned_driver_id) {
+            const driverBranchId = await getDriverBranchId(driverId);
+            if (!driverBranchId || Number(pkg.package_branch_id) !== driverBranchId) {
+                return res.status(403).json({
+                    error: '⛔ Este paquete no pertenece a tu sucursal asignada.',
+                    barcode
+                });
+            }
         }
 
         // 3. VALIDAR ESTADO
@@ -565,25 +753,61 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
             });
         }
 
-        // 4. MARCAR COMO ENTREGADO
+        // 4. MARCAR COMO ENTREGADO (compatible con esquema legacy)
+        // Para paquetería externa el status final es 'sent' (enviado a paquetería)
+        const finalStatus = requiresCarrierGuideScan ? 'sent' : 'delivered';
         const statusColumn = await getPackageStatusColumn();
-        await pool.query(`
-            UPDATE packages 
-            SET ${statusColumn} = 'delivered', 
-                delivered_at = NOW(),
-                delivery_signature = $2,
-                delivery_photo = $3,
-                delivery_recipient_name = $4,
-                delivery_notes = $5,
-                updated_at = NOW()
-            WHERE id = $1
-        `, [pkg.id, signatureBase64, photoBase64, recipientName, notes]);
+        const hasDeliveredAtColumn = await hasPackageColumn('delivered_at');
+        const hasDeliverySignatureColumn = await hasPackageColumn('delivery_signature');
+        const hasDeliveryPhotoColumn = await hasPackageColumn('delivery_photo');
+        const hasDeliveryRecipientNameColumn = await hasPackageColumn('delivery_recipient_name');
+        const hasDeliveryNotesColumn = await hasPackageColumn('delivery_notes');
+
+        const setParts: string[] = [`${statusColumn} = '${finalStatus}'`, 'updated_at = NOW()'];
+        const values: any[] = [pkg.id];
+
+        if (hasDeliveredAtColumn) {
+            setParts.push('delivered_at = NOW()');
+        }
+
+        if (hasDeliverySignatureColumn && signatureBase64) {
+            values.push(signatureBase64);
+            setParts.push(`delivery_signature = $${values.length}`);
+        }
+
+        if (hasDeliveryPhotoColumn && photoBase64) {
+            values.push(photoBase64);
+            setParts.push(`delivery_photo = $${values.length}`);
+        }
+
+        if (hasDeliveryRecipientNameColumn && recipientNameTrimmed) {
+            values.push(recipientNameTrimmed);
+            setParts.push(`delivery_recipient_name = $${values.length}`);
+        }
+
+        if (hasDeliveryNotesColumn && notes) {
+            values.push(notes);
+            setParts.push(`delivery_notes = $${values.length}`);
+        }
+
+        await pool.query(
+            `UPDATE packages SET ${setParts.join(', ')} WHERE id = $1`,
+            values
+        );
 
         // 5. REGISTRAR EN HISTORIAL
-        await pool.query(`
-            INSERT INTO package_history (package_id, status, notes, created_by, created_at)
-            VALUES ($1, 'delivered', $2, $3, NOW())
-        `, [pkg.id, `Entregado a: ${recipientName || 'N/A'}. ${notes || ''}`, driverId]);
+        try {
+            const historyNote = requiresCarrierGuideScan
+                ? `Entrega validada con guía de paquetería: ${pkg.national_tracking}. ${notes || ''}`
+                : `Entregado a: ${recipientNameTrimmed}. ${notes || ''}`;
+
+            await pool.query(`
+                INSERT INTO package_history (package_id, status, notes, created_by, created_at)
+                VALUES ($1, $2, $3, $4, NOW())
+            `, [pkg.id, finalStatus, historyNote, driverId]);
+        } catch (historyError) {
+            console.warn('No se pudo registrar package_history en confirmDelivery:', historyError);
+        }
 
         // TODO: Notificar al cliente
         // await sendDeliveryConfirmationEmail(pkg.client_id, pkg.tracking_number);
@@ -664,21 +888,25 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
     }
 
     try {
+        const packageBranchSql = await getPackageBranchSql('p');
+
         const pkgRes = await pool.query(`
             SELECT 
                 p.id, 
                 ${TRACKING_PUBLIC_SQL} as tracking_number,
-                p.assigned_driver_id, 
+                ${ASSIGNED_DRIVER_SQL} as assigned_driver_id,
                 ${DELIVERY_STATUS_SQL} as delivery_status,
-                p.delivery_address,
-                p.delivery_city,
-                p.delivery_zip,
-                p.recipient_name,
-                p.recipient_phone
+                ${packageBranchSql} as package_branch_id,
+                ${DELIVERY_ADDRESS_SQL} as delivery_address,
+                ${DELIVERY_CITY_SQL} as delivery_city,
+                ${DELIVERY_ZIP_SQL} as delivery_zip,
+                ${RECIPIENT_NAME_SQL} as recipient_name,
+                ${RECIPIENT_PHONE_SQL} as recipient_phone,
+                ${NATIONAL_TRACKING_SQL} as national_tracking,
+                ${NATIONAL_CARRIER_SQL} as national_carrier
             FROM packages p
             WHERE (${TRACKING_MATCH_SQL})
-              AND p.assigned_driver_id = $2
-        `, [barcode, driverId]);
+        `, [barcode]);
 
         if (pkgRes.rows.length === 0) {
             return res.status(404).json({ 
@@ -689,6 +917,23 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
 
         const pkg = pkgRes.rows[0];
 
+        if (pkg.assigned_driver_id && Number(pkg.assigned_driver_id) !== driverId) {
+            return res.status(403).json({ 
+                error: '⛔ Este paquete no está asignado a ti.',
+                barcode
+            });
+        }
+
+        if (!pkg.assigned_driver_id) {
+            const driverBranchId = await getDriverBranchId(driverId);
+            if (!driverBranchId || Number(pkg.package_branch_id) !== driverBranchId) {
+                return res.status(403).json({
+                    error: '⛔ Este paquete no pertenece a tu sucursal asignada.',
+                    barcode
+                });
+            }
+        }
+
         // Verificar que esté en estado para entregar
         if (pkg.delivery_status !== 'out_for_delivery') {
             return res.status(400).json({ 
@@ -697,6 +942,10 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
                 barcode
             });
         }
+
+        const nationalCarrier = String(pkg.national_carrier || '').toLowerCase();
+        const isEntregaLocal = nationalCarrier.includes('entregax') || nationalCarrier.includes('local');
+        const requiresCarrierGuideScan = !!pkg.national_tracking && !isEntregaLocal;
 
         return res.json({
             success: true,
@@ -708,7 +957,10 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
                 delivery_address: pkg.delivery_address,
                 delivery_city: pkg.delivery_city,
                 delivery_zip: pkg.delivery_zip,
-                delivery_status: pkg.delivery_status
+                delivery_status: pkg.delivery_status,
+                national_tracking: pkg.national_tracking,
+                national_carrier: pkg.national_carrier,
+                requires_carrier_scan: requiresCarrierGuideScan
             }
         });
 
