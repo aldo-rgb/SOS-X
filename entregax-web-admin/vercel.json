@@ -1,12 +1,9 @@
 {
-  "redirects": [
+  "rewrites": [
     {
       "source": "/privacy-policy",
-      "destination": "https://sos-x-production.up.railway.app/legal/privacy-policy",
-      "permanent": true
-    }
-  ],
-  "rewrites": [
+      "destination": "https://sos-x-production.up.railway.app/legal/privacy-policy"
+    },
     {
       "source": "/(.*)",
       "destination": "/index.html"
