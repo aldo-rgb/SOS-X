@@ -401,36 +401,18 @@ export async function getPublicAdvisorPrivacyNotice(req: Request, res: Response)
  */
 export async function renderPublicPrivacyPoliciesPage(req: Request, res: Response) {
   try {
-    const [companyPrivacyPolicy, employeePrivacy, advisorPrivacy] = await Promise.all([
-      getActiveDocumentByType('privacy_policy'),
-      getActiveDocumentByType('privacy_notice'),
-      getActiveDocumentByType('advisor_privacy_notice')
-    ]);
+    const companyPrivacyPolicy = await getActiveDocumentByType('privacy_policy');
 
-    if (!companyPrivacyPolicy && !employeePrivacy && !advisorPrivacy) {
+    if (!companyPrivacyPolicy) {
       return res.status(404).send('No hay políticas de privacidad publicadas');
     }
 
     const sections = [
-      companyPrivacyPolicy
-        ? {
-            heading: 'Política de Privacidad (Empresa)',
-            ...companyPrivacyPolicy
-          }
-        : null,
-      employeePrivacy
-        ? {
-            heading: 'Aviso de Privacidad (Empleados)',
-            ...employeePrivacy
-          }
-        : null,
-      advisorPrivacy
-        ? {
-            heading: 'Aviso de Privacidad (Asesores)',
-            ...advisorPrivacy
-          }
-        : null
-    ].filter(Boolean) as Array<{ heading: string; title: string; content: string; version: number; updated_at: string }>;
+      {
+        heading: 'Política de Privacidad (Empresa)',
+        ...companyPrivacyPolicy
+      }
+    ] as Array<{ heading: string; title: string; content: string; version: number; updated_at: string }>;
 
     const renderedSections = sections
       .map((section) => {
