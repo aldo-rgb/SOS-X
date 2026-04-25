@@ -142,6 +142,13 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
 
     // Marcar escaneados como recibidos en MTY
     if (scanned.length > 0) {
+      // Resolver branch CEDIS MTY (code='MTY') para fijar current_branch_id en
+      // los paquetes; sin esto el scanner de SALIDA marca "no está aquí".
+      const mtyBranch = await client.query(
+        `SELECT id FROM branches WHERE UPPER(code) = 'MTY' AND is_active = TRUE LIMIT 1`
+      );
+      const mtyBranchId = mtyBranch.rows[0]?.id || null;
+
       await client.query(
         `UPDATE packages
            SET status = 'received_mty',
@@ -149,10 +156,27 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
                dispatched_at = COALESCE(dispatched_at, NOW()),
                missing_on_arrival = FALSE,
                missing_reported_at = NULL,
+               current_branch_id = COALESCE($2::int, current_branch_id),
                updated_at = NOW()
          WHERE id = ANY($1::int[])`,
-        [scanned]
+        [scanned, mtyBranchId]
       );
+
+      // Reflejar en branch_inventory para que aparezca en "Inventario por Sucursal"
+      if (mtyBranchId) {
+        try {
+          await client.query(
+            `INSERT INTO branch_inventory (branch_id, package_type, package_id, tracking_number, status, received_at, received_by, released_at, released_by)
+             SELECT $1, 'package', p.id, COALESCE(p.tracking_internal, p.tracking_provider, p.id::text), 'in_stock', NOW(), $2, NULL, NULL
+               FROM packages p WHERE p.id = ANY($3::int[])
+             ON CONFLICT (branch_id, package_type, package_id)
+             DO UPDATE SET status='in_stock', received_at=NOW(), released_at=NULL, released_by=NULL, received_by=EXCLUDED.received_by`,
+            [mtyBranchId, userId || null, scanned]
+          );
+        } catch (e) {
+          console.warn('[pobox-consolidation] branch_inventory upsert falló (no bloqueante):', (e as any)?.message);
+        }
+      }
     }
 
     // Marcar faltantes
@@ -308,6 +332,11 @@ export const getDelayedPackages = async (_req: AuthRequest, res: Response): Prom
 export const markPackageAsFound = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { id } = req.params;
+    const mtyBranch = await pool.query(
+      `SELECT id FROM branches WHERE UPPER(code) = 'MTY' AND is_active = TRUE LIMIT 1`
+    );
+    const mtyBranchId = mtyBranch.rows[0]?.id || null;
+
     await pool.query(
       `UPDATE packages
          SET status = 'received_mty',
@@ -315,10 +344,26 @@ export const markPackageAsFound = async (req: AuthRequest, res: Response): Promi
              dispatched_at = COALESCE(dispatched_at, NOW()),
              missing_on_arrival = FALSE,
              missing_reported_at = NULL,
+             current_branch_id = COALESCE($2::int, current_branch_id),
              updated_at = NOW()
        WHERE id = $1`,
-      [id]
+      [id, mtyBranchId]
     );
+
+    if (mtyBranchId) {
+      try {
+        await pool.query(
+          `INSERT INTO branch_inventory (branch_id, package_type, package_id, tracking_number, status, received_at, released_at, released_by)
+           SELECT $1, 'package', p.id, COALESCE(p.tracking_internal, p.tracking_provider, p.id::text), 'in_stock', NOW(), NULL, NULL
+             FROM packages p WHERE p.id = $2
+           ON CONFLICT (branch_id, package_type, package_id)
+           DO UPDATE SET status='in_stock', received_at=NOW(), released_at=NULL, released_by=NULL`,
+          [mtyBranchId, id]
+        );
+      } catch (e) {
+        console.warn('[markPackageAsFound] branch_inventory upsert falló:', (e as any)?.message);
+      }
+    }
 
     // Si todos los paquetes de la consolidación ya llegaron, actualizar status
     const pkg = await pool.query(`SELECT consolidation_id FROM packages WHERE id = $1`, [id]);

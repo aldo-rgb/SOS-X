@@ -790,7 +790,28 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
             console.log(`✅ [WAREHOUSE] INGRESO exitoso: ${barcode} en ${branch_name} (tabla: ${tableName})`);
 
         } else if (scanType === 'SALIDA') {
-            // Validar que el paquete esté en esta bodega
+            // Validar que el paquete esté en esta bodega.
+            // Self-heal: si current_branch_id viene NULL pero el status indica que
+            // ya fue recibido (received_mty / received_<code> / received), asumimos
+            // que está en la sucursal del worker y reparamos current_branch_id.
+            const statusLc = String(packageInfo?.status || '').toLowerCase();
+            const codeLc = String(branch_code || '').toLowerCase();
+            const looksReceivedHere =
+                packageInfo.current_branch_id == null && (
+                    statusLc === `received_${codeLc}` ||
+                    statusLc === 'received_mty' ||
+                    statusLc === 'received'
+                );
+
+            if (looksReceivedHere && tableName === 'packages') {
+                console.log(`🧩 [WAREHOUSE] Self-heal: paquete ${barcode} sin current_branch_id pero status='${statusLc}' → fijando branch ${branch_id}`);
+                await pool.query(
+                    `UPDATE packages SET current_branch_id = $1, updated_at = NOW() WHERE id = $2`,
+                    [branch_id, packageId]
+                );
+                packageInfo.current_branch_id = branch_id;
+            }
+
             if (packageInfo.current_branch_id !== branch_id) {
                 await pool.query(`
                     INSERT INTO warehouse_scans (barcode, scan_type, package_type, package_id, branch_id, scanned_by, result, error_message)
