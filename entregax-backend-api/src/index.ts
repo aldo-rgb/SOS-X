@@ -719,6 +719,7 @@ import {
   pqtxGetConfig,
   pqtxListShipments,
   pqtxClientQuote,
+  pqtxGenerateForPackage,
 } from './paqueteExpressController';
 import {
   getCarrierOptions,
@@ -3202,6 +3203,7 @@ app.get('/api/admin/paquete-express/track/:trackingNumber', authenticateToken, r
 app.get('/api/admin/paquete-express/label/pdf/:trackingNumber', pqtxLabelPdf); // Sin auth: se abre en nueva pestaña del navegador
 app.get('/api/admin/paquete-express/label/zpl/:trackingNumber', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxLabelZpl);
 app.get('/api/admin/paquete-express/shipments', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxListShipments);
+app.post('/api/admin/paquete-express/generate-for-package', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxGenerateForPackage);
 
 // ========== OPCIONES DE PAQUETERÍA POR SERVICIO ==========
 app.get('/api/admin/carrier-options', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCarrierOptions);

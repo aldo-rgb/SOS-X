@@ -849,7 +849,7 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
                 try {
                     // Obtener dirección de entrega
                     const addrResult = await pool.query(`
-                        SELECT a.*, u.service_credit_balance 
+                        SELECT a.*, u.wallet_balance 
                         FROM addresses a
                         JOIN packages p ON p.assigned_address_id = a.id
                         LEFT JOIN users u ON p.user_id = u.id
@@ -863,7 +863,7 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
                     }
 
                     // Verificar que el cliente tenga crédito suficiente (mínimo $100 MXN para guía)
-                    const creditBalance = parseFloat(addr.service_credit_balance || '0');
+                    const creditBalance = parseFloat(addr.wallet_balance || '0');
                     if (creditBalance < 100) {
                         console.warn(`⚠️ [WAREHOUSE] Cliente sin crédito suficiente: $${creditBalance}`);
                         // Continuamos pero no generamos guía - se hará manual
@@ -921,7 +921,7 @@ export const processWarehouseScan = async (req: AuthRequest, res: Response): Pro
                                 // 4. Descontar del crédito del cliente
                                 await pool.query(`
                                     UPDATE users 
-                                    SET service_credit_balance = service_credit_balance - $1
+                                    SET wallet_balance = wallet_balance - $1
                                     WHERE id = $2
                                 `, [bestRate.totalPrice, packageInfo.user_id]);
 

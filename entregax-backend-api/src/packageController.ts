@@ -845,10 +845,17 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
 
         const result = await pool.query(`
             SELECT p.*, u.full_name, u.email, u.box_id as user_box_id,
-                   lc.full_name as legacy_name, lc.box_id as legacy_box_id
+                   lc.full_name as legacy_name, lc.box_id as legacy_box_id,
+                   a.alias as addr_alias, a.recipient_name as addr_recipient, a.street as addr_street,
+                   a.exterior_number as addr_ext, a.interior_number as addr_int,
+                   a.neighborhood as addr_neighborhood, a.city as addr_city,
+                   a.state as addr_state, a.zip_code as addr_zip,
+                   a.phone as addr_phone, a.reference as addr_reference,
+                   a.carrier_config as addr_carrier_config
             FROM packages p 
             LEFT JOIN users u ON p.user_id = u.id
             LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
+            LEFT JOIN addresses a ON p.assigned_address_id = a.id
             WHERE p.tracking_internal = $1 OR p.tracking_provider = $1
         `, [tracking.toUpperCase()]);
 
@@ -866,11 +873,34 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         const resolvedName = pkg.full_name || pkg.legacy_name || 'SIN CLIENTE';
         const resolvedBoxId = pkg.user_box_id || pkg.legacy_box_id || pkg.box_id || 'PENDIENTE';
 
+        // Derivar código corto de ciudad destino (MTY/CDMX/GDL/...) desde la dirección asignada
+        const cityCodeFor = (city?: string | null, state?: string | null): string | null => {
+            const c = (city || '').toLowerCase();
+            const s = (state || '').toLowerCase();
+            if (!c && !s) return null;
+            if (s.includes('nuevo le') || /monterrey|guadalupe|san pedro|san nicol|apodaca|santa catarina|garc[ií]a|escobedo|ju[aá]rez/.test(c)) return 'MTY';
+            if (s.includes('ciudad de m') || s === 'cdmx' || /ciudad de m[eé]xico|cdmx|m[eé]xico d\.?f\.?/.test(c)) return 'CDMX';
+            if (s.includes('jalisco') || /guadalajara|zapopan|tlaquepaque|tonal[aá]/.test(c)) return 'GDL';
+            if (/quer[eé]taro/.test(c) || /quer[eé]taro/.test(s)) return 'QRO';
+            if (/puebla/.test(c)) return 'PUE';
+            if (/le[oó]n/.test(c)) return 'LEO';
+            if (/tijuana/.test(c)) return 'TIJ';
+            if (/canc[uú]n/.test(c)) return 'CUN';
+            if (/m[eé]rida/.test(c)) return 'MID';
+            // fallback: primeras 3 letras de la ciudad
+            const clean = (city || state || '').replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]/g, '').toUpperCase();
+            return clean.slice(0, 3) || null;
+        };
+
+        const destinationCode = cityCodeFor(pkg.addr_city, pkg.addr_state);
+        const destCityFull = pkg.addr_city || pkg.destination_city || null;
+        const destCountry = pkg.destination_country || (pkg.addr_state ? 'México' : null);
+
         if (pkg.is_master) {
             labels.push({ boxNumber: 0, totalBoxes: pkg.total_boxes, tracking: pkg.tracking_internal, 
                 labelCode: pkg.tracking_internal, isMaster: true, weight: parseFloat(pkg.weight),
                 clientName: resolvedName, clientBoxId: resolvedBoxId, description: pkg.description,
-                destinationCity: pkg.destination_city, destinationCountry: pkg.destination_country,
+                destinationCity: destCityFull, destinationCountry: destCountry, destinationCode,
                 carrier: pkg.carrier, receivedAt: pkg.received_at });
             
             for (const child of children) {
@@ -880,7 +910,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     weight: parseFloat(child.weight),
                     dimensions: formatDimensions(parseFloat(child.pkg_length), parseFloat(child.pkg_width), parseFloat(child.pkg_height)),
                     clientName: resolvedName, clientBoxId: resolvedBoxId, description: child.description,
-                    destinationCity: pkg.destination_city, destinationCountry: pkg.destination_country,
+                    destinationCity: destCityFull, destinationCountry: destCountry, destinationCode,
                     carrier: pkg.carrier, receivedAt: pkg.received_at });
             }
         } else {
@@ -888,7 +918,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 labelCode: pkg.tracking_internal, isMaster: false, weight: parseFloat(pkg.weight),
                 dimensions: formatDimensions(parseFloat(pkg.pkg_length), parseFloat(pkg.pkg_width), parseFloat(pkg.pkg_height)),
                 clientName: resolvedName, clientBoxId: resolvedBoxId, description: pkg.description,
-                destinationCity: pkg.destination_city, destinationCountry: pkg.destination_country,
+                destinationCity: destCityFull, destinationCountry: destCountry, destinationCode,
                 carrier: pkg.carrier, receivedAt: pkg.received_at });
         }
 
@@ -901,7 +931,32 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     declaredValue: pkg.declared_value ? parseFloat(pkg.declared_value) : null,
                     isMaster: pkg.is_master, totalBoxes: pkg.total_boxes || 1,
                     status: pkg.status, statusLabel: getStatusLabel(pkg.status),
-                    receivedAt: pkg.received_at, deliveredAt: pkg.delivered_at },
+                    receivedAt: pkg.received_at, deliveredAt: pkg.delivered_at,
+                    destinationCity: destCityFull, destinationCountry: destCountry, destinationCode,
+                    nationalCarrier: pkg.national_carrier || null,
+                    nationalTracking: pkg.national_tracking || null,
+                    nationalLabelUrl: pkg.national_label_url || null,
+                    paymentStatus: pkg.payment_status || null,
+                    clientPaid: pkg.client_paid === true,
+                    clientPaidAt: pkg.client_paid_at || null,
+                    totalCost: pkg.gex_total_cost ? parseFloat(pkg.gex_total_cost) : null,
+                    poboxCostUsd: pkg.pobox_cost_usd ? parseFloat(pkg.pobox_cost_usd) : null,
+                    assignedAddress: pkg.assigned_address_id ? {
+                        id: pkg.assigned_address_id,
+                        alias: pkg.addr_alias,
+                        recipientName: pkg.addr_recipient,
+                        street: pkg.addr_street,
+                        exterior: pkg.addr_ext,
+                        interior: pkg.addr_int,
+                        neighborhood: pkg.addr_neighborhood,
+                        city: pkg.addr_city,
+                        state: pkg.addr_state,
+                        zip: pkg.addr_zip,
+                        phone: pkg.addr_phone,
+                        reference: pkg.addr_reference,
+                        carrierConfig: pkg.addr_carrier_config,
+                    } : null,
+                },
                 children: children.map(c => ({ id: c.id, tracking: c.tracking_internal, boxNumber: c.box_number,
                     trackingCourier: c.tracking_provider, // Tracking del courier (Amazon, USPS, etc)
                     weight: parseFloat(c.weight), dimensions: { length: parseFloat(c.pkg_length),
@@ -1159,6 +1214,8 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 statusLabel: displayLabel,
                 carrier: pkg.national_carrier || pkg.carrier,
                 national_carrier: pkg.national_carrier || null,
+                national_tracking: pkg.national_tracking || null,
+                national_label_url: pkg.national_label_url || null,
                 national_shipping_cost: pkg.national_shipping_cost ? parseFloat(pkg.national_shipping_cost) : 0,
                 destination_city: pkg.destination_city,
                 destination_country: pkg.destination_country,

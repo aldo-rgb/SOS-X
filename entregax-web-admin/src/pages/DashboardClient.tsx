@@ -202,6 +202,7 @@ interface PackageTracking {
   national_carrier?: string;
   national_shipping_cost?: number;
   national_tracking?: string;
+  national_label_url?: string;
   carrier?: string;
   gex_total_cost?: number;
 }
@@ -5095,6 +5096,12 @@ export default function DashboardClient() {
                                   .join(', ')}
                             </Typography>
                           )}
+                          {/* Guía nacional (última milla MX) */}
+                          {pkg.national_tracking && (
+                            <Typography variant="caption" sx={{ display: 'block', color: '#1976d2', fontFamily: 'monospace', fontSize: isMobile ? '0.6rem' : '0.7rem', fontWeight: 700 }} noWrap>
+                              🇲🇽 {pkg.national_carrier || 'Nacional'}: {pkg.national_tracking}
+                            </Typography>
+                          )}
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
                             {pkg.descripcion && <Typography variant="caption" color="text.secondary" sx={{ fontSize: isMobile ? '0.65rem' : '0.75rem' }} noWrap>{pkg.descripcion}</Typography>}
                             {pkg.total_boxes && pkg.total_boxes > 0 && (
@@ -8628,6 +8635,44 @@ export default function DashboardClient() {
                       {selectedPackage.included_guides.filter(g => g.tracking_provider).map(g => g.tracking_provider).join(', ')}
                     </span>
                   </Typography>
+                )}
+                {/* Guía nacional (última milla MX) */}
+                {selectedPackage.national_tracking && (
+                  <Box sx={{ mt: 1, p: 1, bgcolor: '#E3F2FD', borderRadius: 1, border: '1px solid #1976d2' }}>
+                    <Typography variant="body2" sx={{ color: '#0d47a1', fontWeight: 700 }}>
+                      🇲🇽 {selectedPackage.national_carrier || 'Guía Nacional'}
+                    </Typography>
+                    <Typography variant="body1" sx={{ fontFamily: 'monospace', fontWeight: 700, color: '#1976d2' }}>
+                      {selectedPackage.national_tracking}
+                    </Typography>
+                    {(() => {
+                      const carrier = (selectedPackage.national_carrier || '').toLowerCase();
+                      const tn = selectedPackage.national_tracking;
+                      let url: string | null = null;
+                      if (carrier.includes('paquete express')) {
+                        url = `https://www.paquetexpress.com/rastreo?guia=${encodeURIComponent(tn)}`;
+                      } else if (carrier.includes('estafeta')) {
+                        url = `https://www.estafeta.com/Herramientas/Rastreo?wayBill=${encodeURIComponent(tn)}`;
+                      } else if (carrier.includes('fedex')) {
+                        url = `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(tn)}`;
+                      } else if (carrier.includes('dhl')) {
+                        url = `https://www.dhl.com/mx-es/home/tracking.html?tracking-id=${encodeURIComponent(tn)}`;
+                      } else if (carrier.includes('ups')) {
+                        url = `https://www.ups.com/track?tracknum=${encodeURIComponent(tn)}`;
+                      }
+                      if (!url) return null;
+                      return (
+                        <Button
+                          variant="contained"
+                          size="small"
+                          onClick={() => window.open(url!, '_blank', 'noopener')}
+                          sx={{ mt: 1, bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' }, textTransform: 'none', fontWeight: 700 }}
+                        >
+                          🔎 Rastrear en {selectedPackage.national_carrier}
+                        </Button>
+                      );
+                    })()}
+                  </Box>
                 )}
 
                 {/* Botón Ver Detalles de Status (solo guías China Air AIR...) */}

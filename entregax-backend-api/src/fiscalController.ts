@@ -241,7 +241,7 @@ export const createInvoice = async (
     packageIds?: number[];
     serviceType?: string; // 'po_box', 'aereo', 'maritimo', etc.
   }
-): Promise<{ success: boolean; uuid?: string; pdfUrl?: string; xmlUrl?: string; emitterId?: number; error?: string }> => {
+): Promise<{ success: boolean; uuid?: string | undefined; pdfUrl?: string | undefined; xmlUrl?: string | undefined; emitterId?: number | undefined; error?: string | undefined }> => {
   try {
     // 1. Obtener datos fiscales del usuario
     const userResult = await pool.query(`

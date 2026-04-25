@@ -1074,3 +1074,207 @@ export async function pqtxClientQuote(req: Request, res: Response) {
     });
   }
 }
+
+// ============================================
+// GENERAR GUÍA PQTX PARA UN PAQUETE EXISTENTE
+// POST /api/admin/paquete-express/generate-for-package
+// Body: { packageId: number }
+// ============================================
+export async function pqtxGenerateForPackage(req: Request, res: Response) {
+  try {
+    const { packageId } = req.body || {};
+    if (!packageId) {
+      res.status(400).json({ success: false, error: 'packageId requerido' });
+      return;
+    }
+
+    // Cargar paquete + dirección + cliente
+    const pkgRes = await pool.query(
+      `SELECT p.*, u.full_name AS user_name, u.email AS user_email,
+              a.recipient_name, a.street, a.exterior_number, a.interior_number,
+              a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference
+         FROM packages p
+         LEFT JOIN users u ON p.user_id = u.id
+         LEFT JOIN addresses a ON p.assigned_address_id = a.id
+        WHERE p.id = $1`,
+      [packageId]
+    );
+    if (pkgRes.rows.length === 0) {
+      res.status(404).json({ success: false, error: 'Paquete no encontrado' });
+      return;
+    }
+    const pkg = pkgRes.rows[0];
+
+    // Si ya tiene guía nacional, devolverla
+    if (pkg.national_tracking) {
+      res.json({
+        success: true,
+        alreadyExists: true,
+        trackingNumber: pkg.national_tracking,
+        labelUrl: `/api/admin/paquete-express/label/pdf/${pkg.national_tracking}`,
+      });
+      return;
+    }
+
+    if (!pkg.assigned_address_id || !pkg.zip_code) {
+      res.status(400).json({ success: false, error: 'El paquete no tiene dirección de entrega asignada con código postal' });
+      return;
+    }
+
+    // Origen: CEDIS MTY
+    const PQTX_ORIGIN_ZIP = process.env.PQTX_ORIGIN_ZIP || '64860';
+    const PQTX_ORIGIN_CITY = process.env.PQTX_ORIGIN_CITY || 'MONTERREY';
+    const PQTX_ORIGIN_STATE = process.env.PQTX_ORIGIN_STATE || 'NUEVO LEON';
+    const PQTX_ORIGIN_MUN = process.env.PQTX_ORIGIN_MUN || 'MONTERREY';
+    const PQTX_ORIGIN_COL = process.env.PQTX_ORIGIN_COL || 'TORREMOLINOS';
+    const PQTX_ORIGIN_STREET = process.env.PQTX_ORIGIN_STREET || 'REVOLUCION SUR';
+    const PQTX_ORIGIN_NUM = process.env.PQTX_ORIGIN_NUM || '3866 B8';
+    const PQTX_ORIGIN_PHONE = process.env.PQTX_ORIGIN_PHONE || '8120029375';
+    const PQTX_ORIGIN_NAME = process.env.PQTX_ORIGIN_NAME || 'ENTREGAX';
+    const PQTX_ORIGIN_EMAIL = process.env.PQTX_ORIGIN_EMAIL || 'operaciones@entregax.com';
+
+    const token = await getJwtToken();
+
+    const radSrvcItemDTOList = [{
+      srvcId: 'PACKETS',
+      productIdSAT: '01010101',
+      weight: String(Number(pkg.weight) || 1),
+      volL: String(Number(pkg.pkg_length) || 30),
+      volW: String(Number(pkg.pkg_width) || 30),
+      volH: String(Number(pkg.pkg_height) || 30),
+      cont: pkg.description || 'PAQUETE',
+      qunt: '1',
+    }];
+
+    const url = `${PQTX_BASE_URL}/RadRestFul/api/rad/v1/guia`;
+    const body = {
+      header: {
+        security: { user: PQTX_USER, type: 0, token },
+        device: { appName: null, type: null, ip: 'entregax', idDevice: null },
+        target: null, output: null, language: null,
+      },
+      body: {
+        request: {
+          data: [{
+            billRad: 'REQUEST',
+            billClntId: PQTX_BILL_CLIENT_ID,
+            pymtMode: 'PAID',
+            pymtType: 'C',
+            comt: `Paquete ${pkg.tracking_internal}`,
+            radGuiaAddrDTOList: [
+              {
+                addrLin1: 'MEXICO',
+                addrLin3: PQTX_ORIGIN_STATE,
+                addrLin4: PQTX_ORIGIN_MUN,
+                addrLin5: PQTX_ORIGIN_CITY,
+                addrLin6: PQTX_ORIGIN_COL,
+                zipCode: PQTX_ORIGIN_ZIP,
+                strtName: PQTX_ORIGIN_STREET,
+                drnr: PQTX_ORIGIN_NUM,
+                phno1: PQTX_ORIGIN_PHONE,
+                clntName: PQTX_ORIGIN_NAME,
+                email: PQTX_ORIGIN_EMAIL,
+                contacto: PQTX_ORIGIN_NAME,
+                addrType: 'ORIGIN',
+              },
+              {
+                addrLin1: 'MEXICO',
+                addrLin3: (pkg.state || ' ').toUpperCase(),
+                addrLin4: (pkg.city || ' ').toUpperCase(),
+                addrLin5: (pkg.city || ' ').toUpperCase(),
+                addrLin6: (pkg.neighborhood || ' ').toUpperCase(),
+                zipCode: pkg.zip_code,
+                strtName: (pkg.street || ' ').toUpperCase(),
+                drnr: pkg.exterior_number || 'S/N',
+                phno1: (pkg.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10) || '0000000000',
+                clntName: (pkg.recipient_name || pkg.user_name || 'CLIENTE').toUpperCase(),
+                email: pkg.user_email || '',
+                contacto: (pkg.recipient_name || pkg.user_name || 'CLIENTE').toUpperCase(),
+                addrType: 'DESTINATION',
+              },
+            ],
+            radSrvcItemDTOList,
+            listSrvcItemDTO: [
+              { srvcId: 'EAD', value1: '' },
+              { srvcId: 'RAD', value1: '' },
+            ],
+            typeSrvcId: 'STD-T',
+            listRefs: pkg.tracking_internal ? [{ grGuiaRefr: pkg.tracking_internal }] : [],
+          }],
+          objectDTO: null,
+        },
+        response: null,
+      },
+    };
+
+    console.log(`🚚 [PQTX-GEN] Generando guía para paquete ${pkg.tracking_internal} → ${pkg.zip_code}`);
+    const response = await axios.post(url, body, {
+      headers: { 'Content-Type': 'application/json' },
+      timeout: 30000,
+    });
+
+    const respBody = response.data?.body?.response;
+    if (respBody?.success === true && respBody?.data) {
+      const guiaNo = typeof respBody.data === 'string'
+        ? respBody.data
+        : (respBody.data.rhGuiaNo || respBody.data.guiaNo || '');
+      const folioPorte = typeof respBody.objectDTO === 'string' ? respBody.objectDTO : '';
+      const addData = respBody.additionalData || null;
+      const labelUrl = `/api/admin/paquete-express/label/pdf/${guiaNo}`;
+
+      // Persistir en packages + pqtx_shipments
+      try {
+        await pool.query(
+          `UPDATE packages
+              SET national_tracking = $1,
+                  national_label_url = $2,
+                  national_carrier = COALESCE(national_carrier, 'Paquete Express'),
+                  updated_at = NOW()
+            WHERE id = $3`,
+          [guiaNo, labelUrl, packageId]
+        );
+      } catch (e: any) {
+        console.error('No se pudo actualizar packages.national_tracking:', e.message);
+      }
+
+      try {
+        const userId = (req as any).user?.userId || (req as any).user?.id || null;
+        await pool.query(
+          `INSERT INTO pqtx_shipments (tracking_number, folio_porte, service_type, origin_name, origin_zip_code, origin_city, dest_name, dest_zip_code, dest_city, weight, pieces, subtotal, total, status, created_by, raw_response)
+           VALUES ($1,$2,'STD-T',$3,$4,$5,$6,$7,$8,$9,1,$10,$11,'generated',$12,$13)`,
+          [
+            guiaNo, folioPorte,
+            PQTX_ORIGIN_NAME, PQTX_ORIGIN_ZIP, PQTX_ORIGIN_CITY,
+            (pkg.recipient_name || pkg.user_name || 'CLIENTE'),
+            pkg.zip_code, pkg.city || '',
+            Number(pkg.weight) || 1,
+            addData?.subTotlAmnt || null,
+            addData?.totalAmnt || null,
+            userId,
+            JSON.stringify(response.data),
+          ]
+        );
+      } catch (e: any) {
+        console.error('No se pudo guardar pqtx_shipments:', e.message);
+      }
+
+      res.json({
+        success: true,
+        trackingNumber: guiaNo,
+        folioPorte,
+        labelUrl,
+        message: respBody.messages || 'Guía generada correctamente',
+      });
+      return;
+    }
+
+    res.status(400).json({
+      success: false,
+      error: respBody?.messages || response.data?.header?.desTrans || 'Error al generar guía',
+      raw: response.data,
+    });
+  } catch (error: any) {
+    console.error('Error en pqtxGenerateForPackage:', error?.response?.data || error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+}

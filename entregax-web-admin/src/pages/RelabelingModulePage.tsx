@@ -42,6 +42,7 @@ interface LabelData {
     description?: string;
     destinationCity?: string;
     destinationCountry?: string;
+    destinationCode?: string;
     carrier?: string;
     receivedAt?: string;
 }
@@ -58,6 +59,32 @@ interface ShipmentData {
         status: string;
         statusLabel: string;
         receivedAt?: string;
+        destinationCity?: string | null;
+        destinationCountry?: string | null;
+        destinationCode?: string | null;
+        nationalCarrier?: string | null;
+        nationalTracking?: string | null;
+        nationalLabelUrl?: string | null;
+        paymentStatus?: string | null;
+        clientPaid?: boolean;
+        clientPaidAt?: string | null;
+        totalCost?: number | null;
+        poboxCostUsd?: number | null;
+        assignedAddress?: {
+            id: number;
+            alias?: string;
+            recipientName?: string;
+            street?: string;
+            exterior?: string;
+            interior?: string;
+            neighborhood?: string;
+            city?: string;
+            state?: string;
+            zip?: string;
+            phone?: string;
+            reference?: string;
+            carrierConfig?: any;
+        } | null;
     };
     children: Array<{
         id: number;
@@ -128,6 +155,163 @@ export default function RelabelingModulePage() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [shipment, setShipment] = useState<ShipmentData | null>(null);
+    const [generatingPqtx, setGeneratingPqtx] = useState(false);
+    const [pqtxMsg, setPqtxMsg] = useState<string | null>(null);
+
+    const handleGeneratePqtxLabel = async () => {
+        if (!shipment) return;
+        setGeneratingPqtx(true);
+        setError(null);
+        setPqtxMsg(null);
+        try {
+            const res = await api.post('/admin/paquete-express/generate-for-package', {
+                packageId: shipment.master.id,
+            });
+            if (res.data?.success) {
+                const tn: string = res.data.trackingNumber;
+                setPqtxMsg(`✅ Guía generada: ${tn}`);
+                // abrir PDF en nueva pestaña
+                const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');
+                window.open(`${baseUrl}/admin/paquete-express/label/pdf/${tn}`, '_blank');
+                // Refrescar shipment para que aparezca el tracking nacional
+                await handleSearch();
+            } else {
+                setError(res.data?.error || 'No se pudo generar la guía');
+            }
+        } catch (e: any) {
+            setError(e.response?.data?.error || e.message || 'Error generando guía Paquete Express');
+        } finally {
+            setGeneratingPqtx(false);
+        }
+    };
+
+    const handlePrintExistingPqtxLabel = () => {
+        if (!shipment?.master.nationalTracking) return;
+        const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');
+        window.open(`${baseUrl}/admin/paquete-express/label/pdf/${shipment.master.nationalTracking}`, '_blank');
+    };
+
+    const handlePrintLocalDelivery = () => {
+        if (!shipment?.master.assignedAddress) return;
+        const a = shipment.master.assignedAddress;
+        const printWindow = window.open('', '_blank', 'width=400,height=600');
+        if (!printWindow) {
+            setError('Permite ventanas emergentes para imprimir');
+            return;
+        }
+        const recipient = (a.recipientName || shipment.client.name || 'CLIENTE').toUpperCase();
+        const street = `${a.street || ''} ${a.exterior || ''}${a.interior ? ` Int. ${a.interior}` : ''}`.trim();
+        const cityLine = `${a.city || ''}${a.state ? ', ' + a.state : ''}`.trim();
+        const colZip = `${a.neighborhood ? 'Col. ' + a.neighborhood + ' · ' : ''}C.P. ${a.zip || '—'}`;
+        const tn = shipment.master.tracking;
+        const trackingQr = `https://app.entregax.com/track/${tn}`;
+        const today = new Date().toLocaleDateString('es-MX');
+        const svc = getServiceInfo(tn);
+
+        const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><title>Entrega Local ${tn}</title>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<style>
+  @page { size: 4in 6in; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 11px; padding: 0.18in; width: 4in; height: 6in; display: flex; flex-direction: column; }
+  .brand { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #F05A28; padding-bottom: 6px; margin-bottom: 6px; }
+  .brand .logo { font-size: 22px; font-weight: 900; color: #F05A28; letter-spacing: 1px; font-family: 'Arial Black', sans-serif; }
+  .brand .logo span { color: #111; }
+  .brand .badge { background: #F05A28; color: #fff; padding: 4px 10px; font-size: 10px; font-weight: 800; border-radius: 4px; letter-spacing: 1px; }
+  .tracking-row { display: flex; justify-content: space-between; align-items: center; margin: 4px 0; }
+  .tracking-row .tn { font-family: 'Courier New', monospace; font-size: 16px; font-weight: 900; }
+  .tracking-row .date { font-size: 10px; color: #555; }
+  .barcode-box { text-align: center; margin: 4px 0; }
+  .barcode-box svg { max-height: 65px; width: 100%; }
+  .dest { border: 2px solid #000; padding: 8px; margin: 6px 0; }
+  .dest .lbl { font-size: 9px; color: #666; font-weight: 800; letter-spacing: 1px; margin-bottom: 3px; }
+  .dest .name { font-size: 14px; font-weight: 900; color: #111; margin-bottom: 4px; line-height: 1.1; }
+  .dest .line { font-size: 12px; color: #222; line-height: 1.3; }
+  .dest .city { font-size: 14px; font-weight: 900; color: #C1272D; margin-top: 4px; }
+  .dest .phone { font-size: 11px; font-weight: 700; margin-top: 4px; }
+  .dest-code { display: flex; align-items: center; justify-content: center; border: 3px solid #C1272D; border-radius: 8px; padding: 6px 4px; margin: 6px 0; background: #FFF3F0; }
+  .dest-code .code { font-family: 'Arial Black', sans-serif; font-size: 56px; font-weight: 900; color: #C1272D; letter-spacing: 4px; line-height: 1; }
+  .dest-code .lbl { font-size: 9px; color: #666; font-weight: 800; letter-spacing: 2px; margin-right: 10px; writing-mode: vertical-rl; transform: rotate(180deg); }
+  .ref-box { font-size: 10px; color: #444; border: 1px dashed #999; padding: 4px 6px; margin-top: 4px; font-style: italic; }
+  .pkg-info { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; font-size: 10px; margin: 4px 0; text-align: center; }
+  .pkg-info .cell { border: 1px solid #ddd; padding: 4px; }
+  .pkg-info .cell .lbl { font-size: 8px; color: #666; font-weight: 700; }
+  .pkg-info .cell .val { font-size: 11px; font-weight: 800; }
+  .footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 6px; border-top: 1px dashed #999; }
+  .footer .qr-box { text-align: center; }
+  .footer .qr-box img { width: 90px !important; height: 90px !important; }
+  .footer .qr-box .qr-label { font-size: 8px; color: #666; }
+  .footer .signature { flex: 1; padding-left: 8px; }
+  .footer .service-box { flex: 1; padding-left: 10px; text-align: center; }
+  .footer .service-box .lbl { font-size: 9px; color: #666; font-weight: 800; letter-spacing: 1px; margin-bottom: 4px; }
+  .footer .service-box .val { font-family: 'Arial Black', sans-serif; font-size: 22px; font-weight: 900; color: #F05A28; letter-spacing: 2px; line-height: 1.1; }
+  .footer .service-box .sub { font-size: 9px; color: #444; margin-top: 2px; }
+  .footer .signature .line { border-bottom: 1px solid #000; height: 30px; }
+  .footer .signature .lbl { font-size: 8px; color: #666; margin-top: 2px; text-align: center; }
+</style></head><body>
+  <div class="brand">
+    <div class="logo">Entrega<span>X</span></div>
+    <div class="badge">📍 ENTREGA LOCAL</div>
+  </div>
+
+  <div class="tracking-row">
+    <div class="tn">${tn}</div>
+    <div class="date">${today}</div>
+  </div>
+
+  <div class="barcode-box"><svg id="barcode"></svg></div>
+
+  <div class="dest">
+    <div class="lbl">ENTREGAR A</div>
+    <div class="name">${recipient}</div>
+    <div class="line">${street || '—'}</div>
+    <div class="line">${colZip}</div>
+    <div class="city">${cityLine}</div>
+    ${a.phone ? `<div class="phone">📞 ${a.phone}</div>` : ''}
+    ${a.reference ? `<div class="ref-box">Ref: ${a.reference}</div>` : ''}
+  </div>
+
+  <div class="dest-code">
+    <div class="lbl">DESTINO</div>
+    <div class="code">${shipment.master.destinationCode || '—'}</div>
+  </div>
+
+  <div class="pkg-info">
+    <div class="cell"><div class="lbl">CLIENTE</div><div class="val">${shipment.client.boxId}</div></div>
+    <div class="cell"><div class="lbl">PESO</div><div class="val">${shipment.master.weight ? Number(shipment.master.weight).toFixed(1) + ' kg' : '—'}</div></div>
+    <div class="cell"><div class="lbl">CAJAS</div><div class="val">${shipment.master.totalBoxes || 1}</div></div>
+  </div>
+
+  <div class="footer">
+    <div class="qr-box">
+      <div id="qrcode"></div>
+      <div class="qr-label">Tracking</div>
+    </div>
+    <div class="service-box">
+      <div class="lbl">SERVICIO</div>
+      <div class="val">${svc.emoji} ${svc.label.toUpperCase()}</div>
+      <div class="sub">${shipment.master.statusLabel || ''}</div>
+    </div>
+  </div>
+
+<script>
+  window.addEventListener('load', function() {
+    try {
+      JsBarcode('#barcode', ${JSON.stringify(tn)}, { format: 'CODE128', width: 2, height: 50, displayValue: false, margin: 0 });
+    } catch(e) {}
+    try {
+      var qr = qrcode(0, 'M'); qr.addData(${JSON.stringify(trackingQr)}); qr.make();
+      document.getElementById('qrcode').innerHTML = qr.createImgTag(3);
+    } catch(e) {}
+    setTimeout(function() { window.print(); }, 400);
+  });
+</script>
+</body></html>`;
+        printWindow.document.write(html);
+        printWindow.document.close();
+    };
 
     const handleSearch = async () => {
         const normalized = extractTracking(tracking);
@@ -199,6 +383,11 @@ export default function RelabelingModulePage() {
   .box-count { text-align: right; font-size: 11px; font-weight: 700; }
   .box-count .big { font-size: 20px; }
   .desc { font-size: 9px; color: #444; border: 1px dashed #999; padding: 2px 4px; margin: 2px 0; }
+  .dest-banner { display: flex; align-items: center; justify-content: center; gap: 8px; border: 3px solid #000; padding: 6px 8px; margin: 4px 0; background: #FFF3E0; }
+  .dest-banner .code { font-size: 44px; font-weight: 900; color: #C1272D; line-height: 1; font-family: 'Arial Black', sans-serif; letter-spacing: 2px; }
+  .dest-banner .meta { text-align: left; }
+  .dest-banner .meta .lbl { font-size: 9px; color: #666; font-weight: 700; letter-spacing: 1px; }
+  .dest-banner .meta .city { font-size: 12px; font-weight: 700; color: #222; }
 </style>
 </head>
 <body>
@@ -215,6 +404,14 @@ export default function RelabelingModulePage() {
   <div class="client-box">
     <div class="box-id">Box: ${label.clientBoxId}</div>
   </div>
+
+  ${label.destinationCode ? `<div class="dest-banner">
+    <div class="code">${label.destinationCode}</div>
+    <div class="meta">
+      <div class="lbl">DESTINO</div>
+      <div class="city">${label.destinationCity || ''}${label.destinationCountry ? ', ' + label.destinationCountry : ''}</div>
+    </div>
+  </div>` : ''}
 
   <div class="info-grid">
     <div><span class="label">Peso:</span> ${weightStr}</div>
@@ -282,7 +479,7 @@ export default function RelabelingModulePage() {
                     </Box>
                     <Box>
                         <Typography variant="h4" fontWeight={700}>
-                            Módulo de Reetiquetado
+                            Módulo de etiquetado
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
                             Reimprime etiquetas de cualquier paquete en el sistema (PO Box USA, China Aéreo, China Marítimo, DHL, Nacional)
@@ -341,8 +538,8 @@ export default function RelabelingModulePage() {
             {/* Resultado */}
             {shipment && (
                 <Paper sx={{ p: 3 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                        <Box>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2, gap: 2 }}>
+                        <Box sx={{ flex: 1 }}>
                             <Typography variant="h5" fontWeight={700} sx={{ fontFamily: 'monospace' }}>
                                 {shipment.master.tracking}
                             </Typography>
@@ -364,8 +561,54 @@ export default function RelabelingModulePage() {
                                         variant="outlined"
                                     />
                                 )}
+                                {shipment.master.nationalCarrier && (
+                                    <Chip
+                                        label={`🚚 ${shipment.master.nationalCarrier}`}
+                                        sx={{ bgcolor: '#1976d2', color: 'white', fontWeight: 700 }}
+                                    />
+                                )}
+                                {(() => {
+                                    const paid = shipment.master.clientPaid || shipment.master.paymentStatus === 'paid';
+                                    return (
+                                        <Chip
+                                            label={paid ? '✅ PAGADO' : '⏳ POR PAGAR'}
+                                            sx={{
+                                                bgcolor: paid ? '#2E7D32' : '#D32F2F',
+                                                color: 'white',
+                                                fontWeight: 800,
+                                                letterSpacing: 0.5,
+                                            }}
+                                        />
+                                    );
+                                })()}
                             </Box>
                         </Box>
+                        {shipment.master.destinationCode && (
+                            <Box
+                                sx={{
+                                    minWidth: 140,
+                                    px: 2,
+                                    py: 1.5,
+                                    border: '3px solid #C1272D',
+                                    borderRadius: 2,
+                                    bgcolor: '#FFF3E0',
+                                    textAlign: 'center',
+                                    boxShadow: 2,
+                                }}
+                            >
+                                <Typography variant="caption" sx={{ color: '#666', fontWeight: 700, letterSpacing: 1 }}>
+                                    DESTINO
+                                </Typography>
+                                <Typography sx={{ fontSize: 44, fontWeight: 900, color: '#C1272D', lineHeight: 1, fontFamily: 'Arial Black, sans-serif' }}>
+                                    {shipment.master.destinationCode}
+                                </Typography>
+                                {shipment.master.destinationCity && (
+                                    <Typography variant="caption" sx={{ color: '#444', fontWeight: 600 }}>
+                                        {shipment.master.destinationCity}
+                                    </Typography>
+                                )}
+                            </Box>
+                        )}
                     </Box>
 
                     <Divider sx={{ my: 2 }} />
@@ -388,6 +631,57 @@ export default function RelabelingModulePage() {
                             )}
                         </Grid>
                     </Grid>
+
+                    {shipment.master.assignedAddress && (
+                        <Box
+                            sx={{
+                                mt: 1,
+                                mb: 2,
+                                p: 2,
+                                border: '2px dashed #F05A28',
+                                borderRadius: 2,
+                                bgcolor: '#FFF8F4',
+                            }}
+                        >
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#C1272D' }}>
+                                    📍 Dirección de Entrega
+                                </Typography>
+                                {shipment.master.nationalCarrier && (
+                                    <Chip
+                                        size="small"
+                                        label={`🚚 ${shipment.master.nationalCarrier}`}
+                                        sx={{ bgcolor: '#1976d2', color: 'white', fontWeight: 700 }}
+                                    />
+                                )}
+                            </Box>
+                            <Typography variant="body2" fontWeight={700}>
+                                {shipment.master.assignedAddress.recipientName || shipment.client.name}
+                            </Typography>
+                            <Typography variant="body2">
+                                {shipment.master.assignedAddress.street} {shipment.master.assignedAddress.exterior || ''}
+                                {shipment.master.assignedAddress.interior ? ` Int. ${shipment.master.assignedAddress.interior}` : ''}
+                            </Typography>
+                            <Typography variant="body2">
+                                {shipment.master.assignedAddress.neighborhood ? `Col. ${shipment.master.assignedAddress.neighborhood}, ` : ''}
+                                C.P. {shipment.master.assignedAddress.zip || '—'}
+                            </Typography>
+                            <Typography variant="body2" fontWeight={600}>
+                                {shipment.master.assignedAddress.city}
+                                {shipment.master.assignedAddress.state ? `, ${shipment.master.assignedAddress.state}` : ''}
+                            </Typography>
+                            {shipment.master.assignedAddress.phone && (
+                                <Typography variant="caption" color="text.secondary">
+                                    📞 {shipment.master.assignedAddress.phone}
+                                </Typography>
+                            )}
+                            {shipment.master.assignedAddress.reference && (
+                                <Typography variant="caption" sx={{ display: 'block', color: '#666', fontStyle: 'italic' }}>
+                                    Ref: {shipment.master.assignedAddress.reference}
+                                </Typography>
+                            )}
+                        </Box>
+                    )}
 
                     <Divider sx={{ my: 2 }} />
 
@@ -415,8 +709,8 @@ export default function RelabelingModulePage() {
                                             {label.isMaster
                                                 ? 'Master'
                                                 : label.totalBoxes > 1
-                                                    ? `Caja ${label.boxNumber} de ${label.totalBoxes}`
-                                                    : 'Etiqueta'}
+                                                    ? `Reimprimir Etiqueta Origen — Caja ${label.boxNumber} de ${label.totalBoxes}`
+                                                    : 'Reimprimir Etiqueta Origen'}
                                         </Typography>
                                     </Box>
                                     <Typography sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 13, mb: 1 }}>
@@ -434,11 +728,118 @@ export default function RelabelingModulePage() {
                                         onClick={() => handlePrintLabel(label)}
                                         sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
                                     >
-                                        Imprimir etiqueta
+                                        Imprimir
                                     </Button>
                                 </Paper>
                             </Grid>
                         ))}
+
+                        {shipment.master.nationalCarrier?.toLowerCase().includes('paquete express') && (
+                            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                <Paper
+                                    variant="outlined"
+                                    sx={{
+                                        p: 2,
+                                        height: '100%',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        borderColor: '#1976d2',
+                                        bgcolor: '#F3F8FF',
+                                    }}
+                                >
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                        <LocalShippingIcon sx={{ color: '#1976d2' }} />
+                                        <Typography variant="body2" fontWeight={700} sx={{ color: '#1976d2' }}>
+                                            Guía Paquete Express
+                                        </Typography>
+                                    </Box>
+                                    {shipment.master.nationalTracking ? (
+                                        <>
+                                            <Typography sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 13, mb: 1 }}>
+                                                {shipment.master.nationalTracking}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
+                                                Guía nacional ya generada
+                                            </Typography>
+                                            <Box sx={{ flex: 1 }} />
+                                            <Button
+                                                fullWidth
+                                                variant="contained"
+                                                startIcon={<PrintIcon />}
+                                                onClick={handlePrintExistingPqtxLabel}
+                                                sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
+                                            >
+                                                Imprimir guía PQTX
+                                            </Button>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
+                                                Aún no generada. Se creará en línea con la API de Paquete Express usando la dirección de entrega asignada.
+                                            </Typography>
+                                            <Box sx={{ flex: 1 }} />
+                                            <Button
+                                                fullWidth
+                                                variant="contained"
+                                                startIcon={generatingPqtx ? <CircularProgress size={16} color="inherit" /> : <LocalShippingIcon />}
+                                                onClick={handleGeneratePqtxLabel}
+                                                disabled={generatingPqtx}
+                                                sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
+                                            >
+                                                {generatingPqtx ? 'Generando...' : 'Generar guía PQTX'}
+                                            </Button>
+                                        </>
+                                    )}
+                                    {pqtxMsg && (
+                                        <Typography variant="caption" sx={{ mt: 1, color: 'success.main', fontWeight: 600 }}>
+                                            {pqtxMsg}
+                                        </Typography>
+                                    )}
+                                </Paper>
+                            </Grid>
+                        )}
+
+                        {shipment.master.assignedAddress && (
+                            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                                <Paper
+                                    variant="outlined"
+                                    sx={{
+                                        p: 2,
+                                        height: '100%',
+                                        display: 'flex',
+                                        flexDirection: 'column',
+                                        borderColor: '#F05A28',
+                                        bgcolor: '#FFF6F0',
+                                        borderWidth: 2,
+                                    }}
+                                >
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                        <LocalShippingIcon sx={{ color: '#F05A28' }} />
+                                        <Typography variant="body2" fontWeight={800} sx={{ color: '#F05A28' }}>
+                                            Entrega Local EntregaX
+                                        </Typography>
+                                    </Box>
+                                    <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5 }}>
+                                        Etiqueta con marca EntregaX para repartidor local.
+                                    </Typography>
+                                    <Typography variant="caption" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>
+                                        🏠 {shipment.master.assignedAddress.alias || shipment.master.assignedAddress.recipientName}
+                                        <br />
+                                        📍 {shipment.master.assignedAddress.city}, CP {shipment.master.assignedAddress.zip}
+                                    </Typography>
+                                    <Box sx={{ flex: 1 }} />
+                                    <Button
+                                        fullWidth
+                                        variant="contained"
+                                        startIcon={<PrintIcon />}
+                                        onClick={handlePrintLocalDelivery}
+                                        sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
+                                    >
+                                        Imprimir Etiqueta Local
+                                    </Button>
+                                </Paper>
+                            </Grid>
+                        )}
                     </Grid>
                 </Paper>
             )}

@@ -3,7 +3,7 @@
 
 INSERT INTO admin_panels (panel_key, panel_name, category, description, icon, sort_order)
 VALUES
-  ('ops_relabeling', 'Módulo de Reetiquetado', 'operations', 'Reimpresión de etiquetas de cualquier servicio y embarque', 'Print', 8)
+  ('ops_relabeling', 'Módulo de etiquetado', 'operations', 'Reimpresión de etiquetas de cualquier servicio y embarque', 'Print', 8)
 ON CONFLICT (panel_key) DO UPDATE SET
     panel_name = EXCLUDED.panel_name,
     description = EXCLUDED.description,
