@@ -93,7 +93,7 @@ export default function FiscalPage() {
   const [emitters, setEmitters] = useState<FiscalEmitter[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
+  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'warning' | 'info' });
   const [tabValue, setTabValue] = useState(0);
   
   // Configuración de servicios por empresa
