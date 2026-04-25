@@ -458,6 +458,36 @@ export default function RelabelingModulePage() {
         printWindow.document.close();
     };
 
+    const hasPaqueteExpressAssigned = (() => {
+        if (!shipment) return false;
+
+        const normalizedCarrier = String(shipment.master.nationalCarrier || '')
+            .toLowerCase()
+            .replace(/[_-]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        const carrierConfigText = JSON.stringify(shipment.master.assignedAddress?.carrierConfig || {})
+            .toLowerCase();
+
+        const byCarrierName =
+            normalizedCarrier.includes('paquete express') ||
+            normalizedCarrier.includes('paquetexpress') ||
+            normalizedCarrier.includes('pqtx');
+
+        const byCarrierConfig =
+            carrierConfigText.includes('paquete_express') ||
+            carrierConfigText.includes('paquete express') ||
+            carrierConfigText.includes('paquetexpress') ||
+            carrierConfigText.includes('pqtx');
+
+        const byLabelUrl = String(shipment.master.nationalLabelUrl || '')
+            .toLowerCase()
+            .includes('/paquete-express/');
+
+        return byCarrierName || byCarrierConfig || byLabelUrl;
+    })();
+
     return (
         <Box sx={{ p: 3 }}>
             {/* Header */}
@@ -734,7 +764,7 @@ export default function RelabelingModulePage() {
                             </Grid>
                         ))}
 
-                        {shipment.master.nationalCarrier?.toLowerCase().includes('paquete express') && (
+                        {hasPaqueteExpressAssigned && (
                             <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                                 <Paper
                                     variant="outlined"
@@ -799,7 +829,7 @@ export default function RelabelingModulePage() {
                             </Grid>
                         )}
 
-                        {shipment.master.assignedAddress && (
+                        {shipment.master.assignedAddress && !hasPaqueteExpressAssigned && (
                             <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                                 <Paper
                                     variant="outlined"
