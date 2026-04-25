@@ -57,6 +57,8 @@ let packageBranchSqlCache: string | null = null;
 const packageColumnsCache = new Set<string>();
 let outForDeliveryWriteStatusCache: 'out_for_delivery' | 'in_transit' | null = null;
 let inCedisWriteStatusCache: 'in_cedis' | 'received_mty' | null = null;
+let sentWriteStatusCache: 'sent' | 'delivered' | null = null;
+let pqtxShipmentsTableExistsCache: boolean | null = null;
 
 const getPackageStatusColumn = async (): Promise<'delivery_status' | 'status'> => {
         if (packageStatusColumnCache) return packageStatusColumnCache;
@@ -93,6 +95,57 @@ const hasPackageColumn = async (columnName: string): Promise<boolean> => {
         if (exists) packageColumnsCache.add(columnName);
         return exists;
 };
+
+    const hasPqtxShipmentsTable = async (): Promise<boolean> => {
+        if (pqtxShipmentsTableExistsCache !== null) return pqtxShipmentsTableExistsCache;
+
+        const result = await pool.query(
+            `
+                SELECT 1
+                FROM information_schema.tables
+                WHERE table_name = 'pqtx_shipments'
+                LIMIT 1
+            `
+        );
+
+        pqtxShipmentsTableExistsCache = result.rows.length > 0;
+        return pqtxShipmentsTableExistsCache;
+    };
+
+    const getPaqueteExpressServiceRequestCode = async (nationalTracking: string | null | undefined): Promise<string | null> => {
+        const tracking = String(nationalTracking || '').trim();
+        if (!tracking) return null;
+
+        const hasTable = await hasPqtxShipmentsTable();
+        if (!hasTable) return null;
+
+        try {
+            const result = await pool.query(
+                `
+                    SELECT s.folio_porte
+                    FROM pqtx_shipments s
+                    WHERE UPPER(s.tracking_number) = UPPER($1)
+                      AND COALESCE(s.folio_porte, '') <> ''
+                    ORDER BY s.created_at DESC NULLS LAST, s.id DESC
+                    LIMIT 1
+                `,
+                [tracking]
+            );
+
+            const rawCode = String(result.rows[0]?.folio_porte || '').trim();
+            if (!rawCode) return null;
+
+            const fromToken = rawCode.match(/([A-Z]{2,}\d[A-Z0-9]+)/i);
+            const normalized = (fromToken?.[1] || rawCode)
+                .replace(/\s+/g, '')
+                .toUpperCase();
+
+            return normalized || null;
+        } catch (error) {
+            console.warn('No se pudo obtener folio_porte desde pqtx_shipments:', error);
+            return null;
+        }
+    };
 
 const getOutForDeliveryWriteStatus = async (): Promise<'out_for_delivery' | 'in_transit'> => {
         const statusColumn = await getPackageStatusColumn();
@@ -135,6 +188,27 @@ const getInCedisWriteStatus = async (): Promise<'in_cedis' | 'received_mty'> => 
         inCedisWriteStatusCache = result.rows.length > 0 ? 'in_cedis' : 'received_mty';
         return inCedisWriteStatusCache;
 };
+
+    const getSentWriteStatus = async (): Promise<'sent' | 'delivered'> => {
+        const statusColumn = await getPackageStatusColumn();
+        if (statusColumn === 'delivery_status') return 'sent';
+
+        if (sentWriteStatusCache) return sentWriteStatusCache;
+
+        const result = await pool.query(
+            `
+                SELECT 1
+                FROM pg_type t
+                JOIN pg_enum e ON e.enumtypid = t.oid
+                WHERE t.typname = 'package_status'
+                AND e.enumlabel = 'sent'
+                LIMIT 1
+            `
+        );
+
+        sentWriteStatusCache = result.rows.length > 0 ? 'sent' : 'delivered';
+        return sentWriteStatusCache;
+    };
 
     const getPackageBranchSql = async (alias: string = 'p'): Promise<string> => {
         if (packageBranchSqlCache) {
@@ -754,8 +828,10 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
         }
 
         // 4. MARCAR COMO ENTREGADO (compatible con esquema legacy)
-        // Para paquetería externa el status final es 'sent' (enviado a paquetería)
-        const finalStatus = requiresCarrierGuideScan ? 'sent' : 'delivered';
+        // Para paquetería externa usar 'sent' cuando el esquema lo soporte; en legacy usar 'delivered'.
+        const finalStatus = requiresCarrierGuideScan
+            ? await getSentWriteStatus()
+            : 'delivered';
         const statusColumn = await getPackageStatusColumn();
         const hasDeliveredAtColumn = await hasPackageColumn('delivered_at');
         const hasDeliverySignatureColumn = await hasPackageColumn('delivery_signature');
@@ -946,6 +1022,10 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
         const nationalCarrier = String(pkg.national_carrier || '').toLowerCase();
         const isEntregaLocal = nationalCarrier.includes('entregax') || nationalCarrier.includes('local');
         const requiresCarrierGuideScan = !!pkg.national_tracking && !isEntregaLocal;
+        const isPaqueteExpress = nationalCarrier.includes('paquete express') || nationalCarrier.includes('paquetexpress');
+        const carrierServiceRequestCode = isPaqueteExpress
+            ? await getPaqueteExpressServiceRequestCode(pkg.national_tracking)
+            : null;
 
         return res.json({
             success: true,
@@ -960,6 +1040,7 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
                 delivery_status: pkg.delivery_status,
                 national_tracking: pkg.national_tracking,
                 national_carrier: pkg.national_carrier,
+                carrier_service_request_code: carrierServiceRequestCode,
                 requires_carrier_scan: requiresCarrierGuideScan
             }
         });
