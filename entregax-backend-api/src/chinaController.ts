@@ -924,7 +924,8 @@ export const getAirDaughterGuides = async (req: Request, res: Response): Promise
 // ============================================
 export const getAirDaughterStats = async (req: Request, res: Response): Promise<any> => {
     try {
-        const statusStats = await pool.query(`
+        // Status de packages con AIR_CHN_MX
+        const packageStats = await pool.query(`
             SELECT p.status::text as status, COUNT(*) as count
             FROM packages p
             WHERE p.service_type = 'AIR_CHN_MX'
@@ -932,6 +933,34 @@ export const getAirDaughterStats = async (req: Request, res: Response): Promise<
             AND (p.is_master = false OR p.is_master IS NULL)
             GROUP BY p.status
         `);
+
+        // Status de china_receipts para contar todas las entregas (incluso sin paquetes)
+        const receiptStats = await pool.query(`
+            SELECT cr.status::text as status, COUNT(*) as count
+            FROM china_receipts cr
+            GROUP BY cr.status
+        `);
+
+        // Combinar ambos - dar prioridad a packages pero incluir status de receipts
+        const statusMap = new Map<string, number>();
+        
+        // Primero agregar todos los status de receipts
+        receiptStats.rows.forEach((row: any) => {
+            statusMap.set(row.status, parseInt(row.count));
+        });
+        
+        // Luego actualizar/sobrescribir con los de packages (ya que packages es más actual)
+        packageStats.rows.forEach((row: any) => {
+            statusMap.set(row.status, parseInt(row.count));
+        });
+
+        // Convertir a array ordenado
+        const byStatus = Array.from(statusMap.entries())
+            .map(([status, count]) => ({
+                status,
+                count: count.toString()
+            }))
+            .sort((a, b) => parseInt(b.count) - parseInt(a.count));
 
         const awbStats = await pool.query(`
             SELECT 
@@ -978,7 +1007,7 @@ export const getAirDaughterStats = async (req: Request, res: Response): Promise<
         res.json({
             success: true,
             stats: {
-                byStatus: statusStats.rows,
+                byStatus: byStatus,
                 byAwb: awbStats.rows,
                 totalGuides: parseInt(total.rows[0].count),
                 unassigned: parseInt(unassigned.rows[0].count),
@@ -1348,7 +1377,7 @@ export const trackFNO = async (req: Request, res: Response): Promise<any> => {
             try {
                 const receiptQ = await pool.query(
                     `SELECT id, fno, shipping_mark, total_qty, total_weight, total_cbm, status, evidence_urls
-                     FROM china_receipts WHERE fno = $1 LIMIT 1`,
+                     FROM china_receipts WHERE UPPER(fno) = UPPER($1) LIMIT 1`,
                     [fno]
                 );
                 if (receiptQ.rows.length === 0) return null;

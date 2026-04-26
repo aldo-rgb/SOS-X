@@ -1154,7 +1154,7 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
               label="FNO (Folio de envío)"
               value={trackDialog.fno}
               onChange={(e) => setTrackDialog(prev => ({ ...prev, fno: e.target.value.toUpperCase() }))}
-              placeholder="Ej: AIR2609096hyXgs o SHIP2507438tkMW"
+              placeholder="Ej: AIR2609096hyXgs (el sistema es flexible con mayúsculas)"
               fullWidth
               onKeyPress={(e) => e.key === 'Enter' && handleTrackFNO()}
               autoFocus
