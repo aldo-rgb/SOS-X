@@ -1361,16 +1361,31 @@ interface TrajectoryResponse {
 // ============================================
 export const trackFNO = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { fno } = req.params;
+        const fnoParam = req.params.fno;
         
-        if (!fno) {
+        if (!fnoParam || typeof fnoParam !== 'string') {
             return res.status(400).json({ 
                 success: false, 
                 error: 'Se requiere el número de FNO' 
             });
         }
 
-        console.log(`🔍 Rastreando FNO: ${fno}`);
+        let fno = fnoParam.trim();
+        console.log(`🔍 Rastreando: ${fno}`);
+
+        // Helper: Si el usuario ingresa un child_no (con -001), extraer el FNO base
+        const extractFNO = (input: string): string => {
+            // Si tiene un patrón "XXX-NNN" al final, es probablemente child_no
+            // Extraer todo excepto los últimos "-NNN"
+            const match = input.match(/^(.+)-\d{3}$/);
+            if (match) {
+                console.log(`  📌 Detectado child_no, extrayendo FNO: ${match[1]}`);
+                return match[1];
+            }
+            return input;
+        };
+
+        let searchFno = extractFNO(fno);
 
         // Helper: buscar datos en BD local para usar como fallback si MoJie falla
         const buildLocalFallback = async (): Promise<any | null> => {
@@ -1378,7 +1393,7 @@ export const trackFNO = async (req: Request, res: Response): Promise<any> => {
                 const receiptQ = await pool.query(
                     `SELECT id, fno, shipping_mark, total_qty, total_weight, total_cbm, status, evidence_urls
                      FROM china_receipts WHERE UPPER(fno) = UPPER($1) LIMIT 1`,
-                    [fno]
+                    [searchFno]
                 );
                 if (receiptQ.rows.length === 0) return null;
                 const r = receiptQ.rows[0];
@@ -1416,7 +1431,7 @@ export const trackFNO = async (req: Request, res: Response): Promise<any> => {
         // Helper para hacer la llamada con un token dado (timeout 12s)
         const callApi = async (token: string) => {
             const apiResponse = await fetchWithTimeout(
-                `${MJCUSTOMER_API.baseUrl}/api/otherSystem/orderByList/${fno}`,
+                `${MJCUSTOMER_API.baseUrl}/api/otherSystem/orderByList/${searchFno}`,
                 {
                     method: 'GET',
                     headers: {
