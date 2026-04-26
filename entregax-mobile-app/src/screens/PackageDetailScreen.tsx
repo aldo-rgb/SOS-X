@@ -71,6 +71,8 @@ interface PackageDetails {
   declared_value?: number;
   status: string;
   carrier?: string;
+  national_carrier?: string;
+  national_tracking?: string;
   image_url?: string;
   has_gex?: boolean;
   gex_folio?: string;
@@ -95,6 +97,15 @@ interface PackageDetails {
   updated_at?: string;
 }
 
+interface PackageMovement {
+  id: number;
+  status: string;
+  status_label?: string;
+  notes?: string | null;
+  created_at: string;
+  created_by_name?: string | null;
+}
+
 // 💰 Tarifas PO Box por nivel (USD)
 const TARIFAS_POBOX_USD: Record<number, number> = { 1: 39, 2: 79, 3: 750 };
 
@@ -105,6 +116,10 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
   const [childPackages, setChildPackages] = useState<ChildPackage[]>([]);
   const [selectedChildImage, setSelectedChildImage] = useState<string | null>(null);
   const [showChildren, setShowChildren] = useState(false);
+  const [movementsOpen, setMovementsOpen] = useState(false);
+  const [movementsLoading, setMovementsLoading] = useState(false);
+  const [movementsError, setMovementsError] = useState<string | null>(null);
+  const [movements, setMovements] = useState<PackageMovement[]>([]);
 
   // 📦 Detectar si es un paquete REPACK (consolidación física = 1 caja)
   const isRepackPackage = (): boolean => {
@@ -264,6 +279,37 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
 
   const statusInfo = details ? getStatusInfo(details.status) : { label: '', color: '#999', icon: 'package' };
 
+  const getMovementStatusLabel = (status: string, statusLabel?: string) => {
+    if (statusLabel) return statusLabel;
+    return getStatusInfo(status).label;
+  };
+
+  const openMovements = async () => {
+    try {
+      setMovementsOpen(true);
+      setMovementsLoading(true);
+      setMovementsError(null);
+
+      const response = await fetch(`${API_URL}/api/packages/${pkg.id}/movements`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data?.success) {
+        setMovementsError(data?.error || 'No se pudieron cargar los movimientos');
+        setMovements([]);
+        return;
+      }
+
+      setMovements(Array.isArray(data.movements) ? data.movements : []);
+    } catch (error: any) {
+      setMovementsError(error?.message || 'Error de conexión');
+      setMovements([]);
+    } finally {
+      setMovementsLoading(false);
+    }
+  };
+
   // Contratar GEX para master + hijas
   const handleContractGEX = () => {
     navigation.navigate('GEXContract', {
@@ -393,6 +439,11 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
             </View>
 
             <Divider style={styles.divider} />
+
+            <TouchableOpacity style={styles.movementsButton} onPress={openMovements}>
+              <MaterialCommunityIcons name="history" size={18} color="#1976D2" />
+              <Text style={styles.movementsButtonText}>Ver Movimientos</Text>
+            </TouchableOpacity>
 
             {/* Descripción */}
             {details.description && (
@@ -771,6 +822,73 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
         <View style={{ height: 40 }} />
       </ScrollView>
 
+      {/* Modal de movimientos de la guía */}
+      <Modal
+        visible={movementsOpen}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setMovementsOpen(false)}
+      >
+        <View style={styles.movementsOverlay}>
+          <View style={styles.movementsModal}>
+            <View style={styles.movementsHeader}>
+              <Text style={styles.movementsTitle}>Movimientos de la Guía</Text>
+              <TouchableOpacity onPress={() => setMovementsOpen(false)}>
+                <Ionicons name="close-circle" size={28} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.movementsTrackingBox}>
+              <Text style={styles.movementsTrackingLabel}>Guía</Text>
+              <Text style={styles.movementsTrackingValue}>{details?.tracking_internal || pkg.tracking_internal}</Text>
+            </View>
+
+            {movementsLoading && (
+              <View style={styles.movementsLoadingWrap}>
+                <ActivityIndicator size="large" color={ORANGE} />
+                <Text style={styles.movementsLoadingText}>Cargando movimientos...</Text>
+              </View>
+            )}
+
+            {!movementsLoading && movementsError && (
+              <View style={styles.movementsErrorWrap}>
+                <Text style={styles.movementsErrorText}>❌ {movementsError}</Text>
+              </View>
+            )}
+
+            {!movementsLoading && !movementsError && (
+              <ScrollView style={styles.movementsList} showsVerticalScrollIndicator={false}>
+                {movements.length === 0 ? (
+                  <Text style={styles.movementsEmptyText}>Aún no hay movimientos registrados para esta guía.</Text>
+                ) : (
+                  movements.map((m, index) => (
+                    <View key={`${m.id}-${index}`} style={styles.movementItem}>
+                      <View style={styles.movementDot} />
+                      <View style={styles.movementContent}>
+                        <Text style={styles.movementStatusText}>{getMovementStatusLabel(m.status, m.status_label)}</Text>
+                        {!!m.notes && <Text style={styles.movementNotesText}>{m.notes}</Text>}
+                        <Text style={styles.movementDateText}>
+                          {new Date(m.created_at).toLocaleString('es-MX', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </Text>
+                        {!!m.created_by_name && (
+                          <Text style={styles.movementUserText}>Por: {m.created_by_name}</Text>
+                        )}
+                      </View>
+                    </View>
+                  ))
+                )}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       {/* Modal para mostrar foto del paquete hijo */}
       <Modal
         visible={!!selectedChildImage}
@@ -887,6 +1005,24 @@ const styles = StyleSheet.create({
   divider: {
     marginVertical: 12,
     backgroundColor: '#e0e0e0',
+  },
+  movementsButton: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#1976D2',
+    backgroundColor: '#E3F2FD',
+    marginBottom: 12,
+  },
+  movementsButtonText: {
+    color: '#1976D2',
+    fontSize: 13,
+    fontWeight: '700',
   },
   infoRow: {
     flexDirection: 'row',
@@ -1198,6 +1334,116 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.6)',
     borderTopLeftRadius: 6,
     padding: 2,
+  },
+  movementsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  movementsModal: {
+    height: '75%',
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    overflow: 'hidden',
+  },
+  movementsHeader: {
+    backgroundColor: ORANGE,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  movementsTitle: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 18,
+  },
+  movementsTrackingBox: {
+    backgroundColor: '#f8f9fa',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  movementsTrackingLabel: {
+    color: '#777',
+    fontSize: 12,
+  },
+  movementsTrackingValue: {
+    color: ORANGE,
+    fontWeight: 'bold',
+    fontSize: 17,
+  },
+  movementsLoadingWrap: {
+    paddingTop: 40,
+    alignItems: 'center',
+  },
+  movementsLoadingText: {
+    marginTop: 8,
+    color: '#666',
+  },
+  movementsErrorWrap: {
+    margin: 16,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#ffebee',
+    borderWidth: 1,
+    borderColor: '#ef5350',
+  },
+  movementsErrorText: {
+    color: '#c62828',
+    fontSize: 13,
+  },
+  movementsList: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  movementsEmptyText: {
+    color: '#777',
+    textAlign: 'center',
+    marginTop: 24,
+  },
+  movementItem: {
+    flexDirection: 'row',
+    marginBottom: 16,
+  },
+  movementDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: ORANGE,
+    marginTop: 6,
+    marginRight: 10,
+  },
+  movementContent: {
+    flex: 1,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+    paddingBottom: 10,
+  },
+  movementStatusText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#222',
+  },
+  movementNotesText: {
+    fontSize: 13,
+    color: '#555',
+    marginTop: 2,
+  },
+  movementDateText: {
+    fontSize: 12,
+    color: '#777',
+    marginTop: 4,
+  },
+  movementUserText: {
+    fontSize: 12,
+    color: '#888',
+    marginTop: 2,
+    fontStyle: 'italic',
   },
   imageModalOverlay: {
     flex: 1,

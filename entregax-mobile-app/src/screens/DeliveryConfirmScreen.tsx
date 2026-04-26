@@ -8,7 +8,7 @@
  * - Confirmar entrega con todos los datos
  */
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,7 @@ import {
   Image,
   ScrollView,
   Platform,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -36,12 +37,60 @@ interface PackageInfo {
   recipient_name: string;
   delivery_address: string;
   delivery_city: string;
+  national_tracking?: string;
+  carrier_service_request_code?: string;
+  national_carrier?: string;
+  requires_carrier_scan?: boolean;
 }
 
 type Step = 'scan' | 'signature' | 'photo' | 'confirm';
+type ScanMode = 'camera' | 'scanner';
+
+const normalizeScanCode = (rawCode: string): string => {
+  if (!rawCode) return '';
+
+  let code = String(rawCode)
+    .replace(/[\r\n\t]/g, '')
+    .trim();
+
+  try {
+    code = decodeURIComponent(code);
+  } catch {
+    // ignore decode errors
+  }
+
+  const fromTrackPath = code.match(/\/track\/([^/?#\s]+)/i);
+  if (fromTrackPath?.[1]) {
+    code = fromTrackPath[1];
+  }
+
+  const fromQuery = code.match(/[?&](?:track|tracking|barcode|code)=([^&#\s]+)/i);
+  if (fromQuery?.[1]) {
+    code = fromQuery[1];
+  }
+
+  code = code
+    .replace(/[_']/g, '-')
+    .replace(/\s+/g, '')
+    .toUpperCase();
+
+  const canonicalTracking = code.match(/[A-Z]{2,}-[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})*/);
+  if (canonicalTracking?.[0]) {
+    return canonicalTracking[0];
+  }
+
+  const compactTrackingDigits = code.match(/^([A-Z]{2,})(\d{4,})$/);
+  if (compactTrackingDigits?.[0]) {
+    return `${compactTrackingDigits[1]}-${compactTrackingDigits[2]}`;
+  }
+
+  return code;
+};
 
 export default function DeliveryConfirmScreen({ navigation, route }: any) {
   const preSelectedPackage = route?.params?.package;
+  const token = route?.params?.token;
+  const initialScanMode: ScanMode = route?.params?.scanMode === 'scanner' ? 'scanner' : 'camera';
   
   const [currentStep, setCurrentStep] = useState<Step>(preSelectedPackage ? 'signature' : 'scan');
   const [loading, setLoading] = useState(false);
@@ -49,17 +98,26 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   const [scannerActive, setScannerActive] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
   const [lastScannedCode, setLastScannedCode] = useState('');
+  const [scanMode, setScanMode] = useState<ScanMode>(initialScanMode);
+  const [manualCode, setManualCode] = useState('');
   
   // Datos de entrega
   const [signature, setSignature] = useState<string>('');
   const [photo, setPhoto] = useState<string>('');
   const [recipientName, setRecipientName] = useState('');
   const [notes, setNotes] = useState('');
+  const [carrierGuideCode, setCarrierGuideCode] = useState('');
+  const [carrierGuideVerified, setCarrierGuideVerified] = useState(false);
+  const [showCarrierGuideCamera, setShowCarrierGuideCamera] = useState(false);
+  const [isCarrierGuideScanning, setIsCarrierGuideScanning] = useState(false);
   
   const [permission, requestPermission] = useCameraPermissions();
   const signatureRef = useRef<any>(null);
   const feedbackOpacity = useRef(new Animated.Value(0)).current;
   const [feedback, setFeedback] = useState<{type: 'success' | 'error', message: string} | null>(null);
+  const hasAskedModeRef = useRef(false);
+  const manualInputRef = useRef<TextInput | null>(null);
+  const carrierGuideInputRef = useRef<TextInput | null>(null);
 
   const showFeedback = (fb: {type: 'success' | 'error', message: string}) => {
     setFeedback(fb);
@@ -70,23 +128,67 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     ]).start(() => setFeedback(null));
   };
 
-  const handleBarCodeScanned = useCallback(async (result: BarcodeScanningResult) => {
-    const { data } = result;
-    
-    if (!scannerActive || isScanning || data === lastScannedCode) return;
+  useEffect(() => {
+    if (currentStep === 'scan' && !route?.params?.scanMode && !hasAskedModeRef.current) {
+      hasAskedModeRef.current = true;
+      Alert.alert(
+        'Selecciona método de captura',
+        '¿Deseas usar escáner o cámara?',
+        [
+          { text: 'Escáner', onPress: () => setScanMode('scanner') },
+          { text: 'Cámara', onPress: () => setScanMode('camera') },
+        ]
+      );
+    }
+  }, [currentStep, route?.params?.scanMode]);
+
+  useEffect(() => {
+    if (currentStep !== 'scan') return;
+    if (scanMode === 'scanner') {
+      setScannerActive(false);
+      setTimeout(() => manualInputRef.current?.focus(), 150);
+    } else {
+      setScannerActive(true);
+    }
+  }, [scanMode, currentStep]);
+
+  useEffect(() => {
+    if (currentStep !== 'signature' || !packageInfo?.requires_carrier_scan || showCarrierGuideCamera) {
+      return;
+    }
+
+    if (scanMode === 'scanner') {
+      Keyboard.dismiss();
+    }
+
+    const timer = setTimeout(() => {
+      carrierGuideInputRef.current?.focus();
+    }, 180);
+
+    return () => clearTimeout(timer);
+  }, [currentStep, packageInfo?.requires_carrier_scan, showCarrierGuideCamera, scanMode]);
+
+  const processScanCode = useCallback(async (rawCode: string, source: 'camera' | 'scanner' = 'camera') => {
+    const data = normalizeScanCode(rawCode);
+    if (!data || isScanning) return;
+    if (source === 'camera' && (!scannerActive || data === lastScannedCode)) return;
 
     setIsScanning(true);
-    setScannerActive(false);
+    if (source === 'camera') setScannerActive(false);
     setLastScannedCode(data);
 
     try {
       // Verificar que el paquete existe y está asignado al chofer
-      const res = await api.get(`/api/driver/verify-package/${data}`);
+      const res = await api.get(`/api/driver/verify-package/${encodeURIComponent(data)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
       
       if (res.data.success && res.data.package) {
         Vibration.vibrate(100);
         setPackageInfo(res.data.package);
         setRecipientName(res.data.package.recipient_name || '');
+        setCarrierGuideCode('');
+        setCarrierGuideVerified(false);
         setCurrentStep('signature');
       }
     } catch (error: any) {
@@ -95,13 +197,25 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         type: 'error',
         message: error.response?.data?.error || 'Paquete no encontrado o no asignado',
       });
+    } finally {
       setTimeout(() => {
         setIsScanning(false);
-        setScannerActive(true);
+        if (source === 'camera') setScannerActive(true);
         setLastScannedCode('');
-      }, 1500);
+      }, source === 'camera' ? 1500 : 500);
     }
-  }, [scannerActive, isScanning, lastScannedCode]);
+  }, [scannerActive, isScanning, lastScannedCode, token]);
+
+  const handleBarCodeScanned = useCallback(async (result: BarcodeScanningResult) => {
+    await processScanCode(result.data, 'camera');
+  }, [processScanCode]);
+
+  const handleManualSubmit = async () => {
+    const code = normalizeScanCode(manualCode);
+    if (!code) return;
+    setManualCode('');
+    await processScanCode(code, 'scanner');
+  };
 
   const handleSignatureEnd = () => {
     signatureRef.current?.readSignature();
@@ -109,11 +223,67 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
   const handleSignatureOK = (signatureData: string) => {
     setSignature(signatureData);
+
+    if (!packageInfo?.requires_carrier_scan && !recipientName.trim()) {
+      Alert.alert('Nombre requerido', 'Debes escribir el nombre de quien recibe para continuar.');
+      return;
+    }
+
     setCurrentStep('photo');
   };
 
   const handleSignatureClear = () => {
     signatureRef.current?.clearSignature();
+  };
+
+  const validateCarrierGuide = (rawCode?: string) => {
+    if (!packageInfo?.national_tracking) {
+      Alert.alert('Sin guía nacional', 'Este paquete no tiene guía nacional asignada para validar.');
+      return;
+    }
+
+    const entered = normalizeScanCode(String(rawCode ?? carrierGuideCode));
+    const expectedTracking = normalizeScanCode(String(packageInfo.national_tracking || ''));
+    const expectedServiceRequest = normalizeScanCode(String(packageInfo.carrier_service_request_code || ''));
+    const expectedCodes = [expectedTracking, expectedServiceRequest].filter(Boolean);
+
+    if (!entered) {
+      Alert.alert('Guía requerida', 'Escanea o escribe la guía de la paquetería para continuar.');
+      return;
+    }
+
+    if (!expectedCodes.includes(entered)) {
+      Vibration.vibrate([0, 200, 100, 200]);
+      const expectedLabel = packageInfo.carrier_service_request_code
+        ? `${packageInfo.national_tracking} / ${packageInfo.carrier_service_request_code}`
+        : `${packageInfo.national_tracking}`;
+      Alert.alert('Guía incorrecta', `El código escaneado no coincide. Esperado: ${expectedLabel}.`);
+      return;
+    }
+
+    Vibration.vibrate(100);
+    setCarrierGuideCode(entered);
+    setCarrierGuideVerified(true);
+    setShowCarrierGuideCamera(false);
+    setCurrentStep('photo');
+  };
+
+  const handleOpenCarrierGuideCamera = async () => {
+    if (!permission?.granted) {
+      const request = await requestPermission();
+      if (!request?.granted) {
+        Alert.alert('Permiso requerido', 'Debes otorgar permiso de cámara para escanear la guía.');
+        return;
+      }
+    }
+    setShowCarrierGuideCamera(true);
+  };
+
+  const handleCarrierGuideScanned = (result: BarcodeScanningResult) => {
+    if (isCarrierGuideScanning) return;
+    setIsCarrierGuideScanning(true);
+    validateCarrierGuide(result.data);
+    setTimeout(() => setIsCarrierGuideScanning(false), 900);
   };
 
   const handleTakePhoto = async () => {
@@ -134,6 +304,28 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     }
   };
 
+  const handlePickFromGallery = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería para seleccionar una foto.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.7,
+        base64: true,
+      });
+      if (!result.canceled && result.assets[0].base64) {
+        setPhoto(`data:image/jpeg;base64,${result.assets[0].base64}`);
+        setCurrentStep('confirm');
+      }
+    } catch (error) {
+      Alert.alert('Error', 'No se pudo seleccionar la foto');
+    }
+  };
+
   const handleSkipPhoto = () => {
     Alert.alert(
       'Omitir Foto',
@@ -148,14 +340,31 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   const handleConfirmDelivery = async () => {
     if (!packageInfo) return;
 
+    const trimmedRecipientName = recipientName.trim();
+    const requiresCarrierScan = !!packageInfo?.requires_carrier_scan;
+
+    if (!requiresCarrierScan && !trimmedRecipientName) {
+      Alert.alert('Nombre requerido', 'Debes escribir el nombre de quien recibe antes de confirmar la entrega.');
+      setCurrentStep('signature');
+      return;
+    }
+
+    if (packageInfo?.requires_carrier_scan && !carrierGuideVerified) {
+      Alert.alert('Validación requerida', 'Debes escanear la guía de paquetería asignada antes de confirmar la entrega.');
+      setCurrentStep('signature');
+      return;
+    }
+
     setLoading(true);
     try {
       const res = await api.post('/api/driver/confirm-delivery', {
         barcode: packageInfo.tracking_number,
         signatureBase64: signature,
         photoBase64: photo,
-        recipientName: recipientName,
+        recipientName: requiresCarrierScan ? '' : trimmedRecipientName,
         notes: notes,
+      }, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
 
       if (res.data.success) {
@@ -188,7 +397,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   };
 
   const renderScanStep = () => {
-    if (!permission?.granted) {
+    if (scanMode === 'camera' && !permission?.granted) {
       return (
         <View style={styles.centerContent}>
           <MaterialIcons name="camera-alt" size={64} color="#ccc" />
@@ -202,32 +411,69 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
     return (
       <View style={styles.stepContent}>
-        <View style={styles.scannerWrapper}>
-          <CameraView
-            style={styles.scanner}
-            barcodeScannerSettings={{
-              barcodeTypes: ['code128', 'code39', 'qr', 'ean13', 'ean8'],
-            }}
-            onBarcodeScanned={scannerActive ? handleBarCodeScanned : undefined}
-          />
-          <View style={styles.scannerOverlay}>
-            <View style={styles.scannerFrame}>
-              <View style={[styles.corner, styles.topLeft]} />
-              <View style={[styles.corner, styles.topRight]} />
-              <View style={[styles.corner, styles.bottomLeft]} />
-              <View style={[styles.corner, styles.bottomRight]} />
+        {scanMode === 'camera' ? (
+          <>
+            <View style={styles.scannerWrapper}>
+              <CameraView
+                style={styles.scanner}
+                barcodeScannerSettings={{
+                  barcodeTypes: ['code128', 'code39', 'qr', 'ean13', 'ean8'],
+                }}
+                onBarcodeScanned={scannerActive ? handleBarCodeScanned : undefined}
+              />
+              <View style={styles.scannerOverlay}>
+                <View style={styles.scannerFrame}>
+                  <View style={[styles.corner, styles.topLeft]} />
+                  <View style={[styles.corner, styles.topRight]} />
+                  <View style={[styles.corner, styles.bottomLeft]} />
+                  <View style={[styles.corner, styles.bottomRight]} />
+                </View>
+              </View>
+              {isScanning && (
+                <View style={styles.scanningIndicator}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={styles.scanningText}>Verificando...</Text>
+                </View>
+              )}
             </View>
+            <Text style={styles.helperText}>
+              📷 Escanea el código del paquete a entregar
+            </Text>
+          </>
+        ) : (
+          <View style={styles.scannerInputCard}>
+            <MaterialIcons name="qr-code-scanner" size={52} color="#F05A28" />
+            <Text style={styles.scannerInputTitle}>Modo Escáner</Text>
+            <Text style={styles.scannerInputSubtitle}>
+              Usa lector externo o escribe la guía manualmente.
+            </Text>
+            <TextInput
+              ref={manualInputRef}
+              style={styles.scannerInput}
+              placeholder="Escanea o escribe el código"
+              value={manualCode}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              returnKeyType="send"
+              onChangeText={setManualCode}
+              onSubmitEditing={handleManualSubmit}
+            />
+            <TouchableOpacity
+              style={[styles.manualSubmitButton, isScanning && styles.buttonDisabled]}
+              onPress={handleManualSubmit}
+              disabled={isScanning}
+            >
+              {isScanning ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <MaterialIcons name="check-circle" size={20} color="#fff" />
+                  <Text style={styles.manualSubmitText}>Validar código</Text>
+                </>
+              )}
+            </TouchableOpacity>
           </View>
-          {isScanning && (
-            <View style={styles.scanningIndicator}>
-              <ActivityIndicator size="small" color="#fff" />
-              <Text style={styles.scanningText}>Verificando...</Text>
-            </View>
-          )}
-        </View>
-        <Text style={styles.helperText}>
-          📷 Escanea el código del paquete a entregar
-        </Text>
+        )}
       </View>
     );
   };
@@ -247,49 +493,133 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
       {/* Área de firma */}
       <View style={styles.signatureContainer}>
-        <Text style={styles.signatureLabel}>✍️ Firma del Receptor</Text>
-        <View style={styles.signatureWrapper}>
-          <SignatureScreen
-            ref={signatureRef}
-            onOK={handleSignatureOK}
-            onEnd={handleSignatureEnd}
-            descriptionText=""
-            clearText="Borrar"
-            confirmText="Aceptar"
-            webStyle={`
-              .m-signature-pad { box-shadow: none; border: none; }
-              .m-signature-pad--body { border: 1px solid #ddd; border-radius: 8px; }
-              .m-signature-pad--footer { display: none; }
-            `}
+        {packageInfo?.requires_carrier_scan ? (
+          <>
+            <Text style={styles.signatureLabel}>📦 Validar Guía de Paquetería</Text>
+            <Text style={styles.carrierGuideSubtitle}>
+              Escanea la guía de {packageInfo?.national_carrier || 'paquetería'} y valida que coincida.
+            </Text>
+
+            <View style={styles.carrierGuideExpectedBox}>
+              <Text style={styles.carrierGuideExpectedLabel}>Guía asignada:</Text>
+              <Text style={styles.carrierGuideExpectedValue}>{packageInfo?.national_tracking || 'N/A'}</Text>
+              {!!packageInfo?.carrier_service_request_code && (
+                <>
+                  <Text style={[styles.carrierGuideExpectedLabel, { marginTop: 8 }]}>Solicitud de servicio:</Text>
+                  <Text style={[styles.carrierGuideExpectedValue, styles.carrierGuideSecondaryValue]}>
+                    {packageInfo.carrier_service_request_code}
+                  </Text>
+                </>
+              )}
+            </View>
+
+            <TextInput
+              ref={carrierGuideInputRef}
+              style={styles.input}
+              value={carrierGuideCode}
+              onChangeText={(value) => {
+                setCarrierGuideCode(value);
+                if (carrierGuideVerified) setCarrierGuideVerified(false);
+              }}
+              placeholder="Escanea guía o solicitud de servicio"
+              autoCapitalize="characters"
+              autoCorrect={false}
+              returnKeyType="send"
+              showSoftInputOnFocus={scanMode === 'scanner' ? false : undefined}
+              blurOnSubmit={false}
+              onSubmitEditing={() => validateCarrierGuide()}
+              onBlur={() => {
+                if (currentStep === 'signature' && packageInfo?.requires_carrier_scan && !showCarrierGuideCamera) {
+                  setTimeout(() => carrierGuideInputRef.current?.focus(), 80);
+                }
+              }}
+            />
+
+            <TouchableOpacity style={styles.openCarrierCameraButton} onPress={handleOpenCarrierGuideCamera}>
+              <MaterialIcons name="photo-camera" size={20} color="#fff" />
+              <Text style={styles.openCarrierCameraButtonText}>Usar cámara para escanear</Text>
+            </TouchableOpacity>
+
+            {showCarrierGuideCamera && (
+              <View style={styles.carrierCameraWrapper}>
+                <CameraView
+                  style={styles.carrierCamera}
+                  barcodeScannerSettings={{ barcodeTypes: ['code128', 'code39', 'qr', 'ean13', 'ean8'] }}
+                  onBarcodeScanned={handleCarrierGuideScanned}
+                />
+                <TouchableOpacity style={styles.closeCarrierCameraButton} onPress={() => setShowCarrierGuideCamera(false)}>
+                  <MaterialIcons name="close" size={18} color="#fff" />
+                  <Text style={styles.closeCarrierCameraButtonText}>Cerrar cámara</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {carrierGuideVerified && (
+              <View style={styles.carrierGuideVerifiedBox}>
+                <MaterialIcons name="check-circle" size={18} color="#2e7d32" />
+                <Text style={styles.carrierGuideVerifiedText}>Guía validada correctamente</Text>
+              </View>
+            )}
+          </>
+        ) : (
+          <>
+            <Text style={styles.signatureLabel}>✍️ Firma del Receptor</Text>
+            <View style={styles.signatureWrapper}>
+              <SignatureScreen
+                ref={signatureRef}
+                onOK={handleSignatureOK}
+                onEnd={handleSignatureEnd}
+                descriptionText=""
+                clearText="Borrar"
+                confirmText="Aceptar"
+                webStyle={`
+                  .m-signature-pad { box-shadow: none; border: none; }
+                  .m-signature-pad--body { border: 1px solid #ddd; border-radius: 8px; }
+                  .m-signature-pad--footer { display: none; }
+                `}
+              />
+            </View>
+
+            <View style={styles.signatureActions}>
+              <TouchableOpacity
+                style={styles.signatureClearBtn}
+                onPress={handleSignatureClear}
+              >
+                <MaterialIcons name="refresh" size={20} color="#666" />
+                <Text style={styles.signatureClearText}>Borrar</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+      </View>
+
+      {/* Input nombre del receptor (solo entrega local) */}
+      {!packageInfo?.requires_carrier_scan && (
+        <View style={styles.inputContainer}>
+          <Text style={styles.inputLabel}>Nombre de quien recibe:</Text>
+          <TextInput
+            style={styles.input}
+            value={recipientName}
+            onChangeText={setRecipientName}
+            placeholder="Nombre completo"
+            autoCapitalize="words"
           />
         </View>
-        
-        <View style={styles.signatureActions}>
-          <TouchableOpacity 
-            style={styles.signatureClearBtn}
-            onPress={handleSignatureClear}
-          >
-            <MaterialIcons name="refresh" size={20} color="#666" />
-            <Text style={styles.signatureClearText}>Borrar</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      {/* Input nombre del receptor */}
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Nombre de quien recibe:</Text>
-        <TextInput
-          style={styles.input}
-          value={recipientName}
-          onChangeText={setRecipientName}
-          placeholder="Nombre completo"
-          autoCapitalize="words"
-        />
-      </View>
+      )}
 
       <TouchableOpacity 
-        style={styles.nextButton}
+        style={[styles.nextButton, !packageInfo?.requires_carrier_scan && !recipientName.trim() && styles.buttonDisabled]}
         onPress={() => {
+          if (!packageInfo?.requires_carrier_scan && !recipientName.trim()) {
+            Alert.alert('Nombre requerido', 'Debes escribir el nombre de quien recibe para continuar.');
+            return;
+          }
+
+          if (packageInfo?.requires_carrier_scan) {
+            validateCarrierGuide();
+            return;
+          }
+
           if (!signature) {
             signatureRef.current?.readSignature();
           } else {
@@ -315,19 +645,37 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         {photo ? (
           <View style={styles.photoPreviewContainer}>
             <Image source={{ uri: photo }} style={styles.photoPreview} />
-            <TouchableOpacity 
-              style={styles.retakeButton}
-              onPress={handleTakePhoto}
-            >
-              <MaterialIcons name="refresh" size={20} color="#F05A28" />
-              <Text style={styles.retakeText}>Volver a tomar</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+              <TouchableOpacity 
+                style={styles.retakeButton}
+                onPress={handleTakePhoto}
+              >
+                <MaterialIcons name="refresh" size={20} color="#F05A28" />
+                <Text style={styles.retakeText}>Volver a tomar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.retakeButton, { borderColor: '#2196F3' }]}
+                onPress={handlePickFromGallery}
+              >
+                <MaterialIcons name="photo-library" size={20} color="#2196F3" />
+                <Text style={[styles.retakeText, { color: '#2196F3' }]}>Galería</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : (
-          <TouchableOpacity style={styles.takePhotoButton} onPress={handleTakePhoto}>
-            <MaterialIcons name="camera-alt" size={32} color="#fff" />
-            <Text style={styles.takePhotoText}>Tomar Foto</Text>
-          </TouchableOpacity>
+          <View style={{ gap: 12, alignItems: 'center', width: '100%' }}>
+            <TouchableOpacity style={styles.takePhotoButton} onPress={handleTakePhoto}>
+              <MaterialIcons name="camera-alt" size={32} color="#fff" />
+              <Text style={styles.takePhotoText}>Tomar Foto</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.takePhotoButton, { backgroundColor: '#2196F3' }]}
+              onPress={handlePickFromGallery}
+            >
+              <MaterialIcons name="photo-library" size={32} color="#fff" />
+              <Text style={styles.takePhotoText}>Seleccionar de Galería</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
 
@@ -364,13 +712,23 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         </View>
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>Recibió:</Text>
-          <Text style={styles.summaryValue}>{recipientName || 'No especificado'}</Text>
+          <Text style={styles.summaryValue}>
+            {packageInfo?.requires_carrier_scan ? 'Mostrador' : (recipientName || 'No especificado')}
+          </Text>
         </View>
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>Firma:</Text>
-          <Text style={[styles.summaryValue, { color: signature ? '#4CAF50' : '#FF9800' }]}>
-            {signature ? '✅ Capturada' : '⚠️ Pendiente'}
-          </Text>
+          {packageInfo?.requires_carrier_scan ? (
+            <Text style={[styles.summaryValue, { color: carrierGuideVerified ? '#4CAF50' : '#FF9800' }]}>
+              {carrierGuideVerified
+                ? `✅ ${packageInfo.national_carrier || 'Paquetería externa'}`
+                : '⚠️ Pendiente'}
+            </Text>
+          ) : (
+            <Text style={[styles.summaryValue, { color: signature ? '#4CAF50' : '#FF9800' }]}>
+              {signature ? '✅ Capturada' : '⚠️ Pendiente'}
+            </Text>
+          )}
         </View>
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>Foto:</Text>
@@ -440,6 +798,22 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
           <Text style={styles.title}>Confirmar Entrega 📦</Text>
           <Text style={styles.subtitle}>Paso {getStepNumber()} de 4</Text>
         </View>
+        {currentStep === 'scan' && (
+          <TouchableOpacity
+            style={styles.modeButton}
+            onPress={() => Alert.alert(
+              'Selecciona método de captura',
+              '¿Deseas usar escáner o cámara?',
+              [
+                { text: 'Escáner', onPress: () => setScanMode('scanner') },
+                { text: 'Cámara', onPress: () => setScanMode('camera') },
+                { text: 'Cancelar', style: 'cancel' },
+              ]
+            )}
+          >
+            <MaterialIcons name={scanMode === 'camera' ? 'photo-camera' : 'qr-code-scanner'} size={22} color="#F05A28" />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Progress dots */}
@@ -507,6 +881,10 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     marginLeft: 10,
+    flex: 1,
+  },
+  modeButton: {
+    padding: 6,
   },
   title: {
     fontSize: 20,
@@ -597,6 +975,55 @@ const styles = StyleSheet.create({
     marginTop: 15,
     fontSize: 14,
     color: '#666',
+  },
+  scannerInputCard: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scannerInputTitle: {
+    marginTop: 10,
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#333',
+  },
+  scannerInputSubtitle: {
+    marginTop: 8,
+    marginBottom: 14,
+    textAlign: 'center',
+    color: '#666',
+    fontSize: 14,
+  },
+  scannerInput: {
+    width: '100%',
+    borderWidth: 1.5,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#333',
+    backgroundColor: '#fff',
+  },
+  manualSubmitButton: {
+    marginTop: 12,
+    backgroundColor: '#F05A28',
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 180,
+    gap: 8,
+  },
+  manualSubmitText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
   
   // Permission
@@ -806,6 +1233,91 @@ const styles = StyleSheet.create({
   summaryLabel: {
     fontSize: 14,
     color: '#666',
+  },
+  carrierGuideSubtitle: {
+    fontSize: 13,
+    color: '#666',
+    marginBottom: 10,
+  },
+  carrierGuideExpectedBox: {
+    width: '100%',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    padding: 12,
+    backgroundColor: '#fafafa',
+    marginBottom: 12,
+  },
+  carrierGuideExpectedLabel: {
+    fontSize: 12,
+    color: '#777',
+  },
+  carrierGuideExpectedValue: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#F05A28',
+    marginTop: 4,
+  },
+  carrierGuideSecondaryValue: {
+    color: '#1976D2',
+    fontSize: 16,
+  },
+  carrierGuideVerifiedBox: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: '#E8F5E9',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#A5D6A7',
+  },
+  carrierGuideVerifiedText: {
+    color: '#2E7D32',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  openCarrierCameraButton: {
+    marginTop: 10,
+    backgroundColor: '#1976D2',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  openCarrierCameraButtonText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  carrierCameraWrapper: {
+    marginTop: 12,
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#ddd',
+    backgroundColor: '#000',
+  },
+  carrierCamera: {
+    height: 180,
+  },
+  closeCarrierCameraButton: {
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
+  },
+  closeCarrierCameraButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
   },
   summaryValue: {
     fontSize: 14,

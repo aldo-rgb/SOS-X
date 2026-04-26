@@ -44,7 +44,7 @@ const COUNTRIES_ES = ['México', 'Estados Unidos', 'Canadá', 'Guatemala', 'Colo
 const COUNTRIES_EN = ['Mexico', 'United States', 'Canada', 'Guatemala', 'Colombia', 'Spain', 'Other'];
 
 // ============ TIPOS ============
-type PackageStatus = 'received' | 'received_mty' | 'in_transit' | 'customs' | 'processing' | 'ready_pickup' | 'out_for_delivery' | 'delivered' | 'shipped';
+type PackageStatus = 'received' | 'received_mty' | 'in_transit' | 'customs' | 'processing' | 'ready_pickup' | 'out_for_delivery' | 'delivered' | 'shipped' | 'returned_to_warehouse';
 
 interface PackageDimensions {
   length: number | null;
@@ -190,6 +190,7 @@ const getStatusColor = (status: PackageStatus): "info" | "warning" | "success" |
     out_for_delivery: 'success',
     delivered: 'default',
     shipped: 'default',
+    returned_to_warehouse: 'error',
   };
   return colors[status] || 'default';
 };
@@ -205,6 +206,7 @@ const getStatusLabel = (status: PackageStatus): string => {
     out_for_delivery: 'En Ruta',
     delivered: 'ENTREGADO',
     shipped: 'ENVIADO',
+    returned_to_warehouse: 'Devuelto a Bodega',
   };
   return labels[status] || status;
 };
@@ -220,6 +222,7 @@ const getStatusIcon = (status: PackageStatus): string => {
     out_for_delivery: '🛣️',
     delivered: '✅',
     shipped: '📤',
+    returned_to_warehouse: '↩️',
   };
   return icons[status] || '📦';
 };

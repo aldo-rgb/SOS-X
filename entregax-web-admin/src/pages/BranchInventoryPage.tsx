@@ -1,5 +1,5 @@
 // ============================================
-// INVENTARIO POR SUCURSAL
+// TRÁFICO POR SUCURSAL
 // Vista de paquetes en inventario por cada sucursal
 // ============================================
 
@@ -47,6 +47,7 @@ import {
   ExitToApp as ReleasedIcon,
   Store as StoreIcon,
   Lock as LockIcon,
+  Note as InstructionsIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -71,12 +72,14 @@ interface InventoryItem {
   received_by_name: string;
   client_name: string;
   weight: number | null;
+  needs_instructions?: boolean;
 }
 
 interface InventorySummary {
   total: number;
   in_stock: number;
   released: number;
+  in_transit?: number;
   by_type: {
     dhl: number;
     packages: number;
@@ -97,9 +100,9 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
   const [selectedBranch, setSelectedBranch] = useState<number | 'all'>(branchId || 'all');
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [summary, setSummary] = useState<InventorySummary | null>(null);
-  const [tabValue, setTabValue] = useState(0); // 0=Todos, 1=En Stock, 2=Liberados
+  const [tabValue, setTabValue] = useState(0); // 0=Todos, 1=En Stock, 2=En tránsito
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterType, setFilterType] = useState<string>('all');
+  const [filterInstructions, setFilterInstructions] = useState<string>('all');
   const [error, setError] = useState<string | null>(null);
 
   // Cargar sucursales
@@ -110,7 +113,7 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
   // Cargar inventario cuando cambia sucursal o filtros
   useEffect(() => {
     fetchInventory();
-  }, [selectedBranch, tabValue, filterType]);
+  }, [selectedBranch, tabValue, filterInstructions]);
 
   const fetchBranches = async () => {
     try {
@@ -136,12 +139,14 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
       if (tabValue === 1) {
         params.append('status', 'in_stock');
       } else if (tabValue === 2) {
-        params.append('status', 'released');
+        params.append('status', 'in_transit');
       }
       
-      // Filtro por tipo de paquete
-      if (filterType !== 'all') {
-        params.append('package_type', filterType);
+      // Filtro por instrucciones
+      if (filterInstructions === 'true') {
+        params.append('needs_instructions', 'true');
+      } else if (filterInstructions === 'false') {
+        params.append('needs_instructions', 'false');
       }
       
       params.append('limit', '200');
@@ -203,16 +208,14 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
 
   // Exportar a CSV
   const handleExport = () => {
-    const headers = ['Guía', 'Tipo', 'Cliente', 'Sucursal', 'Estado', 'Recibido', 'Liberado', 'Peso'];
+    const headers = ['Guía', 'Tipo', 'Cliente', 'Estado', 'Recibido', 'Instrucciones'];
     const rows = filteredInventory.map(item => [
       item.tracking_number,
       item.package_type,
       item.client_name,
-      item.branch_name,
       item.status,
       formatDate(item.received_at),
-      formatDate(item.released_at),
-      item.weight || ''
+      item.needs_instructions ? 'Sí' : 'No'
     ]);
     
     const csv = [headers, ...rows].map(row => row.join(',')).join('\n');
@@ -261,7 +264,7 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
         <Box>
           <Typography variant="h4" fontWeight="bold" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <InventoryIcon sx={{ color: '#F05A28' }} />
-            Inventario por Sucursal
+            Tráfico por Sucursal
           </Typography>
           <Typography variant="body2" color="text.secondary">
             Control de paquetes en bodega por ubicación
@@ -317,19 +320,31 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
             </Grid>
           )}
 
-          {/* Filtro por tipo */}
+          {/* Filtro por instrucciones */}
           <Grid size={{ xs: 12, sm: 6, md: 2 }}>
             <FormControl fullWidth size="small">
-              <InputLabel>Tipo</InputLabel>
+              <InputLabel>Instrucciones</InputLabel>
               <Select
-                value={filterType}
-                label="Tipo"
-                onChange={(e) => setFilterType(e.target.value)}
+                value={filterInstructions}
+                label="Instrucciones"
+                onChange={(e) => setFilterInstructions(e.target.value)}
               >
-                <MenuItem value="all">Todos</MenuItem>
-                <MenuItem value="dhl">DHL</MenuItem>
-                <MenuItem value="package">Paquetes</MenuItem>
-                <MenuItem value="consolidation">Consolidaciones</MenuItem>
+                <MenuItem value="all">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    Todos
+                  </Box>
+                </MenuItem>
+                <MenuItem value="true">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <InstructionsIcon fontSize="small" />
+                    Con instrucciones
+                  </Box>
+                </MenuItem>
+                <MenuItem value="false">
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    Sin instrucciones
+                  </Box>
+                </MenuItem>
               </Select>
             </FormControl>
           </Grid>
@@ -395,14 +410,14 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
             </Grid>
 
             <Grid size={{ xs: 6, sm: 3 }}>
-              <Card sx={{ background: 'linear-gradient(135deg, #9E9E9E 0%, #607D8B 100%)' }}>
+              <Card sx={{ background: 'linear-gradient(135deg, #FF9800 0%, #F57C00 100%)' }}>
                 <CardContent sx={{ textAlign: 'center', color: 'white' }}>
                   <ReleasedIcon sx={{ fontSize: 40, opacity: 0.8 }} />
                   <Typography variant="h4" fontWeight="bold">
-                    {summary?.released || 0}
+                    {summary?.in_transit || 0}
                   </Typography>
                   <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                    Liberados
+                    En tránsito
                   </Typography>
                 </CardContent>
               </Card>
@@ -444,12 +459,12 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
                   </Badge>
                 } 
               />
-              <Tab 
+              <Tab
                 label={
-                  <Badge badgeContent={summary?.released || 0} color="default">
-                    <Box sx={{ pr: 2 }}>Liberados</Box>
+                  <Badge badgeContent={summary?.in_transit || 0} color="warning">
+                    <Box sx={{ pr: 2 }}>En tránsito</Box>
                   </Badge>
-                } 
+                }
               />
             </Tabs>
           </Paper>
@@ -462,18 +477,16 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
                   <TableCell width={50}></TableCell>
                   <TableCell><strong>Guía</strong></TableCell>
                   <TableCell><strong>Cliente</strong></TableCell>
-                  <TableCell><strong>Sucursal</strong></TableCell>
                   <TableCell><strong>Estado</strong></TableCell>
                   <TableCell><strong>Recibido</strong></TableCell>
-                  <TableCell><strong>Liberado</strong></TableCell>
-                  <TableCell align="right"><strong>Peso</strong></TableCell>
+                  <TableCell><strong>Instrucciones</strong></TableCell>
                   <TableCell><strong>Recibió</strong></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {filteredInventory.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
                       <InventoryIcon sx={{ fontSize: 48, color: '#ccc', mb: 1 }} />
                       <Typography color="text.secondary">
                         No hay paquetes en inventario
@@ -509,14 +522,6 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
                       <TableCell>
                         <Chip
                           size="small"
-                          label={item.branch_name}
-                          icon={<StoreIcon />}
-                          variant="outlined"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Chip
-                          size="small"
                           color={getStatusColor(item.status)}
                           label={
                             item.status === 'in_stock' ? 'En Stock' :
@@ -531,18 +536,13 @@ export default function BranchInventoryPage({ branchId, showBranchSelector = tru
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2" color="text.secondary">
-                          {formatDate(item.released_at)}
-                        </Typography>
-                      </TableCell>
-                      <TableCell align="right">
-                        {item.weight ? (
-                          <Typography variant="body2" fontWeight="medium">
-                            {item.weight} kg
-                          </Typography>
-                        ) : (
-                          <Typography variant="body2" color="text.secondary">-</Typography>
-                        )}
+                        <Chip
+                          size="small"
+                          icon={<InstructionsIcon />}
+                          label={item.needs_instructions ? 'Sí' : 'No'}
+                          color={item.needs_instructions ? 'warning' : 'default'}
+                          variant={item.needs_instructions ? 'filled' : 'outlined'}
+                        />
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2" color="text.secondary">

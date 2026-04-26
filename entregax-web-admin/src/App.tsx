@@ -501,6 +501,60 @@ function App() {
       return true;
     });
 
+  // Navegación rápida desde DashboardBranchManager
+  useEffect(() => {
+    const quickNavHandler = (rawEvent: Event) => {
+      const event = rawEvent as CustomEvent<{ action?: string }>;
+      const action = event.detail?.action;
+      if (!action) return;
+
+      const panelsIndex = menuItems.findIndex((item) => item.key === 'panels');
+      if (panelsIndex < 0) return;
+
+      const subItems = menuItems[panelsIndex]?.subItems || [];
+      const operationsSubIndex = subItems.findIndex((s) => s.key === 'panelsOperations');
+      const serviceSubIndex = subItems.findIndex((s) => s.key === 'panelsService');
+
+      const openOperations = (panelCode?: string, lockToMyBranch = false) => {
+        setPanelsExpanded(true);
+        setSelectedIndex(panelsIndex);
+        setSelectedSubIndex(operationsSubIndex >= 0 ? operationsSubIndex : null);
+
+        if (panelCode) {
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('open-operations-panel', {
+              detail: { panelCode, lockToMyBranch }
+            }));
+          }, 80);
+        }
+      };
+
+      if (action === 'operations') {
+        openOperations();
+        return;
+      }
+
+      if (action === 'relabeling') {
+        openOperations('reetiquetado');
+        return;
+      }
+
+      if (action === 'branch_inventory') {
+        openOperations('inventario_sucursal', true);
+        return;
+      }
+
+      if (action === 'service_tickets') {
+        setPanelsExpanded(true);
+        setSelectedIndex(panelsIndex);
+        setSelectedSubIndex(serviceSubIndex >= 0 ? serviceSubIndex : null);
+      }
+    };
+
+    window.addEventListener('branch-manager-quick-nav', quickNavHandler as EventListener);
+    return () => window.removeEventListener('branch-manager-quick-nav', quickNavHandler as EventListener);
+  }, [menuItems]);
+
   // Toggle language
   const toggleLanguage = (lang: string) => {
     i18n.changeLanguage(lang);

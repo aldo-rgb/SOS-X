@@ -139,6 +139,8 @@ export default function WarehouseHubPage({ users = [] }: Props) {
     const [loading, setLoading] = useState(true);
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null);
     const [userRole, setUserRole] = useState<string>('');
+    const [inventoryBranchId, setInventoryBranchId] = useState<number | undefined>(undefined);
+    const [lockInventoryBranch, setLockInventoryBranch] = useState<boolean>(false);
 
     const token = localStorage.getItem('token');
 
@@ -154,6 +156,42 @@ export default function WarehouseHubPage({ users = [] }: Props) {
             console.log('🔴 WarehouseHubPage UNMOUNTED');
         };
     }, []);
+
+    const loadMyBranchId = async (): Promise<number | undefined> => {
+        try {
+            const res = await fetch(`${API_URL}/api/warehouse/branch-info`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!res.ok) return undefined;
+            const data = await res.json();
+            const id = Number(data?.branch_id);
+            return Number.isFinite(id) ? id : undefined;
+        } catch {
+            return undefined;
+        }
+    };
+
+    useEffect(() => {
+        const openPanelHandler = async (rawEvent: Event) => {
+            const event = rawEvent as CustomEvent<{ panelCode?: string; lockToMyBranch?: boolean }>;
+            const panelCode = event.detail?.panelCode;
+            if (!panelCode) return;
+
+            if (panelCode === 'inventario_sucursal' && event.detail?.lockToMyBranch) {
+                const myBranchId = await loadMyBranchId();
+                setInventoryBranchId(myBranchId);
+                setLockInventoryBranch(true);
+            } else {
+                setInventoryBranchId(undefined);
+                setLockInventoryBranch(false);
+            }
+
+            setSelectedPanel(panelCode);
+        };
+
+        window.addEventListener('open-operations-panel', openPanelHandler as EventListener);
+        return () => window.removeEventListener('open-operations-panel', openPanelHandler as EventListener);
+    }, [token]);
 
     const loadUserPermissions = async () => {
         setLoading(true);
@@ -221,7 +259,9 @@ export default function WarehouseHubPage({ users = [] }: Props) {
     // Handler para seleccionar un panel
     const handlePanelClick = (locationCode: string) => {
         console.log('📦 Panel seleccionado:', locationCode);
-        // Para todos los paneles, ir directo a la página
+        // Navegación manual: liberar filtros de inventario rápido
+        setInventoryBranchId(undefined);
+        setLockInventoryBranch(false);
         setSelectedPanel(locationCode);
     };
 
@@ -229,6 +269,8 @@ export default function WarehouseHubPage({ users = [] }: Props) {
     const handleBackToHub = () => {
         console.log('⬅️ Volviendo al Hub');
         setSelectedPanel(null);
+        setInventoryBranchId(undefined);
+        setLockInventoryBranch(false);
     };
 
     // Si hay un panel seleccionado, mostrar ese panel
@@ -260,7 +302,10 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                 ) : selectedPanel === 'scanner_unificado' ? (
                     <UnifiedWarehousePanel />
                 ) : selectedPanel === 'inventario_sucursal' ? (
-                    <BranchInventoryPage />
+                    <BranchInventoryPage
+                        branchId={inventoryBranchId}
+                        showBranchSelector={!lockInventoryBranch}
+                    />
                 ) : selectedPanel === 'reetiquetado' ? (
                     <RelabelingModulePage />
                 ) : (

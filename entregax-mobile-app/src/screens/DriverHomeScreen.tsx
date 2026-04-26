@@ -16,6 +16,9 @@ import {
   TouchableOpacity,
   RefreshControl,
   ActivityIndicator,
+  Alert,
+  Linking,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -43,11 +46,23 @@ interface QuickAction {
   condition?: string;
 }
 
+interface LoadedPackage {
+  id: number;
+  tracking_number: string;
+  delivery_address?: string;
+  delivery_city?: string;
+  delivery_zip?: string;
+  recipient_name?: string;
+  national_tracking?: string;
+  national_carrier?: string;
+}
+
 export default function DriverHomeScreen({ navigation, route }: any) {
   const token = route?.params?.token;
   const user = route?.params?.user;
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadedPackages, setLoadedPackages] = useState<LoadedPackage[]>([]);
   const [stats, setStats] = useState<DayStats>({
     totalAssigned: 0,
     loadedToday: 0,
@@ -87,6 +102,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         const totalAssignedFromApi = Number(route.totalAssigned) || 0;
         const totalAssignedComputed = pendingPackages.length + loadedPackages.length + deliveredToday;
 
+        setLoadedPackages(loadedPackages);
         setStats({
           totalAssigned: totalAssignedFromApi > 0 ? totalAssignedFromApi : totalAssignedComputed,
           loadedToday: Number(route.loadedToday) || 0,
@@ -158,6 +174,60 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     });
   };
 
+  // Carriers conocidos → dirección para abrir en Maps
+  const CARRIER_ADDRESSES: Record<string, string> = {
+    'paquete express': 'Paquete Express Monterrey Nuevo León México',
+    'dhl': 'DHL Express Monterrey Nuevo León México',
+    'fedex': 'FedEx Monterrey Nuevo León México',
+    'estafeta': 'Estafeta Monterrey Nuevo León México',
+    'redpack': 'Redpack Monterrey Nuevo León México',
+    'ups': 'UPS Monterrey Nuevo León México',
+  };
+
+  const handleViewRoute = () => {
+    if (loadedPackages.length === 0) {
+      Alert.alert('Sin paquetes', 'No hay paquetes cargados en tu ruta.');
+      return;
+    }
+
+    // Construir lista de destinos
+    const destinations: string[] = [];
+    const externalCarriers = new Set<string>();
+
+    for (const pkg of loadedPackages) {
+      if (pkg.national_carrier) {
+        // Paquetería externa → ir a la sucursal del carrier
+        const key = pkg.national_carrier.toLowerCase();
+        const carrierAddr = CARRIER_ADDRESSES[key] || `${pkg.national_carrier} Monterrey Nuevo León México`;
+        externalCarriers.add(pkg.national_carrier);
+        if (!destinations.includes(carrierAddr)) {
+          destinations.push(carrierAddr);
+        }
+      } else if (pkg.delivery_address) {
+        const full = [pkg.delivery_address, pkg.delivery_city, pkg.delivery_zip].filter(Boolean).join(', ');
+        if (!destinations.includes(full)) {
+          destinations.push(full);
+        }
+      }
+    }
+
+    if (destinations.length === 0) {
+      Alert.alert('Sin direcciones', 'Los paquetes cargados no tienen dirección de entrega registrada.');
+      return;
+    }
+
+    // Google Maps multi-stop URL
+    const destination = encodeURIComponent(destinations[destinations.length - 1]);
+    const waypoints = destinations.slice(0, -1).map(d => encodeURIComponent(d)).join('|');
+    const mapsUrl = waypoints.length > 0
+      ? `https://www.google.com/maps/dir/?api=1&destination=${destination}&waypoints=${waypoints}&travelmode=driving`
+      : `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`;
+
+    Linking.openURL(mapsUrl).catch(() => {
+      Alert.alert('Error', 'No se pudo abrir Google Maps.');
+    });
+  };
+
   // Acciones rápidas dinámicas basadas en el estado
   const quickActions: QuickAction[] = [
     {
@@ -200,6 +270,37 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     },
   ];
 
+  const handleQuickActionPress = (action: QuickAction) => {
+    if (!action.enabled) return;
+
+    if (action.id === 'load' || action.id === 'delivery' || action.id === 'return') {
+      const actionLabel = action.id === 'load'
+        ? 'cargar paquetes'
+        : action.id === 'delivery'
+          ? 'confirmar entregas'
+          : 'registrar retornos';
+
+      Alert.alert(
+        'Selecciona método de captura',
+        `¿Deseas usar escáner o cámara para ${actionLabel}?`,
+        [
+          {
+            text: 'Escáner',
+            onPress: () => navigation.navigate(action.screen, { user, token, scanMode: 'scanner' }),
+          },
+          {
+            text: 'Cámara',
+            onPress: () => navigation.navigate(action.screen, { user, token, scanMode: 'camera' }),
+          },
+          { text: 'Cancelar', style: 'cancel' },
+        ]
+      );
+      return;
+    }
+
+    navigation.navigate(action.screen, { user, token });
+  };
+
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
@@ -237,15 +338,30 @@ export default function DriverHomeScreen({ navigation, route }: any) {
             style={styles.profileButton}
             onPress={() => navigation.navigate('MyProfile', { user, token })}
           >
-            <MaterialIcons name="account-circle" size={40} color="#F05A28" />
+            <Image
+              source={require('../../assets/x-logo-entregax.png')}
+              style={styles.profileLogo}
+              resizeMode="contain"
+            />
           </TouchableOpacity>
         </View>
 
-        {/* Status Badge */}
-        <View style={[styles.statusBadge, { backgroundColor: journeyStatus.color }]}>
-          <MaterialIcons name={journeyStatus.icon as any} size={24} color="#fff" />
-          <Text style={styles.statusText}>{journeyStatus.text}</Text>
-        </View>
+        {/* Status Badge / Ver Ruta */}
+        {stats.pendingDelivery > 0 ? (
+          <TouchableOpacity
+            style={[styles.statusBadge, { backgroundColor: '#4CAF50' }]}
+            onPress={handleViewRoute}
+          >
+            <MaterialIcons name="directions-car" size={24} color="#fff" />
+            <Text style={styles.statusText}>Ver Ruta</Text>
+            <MaterialIcons name="open-in-new" size={18} color="rgba(255,255,255,0.8)" style={{ marginLeft: 4 }} />
+          </TouchableOpacity>
+        ) : (
+          <View style={[styles.statusBadge, { backgroundColor: journeyStatus.color }]}>
+            <MaterialIcons name={journeyStatus.icon as any} size={24} color="#fff" />
+            <Text style={styles.statusText}>{journeyStatus.text}</Text>
+          </View>
+        )}
 
         {/* Stats Cards */}
         <View style={styles.statsContainer}>
@@ -323,7 +439,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                 styles.actionCard,
                 !action.enabled && styles.actionCardDisabled
               ]}
-              onPress={() => action.enabled && navigation.navigate(action.screen, { user, token })}
+              onPress={() => handleQuickActionPress(action)}
               disabled={!action.enabled}
             >
               <View style={[styles.actionIconBox, { backgroundColor: action.color }]}>
@@ -397,6 +513,10 @@ const styles = StyleSheet.create({
   },
   profileButton: {
     padding: 5,
+  },
+  profileLogo: {
+    width: 40,
+    height: 40,
   },
   
   // Status Badge

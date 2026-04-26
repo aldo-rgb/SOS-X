@@ -105,6 +105,14 @@ interface ShipmentData {
 const extractTracking = (raw: string): string => {
     const t = raw.trim();
     if (!t) return '';
+
+    // Si parece guía directa (sin URL/espacios), conservar completa
+    // Ejemplos: AIR2618261VyFJV-012, US-7358716247, MX123ABC-01
+    const directToken = /^[A-Za-z0-9][A-Za-z0-9\-_']{5,}$/;
+    if (directToken.test(t) && !t.includes('/') && !t.includes('http')) {
+        return t.replace(/[_']/g, '-').toUpperCase();
+    }
+
     // Si ya parece un tracking válido (XX-YYY[-ZZZ...]), devolverlo tal cual
     const cleanPattern = /^[A-Z]{2,}[-_'][A-Z0-9]{2,}(?:[-_'][A-Z0-9]{2,})*$/i;
     if (cleanPattern.test(t)) {

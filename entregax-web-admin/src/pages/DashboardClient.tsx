@@ -202,9 +202,11 @@ interface PackageTracking {
   national_carrier?: string;
   national_shipping_cost?: number;
   national_tracking?: string;
+  carrier_service_request_code?: string;
   national_label_url?: string;
   carrier?: string;
   gex_total_cost?: number;
+  delivery_recipient_name?: string;
 }
 
 interface IncludedGuide {
@@ -629,6 +631,10 @@ export default function DashboardClient() {
   const getStatusDisplayLabel = (status: string | undefined | null, statusLabel?: string | null, pkg?: PackageTracking): string => {
     if (!status) return '';
 
+    if (status === 'returned_to_warehouse') {
+      return 'Devuelto a CEDIS MTY';
+    }
+
     const isMaritime = !!pkg && (pkg.servicio === 'SEA_CHN_MX' || pkg.servicio === 'FCL_CHN_MX' || pkg.shipment_type === 'maritime');
     if (isMaritime) {
       const maritimeMap: Record<string, string> = {
@@ -661,6 +667,7 @@ export default function DashboardClient() {
       'in_transit': 'En Tránsito', 'in_transit_mx': 'En Tránsito', 'received_cedis': 'En CEDIS MX', 'in_transit_mty': 'EN TRÁNSITO A MTY, N.L.',
       'out_for_delivery': 'EN RUTA', 'shipped': 'ENVIADO', 'delivered': 'Entregado', 'pending': 'Pendiente',
       'received_warehouse': 'Recibido en Bodega', 'assigned': 'Asignado', 'processing': 'Procesando', 'customs': 'Procesando',
+      'returned_to_warehouse': 'Devuelto a CEDIS MTY',
     };
     return map[status] || status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   };
@@ -972,16 +979,52 @@ export default function DashboardClient() {
     setCurrentStatus(null);
     try {
       const token = localStorage.getItem('token');
-      // Solo consultar historial interno SOS-X (sin MoJie en vivo)
-      const resHist = await fetch(`${API_URL}/api/china/status-history/${encodeURIComponent(tracking)}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const histData = await resHist.json();
-      if (histData.success) {
-        if (Array.isArray(histData.history)) setInternalHistory(histData.history);
-        if (histData.current) setCurrentStatus(histData.current);
+      const isChinaAir = /^AIR\d+/i.test(tracking);
+
+      if (isChinaAir) {
+        // Historial de sincronización China
+        const resHist = await fetch(`${API_URL}/api/china/status-history/${encodeURIComponent(tracking)}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const histData = await resHist.json();
+        if (histData.success) {
+          if (Array.isArray(histData.history)) setInternalHistory(histData.history);
+          if (histData.current) setCurrentStatus(histData.current);
+        } else {
+          setTrajectoryError(histData.error || 'No se pudo cargar el historial');
+        }
       } else {
-        setTrajectoryError(histData.error || 'No se pudo cargar el historial');
+        // Historial interno de guía (movimientos de estado)
+        const resMov = await fetch(`${API_URL}/api/packages/track/${encodeURIComponent(tracking)}/movements`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const movData = await resMov.json();
+
+        if (!resMov.ok || !movData?.success) {
+          setTrajectoryError(movData?.error || 'No se pudo cargar el historial de movimientos');
+        } else {
+          const mapped = Array.isArray(movData.movements)
+            ? movData.movements.map((m: any) => ({
+                id: m.id,
+                old_status: null,
+                new_status: m.status,
+                trajectory_name: m.status_label || null,
+                source: m.source || 'system',
+                notes: m.notes || null,
+                created_at: m.created_at,
+              }))
+            : [];
+
+          setInternalHistory(mapped);
+          setCurrentStatus({
+            package_status: movData?.current?.status || null,
+            receipt_status: null,
+            trajectory_name: movData?.current?.status_label || null,
+            package_updated_at: movData?.current?.updated_at || null,
+            receipt_created_at: null,
+            last_sync_at: movData?.current?.updated_at || null,
+          });
+        }
       }
     } catch (err: any) {
       setTrajectoryError(err?.message || 'Error de conexión');
@@ -3221,7 +3264,7 @@ export default function DashboardClient() {
       }
     } catch (error) {
       // Usar paquetes actuales como fallback
-      setHistoryPackages(packages.filter(p => p.status === 'delivered'));
+      setHistoryPackages(packages.filter(p => p.status === 'delivered' || p.status === 'sent'));
     }
     setHistoryModalOpen(true);
   };
@@ -4466,11 +4509,6 @@ export default function DashboardClient() {
               icon={<WalletIcon />}
               label="Mis Cuentas por Pagar"
               iconPosition="start"
-              sx={{
-                color: ORANGE,
-                fontWeight: 700,
-                '&.Mui-selected': { color: ORANGE },
-              }}
             />
           </Tabs>
         </Paper>
@@ -5102,6 +5140,11 @@ export default function DashboardClient() {
                               🇲🇽 {pkg.national_carrier || 'Nacional'}: {pkg.national_tracking}
                             </Typography>
                           )}
+                          {pkg.carrier_service_request_code && (
+                            <Typography variant="caption" sx={{ display: 'block', color: '#6a1b9a', fontFamily: 'monospace', fontSize: isMobile ? '0.6rem' : '0.7rem', fontWeight: 700 }} noWrap>
+                              🧾 Solicitud: {pkg.carrier_service_request_code}
+                            </Typography>
+                          )}
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
                             {pkg.descripcion && <Typography variant="caption" color="text.secondary" sx={{ fontSize: isMobile ? '0.65rem' : '0.75rem' }} noWrap>{pkg.descripcion}</Typography>}
                             {pkg.total_boxes && pkg.total_boxes > 0 && (
@@ -5177,7 +5220,22 @@ export default function DashboardClient() {
                       
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                         {/* Indicador de Instrucciones de Entrega / Paquetería Asignada */}
-                        {hasDeliveryInstructions ? (
+                        {(pkg.status === 'delivered' || pkg.status === 'sent') ? (
+                          // Paquete entregado/enviado: mostrar quien recibió
+                          pkg.national_carrier ? (
+                            <Chip
+                              label={`📦 Enviado vía ${getCarrierDisplayName(pkg.national_carrier)}`}
+                              size="small"
+                              sx={{ bgcolor: '#1565C0', color: 'white', fontSize: '0.65rem', fontWeight: 'bold', height: 22, '& .MuiChip-label': { px: 0.5 } }}
+                            />
+                          ) : pkg.delivery_recipient_name ? (
+                            <Chip
+                              label={`👤 Recibió: ${pkg.delivery_recipient_name}`}
+                              size="small"
+                              sx={{ bgcolor: '#2E7D32', color: 'white', fontSize: '0.65rem', fontWeight: 'bold', height: 22, '& .MuiChip-label': { px: 0.5 } }}
+                            />
+                          ) : null
+                        ) : hasDeliveryInstructions ? (
                           <Chip 
                             icon={<CheckCircleIcon sx={{ fontSize: 14 }} />}
                             label={pkg.national_carrier ? `🚚 ${getCarrierDisplayName(pkg.national_carrier)}` : 'Con Instrucciones'}
@@ -5275,6 +5333,27 @@ export default function DashboardClient() {
                           }}
                         >
                           {t('cd.packages.viewDetails')}
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          size="small"
+                          startIcon={<HistoryIcon />}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenTrajectory(pkg.tracking);
+                          }}
+                          sx={{
+                            py: 0.5,
+                            fontSize: '0.75rem',
+                            borderColor: '#1976d2',
+                            color: '#1976d2',
+                            '&:hover': {
+                              borderColor: '#0d47a1',
+                              bgcolor: 'rgba(25,118,210,0.08)'
+                            }
+                          }}
+                        >
+                          Ver Movimientos
                         </Button>
                       </Box>
                     </Box>
@@ -8227,7 +8306,7 @@ export default function DashboardClient() {
                     <TableCell>{t('cd.history.tracking')}</TableCell>
                     <TableCell>{t('cd.history.description')}</TableCell>
                     <TableCell>{t('cd.history.status')}</TableCell>
-                    <TableCell align="right">{t('cd.history.amount')}</TableCell>
+                    <TableCell align="center">Acciones</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -8240,7 +8319,19 @@ export default function DashboardClient() {
                       <TableCell>
                         <Chip label={getStatusDisplayLabel(pkg.status, pkg.status_label, pkg)} size="small" color="success" />
                       </TableCell>
-                      <TableCell align="right">{formatCurrency(pkg.monto)}</TableCell>
+                      <TableCell align="center">
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          sx={{ color: ORANGE, borderColor: ORANGE, fontWeight: 'bold', fontSize: '0.7rem', '&:hover': { bgcolor: 'rgba(240,90,40,0.06)', borderColor: ORANGE } }}
+                          onClick={() => {
+                            setSelectedPackage(pkg);
+                            setPackageDetailOpen(true);
+                          }}
+                        >
+                          Ver Detalles
+                        </Button>
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -8645,6 +8736,11 @@ export default function DashboardClient() {
                     <Typography variant="body1" sx={{ fontFamily: 'monospace', fontWeight: 700, color: '#1976d2' }}>
                       {selectedPackage.national_tracking}
                     </Typography>
+                    {selectedPackage.carrier_service_request_code && (
+                      <Typography variant="body2" sx={{ mt: 0.25, fontFamily: 'monospace', fontWeight: 700, color: '#6a1b9a' }}>
+                        🧾 Solicitud de servicio: {selectedPackage.carrier_service_request_code}
+                      </Typography>
+                    )}
                     {(() => {
                       const carrier = (selectedPackage.national_carrier || '').toLowerCase();
                       const tn = selectedPackage.national_tracking;
@@ -8675,8 +8771,8 @@ export default function DashboardClient() {
                   </Box>
                 )}
 
-                {/* Botón Ver Detalles de Status (solo guías China Air AIR...) */}
-                {selectedPackage.tracking && /^AIR\d+/i.test(selectedPackage.tracking) && (
+                {/* Botón Movimientos de la guía */}
+                {selectedPackage.tracking && (
                   <Button
                     variant="outlined"
                     size="small"
@@ -8689,7 +8785,7 @@ export default function DashboardClient() {
                       '&:hover': { borderColor: ORANGE, bgcolor: 'rgba(255,87,34,0.08)' }
                     }}
                   >
-                    Ver Detalles de Status
+                    Ver Movimientos
                   </Button>
                 )}
               </Box>
@@ -9036,6 +9132,58 @@ export default function DashboardClient() {
                         );
                       })()}
                     </Paper>
+                  ) : (selectedPackage.status === 'delivered' || selectedPackage.status === 'sent') ? (
+                    // Paquete entregado/enviado → mostrar info de entrega final
+                    <Paper sx={{ p: 2, bgcolor: '#e8f5e9' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                        <CheckCircleIcon sx={{ color: 'success.main' }} />
+                        <Typography variant="body2" fontWeight="bold" color="success.main">
+                          {selectedPackage.status === 'sent' ? '📦 Enviado a paquetería' : '✅ Entregado'}
+                        </Typography>
+                      </Box>
+                      {selectedPackage.national_carrier && (
+                        <Typography variant="body2" sx={{ mb: 0.5 }}>
+                          <strong>Paquetería:</strong> {selectedPackage.national_carrier}
+                        </Typography>
+                      )}
+                      {selectedPackage.national_tracking && (
+                        <Typography variant="body2" sx={{ mb: 1, fontFamily: 'monospace', color: '#1565C0', fontWeight: 'bold' }}>
+                          🏷️ Guía: {selectedPackage.national_tracking}
+                        </Typography>
+                      )}
+                      {selectedPackage.carrier_service_request_code && (
+                        <Typography variant="body2" sx={{ mb: 1, fontFamily: 'monospace', color: '#6a1b9a', fontWeight: 'bold' }}>
+                          🧾 Solicitud: {selectedPackage.carrier_service_request_code}
+                        </Typography>
+                      )}
+                      {selectedPackage.delivery_recipient_name && (
+                        <Typography variant="body2" sx={{ mb: 1 }}>
+                          👤 <strong>Recibió:</strong> {selectedPackage.delivery_recipient_name}
+                        </Typography>
+                      )}
+                      {(() => {
+                        if (!selectedPackage.national_tracking || !selectedPackage.national_carrier) return null;
+                        const carrier = selectedPackage.national_carrier.toLowerCase();
+                        const tn = selectedPackage.national_tracking;
+                        let url: string | null = null;
+                        if (carrier.includes('paquete express')) url = `https://www.paquetexpress.com/rastreo?guia=${encodeURIComponent(tn)}`;
+                        else if (carrier.includes('estafeta')) url = `https://www.estafeta.com/Herramientas/Rastreo?wayBill=${encodeURIComponent(tn)}`;
+                        else if (carrier.includes('fedex')) url = `https://www.fedex.com/fedextrack/?trknbr=${encodeURIComponent(tn)}`;
+                        else if (carrier.includes('dhl')) url = `https://www.dhl.com/mx-es/home/tracking.html?tracking-id=${encodeURIComponent(tn)}`;
+                        else if (carrier.includes('ups')) url = `https://www.ups.com/track?tracknum=${encodeURIComponent(tn)}`;
+                        if (!url) return null;
+                        return (
+                          <Button
+                            variant="contained"
+                            size="small"
+                            onClick={() => window.open(url!, '_blank', 'noopener')}
+                            sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' }, textTransform: 'none', fontWeight: 700 }}
+                          >
+                            🔎 Rastrear en {selectedPackage.national_carrier}
+                          </Button>
+                        );
+                      })()}
+                    </Paper>
                   ) : (
                     <Paper sx={{ p: 2, bgcolor: '#ffebee' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
@@ -9109,6 +9257,11 @@ export default function DashboardClient() {
                                 {selectedPackage.national_tracking && (
                                   <Typography variant="caption" color="text.secondary">
                                     Guía: {selectedPackage.national_tracking}
+                                  </Typography>
+                                )}
+                                {selectedPackage.carrier_service_request_code && (
+                                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                                    Solicitud: {selectedPackage.carrier_service_request_code}
                                   </Typography>
                                 )}
                               </Box>
@@ -9474,7 +9627,15 @@ export default function DashboardClient() {
               in_transit_international: 'Tránsito Internacional',
               arrived_mexico: 'Llegó a México',
               at_cedis: 'En CEDIS',
-              dispatched: 'Despachado'
+              dispatched: 'Despachado',
+              received: 'Recibido',
+              received_mty: 'Recibido en CEDIS MTY',
+              in_transit: 'En tránsito',
+              customs: 'Aduana',
+              processing: 'Procesando',
+              ready_pickup: 'Listo para recoger',
+              out_for_delivery: 'En ruta',
+              returned_to_warehouse: 'Devuelto a CEDIS MTY'
             };
             const currentKey = currentStatus.package_status || currentStatus.receipt_status || '';
             const currentLabel = statusLabels[currentKey] || currentKey || 'Sin estado';
@@ -9531,7 +9692,15 @@ export default function DashboardClient() {
                   in_transit_international: 'Tránsito Internacional',
                   arrived_mexico: 'Llegó a México',
                   at_cedis: 'En CEDIS',
-                  dispatched: 'Despachado'
+                  dispatched: 'Despachado',
+                  received: 'Recibido',
+                  received_mty: 'Recibido en CEDIS MTY',
+                  in_transit: 'En tránsito',
+                  customs: 'Aduana',
+                  processing: 'Procesando',
+                  ready_pickup: 'Listo para recoger',
+                  out_for_delivery: 'En ruta',
+                  returned_to_warehouse: 'Devuelto a CEDIS MTY'
                 };
                 const sourceLabels: Record<string, string> = {
                   mojie_sync: '🔄 Sync automático',

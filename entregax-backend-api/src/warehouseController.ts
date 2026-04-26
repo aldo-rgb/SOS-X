@@ -1890,7 +1890,7 @@ export const processDhlReception = async (req: AuthRequest, res: Response): Prom
 // GET /api/warehouse/inventory - Obtener inventario de sucursal
 export const getBranchInventory = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
-        const { branch_id, status, package_type, limit = 100, offset = 0 } = req.query;
+        const { branch_id, status, package_type, needs_instructions, limit = 100, offset = 0 } = req.query;
         const workerId = req.user?.userId;
         
         // Obtener sucursal del usuario o usar la seleccionada
@@ -1935,7 +1935,11 @@ export const getBranchInventory = async (req: AuthRequest, res: Response): Promi
                     WHEN bi.package_type = 'dhl' THEN (SELECT weight_kg FROM dhl_packages WHERE id = bi.package_id)
                     WHEN bi.package_type = 'package' THEN (SELECT weight FROM packages WHERE id = bi.package_id)
                     ELSE NULL
-                END as weight
+                END as weight,
+                CASE
+                    WHEN bi.package_type = 'package' THEN COALESCE((SELECT needs_instructions FROM packages WHERE id = bi.package_id), FALSE)
+                    ELSE FALSE
+                END as needs_instructions
             FROM branch_inventory bi
             JOIN branches b ON bi.branch_id = b.id
             WHERE 1=1
@@ -1951,12 +1955,25 @@ export const getBranchInventory = async (req: AuthRequest, res: Response): Promi
         }
         
         if (status) {
-            query += ` AND bi.status = $${paramIndex}`;
-            params.push(status);
-            paramIndex++;
+            // branch_inventory no tiene in_transit items - esos vienen del UNION
+            if (status === 'in_transit') {
+                query += ` AND FALSE`; // No hay in_transit en branch_inventory
+            } else {
+                query += ` AND bi.status = $${paramIndex}`;
+                params.push(status);
+                paramIndex++;
+            }
+        } else {
+            // En vista "Todos" no incluir paquetes en tránsito
+            query += ` AND COALESCE(bi.status, 'in_stock') <> 'in_transit'`;
         }
         
-        if (package_type) {
+        // Filtro por needs_instructions o package_type (legacy)
+        if (needs_instructions === 'true') {
+            query += ` AND bi.package_type = 'package' AND EXISTS (SELECT 1 FROM packages WHERE id = bi.package_id AND needs_instructions = TRUE)`;
+        } else if (needs_instructions === 'false') {
+            query += ` AND (bi.package_type <> 'package' OR NOT EXISTS (SELECT 1 FROM packages WHERE id = bi.package_id AND needs_instructions = TRUE))`;
+        } else if (package_type) {
             query += ` AND bi.package_type = $${paramIndex}`;
             params.push(package_type);
             paramIndex++;
@@ -1970,35 +1987,94 @@ export const getBranchInventory = async (req: AuthRequest, res: Response): Promi
                 -p.id as id,
                 'package' as package_type,
                 p.id as package_id,
-                p.tracking_internal as tracking_number,
-                'in_stock' as status,
+                COALESCE(p.tracking_internal, ('PKG-' || p.id::text)) as tracking_number,
+                CASE
+                    WHEN p.status::text IN ('in_transit', 'in_transit_mty') THEN 'in_transit'
+                    ELSE 'in_stock'
+                END as status,
                 COALESCE(p.updated_at, p.created_at) as received_at,
                 NULL::timestamp as released_at,
-                b2.name as branch_name,
-                b2.code as branch_code,
+                COALESCE(
+                    b2.name,
+                    (SELECT name FROM branches WHERE UPPER(code) = 'MTY' AND is_active = TRUE ORDER BY id ASC LIMIT 1),
+                    'En tránsito'
+                ) as branch_name,
+                COALESCE(
+                    b2.code,
+                    (SELECT code FROM branches WHERE UPPER(code) = 'MTY' AND is_active = TRUE ORDER BY id ASC LIMIT 1),
+                    'MTY'
+                ) as branch_code,
                 'Sistema' as received_by_name,
                 (SELECT u.full_name FROM users u WHERE u.id = p.user_id) as client_name,
-                p.weight as weight
+                p.weight as weight,
+                COALESCE(p.needs_instructions, FALSE) as needs_instructions
             FROM packages p
-            JOIN branches b2 ON p.current_branch_id = b2.id
-            WHERE p.current_branch_id IS NOT NULL
+            LEFT JOIN branches b2 ON p.current_branch_id = b2.id
+            WHERE (p.current_branch_id IS NOT NULL OR p.status::text IN ('in_transit', 'in_transit_mty'))
+                            AND (
+                                p.status::text <> 'in_transit'
+                                OR COALESCE(UPPER(p.destination_city), '') LIKE '%MONTERREY%'
+                                OR COALESCE(UPPER(p.destination_city), '') = 'MTY'
+                            )
               AND NOT EXISTS (
                   SELECT 1 FROM branch_inventory bi2
                   WHERE bi2.package_type = 'package' AND bi2.package_id = p.id
               )
         `;
         if (branchId) {
-            query += ` AND p.current_branch_id = $${paramIndex}`;
+            query += `
+              AND (
+                p.current_branch_id = $${paramIndex}
+                                OR (
+                                    (
+                                        p.status::text = 'in_transit_mty'
+                                        OR (
+                                            p.status::text = 'in_transit'
+                                            AND (
+                                                COALESCE(UPPER(p.destination_city), '') LIKE '%MONTERREY%'
+                                                OR COALESCE(UPPER(p.destination_city), '') = 'MTY'
+                                            )
+                                        )
+                                    )
+                  AND EXISTS (
+                    SELECT 1 FROM branches bx
+                    WHERE bx.id = $${paramIndex} AND UPPER(bx.code) = 'MTY'
+                  )
+                )
+              )
+            `;
             params.push(branchId);
             paramIndex++;
         }
         if (status === 'in_stock') {
-            // ya filtrado implícitamente
-        } else if (status === 'released') {
-            // En este UNION solo hay in_stock; descartamos resultados
+            query += ` AND COALESCE(p.status::text, '') NOT IN ('in_transit', 'in_transit_mty')`;
+                } else if (status === 'in_transit') {
+                        query += `
+                            AND (
+                                p.status::text = 'in_transit_mty'
+                                OR (
+                                    p.status::text = 'in_transit'
+                                    AND (
+                                        COALESCE(UPPER(p.destination_city), '') LIKE '%MONTERREY%'
+                                        OR COALESCE(UPPER(p.destination_city), '') = 'MTY'
+                                    )
+                                )
+                            )
+                        `;
+        } else if (!status) {
+            // En vista "Todos" no incluir en tránsito
+            query += ` AND COALESCE(p.status::text, '') NOT IN ('in_transit', 'in_transit_mty')`;
+        } else if (status) {
+            // En este UNION solo hay in_stock / in_transit
             query += ` AND FALSE`;
         }
-        if (package_type && package_type !== 'package') {
+        
+        // Filtro needs_instructions para UNION
+        if (needs_instructions === 'true') {
+            query += ` AND p.needs_instructions = TRUE`;
+        } else if (needs_instructions === 'false') {
+            query += ` AND COALESCE(p.needs_instructions, FALSE) = FALSE`;
+        } else if (package_type && package_type !== 'package') {
             query += ` AND FALSE`;
         }
         
@@ -2010,20 +2086,38 @@ export const getBranchInventory = async (req: AuthRequest, res: Response): Promi
         // Obtener conteos (incluye branch_inventory + paquetes con current_branch_id)
         let countQuery = `
             WITH unified AS (
-                SELECT status, package_type, branch_id FROM branch_inventory
+                SELECT status, package_type, branch_id FROM branch_inventory WHERE status <> 'in_transit'
                 UNION ALL
-                SELECT 'in_stock'::varchar as status, 'package'::varchar as package_type, p.current_branch_id as branch_id
+                SELECT
+                    CASE
+                        WHEN p.status::text IN ('in_transit', 'in_transit_mty') THEN 'in_transit'::varchar
+                        ELSE 'in_stock'::varchar
+                    END as status,
+                    'package'::varchar as package_type,
+                    CASE
+                        WHEN p.current_branch_id IS NOT NULL THEN p.current_branch_id
+                        WHEN p.status::text IN ('in_transit', 'in_transit_mty') THEN (
+                            SELECT id FROM branches WHERE UPPER(code) = 'MTY' AND is_active = TRUE ORDER BY id ASC LIMIT 1
+                        )
+                        ELSE NULL
+                    END as branch_id
                 FROM packages p
-                WHERE p.current_branch_id IS NOT NULL
+                                WHERE (p.current_branch_id IS NOT NULL OR p.status::text IN ('in_transit', 'in_transit_mty'))
+                                    AND (
+                                        p.status::text <> 'in_transit'
+                                        OR COALESCE(UPPER(p.destination_city), '') LIKE '%MONTERREY%'
+                                        OR COALESCE(UPPER(p.destination_city), '') = 'MTY'
+                                    )
                   AND NOT EXISTS (
                       SELECT 1 FROM branch_inventory bi2
                       WHERE bi2.package_type = 'package' AND bi2.package_id = p.id
                   )
             )
             SELECT 
-                COUNT(*) as total,
+                COUNT(*) FILTER (WHERE status <> 'in_transit') as total,
                 COUNT(*) FILTER (WHERE status = 'in_stock') as in_stock,
                 COUNT(*) FILTER (WHERE status = 'released') as released,
+                COUNT(*) FILTER (WHERE status = 'in_transit') as in_transit,
                 COUNT(*) FILTER (WHERE package_type = 'dhl') as dhl_count,
                 COUNT(*) FILTER (WHERE package_type = 'package') as package_count
             FROM unified
@@ -2046,6 +2140,7 @@ export const getBranchInventory = async (req: AuthRequest, res: Response): Promi
                 total: parseInt(counts.total),
                 in_stock: parseInt(counts.in_stock),
                 released: parseInt(counts.released),
+                in_transit: parseInt(counts.in_transit),
                 by_type: {
                     dhl: parseInt(counts.dhl_count),
                     packages: parseInt(counts.package_count)

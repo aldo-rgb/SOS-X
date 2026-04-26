@@ -25,6 +25,7 @@ import {
   requireRole,
   requireMinLevel,
   getDashboardSummary,
+  getBranchManagerDashboard,
   getCounterStaffDashboard,
   changePassword,
   updateProfile,
@@ -57,7 +58,9 @@ import {
   getOutboundReadyPackages,
   createOutboundConsolidation,
   getRepackInstructions,
-  updatePackageClient
+  updatePackageClient,
+  getPackageMovementsByTracking,
+  getPackageMovementsById
 } from './packageController';
 import {
   createPaymentOrder,
@@ -1751,6 +1754,9 @@ app.get('/api/admin/dashboard', authenticateToken, requireMinLevel(ROLES.COUNTER
 // --- RUTA DE RESUMEN DEL DASHBOARD ---
 app.get('/api/dashboard/summary', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDashboardSummary);
 
+// --- RUTA DE DASHBOARD GERENTE DE SUCURSAL ---
+app.get('/api/dashboard/branch-manager', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getBranchManagerDashboard);
+
 // --- RUTA DE DASHBOARD COUNTER STAFF (Mostrador) ---
 app.get('/api/dashboard/counter-staff', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getCounterStaffDashboard);
 
@@ -1852,6 +1858,19 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
     }
 
     // 3. Obtener paquetes activos del cliente (PO Box USA y Aéreo China)
+    let hasPqtxShipmentsTable = false;
+    try {
+      const pqtxTableCheck = await pool.query(`
+        SELECT 1
+        FROM information_schema.tables
+        WHERE table_name = 'pqtx_shipments'
+        LIMIT 1
+      `);
+      hasPqtxShipmentsTable = pqtxTableCheck.rows.length > 0;
+    } catch {
+      hasPqtxShipmentsTable = false;
+    }
+
     const packagesQuery = await pool.query(`
       SELECT 
         id,
@@ -1956,11 +1975,30 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         national_carrier,
         national_shipping_cost,
         national_tracking,
+        ${hasPqtxShipmentsTable ? `(
+          SELECT UPPER(
+            REGEXP_REPLACE(
+              COALESCE((regexp_match(ps.folio_porte, '([A-Za-z]{2,}[0-9][A-Za-z0-9]+)'))[1], ps.folio_porte),
+              '\\s+',
+              '',
+              'g'
+            )
+          )
+          FROM pqtx_shipments ps
+          WHERE UPPER(ps.tracking_number) = UPPER(packages.national_tracking)
+            AND COALESCE(ps.folio_porte, '') <> ''
+          ORDER BY ps.created_at DESC NULLS LAST, ps.id DESC
+          LIMIT 1
+        )` : 'NULL'} as carrier_service_request_code,
         carrier,
         gex_total_cost
       FROM packages
       WHERE (user_id = $1 OR box_id = $2)
-        AND status::text NOT IN ('delivered', 'cancelled', 'returned')
+        AND status::text NOT IN ('cancelled', 'returned')
+        AND (
+          status::text NOT IN ('delivered', 'sent')
+          OR updated_at >= NOW() - INTERVAL '7 days'
+        )
         AND (is_master = true OR master_id IS NULL)
       ORDER BY 
         CASE WHEN status::text = 'ready_pickup' THEN 0 ELSE 1 END,
@@ -2449,10 +2487,25 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
         air_price_per_kg,
         air_tariff_type,
         pobox_venta_usd,
-        registered_exchange_rate
+        registered_exchange_rate,
+        national_carrier,
+        national_tracking,
+        national_label_url,
+        national_shipping_cost,
+        carrier,
+        destination_address,
+        destination_city,
+        destination_contact,
+        assigned_address_id,
+        assigned_address_id as delivery_address_id,
+        CASE 
+          WHEN assigned_address_id IS NOT NULL THEN true
+          WHEN (destination_address IS NOT NULL AND destination_address != 'Pendiente de asignar' AND destination_contact IS NOT NULL) THEN true
+          ELSE false
+        END as has_delivery_instructions
       FROM packages
       WHERE user_id = $1
-        AND status = 'delivered'
+        AND status IN ('delivered', 'sent')
         AND (is_master = true OR master_id IS NULL)
       ORDER BY COALESCE(delivered_at, updated_at) DESC
       LIMIT 50
@@ -2578,6 +2631,9 @@ app.get('/api/packages/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_
 // Buscar paquete por tracking (cualquier usuario autenticado)
 app.get('/api/packages/track/:tracking', authenticateToken, getPackageByTracking);
 
+// Historial de movimientos por tracking (cualquier usuario autenticado con permiso)
+app.get('/api/packages/track/:tracking/movements', authenticateToken, getPackageMovementsByTracking);
+
 // Paquetes de un cliente específico (Staff o superior)
 app.get('/api/packages/client/:boxId', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getPackagesByClient);
 
@@ -2595,6 +2651,9 @@ app.get('/api/packages/saved-constancia', authenticateToken, getSavedConstancia)
 
 // Obtener detalle de paquete por ID (usuario dueño o staff+)
 app.get('/api/packages/:id', authenticateToken, getPackageById);
+
+// Obtener movimientos de guía por ID (usuario dueño o staff+)
+app.get('/api/packages/:id/movements', authenticateToken, getPackageMovementsById);
 
 // Obtener etiquetas para imprimir (Bodega o superior)
 app.get('/api/packages/:id/labels', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getPackageLabels);

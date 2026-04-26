@@ -14,7 +14,7 @@ import {
   CircularProgress,
   Avatar,
   Chip,
-  LinearProgress,
+
   Alert,
   Dialog,
   DialogTitle,
@@ -22,16 +22,13 @@ import {
   IconButton,
 } from '@mui/material';
 import {
-  TrendingUp as TrendingUpIcon,
-  People as PeopleIcon,
-  AccountBalance as AccountBalanceIcon,
   Inventory as InventoryIcon,
-  Speed as SpeedIcon,
   AttachMoney as MoneyIcon,
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
   Store as StoreIcon,
   LocalShipping as LocalShippingIcon,
+  ConfirmationNumber as TicketIcon,
   Close as CloseIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
@@ -45,6 +42,7 @@ interface BranchStats {
   paquetes: {
     en_bodega: number;
     en_transito: number;
+    en_espera_cajas?: number;
     entregados_hoy: number;
     pendientes_cobro: number;
   };
@@ -70,7 +68,7 @@ interface QuickAction {
   description: string;
   icon: React.ReactNode;
   color: string;
-  path: string;
+  action: 'operations' | 'service_tickets' | 'relabeling' | 'branch_inventory';
 }
 
 export default function DashboardBranchManager() {
@@ -112,13 +110,13 @@ export default function DashboardBranchManager() {
       }
     } catch (error) {
       console.error('Error cargando dashboard:', error);
-      // Usar datos de ejemplo si falla
+      // Evitar datos ficticios en dashboard
       setStats({
-        sucursal: { nombre: 'Sucursal Principal', codigo: 'MTY-001' },
-        paquetes: { en_bodega: 145, en_transito: 89, entregados_hoy: 23, pendientes_cobro: 34 },
-        financiero: { ingresos_hoy: 15420, ingresos_mes: 245800, saldo_caja: 8500, cuentas_por_cobrar: 42300 },
-        operaciones: { recepciones_hoy: 45, despachos_hoy: 38, consolidaciones_pendientes: 12 },
-        equipo: { empleados_activos: 8, en_turno: 5 },
+        sucursal: { nombre: 'CEDIS MTY', codigo: 'MTY' },
+        paquetes: { en_bodega: 0, en_transito: 0, en_espera_cajas: 0, entregados_hoy: 0, pendientes_cobro: 0 },
+        financiero: { ingresos_hoy: 0, ingresos_mes: 0, saldo_caja: 0, cuentas_por_cobrar: 0 },
+        operaciones: { recepciones_hoy: 0, despachos_hoy: 0, consolidaciones_pendientes: 0 },
+        equipo: { empleados_activos: 0, en_turno: 0 },
       });
     } finally {
       setLoading(false);
@@ -127,34 +125,38 @@ export default function DashboardBranchManager() {
 
   const quickActions: QuickAction[] = [
     {
-      title: 'Operaciones de Almacén',
-      description: 'Recepción, inventario y despachos',
+      title: 'Operaciones',
+      description: 'Ir al panel de operaciones',
       icon: <InventoryIcon sx={{ fontSize: 40 }} />,
       color: '#2196F3',
-      path: '/panels/operations',
+      action: 'operations',
     },
     {
-      title: 'Caja y Cobros',
-      description: 'Control de pagos y efectivo',
-      icon: <MoneyIcon sx={{ fontSize: 40 }} />,
+      title: 'Acceso directo a etiquetado',
+      description: 'Abrir módulo de reetiquetado',
+      icon: <LocalShippingIcon sx={{ fontSize: 40 }} />,
       color: '#4CAF50',
-      path: '/caja-chica',
+      action: 'relabeling',
     },
     {
-      title: 'Tesorería',
-      description: 'Reportes financieros de sucursal',
-      icon: <AccountBalanceIcon sx={{ fontSize: 40 }} />,
+      title: 'Tráfico por Sucursal',
+      description: 'Abrir tráfico de tu sucursal',
+      icon: <StoreIcon sx={{ fontSize: 40 }} />,
       color: '#9C27B0',
-      path: '/panels/tesoreria',
+      action: 'branch_inventory',
     },
     {
-      title: 'Servicio al Cliente',
-      description: 'Atención y seguimiento',
-      icon: <PeopleIcon sx={{ fontSize: 40 }} />,
+      title: 'Soporte técnico',
+      description: 'Abrir servicio al cliente',
+      icon: <TicketIcon sx={{ fontSize: 40 }} />,
       color: '#FF9800',
-      path: '/panels/service',
+      action: 'service_tickets',
     },
   ];
+
+  const handleQuickAction = (action: QuickAction['action']) => {
+    window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action } }));
+  };
 
   if (loading) {
     return (
@@ -225,14 +227,14 @@ export default function DashboardBranchManager() {
           </Paper>
         </Grid>
 
-        {/* Ingresos Hoy */}
+        {/* En espera (cajas en tránsito a MTY NL) */}
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
           <Paper sx={{ p: 3, height: '100%', background: 'linear-gradient(135deg, #7B1FA2 0%, #BA68C8 100%)', color: 'white' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <Box>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>Ingresos Hoy</Typography>
-                <Typography variant="h3" fontWeight="bold">${(stats?.financiero.ingresos_hoy || 0).toLocaleString()}</Typography>
-                <Typography variant="caption">MXN</Typography>
+                <Typography variant="body2" sx={{ opacity: 0.9 }}>En espera</Typography>
+                <Typography variant="h3" fontWeight="bold">{(stats?.paquetes.en_espera_cajas ?? stats?.paquetes.en_transito ?? 0).toLocaleString()}</Typography>
+                <Typography variant="caption">cajas en tránsito a MTY NL</Typography>
               </Box>
               <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
                 <MoneyIcon />
@@ -298,67 +300,25 @@ export default function DashboardBranchManager() {
         </DialogContent>
       </Dialog>
 
-      {/* Resumen Operativo y Accesos Rápidos */}
+      {/* Accesos Rápidos */}
       <Grid container spacing={3}>
-        {/* Resumen del Día */}
-        <Grid size={{ xs: 12, md: 6 }}>
-          <Paper sx={{ p: 3, height: '100%' }}>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
-              📊 Resumen del Día
-            </Typography>
-            
-            <Box sx={{ mt: 2 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                <Typography variant="body2">Recepciones</Typography>
-                <Typography variant="body2" fontWeight="bold">{stats?.operaciones.recepciones_hoy || 0}</Typography>
-              </Box>
-              <LinearProgress variant="determinate" value={75} sx={{ mb: 2, height: 8, borderRadius: 4 }} />
-              
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                <Typography variant="body2">Despachos</Typography>
-                <Typography variant="body2" fontWeight="bold">{stats?.operaciones.despachos_hoy || 0}</Typography>
-              </Box>
-              <LinearProgress variant="determinate" value={60} color="success" sx={{ mb: 2, height: 8, borderRadius: 4 }} />
-              
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                <Typography variant="body2">Consolidaciones Pendientes</Typography>
-                <Typography variant="body2" fontWeight="bold" color="warning.main">{stats?.operaciones.consolidaciones_pendientes || 0}</Typography>
-              </Box>
-              <LinearProgress variant="determinate" value={40} color="warning" sx={{ height: 8, borderRadius: 4 }} />
-            </Box>
-
-            <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.100', borderRadius: 2 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Box>
-                  <Typography variant="body2" color="text.secondary">Saldo en Caja</Typography>
-                  <Typography variant="h5" fontWeight="bold" color="success.main">
-                    ${(stats?.financiero.saldo_caja || 0).toLocaleString()} MXN
-                  </Typography>
-                </Box>
-                <AccountBalanceIcon sx={{ fontSize: 40, color: 'success.main', opacity: 0.5 }} />
-              </Box>
-            </Box>
-          </Paper>
-        </Grid>
-
-        {/* Accesos Rápidos */}
-        <Grid size={{ xs: 12, md: 6 }}>
+        <Grid size={{ xs: 12 }}>
           <Paper sx={{ p: 3, height: '100%' }}>
             <Typography variant="h6" fontWeight="bold" gutterBottom>
               ⚡ Accesos Rápidos
             </Typography>
-            
+
             <Grid container spacing={2} sx={{ mt: 1 }}>
               {quickActions.map((action, index) => (
-                <Grid size={{ xs: 6 }} key={index}>
-                  <Card 
-                    sx={{ 
+                <Grid size={{ xs: 12, sm: 6, md: 3 }} key={index}>
+                  <Card
+                    sx={{
                       height: '100%',
                       transition: 'transform 0.2s',
                       '&:hover': { transform: 'scale(1.02)' }
                     }}
                   >
-                    <CardActionArea sx={{ p: 2, height: '100%' }}>
+                    <CardActionArea onClick={() => handleQuickAction(action.action)} sx={{ p: 2, height: '100%' }}>
                       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
                         <Avatar sx={{ bgcolor: action.color, width: 56, height: 56, mb: 1 }}>
                           {action.icon}
@@ -371,54 +331,6 @@ export default function DashboardBranchManager() {
                 </Grid>
               ))}
             </Grid>
-          </Paper>
-        </Grid>
-
-        {/* Equipo y Métricas */}
-        <Grid size={{ xs: 12, md: 6 }}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
-              👥 Mi Equipo
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 3, mt: 2 }}>
-              <Box sx={{ textAlign: 'center', flex: 1 }}>
-                <Avatar sx={{ bgcolor: 'primary.main', width: 64, height: 64, mx: 'auto', mb: 1 }}>
-                  <PeopleIcon sx={{ fontSize: 32 }} />
-                </Avatar>
-                <Typography variant="h4" fontWeight="bold">{stats?.equipo.empleados_activos || 0}</Typography>
-                <Typography variant="body2" color="text.secondary">Empleados Activos</Typography>
-              </Box>
-              <Box sx={{ textAlign: 'center', flex: 1 }}>
-                <Avatar sx={{ bgcolor: 'success.main', width: 64, height: 64, mx: 'auto', mb: 1 }}>
-                  <SpeedIcon sx={{ fontSize: 32 }} />
-                </Avatar>
-                <Typography variant="h4" fontWeight="bold">{stats?.equipo.en_turno || 0}</Typography>
-                <Typography variant="body2" color="text.secondary">En Turno Ahora</Typography>
-              </Box>
-            </Box>
-          </Paper>
-        </Grid>
-
-        {/* Ingresos del Mes */}
-        <Grid size={{ xs: 12, md: 6 }}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
-              💰 Ingresos del Mes
-            </Typography>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 2 }}>
-              <Box sx={{ flex: 1 }}>
-                <Typography variant="h3" fontWeight="bold" color="success.main">
-                  ${(stats?.financiero.ingresos_mes || 0).toLocaleString()}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">MXN - {new Date().toLocaleDateString('es-MX', { month: 'long' })}</Typography>
-              </Box>
-              <TrendingUpIcon sx={{ fontSize: 64, color: 'success.main', opacity: 0.3 }} />
-            </Box>
-            <Box sx={{ mt: 2, p: 2, bgcolor: 'warning.light', borderRadius: 2 }}>
-              <Typography variant="body2" color="warning.dark">
-                <strong>Cuentas por Cobrar:</strong> ${(stats?.financiero.cuentas_por_cobrar || 0).toLocaleString()} MXN
-              </Typography>
-            </Box>
           </Paper>
         </Grid>
       </Grid>

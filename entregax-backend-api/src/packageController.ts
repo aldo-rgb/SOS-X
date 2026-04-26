@@ -7,7 +7,17 @@ import fs from 'fs';
 import axios from 'axios';
 
 // ============ TIPOS ============
-type PackageStatus = 'received' | 'received_mty' | 'in_transit' | 'customs' | 'ready_pickup' | 'delivered' | 'reempacado' | 'processing';
+type PackageStatus =
+    | 'received'
+    | 'received_mty'
+    | 'in_transit'
+    | 'customs'
+    | 'ready_pickup'
+    | 'out_for_delivery'
+    | 'returned_to_warehouse'
+    | 'delivered'
+    | 'reempacado'
+    | 'processing';
 
 interface BoxItem {
     weight: number;
@@ -74,6 +84,8 @@ const getStatusLabel = (status: PackageStatus): string => {
         in_transit: '🚚 En Tránsito',
         customs: '🛃 En Aduana',
         ready_pickup: '✅ Listo para Recoger',
+        out_for_delivery: '🛣️ En Ruta',
+        returned_to_warehouse: '↩️ Devuelto a Bodega',
         delivered: '🎉 Entregado',
         reempacado: '📦 Reempacado',
         processing: '📋 Procesando'
@@ -843,6 +855,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         const tracking = req.params.tracking as string;
         if (!tracking) { res.status(400).json({ error: 'Tracking requerido' }); return; }
 
+        const trackingUpper = tracking.toUpperCase().trim();
+        const trackingCompact = trackingUpper.replace(/[^A-Z0-9]/g, '');
+
         const result = await pool.query(`
             SELECT p.*, u.full_name, u.email, u.box_id as user_box_id,
                    lc.full_name as legacy_name, lc.box_id as legacy_box_id,
@@ -856,8 +871,11 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             LEFT JOIN users u ON p.user_id = u.id
             LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
             LEFT JOIN addresses a ON p.assigned_address_id = a.id
-            WHERE p.tracking_internal = $1 OR p.tracking_provider = $1
-        `, [tracking.toUpperCase()]);
+            WHERE UPPER(COALESCE(p.tracking_internal, '')) = $1
+               OR UPPER(COALESCE(p.tracking_provider, '')) = $1
+               OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal, '')), '[^A-Z0-9]', '', 'g') = $2
+               OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_provider, '')), '[^A-Z0-9]', '', 'g') = $2
+        `, [trackingUpper, trackingCompact]);
 
         if (result.rows.length === 0) { res.status(404).json({ error: 'No encontrado' }); return; }
 
@@ -981,7 +999,7 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
     try {
         const { id } = req.params;
         const { status, notes } = req.body;
-        const validStatuses: PackageStatus[] = ['received', 'received_mty', 'in_transit', 'customs', 'ready_pickup', 'delivered', 'reempacado', 'processing'];
+        const validStatuses: PackageStatus[] = ['received', 'received_mty', 'in_transit', 'customs', 'ready_pickup', 'out_for_delivery', 'returned_to_warehouse', 'delivered', 'reempacado', 'processing'];
         
         if (!validStatuses.includes(status)) {
             res.status(400).json({ error: 'Estado inválido', validStatuses });
@@ -1006,9 +1024,36 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
 
         await client.query(updateQuery, updateParams);
 
+        const changedBy = (req as any)?.user?.userId || null;
+        const statusNote = notes
+            ? `Cambio de estado manual a ${getStatusLabel(status)}. ${notes}`
+            : `Cambio de estado manual a ${getStatusLabel(status)}`;
+
+        try {
+            await client.query(
+                `INSERT INTO package_history (package_id, status, notes, created_by, created_at)
+                 VALUES ($1, $2, $3, $4, NOW())`,
+                [Number(id), status, statusNote, changedBy]
+            );
+        } catch (historyError) {
+            console.warn('No se pudo registrar package_history en updateShipmentStatus:', historyError);
+        }
+
         if (pkg.is_master) {
             await client.query(`UPDATE packages SET status = $1, updated_at = CURRENT_TIMESTAMP
                 ${status === 'delivered' ? ', delivered_at = CURRENT_TIMESTAMP' : ''} WHERE master_id = $2`, [status, id]);
+
+            try {
+                await client.query(
+                    `INSERT INTO package_history (package_id, status, notes, created_by, created_at)
+                     SELECT p.id, $2, $3, $4, NOW()
+                     FROM packages p
+                     WHERE p.master_id = $1`,
+                    [Number(id), status, `Cambio heredado desde guía master a ${getStatusLabel(status)}`, changedBy]
+                );
+            } catch (historyError) {
+                console.warn('No se pudo registrar package_history para guías hijas en updateShipmentStatus:', historyError);
+            }
         }
 
         await client.query('COMMIT');
@@ -1022,6 +1067,279 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
         res.status(500).json({ error: 'Error al actualizar' });
     } finally {
         client.release();
+    }
+};
+
+const formatStatusLabelForMovement = (status: string | null | undefined): string => {
+    if (!status) return 'Sin estado';
+    const labels: Record<string, string> = {
+        received: 'Recibido',
+        received_mty: 'Recibido en CEDIS MTY',
+        in_transit: 'En tránsito',
+        customs: 'En aduana',
+        ready_pickup: 'Listo para recoger',
+        out_for_delivery: 'En ruta',
+        returned_to_warehouse: 'Devuelto a bodega',
+        delivered: 'Entregado',
+        reempacado: 'Reempacado',
+        processing: 'Procesando'
+    };
+    return labels[status] || status;
+};
+
+const getPackageMovementsBaseByTracking = async (tracking: string) => {
+    const result = await pool.query(
+        `SELECT p.id, p.user_id, p.status, p.created_at, p.updated_at, p.tracking_internal, p.tracking_provider,
+                p.is_master
+         FROM packages p
+         WHERE UPPER(p.tracking_internal) = UPPER($1)
+            OR UPPER(COALESCE(p.tracking_provider, '')) = UPPER($1)
+         LIMIT 1`,
+        [tracking]
+    );
+
+    return result.rows[0] || null;
+};
+
+const getPackageMovementsBaseById = async (id: number) => {
+    const result = await pool.query(
+        `SELECT p.id, p.user_id, p.status, p.created_at, p.updated_at, p.tracking_internal, p.tracking_provider,
+                p.is_master
+         FROM packages p
+         WHERE p.id = $1
+         LIMIT 1`,
+        [id]
+    );
+
+    return result.rows[0] || null;
+};
+
+const statusProgressOrder: Record<string, number> = {
+    received: 1,
+    in_transit: 2,
+    received_mty: 3,
+    ready_pickup: 4,
+    out_for_delivery: 4,
+    delivered: 5,
+    returned_to_warehouse: 5,
+};
+
+const inferLegacyMilestones = (pkg: any, movementRows: any[]): any[] => {
+    const currentRank = statusProgressOrder[String(pkg.status)] || 0;
+    if (currentRank < 1) return [];
+
+    const existingStatuses = new Set(
+        movementRows
+            .filter((m) => Number(m.package_id) === Number(pkg.id))
+            .map((m) => String(m.status))
+    );
+
+    const baseDate = pkg.created_at ? new Date(pkg.created_at) : new Date();
+    const d1 = new Date(baseDate.getTime());
+    const d2 = new Date(baseDate.getTime() + 60 * 1000);
+    const d3 = new Date(baseDate.getTime() + 2 * 60 * 1000);
+
+    const inferred: any[] = [];
+
+    if (currentRank >= 1 && !existingStatuses.has('received')) {
+        inferred.push({
+            id: -1001,
+            package_id: pkg.id,
+            tracking: pkg.tracking_internal || pkg.tracking_provider,
+            status: 'received',
+            notes: 'Recibido en sucursal Hidalgo TX',
+            created_at: d1.toISOString(),
+            created_by: null,
+            created_by_name: null,
+        });
+    }
+
+    if (currentRank >= 2 && !existingStatuses.has('in_transit')) {
+        inferred.push({
+            id: -1002,
+            package_id: pkg.id,
+            tracking: pkg.tracking_internal || pkg.tracking_provider,
+            status: 'in_transit',
+            notes: 'En ruta a Monterrey, N.L.',
+            created_at: d2.toISOString(),
+            created_by: null,
+            created_by_name: null,
+        });
+    }
+
+    if (currentRank >= 3 && !existingStatuses.has('received_mty')) {
+        inferred.push({
+            id: -1003,
+            package_id: pkg.id,
+            tracking: pkg.tracking_internal || pkg.tracking_provider,
+            status: 'received_mty',
+            notes: 'Recibido en CEDIS MTY',
+            created_at: pkg.status === 'received_mty' && pkg.updated_at ? pkg.updated_at : d3.toISOString(),
+            created_by: null,
+            created_by_name: null,
+        });
+    }
+
+    return inferred;
+};
+
+const dedupeMovements = (rows: any[]): any[] => {
+    if (rows.length <= 1) return rows;
+
+    const sorted = [...rows].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const deduped: any[] = [];
+
+    for (const row of sorted) {
+        const last = deduped[deduped.length - 1];
+        if (!last) {
+            deduped.push(row);
+            continue;
+        }
+
+        const samePackage = Number(last.package_id) === Number(row.package_id);
+        const sameStatus = String(last.status) === String(row.status);
+        const diffMs = Math.abs(new Date(last.created_at).getTime() - new Date(row.created_at).getTime());
+        const nearInTime = diffMs <= 5000;
+
+        if (samePackage && sameStatus && nearInTime) {
+            const preferCurrent = !!row.created_by || (!!row.notes && !String(row.notes).startsWith('Cambio automático de estado:'));
+            if (preferCurrent) {
+                deduped[deduped.length - 1] = row;
+            }
+            continue;
+        }
+
+        deduped.push(row);
+    }
+
+    return deduped;
+};
+
+const buildPackageMovementsResponse = async (pkg: any) => {
+    const idRows = await pool.query(
+        `SELECT id FROM packages WHERE id = $1
+         UNION
+         SELECT id FROM packages WHERE master_id = $1`,
+        [pkg.id]
+    );
+    const packageIds = idRows.rows.map((r: any) => Number(r.id));
+
+    let movementRows: any[] = [];
+    try {
+        const movementsRes = await pool.query(
+            `SELECT ph.id,
+                    ph.package_id,
+                    COALESCE(p.tracking_internal, p.tracking_provider) AS tracking,
+                    ph.status,
+                    ph.notes,
+                    ph.created_at,
+                    ph.created_by,
+                    u.full_name AS created_by_name
+             FROM package_history ph
+             JOIN packages p ON p.id = ph.package_id
+             LEFT JOIN users u ON u.id = ph.created_by
+             WHERE ph.package_id = ANY($1::int[])
+             ORDER BY ph.created_at DESC, ph.id DESC`,
+            [packageIds]
+        );
+        movementRows = movementsRes.rows;
+    } catch (error) {
+        movementRows = [];
+    }
+
+    const hasInitialRow = movementRows.some((m) => Number(m.package_id) === Number(pkg.id));
+    if (!hasInitialRow && pkg.created_at) {
+        movementRows.push({
+            id: -1,
+            package_id: pkg.id,
+            tracking: pkg.tracking_internal || pkg.tracking_provider,
+            status: pkg.status,
+            notes: 'Guía registrada en sistema',
+            created_at: pkg.created_at,
+            created_by: null,
+            created_by_name: null
+        });
+    }
+
+    const inferredMilestones = inferLegacyMilestones(pkg, movementRows);
+    if (inferredMilestones.length > 0) {
+        movementRows.push(...inferredMilestones);
+    }
+
+    movementRows = dedupeMovements(movementRows);
+
+    const movements = movementRows
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .map((row) => ({
+            id: row.id,
+            package_id: row.package_id,
+            tracking: row.tracking,
+            status: row.status,
+            status_label: formatStatusLabelForMovement(row.status),
+            notes: row.notes,
+            created_at: row.created_at,
+            created_by: row.created_by,
+            created_by_name: row.created_by_name,
+            source: row.created_by ? 'manual' : 'system'
+        }));
+
+    return {
+        success: true,
+        tracking: pkg.tracking_internal || pkg.tracking_provider,
+        current: {
+            status: pkg.status,
+            status_label: formatStatusLabelForMovement(pkg.status),
+            updated_at: pkg.updated_at
+        },
+        movements
+    };
+};
+
+export const getPackageMovementsByTracking = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const tracking = String(req.params.tracking || '').trim();
+        if (!tracking) return res.status(400).json({ success: false, error: 'Tracking requerido' });
+
+        const pkg = await getPackageMovementsBaseByTracking(tracking);
+        if (!pkg) return res.status(404).json({ success: false, error: 'Paquete no encontrado' });
+
+        const user = (req as any).user;
+        const requesterId = Number(user?.userId || 0);
+        const requesterRole = String(user?.role || '').toLowerCase();
+        const isClientRole = ['client', 'customer', 'usuario', 'user'].includes(requesterRole);
+        if (isClientRole && requesterId !== Number(pkg.user_id)) {
+            return res.status(403).json({ success: false, error: 'No tienes permiso para ver estos movimientos' });
+        }
+
+        const response = await buildPackageMovementsResponse(pkg);
+        return res.json(response);
+    } catch (error: any) {
+        console.error('Error getPackageMovementsByTracking:', error);
+        return res.status(500).json({ success: false, error: 'Error al obtener movimientos' });
+    }
+};
+
+export const getPackageMovementsById = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const id = Number(req.params.id);
+        if (!id) return res.status(400).json({ success: false, error: 'ID inválido' });
+
+        const pkg = await getPackageMovementsBaseById(id);
+        if (!pkg) return res.status(404).json({ success: false, error: 'Paquete no encontrado' });
+
+        const user = (req as any).user;
+        const requesterId = Number(user?.userId || 0);
+        const requesterRole = String(user?.role || '').toLowerCase();
+        const isClientRole = ['client', 'customer', 'usuario', 'user'].includes(requesterRole);
+        if (isClientRole && requesterId !== Number(pkg.user_id)) {
+            return res.status(403).json({ success: false, error: 'No tienes permiso para ver estos movimientos' });
+        }
+
+        const response = await buildPackageMovementsResponse(pkg);
+        return res.json(response);
+    } catch (error: any) {
+        console.error('Error getPackageMovementsById:', error);
+        return res.status(500).json({ success: false, error: 'Error al obtener movimientos' });
     }
 };
 
@@ -1247,6 +1565,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 needs_instructions: pkg.needs_instructions !== false, // default true si no está definido
                 // 📝 Información de entrega
                 received_by: pkg.received_by || null, // Nombre de quien recibió el paquete
+                delivery_recipient_name: pkg.delivery_recipient_name || null, // Nombre registrado al confirmar entrega
                 // 📦📦 Paquetes hijos (si es master)
                 child_packages: pkg.is_master ? (childrenByMaster[pkg.id] || []) : []
             };

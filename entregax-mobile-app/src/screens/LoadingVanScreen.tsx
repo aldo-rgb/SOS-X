@@ -22,6 +22,8 @@ import {
   Platform,
   Modal,
   FlatList,
+  TextInput,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -55,7 +57,53 @@ interface FeedbackMessage {
   details?: string;
 }
 
-export default function LoadingVanScreen({ navigation }: any) {
+type ScanMode = 'camera' | 'scanner';
+
+const normalizeScanCode = (rawCode: string): string => {
+  if (!rawCode) return '';
+
+  let code = String(rawCode)
+    .replace(/[\r\n\t]/g, '')
+    .trim();
+
+  try {
+    code = decodeURIComponent(code);
+  } catch {
+    // ignore decode errors
+  }
+
+  const fromTrackPath = code.match(/\/track\/([^/?#\s]+)/i);
+  if (fromTrackPath?.[1]) {
+    code = fromTrackPath[1];
+  }
+
+  const fromQuery = code.match(/[?&](?:track|tracking|barcode|code)=([^&#\s]+)/i);
+  if (fromQuery?.[1]) {
+    code = fromQuery[1];
+  }
+
+  code = code
+    .replace(/[_']/g, '-')
+    .replace(/\s+/g, '')
+    .toUpperCase();
+
+  const canonicalTracking = code.match(/[A-Z]{2,}-[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})*/);
+  if (canonicalTracking?.[0]) {
+    return canonicalTracking[0];
+  }
+
+  const compactTracking = code.match(/[A-Z]{2,}[A-Z0-9]{4,}/);
+  if (compactTracking?.[0]) {
+    const compact = compactTracking[0];
+    return `${compact.slice(0, 2)}-${compact.slice(2)}`;
+  }
+
+  return code;
+};
+
+export default function LoadingVanScreen({ navigation, route }: any) {
+  const token = route?.params?.token;
+  const initialScanMode: ScanMode = route?.params?.scanMode === 'scanner' ? 'scanner' : 'camera';
   const [loading, setLoading] = useState(true);
   const [routeData, setRouteData] = useState<RouteData | null>(null);
   const [scannedCount, setScannedCount] = useState(0);
@@ -64,6 +112,8 @@ export default function LoadingVanScreen({ navigation }: any) {
   const [scannerActive, setScannerActive] = useState(true);
   const [lastScannedCode, setLastScannedCode] = useState<string>('');
   const [showPackageList, setShowPackageList] = useState(false);
+  const [scanMode, setScanMode] = useState<ScanMode>(initialScanMode);
+  const [manualCode, setManualCode] = useState('');
   
   const [permission, requestPermission] = useCameraPermissions();
   
@@ -75,6 +125,8 @@ export default function LoadingVanScreen({ navigation }: any) {
   // Sonidos
   const successSound = useRef<Audio.Sound | null>(null);
   const errorSound = useRef<Audio.Sound | null>(null);
+  const hasAskedModeRef = useRef(false);
+  const manualInputRef = useRef<TextInput | null>(null);
 
   useEffect(() => {
     loadRouteData();
@@ -86,6 +138,30 @@ export default function LoadingVanScreen({ navigation }: any) {
       if (errorSound.current) errorSound.current.unloadAsync();
     };
   }, []);
+
+  useEffect(() => {
+    if (!route?.params?.scanMode && !hasAskedModeRef.current) {
+      hasAskedModeRef.current = true;
+      Alert.alert(
+        'Modo de captura',
+        '¿Qué deseas usar para cargar paquetes?',
+        [
+          { text: 'Escáner', onPress: () => setScanMode('scanner') },
+          { text: 'Cámara', onPress: () => setScanMode('camera') },
+        ]
+      );
+    }
+  }, [route?.params?.scanMode]);
+
+  useEffect(() => {
+    if (scanMode === 'scanner') {
+      setScannerActive(false);
+      Keyboard.dismiss();
+      setTimeout(() => manualInputRef.current?.focus(), 150);
+    } else {
+      setScannerActive(true);
+    }
+  }, [scanMode]);
 
   const loadSounds = async () => {
     try {
@@ -99,7 +175,9 @@ export default function LoadingVanScreen({ navigation }: any) {
   const loadRouteData = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/api/driver/route-today');
+      const res = await api.get('/api/driver/route-today', {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
       if (res.data.success) {
         setRouteData(res.data.route);
         setScannedCount(res.data.route.loadedToday || 0);
@@ -120,6 +198,18 @@ export default function LoadingVanScreen({ navigation }: any) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSelectScanMode = () => {
+    Alert.alert(
+      'Cambiar modo',
+      'Selecciona el método para capturar la guía:',
+      [
+        { text: 'Escáner', onPress: () => setScanMode('scanner') },
+        { text: 'Cámara', onPress: () => setScanMode('camera') },
+        { text: 'Cancelar', style: 'cancel' },
+      ]
+    );
   };
 
   const showFeedback = (fb: FeedbackMessage) => {
@@ -154,20 +244,28 @@ export default function LoadingVanScreen({ navigation }: any) {
     ]).start();
   };
 
-  const handleBarCodeScanned = useCallback(async (result: BarcodeScanningResult) => {
-    const { data } = result;
-    
-    // Evitar escaneos duplicados rápidos
-    if (!scannerActive || isScanning || data === lastScannedCode) {
+  const processScanCode = useCallback(async (rawCode: string, source: 'camera' | 'scanner' = 'camera') => {
+    const data = normalizeScanCode(rawCode);
+
+    if (!data || isScanning) {
+      return;
+    }
+
+    // Evitar escaneos duplicados rápidos con cámara
+    if (source === 'camera' && (!scannerActive || data === lastScannedCode)) {
       return;
     }
 
     setIsScanning(true);
-    setScannerActive(false);
+    if (source === 'camera') {
+      setScannerActive(false);
+    }
     setLastScannedCode(data);
 
     try {
-      const res = await api.post('/api/driver/scan-load', { barcode: data });
+      const res = await api.post('/api/driver/scan-load', { barcode: data }, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
       
       if (res.data.success) {
         // ÉXITO: Vibración corta, feedback verde
@@ -210,11 +308,30 @@ export default function LoadingVanScreen({ navigation }: any) {
       // Reactivar escáner después de un delay
       setTimeout(() => {
         setIsScanning(false);
-        setScannerActive(true);
+        if (source === 'camera') {
+          setScannerActive(true);
+        } else if (scanMode === 'scanner') {
+          Keyboard.dismiss();
+          manualInputRef.current?.focus();
+        }
         setLastScannedCode('');
-      }, 1500);
+      }, source === 'camera' ? 1500 : 500);
     }
-  }, [scannerActive, isScanning, lastScannedCode, scannedCount, routeData]);
+  }, [scannerActive, isScanning, lastScannedCode, scannedCount, routeData, token, scanMode]);
+
+  const handleBarCodeScanned = useCallback(async (result: BarcodeScanningResult) => {
+    const { data } = result;
+    await processScanCode(data, 'camera');
+  }, [processScanCode]);
+
+  const handleManualSubmit = async () => {
+    const code = normalizeScanCode(manualCode);
+    if (!code) {
+      return;
+    }
+    setManualCode('');
+    await processScanCode(code, 'scanner');
+  };
 
   const totalPackages = routeData 
     ? routeData.pendingToLoad + routeData.loadedToday 
@@ -234,16 +351,16 @@ export default function LoadingVanScreen({ navigation }: any) {
           { 
             text: 'Ir a Ruta (Con Faltantes)', 
             style: 'destructive',
-            onPress: () => navigation.navigate('RouteMapScreen')
+            onPress: () => navigation.navigate('DriverHome', { user: route?.params?.user, token })
           },
         ]
       );
     } else {
-      navigation.navigate('RouteMapScreen');
+      navigation.navigate('DriverHome', { user: route?.params?.user, token });
     }
   };
 
-  if (!permission) {
+  if (scanMode === 'camera' && !permission) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centerContent}>
@@ -254,7 +371,7 @@ export default function LoadingVanScreen({ navigation }: any) {
     );
   }
 
-  if (!permission.granted) {
+  if (scanMode === 'camera' && !permission?.granted) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centerContent}>
@@ -293,9 +410,14 @@ export default function LoadingVanScreen({ navigation }: any) {
           <Text style={styles.title}>Carga de Unidad 🚚</Text>
           <Text style={styles.subtitle}>Escanea cada paquete antes de salir</Text>
         </View>
-        <TouchableOpacity onPress={() => setShowPackageList(true)} style={styles.listButton}>
-          <MaterialIcons name="list" size={24} color="#F05A28" />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity onPress={handleSelectScanMode} style={styles.modeButton}>
+            <MaterialIcons name={scanMode === 'camera' ? 'photo-camera' : 'qr-code-scanner'} size={22} color="#F05A28" />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => setShowPackageList(true)} style={styles.listButton}>
+            <MaterialIcons name="list" size={24} color="#F05A28" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Progress Section */}
@@ -333,37 +455,83 @@ export default function LoadingVanScreen({ navigation }: any) {
       {/* Scanner or Success View */}
       {!isLoadComplete ? (
         <View style={styles.scannerSection}>
-          <View style={styles.scannerWrapper}>
-            <CameraView
-              style={styles.scanner}
-              barcodeScannerSettings={{
-                barcodeTypes: ['code128', 'code39', 'qr', 'ean13', 'ean8', 'upc_a'],
-              }}
-              onBarcodeScanned={scannerActive ? handleBarCodeScanned : undefined}
-            />
-            
-            {/* Scanner Overlay */}
-            <View style={styles.scannerOverlay}>
-              <View style={styles.scannerFrame}>
-                <View style={[styles.corner, styles.topLeft]} />
-                <View style={[styles.corner, styles.topRight]} />
-                <View style={[styles.corner, styles.bottomLeft]} />
-                <View style={[styles.corner, styles.bottomRight]} />
+          {scanMode === 'camera' ? (
+            <>
+              <View style={styles.scannerWrapper}>
+                <CameraView
+                  style={styles.scanner}
+                  barcodeScannerSettings={{
+                    barcodeTypes: ['code128', 'code39', 'qr', 'ean13', 'ean8', 'upc_a'],
+                  }}
+                  onBarcodeScanned={scannerActive ? handleBarCodeScanned : undefined}
+                />
+                
+                {/* Scanner Overlay */}
+                <View style={styles.scannerOverlay}>
+                  <View style={styles.scannerFrame}>
+                    <View style={[styles.corner, styles.topLeft]} />
+                    <View style={[styles.corner, styles.topRight]} />
+                    <View style={[styles.corner, styles.bottomLeft]} />
+                    <View style={[styles.corner, styles.bottomRight]} />
+                  </View>
+                </View>
+                
+                {/* Scanning Indicator */}
+                {isScanning && (
+                  <View style={styles.scanningIndicator}>
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text style={styles.scanningText}>Verificando...</Text>
+                  </View>
+                )}
               </View>
+              
+              <Text style={styles.helperText}>
+                📷 Apunta al código de barras de la caja
+              </Text>
+            </>
+          ) : (
+            <View style={styles.scannerInputCard}>
+              <MaterialIcons name="qr-code-scanner" size={54} color="#F05A28" />
+              <Text style={styles.scannerInputTitle}>Modo Escáner</Text>
+              <Text style={styles.scannerInputSubtitle}>
+                Usa el lector externo o captura manualmente la guía.
+              </Text>
+
+              <TextInput
+                ref={manualInputRef}
+                style={styles.scannerInput}
+                placeholder="Escanea o escribe el código"
+                value={manualCode}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                returnKeyType="send"
+                showSoftInputOnFocus={false}
+                blurOnSubmit={false}
+                onChangeText={setManualCode}
+                onSubmitEditing={handleManualSubmit}
+                onBlur={() => {
+                  if (scanMode === 'scanner') {
+                    setTimeout(() => manualInputRef.current?.focus(), 80);
+                  }
+                }}
+              />
+
+              <TouchableOpacity
+                style={[styles.manualSubmitButton, isScanning && styles.manualSubmitButtonDisabled]}
+                onPress={handleManualSubmit}
+                disabled={isScanning}
+              >
+                {isScanning ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <MaterialIcons name="check-circle" size={20} color="#fff" />
+                    <Text style={styles.manualSubmitText}>Validar código</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
-            
-            {/* Scanning Indicator */}
-            {isScanning && (
-              <View style={styles.scanningIndicator}>
-                <ActivityIndicator size="small" color="#fff" />
-                <Text style={styles.scanningText}>Verificando...</Text>
-              </View>
-            )}
-          </View>
-          
-          <Text style={styles.helperText}>
-            📷 Apunta al código de barras de la caja
-          </Text>
+          )}
         </View>
       ) : (
         <View style={styles.successSection}>
@@ -578,6 +746,14 @@ const styles = StyleSheet.create({
   listButton: {
     padding: 5,
   },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  modeButton: {
+    padding: 5,
+  },
   
   // Progress Section
   progressSection: {
@@ -697,6 +873,59 @@ const styles = StyleSheet.create({
     marginTop: 15,
     fontSize: 14,
     color: '#666',
+  },
+  scannerInputCard: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scannerInputTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 10,
+  },
+  scannerInputSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 18,
+    paddingHorizontal: 10,
+  },
+  scannerInput: {
+    width: '100%',
+    borderWidth: 1.5,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#333',
+    backgroundColor: '#fff',
+  },
+  manualSubmitButton: {
+    marginTop: 12,
+    backgroundColor: '#F05A28',
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 180,
+    gap: 8,
+  },
+  manualSubmitButtonDisabled: {
+    opacity: 0.8,
+  },
+  manualSubmitText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
   
   // Success Section

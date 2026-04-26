@@ -741,6 +741,272 @@ export const getDashboardSummary = async (_req: Request, res: Response): Promise
     }
 };
 
+// ============ DASHBOARD BRANCH MANAGER (Gerente de Sucursal) ============
+export const getBranchManagerDashboard = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            res.status(401).json({ error: 'No autenticado' });
+            return;
+        }
+
+        const userResult = await pool.query(
+            `
+                SELECT u.id, u.role, u.branch_id, b.name as branch_name, b.code as branch_code
+                FROM users u
+                LEFT JOIN branches b ON b.id = u.branch_id
+                WHERE u.id = $1
+                LIMIT 1
+            `,
+            [userId]
+        );
+
+        if (userResult.rows.length === 0) {
+            res.status(404).json({ error: 'Usuario no encontrado' });
+            return;
+        }
+
+        const user = userResult.rows[0];
+
+        // Nombre de sucursal: priorizar la asignada; fallback a CEDIS MTY
+        let targetBranchId: number | null = user.branch_id || null;
+        let branchName = user.branch_name || null;
+        let branchCode = user.branch_code || null;
+        if (!branchName) {
+            const mtyBranch = await pool.query(
+                `
+                    SELECT id, name, code
+                    FROM branches
+                    WHERE UPPER(code) = 'MTY' AND is_active = TRUE
+                    ORDER BY id ASC
+                    LIMIT 1
+                `
+            );
+            targetBranchId = mtyBranch.rows[0]?.id || null;
+            branchName = mtyBranch.rows[0]?.name || 'CEDIS MTY';
+            branchCode = mtyBranch.rows[0]?.code || 'MTY';
+        }
+
+        // En Bodega: mismo criterio que Inventario por Sucursal (status = in_stock)
+        const inWarehouseResult = await pool.query(
+            `
+                WITH unified AS (
+                    SELECT bi.status, bi.branch_id
+                    FROM branch_inventory bi
+
+                    UNION ALL
+
+                    SELECT 'in_stock'::varchar as status, p.current_branch_id as branch_id
+                    FROM packages p
+                    WHERE p.current_branch_id IS NOT NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM branch_inventory bi2
+                          WHERE bi2.package_type = 'package' AND bi2.package_id = p.id
+                      )
+                )
+                SELECT COUNT(*) FILTER (WHERE status = 'in_stock')::int as total
+                FROM unified
+                WHERE ($1::int IS NULL OR branch_id = $1)
+            `,
+            [targetBranchId]
+        );
+
+        // En espera: cajas en tránsito a MTY NL
+        const waitingBoxesResult = await pool.query(
+            `
+                SELECT COALESCE(SUM(CASE WHEN COALESCE(p.total_boxes, 0) > 0 THEN p.total_boxes ELSE 1 END), 0)::int as total
+                FROM packages p
+                WHERE (p.is_master = TRUE OR p.master_id IS NULL)
+                  AND p.status::text IN ('in_transit', 'in_transit_mty')
+            `
+        );
+
+        // Entregas hoy: paquetes entregados hoy
+        const deliveredTodayResult = await pool.query(
+            `
+                SELECT COUNT(*)::int as total
+                FROM packages p
+                WHERE (p.is_master = TRUE OR p.master_id IS NULL)
+                  AND p.status::text = 'delivered'
+                  AND DATE(p.delivered_at) = CURRENT_DATE
+            `
+        );
+
+        // Pendientes de cobro (alerta): en bodega MTY con saldo pendiente
+        const pendingChargeResult = await pool.query(
+            `
+                SELECT COUNT(*)::int as total
+                FROM packages p
+                WHERE (p.is_master = TRUE OR p.master_id IS NULL)
+                  AND (
+                        p.status::text IN ('received_mty', 'received_cedis')
+                        OR (p.status::text = 'received' AND p.dispatched_at IS NOT NULL)
+                      )
+                  AND COALESCE(p.client_paid, FALSE) = FALSE
+                  AND COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, 0) > 0
+            `
+        );
+
+        // Financiero real (si existen tablas de tesorería)
+        let ingresosHoy = 0;
+        let ingresosMes = 0;
+        let saldoCaja = 0;
+        try {
+            const monthFinance = await pool.query(
+                `
+                    SELECT
+                      COALESCE(SUM(CASE WHEN mf.tipo_movimiento = 'ingreso' AND DATE(mf.created_at) = CURRENT_DATE THEN mf.monto ELSE 0 END), 0) as ingresos_hoy,
+                      COALESCE(SUM(CASE WHEN mf.tipo_movimiento = 'ingreso' AND DATE_TRUNC('month', mf.created_at) = DATE_TRUNC('month', CURRENT_DATE) THEN mf.monto ELSE 0 END), 0) as ingresos_mes
+                    FROM movimientos_financieros mf
+                    WHERE mf.status = 'confirmado'
+                `
+            );
+
+            const cashResult = await pool.query(
+                `
+                    SELECT COALESCE(SUM(b.saldo_actual), 0) as saldo_caja
+                    FROM billeteras_sucursal b
+                    WHERE b.is_active = TRUE
+                `
+            );
+
+            ingresosHoy = parseFloat(monthFinance.rows[0]?.ingresos_hoy || 0) || 0;
+            ingresosMes = parseFloat(monthFinance.rows[0]?.ingresos_mes || 0) || 0;
+            saldoCaja = parseFloat(cashResult.rows[0]?.saldo_caja || 0) || 0;
+        } catch {
+            ingresosHoy = 0;
+            ingresosMes = 0;
+            saldoCaja = 0;
+        }
+
+        // Cuentas por cobrar: suma de saldos pendientes en CEDIS MTY
+        const accountsReceivableResult = await pool.query(
+            `
+                SELECT COALESCE(SUM(COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, 0)), 0) as total
+                FROM packages p
+                WHERE (p.is_master = TRUE OR p.master_id IS NULL)
+                  AND (
+                        p.status::text IN ('received_mty', 'received_cedis')
+                        OR (p.status::text = 'received' AND p.dispatched_at IS NOT NULL)
+                      )
+                  AND COALESCE(p.client_paid, FALSE) = FALSE
+            `
+        );
+
+        // Operaciones del día
+        const operationsResult = await pool.query(
+            `
+                SELECT
+                  COUNT(*) FILTER (WHERE DATE(p.received_at) = CURRENT_DATE)::int as recepciones_hoy,
+                  COUNT(*) FILTER (WHERE DATE(p.dispatched_at) = CURRENT_DATE)::int as despachos_hoy,
+                  COUNT(*) FILTER (WHERE p.status::text IN ('processing', 'customs', 'reempacado'))::int as consolidaciones_pendientes
+                FROM packages p
+                WHERE (p.is_master = TRUE OR p.master_id IS NULL)
+            `
+        );
+
+        // Equipo (solo sucursal del gerente y con checador real)
+        const branchId = user.branch_id || null;
+        
+        let empleadosActivos = 0;
+        let enTurno = 0;
+        
+        if (branchId) {
+            const teamResult = await pool.query(
+                `
+                    SELECT
+                      COUNT(*)::int as total_activos
+                    FROM users u
+                    WHERE u.role IN ('branch_manager', 'counter_staff', 'warehouse_ops', 'repartidor', 'customer_service')
+                      AND COALESCE(u.is_blocked, FALSE) = FALSE
+                      AND u.branch_id = $1
+                `,
+                [branchId]
+            );
+            
+            empleadosActivos = teamResult.rows[0]?.total_activos || 0;
+            
+            const turnoResult = await pool.query(
+                `
+                    SELECT COUNT(DISTINCT u.id)::int as total_en_turno
+                    FROM users u
+                    INNER JOIN attendance_logs al ON al.user_id = u.id
+                    WHERE u.role IN ('branch_manager', 'counter_staff', 'warehouse_ops', 'repartidor', 'customer_service')
+                      AND COALESCE(u.is_blocked, FALSE) = FALSE
+                      AND u.branch_id = $1
+                      AND al.date = CURRENT_DATE
+                      AND al.check_in_time IS NOT NULL
+                      AND al.check_out_time IS NULL
+                `,
+                [branchId]
+            );
+            
+            enTurno = turnoResult.rows[0]?.total_en_turno || 0;
+        }
+
+        res.json({
+            sucursal: {
+                nombre: branchName || 'CEDIS MTY',
+                codigo: branchCode || 'MTY',
+            },
+            paquetes: {
+                en_bodega: parseInt(inWarehouseResult.rows[0]?.total || 0) || 0,
+                en_transito: parseInt(waitingBoxesResult.rows[0]?.total || 0) || 0,
+                en_espera_cajas: parseInt(waitingBoxesResult.rows[0]?.total || 0) || 0,
+                entregados_hoy: parseInt(deliveredTodayResult.rows[0]?.total || 0) || 0,
+                pendientes_cobro: parseInt(pendingChargeResult.rows[0]?.total || 0) || 0,
+            },
+            financiero: {
+                ingresos_hoy: ingresosHoy,
+                ingresos_mes: ingresosMes,
+                saldo_caja: saldoCaja,
+                cuentas_por_cobrar: parseFloat(accountsReceivableResult.rows[0]?.total || 0) || 0,
+            },
+            operaciones: {
+                recepciones_hoy: parseInt(operationsResult.rows[0]?.recepciones_hoy || 0) || 0,
+                despachos_hoy: parseInt(operationsResult.rows[0]?.despachos_hoy || 0) || 0,
+                consolidaciones_pendientes: parseInt(operationsResult.rows[0]?.consolidaciones_pendientes || 0) || 0,
+            },
+            equipo: {
+                empleados_activos: empleadosActivos,
+                en_turno: enTurno,
+            },
+        });
+    } catch (error) {
+        console.error('Error al obtener dashboard branch manager:', error);
+        // Fallback seguro para evitar pantalla en blanco en frontend
+        res.status(200).json({
+            sucursal: {
+                nombre: 'CEDIS MTY',
+                codigo: 'MTY',
+            },
+            paquetes: {
+                en_bodega: 0,
+                en_transito: 0,
+                en_espera_cajas: 0,
+                entregados_hoy: 0,
+                pendientes_cobro: 0,
+            },
+            financiero: {
+                ingresos_hoy: 0,
+                ingresos_mes: 0,
+                saldo_caja: 0,
+                cuentas_por_cobrar: 0,
+            },
+            operaciones: {
+                recepciones_hoy: 0,
+                despachos_hoy: 0,
+                consolidaciones_pendientes: 0,
+            },
+            equipo: {
+                empleados_activos: 0,
+                en_turno: 0,
+            },
+            warning: 'dashboard_fallback',
+        });
+    }
+};
+
 // ============ CAMBIAR CONTRASEÑA (Obligatorio en primer login) ============
 export const changePassword = async (req: Request, res: Response): Promise<void> => {
     try {

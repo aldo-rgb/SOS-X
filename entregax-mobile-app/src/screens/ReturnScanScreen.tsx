@@ -21,6 +21,7 @@ import {
   Animated,
   Modal,
   FlatList,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -57,7 +58,54 @@ interface FeedbackMessage {
   message: string;
 }
 
-export default function ReturnScanScreen({ navigation }: any) {
+type ScanMode = 'camera' | 'scanner';
+
+const normalizeScanCode = (rawCode: string): string => {
+  if (!rawCode) return '';
+
+  let code = String(rawCode)
+    .replace(/[\r\n\t]/g, '')
+    .trim();
+
+  try {
+    code = decodeURIComponent(code);
+  } catch {
+    // ignore decode errors
+  }
+
+  const fromTrackPath = code.match(/\/track\/([^/?#\s]+)/i);
+  if (fromTrackPath?.[1]) {
+    code = fromTrackPath[1];
+  }
+
+  const fromQuery = code.match(/[?&](?:track|tracking|barcode|code)=([^&#\s]+)/i);
+  if (fromQuery?.[1]) {
+    code = fromQuery[1];
+  }
+
+  code = code
+    .replace(/[_']/g, '-')
+    .replace(/\s+/g, '')
+    .toUpperCase();
+
+  const canonicalTracking = code.match(/[A-Z]{2,}-[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})*/);
+  if (canonicalTracking?.[0]) {
+    return canonicalTracking[0];
+  }
+
+  const compactTracking = code.match(/[A-Z]{2,}[A-Z0-9]{4,}/);
+  if (compactTracking?.[0]) {
+    const compact = compactTracking[0];
+    return `${compact.slice(0, 2)}-${compact.slice(2)}`;
+  }
+
+  return code;
+};
+
+export default function ReturnScanScreen({ navigation, route }: any) {
+  const token = route?.params?.token;
+  const initialScanMode: ScanMode = route?.params?.scanMode === 'scanner' ? 'scanner' : 'camera';
+
   const [loading, setLoading] = useState(true);
   const [packagesToReturn, setPackagesToReturn] = useState<PackageToReturn[]>([]);
   const [returnedCount, setReturnedCount] = useState(0);
@@ -66,6 +114,8 @@ export default function ReturnScanScreen({ navigation }: any) {
   const [isScanning, setIsScanning] = useState(false);
   const [scannerActive, setScannerActive] = useState(true);
   const [lastScannedCode, setLastScannedCode] = useState<string>('');
+  const [scanMode, setScanMode] = useState<ScanMode>(initialScanMode);
+  const [manualCode, setManualCode] = useState('');
   
   // Modal de selección de motivo
   const [showReasonModal, setShowReasonModal] = useState(false);
@@ -76,15 +126,40 @@ export default function ReturnScanScreen({ navigation }: any) {
   
   // Animaciones
   const feedbackOpacity = useRef(new Animated.Value(0)).current;
+  const hasAskedModeRef = useRef(false);
+  const manualInputRef = useRef<TextInput | null>(null);
 
   useEffect(() => {
     loadPackagesToReturn();
+
+    if (!route?.params?.scanMode && !hasAskedModeRef.current) {
+      hasAskedModeRef.current = true;
+      Alert.alert(
+        'Selecciona método de captura',
+        '¿Deseas usar escáner o cámara?',
+        [
+          { text: 'Escáner', onPress: () => setScanMode('scanner') },
+          { text: 'Cámara', onPress: () => setScanMode('camera') },
+        ]
+      );
+    }
   }, []);
+
+  useEffect(() => {
+    if (scanMode === 'scanner') {
+      setScannerActive(false);
+      setTimeout(() => manualInputRef.current?.focus(), 150);
+    } else {
+      setScannerActive(true);
+    }
+  }, [scanMode]);
 
   const loadPackagesToReturn = async () => {
     setLoading(true);
     try {
-      const res = await api.get('/api/driver/packages-to-return');
+      const res = await api.get('/api/driver/packages-to-return', {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
       if (res.data.success) {
         setPackagesToReturn(res.data.packages);
         setTotalToReturn(res.data.totalToReturn);
@@ -114,15 +189,13 @@ export default function ReturnScanScreen({ navigation }: any) {
     ]).start(() => setFeedback(null));
   };
 
-  const handleBarCodeScanned = useCallback(async (result: BarcodeScanningResult) => {
-    const { data } = result;
-    
-    if (!scannerActive || isScanning || data === lastScannedCode) {
-      return;
-    }
+  const processScanCode = useCallback(async (rawCode: string, source: 'camera' | 'scanner' = 'camera') => {
+    const data = normalizeScanCode(rawCode);
+    if (!data || isScanning) return;
+    if (source === 'camera' && (!scannerActive || data === lastScannedCode)) return;
 
     setIsScanning(true);
-    setScannerActive(false);
+    if (source === 'camera') setScannerActive(false);
     setLastScannedCode(data);
     
     // Verificar si el paquete está en la lista
@@ -138,17 +211,27 @@ export default function ReturnScanScreen({ navigation }: any) {
       });
       setTimeout(() => {
         setIsScanning(false);
-        setScannerActive(true);
+        if (source === 'camera') setScannerActive(true);
         setLastScannedCode('');
-      }, 1500);
+      }, source === 'camera' ? 1500 : 500);
       return;
     }
 
     // Mostrar modal para seleccionar motivo
     setPendingBarcode(data);
     setShowReasonModal(true);
-    
   }, [scannerActive, isScanning, lastScannedCode, packagesToReturn]);
+
+  const handleBarCodeScanned = useCallback(async (result: BarcodeScanningResult) => {
+    await processScanCode(result.data, 'camera');
+  }, [processScanCode]);
+
+  const handleManualSubmit = async () => {
+    const code = normalizeScanCode(manualCode);
+    if (!code) return;
+    setManualCode('');
+    await processScanCode(code, 'scanner');
+  };
 
   const handleConfirmReturn = async () => {
     setShowReasonModal(false);
@@ -157,6 +240,8 @@ export default function ReturnScanScreen({ navigation }: any) {
       const res = await api.post('/api/driver/scan-return', { 
         barcode: pendingBarcode,
         returnReason: selectedReason 
+      }, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       
       if (res.data.success) {
@@ -238,7 +323,7 @@ export default function ReturnScanScreen({ navigation }: any) {
     );
   }
 
-  if (!permission.granted) {
+  if (scanMode === 'camera' && !permission.granted) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centerContent}>
@@ -303,6 +388,20 @@ export default function ReturnScanScreen({ navigation }: any) {
           <Text style={styles.title}>Retorno a Bodega 📥</Text>
           <Text style={styles.subtitle}>Escanea paquetes no entregados</Text>
         </View>
+        <TouchableOpacity
+          style={styles.modeButton}
+          onPress={() => Alert.alert(
+            'Selecciona método de captura',
+            '¿Deseas usar escáner o cámara?',
+            [
+              { text: 'Escáner', onPress: () => setScanMode('scanner') },
+              { text: 'Cámara', onPress: () => setScanMode('camera') },
+              { text: 'Cancelar', style: 'cancel' },
+            ]
+          )}
+        >
+          <MaterialIcons name={scanMode === 'camera' ? 'photo-camera' : 'qr-code-scanner'} size={22} color="#F05A28" />
+        </TouchableOpacity>
       </View>
 
       {/* Stats */}
@@ -345,35 +444,74 @@ export default function ReturnScanScreen({ navigation }: any) {
       {/* Scanner */}
       {!allReturned ? (
         <View style={styles.scannerSection}>
-          <View style={styles.scannerWrapper}>
-            <CameraView
-              style={styles.scanner}
-              barcodeScannerSettings={{
-                barcodeTypes: ['code128', 'code39', 'qr', 'ean13', 'ean8', 'upc_a'],
-              }}
-              onBarcodeScanned={scannerActive ? handleBarCodeScanned : undefined}
-            />
-            
-            <View style={styles.scannerOverlay}>
-              <View style={styles.scannerFrame}>
-                <View style={[styles.corner, styles.topLeft]} />
-                <View style={[styles.corner, styles.topRight]} />
-                <View style={[styles.corner, styles.bottomLeft]} />
-                <View style={[styles.corner, styles.bottomRight]} />
+          {scanMode === 'camera' ? (
+            <>
+              <View style={styles.scannerWrapper}>
+                <CameraView
+                  style={styles.scanner}
+                  barcodeScannerSettings={{
+                    barcodeTypes: ['code128', 'code39', 'qr', 'ean13', 'ean8', 'upc_a'],
+                  }}
+                  onBarcodeScanned={scannerActive ? handleBarCodeScanned : undefined}
+                />
+                
+                <View style={styles.scannerOverlay}>
+                  <View style={styles.scannerFrame}>
+                    <View style={[styles.corner, styles.topLeft]} />
+                    <View style={[styles.corner, styles.topRight]} />
+                    <View style={[styles.corner, styles.bottomLeft]} />
+                    <View style={[styles.corner, styles.bottomRight]} />
+                  </View>
+                </View>
+                
+                {isScanning && (
+                  <View style={styles.scanningIndicator}>
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text style={styles.scanningText}>Procesando...</Text>
+                  </View>
+                )}
               </View>
+              
+              <Text style={styles.helperText}>
+                📷 Escanea el código del paquete que no pudiste entregar
+              </Text>
+            </>
+          ) : (
+            <View style={styles.scannerInputCard}>
+              <MaterialIcons name="qr-code-scanner" size={54} color="#F05A28" />
+              <Text style={styles.scannerInputTitle}>Modo Escáner</Text>
+              <Text style={styles.scannerInputSubtitle}>
+                Usa lector externo o captura manualmente la guía.
+              </Text>
+
+              <TextInput
+                ref={manualInputRef}
+                style={styles.scannerInput}
+                placeholder="Escanea o escribe el código"
+                value={manualCode}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                returnKeyType="send"
+                onChangeText={setManualCode}
+                onSubmitEditing={handleManualSubmit}
+              />
+
+              <TouchableOpacity
+                style={[styles.manualSubmitButton, isScanning && styles.manualSubmitButtonDisabled]}
+                onPress={handleManualSubmit}
+                disabled={isScanning}
+              >
+                {isScanning ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <MaterialIcons name="check-circle" size={20} color="#fff" />
+                    <Text style={styles.manualSubmitText}>Validar código</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             </View>
-            
-            {isScanning && (
-              <View style={styles.scanningIndicator}>
-                <ActivityIndicator size="small" color="#fff" />
-                <Text style={styles.scanningText}>Procesando...</Text>
-              </View>
-            )}
-          </View>
-          
-          <Text style={styles.helperText}>
-            📷 Escanea el código del paquete que no pudiste entregar
-          </Text>
+          )}
         </View>
       ) : (
         <View style={styles.allReturnedSection}>
@@ -536,6 +674,10 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     marginLeft: 10,
+    flex: 1,
+  },
+  modeButton: {
+    padding: 6,
   },
   title: {
     fontSize: 20,
@@ -691,6 +833,59 @@ const styles = StyleSheet.create({
     marginTop: 15,
     fontSize: 14,
     color: '#666',
+  },
+  scannerInputCard: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scannerInputTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 10,
+  },
+  scannerInputSubtitle: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 8,
+    marginBottom: 18,
+    paddingHorizontal: 10,
+  },
+  scannerInput: {
+    width: '100%',
+    borderWidth: 1.5,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#333',
+    backgroundColor: '#fff',
+  },
+  manualSubmitButton: {
+    marginTop: 12,
+    backgroundColor: '#F05A28',
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    minWidth: 180,
+    gap: 8,
+  },
+  manualSubmitButtonDisabled: {
+    opacity: 0.8,
+  },
+  manualSubmitText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
   },
   
   // All returned
