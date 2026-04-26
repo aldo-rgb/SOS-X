@@ -99,26 +99,26 @@ interface Props {
   onBack: () => void;
 }
 
-const STATUS_FILTERS = [
-  { key: 'all', label: 'Todas' },
-  { key: 'received_origin', label: 'En Bodega China' },
-  { key: 'received_china', label: 'Recibido China' },
-  { key: 'in_transit', label: 'En Tránsito' },
-  { key: 'at_customs', label: 'En Aduana' },
-  { key: 'in_transit_mx', label: 'En Ruta Cedis México' },
-  { key: 'received_cedis', label: 'En CEDIS' },
-  { key: 'in_transit_mty', label: 'EN TRÁNSITO A MTY, N.L.' },
-  { key: 'processing', label: 'Procesando - Guía impresa' },
-  { key: 'customs', label: 'Procesando - Guía impresa' },
-  { key: 'out_for_delivery', label: 'EN RUTA' },
-  { key: 'shipped', label: 'ENVIADO' },
-  { key: 'ready_pickup', label: 'Listo Recoger' },
-  { key: 'delivered', label: 'Entregado' },
-];
+const STATUS_LABEL_MAP: Record<string, string> = {
+  'received_origin': 'En Bodega China',
+  'received_china': 'Recibido China',
+  'in_transit': 'En Tránsito',
+  'at_customs': 'En Aduana',
+  'in_transit_mx': 'En Ruta Cedis México',
+  'received_cedis': 'En CEDIS',
+  'in_transit_mty': 'EN TRÁNSITO A MTY, N.L.',
+  'processing': 'Procesando - Guía impresa',
+  'customs': 'Procesando - Guía impresa',
+  'out_for_delivery': 'EN RUTA',
+  'shipped': 'ENVIADO',
+  'ready_pickup': 'Listo Recoger',
+  'delivered': 'Entregado',
+};
 
 const AirManagementPage: React.FC<Props> = ({ onBack }) => {
   const [guides, setGuides] = useState<AirGuide[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [dynamicStatusFilters, setDynamicStatusFilters] = useState<Array<{ status: string; count: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -158,6 +158,10 @@ const AirManagementPage: React.FC<Props> = ({ onBack }) => {
       const statsData = await statsRes.json();
       if (statsData.success) {
         setStats(statsData.stats || null);
+        // Guardar dinámicamente los status del backend
+        if (statsData.stats?.byStatus) {
+          setDynamicStatusFilters(statsData.stats.byStatus);
+        }
       }
     } catch (error) {
       console.error('Error cargando guías aéreas:', error);
@@ -324,8 +328,13 @@ const AirManagementPage: React.FC<Props> = ({ onBack }) => {
             scrollButtons="auto"
             sx={{ '& .MuiTab-root': { minWidth: 'auto', px: 2, py: 1, fontSize: '0.8rem' } }}
           >
-            {STATUS_FILTERS.map(sf => (
-              <Tab key={sf.key} label={sf.label} value={sf.key} />
+            <Tab label="Todas" value="all" />
+            {dynamicStatusFilters.map(sf => (
+              <Tab 
+                key={sf.status} 
+                label={`${STATUS_LABEL_MAP[sf.status] || sf.status} (${sf.count})`} 
+                value={sf.status} 
+              />
             ))}
           </Tabs>
         </Box>
