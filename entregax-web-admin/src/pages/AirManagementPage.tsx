@@ -113,6 +113,12 @@ const STATUS_LABEL_MAP: Record<string, string> = {
   'shipped': 'ENVIADO',
   'ready_pickup': 'Listo Recoger',
   'delivered': 'Entregado',
+  // Status de MoJie (china_receipts)
+  'pending': 'Pendiente',
+  'in_transit_loading': 'En Proceso a Aeropuerto',
+  'in_transit_transfer': 'En Tránsito Aéreo',
+  'in_transit_airport_wait': 'En Aeropuerto',
+  'in_customs_gz': 'En Proceso de Aduana',
 };
 
 const AirManagementPage: React.FC<Props> = ({ onBack }) => {
@@ -351,7 +357,7 @@ const AirManagementPage: React.FC<Props> = ({ onBack }) => {
       {!loading && (
         <Paper sx={{ overflow: 'hidden' }}>
           <TableContainer sx={{ maxHeight: 600 }}>
-            <Table stickyHeader size="small">
+            <Table stickyHeader size="small" sx={{ minWidth: 1200 }}>
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 'bold', bgcolor: '#263238', color: '#fff' }}>TRACKING</TableCell>
@@ -376,8 +382,8 @@ const AirManagementPage: React.FC<Props> = ({ onBack }) => {
                 ) : (
                   guides.map((guide) => (
                     <TableRow key={guide.id} hover sx={{ '&:hover': { bgcolor: '#fafafa' } }}>
-                      <TableCell>
-                        <Typography variant="body2" fontWeight="bold" color="primary">
+                      <TableCell sx={{ minWidth: 150, fontWeight: 'bold' }}>
+                        <Typography variant="body2" fontWeight="bold" color="primary" sx={{ wordBreak: 'break-word' }}>
                           {guide.child_no || guide.tracking_internal || '-'}
                         </Typography>
                       </TableCell>
