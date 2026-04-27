@@ -313,7 +313,8 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
     const offsetNum = parseInt(String(offset)) || 0;
 
     const params: (string | number)[] = [];
-    let where = `WHERE p.service_type = 'AIR_CHN_MX'`;
+    // Solo guías con número AIR/AWB asignado (excluye paquetes que aún están en China sin AWB)
+    let where = `WHERE p.service_type = 'AIR_CHN_MX' AND p.international_tracking IS NOT NULL AND p.international_tracking <> ''`;
 
     if (status && status !== 'all') {
       const s = String(status);
