@@ -376,7 +376,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   // 🔔 Función para obtener conteo de notificaciones no leídas
   const fetchUnreadNotifications = useCallback(async () => {
     try {
-      const response = await fetch(`http://192.168.1.114:3001/api/notifications/unread-count`, {
+      const response = await fetch(`${API_URL}/api/notifications/unread-count`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (response.ok) {
@@ -391,7 +391,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   // 🔄 Función para actualizar datos del usuario desde el servidor
   const refreshUserData = useCallback(async () => {
     try {
-      const response = await fetch(`http://192.168.1.114:3001/api/auth/profile`, {
+      const response = await fetch(`${API_URL}/api/auth/profile`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (response.ok) {
