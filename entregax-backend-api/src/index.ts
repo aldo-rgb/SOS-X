@@ -7308,6 +7308,29 @@ app.use((err: Error, req: Request, res: Response, _next: any) => {
 // Iniciar CRON Jobs para automatización
 import { initCronJobs } from './cronJobs';
 
+// Auto-migración: asegura columnas requeridas por features recientes (idempotente)
+async function ensureRequiredColumns() {
+  try {
+    await pool.query(`
+      ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS national_carrier TEXT;
+      ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS national_tracking TEXT;
+      ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS national_label_url TEXT;
+      ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS national_shipping_cost NUMERIC(12,2);
+      ALTER TABLE china_receipts ADD COLUMN IF NOT EXISTS national_carrier TEXT;
+      ALTER TABLE china_receipts ADD COLUMN IF NOT EXISTS national_tracking TEXT;
+      ALTER TABLE china_receipts ADD COLUMN IF NOT EXISTS national_label_url TEXT;
+      ALTER TABLE china_receipts ADD COLUMN IF NOT EXISTS national_shipping_cost NUMERIC(12,2);
+      ALTER TABLE china_receipts ADD COLUMN IF NOT EXISTS estimated_cost NUMERIC(12,2);
+      ALTER TABLE china_receipts ADD COLUMN IF NOT EXISTS assigned_cost_mxn NUMERIC(12,2);
+      ALTER TABLE china_receipts ADD COLUMN IF NOT EXISTS saldo_pendiente NUMERIC(12,2);
+      ALTER TABLE china_receipts ADD COLUMN IF NOT EXISTS monto_pagado NUMERIC(12,2);
+    `);
+    console.log('✅ [STARTUP] Columnas de paquetería nacional verificadas');
+  } catch (err: any) {
+    console.error('⚠️ [STARTUP] Error asegurando columnas:', err.message);
+  }
+}
+
 // Iniciar servidor (escuchar en todas las interfaces para acceso desde móvil)
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 EntregaX API corriendo en http://localhost:${PORT}`);
@@ -7315,7 +7338,10 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
   console.log(`🔐 Login: POST http://localhost:${PORT}/api/auth/login`);
   console.log(`📝 Registro: POST http://localhost:${PORT}/api/auth/register`);
-  
+
+  // Asegurar columnas (idempotente) antes de cron jobs
+  ensureRequiredColumns();
+
   // Iniciar tareas programadas
   initCronJobs();
 });

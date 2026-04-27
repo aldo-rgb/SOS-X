@@ -808,30 +808,39 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
             endpoint = `${API_URL}/api/packages/${packageType}/${packageId}/delivery-instructions`;
           }
           
-          const response = await fetch(endpoint, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              deliveryAddressId: selectedAddressId,
-              deliveryInstructions: additionalNotes,
-              // Información de paquetería seleccionada
-              carrier: selectedCarrier,
-              carrierCost: getSelectedCarrierCost(),
-              carrierName: carrierRates.find(c => c.id === selectedCarrier)?.name || 'EntregaX Local',
-            }),
-          });
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 20000);
+          let response: Response;
+          try {
+            response = await fetch(endpoint, {
+              method: 'PUT',
+              headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({
+                deliveryAddressId: selectedAddressId,
+                deliveryInstructions: additionalNotes,
+                // Información de paquetería seleccionada
+                carrier: selectedCarrier,
+                carrierCost: getSelectedCarrierCost(),
+                carrierName: carrierRates.find(c => c.id === selectedCarrier)?.name || 'EntregaX Local',
+              }),
+              signal: controller.signal,
+            });
+          } finally {
+            clearTimeout(timeoutId);
+          }
 
           if (response.ok) {
             successCount++;
           } else {
-            const errorData = await response.json();
+            const errorData = await response.json().catch(() => ({}));
             errors.push(`${currentPkg.tracking_internal}: ${errorData.error || 'Error'}`);
           }
-        } catch (err) {
-          errors.push(`${currentPkg.tracking_internal}: Error de conexión`);
+        } catch (err: any) {
+          const msg = err?.name === 'AbortError' ? 'Tiempo de espera agotado' : (err?.message || 'Error de conexión');
+          errors.push(`${currentPkg.tracking_internal}: ${msg}`);
         }
       }
 
