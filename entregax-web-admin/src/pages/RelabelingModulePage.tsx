@@ -164,13 +164,41 @@ const normalizeCarrierText = (value: any): string => String(value || '')
     .replace(/\s+/g, ' ')
     .trim();
 
+const CARRIER_DISPLAY_NAMES: Record<string, string> = {
+    'paquete_express': 'Paquete Express',
+    'paquete express': 'Paquete Express',
+    'paquetexpress': 'Paquete Express',
+    'pqtx': 'Paquete Express',
+    'entregax_local': 'Entregax Local',
+    'entregax local': 'Entregax Local',
+    'entregax_local_cdmx': 'Entregax Local CDMX',
+    'entregax local cdmx': 'Entregax Local CDMX',
+    'fedex': 'FedEx',
+    'estafeta': 'Estafeta',
+    'dhl': 'DHL',
+    'ups': 'UPS',
+    'pickup_hidalgo': 'Recoger en Sucursal',
+};
+
+const prettifyCarrier = (raw: string): string => {
+    const key = String(raw || '').toLowerCase().trim();
+    if (CARRIER_DISPLAY_NAMES[key]) return CARRIER_DISPLAY_NAMES[key];
+    const normalized = normalizeCarrierText(raw);
+    if (CARRIER_DISPLAY_NAMES[normalized]) return CARRIER_DISPLAY_NAMES[normalized];
+    return String(raw || '')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/\b\w/g, c => c.toUpperCase());
+};
+
 const getAssignedCarrier = (shipment: ShipmentData | null): { displayName: string; normalized: string } | null => {
     if (!shipment) return null;
 
     const byMaster = normalizeCarrierText(shipment.master.nationalCarrier);
     if (byMaster) {
         return {
-            displayName: String(shipment.master.nationalCarrier).trim(),
+            displayName: prettifyCarrier(String(shipment.master.nationalCarrier)),
             normalized: byMaster,
         };
     }
@@ -191,7 +219,7 @@ const getAssignedCarrier = (shipment: ShipmentData | null): { displayName: strin
     if (!candidates.length) return null;
     const selected = String(candidates[0]).trim();
     return {
-        displayName: selected,
+        displayName: prettifyCarrier(selected),
         normalized: normalizeCarrierText(selected),
     };
 };
