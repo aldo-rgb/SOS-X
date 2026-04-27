@@ -20,7 +20,6 @@ import {
     ListItem,
     ListItemIcon,
     ListItemText,
-    Divider,
 } from '@mui/material';
 import {
     Flight as FlightIcon,
@@ -1512,8 +1511,6 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                     const serviceIcon = SERVICE_ICONS[location.code as keyof typeof SERVICE_ICONS];
                     const modules = SERVICE_MODULES[location.code as keyof typeof SERVICE_MODULES];
                     if (!serviceColors || !modules) return null;
-
-                    const tags = SERVICE_TAGS[location.code] || location.services;
 
                     return (
                         <Grid size={{ xs: 12, sm: 6, md: 4 }} key={location.code}>
