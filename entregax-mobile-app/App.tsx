@@ -47,6 +47,17 @@ import POBoxExitScreen from './src/screens/POBoxExitScreen';
 import POBoxCollectScreen from './src/screens/POBoxCollectScreen';
 import POBoxQuoteScreen from './src/screens/POBoxQuoteScreen';
 import POBoxRepackScreen from './src/screens/POBoxRepackScreen';
+import POBoxInventoryScreen from './src/screens/POBoxInventoryScreen';
+import POBoxHubScreen from './src/screens/POBoxHubScreen';
+import DhlReceptionWizardScreen from './src/screens/DhlReceptionWizardScreen';
+import DhlOperationsScreen from './src/screens/DhlOperationsScreen';
+import ChinaAirHubScreen from './src/screens/ChinaAirHubScreen';
+import ChinaAirReceptionScreen from './src/screens/ChinaAirReceptionScreen';
+import ChinaAirInventoryScreen from './src/screens/ChinaAirInventoryScreen';
+import ChinaSeaHubScreen from './src/screens/ChinaSeaHubScreen';
+import ChinaSeaReceptionScreen from './src/screens/ChinaSeaReceptionScreen';
+import ChinaSeaInventoryScreen from './src/screens/ChinaSeaInventoryScreen';
+import RelabelingScreen from './src/screens/RelabelingScreen';
 // Advisor Screens
 import AdvisorDashboardScreen from './src/screens/AdvisorDashboardScreen';
 import AdvisorClientsScreen from './src/screens/AdvisorClientsScreen';
@@ -111,6 +122,17 @@ export type RootStackParamList = {
   POBoxCollect: { user: any; token: string };
   POBoxQuote: { user: any; token: string };
   POBoxRepack: { user: any; token: string };
+  POBoxInventory: { user: any; token: string };
+  POBoxHub: { user: any; token: string };
+  DhlReception: { user: any; token: string };
+  DhlOperations: { user: any; token: string };
+  ChinaAirHub: { user: any; token: string };
+  ChinaAirReception: { user: any; token: string };
+  ChinaAirInventory: { user: any; token: string };
+  ChinaSeaHub: { user: any; token: string };
+  ChinaSeaReception: { user: any; token: string; mode?: 'LCL' | 'FCL' };
+  ChinaSeaInventory: { user: any; token: string };
+  Relabeling: { user: any; token: string };
   // Advisor Screens
   AdvisorDashboard: { user: any; token: string };
   AdvisorClients: { user: any; token: string };
@@ -287,6 +309,17 @@ export default function App() {
           <Stack.Screen name="POBoxCollect" component={POBoxCollectScreen} />
           <Stack.Screen name="POBoxQuote" component={POBoxQuoteScreen} />
           <Stack.Screen name="POBoxRepack" component={POBoxRepackScreen} />
+          <Stack.Screen name="POBoxInventory" component={POBoxInventoryScreen} />
+          <Stack.Screen name="POBoxHub" component={POBoxHubScreen} />
+          <Stack.Screen name="DhlReception" component={DhlReceptionWizardScreen} />
+          <Stack.Screen name="DhlOperations" component={DhlOperationsScreen} />
+          <Stack.Screen name="ChinaAirHub" component={ChinaAirHubScreen} />
+          <Stack.Screen name="ChinaAirReception" component={ChinaAirReceptionScreen} />
+          <Stack.Screen name="ChinaAirInventory" component={ChinaAirInventoryScreen} />
+          <Stack.Screen name="ChinaSeaHub" component={ChinaSeaHubScreen} />
+          <Stack.Screen name="ChinaSeaReception" component={ChinaSeaReceptionScreen} />
+          <Stack.Screen name="ChinaSeaInventory" component={ChinaSeaInventoryScreen} />
+          <Stack.Screen name="Relabeling" component={RelabelingScreen} />
           {/* Advisor Screens */}
           <Stack.Screen 
             name="AdvisorDashboard" 

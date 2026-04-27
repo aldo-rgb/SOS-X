@@ -156,8 +156,9 @@ export default function LoadingVanScreen({ navigation, route }: any) {
   useEffect(() => {
     if (scanMode === 'scanner') {
       setScannerActive(false);
-      Keyboard.dismiss();
+      // Auto-foco al TextInput para escanear o escribir inmediatamente
       setTimeout(() => manualInputRef.current?.focus(), 150);
+      setTimeout(() => manualInputRef.current?.focus(), 500);
     } else {
       setScannerActive(true);
     }
@@ -505,7 +506,8 @@ export default function LoadingVanScreen({ navigation, route }: any) {
                 autoCapitalize="characters"
                 autoCorrect={false}
                 returnKeyType="send"
-                showSoftInputOnFocus={false}
+                autoFocus
+                showSoftInputOnFocus={true}
                 blurOnSubmit={false}
                 onChangeText={setManualCode}
                 onSubmitEditing={handleManualSubmit}

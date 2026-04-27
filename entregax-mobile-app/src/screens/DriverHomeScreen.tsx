@@ -19,11 +19,15 @@ import {
   Alert,
   Linking,
   Image,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../services/api';
+
+const SCAN_METHOD_PREFIX = 'scanMethod:';
 
 interface DayStats {
   totalAssigned: number;
@@ -73,6 +77,8 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   });
   const [inspectionDone, setInspectionDone] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [scanModal, setScanModal] = useState<{ visible: boolean; action: QuickAction | null }>({ visible: false, action: null });
+  const [rememberChoice, setRememberChoice] = useState(false);
 
   // Actualizar hora cada minuto
   useEffect(() => {
@@ -270,35 +276,33 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     },
   ];
 
-  const handleQuickActionPress = (action: QuickAction) => {
+  const handleQuickActionPress = async (action: QuickAction) => {
     if (!action.enabled) return;
 
     if (action.id === 'load' || action.id === 'delivery' || action.id === 'return') {
-      const actionLabel = action.id === 'load'
-        ? 'cargar paquetes'
-        : action.id === 'delivery'
-          ? 'confirmar entregas'
-          : 'registrar retornos';
-
-      Alert.alert(
-        'Selecciona método de captura',
-        `¿Deseas usar escáner o cámara para ${actionLabel}?`,
-        [
-          {
-            text: 'Escáner',
-            onPress: () => navigation.navigate(action.screen, { user, token, scanMode: 'scanner' }),
-          },
-          {
-            text: 'Cámara',
-            onPress: () => navigation.navigate(action.screen, { user, token, scanMode: 'camera' }),
-          },
-          { text: 'Cancelar', style: 'cancel' },
-        ]
-      );
+      // Si ya guardó preferencia, ir directo
+      const saved = await AsyncStorage.getItem(`${SCAN_METHOD_PREFIX}${action.id}`);
+      if (saved === 'scanner' || saved === 'camera') {
+        navigation.navigate(action.screen, { user, token, scanMode: saved });
+        return;
+      }
+      // Mostrar modal personalizado
+      setScanModal({ visible: true, action });
+      setRememberChoice(false);
       return;
     }
 
     navigation.navigate(action.screen, { user, token });
+  };
+
+  const handleScanModalChoice = async (mode: 'scanner' | 'camera') => {
+    if (!scanModal.action) return;
+    const action = scanModal.action;
+    if (rememberChoice) {
+      await AsyncStorage.setItem(`${SCAN_METHOD_PREFIX}${action.id}`, mode);
+    }
+    setScanModal({ visible: false, action: null });
+    navigation.navigate(action.screen, { user, token, scanMode: mode });
   };
 
   if (loading) {
@@ -468,6 +472,57 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           </View>
         </View>
       </ScrollView>
+
+      {/* Modal de selección método de captura */}
+      <Modal
+        visible={scanModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setScanModal({ visible: false, action: null })}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Selecciona método de captura</Text>
+            <Text style={styles.modalSubtitle}>
+              ¿Deseas usar escáner o cámara?
+            </Text>
+
+            <TouchableOpacity
+              style={styles.rememberRow}
+              onPress={() => setRememberChoice(!rememberChoice)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.checkbox, rememberChoice && styles.checkboxChecked]}>
+                {rememberChoice && <MaterialIcons name="check" size={16} color="#FFF" />}
+              </View>
+              <Text style={styles.rememberText}>No volver a preguntar</Text>
+            </TouchableOpacity>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalBtnGhost}
+                onPress={() => setScanModal({ visible: false, action: null })}
+              >
+                <Text style={styles.modalBtnGhostText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalBtnSecondary}
+                onPress={() => handleScanModalChoice('camera')}
+              >
+                <MaterialIcons name="photo-camera" size={18} color="#1A1A1A" />
+                <Text style={styles.modalBtnSecondaryText}>Cámara</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalBtnPrimary}
+                onPress={() => handleScanModalChoice('scanner')}
+              >
+                <MaterialIcons name="qr-code-scanner" size={18} color="#FFF" />
+                <Text style={styles.modalBtnPrimaryText}>Escáner</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -735,5 +790,105 @@ const styles = StyleSheet.create({
     color: '#666',
     marginTop: 4,
     lineHeight: 18,
+  },
+  // Modal scan method
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    width: '100%',
+    backgroundColor: '#FFF',
+    borderRadius: 14,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#1A1A1A',
+    marginBottom: 6,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 16,
+  },
+  rememberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 18,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: '#C0C0C0',
+    backgroundColor: '#FFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  checkboxChecked: {
+    backgroundColor: '#F05A28',
+    borderColor: '#F05A28',
+  },
+  rememberText: {
+    fontSize: 14,
+    color: '#1A1A1A',
+    fontWeight: '500',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  modalBtnGhost: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  modalBtnGhostText: {
+    color: '#6B7280',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  modalBtnSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#F5F5F5',
+    borderWidth: 1,
+    borderColor: '#ECECEC',
+    gap: 6,
+  },
+  modalBtnSecondaryText: {
+    color: '#1A1A1A',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  modalBtnPrimary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#F05A28',
+    gap: 6,
+  },
+  modalBtnPrimaryText: {
+    color: '#FFF',
+    fontWeight: '700',
+    fontSize: 14,
   },
 });

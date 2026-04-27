@@ -31,6 +31,7 @@ interface Props {
 type Panel = 'menu' | 'reception' | 'reception_fcl' | 'inventory';
 
 const TEAL = '#0097A7';
+const ORANGE = '#F05A28';
 const BLACK = '#1A1A1A';
 
 const OPTIONS = [
@@ -39,12 +40,12 @@ const OPTIONS = [
         title: 'Recibir Contenedor',
         description: 'Recepción de carga consolidada (LCL). Escanea las órdenes por referencia (JSM26-XXXX), BL o número de contenedor',
         icon: <ScannerIcon sx={{ fontSize: 56, color: '#FFF' }} />,
-        bgGradient: 'linear-gradient(135deg, #0097A7 0%, #26C6DA 100%)',
+        bgGradient: 'linear-gradient(135deg, #F05A28 0%, #FF8A65 100%)',
     },
     {
         key: 'reception_fcl' as const,
-        title: 'Recibir Full Container',
-        description: 'Recepción de contenedores FCL completos. Confirma la llegada del contenedor a CEDIS',
+        title: 'Actualizar Status Full Conteiner',
+        description: 'Actualiza el status de los contenedores FCL (un solo cliente). Confirma la llegada del contenedor a CEDIS',
         icon: <ScannerIcon sx={{ fontSize: 56, color: '#FFF' }} />,
         bgGradient: 'linear-gradient(135deg, #FF6B35 0%, #FF8A65 100%)',
     },
@@ -87,9 +88,9 @@ export default function ChinaSeaHubPage({ onBack }: Props) {
                 </Box>
                 <Stack direction="row" alignItems="center" spacing={2}>
                     <IconButton onClick={onBack} sx={{ color: '#FFF' }}><ArrowBackIcon /></IconButton>
-                    <BoatIcon sx={{ fontSize: 40, color: TEAL }} />
+                    <BoatIcon sx={{ fontSize: 40, color: ORANGE }} />
                     <Box>
-                        <Typography variant="overline" sx={{ color: TEAL, fontWeight: 700, letterSpacing: 2 }}>
+                        <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700, letterSpacing: 2 }}>
                             TDI · ENTREGAX
                         </Typography>
                         <Typography variant="h4" sx={{ fontWeight: 800, color: '#FFF' }}>
@@ -123,6 +124,8 @@ export default function ChinaSeaHubPage({ onBack }: Props) {
                                     alignItems: 'center',
                                     justifyContent: 'center',
                                     minHeight: 180,
+                                    borderTopLeftRadius: 3,
+                                    borderTopRightRadius: 3,
                                 }}
                             >
                                 {opt.icon}

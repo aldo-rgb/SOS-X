@@ -83,8 +83,10 @@ interface ModuleCard {
   roles: string[];
   requiresOnboarding: boolean;
   badge?: number;
-  moduleKey?: string; // Key para permisos de PO Box
+  moduleKey?: string; // Key para sub-módulos PO Box (receive, entry, exit, etc.)
+  panelKey?: string;  // Key del panel de operaciones (ops_china_air, ops_mx_cedis, etc.)
   hideIfPOBox?: boolean; // Ocultar si tiene permisos PO Box
+  comingSoon?: boolean; // Mostrar como "Próximamente" sin navegación
 }
 
 // Definición de módulos por rol
@@ -109,7 +111,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#FF9800',
     screen: 'VehicleInspection',
-    roles: ['repartidor'],
+    roles: [],
     requiresOnboarding: true,
   },
   {
@@ -120,7 +122,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#2196F3',
     screen: 'LoadingVan',
-    roles: ['repartidor'],
+    roles: [],
     requiresOnboarding: true,
   },
   {
@@ -131,7 +133,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#4CAF50',
     screen: 'DeliveryConfirm',
-    roles: ['repartidor'],
+    roles: [],
     requiresOnboarding: true,
   },
   {
@@ -142,7 +144,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#9C27B0',
     screen: 'ReturnScan',
-    roles: ['repartidor'],
+    roles: [],
     requiresOnboarding: true,
   },
   
@@ -155,7 +157,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#F05A28',
     screen: 'WarehouseScanner',
-    roles: ['repartidor', 'warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
+    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
     hideIfPOBox: true, // Ocultar si tiene permisos PO Box (usa Entrada/Salida)
   },
@@ -172,91 +174,107 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     hideIfPOBox: true, // Usar módulo 'inventory' de PO Box
   },
   
-  // === MOSTRADOR (counter_staff) - Módulos PO Box ===
+  // === MOSTRADOR (counter_staff) - Hub PO Box USA ===
   {
-    id: 'receive',
-    title: 'Recibir Paquetería',
-    subtitle: 'Recepción en serie - Bodega',
-    icon: 'cube-outline',
+    id: 'panel_usa_pobox',
+    title: 'PO Box USA',
+    subtitle: 'Recibir, Entrada, Salida, Cotizar, Reempaque, Inventario',
+    icon: 'mail-outline',
     iconFamily: 'ionicons',
-    color: '#4CAF50',
-    screen: 'POBoxReceive',
+    color: '#F05A28',
+    screen: 'POBoxHub',
     roles: ['counter_staff', 'warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
-    moduleKey: 'receive',
+    panelKey: 'ops_usa_pobox',
   },
+
+  // === PANELES DE OPERACIONES (panelKey - permisos por panel) ===
   {
-    id: 'entry',
-    title: 'Entrada',
-    subtitle: 'Ver paquetes recibidos en bodega',
-    icon: 'enter-outline',
+    id: 'panel_china_air',
+    title: 'TDI Aéreo China',
+    subtitle: 'Recepción de envíos aéreos desde China',
+    icon: 'airplane-outline',
     iconFamily: 'ionicons',
-    color: '#2196F3',
-    screen: 'POBoxEntry',
-    roles: ['counter_staff', 'warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
+    color: '#F05A28',
+    screen: 'ChinaAirHub',
+    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
-    moduleKey: 'entry',
+    panelKey: 'ops_china_air',
   },
   {
-    id: 'exit',
-    title: 'Salida',
-    subtitle: 'Procesar consolidaciones y despachos',
-    icon: 'exit-outline',
+    id: 'panel_china_sea',
+    title: 'Marítimo China',
+    subtitle: 'Recepción de consolidados marítimos',
+    icon: 'boat-outline',
     iconFamily: 'ionicons',
-    color: '#FF9800',
-    screen: 'POBoxExit',
-    roles: ['counter_staff', 'warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
+    color: '#F05A28',
+    screen: 'ChinaSeaHub',
+    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
-    moduleKey: 'exit',
+    panelKey: 'ops_china_sea',
   },
   {
-    id: 'collect',
-    title: 'Cobrar',
-    subtitle: 'Gestionar cobros y pagos pendientes',
-    icon: 'cash-outline',
+    id: 'panel_mx_cedis',
+    title: 'DHL Monterrey',
+    subtitle: 'Liberación AA DHL',
+    icon: 'business-outline',
     iconFamily: 'ionicons',
-    color: '#9C27B0',
-    screen: 'POBoxCollect',
-    roles: ['counter_staff', 'branch_manager', 'admin', 'super_admin'],
+    color: '#F05A28',
+    screen: 'DhlOperations',
+    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
-    moduleKey: 'collect',
+    panelKey: 'ops_mx_cedis',
   },
   {
-    id: 'quote',
-    title: 'Cotizar',
-    subtitle: 'Calcular costos y generar cotizaciones',
-    icon: 'calculator-outline',
+    id: 'panel_mx_national',
+    title: 'Nacional México',
+    subtitle: 'Envíos nacionales',
+    icon: 'location-outline',
     iconFamily: 'ionicons',
-    color: '#00BCD4',
-    screen: 'POBoxQuote',
-    roles: ['counter_staff', 'warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
+    color: '#F05A28',
+    screen: 'EmployeeHome',
+    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
-    moduleKey: 'quote',
+    panelKey: 'ops_mx_national',
+    comingSoon: true,
   },
   {
-    id: 'repack',
-    title: 'Reempaque',
-    subtitle: 'Consolidar múltiples paquetes en una caja',
-    icon: 'albums-outline',
+    id: 'panel_scanner',
+    title: 'Escáner Multi-Sucursal',
+    subtitle: 'Panel unificado entrada/salida CEDIS',
+    icon: 'barcode-outline',
     iconFamily: 'ionicons',
-    color: '#E91E63',
-    screen: 'POBoxRepack',
-    roles: ['counter_staff', 'warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
+    color: '#F05A28',
+    screen: 'WarehouseScanner',
+    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
-    moduleKey: 'repack',
+    panelKey: 'ops_scanner',
   },
   {
-    id: 'inventory',
-    title: 'Inventario',
-    subtitle: 'Ver paquetes en bodega',
+    id: 'panel_inventory',
+    title: 'Inventario por Sucursal',
+    subtitle: 'Control de paquetes en bodega',
     icon: 'file-tray-stacked-outline',
     iconFamily: 'ionicons',
-    color: '#607D8B',
-    screen: 'POBoxInventory',
-    roles: ['counter_staff', 'warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
+    color: '#F05A28',
+    screen: 'WarehouseInventory',
+    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
-    moduleKey: 'inventory',
+    panelKey: 'ops_inventory',
   },
+  {
+    id: 'panel_relabeling',
+    title: 'Módulo de etiquetado',
+    subtitle: 'Reimprime etiquetas de cualquier servicio',
+    icon: 'print-outline',
+    iconFamily: 'ionicons',
+    color: '#F05A28',
+    screen: 'Relabeling',
+    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
+    requiresOnboarding: true,
+    panelKey: 'ops_relabeling',
+  },
+
   // Legacy counter modules (mantener compatibilidad)
   {
     id: 'counter_pickup',
@@ -384,6 +402,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   const [showMenu, setShowMenu] = useState(false);
   const [stats, setStats] = useState<any>(null);
   const [poboxPermissions, setPOBoxPermissions] = useState<string[]>([]);
+  const [panelPermissions, setPanelPermissions] = useState<string[]>([]);
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   
   // Estados para el panel del asesor
@@ -488,10 +507,33 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       // Si es super_admin, tiene acceso a todo
       if (user.role === 'super_admin') {
         setPOBoxPermissions(['receive', 'entry', 'exit', 'collect', 'quote', 'repack', 'inventory']);
+        setPanelPermissions([
+          'ops_usa_pobox', 'ops_china_air', 'ops_china_sea',
+          'ops_mx_cedis', 'ops_mx_national', 'ops_scanner',
+          'ops_inventory', 'ops_relabeling',
+        ]);
         setPermissionsLoaded(true);
         return;
       }
 
+      // 1) Cargar paneles (operaciones de alto nivel)
+      try {
+        const panelsRes = await fetch(`${API_URL}/api/panels/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (panelsRes.ok) {
+          const data = await panelsRes.json();
+          const allowedPanels = (data.panels || [])
+            .filter((p: { can_view: boolean }) => p.can_view)
+            .map((p: { panel_key: string }) => p.panel_key);
+          console.log('🏭 Paneles permitidos:', allowedPanels);
+          setPanelPermissions(allowedPanels);
+        }
+      } catch (e) {
+        console.warn('No se pudieron cargar paneles:', e);
+      }
+
+      // 2) Cargar sub-módulos de PO Box USA
       const response = await fetch(`${API_URL}/api/modules/ops_usa_pobox/me`, {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -502,14 +544,14 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
           .filter((m: { can_view: boolean }) => m.can_view)
           .map((m: { module_key: string }) => m.module_key);
         
-        console.log('📋 Permisos de operaciones del usuario:', allowed);
+        console.log('📋 Permisos PO Box del usuario:', allowed);
         console.log('📍 Ubicaciones permitidas:', data.locations || []);
         setPOBoxPermissions(allowed);
       }
     } catch (error) {
       console.error('Error cargando permisos de módulos:', error);
-      // En caso de error, no mostrar módulos PO Box específicos
       setPOBoxPermissions([]);
+      setPanelPermissions([]);
     } finally {
       setPermissionsLoaded(true);
     }
@@ -519,14 +561,19 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
     loadModulePermissions();
   }, [loadModulePermissions]);
 
-  // Filtrar módulos según el rol del usuario Y permisos de PO Box
+  // Filtrar módulos según el rol del usuario Y permisos de PO Box / paneles
   const availableModules = EMPLOYEE_MODULES.filter(module => {
     // Primero verificar si el rol tiene acceso
     if (!module.roles.includes(user.role)) {
       return false;
     }
+
+    // Si el módulo tiene panelKey, verificar permiso de panel
+    if (module.panelKey) {
+      return panelPermissions.includes(module.panelKey);
+    }
     
-    // Si el módulo tiene moduleKey (es un módulo PO Box), verificar permiso específico
+    // Si el módulo tiene moduleKey (sub-módulo PO Box), verificar permiso específico
     if (module.moduleKey) {
       return poboxPermissions.includes(module.moduleKey);
     }
@@ -620,8 +667,18 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       return;
     }
     
+    // Módulos marcados como próximamente (panel sin pantalla móvil aún)
+    if (module.comingSoon) {
+      Alert.alert(
+        `🚧 ${module.title}`,
+        'Este panel estará disponible próximamente en la app móvil.\n\nPor el momento puedes acceder desde el Panel Web.',
+        [{ text: 'Entendido', style: 'default' }]
+      );
+      return;
+    }
+
     // Pantallas que aún no están implementadas
-    const notImplementedScreens = ['POBoxInventory', 'CounterPickup', 'CounterReception', 'SupportTickets', 'ClientLookup', 'BranchDashboard', 'TeamManagement', 'Dispatch', 'ShiftReport', 'WarehouseInventory'];
+    const notImplementedScreens = ['CounterPickup', 'CounterReception', 'SupportTickets', 'ClientLookup', 'BranchDashboard', 'TeamManagement', 'Dispatch', 'ShiftReport', 'WarehouseInventory'];
     if (notImplementedScreens.includes(module.screen)) {
       Alert.alert(
         `📱 ${module.title}`,

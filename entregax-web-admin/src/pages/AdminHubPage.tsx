@@ -1299,33 +1299,55 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
         if (!serviceColors || !modules) return null;
 
         return (
-            <Box>
+            <Box sx={{ p: 3, bgcolor: '#FAFAFA', minHeight: '100vh' }}>
                 {/* Breadcrumb */}
                 <Box sx={{ mb: 2 }}>
                     <Chip
                         label={t('panels.backToAdmin')}
                         onClick={() => setSelectedService(null)}
-                        sx={{ cursor: 'pointer' }}
+                        sx={{ cursor: 'pointer', bgcolor: '#FFFFFF', border: '1px solid #ECECEC' }}
                     />
                 </Box>
 
-                {/* Header del servicio */}
+                {/* Header del servicio - estilo SaaS limpio */}
                 <Paper
                     sx={{
-                        background: serviceColors.bgGradient,
+                        bgcolor: '#FFFFFF',
                         p: 3,
-                        mb: 3,
+                        mb: 4,
                         borderRadius: 2,
-                        color: 'white',
+                        border: '1px solid #ECECEC',
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                        position: 'relative',
+                        overflow: 'hidden',
                     }}
                 >
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                        {serviceIcon}
-                        <Box>
-                            <Typography variant="h5" fontWeight="bold">
-                                {serviceColors.flag} {t(`panels.services.${selectedService}.title`)}
-                            </Typography>
-                            <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                    {/* Acento naranja superior */}
+                    <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, bgcolor: '#F05A28' }} />
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
+                        <Box
+                            sx={{
+                                width: 56,
+                                height: 56,
+                                borderRadius: 2,
+                                bgcolor: '#F05A2815',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                color: '#1A1A1A',
+                                '& svg': { fontSize: 30 },
+                            }}
+                        >
+                            {serviceIcon}
+                        </Box>
+                        <Box sx={{ flex: 1 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                <Typography variant="h5" sx={{ fontWeight: 700, color: '#1A1A1A' }}>
+                                    {t(`panels.services.${selectedService}.title`)}
+                                </Typography>
+                                <Typography sx={{ fontSize: 24 }}>{serviceColors.flag}</Typography>
+                            </Box>
+                            <Typography variant="body2" sx={{ color: '#6B7280', mt: 0.25 }}>
                                 {t(`panels.services.${selectedService}.subtitle`)}
                             </Typography>
                         </Box>
@@ -1336,7 +1358,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
                     📋 {t('panels.adminModules')}
                 </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                <Typography variant="body2" sx={{ color: '#6B7280', mb: 3 }}>
                     {t('panels.selectModule')}
                 </Typography>
 
@@ -1360,60 +1382,85 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                             // Para otros usuarios, verificar permisos de módulo
                             return hasModulePermission(module.key);
                         })
-                        .map((module) => (
-                        <Grid size={{ xs: 12, sm: 6, md: 4 }} key={module.key}>
-                            <Card
-                                sx={{
-                                    transition: 'all 0.2s ease',
-                                    opacity: module.status === 'pending' ? 0.7 : 1,
-                                    '&:hover': {
-                                        transform: 'translateY(-4px)',
-                                        boxShadow: 4,
-                                        opacity: 1,
-                                    },
-                                }}
-                            >
-                                <CardActionArea
-                                    onClick={() => setSelectedModule(module.key)}
-                                    sx={{ p: 2 }}
+                        .map((module) => {
+                            const isPending = module.status === 'pending';
+                            return (
+                            <Grid size={{ xs: 12, sm: 6, md: 4 }} key={module.key}>
+                                <Card
+                                    sx={{
+                                        height: '100%',
+                                        bgcolor: '#FFFFFF',
+                                        borderRadius: 2,
+                                        border: '1px solid #ECECEC',
+                                        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                                        overflow: 'hidden',
+                                        transition: 'all 0.2s ease',
+                                        opacity: isPending ? 0.85 : 1,
+                                        '&:hover': {
+                                            transform: 'translateY(-2px)',
+                                            borderColor: '#F05A28',
+                                            boxShadow: '0 8px 24px rgba(240,90,40,0.12)',
+                                        },
+                                    }}
                                 >
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                                        <Box
-                                            sx={{
-                                                width: 50,
-                                                height: 50,
-                                                borderRadius: 2,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                                bgcolor: serviceColors.color + '20',
-                                                color: serviceColors.color,
-                                            }}
-                                        >
-                                            {MODULE_ICONS[module.key]}
+                                    <CardActionArea
+                                        onClick={() => setSelectedModule(module.key)}
+                                        sx={{ height: '100%' }}
+                                    >
+                                        <Box sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 2 }}>
+                                            <Box
+                                                sx={{
+                                                    width: 44,
+                                                    height: 44,
+                                                    borderRadius: 1.5,
+                                                    display: 'flex',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    bgcolor: '#F05A2815',
+                                                    color: '#1A1A1A',
+                                                    flexShrink: 0,
+                                                    '& svg': { fontSize: 22 },
+                                                }}
+                                            >
+                                                {MODULE_ICONS[module.key]}
+                                            </Box>
+                                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                                                <Typography sx={{ fontWeight: 700, fontSize: 15, color: '#1A1A1A', mb: 0.5 }}>
+                                                    {getModuleLabel(module.key, selectedService)}
+                                                </Typography>
+                                                <Chip
+                                                    label={isPending ? `🚧 ${t('panels.inDevelopment')}` : `✅ ${t('panels.active')}`}
+                                                    size="small"
+                                                    sx={{
+                                                        fontSize: '0.65rem',
+                                                        height: 20,
+                                                        fontWeight: 600,
+                                                        bgcolor: isPending ? '#FFF3E0' : '#E8F5E9',
+                                                        color: isPending ? '#E65100' : '#2E7D32',
+                                                        border: 'none',
+                                                    }}
+                                                />
+                                            </Box>
                                         </Box>
-                                        <Box sx={{ flex: 1 }}>
-                                            <Typography variant="subtitle1" fontWeight="bold">
-                                                {getModuleLabel(module.key, selectedService)}
-                                            </Typography>
-                                            <Chip
-                                                label={module.status === 'pending' ? `🚧 ${t('panels.inDevelopment')}` : `✅ ${t('panels.active')}`}
-                                                size="small"
-                                                color={module.status === 'pending' ? 'warning' : 'success'}
-                                                variant="outlined"
-                                                sx={{ fontSize: '0.65rem', height: 20 }}
-                                            />
-                                        </Box>
-                                    </Box>
-                                </CardActionArea>
-                            </Card>
-                        </Grid>
-                    ))}
+                                    </CardActionArea>
+                                </Card>
+                            </Grid>
+                        );
+                    })}
                 </Grid>
                 )}
 
                 {/* Info */}
-                <Alert severity="info" sx={{ mt: 4 }}>
+                <Alert
+                    severity="info"
+                    sx={{
+                        mt: 4,
+                        bgcolor: '#FFFFFF',
+                        border: '1px solid #ECECEC',
+                        borderRadius: 2,
+                        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                    }}
+                >
                     {t('panels.tip', { service: t(`panels.services.${selectedService}.title`) })}
                 </Alert>
             </Box>

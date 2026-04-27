@@ -158,6 +158,56 @@ const getServiceInfo = (tracking: string) => {
     }
 };
 
+const normalizeCarrierText = (value: any): string => String(value || '')
+    .toLowerCase()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const getAssignedCarrier = (shipment: ShipmentData | null): { displayName: string; normalized: string } | null => {
+    if (!shipment) return null;
+
+    const byMaster = normalizeCarrierText(shipment.master.nationalCarrier);
+    if (byMaster) {
+        return {
+            displayName: String(shipment.master.nationalCarrier).trim(),
+            normalized: byMaster,
+        };
+    }
+
+    const cfg = shipment.master.assignedAddress?.carrierConfig;
+    if (!cfg || typeof cfg !== 'object') return null;
+
+    const candidates = [
+        (cfg as any).carrier,
+        (cfg as any).carrier_name,
+        (cfg as any).provider,
+        (cfg as any).provider_name,
+        (cfg as any).name,
+        (cfg as any).slug,
+        (cfg as any).code,
+    ].filter(Boolean);
+
+    if (!candidates.length) return null;
+    const selected = String(candidates[0]).trim();
+    return {
+        displayName: selected,
+        normalized: normalizeCarrierText(selected),
+    };
+};
+
+const isPaqueteExpressCarrier = (normalized: string): boolean => (
+    normalized.includes('paquete express') ||
+    normalized.includes('paquetexpress') ||
+    normalized.includes('pqtx')
+);
+
+const with4x6Format = (url: string): string => {
+    if (!url) return url;
+    if (/([?&])format=/.test(url)) return url;
+    return `${url}${url.includes('?') ? '&' : '?'}format=4x6`;
+};
+
 export default function RelabelingModulePage() {
     const [tracking, setTracking] = useState('');
     const [loading, setLoading] = useState(false);
@@ -466,35 +516,39 @@ export default function RelabelingModulePage() {
         printWindow.document.close();
     };
 
-    const hasPaqueteExpressAssigned = (() => {
-        if (!shipment) return false;
+    const assignedCarrier = getAssignedCarrier(shipment);
+    const hasAssignedCarrier = Boolean(assignedCarrier);
+    const isPaqueteExpressAssigned = Boolean(assignedCarrier && isPaqueteExpressCarrier(assignedCarrier.normalized));
+    const carrierGuideTitle = assignedCarrier ? `Guía ${assignedCarrier.displayName}` : 'Guía de paquetería';
 
-        const normalizedCarrier = String(shipment.master.nationalCarrier || '')
-            .toLowerCase()
-            .replace(/[_-]+/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
+    const getAssignedCarrierGuideUrl = (opts?: { format4x6?: boolean }): string | null => {
+        if (!shipment) return null;
+        const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');
+        const raw = String(shipment.master.nationalLabelUrl || '').trim();
 
-        const carrierConfigText = JSON.stringify(shipment.master.assignedAddress?.carrierConfig || {})
-            .toLowerCase();
+        const maybeFormat = (url: string) => (opts?.format4x6 ? with4x6Format(url) : url);
 
-        const byCarrierName =
-            normalizedCarrier.includes('paquete express') ||
-            normalizedCarrier.includes('paquetexpress') ||
-            normalizedCarrier.includes('pqtx');
+        if (raw) {
+            if (/^https?:\/\//i.test(raw)) return maybeFormat(raw);
+            if (raw.startsWith('/')) return maybeFormat(`${baseUrl}${raw}`);
+            return maybeFormat(`${baseUrl}/${raw}`);
+        }
 
-        const byCarrierConfig =
-            carrierConfigText.includes('paquete_express') ||
-            carrierConfigText.includes('paquete express') ||
-            carrierConfigText.includes('paquetexpress') ||
-            carrierConfigText.includes('pqtx');
+        if (isPaqueteExpressAssigned && shipment.master.nationalTracking) {
+            return maybeFormat(`${baseUrl}/admin/paquete-express/label/pdf/${shipment.master.nationalTracking}`);
+        }
 
-        const byLabelUrl = String(shipment.master.nationalLabelUrl || '')
-            .toLowerCase()
-            .includes('/paquete-express/');
+        return null;
+    };
 
-        return byCarrierName || byCarrierConfig || byLabelUrl;
-    })();
+    const handlePrintAssignedCarrierGuide = (opts?: { format4x6?: boolean }) => {
+        const guideUrl = getAssignedCarrierGuideUrl(opts);
+        if (!guideUrl) {
+            setError('No hay guía disponible para la paquetería asignada');
+            return;
+        }
+        window.open(guideUrl, '_blank');
+    };
 
     return (
         <Box sx={{ p: 3 }}>
@@ -599,9 +653,9 @@ export default function RelabelingModulePage() {
                                         variant="outlined"
                                     />
                                 )}
-                                {shipment.master.nationalCarrier && (
+                                {assignedCarrier && (
                                     <Chip
-                                        label={`🚚 ${shipment.master.nationalCarrier}`}
+                                        label={`🚚 ${assignedCarrier.displayName}`}
                                         sx={{ bgcolor: '#1976d2', color: 'white', fontWeight: 700 }}
                                     />
                                 )}
@@ -685,10 +739,10 @@ export default function RelabelingModulePage() {
                                 <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#C1272D' }}>
                                     📍 Dirección de Entrega
                                 </Typography>
-                                {shipment.master.nationalCarrier && (
+                                {assignedCarrier && (
                                     <Chip
                                         size="small"
-                                        label={`🚚 ${shipment.master.nationalCarrier}`}
+                                        label={`🚚 ${assignedCarrier.displayName}`}
                                         sx={{ bgcolor: '#1976d2', color: 'white', fontWeight: 700 }}
                                     />
                                 )}
@@ -772,7 +826,7 @@ export default function RelabelingModulePage() {
                             </Grid>
                         ))}
 
-                        {hasPaqueteExpressAssigned && (
+                        {hasAssignedCarrier && (
                             <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                                 <Paper
                                     variant="outlined"
@@ -788,29 +842,52 @@ export default function RelabelingModulePage() {
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                                         <LocalShippingIcon sx={{ color: '#1976d2' }} />
                                         <Typography variant="body2" fontWeight={700} sx={{ color: '#1976d2' }}>
-                                            Guía Paquete Express
+                                            {carrierGuideTitle}
                                         </Typography>
                                     </Box>
-                                    {shipment.master.nationalTracking ? (
+                                    {getAssignedCarrierGuideUrl() ? (
                                         <>
                                             <Typography sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 13, mb: 1 }}>
-                                                {shipment.master.nationalTracking}
+                                                {shipment.master.nationalTracking || 'Guía disponible'}
                                             </Typography>
                                             <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
-                                                Guía nacional ya generada
+                                                Imprime la guía de la paquetería asignada
                                             </Typography>
                                             <Box sx={{ flex: 1 }} />
-                                            <Button
-                                                fullWidth
-                                                variant="contained"
-                                                startIcon={<PrintIcon />}
-                                                onClick={handlePrintExistingPqtxLabel}
-                                                sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
-                                            >
-                                                Imprimir guía PQTX
-                                            </Button>
+                                            {isPaqueteExpressAssigned ? (
+                                                <Box sx={{ display: 'grid', gap: 1 }}>
+                                                    <Button
+                                                        fullWidth
+                                                        variant="contained"
+                                                        startIcon={<PrintIcon />}
+                                                        onClick={() => handlePrintAssignedCarrierGuide({ format4x6: true })}
+                                                        sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
+                                                    >
+                                                        Imprimir Etiqueta
+                                                    </Button>
+                                                    <Button
+                                                        fullWidth
+                                                        variant="outlined"
+                                                        startIcon={<PrintIcon />}
+                                                        onClick={() => handlePrintAssignedCarrierGuide()}
+                                                        sx={{ borderColor: '#1976d2', color: '#1976d2', '&:hover': { borderColor: '#0d47a1', color: '#0d47a1' } }}
+                                                    >
+                                                        Imprimir guía
+                                                    </Button>
+                                                </Box>
+                                            ) : (
+                                                <Button
+                                                    fullWidth
+                                                    variant="contained"
+                                                    startIcon={<PrintIcon />}
+                                                    onClick={() => handlePrintAssignedCarrierGuide()}
+                                                    sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
+                                                >
+                                                    Imprimir guía asignada
+                                                </Button>
+                                            )}
                                         </>
-                                    ) : (
+                                    ) : isPaqueteExpressAssigned ? (
                                         <>
                                             <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
                                                 Aún no generada. Se creará en línea con la API de Paquete Express usando la dirección de entrega asignada.
@@ -827,6 +904,22 @@ export default function RelabelingModulePage() {
                                                 {generatingPqtx ? 'Generando...' : 'Generar guía PQTX'}
                                             </Button>
                                         </>
+                                    ) : (
+                                        <>
+                                            <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
+                                                Esta paquetería aún no tiene guía nacional disponible para impresión.
+                                            </Typography>
+                                            <Box sx={{ flex: 1 }} />
+                                            <Button
+                                                fullWidth
+                                                variant="contained"
+                                                startIcon={<PrintIcon />}
+                                                disabled
+                                                sx={{ bgcolor: '#90A4AE', '&.Mui-disabled': { bgcolor: '#B0BEC5', color: '#ECEFF1' } }}
+                                            >
+                                                Guía no disponible
+                                            </Button>
+                                        </>
                                     )}
                                     {pqtxMsg && (
                                         <Typography variant="caption" sx={{ mt: 1, color: 'success.main', fontWeight: 600 }}>
@@ -837,7 +930,7 @@ export default function RelabelingModulePage() {
                             </Grid>
                         )}
 
-                        {shipment.master.assignedAddress && !hasPaqueteExpressAssigned && (
+                        {shipment.master.assignedAddress && !hasAssignedCarrier && (
                             <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                                 <Paper
                                     variant="outlined"

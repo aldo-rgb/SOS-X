@@ -597,7 +597,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkStep(prev => Math.max(0, prev - 1));
     };
 
-    // =========== IMPRIMIR ETIQUETAS ===========
+    // =========== S ===========
     const printShipmentLabels = (labels: any[]) => {
         if (!labels || labels.length === 0) return;
 
@@ -1002,47 +1002,46 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                 <Card
                                     sx={{
                                         height: '100%',
-                                        transition: 'all 0.3s ease',
+                                        borderRadius: 2,
+                                        border: '1px solid #ECECEC',
+                                        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                                        bgcolor: '#FFFFFF',
+                                        overflow: 'hidden',
+                                        transition: 'all 0.2s ease',
                                         '&:hover': {
-                                            transform: 'translateY(-8px)',
-                                            boxShadow: 6,
+                                            transform: 'translateY(-2px)',
+                                            borderColor: '#F05A28',
+                                            boxShadow: '0 8px 24px rgba(240,90,40,0.12)',
                                         },
                                     }}
                                 >
                                     <CardActionArea
                                         onClick={() => handleOptionClick(option.id)}
-                                        sx={{ height: '100%' }}
+                                        sx={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'stretch' }}
                                     >
-                                        <Box
-                                            sx={{
-                                                background: option.bgGradient,
-                                                p: 3,
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'center',
-                                            }}
-                                        >
+                                        {/* Acento naranja superior */}
+                                        <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                                        <CardContent sx={{ p: 2.5, width: '100%' }}>
                                             <Box
                                                 sx={{
-                                                    width: 100,
-                                                    height: 100,
-                                                    borderRadius: '50%',
-                                                    bgcolor: 'rgba(255,255,255,0.2)',
+                                                    width: 48,
+                                                    height: 48,
+                                                    borderRadius: 1.5,
+                                                    bgcolor: '#F05A2815',
                                                     display: 'flex',
                                                     alignItems: 'center',
                                                     justifyContent: 'center',
+                                                    color: '#1A1A1A',
+                                                    mb: 1.5,
+                                                    '& svg': { fontSize: 26 },
                                                 }}
                                             >
-                                                <Box sx={{ color: 'white' }}>
-                                                    {option.icon}
-                                                </Box>
+                                                {option.icon}
                                             </Box>
-                                        </Box>
-                                        <CardContent sx={{ textAlign: 'center' }}>
-                                            <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                            <Typography variant="subtitle1" fontWeight={700} sx={{ color: '#1A1A1A', mb: 0.5 }}>
                                                 {t(`pobox.hub.options.${option.id}.title`, getDefaultTitle(option.id))}
                                             </Typography>
-                                            <Typography variant="body2" color="text.secondary">
+                                            <Typography variant="body2" sx={{ color: '#6B7280', lineHeight: 1.4 }}>
                                                 {t(`pobox.hub.options.${option.id}.description`, getDefaultDescription(option.id))}
                                             </Typography>
                                         </CardContent>

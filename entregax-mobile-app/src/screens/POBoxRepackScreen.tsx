@@ -1,9 +1,14 @@
 /**
- * POBoxRepackScreen - Wizard de Procesar Reempaque
- * Permite escanear guías y crear un paquete consolidado
+ * POBoxRepackScreen - Reempaque (mirror de RepackPage web)
+ *
+ * Lista instrucciones de reempaque pendientes (paquetes US-REPACK-* con child_packages).
+ * Botón abre wizard:
+ *   1. Escanear las guías contenidas (auto-detecta master)
+ *   2. Tomar foto del reempaque
+ *   3. Confirmar → PATCH /api/packages/:id/status (status=reempacado)
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,1191 +17,827 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
-  KeyboardAvoidingView,
-  Platform,
+  Modal,
+  RefreshControl,
   ActivityIndicator,
   Image,
-  Modal,
   Vibration,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { API_URL } from '../services/api';
 
 const ORANGE = '#F05A28';
-const BLACK = '#111111';
-const PURPLE = '#9C27B0';
+const BLACK = '#111';
 
-interface Package {
+interface ChildPackage {
   id: number;
-  tracking_number: string;
-  weight_kg?: number;
-  user?: {
-    full_name: string;
-    box_id: string;
-  };
+  tracking_internal: string;
+  weight: number;
+  description: string;
+  status: string;
 }
 
-interface Props {
-  navigation: any;
-  route: {
-    params: {
-      user: any;
-      token: string;
-    };
-  };
+interface RepackInstruction {
+  id: number;
+  tracking_internal: string;
+  tracking_provider: string;
+  description: string;
+  weight: number;
+  box_id: string;
+  client_name: string;
+  pkg_length: number;
+  pkg_width: number;
+  pkg_height: number;
+  status: string;
+  repack_tracking: string;
+  created_at: string;
+  child_packages: ChildPackage[];
+  child_trackings: string;
 }
 
-export default function POBoxRepackScreen({ navigation, route }: Props) {
-  const { user, token } = route.params;
-  const [step, setStep] = useState(0); // 0: Escanear Guías, 1: Nuevo Paquete, 2: Confirmar
-  const [loading, setLoading] = useState(false);
-  
-  // Paquetes a consolidar
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searching, setSearching] = useState(false);
-  const [packages, setPackages] = useState<Package[]>([]);
-  
-  // Nuevo paquete consolidado
-  const [nuevaGuia, setNuevaGuia] = useState('');
-  const [nuevoPeso, setNuevoPeso] = useState('');
-  const [nuevoLargo, setNuevoLargo] = useState('');
-  const [nuevoAncho, setNuevoAncho] = useState('');
-  const [nuevoAlto, setNuevoAlto] = useState('');
-  const [foto, setFoto] = useState<string | null>(null);
-  const [observaciones, setObservaciones] = useState('');
-  
-  const searchInputRef = useRef<TextInput>(null);
-  
-  // Scanner
-  const [showScanner, setShowScanner] = useState(false);
-  const [scannerReady, setScannerReady] = useState(true);
+interface ScannedPackage {
+  id: number;
+  tracking: string;
+  weight: number;
+  description: string;
+}
+
+const STEPS = ['Escanear', 'Foto', 'Confirmar'];
+
+export default function POBoxRepackScreen({ route, navigation }: any) {
+  const { token } = route.params;
+  const insets = useSafeAreaInsets();
+  const [instructions, setInstructions] = useState<RepackInstruction[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Wizard
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [step, setStep] = useState(0);
+  const [masterPackage, setMasterPackage] = useState<RepackInstruction | null>(null);
+  const [scanInput, setScanInput] = useState('');
+  const [scannedPackages, setScannedPackages] = useState<ScannedPackage[]>([]);
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [processing, setProcessing] = useState(false);
+
+  // Camera
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [photoMode, setPhotoMode] = useState(false);
   const [permission, requestPermission] = useCameraPermissions();
+  const cameraRef = useRef<CameraView | null>(null);
+  const scannerLockRef = useRef(false);
+  const scanInputRef = useRef<TextInput | null>(null);
 
-  // Abrir escáner
-  const abrirScanner = async () => {
+  const loadInstructions = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/packages/repack-instructions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setInstructions(data.instructions || []);
+      } else {
+        // Fallback
+        const fb = await fetch(`${API_URL}/api/packages`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (fb.ok) {
+          const data = await fb.json();
+          const repacks = (data.packages || []).filter(
+            (p: any) =>
+              p.tracking_internal?.startsWith('US-REPACK') &&
+              ['received', 'pending_repack', 'quoted'].includes(p.status)
+          );
+          setInstructions(
+            repacks.map((p: any) => ({
+              id: p.id,
+              tracking_internal: p.tracking_internal,
+              tracking_provider: p.tracking_provider || '',
+              description: p.description || '',
+              weight: p.weight || 0,
+              box_id: p.client?.boxId || p.box_id || '',
+              client_name: p.client?.name || '',
+              pkg_length: p.pkg_length || 0,
+              pkg_width: p.pkg_width || 0,
+              pkg_height: p.pkg_height || 0,
+              status: p.status,
+              repack_tracking: p.tracking_internal,
+              created_at: p.created_at || '',
+              child_packages: [],
+              child_trackings: '',
+            }))
+          );
+        }
+      }
+    } catch (err) {
+      console.error('Error loading repack instructions:', err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    loadInstructions();
+  }, [loadInstructions]);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadInstructions();
+  };
+
+  const openWizard = () => {
+    setStep(0);
+    setMasterPackage(null);
+    setScannedPackages([]);
+    setPhotoUri(null);
+    setScanInput('');
+    setWizardOpen(true);
+    setTimeout(() => scanInputRef.current?.focus(), 350);
+    setTimeout(() => scanInputRef.current?.focus(), 700);
+  };
+
+  const closeWizard = () => {
+    setWizardOpen(false);
+    setStep(0);
+    setMasterPackage(null);
+    setScannedPackages([]);
+    setPhotoUri(null);
+    setScanInput('');
+    setPhotoMode(false);
+    setScannerOpen(false);
+  };
+
+  // ============ ESCANEO ============
+  const tryAddTracking = (raw: string) => {
+    const tracking = raw.trim().toUpperCase();
+    if (!tracking) return;
+
+    if (tracking.startsWith('US-REPACK')) {
+      Alert.alert('❌ Guía incorrecta', 'Escanea las guías contenidas, no la guía de reempaque');
+      Vibration.vibrate(150);
+      return;
+    }
+
+    if (scannedPackages.some((p) => p.tracking === tracking)) {
+      Alert.alert('⚠️ Ya escaneado', `${tracking} ya fue agregado`);
+      Vibration.vibrate(80);
+      return;
+    }
+
+    let foundInstr: RepackInstruction | null = null;
+    let foundChild: ChildPackage | undefined;
+    for (const instr of instructions) {
+      foundChild = instr.child_packages?.find((cp) => cp.tracking_internal === tracking);
+      if (foundChild) {
+        foundInstr = instr;
+        break;
+      }
+    }
+
+    if (foundInstr && foundChild) {
+      if (!masterPackage) {
+        setMasterPackage(foundInstr);
+        Alert.alert(
+          '✅ Reempaque detectado',
+          `${foundInstr.tracking_internal} para cliente ${foundInstr.box_id}`
+        );
+      } else if (foundInstr.id !== masterPackage.id) {
+        Alert.alert(
+          '❌ Reempaque diferente',
+          `Esta guía pertenece a ${foundInstr.tracking_internal}, no a ${masterPackage.tracking_internal}`
+        );
+        Vibration.vibrate(150);
+        return;
+      }
+      setScannedPackages((prev) => [
+        ...prev,
+        {
+          id: foundChild!.id,
+          tracking: foundChild!.tracking_internal,
+          weight: Number(foundChild!.weight) || 0,
+          description: foundChild!.description || '',
+        },
+      ]);
+      Vibration.vibrate(40);
+    } else {
+      Alert.alert('❌ Guía no encontrada', `${tracking} no pertenece a ningún reempaque pendiente`);
+      Vibration.vibrate(150);
+    }
+  };
+
+  const handleManualSubmit = () => {
+    if (!scanInput.trim()) return;
+    tryAddTracking(scanInput);
+    setScanInput('');
+    setTimeout(() => scanInputRef.current?.focus(), 50);
+  };
+
+  const handleBarcodeScanned = ({ data }: BarcodeScanningResult) => {
+    if (scannerLockRef.current) return;
+    scannerLockRef.current = true;
+    tryAddTracking(data);
+    setTimeout(() => {
+      scannerLockRef.current = false;
+    }, 1200);
+  };
+
+  const openCameraScanner = async () => {
     if (!permission?.granted) {
-      const result = await requestPermission();
-      if (!result.granted) {
-        Alert.alert('Permiso Requerido', 'Se necesita acceso a la cámara para escanear códigos de barras');
+      const r = await requestPermission();
+      if (!r.granted) {
+        Alert.alert('Permiso requerido', 'Necesitamos acceso a la cámara');
         return;
       }
     }
-    setScannerReady(true);
-    setShowScanner(true);
+    setScannerOpen(true);
   };
 
-  // Manejar código escaneado
-  const handleBarCodeScanned = (result: BarcodeScanningResult) => {
-    if (!scannerReady) return;
-    
-    setScannerReady(false);
-    Vibration.vibrate(100);
-    
-    const scannedCode = result.data.trim();
-    setSearchQuery(scannedCode);
-    setShowScanner(false);
-    
-    // Buscar y agregar automáticamente
-    setTimeout(() => {
-      buscarYAgregar();
-      setScannerReady(true);
-    }, 500);
+  const removeScanned = (tracking: string) => {
+    setScannedPackages((prev) => prev.filter((p) => p.tracking !== tracking));
   };
 
-  const generarGuiaConsolidada = () => {
-    const timestamp = Date.now().toString(36).toUpperCase();
-    const random = Math.random().toString(36).substring(2, 4).toUpperCase();
-    return `RP-${timestamp}${random}`;
-  };
-
-  const buscarYAgregar = async () => {
-    if (!searchQuery.trim()) return;
-    
-    // Verificar si ya está agregado
-    const yaExiste = packages.find(p => 
-      p.tracking_number.toLowerCase() === searchQuery.trim().toLowerCase()
-    );
-    if (yaExiste) {
-      Alert.alert('Info', 'Este paquete ya está en la lista');
-      setSearchQuery('');
+  // ============ FOTO ============
+  const goToPhotoStep = () => {
+    if (!masterPackage) {
+      Alert.alert('Atención', 'Debes escanear al menos un paquete para detectar el reempaque');
       return;
     }
-    
-    setSearching(true);
-    try {
-      const response = await fetch(
-        `${API_URL}/api/packages/search?q=${searchQuery.trim()}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+    const total = masterPackage.child_packages?.length || 0;
+    if (total > 0 && scannedPackages.length < total) {
+      Alert.alert(
+        'Faltan paquetes',
+        `Llevas ${scannedPackages.length}/${total} paquetes escaneados`
       );
-      
-      if (response.ok) {
-        const data = await response.json();
-        const found = Array.isArray(data) ? data[0] : data.packages?.[0] || data;
-        
-        if (found && found.id) {
-          setPackages([...packages, found]);
-          setSearchQuery('');
-          setTimeout(() => searchInputRef.current?.focus(), 100);
-        } else {
-          Alert.alert('No encontrado', 'No se encontró el paquete');
-        }
-      } else {
-        Alert.alert('Error', 'No se pudo buscar el paquete');
+      return;
+    }
+    setStep(1);
+  };
+
+  const openPhotoMode = async () => {
+    if (!permission?.granted) {
+      const r = await requestPermission();
+      if (!r.granted) {
+        Alert.alert('Permiso requerido', 'Necesitamos acceso a la cámara');
+        return;
       }
-    } catch (error) {
-      console.error('Error buscando paquete:', error);
-      Alert.alert('Error', 'No se pudo realizar la búsqueda');
-    } finally {
-      setSearching(false);
     }
+    setPhotoMode(true);
   };
 
-  const eliminarPaquete = (id: number) => {
-    setPackages(packages.filter(p => p.id !== id));
-  };
-
-  const calcularPesoTotal = () => {
-    return packages.reduce((sum, p) => sum + (p.weight_kg || 0), 0);
-  };
-
-  const tomarFoto = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Error', 'Se necesita permiso para acceder a la cámara');
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.7,
-    });
-
-    if (!result.canceled && result.assets[0]) {
-      setFoto(result.assets[0].uri);
-    }
-  };
-
-  const procesarReempaque = async () => {
-    if (packages.length < 2) {
-      Alert.alert('Error', 'Agrega al menos 2 paquetes para consolidar');
-      return;
-    }
-    if (!nuevoPeso || parseFloat(nuevoPeso) <= 0) {
-      Alert.alert('Error', 'Ingresa el peso del nuevo paquete');
-      return;
-    }
-
-    setLoading(true);
+  const takePhoto = async () => {
+    if (!cameraRef.current) return;
     try {
-      const payload = {
-        original_packages: packages.map(p => p.id),
-        new_tracking: nuevaGuia || generarGuiaConsolidada(),
-        new_weight: parseFloat(nuevoPeso),
-        new_dimensions: {
-          length: parseFloat(nuevoLargo) || 0,
-          width: parseFloat(nuevoAncho) || 0,
-          height: parseFloat(nuevoAlto) || 0,
-        },
-        photo_url: foto,
-        notes: observaciones,
-        processed_by: user.id,
-        processed_at: new Date().toISOString(),
-      };
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.7 });
+      if (photo?.uri) {
+        setPhotoUri(photo.uri);
+        setPhotoMode(false);
+        setStep(2);
+      }
+    } catch (err) {
+      Alert.alert('Error', 'No se pudo tomar la foto');
+    }
+  };
 
-      const response = await fetch(`${API_URL}/api/repack`, {
-        method: 'POST',
+  // ============ FINALIZAR ============
+  const finalizeRepack = async () => {
+    if (!masterPackage || scannedPackages.length === 0) return;
+    setProcessing(true);
+    try {
+      const res = await fetch(`${API_URL}/api/packages/${masterPackage.id}/status`, {
+        method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          status: 'reempacado',
+          notes: `Reempaque completado con ${scannedPackages.length} paquetes: ${scannedPackages
+            .map((p) => p.tracking)
+            .join(', ')}`,
+        }),
       });
-
-      if (response.ok) {
-        Alert.alert(
-          '✅ Reempaque Procesado',
-          `Se consolidaron ${packages.length} paquetes en:\n${payload.new_tracking}`,
-          [{ text: 'OK', onPress: () => navigation.goBack() }]
-        );
-      } else {
-        throw new Error('Error al procesar reempaque');
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Error al procesar reempaque');
       }
-    } catch (error) {
-      console.error('Error procesando reempaque:', error);
-      Alert.alert('Error', 'No se pudo procesar el reempaque');
+      Alert.alert(
+        '✅ Reempaque completado',
+        `${masterPackage.tracking_internal} marcado como reempacado con ${scannedPackages.length} paquetes`
+      );
+      closeWizard();
+      loadInstructions();
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'No se pudo completar el reempaque');
     } finally {
-      setLoading(false);
+      setProcessing(false);
     }
   };
 
-  const renderStep0 = () => (
-    <ScrollView style={styles.stepContent} keyboardShouldPersistTaps="handled">
-      <Text style={styles.stepTitle}>📦 Escanear Guías</Text>
-      <Text style={styles.stepSubtitle}>
-        Escanea o busca los paquetes a consolidar
-      </Text>
-
-      {/* Buscador */}
-      <View style={styles.searchContainer}>
-        <TextInput
-          ref={searchInputRef}
-          style={[styles.searchInput, { flex: 1 }]}
-          placeholder="Escanea o escribe la guía..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          autoCapitalize="characters"
-          onSubmitEditing={buscarYAgregar}
-        />
-        <TouchableOpacity 
-          style={styles.scanButton} 
-          onPress={abrirScanner}
-        >
-          <Ionicons name="barcode-outline" size={24} color="#fff" />
-        </TouchableOpacity>
-        <TouchableOpacity 
-          style={styles.searchButton} 
-          onPress={buscarYAgregar}
-          disabled={searching}
-        >
-          {searching ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Ionicons name="add" size={24} color="#fff" />
-          )}
-        </TouchableOpacity>
-      </View>
-
-      {/* Contador */}
-      <View style={styles.counterCard}>
-        <View style={styles.counterItem}>
-          <Text style={styles.counterValue}>{packages.length}</Text>
-          <Text style={styles.counterLabel}>Paquetes</Text>
-        </View>
-        <View style={styles.counterDivider} />
-        <View style={styles.counterItem}>
-          <Text style={styles.counterValue}>{calcularPesoTotal().toFixed(1)}</Text>
-          <Text style={styles.counterLabel}>kg Original</Text>
-        </View>
-      </View>
-
-      {/* Lista de paquetes */}
-      {packages.length > 0 ? (
-        <View style={styles.packagesList}>
-          <Text style={styles.packagesTitle}>Paquetes a consolidar:</Text>
-          {packages.map((pkg, index) => (
-            <View key={pkg.id} style={styles.packageItem}>
-              <View style={styles.packageNumber}>
-                <Text style={styles.packageNumberText}>{index + 1}</Text>
-              </View>
-              <View style={styles.packageInfo}>
-                <Text style={styles.packageTracking}>{pkg.tracking_number}</Text>
-                {pkg.user && (
-                  <Text style={styles.packageUser}>
-                    {pkg.user.full_name} • {pkg.user.box_id}
-                  </Text>
-                )}
-                <Text style={styles.packageWeight}>
-                  {pkg.weight_kg ? `${pkg.weight_kg} kg` : 'Sin peso'}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => eliminarPaquete(pkg.id)}>
-                <Ionicons name="close-circle" size={28} color="#f44336" />
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-      ) : (
-        <View style={styles.emptyState}>
-          <Ionicons name="cube-outline" size={64} color="#ddd" />
-          <Text style={styles.emptyText}>
-            Escanea las guías de los paquetes a consolidar
-          </Text>
-          <Text style={styles.emptyHint}>
-            Mínimo 2 paquetes para crear un reempaque
-          </Text>
-        </View>
-      )}
-    </ScrollView>
-  );
-
-  const renderStep1 = () => (
-    <ScrollView style={styles.stepContent} keyboardShouldPersistTaps="handled">
-      <Text style={styles.stepTitle}>📦 Nuevo Paquete</Text>
-      <Text style={styles.stepSubtitle}>
-        Ingresa los datos del paquete consolidado
-      </Text>
-
-      {/* Guía del nuevo paquete */}
-      <View style={styles.formGroup}>
-        <Text style={styles.inputLabel}>Nueva Guía (opcional)</Text>
-        <TextInput
-          style={styles.input}
-          placeholder={generarGuiaConsolidada()}
-          value={nuevaGuia}
-          onChangeText={setNuevaGuia}
-          autoCapitalize="characters"
-        />
-        <Text style={styles.inputHint}>
-          Se genera automáticamente si lo dejas vacío
-        </Text>
-      </View>
-
-      {/* Peso */}
-      <View style={styles.formGroup}>
-        <Text style={styles.inputLabel}>Peso del Nuevo Paquete (kg)</Text>
-        <View style={styles.inputWithUnit}>
-          <TextInput
-            style={styles.inputLarge}
-            placeholder="0.00"
-            value={nuevoPeso}
-            onChangeText={setNuevoPeso}
-            keyboardType="decimal-pad"
-          />
-          <Text style={styles.unitLabel}>kg</Text>
-        </View>
-        <Text style={styles.inputHint}>
-          Peso original: {calcularPesoTotal().toFixed(2)} kg
-        </Text>
-      </View>
-
-      {/* Medidas */}
-      <View style={styles.formGroup}>
-        <Text style={styles.inputLabel}>Medidas del Nuevo Paquete (cm)</Text>
-        <View style={styles.dimensionsRow}>
-          <TextInput
-            style={styles.dimensionInput}
-            placeholder="Largo"
-            value={nuevoLargo}
-            onChangeText={setNuevoLargo}
-            keyboardType="decimal-pad"
-          />
-          <Text style={styles.dimensionX}>×</Text>
-          <TextInput
-            style={styles.dimensionInput}
-            placeholder="Ancho"
-            value={nuevoAncho}
-            onChangeText={setNuevoAncho}
-            keyboardType="decimal-pad"
-          />
-          <Text style={styles.dimensionX}>×</Text>
-          <TextInput
-            style={styles.dimensionInput}
-            placeholder="Alto"
-            value={nuevoAlto}
-            onChangeText={setNuevoAlto}
-            keyboardType="decimal-pad"
-          />
-        </View>
-      </View>
-
-      {/* Foto */}
-      <View style={styles.formGroup}>
-        <Text style={styles.inputLabel}>Foto del Nuevo Paquete</Text>
-        {foto ? (
-          <View style={styles.fotoPreview}>
-            <Image source={{ uri: foto }} style={styles.fotoImage} />
-            <TouchableOpacity 
-              style={styles.fotoRemove} 
-              onPress={() => setFoto(null)}
-            >
-              <Ionicons name="close-circle" size={30} color="#f44336" />
-            </TouchableOpacity>
-          </View>
-        ) : (
-          <TouchableOpacity style={styles.fotoButton} onPress={tomarFoto}>
-            <Ionicons name="camera" size={32} color={PURPLE} />
-            <Text style={styles.fotoButtonText}>Tomar Foto</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    </ScrollView>
-  );
-
-  const renderStep2 = () => (
-    <ScrollView style={styles.stepContent}>
-      <Text style={styles.stepTitle}>✅ Confirmar Reempaque</Text>
-      <Text style={styles.stepSubtitle}>
-        Revisa los datos antes de procesar
-      </Text>
-
-      {/* Visual */}
-      <View style={styles.visualRepack}>
-        <View style={styles.visualOriginal}>
-          {packages.slice(0, 3).map((_, i) => (
-            <View key={i} style={styles.miniBox} />
-          ))}
-          {packages.length > 3 && (
-            <Text style={styles.moreBoxes}>+{packages.length - 3}</Text>
-          )}
-        </View>
-        <Ionicons name="arrow-forward" size={32} color={PURPLE} />
-        <View style={styles.visualNew}>
-          <Ionicons name="cube" size={48} color={PURPLE} />
-        </View>
-      </View>
-
-      {/* Resumen */}
-      <View style={styles.summaryCard}>
-        <Text style={styles.summaryTitle}>Resumen del Reempaque</Text>
-        
-        <View style={styles.summarySection}>
-          <Text style={styles.summarySectionTitle}>Paquetes Originales</Text>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Cantidad:</Text>
-            <Text style={styles.summaryValue}>{packages.length} paquetes</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Peso original:</Text>
-            <Text style={styles.summaryValue}>{calcularPesoTotal().toFixed(2)} kg</Text>
-          </View>
-        </View>
-
-        <View style={styles.summarySection}>
-          <Text style={styles.summarySectionTitle}>Nuevo Paquete</Text>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Guía:</Text>
-            <Text style={styles.summaryValue}>
-              {nuevaGuia || generarGuiaConsolidada()}
-            </Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Peso:</Text>
-            <Text style={styles.summaryValue}>{nuevoPeso} kg</Text>
-          </View>
-          {nuevoLargo && nuevoAncho && nuevoAlto && (
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Medidas:</Text>
-              <Text style={styles.summaryValue}>
-                {nuevoLargo}x{nuevoAncho}x{nuevoAlto} cm
-              </Text>
-            </View>
-          )}
-        </View>
-
-        <View style={styles.summarySection}>
-          <Text style={styles.summarySectionTitle}>Procesado por</Text>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Usuario:</Text>
-            <Text style={styles.summaryValue}>{user.full_name || user.name}</Text>
-          </View>
-          <View style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Fecha:</Text>
-            <Text style={styles.summaryValue}>{new Date().toLocaleString()}</Text>
-          </View>
-        </View>
-      </View>
-
-      {/* Guías contenidas */}
-      <View style={styles.containedGuias}>
-        <Text style={styles.containedTitle}>Guías contenidas:</Text>
-        {packages.map((pkg, i) => (
-          <Text key={pkg.id} style={styles.containedGuia}>
-            {i + 1}. {pkg.tracking_number}
-          </Text>
-        ))}
-      </View>
-
-      {/* Observaciones */}
-      <View style={styles.formGroup}>
-        <Text style={styles.inputLabel}>Observaciones (opcional)</Text>
-        <TextInput
-          style={[styles.input, styles.textArea]}
-          placeholder="Notas adicionales..."
-          value={observaciones}
-          onChangeText={setObservaciones}
-          multiline
-          numberOfLines={3}
-        />
-      </View>
-    </ScrollView>
-  );
-
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="close" size={28} color="#fff" />
+          <Ionicons name="chevron-back" size={26} color="#fff" />
         </TouchableOpacity>
-        <View style={styles.headerContent}>
-          <Ionicons name="git-merge" size={24} color="#fff" />
-          <Text style={styles.headerTitle}>Procesar Reempaque</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.headerTitle}>Reempaque</Text>
+          <Text style={styles.headerSubtitle}>Instrucciones pendientes</Text>
         </View>
-        <View style={{ width: 28 }} />
+        <TouchableOpacity onPress={onRefresh} disabled={loading}>
+          <Ionicons name="refresh" size={22} color="#fff" />
+        </TouchableOpacity>
       </View>
 
-      {/* Stepper */}
-      <View style={styles.stepper}>
-        {[0, 1, 2].map((s, idx) => (
-          <React.Fragment key={s}>
-            <TouchableOpacity 
-              style={[styles.stepDot, step >= s && styles.stepDotActive]}
-              onPress={() => s < step && setStep(s)}
-            >
-              <Text style={[styles.stepNumber, step >= s && styles.stepNumberActive]}>
-                {s + 1}
-              </Text>
-            </TouchableOpacity>
-            {idx < 2 && <View style={[styles.stepLine, step > s && styles.stepLineActive]} />}
-          </React.Fragment>
-        ))}
-      </View>
-      <View style={styles.stepperLabels}>
-        <Text style={[styles.stepLabel, step === 0 && styles.stepLabelActive]}>Escanear</Text>
-        <Text style={[styles.stepLabel, step === 1 && styles.stepLabelActive]}>Nuevo Paquete</Text>
-        <Text style={[styles.stepLabel, step === 2 && styles.stepLabelActive]}>Confirmar</Text>
-      </View>
-
-      <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      <ScrollView
         style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: 100 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={ORANGE} />}
       >
-        {step === 0 && renderStep0()}
-        {step === 1 && renderStep1()}
-        {step === 2 && renderStep2()}
-      </KeyboardAvoidingView>
-
-      {/* Footer */}
-      <View style={styles.footer}>
-        {step === 0 && (
-          <TouchableOpacity 
-            style={[styles.nextButton, packages.length < 2 && styles.buttonDisabled]}
-            onPress={() => setStep(1)}
-            disabled={packages.length < 2}
-          >
-            <Text style={styles.nextButtonText}>
-              Continuar ({packages.length} paquetes)
+        <View style={styles.statsRow}>
+          <View style={[styles.statCard, { backgroundColor: '#FFF3EE' }]}>
+            <Text style={[styles.statNumber, { color: ORANGE }]}>{instructions.length}</Text>
+            <Text style={styles.statLabel}>Pendientes</Text>
+          </View>
+          <View style={[styles.statCard, { backgroundColor: '#E3F2FD' }]}>
+            <Text style={[styles.statNumber, { color: '#1976D2' }]}>
+              {instructions.reduce((s, i) => s + (i.child_packages?.length || 0), 0)}
             </Text>
-            <Ionicons name="arrow-forward" size={24} color="#fff" />
-          </TouchableOpacity>
-        )}
-        {step === 1 && (
-          <View style={styles.footerButtons}>
-            <TouchableOpacity style={styles.backButton} onPress={() => setStep(0)}>
-              <Text style={styles.backButtonText}>Atrás</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.nextButton, { flex: 2 }, (!nuevoPeso || parseFloat(nuevoPeso) <= 0) && styles.buttonDisabled]}
-              onPress={() => setStep(2)}
-              disabled={!nuevoPeso || parseFloat(nuevoPeso) <= 0}
-            >
-              <Text style={styles.nextButtonText}>Continuar</Text>
-              <Ionicons name="arrow-forward" size={24} color="#fff" />
-            </TouchableOpacity>
+            <Text style={styles.statLabel}>Paquetes hijo</Text>
           </View>
-        )}
-        {step === 2 && (
-          <View style={styles.footerButtons}>
-            <TouchableOpacity style={styles.backButton} onPress={() => setStep(1)}>
-              <Text style={styles.backButtonText}>Atrás</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.processButton, loading && styles.buttonDisabled]}
-              onPress={procesarReempaque}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Text style={styles.processButtonText}>Procesar Reempaque</Text>
-                  <Ionicons name="checkmark-circle" size={24} color="#fff" />
-                </>
-              )}
-            </TouchableOpacity>
+          <View style={[styles.statCard, { backgroundColor: '#E8F5E9' }]}>
+            <Text style={[styles.statNumber, { color: '#2E7D32' }]}>
+              {new Set(instructions.map((i) => i.box_id)).size}
+            </Text>
+            <Text style={styles.statLabel}>Clientes</Text>
           </View>
-        )}
-      </View>
+        </View>
 
-      {/* Modal Scanner */}
-      <Modal
-        visible={showScanner}
-        animationType="slide"
-        onRequestClose={() => setShowScanner(false)}
-      >
-        <SafeAreaView style={styles.scannerContainer}>
-          <View style={styles.scannerHeader}>
-            <TouchableOpacity onPress={() => setShowScanner(false)}>
-              <Ionicons name="close" size={28} color="#fff" />
-            </TouchableOpacity>
-            <Text style={styles.scannerTitle}>Escanear Código de Barras</Text>
-            <View style={{ width: 28 }} />
+        <Text style={styles.sectionTitle}>📦 Reempaques pendientes</Text>
+        {loading ? (
+          <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 40 }} />
+        ) : instructions.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="albums-outline" size={48} color="#999" />
+            <Text style={styles.emptyText}>No hay reempaques pendientes</Text>
           </View>
-          
-          <View style={styles.scannerArea}>
-            <CameraView
-              style={styles.camera}
-              facing="back"
-              barcodeScannerSettings={{
-                barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'code93', 'upc_a', 'upc_e', 'itf14', 'codabar', 'datamatrix', 'pdf417'],
-              }}
-              onBarcodeScanned={scannerReady ? handleBarCodeScanned : undefined}
-            />
-            <View style={styles.scannerOverlay}>
-              <View style={styles.scannerFrame}>
-                <View style={[styles.scannerCorner, styles.topLeft]} />
-                <View style={[styles.scannerCorner, styles.topRight]} />
-                <View style={[styles.scannerCorner, styles.bottomLeft]} />
-                <View style={[styles.scannerCorner, styles.bottomRight]} />
+        ) : (
+          instructions.map((instr) => (
+            <View key={instr.id} style={styles.pkgCard}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.pkgTracking}>{instr.tracking_internal}</Text>
+                <Text style={styles.pkgClient}>
+                  {instr.box_id} · {instr.client_name}
+                </Text>
+                <Text style={styles.pkgSubtext}>
+                  {instr.child_packages?.length || 0} paquetes contenidos · {Number(instr.weight || 0).toFixed(2)} kg
+                </Text>
+                {instr.pkg_length && instr.pkg_width && instr.pkg_height ? (
+                  <Text style={styles.pkgSubtext}>
+                    {instr.pkg_length}×{instr.pkg_width}×{instr.pkg_height} cm
+                  </Text>
+                ) : null}
+              </View>
+              <View style={styles.pkgBadge}>
+                <Ionicons name="albums" size={16} color={ORANGE} />
               </View>
             </View>
+          ))
+        )}
+      </ScrollView>
+
+      <TouchableOpacity style={styles.fab} onPress={openWizard} activeOpacity={0.85}>
+        <Ionicons name="qr-code-outline" size={20} color="#fff" />
+        <Text style={styles.fabText}>Procesar Reempaque</Text>
+      </TouchableOpacity>
+
+      {/* Wizard Modal */}
+      <Modal visible={wizardOpen} animationType="slide" presentationStyle="fullScreen" onRequestClose={closeWizard}>
+        <SafeAreaView style={styles.container} edges={['bottom']}>
+          <View style={[styles.modalHeader, { paddingTop: Math.max(insets.top, 14) + 4 }]}>
+            <TouchableOpacity onPress={closeWizard} style={styles.modalBackBtn} hitSlop={12}>
+              <Ionicons name="chevron-back" size={24} color="#fff" />
+              <Text style={styles.modalBackText}>Atrás</Text>
+            </TouchableOpacity>
+            <View style={{ flex: 1, alignItems: 'center' }}>
+              <Text style={styles.headerTitle}>Procesar Reempaque</Text>
+              <Text style={styles.headerSubtitle}>Paso {step + 1} de 3 · {STEPS[step]}</Text>
+            </View>
+            <View style={{ width: 70 }} />
           </View>
-          
-          <View style={styles.scannerFooter}>
-            <Ionicons name="barcode-outline" size={32} color={PURPLE} />
-            <Text style={styles.scannerHint}>
-              Apunta la cámara al código de barras del paquete
-            </Text>
+
+          {/* Stepper */}
+          <View style={styles.stepperRow}>
+            {STEPS.map((label, idx) => (
+              <View key={label} style={{ flex: 1, alignItems: 'center' }}>
+                <View
+                  style={[
+                    styles.stepCircle,
+                    idx === step && { backgroundColor: ORANGE },
+                    idx < step && { backgroundColor: '#4CAF50' },
+                  ]}
+                >
+                  <Text style={[styles.stepNum, (idx === step || idx < step) && { color: '#fff' }]}>
+                    {idx < step ? '✓' : idx + 1}
+                  </Text>
+                </View>
+                <Text style={[styles.stepLabel, idx === step && { color: ORANGE, fontWeight: '700' }]}>
+                  {label}
+                </Text>
+              </View>
+            ))}
           </View>
+
+          {step === 0 && (
+            <View style={{ flex: 1, padding: 16 }}>
+              {masterPackage && (
+                <View style={styles.masterCard}>
+                  <Text style={styles.masterLabel}>Reempaque detectado</Text>
+                  <Text style={styles.masterTracking}>{masterPackage.tracking_internal}</Text>
+                  <Text style={styles.masterClient}>
+                    {masterPackage.box_id} · {masterPackage.client_name}
+                  </Text>
+                  <Text style={styles.masterProgress}>
+                    {scannedPackages.length} / {masterPackage.child_packages?.length || 0} paquetes
+                  </Text>
+                </View>
+              )}
+
+              <View style={styles.scanRow}>
+                <TextInput
+                  ref={scanInputRef}
+                  style={styles.scanInput}
+                  placeholder="Escribe o pega guía..."
+                  placeholderTextColor="#999"
+                  value={scanInput}
+                  onChangeText={setScanInput}
+                  onSubmitEditing={handleManualSubmit}
+                  autoCapitalize="characters"
+                  autoFocus
+                  returnKeyType="done"
+                  blurOnSubmit={false}
+                />
+                <TouchableOpacity style={styles.scanIconBtn} onPress={openCameraScanner}>
+                  <Ionicons name="barcode-outline" size={22} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.scanIconBtn} onPress={handleManualSubmit}>
+                  <Ionicons name="add" size={22} color="#fff" />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView style={{ flex: 1, marginTop: 12 }}>
+                {scannedPackages.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <Ionicons name="qr-code-outline" size={48} color="#ccc" />
+                    <Text style={styles.emptyText}>
+                      Escanea la primera guía contenida{'\n'}para detectar el reempaque
+                    </Text>
+                  </View>
+                ) : (
+                  scannedPackages.map((p) => (
+                    <View key={p.tracking} style={styles.scannedItem}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.pkgTracking}>{p.tracking}</Text>
+                        <Text style={styles.pkgSubtext}>
+                          {p.weight.toFixed(2)} kg{p.description ? ` · ${p.description}` : ''}
+                        </Text>
+                      </View>
+                      <TouchableOpacity onPress={() => removeScanned(p.tracking)} hitSlop={10}>
+                        <Ionicons name="trash-outline" size={20} color="#D32F2F" />
+                      </TouchableOpacity>
+                    </View>
+                  ))
+                )}
+              </ScrollView>
+
+              <TouchableOpacity
+                style={[styles.primaryBtn, !masterPackage && styles.btnDisabled]}
+                disabled={!masterPackage}
+                onPress={goToPhotoStep}
+              >
+                <Text style={styles.primaryBtnText}>Continuar a Foto</Text>
+                <Ionicons name="arrow-forward" size={20} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {step === 1 && (
+            <View style={{ flex: 1, padding: 16, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="camera-outline" size={64} color={ORANGE} />
+              <Text style={styles.stepTitle}>Toma una foto del reempaque</Text>
+              <Text style={styles.stepHelp}>
+                La foto se asocia al master {masterPackage?.tracking_internal} para evidencia.
+              </Text>
+              <TouchableOpacity style={[styles.primaryBtn, { marginTop: 24, alignSelf: 'stretch' }]} onPress={openPhotoMode}>
+                <Ionicons name="camera" size={20} color="#fff" />
+                <Text style={styles.primaryBtnText}>Abrir Cámara</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.secondaryBtn, { marginTop: 10, alignSelf: 'stretch', alignItems: 'center' }]}
+                onPress={() => setStep(2)}
+              >
+                <Text style={styles.secondaryBtnText}>Omitir foto</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {step === 2 && masterPackage && (
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
+              <Text style={styles.stepTitle}>Confirmar Reempaque</Text>
+
+              <View style={styles.summaryCard}>
+                <Text style={styles.summaryLabel}>Master</Text>
+                <Text style={styles.summaryValue}>{masterPackage.tracking_internal}</Text>
+                <Text style={styles.summaryLabel}>Cliente</Text>
+                <Text style={styles.summaryValue}>
+                  {masterPackage.box_id} · {masterPackage.client_name}
+                </Text>
+                <Text style={styles.summaryLabel}>Paquetes contenidos</Text>
+                <Text style={styles.summaryValue}>{scannedPackages.length}</Text>
+                <Text style={styles.summaryLabel}>Peso total</Text>
+                <Text style={styles.summaryValue}>
+                  {scannedPackages.reduce((s, p) => s + p.weight, 0).toFixed(2)} kg
+                </Text>
+              </View>
+
+              {photoUri && (
+                <View style={{ marginTop: 12, alignItems: 'center' }}>
+                  <Image source={{ uri: photoUri }} style={styles.photoPreview} />
+                </View>
+              )}
+
+              <View style={{ marginTop: 16 }}>
+                <Text style={styles.summaryLabel}>Guías contenidas:</Text>
+                {scannedPackages.map((p) => (
+                  <Text key={p.tracking} style={styles.bullet}>
+                    • {p.tracking} ({p.weight.toFixed(2)} kg)
+                  </Text>
+                ))}
+              </View>
+
+              <TouchableOpacity
+                style={[styles.primaryBtn, processing && styles.btnDisabled]}
+                disabled={processing}
+                onPress={finalizeRepack}
+              >
+                {processing ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={20} color="#fff" />
+                    <Text style={styles.primaryBtnText}>Finalizar Reempaque</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          )}
         </SafeAreaView>
+      </Modal>
+
+      {/* Scanner cámara */}
+      <Modal visible={scannerOpen} animationType="slide" onRequestClose={() => setScannerOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <CameraView
+            style={{ flex: 1 }}
+            facing="back"
+            barcodeScannerSettings={{
+              barcodeTypes: ['qr', 'code128', 'code39', 'ean13', 'upc_a', 'upc_e'],
+            }}
+            onBarcodeScanned={handleBarcodeScanned}
+          />
+          <View style={styles.scannerOverlay}>
+            <Text style={styles.scannerHint}>Apunta al código de barras / QR</Text>
+            <TouchableOpacity
+              style={[styles.primaryBtn, { backgroundColor: '#fff' }]}
+              onPress={() => setScannerOpen(false)}
+            >
+              <Text style={[styles.primaryBtnText, { color: BLACK }]}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Foto cámara */}
+      <Modal visible={photoMode} animationType="slide" onRequestClose={() => setPhotoMode(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <CameraView ref={(r) => { cameraRef.current = r; }} style={{ flex: 1 }} facing="back" />
+          <View style={styles.scannerOverlay}>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity
+                style={[styles.primaryBtn, { backgroundColor: '#fff', flex: 1 }]}
+                onPress={() => setPhotoMode(false)}
+              >
+                <Text style={[styles.primaryBtnText, { color: BLACK }]}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }]} onPress={takePhoto}>
+                <Ionicons name="camera" size={20} color="#fff" />
+                <Text style={styles.primaryBtnText}>Capturar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
+  container: { flex: 1, backgroundColor: '#F5F5F5' },
   header: {
-    backgroundColor: PURPLE,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    backgroundColor: BLACK,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    gap: 10,
   },
-  headerContent: {
+  modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    backgroundColor: BLACK,
+    paddingHorizontal: 12,
+    paddingVertical: 14,
   },
-  headerTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  stepper: {
+  modalBackBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 20,
-    backgroundColor: '#fff',
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    width: 70,
   },
-  stepDot: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#fff',
-    borderWidth: 2,
-    borderColor: '#ddd',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepDotActive: {
-    backgroundColor: PURPLE,
-    borderColor: PURPLE,
-  },
-  stepNumber: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#999',
-  },
-  stepNumberActive: {
-    color: '#fff',
-  },
-  stepLine: {
-    width: 60,
-    height: 2,
-    backgroundColor: '#ddd',
-    marginHorizontal: 8,
-  },
-  stepLineActive: {
-    backgroundColor: PURPLE,
-  },
-  stepperLabels: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingBottom: 10,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  stepLabel: {
-    fontSize: 13,
-    color: '#999',
-  },
-  stepLabelActive: {
-    color: PURPLE,
-    fontWeight: '600',
-  },
-  stepContent: {
-    flex: 1,
-    padding: 16,
-  },
-  stepTitle: {
-    fontSize: 22,
+  modalBackText: { color: '#fff', fontSize: 15, fontWeight: '600', marginLeft: 2 },
+  headerTitle: { fontSize: 17, fontWeight: '800', color: '#fff' },
+  headerSubtitle: { fontSize: 12, color: '#fff', opacity: 0.7 },
+  statsRow: { flexDirection: 'row', padding: 12, gap: 10 },
+  statCard: { flex: 1, borderRadius: 12, padding: 14, alignItems: 'center' },
+  statNumber: { fontSize: 22, fontWeight: '800' },
+  statLabel: { fontSize: 11, color: '#444', marginTop: 4, textAlign: 'center' },
+  sectionTitle: {
+    fontSize: 14,
     fontWeight: '700',
     color: BLACK,
-    marginBottom: 4,
-  },
-  stepSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 20,
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    gap: 10,
-    marginBottom: 16,
-  },
-  searchInput: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 8,
     paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#ddd',
+    marginTop: 8,
+    marginBottom: 8,
   },
-  searchButton: {
-    backgroundColor: PURPLE,
-    width: 56,
+  pkgCard: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    marginHorizontal: 12,
+    marginBottom: 8,
+    borderRadius: 10,
+    padding: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: ORANGE,
+    alignItems: 'center',
+  },
+  pkgTracking: { fontSize: 14, fontWeight: '700', color: ORANGE },
+  pkgSubtext: { fontSize: 11, color: '#888', marginTop: 2 },
+  pkgClient: { fontSize: 12, color: '#444', marginTop: 4 },
+  pkgBadge: {
+    width: 36,
+    height: 36,
     borderRadius: 8,
+    backgroundColor: '#FFF3EE',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  counterCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
+  emptyState: { alignItems: 'center', padding: 40 },
+  emptyText: { fontSize: 13, color: '#999', marginTop: 10, textAlign: 'center' },
+  fab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 16,
+    backgroundColor: ORANGE,
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 20,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderRadius: 30,
+    gap: 8,
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
   },
-  counterItem: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  counterValue: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: PURPLE,
-  },
-  counterLabel: {
-    fontSize: 13,
-    color: '#666',
-    marginTop: 4,
-  },
-  counterDivider: {
-    width: 1,
-    height: 50,
-    backgroundColor: '#eee',
-    marginHorizontal: 20,
-  },
-  packagesList: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-  },
-  packagesTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-    marginBottom: 12,
-  },
-  packageItem: {
+  fabText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+
+  stepperRow: {
     flexDirection: 'row',
-    alignItems: 'center',
+    backgroundColor: '#fff',
     paddingVertical: 12,
+    paddingHorizontal: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: '#EEE',
   },
-  packageNumber: {
+  stepCircle: {
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: PURPLE,
+    backgroundColor: '#E0E0E0',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 12,
+    marginBottom: 4,
   },
-  packageNumberText: {
-    color: '#fff',
-    fontWeight: '700',
-    fontSize: 14,
+  stepNum: { fontSize: 13, fontWeight: '700', color: '#666' },
+  stepLabel: { fontSize: 11, color: '#666' },
+  stepTitle: { fontSize: 17, fontWeight: '800', color: BLACK, marginTop: 14, textAlign: 'center' },
+  stepHelp: { fontSize: 13, color: '#666', textAlign: 'center', marginTop: 6 },
+
+  masterCard: {
+    backgroundColor: '#FFF3EE',
+    borderRadius: 12,
+    padding: 14,
+    borderLeftWidth: 4,
+    borderLeftColor: ORANGE,
+    marginBottom: 12,
   },
-  packageInfo: {
+  masterLabel: { fontSize: 10, fontWeight: '700', color: ORANGE, textTransform: 'uppercase' },
+  masterTracking: { fontSize: 16, fontWeight: '800', color: BLACK, marginTop: 2 },
+  masterClient: { fontSize: 12, color: '#666', marginTop: 4 },
+  masterProgress: { fontSize: 13, fontWeight: '700', color: ORANGE, marginTop: 6 },
+
+  scanRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  scanInput: {
     flex: 1,
-  },
-  packageTracking: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     fontSize: 14,
-    fontWeight: '600',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
     color: BLACK,
   },
-  packageUser: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
-  },
-  packageWeight: {
-    fontSize: 12,
-    color: '#999',
-    marginTop: 2,
-  },
-  emptyState: {
+  scanIconBtn: {
+    backgroundColor: ORANGE,
+    width: 46,
+    height: 46,
+    borderRadius: 10,
     alignItems: 'center',
-    paddingVertical: 60,
+    justifyContent: 'center',
   },
-  emptyText: {
-    fontSize: 16,
-    color: '#999',
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  emptyHint: {
-    fontSize: 13,
-    color: '#ccc',
-    marginTop: 8,
-  },
-  formGroup: {
-    marginBottom: 20,
-  },
-  inputLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#333',
+  scannedItem: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 10,
     marginBottom: 8,
+    alignItems: 'center',
+    borderLeftWidth: 4,
+    borderLeftColor: '#4CAF50',
   },
-  input: {
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  inputHint: {
-    fontSize: 12,
-    color: '#999',
-    marginTop: 4,
-  },
-  inputWithUnit: {
+  primaryBtn: {
+    backgroundColor: ORANGE,
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    paddingHorizontal: 16,
-  },
-  inputLarge: {
-    flex: 1,
-    fontSize: 24,
-    fontWeight: '600',
-    paddingVertical: 14,
-    textAlign: 'center',
-    color: BLACK,
-  },
-  unitLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#666',
-    marginLeft: 8,
-  },
-  dimensionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 14,
+    borderRadius: 10,
     gap: 8,
+    marginTop: 12,
   },
-  dimensionInput: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    paddingHorizontal: 12,
+  primaryBtnText: { color: '#fff', fontWeight: '800', fontSize: 14 },
+  btnDisabled: { opacity: 0.4 },
+  secondaryBtn: {
+    paddingHorizontal: 18,
     paddingVertical: 14,
-    fontSize: 16,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#ddd',
-    textAlign: 'center',
+    borderColor: '#CCC',
   },
-  dimensionX: {
-    fontSize: 18,
-    color: '#999',
-    fontWeight: '600',
-  },
-  textArea: {
-    height: 80,
-    textAlignVertical: 'top',
-  },
-  fotoButton: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: PURPLE,
-    borderStyle: 'dashed',
-    padding: 30,
-    alignItems: 'center',
-  },
-  fotoButtonText: {
-    marginTop: 8,
-    color: PURPLE,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  fotoPreview: {
-    position: 'relative',
-  },
-  fotoImage: {
-    width: '100%',
-    height: 180,
-    borderRadius: 12,
-  },
-  fotoRemove: {
-    position: 'absolute',
-    top: 8,
-    right: 8,
-  },
-  visualRepack: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 30,
-    marginBottom: 20,
-    gap: 20,
-  },
-  visualOriginal: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    width: 80,
-    gap: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  miniBox: {
-    width: 24,
-    height: 24,
-    borderRadius: 4,
-    backgroundColor: '#e0e0e0',
-  },
-  moreBoxes: {
-    fontSize: 12,
-    color: '#999',
-  },
-  visualNew: {
-    width: 80,
-    height: 80,
-    borderRadius: 12,
-    backgroundColor: '#f3e5f5',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  secondaryBtnText: { color: '#666', fontWeight: '700' },
+
   summaryCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 20,
+    marginTop: 12,
   },
-  summaryTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: BLACK,
-    marginBottom: 16,
-  },
-  summarySection: {
-    marginBottom: 16,
-    paddingBottom: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  summarySectionTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: PURPLE,
-    marginBottom: 8,
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-  },
-  summaryLabel: {
-    fontSize: 14,
-    color: '#666',
-  },
-  summaryValue: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: BLACK,
-  },
-  containedGuias: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-  },
-  containedTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#666',
-    marginBottom: 8,
-  },
-  containedGuia: {
-    fontSize: 13,
-    color: BLACK,
-    paddingVertical: 4,
-  },
-  footer: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderTopWidth: 1,
-    borderTopColor: '#eee',
-  },
-  footerButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  backButton: {
-    flex: 1,
-    paddingVertical: 14,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    alignItems: 'center',
-  },
-  backButtonText: {
-    color: '#666',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  nextButton: {
-    flex: 1,
-    backgroundColor: PURPLE,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 8,
-    gap: 8,
-  },
-  nextButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  processButton: {
-    flex: 2,
-    backgroundColor: '#4CAF50',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 14,
-    borderRadius: 8,
-    gap: 8,
-  },
-  processButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  // Scanner styles
-  scanButton: {
-    backgroundColor: PURPLE,
-    width: 50,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  scannerContainer: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  scannerHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    backgroundColor: PURPLE,
-  },
-  scannerTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  scannerArea: {
-    flex: 1,
-    position: 'relative',
-  },
-  camera: {
-    flex: 1,
-  },
+  summaryLabel: { fontSize: 11, color: '#999', textTransform: 'uppercase', marginTop: 8 },
+  summaryValue: { fontSize: 14, fontWeight: '700', color: BLACK, marginTop: 2 },
+  bullet: { fontSize: 13, color: '#444', marginTop: 4 },
+  photoPreview: { width: 220, height: 220, borderRadius: 12 },
+
   scannerOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  scannerFrame: {
-    width: 280,
-    height: 180,
-    position: 'relative',
-  },
-  scannerCorner: {
     position: 'absolute',
-    width: 30,
-    height: 30,
-    borderColor: PURPLE,
-  },
-  topLeft: {
-    top: 0,
-    left: 0,
-    borderTopWidth: 4,
-    borderLeftWidth: 4,
-    borderTopLeftRadius: 8,
-  },
-  topRight: {
-    top: 0,
-    right: 0,
-    borderTopWidth: 4,
-    borderRightWidth: 4,
-    borderTopRightRadius: 8,
-  },
-  bottomLeft: {
-    bottom: 0,
-    left: 0,
-    borderBottomWidth: 4,
-    borderLeftWidth: 4,
-    borderBottomLeftRadius: 8,
-  },
-  bottomRight: {
-    bottom: 0,
-    right: 0,
-    borderBottomWidth: 4,
-    borderRightWidth: 4,
-    borderBottomRightRadius: 8,
-  },
-  scannerFooter: {
-    padding: 24,
+    bottom: 30,
+    left: 20,
+    right: 20,
     alignItems: 'center',
-    backgroundColor: '#fff',
+    gap: 14,
   },
   scannerHint: {
-    marginTop: 8,
-    fontSize: 16,
-    color: '#666',
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
     textAlign: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
   },
 });

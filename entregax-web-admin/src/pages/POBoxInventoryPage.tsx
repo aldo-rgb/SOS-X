@@ -92,7 +92,7 @@ export default function POBoxInventoryPage({ onBack }: Props) {
             const token = localStorage.getItem('token') || '';
             const params = new URLSearchParams();
             params.append('limit', '1000');
-            const res = await axios.get(`${API_URL}/packages?${params.toString()}`, {
+            const res = await axios.get(`${API_URL}/api/packages?${params.toString()}`, {
                 headers: { Authorization: `Bearer ${token}` },
             });
             setPackages(res.data.packages || []);

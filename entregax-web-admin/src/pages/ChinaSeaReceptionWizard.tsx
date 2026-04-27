@@ -123,8 +123,12 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             const res = await api.get('/admin/china-sea/containers/in-transit');
             const all: Container[] = res.data.containers || [];
             const filtered = all.filter((c) => {
-                const t = (c.type || 'LCL').toUpperCase();
-                return mode === 'FCL' ? t === 'FCL' : t !== 'FCL';
+                const week = (c.week_number || '').toString().trim();
+                const hasWeek = /week/i.test(week);
+                // Regla del negocio:
+                //  - LCL (consolidado): tiene week_number "Week X-Y"
+                //  - FCL (1 solo cliente): NO tiene week_number
+                return mode === 'FCL' ? !hasWeek : hasWeek;
             });
             setContainers(filtered);
         } catch (e) {
@@ -220,7 +224,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 <IconButton onClick={onBack} size="small"><ArrowBackIcon /></IconButton>
                 <BoatIcon sx={{ color: TEAL }} />
                 <Typography variant="h5" sx={{ fontWeight: 700, color: TEAL, flex: 1 }}>
-                    {mode === 'FCL' ? 'Recibir Full Container' : 'Recibir Contenedor'} · TDI Marítimo China
+                    {mode === 'FCL' ? 'Actualizar Status Full Conteiner' : 'Recibir Contenedor'} · TDI Marítimo China
                 </Typography>
                 {step === 0 && <IconButton onClick={loadContainers} size="small"><RefreshIcon /></IconButton>}
             </Stack>
