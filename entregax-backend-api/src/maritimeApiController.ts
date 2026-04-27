@@ -1526,10 +1526,10 @@ export const deleteMaritimeRoute = async (req: Request, res: Response): Promise<
 export const updateDeliveryInstructions = async (req: Request, res: Response) => {
     try {
         const { id } = req.params; // ID de la orden marítima
-        const { deliveryAddressId, deliveryInstructions } = req.body;
+        const { deliveryAddressId, deliveryInstructions, carrier, carrierCost, carrierName } = req.body;
         const userId = (req as any).user.userId; // CORREGIDO: usar userId del token
 
-        console.log(`🚢 [Instrucciones Entrega] Usuario ${userId} actualizando orden ${id}`);
+        console.log(`🚢 [Instrucciones Entrega] Usuario ${userId} actualizando orden ${id} - carrier=${carrier} cost=${carrierCost}`);
 
         // Obtener el box_id del usuario actual
         const userResult = await pool.query(`SELECT box_id FROM users WHERE id = $1`, [userId]);
@@ -1619,17 +1619,20 @@ export const updateDeliveryInstructions = async (req: Request, res: Response) =>
         }
 
         // Actualizar la orden
+        const shippingCostNum = carrierCost != null ? parseFloat(carrierCost) || 0 : null;
         const updateResult = await pool.query(`
             UPDATE maritime_orders
             SET 
                 delivery_address_id = $1,
                 delivery_instructions = $2,
                 estimated_cost = $3,
+                national_carrier = COALESCE($4, national_carrier),
+                national_shipping_cost = COALESCE($5, national_shipping_cost),
                 instructions_assigned_at = NOW(),
                 updated_at = NOW()
-            WHERE id = $4
+            WHERE id = $6
             RETURNING *
-        `, [deliveryAddressId, deliveryInstructions || null, estimatedCost, id]);
+        `, [deliveryAddressId, deliveryInstructions || null, estimatedCost, carrier || null, shippingCostNum, id]);
 
         console.log(`✅ [Instrucciones Entrega] Orden ${order.ordersn} actualizada`);
 
@@ -1653,7 +1656,12 @@ export const updateDeliveryInstructions = async (req: Request, res: Response) =>
 export const getMyMaritimeOrderDetail = async (req: Request, res: Response) => {
     try {
         const { id } = req.params;
-        const userId = (req as any).user.userId; // CORREGIDO: usar userId del token
+        const userId = (req as any).user.userId;
+
+        // Obtener box_id del usuario para fallback por shipping_mark / bl_client_code
+        const userResult = await pool.query(`SELECT box_id FROM users WHERE id = $1`, [userId]);
+        const userBoxId: string | null = userResult.rows[0]?.box_id || null;
+        const upperBox = userBoxId ? userBoxId.toUpperCase() : null;
 
         const result = await pool.query(`
             SELECT 
@@ -1667,8 +1675,13 @@ export const getMyMaritimeOrderDetail = async (req: Request, res: Response) => {
             FROM maritime_orders mo
             LEFT JOIN addresses a ON mo.delivery_address_id = a.id
             LEFT JOIN containers c ON mo.container_id = c.id
-            WHERE mo.id = $1 AND mo.user_id = $2
-        `, [id, userId]);
+            WHERE mo.id = $1
+              AND (
+                mo.user_id = $2
+                OR ($3::text IS NOT NULL AND UPPER(SPLIT_PART(COALESCE(mo.shipping_mark, ''), '+', 1)) = $3::text)
+                OR ($3::text IS NOT NULL AND UPPER(COALESCE(mo.bl_client_code, '')) = $3::text)
+              )
+        `, [id, userId, upperBox]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ 

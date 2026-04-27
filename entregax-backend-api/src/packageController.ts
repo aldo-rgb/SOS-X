@@ -1883,6 +1883,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             // Paquetería asignada y costos
             national_shipping_cost: pkg.national_shipping_cost ? parseFloat(pkg.national_shipping_cost) : 0,
             assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
+            estimated_cost: pkg.estimated_cost ? parseFloat(pkg.estimated_cost) : 0,
             saldo_pendiente: pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0,
             monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0
         }));
