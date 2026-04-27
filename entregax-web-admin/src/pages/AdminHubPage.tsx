@@ -210,14 +210,6 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
     ],
 };
 
-const SERVICE_TAGS: Record<string, string[]> = {
-    china_air: ['TDI', 'Air', 'China'],
-    china_sea: ['Maritime', 'FCL/LCL', 'China'],
-    usa_pobox: ['PO Box', 'Miami', 'USA'],
-    mx_cedis: ['DHL', 'AA', 'MTY'],
-    mx_national: ['National', 'Last Mile', 'MX'],
-};
-
 interface Props {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     users?: any[];
