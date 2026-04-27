@@ -858,6 +858,23 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         const trackingUpper = tracking.toUpperCase().trim();
         const trackingCompact = trackingUpper.replace(/[^A-Z0-9]/g, '');
 
+        const cityCodeFor = (city?: string | null, state?: string | null): string | null => {
+            const c = (city || '').toLowerCase();
+            const s = (state || '').toLowerCase();
+            if (!c && !s) return null;
+            if (s.includes('nuevo le') || /monterrey|guadalupe|san pedro|san nicol|apodaca|santa catarina|garc[ií]a|escobedo|ju[aá]rez/.test(c)) return 'MTY';
+            if (s.includes('ciudad de m') || s === 'cdmx' || /ciudad de m[eé]xico|cdmx|m[eé]xico d\.?f\.?/.test(c)) return 'CDMX';
+            if (s.includes('jalisco') || /guadalajara|zapopan|tlaquepaque|tonal[aá]/.test(c)) return 'GDL';
+            if (/quer[eé]taro/.test(c) || /quer[eé]taro/.test(s)) return 'QRO';
+            if (/puebla/.test(c)) return 'PUE';
+            if (/le[oó]n/.test(c)) return 'LEO';
+            if (/tijuana/.test(c)) return 'TIJ';
+            if (/canc[uú]n/.test(c)) return 'CUN';
+            if (/m[eé]rida/.test(c)) return 'MID';
+            const clean = (city || state || '').replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]/g, '').toUpperCase();
+            return clean.slice(0, 3) || null;
+        };
+
         const result = await pool.query(`
             SELECT p.*, u.full_name, u.email, u.box_id as user_box_id,
                    lc.full_name as legacy_name, lc.box_id as legacy_box_id,
@@ -877,7 +894,155 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_provider, '')), '[^A-Z0-9]', '', 'g') = $2
         `, [trackingUpper, trackingCompact]);
 
-        if (result.rows.length === 0) { res.status(404).json({ error: 'No encontrado' }); return; }
+        if (result.rows.length === 0) {
+            const fallbackQueries = [
+                {
+                    kind: 'maritime_order',
+                    sql: `
+                        SELECT mo.id, mo.ordersn as tracking_number, mo.shipping_mark as description,
+                               mo.weight, mo.volume as cbm, mo.status, mo.created_at, mo.delivery_address_id,
+                               COALESCE(mo.summary_boxes, mo.goods_num, 1) as total_boxes,
+                               u.id as user_id, u.full_name, u.email, u.box_id as user_box_id,
+                               a.alias as addr_alias, a.recipient_name as addr_recipient, a.street as addr_street,
+                               a.exterior_number as addr_ext, a.interior_number as addr_int,
+                               a.neighborhood as addr_neighborhood, a.city as addr_city,
+                               a.state as addr_state, a.zip_code as addr_zip,
+                               a.phone as addr_phone, a.reference as addr_reference,
+                               a.carrier_config as addr_carrier_config
+                        FROM maritime_orders mo
+                        LEFT JOIN users u ON mo.user_id = u.id
+                        LEFT JOIN addresses a ON mo.delivery_address_id = a.id
+                        WHERE UPPER(COALESCE(mo.ordersn, '')) = $1
+                           OR REGEXP_REPLACE(UPPER(COALESCE(mo.ordersn, '')), '[^A-Z0-9]', '', 'g') = $2
+                        LIMIT 1
+                    `,
+                },
+                {
+                    kind: 'maritime',
+                    sql: `
+                        SELECT ms.id, ms.log_number as tracking_number, 'Embarque Marítimo' as description,
+                               ms.weight_kg as weight, ms.volume_cbm as cbm, ms.status, ms.created_at,
+                               COALESCE(ms.box_count, 1) as total_boxes,
+                               u.id as user_id, u.full_name, u.email, u.box_id as user_box_id
+                        FROM maritime_shipments ms
+                        LEFT JOIN users u ON ms.user_id = u.id
+                        WHERE UPPER(COALESCE(ms.log_number, '')) = $1
+                           OR REGEXP_REPLACE(UPPER(COALESCE(ms.log_number, '')), '[^A-Z0-9]', '', 'g') = $2
+                        LIMIT 1
+                    `,
+                },
+                {
+                    kind: 'national',
+                    sql: `
+                        SELECT ns.id, ns.tracking_number, ns.destination_name as description,
+                               ns.weight, ns.status, ns.created_at,
+                               1 as total_boxes,
+                               u.id as user_id, u.full_name, u.email, u.box_id as user_box_id
+                        FROM national_shipments ns
+                        LEFT JOIN users u ON ns.user_id = u.id
+                        WHERE UPPER(COALESCE(ns.tracking_number, '')) = $1
+                           OR REGEXP_REPLACE(UPPER(COALESCE(ns.tracking_number, '')), '[^A-Z0-9]', '', 'g') = $2
+                        LIMIT 1
+                    `,
+                },
+            ] as const;
+
+            let fallbackRow: any = null;
+            let fallbackKind: 'maritime_order' | 'maritime' | 'national' | null = null;
+
+            for (const q of fallbackQueries) {
+                const fallbackResult = await pool.query(q.sql, [trackingUpper, trackingCompact]);
+                if (fallbackResult.rows.length > 0) {
+                    fallbackRow = fallbackResult.rows[0];
+                    fallbackKind = q.kind;
+                    break;
+                }
+            }
+
+            if (!fallbackRow || !fallbackKind) { res.status(404).json({ error: 'No encontrado' }); return; }
+
+            const resolvedName = fallbackRow.full_name || 'SIN CLIENTE';
+            const resolvedBoxId = fallbackRow.user_box_id || 'N/A';
+            const destinationCode = cityCodeFor(fallbackRow.addr_city, fallbackRow.addr_state);
+            const destCityFull = fallbackRow.addr_city || null;
+            const destCountry = fallbackRow.addr_state ? 'México' : null;
+            const numericWeight = fallbackRow.weight ? parseFloat(fallbackRow.weight) : null;
+            const totalBoxes = Math.max(1, parseInt(String(fallbackRow.total_boxes || 1), 10) || 1);
+
+            const label = {
+                boxNumber: 1,
+                totalBoxes,
+                tracking: fallbackRow.tracking_number,
+                labelCode: fallbackRow.tracking_number,
+                isMaster: false,
+                weight: numericWeight,
+                dimensions: undefined,
+                clientName: resolvedName,
+                clientBoxId: resolvedBoxId,
+                description: fallbackRow.description || undefined,
+                destinationCity: destCityFull,
+                destinationCountry: destCountry,
+                destinationCode,
+                carrier: fallbackKind === 'national' ? 'Nacional' : fallbackKind === 'maritime' ? 'Marítimo China' : 'Marítimo China',
+                receivedAt: fallbackRow.created_at,
+            };
+
+            res.json({
+                success: true,
+                shipment: {
+                    master: {
+                        id: fallbackRow.id,
+                        tracking: fallbackRow.tracking_number,
+                        trackingProvider: null,
+                        trackingCourier: null,
+                        description: fallbackRow.description || null,
+                        weight: numericWeight,
+                        declaredValue: null,
+                        isMaster: false,
+                        totalBoxes,
+                        status: fallbackRow.status,
+                        statusLabel: getStatusLabel(fallbackRow.status) || fallbackRow.status || 'Pendiente',
+                        receivedAt: fallbackRow.created_at,
+                        deliveredAt: null,
+                        destinationCity: destCityFull,
+                        destinationCountry: destCountry,
+                        destinationCode,
+                        nationalCarrier: null,
+                        nationalTracking: null,
+                        nationalLabelUrl: null,
+                        paymentStatus: null,
+                        clientPaid: false,
+                        clientPaidAt: null,
+                        totalCost: null,
+                        poboxCostUsd: null,
+                        assignedAddress: fallbackRow.delivery_address_id ? {
+                            id: fallbackRow.delivery_address_id,
+                            alias: fallbackRow.addr_alias,
+                            recipientName: fallbackRow.addr_recipient,
+                            street: fallbackRow.addr_street,
+                            exterior: fallbackRow.addr_ext,
+                            interior: fallbackRow.addr_int,
+                            neighborhood: fallbackRow.addr_neighborhood,
+                            city: fallbackRow.addr_city,
+                            state: fallbackRow.addr_state,
+                            zip: fallbackRow.addr_zip,
+                            phone: fallbackRow.addr_phone,
+                            reference: fallbackRow.addr_reference,
+                            carrierConfig: fallbackRow.addr_carrier_config,
+                        } : null,
+                    },
+                    children: [],
+                    labels: [label],
+                    client: {
+                        id: fallbackRow.user_id || 0,
+                        name: resolvedName,
+                        email: fallbackRow.email || '',
+                        boxId: resolvedBoxId,
+                    },
+                },
+            });
+            return;
+        }
 
         const pkg = result.rows[0];
         let children: any[] = [];
@@ -890,25 +1055,6 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         const labels = [];
         const resolvedName = pkg.full_name || pkg.legacy_name || 'SIN CLIENTE';
         const resolvedBoxId = pkg.user_box_id || pkg.legacy_box_id || pkg.box_id || 'PENDIENTE';
-
-        // Derivar código corto de ciudad destino (MTY/CDMX/GDL/...) desde la dirección asignada
-        const cityCodeFor = (city?: string | null, state?: string | null): string | null => {
-            const c = (city || '').toLowerCase();
-            const s = (state || '').toLowerCase();
-            if (!c && !s) return null;
-            if (s.includes('nuevo le') || /monterrey|guadalupe|san pedro|san nicol|apodaca|santa catarina|garc[ií]a|escobedo|ju[aá]rez/.test(c)) return 'MTY';
-            if (s.includes('ciudad de m') || s === 'cdmx' || /ciudad de m[eé]xico|cdmx|m[eé]xico d\.?f\.?/.test(c)) return 'CDMX';
-            if (s.includes('jalisco') || /guadalajara|zapopan|tlaquepaque|tonal[aá]/.test(c)) return 'GDL';
-            if (/quer[eé]taro/.test(c) || /quer[eé]taro/.test(s)) return 'QRO';
-            if (/puebla/.test(c)) return 'PUE';
-            if (/le[oó]n/.test(c)) return 'LEO';
-            if (/tijuana/.test(c)) return 'TIJ';
-            if (/canc[uú]n/.test(c)) return 'CUN';
-            if (/m[eé]rida/.test(c)) return 'MID';
-            // fallback: primeras 3 letras de la ciudad
-            const clean = (city || state || '').replace(/[^A-Za-zÁÉÍÓÚÑáéíóúñ]/g, '').toUpperCase();
-            return clean.slice(0, 3) || null;
-        };
 
         const destinationCode = cityCodeFor(pkg.addr_city, pkg.addr_state);
         const destCityFull = pkg.addr_city || pkg.destination_city || null;
@@ -1708,6 +1854,9 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             status: pkg.status,
             statusLabel: getMaritimeStatusLabel(pkg.status),
             carrier: 'Marítimo China',
+            national_carrier: pkg.national_carrier || null,
+            national_tracking: pkg.national_tracking || null,
+            national_label_url: pkg.national_label_url || null,
             destination_city: 'CEDIS MTY',
             destination_country: 'MX',
             image_url: null,
@@ -1730,7 +1879,12 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             // Instrucciones de entrega
             delivery_address_id: pkg.delivery_address_id || null,
             delivery_instructions: pkg.delivery_instructions || null,
-            instructions_assigned_at: pkg.instructions_assigned_at || null
+            instructions_assigned_at: pkg.instructions_assigned_at || null,
+            // Paquetería asignada y costos
+            national_shipping_cost: pkg.national_shipping_cost ? parseFloat(pkg.national_shipping_cost) : 0,
+            assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
+            saldo_pendiente: pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0,
+            monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0
         }));
 
         // 3. Paquetes TDI AÉREO China (china_receipts) - Buscar por user_id O por shipping_mark
@@ -1754,6 +1908,9 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             status: pkg.status,
             statusLabel: getChinaAirStatusLabel(pkg.status),
             carrier: 'Aéreo China',
+            national_carrier: pkg.national_carrier || null,
+            national_tracking: pkg.national_tracking || null,
+            national_label_url: pkg.national_label_url || null,
             destination_city: 'CEDIS MTY',
             destination_country: 'MX',
             image_url: pkg.evidence_urls && pkg.evidence_urls.length > 0 ? pkg.evidence_urls[0] : null,
@@ -1770,7 +1927,12 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             shipping_mark: pkg.shipping_mark,
             // 🛡️ GEX - Garantía Extendida
             has_gex: pkg.has_gex || false,
-            gex_folio: pkg.gex_folio || null
+            gex_folio: pkg.gex_folio || null,
+            // Paquetería asignada y costos
+            national_shipping_cost: pkg.national_shipping_cost ? parseFloat(pkg.national_shipping_cost) : 0,
+            assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
+            saldo_pendiente: pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0,
+            monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0
         }));
 
         // 4. Paquetes DHL (dhl_shipments)
@@ -1810,6 +1972,9 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 status: pkg.status,
                 statusLabel: getDhlStatusLabel(pkg.status),
                 carrier: pkg.national_carrier || 'DHL Express',
+                national_carrier: pkg.national_carrier || null,
+                national_tracking: pkg.national_tracking || null,
+                national_label_url: pkg.national_label_url || null,
                 destination_city: 'MTY',
                 destination_country: 'MX',
                 image_url: pkg.photos && pkg.photos.length > 0 ? pkg.photos[0] : null,
@@ -1828,6 +1993,11 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 national_cost_mxn: pkg.national_cost_mxn ? parseFloat(pkg.national_cost_mxn) : null,
                 total_cost_mxn: pkg.total_cost_mxn ? parseFloat(pkg.total_cost_mxn) : null,
                 paid_at: pkg.paid_at,
+                // Costos para módulo cliente
+                national_shipping_cost: pkg.national_cost_mxn ? parseFloat(pkg.national_cost_mxn) : 0,
+                assigned_cost_mxn: pkg.total_cost_mxn ? parseFloat(pkg.total_cost_mxn) : 0,
+                saldo_pendiente: pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0,
+                monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
                 // GEX
                 has_gex: pkg.has_gex || false,
                 gex_folio: pkg.gex_folio || null

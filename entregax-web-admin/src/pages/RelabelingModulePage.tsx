@@ -243,12 +243,6 @@ export default function RelabelingModulePage() {
         }
     };
 
-    const handlePrintExistingPqtxLabel = () => {
-        if (!shipment?.master.nationalTracking) return;
-        const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');
-        window.open(`${baseUrl}/admin/paquete-express/label/pdf/${shipment.master.nationalTracking}`, '_blank');
-    };
-
     const handlePrintLocalDelivery = () => {
         if (!shipment?.master.assignedAddress) return;
         const a = shipment.master.assignedAddress;
@@ -440,7 +434,6 @@ export default function RelabelingModulePage() {
   .qr-box .qr-label { font-size: 8px; color: #666; margin-top: 2px; }
   .box-count { text-align: right; font-size: 11px; font-weight: 700; }
   .box-count .big { font-size: 20px; }
-  .desc { font-size: 9px; color: #444; border: 1px dashed #999; padding: 2px 4px; margin: 2px 0; }
   .dest-banner { display: flex; align-items: center; justify-content: center; gap: 8px; border: 3px solid #000; padding: 6px 8px; margin: 4px 0; background: #FFF3E0; }
   .dest-banner .code { font-size: 44px; font-weight: 900; color: #C1272D; line-height: 1; font-family: 'Arial Black', sans-serif; letter-spacing: 2px; }
   .dest-banner .meta { text-align: left; }
@@ -478,8 +471,6 @@ export default function RelabelingModulePage() {
     ${label.carrier ? `<div><span class="label">Carrier:</span> ${label.carrier}</div>` : ''}
     ${recvDate ? `<div><span class="label">Recibido:</span> ${recvDate}</div>` : ''}
   </div>
-
-  ${label.description ? `<div class="desc"><strong>Desc:</strong> ${label.description}</div>` : ''}
 
   <div class="qr-footer">
     <div class="qr-box">

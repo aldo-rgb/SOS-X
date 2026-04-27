@@ -3,15 +3,16 @@
 // Pantalla de detalles de embarque marítimo
 // ============================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
-  Image,
   Dimensions,
   ActivityIndicator,
+  Modal,
+  TouchableOpacity,
 } from 'react-native';
 import {
   Appbar,
@@ -21,6 +22,7 @@ import {
   Chip,
 } from 'react-native-paper';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { API_URL, Package } from '../services/api';
 
@@ -54,31 +56,83 @@ interface Address {
 export default function MaritimeDetailScreen({ navigation, route }: Props) {
   const { package: pkg, user, token } = route.params;
   const [loading, setLoading] = useState(true);
+  const [currentPkg, setCurrentPkg] = useState<any>(pkg as any);
   const [address, setAddress] = useState<Address | null>(null);
+  const [movementsOpen, setMovementsOpen] = useState(false);
+  const [movementsLoading, setMovementsLoading] = useState(false);
+  const [movementsError, setMovementsError] = useState<string | null>(null);
+  const [movements, setMovements] = useState<any[]>([]);
 
-  // Obtener la dirección asignada
-  useEffect(() => {
-    const fetchAddress = async () => {
-      if ((pkg as any).delivery_address_id) {
-        try {
-          const response = await fetch(`${API_URL}/api/addresses`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          const data = await response.json();
-          if (response.ok) {
-            const addrs = data.addresses || data || [];
-            const found = addrs.find((a: Address) => a.id === (pkg as any).delivery_address_id);
-            setAddress(found || null);
+  const normalizeMaritimeId = (id: number) => (id >= 100000 ? id - 100000 : id);
+
+  const refreshDetail = useCallback(async () => {
+    setLoading(true);
+    try {
+      const maritimeId = normalizeMaritimeId((pkg as any).id || 0);
+      let mergedPkg: any = { ...(pkg as any) };
+
+      if (maritimeId > 0) {
+        const detailRes = await fetch(`${API_URL}/api/maritime-api/my-orders/${maritimeId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (detailRes.ok) {
+          const detailData = await detailRes.json();
+          const order = detailData?.order;
+          if (order) {
+            mergedPkg = {
+              ...(pkg as any),
+              id: maritimeId + 100000,
+              tracking_internal: order.ordersn || (pkg as any).tracking_internal,
+              description: order.goods_name || (pkg as any).description || 'Envío Marítimo',
+              status: order.status || (pkg as any).status,
+              weight: order.weight != null ? parseFloat(order.weight) : (pkg as any).weight,
+              volume: order.volume != null ? parseFloat(order.volume) : (pkg as any).volume,
+              total_boxes: order.summary_boxes || order.goods_num || (pkg as any).total_boxes || 1,
+              container_number: order.container_name || order.container_number || (pkg as any).container_number,
+              bl_number: order.bl_number || (pkg as any).bl_number,
+              delivery_address_id: order.delivery_address_id || null,
+              delivery_instructions: order.delivery_instructions || null,
+              national_carrier: order.national_carrier || null,
+              national_shipping_cost: order.national_shipping_cost != null ? parseFloat(order.national_shipping_cost) : (pkg as any).national_shipping_cost,
+              assigned_cost_mxn: order.assigned_cost_mxn != null ? parseFloat(order.assigned_cost_mxn) : (pkg as any).assigned_cost_mxn,
+              saldo_pendiente: order.saldo_pendiente != null ? parseFloat(order.saldo_pendiente) : (pkg as any).saldo_pendiente,
+              monto_pagado: order.monto_pagado != null ? parseFloat(order.monto_pagado) : (pkg as any).monto_pagado,
+              estimated_cost: order.estimated_cost != null ? parseFloat(order.estimated_cost) : (pkg as any).estimated_cost,
+            };
           }
-        } catch (error) {
-          console.error('Error fetching address:', error);
         }
       }
-      setLoading(false);
-    };
 
-    fetchAddress();
+      setCurrentPkg(mergedPkg);
+
+      if (mergedPkg?.delivery_address_id) {
+        const response = await fetch(`${API_URL}/api/addresses`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await response.json();
+        if (response.ok) {
+          const addrs = data.addresses || data || [];
+          const found = addrs.find((a: Address) => a.id === mergedPkg.delivery_address_id);
+          setAddress(found || null);
+        } else {
+          setAddress(null);
+        }
+      } else {
+        setAddress(null);
+      }
+    } catch (error) {
+      console.error('Error refreshing maritime detail:', error);
+    } finally {
+      setLoading(false);
+    }
   }, [pkg, token]);
+
+  useFocusEffect(
+    useCallback(() => {
+      refreshDetail();
+    }, [refreshDetail])
+  );
 
   const getStatusInfo = (status: string) => {
     switch (status) {
@@ -97,14 +151,66 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
     }
   };
 
-  const statusInfo = getStatusInfo(pkg.status);
+  const statusInfo = getStatusInfo(currentPkg.status);
+
+  const rawCarrierId = String(currentPkg?.national_carrier || '').trim();
+  const CARRIER_NAMES: Record<string, string> = {
+    'paquete_express': 'Paquete Express',
+    'entregax_local': 'Entregax Local',
+    'entregax_local_cdmx': 'Entregax Local CDMX',
+    'fedex': 'FedEx',
+    'estafeta': 'Estafeta',
+    'dhl': 'DHL',
+    'ups': 'UPS',
+    'pickup_hidalgo': 'Recoger en Sucursal',
+  };
+  const assignedCarrier = rawCarrierId ? (CARRIER_NAMES[rawCarrierId] || rawCarrierId) : '';
+
+  const shippingCost = Number((currentPkg as any)?.national_shipping_cost || 0);
+  const assignedCost = Number((currentPkg as any)?.assigned_cost_mxn || 0);
+  const estimatedCost = Number((currentPkg as any)?.estimated_cost || 0);
+  const paidAmount = Number((currentPkg as any)?.monto_pagado || 0);
+  const pendingAmount = Number((currentPkg as any)?.saldo_pendiente || 0);
 
   const handleEditInstructions = () => {
     navigation.navigate('DeliveryInstructions', {
-      package: pkg,
+      package: currentPkg,
       user,
       token,
     });
+  };
+
+  const openMovements = async () => {
+    try {
+      setMovementsOpen(true);
+      setMovementsLoading(true);
+      setMovementsError(null);
+
+      const tracking = String(currentPkg?.tracking_internal || '').trim();
+      if (!tracking) {
+        setMovementsError('No se encontró tracking para consultar movimientos');
+        setMovements([]);
+        return;
+      }
+
+      const response = await fetch(`${API_URL}/api/packages/track/${encodeURIComponent(tracking)}/movements`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data?.success) {
+        setMovementsError(data?.error || 'No se pudieron cargar los movimientos');
+        setMovements([]);
+        return;
+      }
+
+      setMovements(Array.isArray(data.movements) ? data.movements : []);
+    } catch (error: any) {
+      setMovementsError(error?.message || 'Error de conexión');
+      setMovements([]);
+    } finally {
+      setMovementsLoading(false);
+    }
   };
 
   if (loading) {
@@ -130,25 +236,11 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
       </Appbar.Header>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Imagen del paquete */}
-        {pkg.image_url ? (
-          <Image
-            source={{ uri: pkg.image_url }}
-            style={styles.packageImage}
-            resizeMode="cover"
-          />
-        ) : (
-          <View style={styles.noImageContainer}>
-            <MaterialCommunityIcons name="camera-off" size={48} color="#ccc" />
-            <Text style={styles.noImageText}>Sin foto disponible</Text>
-          </View>
-        )}
-
         {/* Info principal */}
         <Card style={styles.infoCard}>
           <Card.Content>
             <View style={styles.titleRow}>
-              <Text style={styles.productName}>{pkg.description || 'Envío Marítimo'}</Text>
+              <Text style={styles.productName}>{currentPkg.description || 'Envío Marítimo'}</Text>
               <Chip 
                 mode="flat" 
                 style={[styles.statusChip, { backgroundColor: statusInfo.color + '20' }]}
@@ -159,7 +251,26 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
               </Chip>
             </View>
 
-            <Text style={styles.trackingNumber}>TRN: {pkg.tracking_internal}</Text>
+            <Text style={styles.trackingNumber}>TRN: {currentPkg.tracking_internal}</Text>
+
+            {assignedCarrier ? (
+              <View style={styles.assignedCarrierBadge}>
+                <MaterialCommunityIcons name="truck-fast" size={14} color={ORANGE} />
+                <Text style={styles.assignedCarrierText}>{assignedCarrier}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.headerButtonsRow}>
+              <Button
+                mode="outlined"
+                onPress={openMovements}
+                style={styles.movementsButton}
+                textColor={SEA_COLOR}
+                icon="timeline-text"
+              >
+                Ver Movimientos
+              </Button>
+            </View>
             
             <Divider style={styles.divider} />
 
@@ -168,37 +279,37 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
               <View style={styles.dataItem}>
                 <Ionicons name="scale-outline" size={20} color="#666" />
                 <Text style={styles.dataLabel}>Peso</Text>
-                <Text style={styles.dataValue}>{pkg.weight ? `${pkg.weight} kg` : '--'}</Text>
+                <Text style={styles.dataValue}>{currentPkg.weight ? `${currentPkg.weight} kg` : '--'}</Text>
               </View>
               <View style={styles.dataItem}>
                 <Ionicons name="cube-outline" size={20} color="#666" />
                 <Text style={styles.dataLabel}>Volumen</Text>
-                <Text style={styles.dataValue}>{(pkg as any).volume ? `${(pkg as any).volume} m³` : '--'}</Text>
+                <Text style={styles.dataValue}>{(currentPkg as any).volume ? `${(currentPkg as any).volume} m³` : '--'}</Text>
               </View>
               <View style={styles.dataItem}>
                 <Ionicons name="layers-outline" size={20} color="#666" />
                 <Text style={styles.dataLabel}>Cajas</Text>
-                <Text style={styles.dataValue}>{pkg.total_boxes || 1}</Text>
+                <Text style={styles.dataValue}>{currentPkg.total_boxes || 1}</Text>
               </View>
             </View>
 
             {/* Contenedor y BL */}
-            {((pkg as any).container_number || (pkg as any).bl_number) && (
+            {((currentPkg as any).container_number || (currentPkg as any).bl_number) && (
               <>
                 <Divider style={styles.divider} />
                 <View style={styles.containerInfo}>
-                  {(pkg as any).container_number && (
+                  {(currentPkg as any).container_number && (
                     <View style={styles.infoRow}>
                       <MaterialCommunityIcons name="truck-cargo-container" size={18} color={SEA_COLOR} />
                       <Text style={styles.infoLabel}>Contenedor:</Text>
-                      <Text style={styles.infoValue}>{(pkg as any).container_number}</Text>
+                      <Text style={styles.infoValue}>{(currentPkg as any).container_number}</Text>
                     </View>
                   )}
-                  {(pkg as any).bl_number && (
+                  {(currentPkg as any).bl_number && (
                     <View style={styles.infoRow}>
                       <MaterialCommunityIcons name="file-document-outline" size={18} color={SEA_COLOR} />
                       <Text style={styles.infoLabel}>BL:</Text>
-                      <Text style={styles.infoValue}>{(pkg as any).bl_number}</Text>
+                      <Text style={styles.infoValue}>{(currentPkg as any).bl_number}</Text>
                     </View>
                   )}
                 </View>
@@ -236,10 +347,10 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                 )}
 
                 {/* Instrucciones adicionales */}
-                {(pkg as any).delivery_instructions && (
+                {(currentPkg as any).delivery_instructions && (
                   <View style={styles.instructionsBox}>
                     <Text style={styles.instructionsLabel}>Notas adicionales:</Text>
-                    <Text style={styles.instructionsText}>{(pkg as any).delivery_instructions}</Text>
+                    <Text style={styles.instructionsText}>{(currentPkg as any).delivery_instructions}</Text>
                   </View>
                 )}
               </View>
@@ -272,29 +383,33 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
             <Divider style={styles.divider} />
 
             {/* Costo del servicio marítimo */}
-            {((pkg as any).assigned_cost_mxn ?? 0) > 0 ? (
+            {(assignedCost > 0 || estimatedCost > 0 || shippingCost > 0 || paidAmount > 0 || pendingAmount > 0) ? (
               <>
                 <View style={styles.costRow}>
                   <Text style={styles.costLabel}>🚢 Servicio Marítimo</Text>
-                  <Text style={styles.costValue}>
-                    ${(() => {
-                      const gexRate = 0.05; // 5%
-                      const gexExchange = 18.15;
-                      const gexFixedFee = 625;
-                      const gexCost = pkg.has_gex && pkg.declared_value 
-                        ? (pkg.declared_value * gexRate * gexExchange) + gexFixedFee
-                        : 0;
-                      return (((pkg as any).assigned_cost_mxn || 0) - gexCost).toFixed(2);
-                    })()} MXN
-                  </Text>
+                  <Text style={styles.costValue}>${Math.max(0, assignedCost - shippingCost).toFixed(2)} MXN</Text>
                 </View>
 
+                {shippingCost > 0 && (
+                  <View style={styles.costRow}>
+                    <Text style={styles.costLabel}>🚚 Envío nacional ({assignedCarrier || 'Paquetería asignada'})</Text>
+                    <Text style={styles.costValue}>${shippingCost.toFixed(2)} MXN</Text>
+                  </View>
+                )}
+
+                {estimatedCost > 0 && assignedCost <= 0 && (
+                  <View style={styles.costRow}>
+                    <Text style={styles.costLabel}>💡 Costo estimado</Text>
+                    <Text style={styles.costValue}>${estimatedCost.toFixed(2)} MXN</Text>
+                  </View>
+                )}
+
                 {/* Costo GEX si está contratado - desglosado */}
-                {pkg.has_gex && pkg.declared_value && (
+                {currentPkg.has_gex && currentPkg.declared_value && (
                   <>
                     <View style={styles.costRow}>
                       <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• 5% Valor Asegurado</Text>
-                      <Text style={styles.costValue}>${(pkg.declared_value * 0.05 * 18.15).toFixed(2)} MXN</Text>
+                      <Text style={styles.costValue}>${(currentPkg.declared_value * 0.05 * 18.15).toFixed(2)} MXN</Text>
                     </View>
                     <View style={styles.costRow}>
                       <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• Cargo Fijo GEX</Text>
@@ -302,29 +417,29 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                     </View>
                     <View style={styles.costRow}>
                       <Text style={[styles.costLabel, { fontWeight: '600' }]}>🛡️ Subtotal Garantía Extendida</Text>
-                      <Text style={[styles.costValue, { color: ORANGE }]}>${((pkg.declared_value * 0.05 * 18.15) + 625).toFixed(2)} MXN</Text>
+                      <Text style={[styles.costValue, { color: ORANGE }]}>${((currentPkg.declared_value * 0.05 * 18.15) + 625).toFixed(2)} MXN</Text>
                     </View>
                   </>
                 )}
 
                 {/* Monto ya pagado */}
-                {((pkg as any).monto_pagado ?? 0) > 0 && (
+                {paidAmount > 0 && (
                   <View style={styles.costRow}>
                     <Text style={styles.costLabel}>✅ Monto Pagado</Text>
-                    <Text style={[styles.costValue, { color: '#4CAF50' }]}>-${((pkg as any).monto_pagado || 0).toFixed(2)} MXN</Text>
+                    <Text style={[styles.costValue, { color: '#4CAF50' }]}>-${paidAmount.toFixed(2)} MXN</Text>
                   </View>
                 )}
 
                 <Divider style={styles.divider} />
                 <View style={styles.totalRow}>
                   <Text style={styles.totalLabel}>
-                    {((pkg as any).saldo_pendiente ?? (pkg as any).assigned_cost_mxn ?? 0) > 0 ? 'SALDO PENDIENTE' : 'PAGADO'}
+                    {pendingAmount > 0 ? 'SALDO PENDIENTE' : 'PAGADO'}
                   </Text>
                   <Text style={[
                     styles.totalValue, 
-                    { color: ((pkg as any).saldo_pendiente ?? (pkg as any).assigned_cost_mxn ?? 0) > 0 ? ORANGE : '#4CAF50' }
+                    { color: pendingAmount > 0 ? ORANGE : '#4CAF50' }
                   ]}>
-                    ${((pkg as any).saldo_pendiente ?? (pkg as any).assigned_cost_mxn ?? 0).toFixed(2)} MXN
+                    ${(pendingAmount > 0 ? pendingAmount : assignedCost).toFixed(2)} MXN
                   </Text>
                 </View>
               </>
@@ -340,17 +455,74 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
         </Card>
 
         {/* Garantía extendida */}
-        {pkg.has_gex && (
+        {currentPkg.has_gex && (
           <Card style={styles.gexCard}>
             <Card.Content style={styles.gexContent}>
               <MaterialCommunityIcons name="shield-check" size={24} color="#10B981" />
               <View style={styles.gexInfo}>
                 <Text style={styles.gexTitle}>Garantía Extendida Activa</Text>
-                {pkg.gex_folio && <Text style={styles.gexFolio}>Folio: {pkg.gex_folio}</Text>}
+                {currentPkg.gex_folio && <Text style={styles.gexFolio}>Folio: {currentPkg.gex_folio}</Text>}
               </View>
             </Card.Content>
           </Card>
         )}
+
+        <Modal
+          visible={movementsOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setMovementsOpen(false)}
+        >
+          <View style={styles.movementsOverlay}>
+            <View style={styles.movementsModal}>
+              <View style={styles.movementsHeader}>
+                <Text style={styles.movementsTitle}>Movimientos del Embarque</Text>
+                <TouchableOpacity onPress={() => setMovementsOpen(false)}>
+                  <MaterialCommunityIcons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.movementsTrackingBox}>
+                <Text style={styles.movementsTrackingLabel}>Tracking</Text>
+                <Text style={styles.movementsTrackingValue}>{currentPkg?.tracking_internal}</Text>
+              </View>
+
+              {movementsLoading && (
+                <View style={styles.movementsLoadingWrap}>
+                  <ActivityIndicator color={SEA_COLOR} />
+                  <Text style={styles.movementsLoadingText}>Cargando movimientos...</Text>
+                </View>
+              )}
+
+              {!movementsLoading && movementsError && (
+                <View style={styles.movementsErrorWrap}>
+                  <Text style={styles.movementsErrorText}>❌ {movementsError}</Text>
+                </View>
+              )}
+
+              {!movementsLoading && !movementsError && (
+                <ScrollView style={styles.movementsList} showsVerticalScrollIndicator={false}>
+                  {movements.length === 0 ? (
+                    <Text style={styles.movementsEmptyText}>Aún no hay movimientos registrados para este embarque.</Text>
+                  ) : (
+                    movements.map((m, index) => (
+                      <View key={`${m.id || index}-${index}`} style={styles.movementItem}>
+                        <View style={styles.movementDot} />
+                        <View style={styles.movementContent}>
+                          <Text style={styles.movementStatusText}>{m.status_label || m.status || 'Movimiento'}</Text>
+                          {!!m.notes && <Text style={styles.movementNotesText}>{m.notes}</Text>}
+                          <Text style={styles.movementDateText}>
+                            {m.created_at ? new Date(m.created_at).toLocaleString('es-MX') : 'Sin fecha'}
+                          </Text>
+                        </View>
+                      </View>
+                    ))
+                  )}
+                </ScrollView>
+              )}
+            </View>
+          </View>
+        </Modal>
 
         <View style={styles.bottomSpacer} />
       </ScrollView>
@@ -381,26 +553,9 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
-  packageImage: {
-    width: width,
-    height: 220,
-    backgroundColor: '#eee',
-  },
-  noImageContainer: {
-    width: width,
-    height: 180,
-    backgroundColor: '#f0f0f0',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  noImageText: {
-    color: '#999',
-    marginTop: 8,
-    fontSize: 14,
-  },
   infoCard: {
     margin: 16,
-    marginTop: -20,
+    marginTop: 16,
     borderRadius: 16,
     elevation: 3,
   },
@@ -424,6 +579,30 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#666',
     fontFamily: 'monospace',
+  },
+  assignedCarrierBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 6,
+    marginTop: 10,
+    backgroundColor: '#FFF3E0',
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  assignedCarrierText: {
+    color: ORANGE,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  headerButtonsRow: {
+    marginTop: 10,
+    alignItems: 'flex-start',
+  },
+  movementsButton: {
+    borderColor: SEA_COLOR,
+    borderRadius: 10,
   },
   divider: {
     marginVertical: 16,
@@ -612,6 +791,99 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#666',
     marginTop: 2,
+  },
+  movementsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  movementsModal: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    maxHeight: '80%',
+    padding: 16,
+  },
+  movementsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  movementsTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: BLACK,
+  },
+  movementsTrackingBox: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+  },
+  movementsTrackingLabel: {
+    color: '#666',
+    fontSize: 12,
+    marginBottom: 2,
+  },
+  movementsTrackingValue: {
+    color: BLACK,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  movementsLoadingWrap: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    gap: 10,
+  },
+  movementsLoadingText: {
+    color: '#666',
+  },
+  movementsErrorWrap: {
+    paddingVertical: 16,
+  },
+  movementsErrorText: {
+    color: '#D32F2F',
+    fontSize: 13,
+  },
+  movementsList: {
+    maxHeight: 420,
+  },
+  movementsEmptyText: {
+    color: '#666',
+    fontSize: 13,
+    textAlign: 'center',
+    marginTop: 12,
+  },
+  movementItem: {
+    flexDirection: 'row',
+    marginBottom: 12,
+  },
+  movementDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: SEA_COLOR,
+    marginTop: 6,
+    marginRight: 10,
+  },
+  movementContent: {
+    flex: 1,
+  },
+  movementStatusText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: BLACK,
+  },
+  movementNotesText: {
+    fontSize: 13,
+    color: '#555',
+    marginTop: 2,
+  },
+  movementDateText: {
+    fontSize: 12,
+    color: '#777',
+    marginTop: 4,
   },
   bottomSpacer: {
     height: 30,

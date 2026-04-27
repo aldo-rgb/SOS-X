@@ -81,6 +81,18 @@ export const createShipment = async (
   parcel: ParcelDimensions,
   addressFrom?: SkydropxAddress
 ): Promise<CreateShipmentResult> => {
+  // 🚫 Integración con Skydropx deshabilitada permanentemente.
+  return {
+    success: false,
+    error: 'Skydropx deshabilitado'
+  };
+};
+
+const _legacyCreateShipment = async (
+  addressTo: SkydropxAddress,
+  parcel: ParcelDimensions,
+  addressFrom?: SkydropxAddress
+): Promise<CreateShipmentResult> => {
   try {
     if (!API_KEY) {
       console.warn('[SKYDROPX] No API key configured, returning mock data');
@@ -144,6 +156,17 @@ export const createShipment = async (
  * Genera la etiqueta de envío (label)
  */
 export const createLabel = async (
+  rateId: string,
+  labelFormat: 'pdf' | 'zpl' = 'pdf'
+): Promise<CreateLabelResult> => {
+  // 🚫 Integración con Skydropx deshabilitada permanentemente.
+  return {
+    success: false,
+    error: 'Skydropx deshabilitado'
+  };
+};
+
+const _legacyCreateLabel = async (
   rateId: string,
   labelFormat: 'pdf' | 'zpl' = 'pdf'
 ): Promise<CreateLabelResult> => {
@@ -214,6 +237,15 @@ export const getTrackingStatus = async (trackingNumber: string): Promise<any> =>
  * Cotiza sin crear shipment (para mostrar estimados)
  */
 export const quoteShipment = async (
+  originZip: string,
+  destinationZip: string,
+  parcel: ParcelDimensions
+): Promise<ShipmentRate[]> => {
+  // 🚫 Integración con Skydropx deshabilitada permanentemente.
+  return [];
+};
+
+const _legacyQuoteShipment = async (
   originZip: string,
   destinationZip: string,
   parcel: ParcelDimensions
@@ -316,5 +348,5 @@ function getMockLabel(): CreateLabelResult {
 
 // Exportar configuración del CEDIS
 export const getCedisAddress = () => CEDIS_ADDRESS;
-export const isConfigured = () => !!API_KEY;
-export const isSandbox = () => IS_SANDBOX || !API_KEY;
+export const isConfigured = () => false; // 🚫 Skydropx deshabilitado
+export const isSandbox = () => false;

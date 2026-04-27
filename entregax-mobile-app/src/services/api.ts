@@ -40,6 +40,9 @@ export interface Package {
     | 'received_origin' | 'at_customs';
   statusLabel: string;
   carrier?: string;
+  national_carrier?: string | null;
+  national_tracking?: string | null;
+  national_label_url?: string | null;
   destination_city?: string;
   destination_country?: string;
   image_url?: string;
@@ -55,7 +58,7 @@ export interface Package {
   has_gex?: boolean;
   gex_folio?: string;
   // ✈️🇨🇳 Shipment type for differentiation
-  shipment_type?: 'air' | 'maritime' | 'china_air';
+  shipment_type?: 'air' | 'maritime' | 'china_air' | 'dhl';
   // 💰 Costos
   assigned_cost_mxn?: number;
   saldo_pendiente?: number;

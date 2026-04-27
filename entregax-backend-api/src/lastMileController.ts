@@ -809,60 +809,9 @@ export const quoteShipping = async (req: Request, res: Response) => {
       });
     }
 
-    // Si hay API de Skydropx configurada, obtener tarifas externas
-    // Se habilita automáticamente si hay API_KEY configurada (sandbox o producción)
-    let externalOptions: any[] = [];
-    const hasSkydropxKey = !!process.env.SKYDROPX_API_KEY;
-    const skydropxEnabled = hasSkydropxKey && (process.env.SKYDROPX_ENABLED === 'true' || process.env.SKYDROPX_SANDBOX === 'true');
-
-    if (skydropxEnabled && zipCode && state) {
-      try {
-        console.log('[SHIPPING-QUOTE] Consultando Skydropx...');
-        
-        const destinationAddress = {
-          name: 'Cliente',
-          address1: city || 'N/A',
-          city: city || 'N/A',
-          province: state,
-          zip: zipCode,
-          country: 'MX',
-          phone: '5500000000',
-          email: 'cliente@entregax.com'
-        };
-
-        const parcelDimensions = {
-          weight: weight || 1,
-          length: dimensions?.length || 30,
-          width: dimensions?.width || 30,
-          height: dimensions?.height || 30
-        };
-
-        const result = await skydropx.createShipment(
-          destinationAddress,
-          parcelDimensions
-        );
-
-        if (result.success && result.rates) {
-          externalOptions = result.rates.map(rate => ({
-            id: `skydropx_${rate.id}`,
-            name: rate.serviceName,
-            provider: rate.provider,
-            price: rate.totalPrice * packageCount,
-            currency: rate.currency,
-            estimatedDays: `${rate.deliveryDays} días hábiles`,
-            isExternal: true,
-            skydropxRateId: rate.id,
-            description: `Envío por ${rate.provider}`
-          }));
-        }
-      } catch (skydropxError: any) {
-        console.error('[SHIPPING-QUOTE] Error Skydropx:', skydropxError.message);
-        // Continuar con opciones locales si falla Skydropx
-      }
-    }
-
-    // Combinar opciones y ordenar por precio
-    const allOptions = [...localOptions, ...externalOptions].sort((a, b) => a.price - b.price);
+    // 🚫 Skydropx deshabilitado: ya no se consultan tarifas externas en la asignación de instrucciones.
+    // Solo se devuelven las opciones locales (EntregaX Local + Paquete Express).
+    const allOptions = [...localOptions].sort((a, b) => a.price - b.price);
 
     res.json({
       success: true,
@@ -870,8 +819,8 @@ export const quoteShipping = async (req: Request, res: Response) => {
       meta: {
         totalOptions: allOptions.length,
         localOptions: localOptions.length,
-        externalOptions: externalOptions.length,
-        skydropxEnabled,
+        externalOptions: 0,
+        skydropxEnabled: false,
         packageCount
       }
     });

@@ -613,6 +613,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     const carrierMap: Record<string, string> = {
       'paquete_express': 'Paquete Express',
       'entregax_local': 'Entregax Local',
+      'entregax_local_cdmx': 'Entregax Local CDMX',
       'fedex': 'FedEx',
       'estafeta': 'Estafeta',
       'dhl': 'DHL',
@@ -620,6 +621,13 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       'pickup_hidalgo': 'Recoger en Sucursal',
     };
     return carrierMap[carrierID] || carrierID;
+  };
+
+  const getAssignedCarrierName = (pkg: Package): string | null => {
+    const rawCarrier = String(pkg.national_carrier || '').trim();
+    if (!rawCarrier) return null;
+
+    return getCarrierName(rawCarrier);
   };
 
   const renderPackageCard = ({ item }: { item: Package }) => {
@@ -652,6 +660,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     
     // 💳 ¿Tiene orden de pago pendiente generada?
     const hasPendingPaymentOrder = !!(item as any).pending_payment_reference;
+    const assignedCarrierName = getAssignedCarrierName(item);
     
     // Solo permitimos seleccionar paquetes en bodega (USA) o recibidos en China (marítimo/china_air) o DHL en Cedis Y usuario verificado
     // Para marítimos/china_air/dhl: NO seleccionable si ya tiene instrucciones asignadas
@@ -890,6 +899,13 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     </View>
                   )}
                 </View>
+
+                {assignedCarrierName && (
+                  <View style={styles.assignedCarrierBadge}>
+                    <Icon source="truck-fast" size={12} color={ORANGE} />
+                    <Text style={styles.assignedCarrierText}>{assignedCarrierName}</Text>
+                  </View>
+                )}
 
                 {/* Información adicional - diseño simétrico */}
                 <View style={styles.infoRow}>
@@ -2924,6 +2940,23 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: 'bold',
     color: '#8B5CF6',
+  },
+  assignedCarrierBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    gap: 5,
+    marginTop: 6,
+    marginBottom: 2,
+  },
+  assignedCarrierText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: ORANGE,
   },
   // � Badge Orden de Pago Pendiente
   pendingPaymentBadge: {
