@@ -22,6 +22,7 @@ import {
   DialogContent,
   DialogActions,
   TextField,
+  InputAdornment,
   CircularProgress,
   Alert,
   Snackbar,
@@ -46,11 +47,14 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import HistoryIcon from '@mui/icons-material/History';
 import TimelineIcon from '@mui/icons-material/Timeline';
+import SearchIcon from '@mui/icons-material/Search';
+import ClearIcon from '@mui/icons-material/Clear';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 interface MaritimeOrder {
   id: number;
+  china_id?: number | null;
   ordersn: string;
   user_id: number | null;
   shipping_mark: string;
@@ -63,6 +67,8 @@ interface MaritimeOrder {
   needs_packing_list: boolean;
   packing_list_url: string | null;
   ship_number: string | null;
+  bl_number?: string | null;
+  container_number?: string | null;
   last_tracking_status: string | null;
   last_tracking_detail: string | null;
   last_tracking_date: string | null;
@@ -108,6 +114,8 @@ interface Stats {
   delivered: number;
   unassigned: number;
   pending_packing_list: number;
+  by_status?: { status: string; count: number | string }[];
+  by_tracking_status?: { status: string; count: number | string }[];
 }
 
 interface Props {
@@ -187,7 +195,10 @@ const MaritimeApiPage: React.FC<Props> = ({ onBack }) => {
 
   // Filtros
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [trackingStatusFilter, setTrackingStatusFilter] = useState<string | null>(null);
   const [unassignedOnly, setUnassignedOnly] = useState(false);
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
 
   // Diálogos
   const [detailDialog, setDetailDialog] = useState<{ open: boolean; order: MaritimeOrder | null; tracking: TrackingLog[] }>({
@@ -217,7 +228,10 @@ const MaritimeApiPage: React.FC<Props> = ({ onBack }) => {
       // Cargar órdenes
       const ordersUrl = new URL(`${API_URL}/api/maritime-api/orders`);
       if (statusFilter) ordersUrl.searchParams.set('status', statusFilter);
+      if (trackingStatusFilter) ordersUrl.searchParams.set('trackingStatus', trackingStatusFilter);
       if (unassignedOnly) ordersUrl.searchParams.set('unassigned', 'true');
+      if (search.trim() !== '') ordersUrl.searchParams.set('search', search.trim());
+      ordersUrl.searchParams.set('limit', '200');
       
       const ordersRes = await fetch(ordersUrl.toString(), { headers });
       const ordersData = await ordersRes.json();
@@ -239,7 +253,13 @@ const MaritimeApiPage: React.FC<Props> = ({ onBack }) => {
     } finally {
       setLoading(false);
     }
-  }, [token, statusFilter, unassignedOnly]);
+  }, [token, statusFilter, trackingStatusFilter, unassignedOnly, search]);
+
+  // Debounce del input de búsqueda (350ms)
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput), 350);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
   useEffect(() => {
     loadData();
@@ -375,7 +395,7 @@ const MaritimeApiPage: React.FC<Props> = ({ onBack }) => {
     }
   };
 
-  // Chip de estado con colores
+  // Chip de estado interno con colores
   const getStatusChip = (status: string) => {
     const statusConfig: { [key: string]: { label: string; color: 'default' | 'warning' | 'info' | 'success' | 'primary' | 'error' } } = {
       'received_china': { label: 'Recibido CEDIS GZ CHINA', color: 'warning' },
@@ -384,11 +404,70 @@ const MaritimeApiPage: React.FC<Props> = ({ onBack }) => {
       'customs_mx': { label: 'En Aduana', color: 'warning' },
       'customs_cleared': { label: 'Liberado', color: 'success' },
       'out_for_delivery': { label: 'En Reparto', color: 'primary' },
-      'delivered': { label: 'Entregado', color: 'success' }
+      'delivered': { label: 'Entregado', color: 'success' },
+      'pending_api': { label: 'Pendiente API', color: 'default' },
+      'cancelled': { label: 'Cancelado', color: 'error' },
+      'returned': { label: 'Devuelto', color: 'error' },
+      'unknown': { label: 'Desconocido', color: 'default' }
     };
 
     const config = statusConfig[status] || { label: status, color: 'default' };
     return <Chip size="small" label={config.label} color={config.color} />;
+  };
+
+  const getRawTrackingStatusChip = (status: string) => {
+    const normalized = String(status || '').trim();
+    const upper = normalized.toUpperCase();
+
+    let color: 'default' | 'warning' | 'info' | 'success' | 'primary' | 'error' = 'default';
+    if (upper.includes('DELIVERED')) color = 'success';
+    else if (upper.includes('CUSTOMS') || upper.includes('CLEARANCE') || upper.includes('CLEARENCE')) color = 'warning';
+    else if (upper.includes('VESSEL') || upper.includes('TRANSIT') || upper.includes('LOADED')) color = 'info';
+    else if (upper.includes('WAREHOUSE') || upper.includes('SHIPMENT GENERATION')) color = 'warning';
+    else if (upper.includes('DESTINATION PORT')) color = 'primary';
+
+    return <Chip size="small" label={getRawTrackingStatusLabel(normalized)} color={color} />;
+  };
+
+  const getOrderStatusDisplay = (order: MaritimeOrder) => {
+    if (order.last_tracking_status) {
+      return getRawTrackingStatusChip(order.last_tracking_status);
+    }
+    return getStatusChip(order.status);
+  };
+
+  const getStatusFilterConfig = (status: string): { label: string; color: 'default' | 'warning' | 'info' | 'success' | 'primary' | 'error' } => {
+    const map: Record<string, { label: string; color: 'default' | 'warning' | 'info' | 'success' | 'primary' | 'error' }> = {
+      received_china: { label: 'En Bodega', color: 'warning' },
+      in_transit: { label: 'En Tránsito', color: 'info' },
+      in_transit_mx: { label: 'En México', color: 'primary' },
+      customs_mx: { label: 'En Aduana', color: 'warning' },
+      customs_cleared: { label: 'Liberado', color: 'success' },
+      out_for_delivery: { label: 'En Reparto', color: 'primary' },
+      delivered: { label: 'Entregados', color: 'success' },
+      pending_api: { label: 'Pendiente API', color: 'default' },
+      cancelled: { label: 'Cancelado', color: 'error' },
+      returned: { label: 'Devuelto', color: 'error' },
+      unknown: { label: 'Desconocido', color: 'default' }
+    };
+    return map[status] || { label: status, color: 'default' };
+  };
+
+  const getRawTrackingStatusLabel = (status: string): string => {
+    const normalized = String(status || '').trim();
+    const map: Record<string, string> = {
+      'shipment generation': 'Generación de Envío',
+      'goods in warehouse': 'En Bodega Origen',
+      'goods out of warehouse': 'Salida de Bodega',
+      'loaded into container': 'Cargado en Contenedor',
+      'vessel on board': 'A Bordo del Buque',
+      'arrival at destination port': 'Llegada a Puerto Destino',
+      'customs clearance in process': 'Despacho Aduanal en Proceso',
+      'import clearence finished': 'Despacho Aduanal Finalizado',
+      'import clearance finished': 'Despacho Aduanal Finalizado',
+      'delivered': 'Entregado'
+    };
+    return map[normalized.toLowerCase()] || normalized;
   };
 
   return (
@@ -422,53 +501,49 @@ const MaritimeApiPage: React.FC<Props> = ({ onBack }) => {
         </Button>
       </Box>
 
-      {/* Stats Cards */}
-      {stats && (
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(6, 1fr)' }, gap: 2, mb: 3 }}>
-          <Card sx={{ bgcolor: 'warning.light' }}>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <WarehouseIcon sx={{ fontSize: 32, color: 'warning.dark' }} />
-              <Typography variant="h4" fontWeight="bold">{stats.in_warehouse}</Typography>
-              <Typography variant="body2">En Bodega</Typography>
-            </CardContent>
-          </Card>
-          <Card sx={{ bgcolor: 'info.light' }}>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <LocalShippingIcon sx={{ fontSize: 32, color: 'info.dark' }} />
-              <Typography variant="h4" fontWeight="bold">{stats.in_transit}</Typography>
-              <Typography variant="body2">En Tránsito</Typography>
-            </CardContent>
-          </Card>
-          <Card sx={{ bgcolor: 'secondary.light' }}>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <AssignmentIndIcon sx={{ fontSize: 32, color: 'secondary.dark' }} />
-              <Typography variant="h4" fontWeight="bold">{stats.in_customs}</Typography>
-              <Typography variant="body2">En Aduana</Typography>
-            </CardContent>
-          </Card>
-          <Card sx={{ bgcolor: 'success.light' }}>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <CheckCircleIcon sx={{ fontSize: 32, color: 'success.dark' }} />
-              <Typography variant="h4" fontWeight="bold">{stats.delivered}</Typography>
-              <Typography variant="body2">Entregados</Typography>
-            </CardContent>
-          </Card>
-          <Card sx={{ bgcolor: 'error.light' }}>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <ErrorIcon sx={{ fontSize: 32, color: 'error.dark' }} />
-              <Typography variant="h4" fontWeight="bold">{stats.unassigned}</Typography>
-              <Typography variant="body2">Sin Asignar</Typography>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent sx={{ textAlign: 'center', py: 2 }}>
-              <DirectionsBoatIcon sx={{ fontSize: 32, color: 'primary.main' }} />
-              <Typography variant="h4" fontWeight="bold">{stats.total_orders}</Typography>
-              <Typography variant="body2">Total</Typography>
-            </CardContent>
-          </Card>
-        </Box>
-      )}
+      {/* Stats Cards - Paleta oficial: naranja, negro, blanco, rojo */}
+      {stats && (() => {
+        const ORANGE = '#FF6B35';
+        const BLACK = '#1A1A1A';
+        const WHITE = '#FFFFFF';
+        const RED = '#E53935';
+        const cards = [
+          { label: 'En Bodega',   value: stats.in_warehouse, icon: <WarehouseIcon sx={{ fontSize: 36 }} />,        bg: ORANGE, fg: WHITE,  border: ORANGE },
+          { label: 'En Tránsito', value: stats.in_transit,   icon: <LocalShippingIcon sx={{ fontSize: 36 }} />,    bg: BLACK,  fg: WHITE,  border: BLACK  },
+          { label: 'En Aduana',   value: stats.in_customs,   icon: <AssignmentIndIcon sx={{ fontSize: 36 }} />,    bg: WHITE,  fg: BLACK,  border: BLACK  },
+          { label: 'Entregados',  value: stats.delivered,    icon: <CheckCircleIcon sx={{ fontSize: 36 }} />,      bg: WHITE,  fg: ORANGE, border: ORANGE },
+          { label: 'Sin Asignar', value: stats.unassigned,   icon: <ErrorIcon sx={{ fontSize: 36 }} />,            bg: RED,    fg: WHITE,  border: RED    },
+          { label: 'Total',       value: stats.total_orders, icon: <DirectionsBoatIcon sx={{ fontSize: 36 }} />,   bg: BLACK,  fg: ORANGE, border: BLACK  },
+        ];
+        return (
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', md: 'repeat(6, 1fr)' }, gap: 2, mb: 3 }}>
+            {cards.map((c) => (
+              <Card
+                key={c.label}
+                elevation={0}
+                sx={{
+                  bgcolor: c.bg,
+                  color: c.fg,
+                  border: `2px solid ${c.border}`,
+                  borderRadius: 2,
+                  transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                  '&:hover': { transform: 'translateY(-2px)', boxShadow: `0 6px 16px ${c.border}33` }
+                }}
+              >
+                <CardContent sx={{ textAlign: 'center', py: 2.5, '&:last-child': { pb: 2.5 } }}>
+                  <Box sx={{ color: c.fg, mb: 0.5 }}>{c.icon}</Box>
+                  <Typography variant="h4" fontWeight={800} sx={{ color: c.fg, lineHeight: 1.1 }}>
+                    {c.value}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: c.fg, opacity: 0.85, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    {c.label}
+                  </Typography>
+                </CardContent>
+              </Card>
+            ))}
+          </Box>
+        );
+      })()}
 
       {/* Tabs */}
       <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ mb: 2 }}>
@@ -481,70 +556,118 @@ const MaritimeApiPage: React.FC<Props> = ({ onBack }) => {
       {/* Tab: Órdenes */}
       {tabValue === 0 && (
         <>
+          {/* Buscador */}
+          <Box sx={{ mb: 2 }}>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="Buscar por orden, ID, cliente, S####, buque, BL, contenedor, mercancía…"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <SearchIcon sx={{ color: '#FF6B35' }} />
+                  </InputAdornment>
+                ),
+                endAdornment: searchInput ? (
+                  <InputAdornment position="end">
+                    <IconButton size="small" onClick={() => setSearchInput('')}>
+                      <ClearIcon fontSize="small" />
+                    </IconButton>
+                  </InputAdornment>
+                ) : null,
+                sx: {
+                  bgcolor: '#FFFFFF',
+                  borderRadius: 2,
+                  '& fieldset': { borderColor: '#1A1A1A' },
+                  '&:hover fieldset': { borderColor: '#FF6B35' },
+                  '&.Mui-focused fieldset': { borderColor: '#FF6B35', borderWidth: 2 }
+                }
+              }}
+            />
+          </Box>
+
           {/* Filtros */}
           <Box sx={{ mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             <Chip
               label="Todas"
-              color={!statusFilter && !unassignedOnly ? 'primary' : 'default'}
-              onClick={() => { setStatusFilter(null); setUnassignedOnly(false); }}
+              color={!statusFilter && !trackingStatusFilter && !unassignedOnly ? 'primary' : 'default'}
+              onClick={() => { setStatusFilter(null); setTrackingStatusFilter(null); setUnassignedOnly(false); }}
             />
             <Chip
               label="Sin Asignar"
               color={unassignedOnly ? 'error' : 'default'}
-              onClick={() => { setUnassignedOnly(!unassignedOnly); setStatusFilter(null); }}
+              onClick={() => { setUnassignedOnly(!unassignedOnly); setStatusFilter(null); setTrackingStatusFilter(null); }}
             />
-            <Chip
-              label="En Bodega"
-              color={statusFilter === 'received_china' ? 'warning' : 'default'}
-              onClick={() => { setStatusFilter('received_china'); setUnassignedOnly(false); }}
-            />
-            <Chip
-              label="En Tránsito"
-              color={statusFilter === 'in_transit' ? 'info' : 'default'}
-              onClick={() => { setStatusFilter('in_transit'); setUnassignedOnly(false); }}
-            />
-            <Chip
-              label="En Aduana"
-              color={statusFilter === 'customs_mx' ? 'secondary' : 'default'}
-              onClick={() => { setStatusFilter('customs_mx'); setUnassignedOnly(false); }}
-            />
-            <Chip
-              label="Entregados"
-              color={statusFilter === 'delivered' ? 'success' : 'default'}
-              onClick={() => { setStatusFilter('delivered'); setUnassignedOnly(false); }}
-            />
+            {(stats?.by_status || []).map((s) => {
+              const cfg = getStatusFilterConfig(s.status);
+              const count = Number(s.count || 0);
+              return (
+                <Chip
+                  key={s.status}
+                  label={`${cfg.label} (${count})`}
+                  color={statusFilter === s.status ? cfg.color : 'default'}
+                  onClick={() => { setStatusFilter(s.status); setTrackingStatusFilter(null); setUnassignedOnly(false); }}
+                />
+              );
+            })}
           </Box>
+
+          {!!(stats?.by_tracking_status && stats.by_tracking_status.length > 0) && (
+            <Box sx={{ mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+              {(stats.by_tracking_status || []).map((s) => {
+                const count = Number(s.count || 0);
+                return (
+                  <Chip
+                    key={`raw-${s.status}`}
+                    label={`${getRawTrackingStatusLabel(s.status)} (${count})`}
+                    color={trackingStatusFilter === s.status ? 'secondary' : 'default'}
+                    onClick={() => { setTrackingStatusFilter(s.status); setStatusFilter(null); setUnassignedOnly(false); }}
+                    variant={trackingStatusFilter === s.status ? 'filled' : 'outlined'}
+                  />
+                );
+              })}
+            </Box>
+          )}
 
           <TableContainer component={Paper}>
             <Table size="small">
               <TableHead>
                 <TableRow>
+                  <TableCell>ID</TableCell>
                   <TableCell>Orden</TableCell>
                   <TableCell>Cliente</TableCell>
                   <TableCell>Mercancía</TableCell>
                   <TableCell align="center">Bultos</TableCell>
                   <TableCell align="right">Peso/Vol</TableCell>
+                  <TableCell>Fecha</TableCell>
+                  <TableCell>Buque / BL</TableCell>
                   <TableCell>Estado</TableCell>
-                  <TableCell>Último Tracking</TableCell>
                   <TableCell align="center">Acciones</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {loading ? (
                   <TableRow>
-                    <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                       <CircularProgress />
                     </TableCell>
                   </TableRow>
                 ) : orders.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                       <Typography color="text.secondary">No hay órdenes</Typography>
                     </TableCell>
                   </TableRow>
                 ) : (
                   orders.map((order) => (
                     <TableRow key={order.id} hover>
+                      <TableCell>
+                        <Typography fontSize="0.8rem" fontWeight="bold" sx={{ color: '#FF6B35' }}>
+                          {order.china_id ?? '-'}
+                        </Typography>
+                      </TableCell>
                       <TableCell>
                         <Typography fontWeight="bold" fontSize="0.85rem">{order.ordersn}</Typography>
                         <Typography variant="caption" color="text.secondary">
@@ -576,23 +699,43 @@ const MaritimeApiPage: React.FC<Props> = ({ onBack }) => {
                           {order.volume} m³
                         </Typography>
                       </TableCell>
-                      <TableCell>{getStatusChip(order.status)}</TableCell>
-                      <TableCell sx={{ maxWidth: 200 }}>
-                        {order.last_tracking_detail ? (
-                          <Tooltip title={order.last_tracking_detail}>
-                            <Typography fontSize="0.75rem" noWrap>
-                              {order.last_tracking_detail.substring(0, 40)}...
-                            </Typography>
-                          </Tooltip>
+                      <TableCell>
+                        <Typography fontSize="0.8rem">
+                          {new Date(order.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' })}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {new Date(order.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>
+                        {order.ship_number ? (
+                          <>
+                            <Typography fontSize="0.8rem" fontWeight="bold">{order.ship_number}</Typography>
+                            {order.bl_number && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                BL: {order.bl_number}
+                              </Typography>
+                            )}
+                            {!order.bl_number && order.container_number && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                {order.container_number}
+                              </Typography>
+                            )}
+                          </>
+                        ) : order.bl_number ? (
+                          <>
+                            <Typography fontSize="0.8rem" fontWeight="bold">BL: {order.bl_number}</Typography>
+                            {order.container_number && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                {order.container_number}
+                              </Typography>
+                            )}
+                          </>
                         ) : (
-                          <Typography fontSize="0.75rem" color="text.secondary">-</Typography>
-                        )}
-                        {order.last_tracking_date && (
-                          <Typography variant="caption" color="text.secondary">
-                            {new Date(order.last_tracking_date).toLocaleDateString()}
-                          </Typography>
+                          <Typography variant="caption" color="text.secondary">-</Typography>
                         )}
                       </TableCell>
+                      <TableCell>{getOrderStatusDisplay(order)}</TableCell>
                       <TableCell align="center">
                         <Tooltip title="Ver detalle">
                           <IconButton size="small" onClick={() => handleViewDetail(order)}>
@@ -721,7 +864,7 @@ const MaritimeApiPage: React.FC<Props> = ({ onBack }) => {
                   <Divider sx={{ my: 2 }} />
                   <Typography variant="subtitle2" color="text.secondary">Estado Actual</Typography>
                   <Box sx={{ mt: 1 }}>
-                    {getStatusChip(detailDialog.order.status)}
+                    {getOrderStatusDisplay(detailDialog.order)}
                   </Box>
                   {detailDialog.order.last_tracking_detail && (
                     <Typography variant="body2" sx={{ mt: 1 }}>

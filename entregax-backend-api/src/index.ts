@@ -591,6 +591,20 @@ import {
   handleAwbDocumentUpload
 } from './airWaybillCostController';
 import {
+  listInTransitAwbs,
+  getAwbPackages,
+  scanAwbPackage,
+  finalizeAwbReception,
+  getAirInventory
+} from './airWaybillReceptionController';
+import {
+  listInTransitContainers,
+  getContainerOrders,
+  scanContainerOrder,
+  finalizeContainerReception,
+  getSeaInventory
+} from './maritimeContainerReceptionController';
+import {
   getInventoryItems,
   getInventoryStats,
   createInventoryItem,
@@ -6558,6 +6572,20 @@ app.get('/api/awb-costs/:id/profit', authenticateToken, requireMinLevel(ROLES.CO
 app.get('/api/awb-costs/:id/calc-release-costs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), calcReleaseCosts);
 app.post('/api/awb-costs/:id/upload-document', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), uploadAwbDocument, handleAwbDocumentUpload);
 app.delete('/api/awb-costs/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteAwbCost);
+
+// ========== RECEPCIÓN AÉREA POR AWB (Hub TDI Aéreo China) ==========
+app.get('/api/admin/china-air/awbs/in-transit', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listInTransitAwbs);
+app.get('/api/admin/china-air/awbs/:id/packages', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getAwbPackages);
+app.post('/api/admin/china-air/awbs/:id/scan', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), scanAwbPackage);
+app.post('/api/admin/china-air/awbs/:id/finalize', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), finalizeAwbReception);
+app.get('/api/admin/china-air/inventory', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getAirInventory);
+
+// ========== RECEPCIÓN MARÍTIMA POR CONTENEDOR (Hub TDI Marítimo China) ==========
+app.get('/api/admin/china-sea/containers/in-transit', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listInTransitContainers);
+app.get('/api/admin/china-sea/containers/:id/orders', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getContainerOrders);
+app.post('/api/admin/china-sea/containers/:id/scan', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), scanContainerOrder);
+app.post('/api/admin/china-sea/containers/:id/finalize', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), finalizeContainerReception);
+app.get('/api/admin/china-sea/inventory', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getSeaInventory);
 
 // Upload manual aéreo (AWB PDF + Packing List Excel)
 const airUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });

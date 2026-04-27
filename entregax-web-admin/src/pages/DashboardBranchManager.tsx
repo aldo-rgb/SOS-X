@@ -26,6 +26,8 @@ import {
   AttachMoney as MoneyIcon,
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
+  DirectionsBoat as DirectionsBoatIcon,
+  FlightTakeoff as FlightTakeoffIcon,
   Store as StoreIcon,
   LocalShipping as LocalShippingIcon,
   ConfirmationNumber as TicketIcon,
@@ -43,6 +45,8 @@ interface BranchStats {
     en_bodega: number;
     en_transito: number;
     en_espera_cajas?: number;
+    en_espera_maritimo?: number;
+    en_espera_aereo?: number;
     entregados_hoy: number;
     pendientes_cobro: number;
   };
@@ -113,7 +117,7 @@ export default function DashboardBranchManager() {
       // Evitar datos ficticios en dashboard
       setStats({
         sucursal: { nombre: 'CEDIS MTY', codigo: 'MTY' },
-        paquetes: { en_bodega: 0, en_transito: 0, en_espera_cajas: 0, entregados_hoy: 0, pendientes_cobro: 0 },
+        paquetes: { en_bodega: 0, en_transito: 0, en_espera_cajas: 0, en_espera_maritimo: 0, en_espera_aereo: 0, entregados_hoy: 0, pendientes_cobro: 0 },
         financiero: { ingresos_hoy: 0, ingresos_mes: 0, saldo_caja: 0, cuentas_por_cobrar: 0 },
         operaciones: { recepciones_hoy: 0, despachos_hoy: 0, consolidaciones_pendientes: 0 },
         equipo: { empleados_activos: 0, en_turno: 0 },
@@ -196,7 +200,7 @@ export default function DashboardBranchManager() {
       {/* KPIs Principales */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         {/* Paquetes en Bodega */}
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 12, sm: 6, md: 2 }}>
           <Paper sx={{ p: 3, height: '100%', background: 'linear-gradient(135deg, #1976D2 0%, #42A5F5 100%)', color: 'white' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <Box>
@@ -212,7 +216,7 @@ export default function DashboardBranchManager() {
         </Grid>
 
         {/* Entregas Hoy */}
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 12, sm: 6, md: 2 }}>
           <Paper sx={{ p: 3, height: '100%', background: 'linear-gradient(135deg, #388E3C 0%, #66BB6A 100%)', color: 'white' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <Box>
@@ -228,7 +232,7 @@ export default function DashboardBranchManager() {
         </Grid>
 
         {/* En espera (cajas en tránsito a MTY NL) */}
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 12, sm: 6, md: 2 }}>
           <Paper sx={{ p: 3, height: '100%', background: 'linear-gradient(135deg, #7B1FA2 0%, #BA68C8 100%)', color: 'white' }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <Box>
@@ -243,8 +247,40 @@ export default function DashboardBranchManager() {
           </Paper>
         </Grid>
 
+        {/* En espera marítimo */}
+        <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+          <Paper sx={{ p: 3, height: '100%', background: 'linear-gradient(135deg, #00695C 0%, #26A69A 100%)', color: 'white' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <Box>
+                <Typography variant="body2" sx={{ opacity: 0.9 }}>En espera Marítimo</Typography>
+                <Typography variant="h3" fontWeight="bold">{(stats?.paquetes.en_espera_maritimo ?? 0).toLocaleString()}</Typography>
+                <Typography variant="caption">cajas marítimas</Typography>
+              </Box>
+              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
+                <DirectionsBoatIcon />
+              </Avatar>
+            </Box>
+          </Paper>
+        </Grid>
+
+        {/* En espera aéreo */}
+        <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+          <Paper sx={{ p: 3, height: '100%', background: 'linear-gradient(135deg, #5E35B1 0%, #7E57C2 100%)', color: 'white' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <Box>
+                <Typography variant="body2" sx={{ opacity: 0.9 }}>En espera Aéreo</Typography>
+                <Typography variant="h3" fontWeight="bold">{(stats?.paquetes.en_espera_aereo ?? 0).toLocaleString()}</Typography>
+                <Typography variant="caption">cajas aereas</Typography>
+              </Box>
+              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
+                <FlightTakeoffIcon />
+              </Avatar>
+            </Box>
+          </Paper>
+        </Grid>
+
         {/* Guías con Retraso (click para ver detalles) */}
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+        <Grid size={{ xs: 12, sm: 6, md: 2 }}>
           <Paper
             onClick={() => setDelayedOpen(true)}
             sx={{

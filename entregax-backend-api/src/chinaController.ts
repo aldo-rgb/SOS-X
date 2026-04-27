@@ -442,6 +442,18 @@ export const getChinaReceipts = async (req: Request, res: Response): Promise<any
         let query = `
             SELECT 
                 cr.*,
+                COALESCE(
+                    NULLIF(cr.international_tracking, ''),
+                    (
+                        SELECT p.international_tracking
+                        FROM packages p
+                        WHERE p.china_receipt_id = cr.id
+                          AND p.international_tracking IS NOT NULL
+                          AND p.international_tracking <> ''
+                        ORDER BY p.updated_at DESC NULLS LAST, p.id DESC
+                        LIMIT 1
+                    )
+                ) as awb_international,
                 COALESCE(u.full_name, lc.full_name, 'Sin asignar') as client_name,
                 COALESCE(u.box_id, lc.box_id) as client_box_id,
                 CASE WHEN u.id IS NOT NULL THEN true ELSE false END as is_registered,
@@ -565,6 +577,18 @@ export const getChinaReceiptDetail = async (req: Request, res: Response): Promis
         const receiptResult = await pool.query(`
             SELECT 
                 cr.*,
+                COALESCE(
+                    NULLIF(cr.international_tracking, ''),
+                    (
+                        SELECT p.international_tracking
+                        FROM packages p
+                        WHERE p.china_receipt_id = cr.id
+                          AND p.international_tracking IS NOT NULL
+                          AND p.international_tracking <> ''
+                        ORDER BY p.updated_at DESC NULLS LAST, p.id DESC
+                        LIMIT 1
+                    )
+                ) as awb_international,
                 COALESCE(u.full_name, lc.full_name, 'Sin asignar') as client_name,
                 COALESCE(u.email, lc.email) as client_email,
                 COALESCE(u.box_id, lc.box_id) as client_box_id,
@@ -786,6 +810,7 @@ export const getAirDaughterGuides = async (req: Request, res: Response): Promise
     try {
         const { status, search, awb, limit = 100, offset = 0 } = req.query;
 
+        // Query packages table with status from packages
         let query = `
             SELECT 
                 p.id,
@@ -822,7 +847,8 @@ export const getAirDaughterGuides = async (req: Request, res: Response): Promise
                 COALESCE(u.full_name, lc.full_name, lc_mark.full_name, CASE WHEN COALESCE(p.box_id, cr.shipping_mark) IS NOT NULL AND COALESCE(p.box_id, cr.shipping_mark) != '' THEN COALESCE(p.box_id, cr.shipping_mark) ELSE 'Sin asignar' END) as client_name,
                 COALESCE(u.box_id, p.box_id, cr.shipping_mark, '') as client_box_id,
                 cr.fno as receipt_fno,
-                cr.shipping_mark
+                cr.shipping_mark,
+                'packages' as source_table
             FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
             LEFT JOIN legacy_clients lc ON p.box_id = lc.box_id
@@ -861,22 +887,89 @@ export const getAirDaughterGuides = async (req: Request, res: Response): Promise
             paramIndex++;
         }
 
-        query += ` ORDER BY p.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+        // Union with china_receipts for status that may only exist there
+        let chinaReceiptsQuery = `
+            UNION ALL
+            SELECT 
+                cr.id,
+                NULL as tracking_internal,
+                NULL as tracking_provider,
+                NULL as child_no,
+                NULL as description,
+                NULL as weight,
+                NULL as pkg_length,
+                NULL as pkg_width,
+                NULL as pkg_height,
+                NULL as single_volume,
+                NULL as single_cbm,
+                NULL as international_tracking,
+                cr.status::text as status,
+                NULL as etd,
+                NULL as eta,
+                cr.created_at,
+                cr.updated_at,
+                NULL as user_id,
+                NULL as box_number,
+                NULL as total_boxes,
+                NULL as assigned_cost_mxn,
+                NULL as client_paid,
+                NULL as master_id,
+                NULL as china_receipt_id,
+                NULL as pro_name,
+                NULL as customs_bno,
+                NULL as package_box_id,
+                NULL as air_sale_price,
+                NULL as air_price_per_kg,
+                NULL as air_tariff_type,
+                NULL as air_is_custom_tariff,
+                COALESCE(lc.full_name, cr.shipping_mark) as client_name,
+                COALESCE(lc.box_id, cr.shipping_mark) as client_box_id,
+                cr.fno as receipt_fno,
+                cr.shipping_mark,
+                'china_receipts' as source_table
+            FROM china_receipts cr
+            LEFT JOIN legacy_clients lc ON cr.shipping_mark = lc.box_id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM packages p 
+                WHERE p.china_receipt_id = cr.id 
+                AND p.service_type = 'AIR_CHN_MX'
+            )
+        `;
+
+        if (status && status !== 'all') {
+            chinaReceiptsQuery += ` AND cr.status::text = $${paramIndex}`;
+            params.push(status);
+            paramIndex++;
+        }
+
+        if (search) {
+            chinaReceiptsQuery += ` AND (
+                UPPER(cr.fno) LIKE UPPER($${paramIndex})
+                OR UPPER(COALESCE(cr.shipping_mark, '')) LIKE UPPER($${paramIndex})
+                OR UPPER(COALESCE(lc.full_name, '')) LIKE UPPER($${paramIndex})
+            )`;
+            params.push(`%${search}%`);
+            paramIndex++;
+        }
+
+        query += chinaReceiptsQuery;
+
+        query += ` ORDER BY created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
         params.push(limit, offset);
 
         const result = await pool.query(query, params);
 
-        // Count total
+        // Count total - same union logic
         let countQuery = `
-            SELECT COUNT(*) as total
-            FROM packages p
-            LEFT JOIN users u ON p.user_id = u.id
-            LEFT JOIN legacy_clients lc ON p.box_id = lc.box_id
-            LEFT JOIN china_receipts cr ON p.china_receipt_id = cr.id
-            LEFT JOIN legacy_clients lc_mark ON cr.shipping_mark = lc_mark.box_id
-            WHERE p.service_type = 'AIR_CHN_MX'
-            AND p.warehouse_location = 'china_air'
-            AND (p.is_master = false OR p.is_master IS NULL)
+            SELECT COUNT(*) as total FROM (
+                SELECT p.id FROM packages p
+                LEFT JOIN users u ON p.user_id = u.id
+                LEFT JOIN legacy_clients lc ON p.box_id = lc.box_id
+                LEFT JOIN china_receipts cr ON p.china_receipt_id = cr.id
+                LEFT JOIN legacy_clients lc_mark ON cr.shipping_mark = lc_mark.box_id
+                WHERE p.service_type = 'AIR_CHN_MX'
+                AND p.warehouse_location = 'china_air'
+                AND (p.is_master = false OR p.is_master IS NULL)
         `;
         const countParams: any[] = [];
         let countParamIndex = 1;
@@ -904,6 +997,35 @@ export const getAirDaughterGuides = async (req: Request, res: Response): Promise
             countParams.push(awb);
             countParamIndex++;
         }
+
+        countQuery += `
+                UNION ALL
+                SELECT cr.id FROM china_receipts cr
+                LEFT JOIN legacy_clients lc ON cr.shipping_mark = lc.box_id
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM packages p 
+                    WHERE p.china_receipt_id = cr.id 
+                    AND p.service_type = 'AIR_CHN_MX'
+                )
+        `;
+
+        if (status && status !== 'all') {
+            countQuery += ` AND cr.status::text = $${countParamIndex}`;
+            countParams.push(status);
+            countParamIndex++;
+        }
+
+        if (search) {
+            countQuery += ` AND (
+                UPPER(cr.fno) LIKE UPPER($${countParamIndex})
+                OR UPPER(COALESCE(cr.shipping_mark, '')) LIKE UPPER($${countParamIndex})
+                OR UPPER(COALESCE(lc.full_name, '')) LIKE UPPER($${countParamIndex})
+            )`;
+            countParams.push(`%${search}%`);
+            countParamIndex++;
+        }
+
+        countQuery += `) t`;
 
         const countResult = await pool.query(countQuery, countParams);
 
@@ -1378,7 +1500,7 @@ export const trackFNO = async (req: Request, res: Response): Promise<any> => {
             // Si tiene un patrón "XXX-NNN" al final, es probablemente child_no
             // Extraer todo excepto los últimos "-NNN"
             const match = input.match(/^(.+)-\d{3}$/);
-            if (match) {
+            if (match && match[1]) {
                 console.log(`  📌 Detectado child_no, extrayendo FNO: ${match[1]}`);
                 return match[1];
             }
@@ -1390,10 +1512,38 @@ export const trackFNO = async (req: Request, res: Response): Promise<any> => {
         // Helper: buscar datos en BD local para usar como fallback si MoJie falla
         const buildLocalFallback = async (): Promise<any | null> => {
             try {
+                                const normalizedSearchFno = searchFno
+                                        .toUpperCase()
+                                        .replace(/[^A-Z0-9]/g, '');
+
                 const receiptQ = await pool.query(
-                    `SELECT id, fno, shipping_mark, total_qty, total_weight, total_cbm, status, evidence_urls
-                     FROM china_receipts WHERE UPPER(fno) = UPPER($1) LIMIT 1`,
-                    [searchFno]
+                                        `WITH receipt_candidates AS (
+                                                SELECT cr.id, 0 as match_rank
+                                                FROM china_receipts cr
+                                                WHERE UPPER(cr.fno) = UPPER($1)
+
+                                                UNION ALL
+
+                                                SELECT cr.id, 1 as match_rank
+                                                FROM china_receipts cr
+                                                WHERE regexp_replace(UPPER(cr.fno), '[^A-Z0-9]', '', 'g') = $2
+
+                                                UNION ALL
+
+                                                SELECT p.china_receipt_id as id, 2 as match_rank
+                                                FROM packages p
+                                                WHERE p.china_receipt_id IS NOT NULL
+                                                    AND (
+                                                        UPPER(p.child_no) LIKE UPPER($3)
+                                                        OR regexp_replace(UPPER(p.child_no), '[^A-Z0-9]', '', 'g') LIKE $4
+                                                    )
+                                        )
+                                        SELECT cr.id, cr.fno, cr.shipping_mark, cr.total_qty, cr.total_weight, cr.total_cbm, cr.status, cr.evidence_urls
+                                        FROM receipt_candidates rc
+                                        INNER JOIN china_receipts cr ON cr.id = rc.id
+                                        ORDER BY rc.match_rank ASC, cr.id DESC
+                                        LIMIT 1`,
+                                        [searchFno, normalizedSearchFno, `${searchFno}-%`, `${normalizedSearchFno}%`]
                 );
                 if (receiptQ.rows.length === 0) return null;
                 const r = receiptQ.rows[0];

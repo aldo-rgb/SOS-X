@@ -88,6 +88,7 @@ import OutboundControlPage from './OutboundControlPage';
 import POBoxCajaPage from './POBoxCajaPage';
 import POBoxQuoterPage from './POBoxQuoterPage';
 import RepackPage from './RepackPage';
+import POBoxInventoryPage from './POBoxInventoryPage';
 import POBoxConsolidationReceptionWizard from './POBoxConsolidationReceptionWizard';
 
 // Interfaces para cotización
@@ -862,8 +863,6 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             setQuoteModalOpen(true);
         } else if (optionId === 'receive') {
             setBulkReceiveOpen(true);
-        } else if (optionId === 'inventory') {
-            setInventoryModalOpen(true);
         } else {
             setSelectedOption(optionId);
         }
@@ -905,6 +904,9 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             case 'repack':
                 // Reempaque - Consolidar múltiples paquetes en una caja
                 return <RepackPage />;
+            case 'inventory':
+                // Inventario PO Box USA - página completa con stats y filtros
+                return <POBoxInventoryPage onBack={handleBackToMenu} />;
             default:
                 return null;
         }

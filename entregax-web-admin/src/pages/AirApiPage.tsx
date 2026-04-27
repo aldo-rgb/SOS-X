@@ -68,6 +68,7 @@ interface ChinaReceipt {
   total_cbm: number;
   evidence_urls: string[] | null;
   international_tracking: string | null;
+  awb_international?: string | null;
   status: string;
   notes: string | null;
   created_at: string;
@@ -247,7 +248,34 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
       if (unassignedOnly) {
         filteredReceipts = filteredReceipts.filter((r: ChinaReceipt) => !r.user_id);
       }
-      setReceipts(filteredReceipts);
+
+      // Fallback frontend: resolver AWB desde air-guides si el endpoint de receipts no lo trae
+      const normalizeKey = (v: string | null | undefined) => String(v || '').trim().toUpperCase();
+      let awbByFno = new Map<string, string>();
+      try {
+        const guidesRes = await fetch(`${API_URL}/api/china/air-guides?limit=5000&offset=0`, { headers });
+        const guidesData = await guidesRes.json();
+        const guides = Array.isArray(guidesData?.guides) ? guidesData.guides : [];
+        for (const g of guides) {
+          const fnoKey = normalizeKey(g?.receipt_fno);
+          const awb = String(g?.international_tracking || '').trim();
+          if (fnoKey && awb && !awbByFno.has(fnoKey)) {
+            awbByFno.set(fnoKey, awb);
+          }
+        }
+      } catch (e) {
+        // noop: si falla este fallback, mantener comportamiento actual
+      }
+
+      const enrichedReceipts = filteredReceipts.map((r: ChinaReceipt) => {
+        const fallbackAwb = awbByFno.get(normalizeKey(r.fno)) || null;
+        return {
+          ...r,
+          awb_international: r.awb_international || r.international_tracking || fallbackAwb
+        };
+      });
+
+      setReceipts(enrichedReceipts);
 
       // Cargar estadísticas
       const statsRes = await fetch(`${API_URL}/api/china/stats`, { headers });
@@ -273,9 +301,21 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
         headers: { Authorization: `Bearer ${token}` }
       });
       const data = await res.json();
+
+      const packageAwb = Array.isArray(data?.packages)
+        ? (data.packages.find((p: any) => p?.international_tracking)?.international_tracking || null)
+        : null;
+
+      const enrichedReceipt = data?.receipt
+        ? {
+            ...data.receipt,
+            awb_international: data.receipt.awb_international || data.receipt.international_tracking || packageAwb
+          }
+        : data?.receipt;
+
       setDetailDialog({
         open: true,
-        receipt: data.receipt,
+        receipt: enrichedReceipt,
         packages: data.packages || []
       });
     } catch (error) {
@@ -368,9 +408,30 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
       });
       const data = await res.json();
       
-      if (data.success && data.raw) {
-        // El endpoint track devuelve los datos en 'raw'
-        setTrackDialog(prev => ({ ...prev, loading: false, result: data.raw }));
+      if (data.success && (data.raw || data.tracking)) {
+        // Aceptar ambos formatos:
+        // 1) MoJie directo -> data.raw
+        // 2) Fallback local BD -> data.tracking
+        const normalizedResult = data.raw || {
+          fno: data.tracking?.fno,
+          shippingMark: data.tracking?.shippingMark,
+          totalQty: data.tracking?.totalQty,
+          totalWeight: data.tracking?.totalWeight,
+          totalCbm: data.tracking?.totalCbm,
+          file: data.tracking?.evidencias || [],
+          data: Array.isArray(data.tracking?.paquetes)
+            ? data.tracking.paquetes.map((p: any) => ({
+                childNo: p.childNo,
+                trajecotryName: p.status,
+                weight: p.peso,
+                proName: p.producto,
+                customsBno: p.codigoAduanal,
+                billNo: p.guiaInternacional,
+              }))
+            : [],
+        };
+
+        setTrackDialog(prev => ({ ...prev, loading: false, result: normalizedResult }));
       } else {
         const msg = data.error || 'No se encontró la guía en el sistema MoJie';
         const details = data.details ? ` — ${data.details}` : '';
@@ -745,8 +806,8 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
                       <TableCell align="right">{Number(receipt.total_weight || 0).toFixed(2)}</TableCell>
                       <TableCell align="right">{Number(receipt.total_cbm || 0).toFixed(4)}</TableCell>
                       <TableCell>
-                        {receipt.international_tracking ? (
-                          <Chip size="small" label={receipt.international_tracking} variant="outlined" />
+                        {(receipt.awb_international || receipt.international_tracking) ? (
+                          <Chip size="small" label={receipt.awb_international || receipt.international_tracking} variant="outlined" />
                         ) : (
                           <Typography fontSize="0.75rem" color="text.secondary">Pendiente</Typography>
                         )}
@@ -778,7 +839,7 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
                               receipt, 
                               status: receipt.status, 
                               notes: receipt.notes || '',
-                              internationalTracking: receipt.international_tracking || ''
+                              internationalTracking: receipt.awb_international || receipt.international_tracking || ''
                             })}
                           >
                             <SyncIcon fontSize="small" />
@@ -859,7 +920,7 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
                     <Typography><b>Total Cajas:</b> {detailDialog.receipt.total_qty}</Typography>
                     <Typography><b>Peso Total:</b> {Number(detailDialog.receipt.total_weight || 0).toFixed(2)} kg</Typography>
                     <Typography><b>CBM Total:</b> {Number(detailDialog.receipt.total_cbm || 0).toFixed(4)}</Typography>
-                    <Typography><b>Guía Aérea:</b> {detailDialog.receipt.international_tracking || 'Pendiente'}</Typography>
+                    <Typography><b>Guía Aérea:</b> {detailDialog.receipt.awb_international || detailDialog.receipt.international_tracking || 'Pendiente'}</Typography>
                   </Paper>
                 </Grid>
                 <Grid size={{ xs: 12, md: 6 }}>

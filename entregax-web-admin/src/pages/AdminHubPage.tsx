@@ -109,19 +109,19 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 // ============================================
 
 const SERVICE_ICONS = {
-    china_air: <FlightIcon sx={{ fontSize: 48 }} />,
-    china_sea: <BoatIcon sx={{ fontSize: 48 }} />,
-    usa_pobox: <TruckIcon sx={{ fontSize: 48 }} />,
-    mx_cedis: <WarehouseIcon sx={{ fontSize: 48 }} />,
-    mx_national: <LocationIcon sx={{ fontSize: 48 }} />,
+    china_air: <FlightIcon />,
+    china_sea: <BoatIcon />,
+    usa_pobox: <TruckIcon />,
+    mx_cedis: <WarehouseIcon />,
+    mx_national: <LocationIcon />,
 };
 
 const SERVICE_COLORS = {
-    china_air: { color: '#E53935', bgGradient: 'linear-gradient(135deg, #C62828 0%, #EF5350 100%)', flag: '🇨🇳' },
-    china_sea: { color: '#0288D1', bgGradient: 'linear-gradient(135deg, #01579B 0%, #29B6F6 100%)', flag: '🇨🇳' },
-    usa_pobox: { color: '#5E35B1', bgGradient: 'linear-gradient(135deg, #4527A0 0%, #7E57C2 100%)', flag: '🇺🇸' },
-    mx_cedis: { color: '#43A047', bgGradient: 'linear-gradient(135deg, #2E7D32 0%, #66BB6A 100%)', flag: '🇲🇽' },
-    mx_national: { color: '#8E24AA', bgGradient: 'linear-gradient(135deg, #6A1B9A 0%, #AB47BC 100%)', flag: '🇲🇽' },
+    china_air: { color: '#F05A28', bgGradient: 'linear-gradient(135deg, #F05A28 0%, #FF8A65 100%)', flag: '🇨🇳' },
+    china_sea: { color: '#F05A28', bgGradient: 'linear-gradient(135deg, #F05A28 0%, #FF8A65 100%)', flag: '🇨🇳' },
+    usa_pobox: { color: '#F05A28', bgGradient: 'linear-gradient(135deg, #F05A28 0%, #FF8A65 100%)', flag: '🇺🇸' },
+    mx_cedis: { color: '#F05A28', bgGradient: 'linear-gradient(135deg, #F05A28 0%, #FF8A65 100%)', flag: '🇲🇽' },
+    mx_national: { color: '#F05A28', bgGradient: 'linear-gradient(135deg, #F05A28 0%, #FF8A65 100%)', flag: '🇲🇽' },
 };
 
 const MODULE_ICONS: Record<string, React.ReactElement> = {
@@ -1333,7 +1333,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 </Paper>
 
                 {/* Grid de módulos */}
-                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
                     📋 {t('panels.adminModules')}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
@@ -1440,13 +1440,13 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
     console.log('🎯 availableServices:', availableServices.map(s => s.code));
 
     return (
-        <Box sx={{ p: 3 }}>
+        <Box sx={{ p: 3, bgcolor: '#FAFAFA', minHeight: '100vh' }}>
             {/* Header */}
             <Box sx={{ mb: 4 }}>
-                <Typography variant="h4" fontWeight="bold">
-                    🛠️ {t('panels.adminHub.title')}
+                <Typography variant="h4" sx={{ fontWeight: 700, color: '#1A1A1A', letterSpacing: -0.5 }}>
+                    {t('panels.adminHub.title')}
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" sx={{ color: '#6B7280', mt: 0.5 }}>
                     {t('panels.adminHub.subtitle')}
                 </Typography>
             </Box>
@@ -1470,58 +1470,35 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
 
                     return (
                         <Grid size={{ xs: 12, sm: 6, md: 4 }} key={location.code}>
-                            <Card
-                                sx={{
-                                    height: '100%',
-                                    transition: 'all 0.3s ease',
-                                    '&:hover': {
-                                        transform: 'translateY(-8px)',
-                                        boxShadow: 6,
-                                    },
-                                }}
-                            >
+                            <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
                                 <CardActionArea
                                     onClick={() => setSelectedService(location.code)}
                                     sx={{ height: '100%' }}
                                 >
-                                    <Box
-                                        sx={{
-                                            background: serviceColors.bgGradient,
-                                            p: 3,
+                                    <Box sx={{ height: 4, bgcolor: serviceColors.color }} />
+                                    <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                        <Box sx={{
+                                            width: 48,
+                                            height: 48,
+                                            borderRadius: 1.5,
                                             display: 'flex',
                                             alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                        }}
-                                    >
-                                        <Box sx={{ color: 'white' }}>
+                                            justifyContent: 'center',
+                                            bgcolor: serviceColors.color + '15',
+                                            color: '#1A1A1A',
+                                            '& svg': { fontSize: 26 }
+                                        }}>
                                             {serviceIcon}
                                         </Box>
-                                        <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                            {serviceColors.flag}
-                                        </Typography>
+                                        <Typography sx={{ fontSize: 28, lineHeight: 1, opacity: 0.85 }}>{serviceColors.flag}</Typography>
                                     </Box>
                                     <CardContent>
-                                        <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                        <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
                                             {t(`panels.services.${location.code}.title`)}
                                         </Typography>
-                                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                        <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
                                             {t(`panels.services.${location.code}.subtitle`)}
                                         </Typography>
-                                        <Divider sx={{ my: 1 }} />
-                                        <Typography variant="caption" color="text.secondary">
-                                            {modules.length} {t('panels.modulesAvailable')}
-                                        </Typography>
-                                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                            {tags.slice(0, 3).map((tag) => (
-                                                <Chip
-                                                    key={tag}
-                                                    label={tag}
-                                                    size="small"
-                                                    variant="outlined"
-                                                    sx={{ fontSize: '0.7rem' }}
-                                                />
-                                            ))}
-                                        </Box>
                                     </CardContent>
                                 </CardActionArea>
                             </Card>
@@ -1532,52 +1509,33 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 {/* Tarjeta especial: Verificaciones KYC - ROJO */}
                 {hasPermission('admin_verifications') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
+                    <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
                         <CardActionArea
                             onClick={() => setShowVerifications(true)}
                             sx={{ height: '100%' }}
                         >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #C62828 0%, #EF5350 100%)',
-                                    p: 3,
+                            <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                <Box sx={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 1.5,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <VerifiedUserIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    ✓
-                                </Typography>
+                                    justifyContent: 'center',
+                                    bgcolor: '#F05A2815',
+                                    color: '#1A1A1A',
+                                    '& svg': { fontSize: 26 }
+                                }}><VerifiedUserIcon /></Box>
+                                <Typography sx={{ fontSize: 28, lineHeight: 1, opacity: 0.85 }}>✓</Typography>
                             </Box>
                             <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
-                                    Verificaciones de Identidad
+                                <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
+                                    Verificaciones
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                    Revisión y aprobación de documentos KYC de usuarios
+                                <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
+                                    Revisión y aprobación de Usuario y/o Descuentos y ajustes financieros
                                 </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    3 módulos disponibles
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="KYC" size="small" sx={{ bgcolor: '#C62828', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="INE/Pasaporte" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="Revisión" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
                             </CardContent>
                         </CardActionArea>
                     </Card>
@@ -1587,52 +1545,33 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 {/* Tarjeta especial: Pago a Proveedores - NARANJA */}
                 {hasPermission('admin_supplier_payments') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
+                    <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
                         <CardActionArea
                             onClick={() => setShowSupplierPayments(true)}
                             sx={{ height: '100%' }}
                         >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #E65100 0%, #FF9800 100%)',
-                                    p: 3,
+                            <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                <Box sx={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 1.5,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <PaymentsIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    💰
-                                </Typography>
+                                    justifyContent: 'center',
+                                    bgcolor: '#F05A2815',
+                                    color: '#1A1A1A',
+                                    '& svg': { fontSize: 26 }
+                                }}><PaymentsIcon /></Box>
+                                <Typography sx={{ fontSize: 28, lineHeight: 1, opacity: 0.85 }}>💰</Typography>
                             </Box>
                             <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
                                     Pago a Proveedores
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
                                     Gestión de pagos a proveedores internacionales
                                 </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    En desarrollo
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="Pagos" size="small" sx={{ bgcolor: '#E65100', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="Proveedores" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="China" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
                             </CardContent>
                         </CardActionArea>
                     </Card>
@@ -1642,52 +1581,33 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 {/* Tarjeta especial: Gestión Financiera - Ahora antes de Sucursales */}
                 {hasPermission('admin_financial') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
+                    <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
                         <CardActionArea
                             onClick={() => setShowFinancial(true)}
                             sx={{ height: '100%' }}
                         >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #00695C 0%, #4DB6AC 100%)',
-                                    p: 3,
+                            <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                <Box sx={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 1.5,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <WalletIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    💳
-                                </Typography>
+                                    justifyContent: 'center',
+                                    bgcolor: '#F05A2815',
+                                    color: '#1A1A1A',
+                                    '& svg': { fontSize: 26 }
+                                }}><WalletIcon /></Box>
+                                <Typography sx={{ fontSize: 28, lineHeight: 1, opacity: 0.85 }}>💳</Typography>
                             </Box>
                             <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
                                     Gestión Financiera
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
                                     Monederos de clientes, líneas de crédito B2B y transacciones
                                 </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    Admin / Super Admin
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="Monedero" size="small" sx={{ bgcolor: '#00695C', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="Crédito" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="SPEI" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
                             </CardContent>
                         </CardActionArea>
                     </Card>
@@ -1697,52 +1617,33 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 {/* Tarjeta especial: Gestión de Sucursales - VERDE */}
                 {isSuperAdmin && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
+                    <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
                         <CardActionArea
                             onClick={() => setShowBranches(true)}
                             sx={{ height: '100%' }}
                         >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #2E7D32 0%, #66BB6A 100%)',
-                                    p: 3,
+                            <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                <Box sx={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 1.5,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <BranchIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    🏢
-                                </Typography>
+                                    justifyContent: 'center',
+                                    bgcolor: '#F05A2815',
+                                    color: '#1A1A1A',
+                                    '& svg': { fontSize: 26 }
+                                }}><BranchIcon /></Box>
+                                <Typography sx={{ fontSize: 28, lineHeight: 1, opacity: 0.85 }}>🏢</Typography>
                             </Box>
                             <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
                                     Gestión de Sucursales
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
                                     Crear CEDIS y asignar empleados a cada ubicación
                                 </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    Solo Super Admin
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="CEDIS" size="small" sx={{ bgcolor: '#2E7D32', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="Empleados" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="Servicios" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
                             </CardContent>
                         </CardActionArea>
                     </Card>
@@ -1752,52 +1653,33 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 {/* Tarjeta especial: Migración de Clientes - CIAN */}
                 {isSuperAdmin && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
+                    <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
                         <CardActionArea
                             onClick={() => setShowLegacyClients(true)}
                             sx={{ height: '100%' }}
                         >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #0097A7 0%, #4DD0E1 100%)',
-                                    p: 3,
+                            <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                <Box sx={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 1.5,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <UploadIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    📦
-                                </Typography>
+                                    justifyContent: 'center',
+                                    bgcolor: '#F05A2815',
+                                    color: '#1A1A1A',
+                                    '& svg': { fontSize: 26 }
+                                }}><UploadIcon /></Box>
+                                <Typography sx={{ fontSize: 28, lineHeight: 1, opacity: 0.85 }}>📦</Typography>
                             </Box>
                             <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
                                     Migración de Clientes
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
                                     Importar y gestionar clientes de la base de datos anterior
                                 </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    Solo Super Admin
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="Migración" size="small" sx={{ bgcolor: '#0097A7', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="Legacy" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="Importar" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
                             </CardContent>
                         </CardActionArea>
                     </Card>
@@ -1807,53 +1689,33 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 {/* Tarjeta especial: Dashboard de Cobranza - NARANJA/NEGRO */}
                 {hasPermission('admin_finance_dashboard') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
+                    <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
                         <CardActionArea
                             onClick={() => setShowFinanceDashboard(true)}
                             sx={{ height: '100%' }}
                         >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #111111 0%, #F05A28 100%)',
-                                    p: 3,
+                            <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                <Box sx={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 1.5,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <TrendingUpIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    💰
-                                </Typography>
+                                    justifyContent: 'center',
+                                    bgcolor: '#F05A2815',
+                                    color: '#1A1A1A',
+                                    '& svg': { fontSize: 26 }
+                                }}><TrendingUpIcon /></Box>
+                                <Typography sx={{ fontSize: 28, lineHeight: 1, opacity: 0.85 }}>💰</Typography>
                             </Box>
                             <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
                                     Dashboard de Cobranza
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
                                     Flujo de efectivo: Caja CC + SPEI (Openpay)
                                 </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    Finanzas / Administración
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="KPIs" size="small" sx={{ bgcolor: '#F05A28', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="SPEI" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="Efectivo" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="Exportar" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
                             </CardContent>
                         </CardActionArea>
                     </Card>
@@ -1865,52 +1727,33 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 {/* Tarjeta especial: Tipo de Cambio - VERDE ESMERALDA */}
                 {hasPermission('admin_exchange_rates') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
+                    <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
                         <CardActionArea
                             onClick={() => setShowExchangeRates(true)}
                             sx={{ height: '100%' }}
                         >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #00695C 0%, #4DB6AC 100%)',
-                                    p: 3,
+                            <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                <Box sx={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 1.5,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <WalletIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    💱
-                                </Typography>
+                                    justifyContent: 'center',
+                                    bgcolor: '#F05A2815',
+                                    color: '#1A1A1A',
+                                    '& svg': { fontSize: 26 }
+                                }}><WalletIcon /></Box>
+                                <Typography sx={{ fontSize: 28, lineHeight: 1, opacity: 0.85 }}>💱</Typography>
                             </Box>
                             <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
                                     Tipo de Cambio
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
                                     Configuración de tipo de cambio y sobreprecio por servicio
                                 </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    Solo Super Admin
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="Banxico" size="small" sx={{ bgcolor: '#00695C', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="Sobreprecio" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="USD/MXN" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
                             </CardContent>
                         </CardActionArea>
                     </Card>
@@ -1920,52 +1763,33 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 {/* Tarjeta especial: Carrusel de la App - NARANJA */}
                 {hasPermission('admin_carousel') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
+                    <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
                         <CardActionArea
                             onClick={() => setShowCarousel(true)}
                             sx={{ height: '100%' }}
                         >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #E64A19 0%, #FF7043 100%)',
-                                    p: 3,
+                            <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                <Box sx={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 1.5,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <SmartphoneIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    📱
-                                </Typography>
+                                    justifyContent: 'center',
+                                    bgcolor: '#F05A2815',
+                                    color: '#1A1A1A',
+                                    '& svg': { fontSize: 26 }
+                                }}><SmartphoneIcon /></Box>
+                                <Typography sx={{ fontSize: 28, lineHeight: 1, opacity: 0.85 }}>📱</Typography>
                             </Box>
                             <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
                                     Carrusel de la App
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
                                     Gestión de slides promocionales en la app móvil
                                 </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    Solo Super Admin
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="Slides" size="small" sx={{ bgcolor: '#E64A19', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="Promos" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="CTR" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
                             </CardContent>
                         </CardActionArea>
                     </Card>
@@ -1975,52 +1799,33 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 {/* Tarjeta especial: Recursos Humanos - ROSA */}
                 {hasPermission('admin_hr') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
+                    <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
                         <CardActionArea
                             onClick={() => setShowHR(true)}
                             sx={{ height: '100%' }}
                         >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #AD1457 0%, #F06292 100%)',
-                                    p: 3,
+                            <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                <Box sx={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 1.5,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <BadgeIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    👥
-                                </Typography>
+                                    justifyContent: 'center',
+                                    bgcolor: '#F05A2815',
+                                    color: '#1A1A1A',
+                                    '& svg': { fontSize: 26 }
+                                }}><BadgeIcon /></Box>
+                                <Typography sx={{ fontSize: 28, lineHeight: 1, opacity: 0.85 }}>👥</Typography>
                             </Box>
                             <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
                                     Recursos Humanos
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
                                     Gestión de empleados, checador y nómina
                                 </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    Admin / Super Admin
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="Empleados" size="small" sx={{ bgcolor: '#AD1457', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="Checador" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="Nómina" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
                             </CardContent>
                         </CardActionArea>
                     </Card>
@@ -2030,52 +1835,33 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 {/* Tarjeta especial: Gestión de Flotilla - MARRÓN */}
                 {hasPermission('admin_fleet') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
+                    <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
                         <CardActionArea
                             onClick={() => setShowFleet(true)}
                             sx={{ height: '100%' }}
                         >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #5D4037 0%, #8D6E63 100%)',
-                                    p: 3,
+                            <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                <Box sx={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 1.5,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <DirectionsCarIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    🚛
-                                </Typography>
+                                    justifyContent: 'center',
+                                    bgcolor: '#F05A2815',
+                                    color: '#1A1A1A',
+                                    '& svg': { fontSize: 26 }
+                                }}><DirectionsCarIcon /></Box>
+                                <Typography sx={{ fontSize: 28, lineHeight: 1, opacity: 0.85 }}>🚛</Typography>
                             </Box>
                             <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
                                     Gestión de Flotilla
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
                                     Vehículos, mantenimiento y combustible
                                 </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    Admin / Super Admin
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="Vehículos" size="small" sx={{ bgcolor: '#5D4037', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="Gasolina" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="Servicios" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
                             </CardContent>
                         </CardActionArea>
                     </Card>
@@ -2085,52 +1871,33 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 {/* Tarjeta especial: Caja Chica - NARANJA */}
                 {isSuperAdmin && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
+                    <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
                         <CardActionArea
                             onClick={() => setShowCajaChica(true)}
                             sx={{ height: '100%' }}
                         >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #E65100 0%, #FF9800 100%)',
-                                    p: 3,
+                            <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                <Box sx={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 1.5,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <LocalAtmIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    💵
-                                </Typography>
+                                    justifyContent: 'center',
+                                    bgcolor: '#F05A2815',
+                                    color: '#1A1A1A',
+                                    '& svg': { fontSize: 26 }
+                                }}><LocalAtmIcon /></Box>
+                                <Typography sx={{ fontSize: 28, lineHeight: 1, opacity: 0.85 }}>💵</Typography>
                             </Box>
                             <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
                                     Caja CC
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
                                     Control de efectivo, ingresos, egresos y cortes de caja
                                 </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    Sucursal / Admin
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="Efectivo" size="small" sx={{ bgcolor: '#E65100', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="Cobros" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="Cortes" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
                             </CardContent>
                         </CardActionArea>
                     </Card>
@@ -2140,52 +1907,33 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 {/* Tarjeta especial: Módulo GEX - VIOLETA */}
                 {hasPermission('admin_gex') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card
-                        sx={{
-                            height: '100%',
-                            transition: 'all 0.3s ease',
-                            '&:hover': {
-                                transform: 'translateY(-8px)',
-                                boxShadow: 6,
-                            },
-                        }}
-                    >
+                    <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
                         <CardActionArea
                             onClick={() => setShowGex(true)}
                             sx={{ height: '100%' }}
                         >
-                            <Box
-                                sx={{
-                                    background: 'linear-gradient(135deg, #7B1FA2 0%, #BA68C8 100%)',
-                                    p: 3,
+                            <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                <Box sx={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 1.5,
                                     display: 'flex',
                                     alignItems: 'center',
-                                    justifyContent: 'space-between',
-                                }}
-                            >
-                                <Box sx={{ color: 'white' }}>
-                                    <SecurityIcon sx={{ fontSize: 48 }} />
-                                </Box>
-                                <Typography variant="h2" sx={{ opacity: 0.3 }}>
-                                    🛡️
-                                </Typography>
+                                    justifyContent: 'center',
+                                    bgcolor: '#F05A2815',
+                                    color: '#1A1A1A',
+                                    '& svg': { fontSize: 26 }
+                                }}><SecurityIcon /></Box>
+                                <Typography sx={{ fontSize: 28, lineHeight: 1, opacity: 0.85 }}>🛡️</Typography>
                             </Box>
                             <CardContent>
-                                <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
                                     Módulo GEX
                                 </Typography>
-                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
                                     Garantía extendida y pólizas de seguro
                                 </Typography>
-                                <Divider sx={{ my: 1 }} />
-                                <Typography variant="caption" color="text.secondary">
-                                    5 módulos disponibles
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
-                                    <Chip label="GEX" size="small" sx={{ bgcolor: '#7B1FA2', color: 'white', fontSize: '0.7rem' }} />
-                                    <Chip label="Pólizas" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                    <Chip label="Seguros" size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                                </Box>
                             </CardContent>
                         </CardActionArea>
                     </Card>

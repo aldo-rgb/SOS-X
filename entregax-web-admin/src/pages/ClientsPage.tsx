@@ -100,6 +100,7 @@ const translateRole = (role: string): string => {
     admin: 'Admin',
     director: 'Director',
     branch_manager: 'Operaciones',
+    accountant: 'Contador',
     customer_service: 'Servicio Cliente',
     counter_staff: 'Mostrador',
     warehouse_ops: 'Bodega',
@@ -414,6 +415,7 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
               <MenuItem value="admin">{t('roles.admin')}</MenuItem>
               <MenuItem value="director">{t('roles.director')}</MenuItem>
               <MenuItem value="branch_manager">{t('roles.branch_manager')}</MenuItem>
+              <MenuItem value="accountant">Contador</MenuItem>
               <MenuItem value="customer_service">{t('roles.customer_service')}</MenuItem>
               <MenuItem value="counter_staff">{t('roles.counter_staff')}</MenuItem>
               <MenuItem value="warehouse_ops">{t('roles.warehouse_ops')}</MenuItem>
@@ -747,6 +749,7 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                 <MenuItem value="counter_staff">Mostrador</MenuItem>
                 <MenuItem value="customer_service">Servicio a Cliente</MenuItem>
                 <MenuItem value="branch_manager">Operaciones</MenuItem>
+                <MenuItem value="accountant">Contador</MenuItem>
                 <MenuItem value="director">Director</MenuItem>
                 <MenuItem value="admin">Admin</MenuItem>
                 <MenuItem value="super_admin">Super Admin</MenuItem>

@@ -821,6 +821,26 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             `
         );
 
+        // En espera marítimo: cajas marítimas en tránsito a MTY NL
+        const waitingMaritimeBoxesResult = await pool.query(
+            `
+                SELECT COALESCE(SUM(CASE WHEN COALESCE(p.total_boxes, 0) > 0 THEN p.total_boxes ELSE 1 END), 0)::int as total
+                FROM packages p
+                WHERE (p.is_master = TRUE OR p.master_id IS NULL)
+                  AND p.status::text IN ('in_transit', 'in_transit_mty')
+                  AND p.service_type IN ('SEA_CHN_MX', 'FCL_CHN_MX')
+            `
+        );
+
+        // En espera aéreo: cajas aéreas en tránsito
+        const waitingAirBoxesResult = await pool.query(
+            `
+                SELECT COUNT(*)::int as total
+                FROM china_receipts cr
+                WHERE cr.status::text = 'in_customs_gz'
+            `
+        );
+
         // Entregas hoy: paquetes entregados hoy
         const deliveredTodayResult = await pool.query(
             `
@@ -953,6 +973,8 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 en_bodega: parseInt(inWarehouseResult.rows[0]?.total || 0) || 0,
                 en_transito: parseInt(waitingBoxesResult.rows[0]?.total || 0) || 0,
                 en_espera_cajas: parseInt(waitingBoxesResult.rows[0]?.total || 0) || 0,
+                en_espera_maritimo: parseInt(waitingMaritimeBoxesResult.rows[0]?.total || 0) || 0,
+                en_espera_aereo: parseInt(waitingAirBoxesResult.rows[0]?.total || 0) || 0,
                 entregados_hoy: parseInt(deliveredTodayResult.rows[0]?.total || 0) || 0,
                 pendientes_cobro: parseInt(pendingChargeResult.rows[0]?.total || 0) || 0,
             },
@@ -984,6 +1006,8 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 en_bodega: 0,
                 en_transito: 0,
                 en_espera_cajas: 0,
+                en_espera_maritimo: 0,
+                en_espera_aereo: 0,
                 entregados_hoy: 0,
                 pendientes_cobro: 0,
             },
@@ -1357,7 +1381,7 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
         }
         if (role !== undefined) {
             // Validar que sea un rol válido
-            const validRoles = ['super_admin', 'admin', 'director', 'branch_manager', 'customer_service', 
+            const validRoles = ['super_admin', 'admin', 'director', 'branch_manager', 'accountant', 'customer_service', 
                                'counter_staff', 'warehouse_ops', 'advisor', 'sub_advisor', 'repartidor', 'client'];
             if (!validRoles.includes(role)) {
                 res.status(400).json({ error: 'Rol no válido' });

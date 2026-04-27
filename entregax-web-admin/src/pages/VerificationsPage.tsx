@@ -68,7 +68,7 @@ interface DiscountRequest {
   cliente_id: number;
   cliente_nombre: string;
   solicitado_por: number;
-  solicitante_nombre: string;
+  solicitado_nombre: string;
   estado: 'pendiente' | 'aprobado' | 'rechazado';
   created_at: string;
 }
@@ -142,10 +142,10 @@ export default function VerificationsPage() {
     if (!token) return;
     try {
       const [reqRes, statsRes] = await Promise.all([
-        axios.get(`${API_URL}/cs/descuentos/pendientes`, { headers: { Authorization: `Bearer ${token}` } }),
+        axios.get(`${API_URL}/cs/descuentos/pendientes?estado=pendiente`, { headers: { Authorization: `Bearer ${token}` } }),
         axios.get(`${API_URL}/cs/descuentos/stats`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
-      setDiscountRequests(reqRes.data.descuentos || []);
+      setDiscountRequests(Array.isArray(reqRes.data) ? reqRes.data : (reqRes.data.descuentos || []));
       setDiscountStats(statsRes.data);
     } catch (error: any) {
       console.error('Error loading discount data:', error?.response?.data || error.message);
@@ -549,7 +549,7 @@ export default function VerificationsPage() {
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2">{req.solicitante_nombre || `ID: ${req.solicitado_por}`}</Typography>
+                        <Typography variant="body2">{req.solicitado_nombre || `ID: ${req.solicitado_por}`}</Typography>
                       </TableCell>
                       <TableCell>
                         <Typography variant="caption">
@@ -874,7 +874,7 @@ export default function VerificationsPage() {
                 <Typography variant="body2"><strong>Monto:</strong> <span style={{ color: '#4caf50', fontWeight: 700 }}>-${Number(selectedDiscount.monto).toLocaleString('en-US', { minimumFractionDigits: 2 })} {selectedDiscount.moneda || 'MXN'}</span></Typography>
                 <Typography variant="body2"><strong>Concepto:</strong> {selectedDiscount.concepto}</Typography>
                 {selectedDiscount.notas && <Typography variant="body2"><strong>Notas:</strong> {selectedDiscount.notas}</Typography>}
-                <Typography variant="body2"><strong>Solicitado por:</strong> {selectedDiscount.solicitante_nombre}</Typography>
+                <Typography variant="body2"><strong>Solicitado por:</strong> {selectedDiscount.solicitado_nombre}</Typography>
               </Paper>
 
               <Alert severity="warning">

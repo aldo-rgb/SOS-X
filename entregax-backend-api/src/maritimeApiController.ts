@@ -404,7 +404,12 @@ export const updateOrderTracking = async (ordersn: string): Promise<{
                     latestDate = logDate;
                     latestStatus = log.status;
                     latestDetail = log.detail;
-                    shipNumber = log.ship_number || '';
+                }
+                // Conservar el último ship_number no vacío (es el nombre del buque/voyage)
+                // En estados avanzados (Customs, Import Clearence) viene vacío, pero el
+                // log "Vessel On Board"/"Arrival at Destination Port" sí lo trae.
+                if (log.ship_number && String(log.ship_number).trim() !== '') {
+                    shipNumber = String(log.ship_number).trim();
                 }
             } catch (logError: any) {
                 console.error(`    ⚠️ Error insertando log ${log.id}:`, logError.message);
@@ -595,7 +600,7 @@ export const manualSyncTracking = async (req: Request, res: Response): Promise<a
  */
 export const getMaritimeOrders = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { status, unassigned, limit = '50', offset = '0' } = req.query;
+        const { status, trackingStatus, unassigned, search, limit = '50', offset = '0' } = req.query;
         const limitNum = parseInt(String(limit)) || 50;
         const offsetNum = parseInt(String(offset)) || 0;
         
@@ -604,6 +609,7 @@ export const getMaritimeOrders = async (req: Request, res: Response): Promise<an
         let query = `
             SELECT 
                 mo.*,
+                (mo.api_raw_data->>'id')::bigint as china_id,
                 COALESCE(u.full_name, lc.full_name, 
                     CASE 
                         WHEN UPPER(SUBSTRING(mo.shipping_mark FROM 'S[0-9]+')) IS NOT NULL 
@@ -635,10 +641,35 @@ export const getMaritimeOrders = async (req: Request, res: Response): Promise<an
             params.push(String(status));
             query += ` AND mo.status = $${params.length}`;
         }
+
+        if (trackingStatus) {
+            params.push(String(trackingStatus));
+            query += ` AND UPPER(COALESCE(mo.last_tracking_status, '')) = UPPER($${params.length})`;
+        }
         
         // Sin asignar = no tiene user_id Y no se encontró en legacy_clients
         if (unassigned === 'true') {
             query += ` AND mo.user_id IS NULL AND lc.id IS NULL`;
+        }
+
+        // Búsqueda libre: ordersn, shipping_mark, ship_number, bl_number, container_number,
+        // goods_name, china_id, nombre/email del cliente
+        if (search && String(search).trim() !== '') {
+            params.push(`%${String(search).trim()}%`);
+            const idx = params.length;
+            query += ` AND (
+                mo.ordersn ILIKE $${idx}
+                OR mo.shipping_mark ILIKE $${idx}
+                OR COALESCE(mo.ship_number,'') ILIKE $${idx}
+                OR COALESCE(mo.bl_number,'') ILIKE $${idx}
+                OR COALESCE(mo.container_number,'') ILIKE $${idx}
+                OR COALESCE(mo.goods_name,'') ILIKE $${idx}
+                OR COALESCE(mo.last_tracking_status,'') ILIKE $${idx}
+                OR COALESCE(u.full_name,'') ILIKE $${idx}
+                OR COALESCE(u.email,'') ILIKE $${idx}
+                OR COALESCE(lc.full_name,'') ILIKE $${idx}
+                OR COALESCE((mo.api_raw_data->>'id'),'') ILIKE $${idx}
+            )`;
         }
 
         query += ` ORDER BY mo.created_at DESC`;
@@ -887,6 +918,27 @@ export const getMaritimeStats = async (req: Request, res: Response): Promise<any
             FROM maritime_orders
         `);
 
+        // Distribución dinámica por status (para filtros en frontend)
+        const byStatusResult = await pool.query(`
+            SELECT 
+                COALESCE(status, 'unknown') as status,
+                COUNT(*)::int as count
+            FROM maritime_orders
+            GROUP BY COALESCE(status, 'unknown')
+            ORDER BY COUNT(*) DESC, status ASC
+        `);
+
+        const byTrackingStatusResult = await pool.query(`
+            SELECT 
+                last_tracking_status as status,
+                COUNT(*)::int as count
+            FROM maritime_orders
+            WHERE last_tracking_status IS NOT NULL
+              AND last_tracking_status <> ''
+            GROUP BY last_tracking_status
+            ORDER BY COUNT(*) DESC, last_tracking_status ASC
+        `);
+
         // Última sincronización
         const lastSyncResult = await pool.query(`
             SELECT sync_type, started_at, finished_at, records_processed, records_created
@@ -905,7 +957,11 @@ export const getMaritimeStats = async (req: Request, res: Response): Promise<any
 
         res.json({
             success: true,
-            stats: statsResult.rows[0],
+            stats: {
+                ...statsResult.rows[0],
+                by_status: byStatusResult.rows,
+                by_tracking_status: byTrackingStatusResult.rows
+            },
             lastSync: lastSyncResult.rows,
             recentOrders: recentResult.rows
         });
@@ -939,12 +995,20 @@ const sleep = (ms: number): Promise<void> => {
  */
 const mapTrackingStatusToInternal = (apiStatus: string): string => {
     const statusMap: { [key: string]: string } = {
+        // Variantes reales observadas en la API marítima China
         'SHIPMENT GENERATION': 'received_china',
+        'GOODS IN WAREHOUSE': 'received_china',
         'WAREHOUSE RECEIVED': 'received_china',
+        'GOODS OUT OF WAREHOUSE': 'in_transit',
+        'LOADED INTO CONTAINER': 'in_transit',
+        'VESSEL ON BOARD': 'in_transit',
         'DEPARTURE FROM CHINA': 'in_transit',
         'IN TRANSIT': 'in_transit',
         'IN TRANSIT BY MEXICO TRUCK': 'in_transit_mx',
+        'ARRIVAL AT DESTINATION PORT': 'customs_mx',
+        'CUSTOMS CLEARANCE IN PROCESS': 'customs_mx',
         'ARRIVAL AT CUSTOMS': 'customs_mx',
+        'IMPORT CLEARENCE FINISHED': 'customs_cleared',
         'IMPORT CLEARANCE STARTED': 'customs_mx',
         'IMPORT CLEARANCE FINISHED': 'customs_cleared',
         'OUT FOR DELIVERY': 'out_for_delivery',

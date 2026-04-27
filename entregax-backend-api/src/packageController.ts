@@ -1101,6 +1101,26 @@ const getPackageMovementsBaseByTracking = async (tracking: string) => {
     return result.rows[0] || null;
 };
 
+const getMaritimeOrderBaseByTracking = async (tracking: string) => {
+    const result = await pool.query(
+        `SELECT mo.id,
+                mo.user_id,
+                mo.ordersn,
+                mo.status,
+                mo.created_at,
+                mo.updated_at,
+                mo.last_tracking_status,
+                mo.last_tracking_detail,
+                mo.last_tracking_date
+         FROM maritime_orders mo
+         WHERE UPPER(mo.ordersn) = UPPER($1)
+         LIMIT 1`,
+        [tracking]
+    );
+
+    return result.rows[0] || null;
+};
+
 const getPackageMovementsBaseById = async (id: number) => {
     const result = await pool.query(
         `SELECT p.id, p.user_id, p.status, p.created_at, p.updated_at, p.tracking_internal, p.tracking_provider,
@@ -1295,13 +1315,107 @@ const buildPackageMovementsResponse = async (pkg: any) => {
     };
 };
 
+const formatMaritimeStatusLabel = (status: string | null | undefined): string => {
+    if (!status) return 'Sin estado';
+    const labels: Record<string, string> = {
+        received_china: 'Recibido CEDIS GZ CHINA',
+        in_transit: 'En Tránsito',
+        in_transit_mx: 'En México',
+        customs_mx: 'En Aduana',
+        customs_cleared: 'Liberado',
+        out_for_delivery: 'En Reparto',
+        delivered: 'Entregado',
+        pending_api: 'Pendiente API',
+        cancelled: 'Cancelado',
+        returned: 'Devuelto'
+    };
+    return labels[status] || status;
+};
+
+const buildMaritimeMovementsResponse = async (order: any) => {
+    let movementRows: any[] = [];
+    try {
+        const movementsRes = await pool.query(
+            `SELECT mtl.id,
+                    mtl.ordersn,
+                    mtl.status,
+                    mtl.detail,
+                    mtl.detail_en,
+                    mtl.track_date,
+                    mtl.ship_number,
+                    mtl.image_url,
+                    mtl.created_at
+             FROM maritime_tracking_logs mtl
+             WHERE UPPER(mtl.ordersn) = UPPER($1)
+             ORDER BY COALESCE(mtl.track_date, mtl.created_at) DESC, mtl.id DESC`,
+            [order.ordersn]
+        );
+        movementRows = movementsRes.rows;
+    } catch (error) {
+        movementRows = [];
+    }
+
+    const movements = movementRows.map((row) => ({
+        id: row.id,
+        package_id: null,
+        tracking: row.ordersn,
+        status: row.status,
+        status_label: row.detail_en || row.detail || row.status,
+        notes: row.detail || row.detail_en || null,
+        created_at: row.track_date || row.created_at || order.updated_at || order.created_at,
+        created_by: null,
+        created_by_name: null,
+        source: 'api_china'
+    }));
+
+    if (movements.length === 0) {
+        movements.push({
+            id: -1,
+            package_id: null,
+            tracking: order.ordersn,
+            status: order.status,
+            status_label: formatMaritimeStatusLabel(order.status),
+            notes: order.last_tracking_detail || 'Orden marítima registrada en sistema',
+            created_at: order.last_tracking_date || order.updated_at || order.created_at,
+            created_by: null,
+            created_by_name: null,
+            source: 'system'
+        });
+    }
+
+    return {
+        success: true,
+        tracking: order.ordersn,
+        current: {
+            status: order.status,
+            status_label: formatMaritimeStatusLabel(order.status),
+            updated_at: order.updated_at
+        },
+        movements
+    };
+};
+
 export const getPackageMovementsByTracking = async (req: Request, res: Response): Promise<any> => {
     try {
         const tracking = String(req.params.tracking || '').trim();
         if (!tracking) return res.status(400).json({ success: false, error: 'Tracking requerido' });
 
         const pkg = await getPackageMovementsBaseByTracking(tracking);
-        if (!pkg) return res.status(404).json({ success: false, error: 'Paquete no encontrado' });
+        if (!pkg) {
+            const maritimeOrder = await getMaritimeOrderBaseByTracking(tracking);
+            if (!maritimeOrder) return res.status(404).json({ success: false, error: 'Paquete no encontrado' });
+
+            const user = (req as any).user;
+            const requesterId = Number(user?.userId || 0);
+            const requesterRole = String(user?.role || '').toLowerCase();
+            const isClientRole = ['client', 'customer', 'usuario', 'user'].includes(requesterRole);
+            if (isClientRole && requesterId !== Number(maritimeOrder.user_id)) {
+                return res.status(403).json({ success: false, error: 'No tienes permiso para ver estos movimientos' });
+            }
+
+            const maritimeResponse = await buildMaritimeMovementsResponse(maritimeOrder);
+            return res.json(maritimeResponse);
+        }
 
         const user = (req as any).user;
         const requesterId = Number(user?.userId || 0);

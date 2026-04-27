@@ -28,7 +28,6 @@ import { useTranslation } from 'react-i18next';
 
 // Importar los paneles específicos
 import WarehouseReceptionPage from './WarehouseReceptionPage';
-import ChinaReceptionPage from './ChinaReceptionPage';
 import QuotesPage from './QuotesPage';
 import MaritimeWarehousePage from './MaritimeWarehousePage';
 import DhlOperationsPage from './DhlOperationsPage';
@@ -36,6 +35,8 @@ import UnifiedWarehousePanel from './UnifiedWarehousePanel';
 import BranchInventoryPage from './BranchInventoryPage';
 import POBoxHubPage from './POBoxHubPage';
 import RelabelingModulePage from './RelabelingModulePage';
+import ChinaAirHubPage from './ChinaAirHubPage';
+import ChinaSeaHubPage from './ChinaSeaHubPage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -292,8 +293,10 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                 {selectedPanel === 'usa_pobox' ? (
                     <POBoxHubPage users={users} onBack={handleBackToHub} />
                 ) : selectedPanel === 'china_air' ? (
-                    <ChinaReceptionPage />
+                    <ChinaAirHubPage onBack={handleBackToHub} />
                 ) : selectedPanel === 'china_sea' ? (
+                    <ChinaSeaHubPage onBack={handleBackToHub} />
+                ) : selectedPanel === 'china_sea_legacy' ? (
                     <MaritimeWarehousePage />
                 ) : selectedPanel === 'mx_national' ? (
                     <QuotesPage />
@@ -335,13 +338,13 @@ export default function WarehouseHubPage({ users = [] }: Props) {
     }
 
     return (
-        <Box sx={{ p: 3 }}>
+        <Box sx={{ p: 3, bgcolor: '#FAFAFA', minHeight: '100vh' }}>
             {/* Header */}
             <Box sx={{ mb: 4 }}>
-                <Typography variant="h4" fontWeight="bold">
-                    📦 {t('warehouse.hubTitle')}
+                <Typography variant="h4" sx={{ fontWeight: 700, color: '#1A1A1A', letterSpacing: -0.5 }}>
+                    {t('warehouse.hubTitle')}
                 </Typography>
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" sx={{ color: '#6B7280', mt: 0.5 }}>
                     {t('warehouse.hubSubtitle')}
                 </Typography>
             </Box>
@@ -357,10 +360,15 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                             <Card
                                 sx={{
                                     height: '100%',
-                                    transition: 'all 0.3s ease',
+                                    borderRadius: 2,
+                                    border: '1px solid #ECECEC',
+                                    boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
+                                    transition: 'all 0.2s ease',
+                                    overflow: 'hidden',
                                     '&:hover': {
-                                        transform: 'translateY(-8px)',
-                                        boxShadow: 6,
+                                        borderColor: '#F05A28',
+                                        boxShadow: '0 8px 24px rgba(240,90,40,0.12)',
+                                        transform: 'translateY(-2px)',
                                     },
                                 }}
                             >
@@ -368,40 +376,32 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                                     onClick={() => handlePanelClick(location.code)}
                                     sx={{ height: '100%' }}
                                 >
-                                    <Box
-                                        sx={{
-                                            background: panel.bgGradient,
-                                            p: 3,
+                                    <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                                    <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                        <Box sx={{
+                                            width: 48,
+                                            height: 48,
+                                            borderRadius: 1.5,
                                             display: 'flex',
                                             alignItems: 'center',
-                                            justifyContent: 'space-between',
-                                        }}
-                                    >
-                                        <Box sx={{ color: 'white' }}>
+                                            justifyContent: 'center',
+                                            bgcolor: '#F05A2815',
+                                            color: '#1A1A1A',
+                                            '& svg': { fontSize: 26 },
+                                        }}>
                                             {panel.icon}
                                         </Box>
-                                        <Typography variant="h2" sx={{ opacity: 0.3 }}>
+                                        <Typography sx={{ fontSize: 28, lineHeight: 1, opacity: 0.85 }}>
                                             {panel.flag}
                                         </Typography>
                                     </Box>
                                     <CardContent>
-                                        <Typography variant="h6" fontWeight="bold" gutterBottom>
+                                        <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
                                             {t(`warehouse.locations.${location.code}.title`)}
                                         </Typography>
-                                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                        <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
                                             {t(`warehouse.locations.${location.code}.subtitle`)}
                                         </Typography>
-                                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                                            {location.services.map((service) => (
-                                                <Chip
-                                                    key={service}
-                                                    label={service}
-                                                    size="small"
-                                                    variant="outlined"
-                                                    sx={{ fontSize: '0.7rem' }}
-                                                />
-                                            ))}
-                                        </Box>
                                     </CardContent>
                                 </CardActionArea>
                             </Card>
