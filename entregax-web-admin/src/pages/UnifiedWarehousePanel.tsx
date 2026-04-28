@@ -89,6 +89,7 @@ interface ShipmentMaster {
   nationalCarrier?: string | null;
   nationalTracking?: string | null;
   nationalLabelUrl?: string | null;
+  internationalTracking?: string | null;
   paymentStatus?: string | null;
   clientPaid?: boolean;
   clientPaidAt?: string | null;
@@ -516,6 +517,34 @@ const UnifiedWarehousePanel: React.FC = () => {
                   </Box>
                 </Stack>
               </Grid>
+
+              {/* AWB / Guía Master internacional */}
+              {!!m.internationalTracking && (
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                    <ShippingIcon color="primary" />
+                    <Box>
+                      <Typography variant="overline" color="text.secondary">
+                        AWB / Guía master
+                      </Typography>
+                      <Stack direction="row" alignItems="center" spacing={0.5}>
+                        <Typography variant="body1" fontWeight="bold" sx={{ wordBreak: 'break-all' }}>
+                          {m.internationalTracking}
+                        </Typography>
+                        <Tooltip title="Copiar AWB">
+                          <Button
+                            size="small"
+                            onClick={() => copy(m.internationalTracking!)}
+                            sx={{ minWidth: 0, p: 0.5 }}
+                          >
+                            <CopyIcon fontSize="small" />
+                          </Button>
+                        </Tooltip>
+                      </Stack>
+                    </Box>
+                  </Stack>
+                </Grid>
+              )}
 
               {/* Sucursal donde se escaneó */}
               {m.currentBranch && (

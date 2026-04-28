@@ -1138,6 +1138,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     nationalCarrier: pkg.national_carrier || null,
                     nationalTracking: pkg.national_tracking || null,
                     nationalLabelUrl: pkg.national_label_url || null,
+                    internationalTracking: pkg.international_tracking || null,
                     paymentStatus: pkg.payment_status || null,
                     clientPaid: pkg.client_paid === true,
                     clientPaidAt: pkg.client_paid_at || null,
