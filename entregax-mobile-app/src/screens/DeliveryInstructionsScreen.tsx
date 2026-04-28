@@ -219,6 +219,9 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     skydropxCarrierId?: string; // ID del carrier en Skydropx
   }
 
+  // Pickup en Sucursal Hidalgo TX solo aplica a guías de PO Box USA
+  const isPOBoxUS = !shipmentType || shipmentType === 'air' || shipmentType === 'usa' || shipmentType === 'pobox';
+
   const CARRIER_OPTIONS: CarrierOption[] = [
     {
       id: 'entregax_local',
@@ -227,14 +230,14 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
       estimatedDays: '1-3 días hábiles',
       isExternal: false,
     },
-    {
+    ...(isPOBoxUS ? [{
       id: 'pickup_hidalgo',
       name: 'Pick Up: Sucursal Hidalgo TX',
       price: 3,
-      currency: 'USD',
+      currency: 'USD' as const,
       estimatedDays: 'Recoger en bodega',
       isExternal: false,
-    },
+    }] : []),
     // paquete_express se carga dinámicamente desde la API con cotización PQTX
   ];
 
@@ -312,21 +315,29 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
         if (dims.height > 0) avgDimensions.height = dims.height;
       }
 
-      const response = await fetch(`${API_URL}/api/shipping/quote`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          zipCode: selectedAddress.zip_code,
-          city: selectedAddress.city,
-          state: selectedAddress.state,
-          weight: totalWeight,
-          dimensions: avgDimensions,
-          packageCount: allPackages.length,
-        }),
-      });
+      const quoteController = new AbortController();
+      const quoteTimeout = setTimeout(() => quoteController.abort(), 15000);
+      let response: Response;
+      try {
+        response = await fetch(`${API_URL}/api/shipping/quote`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            zipCode: selectedAddress.zip_code,
+            city: selectedAddress.city,
+            state: selectedAddress.state,
+            weight: totalWeight,
+            dimensions: avgDimensions,
+            packageCount: allPackages.length,
+          }),
+          signal: quoteController.signal,
+        });
+      } finally {
+        clearTimeout(quoteTimeout);
+      }
       
       if (response.ok) {
         const data = await response.json();
@@ -372,9 +383,12 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
 
   // Obtener direcciones del usuario
   const fetchAddresses = useCallback(async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
     try {
       const response = await fetch(`${API_URL}/api/addresses`, {
         headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
       });
       const data = await response.json();
       if (response.ok) {
@@ -391,6 +405,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     } catch (error) {
       console.error('Error fetching addresses:', error);
     } finally {
+      clearTimeout(timeoutId);
       setLoading(false);
       setRefreshing(false);
     }
@@ -468,14 +483,22 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
         const totalVolume = allPackages.reduce((sum, p) => sum + getPackageCBM(p), 0);
         const totalWeight = allPackages.reduce((sum, p) => sum + (p.weight || 0), 0);
         
-        const response = await fetch(`${API_URL}/api/maritime/calculate-cost`, {
-          method: 'POST',
-          headers: { 
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}` 
-          },
-          body: JSON.stringify({ volume: totalVolume, weight: totalWeight })
-        });
+        const costController = new AbortController();
+        const costTimeout = setTimeout(() => costController.abort(), 15000);
+        let response: Response;
+        try {
+          response = await fetch(`${API_URL}/api/maritime/calculate-cost`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}` 
+            },
+            body: JSON.stringify({ volume: totalVolume, weight: totalWeight }),
+            signal: costController.signal,
+          });
+        } finally {
+          clearTimeout(costTimeout);
+        }
         
         if (response.ok) {
           const data = await response.json();
