@@ -27,6 +27,12 @@ import SyncIcon from '@mui/icons-material/Sync';
 import DeleteIcon from '@mui/icons-material/Delete';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
+// URL pública del backend para mostrar en webhooks (Facturama, Openpay, etc.) que deben ser
+// accesibles desde Internet. Si no se define, cae al backend público de producción.
+const PUBLIC_BACKEND_URL =
+  (import.meta.env.VITE_PUBLIC_BACKEND_URL as string | undefined) ||
+  (import.meta.env.PROD ? (import.meta.env.VITE_API_URL as string | undefined) : undefined) ||
+  'https://sos-x-production.up.railway.app';
 const ORANGE = '#F05A28';
 const BLACK = '#111';
 
@@ -1635,7 +1641,7 @@ export default function FiscalPage() {
                 <Alert severity="warning" sx={{ fontSize: 12 }}>
                   📡 <strong>Webhook URL</strong> (configurar en Facturama tras guardar):<br/>
                   <code style={{ fontSize: 11 }}>
-                    {`${API_URL.replace('/api','')}/api/webhooks/facturama/${selectedEmpresaFacturama.id}`}
+                    {`${PUBLIC_BACKEND_URL.replace(/\/$/, '').replace(/\/api$/, '')}/api/webhooks/facturama/${selectedEmpresaFacturama.id}`}
                   </code>
                 </Alert>
               </Box>
