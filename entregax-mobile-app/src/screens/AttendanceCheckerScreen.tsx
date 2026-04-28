@@ -18,10 +18,11 @@ import * as Location from 'expo-location';
 import api from '../services/api';
 
 interface AttendanceRecord {
-  check_in: string | null;
-  check_out: string | null;
-  work_location: string;
-  hours_worked: number | null;
+  check_in_time: string | null;
+  check_out_time: string | null;
+  check_in_address: string | null;
+  check_out_address: string | null;
+  status: string | null;
 }
 
 export default function AttendanceCheckerScreen() {
@@ -42,8 +43,14 @@ export default function AttendanceCheckerScreen() {
   // Cargar estado de asistencia
   const loadAttendanceStatus = useCallback(async () => {
     try {
-      const response = await api.get('/hr/attendance-status');
-      setTodayAttendance(response.data.today);
+      const response = await api.get('/hr/my-attendance');
+      // Backend devuelve la fila directamente o {checkedIn:false} si no hay registro
+      const data = response.data;
+      if (data && data.check_in_time) {
+        setTodayAttendance(data);
+      } else {
+        setTodayAttendance(null);
+      }
     } catch (error) {
       console.error('Error cargando estado de asistencia:', error);
     } finally {
@@ -126,13 +133,13 @@ export default function AttendanceCheckerScreen() {
       }
 
       const response = await api.post('/hr/check-in', {
-        latitude: location.latitude,
-        longitude: location.longitude,
+        lat: location.latitude,
+        lng: location.longitude,
       });
 
       Alert.alert(
         '✅ Entrada Registrada',
-        `Hora: ${new Date(response.data.check_in).toLocaleTimeString('es-MX')}\nUbicación: ${response.data.location}`,
+        response.data?.message || `Hora: ${response.data?.time || ''}`,
         [{ text: 'OK' }]
       );
 
@@ -166,13 +173,13 @@ export default function AttendanceCheckerScreen() {
               }
 
               const response = await api.post('/hr/check-out', {
-                latitude: location.latitude,
-                longitude: location.longitude,
+                lat: location.latitude,
+                lng: location.longitude,
               });
 
               Alert.alert(
                 '👋 Salida Registrada',
-                `Hora: ${new Date(response.data.check_out).toLocaleTimeString('es-MX')}\nHoras trabajadas: ${response.data.hours_worked?.toFixed(2) || 'N/A'}h`,
+                response.data?.message || `Hora: ${response.data?.time || ''}`,
                 [{ text: 'OK' }]
               );
 
@@ -206,8 +213,8 @@ export default function AttendanceCheckerScreen() {
     });
   };
 
-  const isCheckedIn = todayAttendance?.check_in && !todayAttendance?.check_out;
-  const isCheckedOut = todayAttendance?.check_in && todayAttendance?.check_out;
+  const isCheckedIn = todayAttendance?.check_in_time && !todayAttendance?.check_out_time;
+  const isCheckedOut = todayAttendance?.check_in_time && todayAttendance?.check_out_time;
 
   if (loading) {
     return (
@@ -267,17 +274,17 @@ export default function AttendanceCheckerScreen() {
               : 'Sin Registrar Entrada'
             }
           </Text>
-          {isCheckedIn && !isCheckedOut && todayAttendance?.check_in && (
+          {isCheckedIn && !isCheckedOut && todayAttendance?.check_in_time && (
             <Text style={styles.statusDetail}>
-              Entraste a las {new Date(todayAttendance.check_in).toLocaleTimeString('es-MX', {
+              Entraste a las {new Date(todayAttendance.check_in_time).toLocaleTimeString('es-MX', {
                 hour: '2-digit',
                 minute: '2-digit',
               })}
             </Text>
           )}
-          {isCheckedOut && todayAttendance?.hours_worked && (
+          {isCheckedOut && todayAttendance?.check_in_time && todayAttendance?.check_out_time && (
             <Text style={styles.statusDetail}>
-              Trabajaste {todayAttendance.hours_worked.toFixed(2)} horas hoy
+              Trabajaste {((new Date(todayAttendance.check_out_time).getTime() - new Date(todayAttendance.check_in_time).getTime()) / 3600000).toFixed(2)} horas hoy
             </Text>
           )}
         </View>
@@ -341,8 +348,8 @@ export default function AttendanceCheckerScreen() {
               <Ionicons name="log-in" size={20} color="#4CAF50" />
               <Text style={styles.recordLabel}>Entrada:</Text>
               <Text style={styles.recordValue}>
-                {todayAttendance.check_in
-                  ? new Date(todayAttendance.check_in).toLocaleTimeString('es-MX')
+                {todayAttendance.check_in_time
+                  ? new Date(todayAttendance.check_in_time).toLocaleTimeString('es-MX')
                   : '—'}
               </Text>
             </View>
@@ -351,8 +358,8 @@ export default function AttendanceCheckerScreen() {
               <Ionicons name="log-out" size={20} color="#F44336" />
               <Text style={styles.recordLabel}>Salida:</Text>
               <Text style={styles.recordValue}>
-                {todayAttendance.check_out
-                  ? new Date(todayAttendance.check_out).toLocaleTimeString('es-MX')
+                {todayAttendance.check_out_time
+                  ? new Date(todayAttendance.check_out_time).toLocaleTimeString('es-MX')
                   : '—'}
               </Text>
             </View>
@@ -360,8 +367,8 @@ export default function AttendanceCheckerScreen() {
             <View style={styles.recordRow}>
               <Ionicons name="location" size={20} color="#2196F3" />
               <Text style={styles.recordLabel}>Ubicación:</Text>
-              <Text style={styles.recordValue}>
-                {todayAttendance.work_location || 'Fuera de oficina'}
+              <Text style={styles.recordValue} numberOfLines={2}>
+                {todayAttendance.check_in_address || todayAttendance.check_out_address || 'Fuera de oficina'}
               </Text>
             </View>
           </View>
