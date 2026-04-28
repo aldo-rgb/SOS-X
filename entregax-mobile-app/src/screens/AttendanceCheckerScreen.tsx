@@ -8,6 +8,8 @@ import {
   ActivityIndicator,
   RefreshControl,
   ScrollView,
+  Linking,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -54,14 +56,47 @@ export default function AttendanceCheckerScreen() {
     loadAttendanceStatus();
   }, [loadAttendanceStatus]);
 
+  // Abrir ajustes del sistema para conceder permisos manualmente
+  const openAppSettings = () => {
+    if (Platform.OS === 'ios') {
+      Linking.openURL('app-settings:');
+    } else {
+      Linking.openSettings();
+    }
+  };
+
+  // Solicitar permiso (con fallback a Ajustes si fue denegado de forma permanente)
+  const ensureLocationPermission = async (): Promise<boolean> => {
+    let { status, canAskAgain } = await Location.getForegroundPermissionsAsync();
+    if (status === 'granted') return true;
+
+    if (canAskAgain) {
+      const req = await Location.requestForegroundPermissionsAsync();
+      if (req.status === 'granted') {
+        setLocationError(null);
+        return true;
+      }
+      status = req.status;
+      canAskAgain = req.canAskAgain;
+    }
+
+    setLocationError('Necesitas permitir el acceso a tu ubicación');
+    Alert.alert(
+      'Permiso de ubicación requerido',
+      'Para registrar tu entrada/salida necesitamos acceder a tu ubicación. Abre Ajustes y concede el permiso.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Abrir Ajustes', onPress: openAppSettings },
+      ]
+    );
+    return false;
+  };
+
   // Obtener ubicación actual
   const getCurrentLocation = async (): Promise<{ latitude: number; longitude: number } | null> => {
     try {
-      const { status } = await Location.getForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setLocationError('Necesitas permitir el acceso a tu ubicación');
-        return null;
-      }
+      const ok = await ensureLocationPermission();
+      if (!ok) return null;
 
       const location = await Location.getCurrentPositionAsync({
         accuracy: Location.Accuracy.High,
@@ -288,10 +323,13 @@ export default function AttendanceCheckerScreen() {
 
         {/* Error de ubicación */}
         {locationError && (
-          <View style={styles.errorCard}>
+          <TouchableOpacity style={styles.errorCard} onPress={ensureLocationPermission} activeOpacity={0.8}>
             <Ionicons name="warning" size={24} color="#C1272D" />
-            <Text style={styles.errorText}>{locationError}</Text>
-          </View>
+            <View style={{ flex: 1, marginLeft: 8 }}>
+              <Text style={styles.errorText}>{locationError}</Text>
+              <Text style={styles.errorHint}>Toca para conceder permiso ▸</Text>
+            </View>
+          </TouchableOpacity>
         )}
 
         {/* Información del registro */}
@@ -478,6 +516,13 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 14,
     color: '#C1272D',
+  },
+  errorHint: {
+    fontSize: 12,
+    color: '#C1272D',
+    fontWeight: '700',
+    marginTop: 4,
+    textDecorationLine: 'underline',
   },
   recordCard: {
     backgroundColor: '#fff',
