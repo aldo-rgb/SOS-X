@@ -605,6 +605,9 @@ export default function FiscalPage() {
         from: monthAgo.toISOString().slice(0, 10),
         to: today.toISOString().slice(0, 10)
       }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      // eslint-disable-next-line no-console
+      console.log('[Facturama][SYNC v2] respuesta completa:', r.data);
+      alert(`SYNC DEBUG:\n${JSON.stringify(r.data, null, 2)}`);
       setSnackbar({
         open: true,
         message: `✅ Sincronización: ${r.data.inserted} nuevas, ${r.data.skipped} omitidas (de ${r.data.total_found})`,
