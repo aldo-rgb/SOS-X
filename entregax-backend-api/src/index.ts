@@ -182,6 +182,7 @@ import {
   saveFacturamaConfig,
   testFacturamaConnection,
   syncFacturamaReceived,
+  registerFacturamaWebhook,
   handleFacturamaWebhook,
   listAccountsPayable,
   approveAccountPayable,
@@ -3118,6 +3119,7 @@ app.get('/api/admin/facturama/config/:emitterId', authenticateToken, requireMinL
 app.post('/api/admin/facturama/config', authenticateToken, requireMinLevel(ROLES.DIRECTOR), saveFacturamaConfig);
 app.post('/api/admin/facturama/test/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), testFacturamaConnection);
 app.post('/api/admin/facturama/sync/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), syncFacturamaReceived);
+app.post('/api/admin/facturama/register-webhook/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), registerFacturamaWebhook);
 // Webhook público (firma validada con secret por emisor)
 app.post('/api/webhooks/facturama/:emitterId', handleFacturamaWebhook);
 // Cuentas por Pagar (admin/director/super_admin/contador con permiso al emisor)

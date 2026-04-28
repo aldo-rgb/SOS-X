@@ -168,6 +168,7 @@ export default function FiscalPage() {
   const [facturamaConfig, setFacturamaConfig] = useState<any>(null);
   const [savingFacturama, setSavingFacturama] = useState(false);
   const [syncingFacturama, setSyncingFacturama] = useState(false);
+  const [registeringWebhook, setRegisteringWebhook] = useState(false);
 
   const getToken = () => localStorage.getItem('token');
 
@@ -605,9 +606,6 @@ export default function FiscalPage() {
         from: monthAgo.toISOString().slice(0, 10),
         to: today.toISOString().slice(0, 10)
       }, { headers: { Authorization: `Bearer ${getToken()}` } });
-      // eslint-disable-next-line no-console
-      console.log('[Facturama][SYNC v2] respuesta completa:', r.data);
-      alert(`SYNC DEBUG:\n${JSON.stringify(r.data, null, 2)}`);
       setSnackbar({
         open: true,
         message: `✅ Sincronización: ${r.data.inserted} nuevas, ${r.data.skipped} omitidas (de ${r.data.total_found})`,
@@ -636,6 +634,37 @@ export default function FiscalPage() {
       });
     } finally {
       setSyncingFacturama(false);
+    }
+  };
+
+  const handleRegisterFacturamaWebhook = async () => {
+    if (!selectedEmpresaFacturama) return;
+    const webhookUrl = `${PUBLIC_BACKEND_URL.replace(/\/$/, '').replace(/\/api$/, '')}/api/webhooks/facturama/${selectedEmpresaFacturama.id}`;
+    setRegisteringWebhook(true);
+    try {
+      const r = await axios.post(
+        `${API_URL}/admin/facturama/register-webhook/${selectedEmpresaFacturama.id}`,
+        { webhook_url: webhookUrl, secret: facturamaForm.facturama_webhook_secret || undefined },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      const mode = r.data.mode === 'auto' ? '✅ Auto-registrado' : 'ℹ️ Configuración manual requerida';
+      // Si Facturama devolvió un secret nuevo, reflejarlo en el form
+      if (r.data.secret && !facturamaForm.facturama_webhook_secret) {
+        setFacturamaForm(f => ({ ...f, facturama_webhook_secret: r.data.secret }));
+      }
+      setSnackbar({
+        open: true,
+        message: `${mode}: ${r.data.message}`,
+        severity: r.data.mode === 'auto' ? 'success' : 'info'
+      });
+    } catch (error: any) {
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.error || 'Error registrando webhook',
+        severity: 'error'
+      });
+    } finally {
+      setRegisteringWebhook(false);
     }
   };
 
@@ -1660,6 +1689,31 @@ export default function FiscalPage() {
                   <code style={{ fontSize: 11 }}>
                     {`${PUBLIC_BACKEND_URL.replace(/\/$/, '').replace(/\/api$/, '')}/api/webhooks/facturama/${selectedEmpresaFacturama.id}`}
                   </code>
+                  <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => {
+                        const url = `${PUBLIC_BACKEND_URL.replace(/\/$/, '').replace(/\/api$/, '')}/api/webhooks/facturama/${selectedEmpresaFacturama.id}`;
+                        navigator.clipboard.writeText(url);
+                        setSnackbar({ open: true, message: 'URL copiada al portapapeles', severity: 'success' });
+                      }}
+                    >
+                      Copiar URL
+                    </Button>
+                    {facturamaConfig?.facturama_configured && (
+                      <Button
+                        size="small"
+                        variant="contained"
+                        disabled={registeringWebhook}
+                        onClick={handleRegisterFacturamaWebhook}
+                        sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: BLACK } }}
+                        startIcon={registeringWebhook ? <CircularProgress size={14} /> : null}
+                      >
+                        Registrar webhook automáticamente
+                      </Button>
+                    )}
+                  </Box>
                 </Alert>
               </Box>
             </>

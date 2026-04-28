@@ -430,6 +430,105 @@ export const syncFacturamaReceived = async (req: AuthRequest, res: Response): Pr
 };
 
 /* ================================================================
+ * 2.b REGISTRAR WEBHOOK EN FACTURAMA (auto-config push)
+ * POST /api/admin/facturama/register-webhook/:emitterId
+ * Body: { webhook_url, secret? }
+ * Intenta registrar la URL en la cuenta Facturama vía /Webhook (varios paths).
+ * Si Facturama no expone API de webhooks (depende del plan), devuelve la URL
+ * y secret para configurar manualmente desde el portal.
+ * ============================================================== */
+const FACTURAMA_WEBHOOK_REGISTER_PATHS = [
+    '/api-lite/webhooks',
+    '/api-lite/3/webhooks',
+    '/Webhook',
+    '/api-lite/webhook',
+];
+
+export const registerFacturamaWebhook = async (req: AuthRequest, res: Response): Promise<any> => {
+    const emitterId = String(req.params.emitterId);
+    const { webhook_url, secret } = req.body || {};
+    if (!webhook_url) return res.status(400).json({ error: 'webhook_url requerido' });
+
+    const cfg = await loadEmitterCredentials(parseInt(emitterId, 10));
+    if (!cfg) return res.status(404).json({ error: 'Emisor no encontrado' });
+    if (!cfg.facturama_configured || !cfg.facturama_username) {
+        return res.status(400).json({ error: 'Facturama no configurado para este emisor' });
+    }
+
+    const baseUrl = getFacturamaUrl(cfg.facturama_environment || 'sandbox');
+    const auth    = getFacturamaAuth(cfg.facturama_username, cfg.facturama_password);
+
+    // Generar secret aleatorio si no se proveyó
+    const finalSecret = secret || crypto.randomBytes(24).toString('hex');
+
+    const tried: string[] = [];
+    let registered: any = null;
+
+    // Eventos que nos interesan (los nombres exactos varían por proveedor)
+    const payloadVariants = [
+        { Url: webhook_url, Event: 'CfdiReceived',  Secret: finalSecret, Active: true },
+        { url: webhook_url, event: 'cfdi.received', secret: finalSecret, active: true },
+        { Url: webhook_url, Events: ['CfdiReceived', 'CfdiRecibido'], Secret: finalSecret },
+        { Url: webhook_url, Type: 'received_invoice', Secret: finalSecret },
+    ];
+
+    outer: for (const path of FACTURAMA_WEBHOOK_REGISTER_PATHS) {
+        for (const payload of payloadVariants) {
+            try {
+                const r = await axios.post(`${baseUrl}${path}`, payload, {
+                    ...auth,
+                    validateStatus: () => true,
+                });
+                tried.push(`POST ${path} ${JSON.stringify(payload).slice(0, 60)}→${r.status}`);
+                if (r.status >= 200 && r.status < 300) {
+                    registered = { path, payload, response: r.data };
+                    break outer;
+                }
+                if (r.status === 401 || r.status === 403) {
+                    return res.status(401).json({
+                        error: 'Credenciales Facturama rechazadas',
+                        tried,
+                    });
+                }
+            } catch (e: any) {
+                tried.push(`POST ${path} → err:${e.message}`);
+            }
+        }
+    }
+
+    // Persistir el secret aunque el registro automático haya fallado
+    await pool.query(`
+        UPDATE fiscal_emitters
+        SET facturama_webhook_secret = $1,
+            facturama_reception_enabled = TRUE
+        WHERE id = $2
+    `, [finalSecret, emitterId]);
+
+    if (registered) {
+        return res.json({
+            success: true,
+            mode: 'auto',
+            registered_at: registered.path,
+            webhook_url,
+            secret: finalSecret,
+            message: 'Webhook registrado automáticamente en Facturama.',
+        });
+    }
+
+    return res.json({
+        success: true,
+        mode: 'manual',
+        webhook_url,
+        secret: finalSecret,
+        tried,
+        message: 'Facturama no expone API de registro de webhooks en tu plan. Configura el webhook manualmente desde tu portal de Facturama (Configuración → Webhooks/Notificaciones) usando la URL y el Secret de abajo. SOS-X ya tiene guardado el Secret y validará la firma cuando lleguen eventos.',
+        portal_hint: cfg.facturama_environment === 'production'
+            ? 'https://consola.facturama.com.mx → Configuración → Webhooks'
+            : 'https://dev.facturama.mx → Configuración → Webhooks',
+    });
+};
+
+/* ================================================================
  * 3. WEBHOOK PÚBLICO (push)
  * POST /api/webhooks/facturama/:emitterId
  * ============================================================== */
