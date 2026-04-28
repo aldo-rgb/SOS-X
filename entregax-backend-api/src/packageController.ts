@@ -1151,17 +1151,38 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         const wl = String(pkg.warehouse_location || '').toLowerCase();
                         const masterSt = String(pkg.status || '').toLowerCase();
 
-                        const isMxStatus = (st: string): boolean =>
-                            st.startsWith('received_') ||
-                            st === 'out_for_delivery' ||
-                            st === 'ready_pickup' ||
-                            st === 'returned_to_warehouse' ||
-                            st === 'delivered';
+                        const isMxStatus = (st: string): boolean => {
+                            // Excluir explicitamente los status de China (received_china, received_china_air, received_china_sea, etc.)
+                            if (st.includes('china') || st === 'at_port' || st === 'customs_china' || st === 'in_transit_china') {
+                                return false;
+                            }
+                            return st.startsWith('received_') ||
+                                st === 'out_for_delivery' ||
+                                st === 'ready_pickup' ||
+                                st === 'returned_to_warehouse' ||
+                                st === 'delivered';
+                        };
+
+                        const isChinaStatus = (st: string): boolean =>
+                            st.includes('china') || st === 'received_origin' || st === 'at_port';
 
                         // Si master O cualquier hija ya tiene status de MX, el envío está en MX
                         const masterInMx = isMxStatus(masterSt);
                         const anyChildInMx = (children || []).some((c: any) => isMxStatus(String(c.status || '').toLowerCase()));
-                        const inMx = masterInMx || anyChildInMx || wl === 'mx_cedis' || wl === 'mx_national';
+                        const masterInChina = isChinaStatus(masterSt);
+                        const anyChildInChina = (children || []).some((c: any) => isChinaStatus(String(c.status || '').toLowerCase()));
+                        const inChina = masterInChina || anyChildInChina || wl === 'china_air' || wl === 'china_sea';
+                        const inMx = !inChina && (masterInMx || anyChildInMx || wl === 'mx_cedis' || wl === 'mx_national');
+
+                        if (inChina) {
+                            // Diferenciar aérea vs marítima
+                            const isSea = masterSt.includes('sea') || wl === 'china_sea' ||
+                                (children || []).some((c: any) => String(c.status || '').toLowerCase().includes('sea'));
+                            if (isSea) {
+                                return { id: 0, code: 'CHN-SEA', name: 'Bodega China (Marítima)' };
+                            }
+                            return { id: 0, code: 'CHN-GZ', name: 'CEDIS Guangzhou (Aérea)' };
+                        }
 
                         if (inMx) {
                             if (pkg.branch_id_val) {
