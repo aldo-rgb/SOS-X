@@ -626,15 +626,6 @@ export default function RelabelingModulePage() {
         return [];
     })();
 
-    const togglePqtxSelection = (tracking: string) => {
-        setSelectedPqtx(prev => {
-            const next = new Set(prev);
-            if (next.has(tracking)) next.delete(tracking);
-            else next.add(tracking);
-            return next;
-        });
-    };
-
     const toggleSelectAllPqtx = () => {
         setSelectedPqtx(prev => {
             if (prev.size === pqtxGuides.length) return new Set();
