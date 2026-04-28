@@ -30,8 +30,17 @@ const FACTURAMA_PATHS = {
 };
 
 // Candidatos para listar CFDIs recibidos (los planes Facturama usan distintos paths).
-// Se prueban en orden hasta encontrar uno que responda 200 CON contenido útil.
+// Se prueban en orden hasta encontrar uno que devuelve datos útiles.
 const FACTURAMA_RECEIVED_LIST_CANDIDATES = [
+    // Expense / Gastos (módulo "Cuentas por pagar" del portal de Facturama - ExpenseControl)
+    { path: '/api-lite/expenses',           params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to, status: 'unpaid' }) },
+    { path: '/api-lite/3/expenses',         params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    { path: '/api-lite/2/expenses',         params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    { path: '/Expense',                     params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    { path: '/api-lite/expense',            params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    // Accounts payable / Cuentas por pagar
+    { path: '/api-lite/accounts-payable',   params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    { path: '/api-lite/cuentas-por-pagar',  params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
     // Buzón Fiscal moderno (requiere RFC del receptor)
     { path: '/api-lite/cfdi-received',      params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
     { path: '/api-lite/3/cfdi-received',    params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
