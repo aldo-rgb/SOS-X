@@ -157,17 +157,24 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
         let tracking = value.trim();
         if (!tracking) return;
 
-        // Limpieza igual al wizard de PO Box: aceptar URLs/códigos completos
-        const afterTrack = tracking.match(/track[^A-Za-z0-9]+([A-Za-z]{2})[^A-Za-z0-9]?([A-Za-z0-9]{4,})/i);
-        if (afterTrack) {
-            tracking = `${afterTrack[1]}-${afterTrack[2]}`.toUpperCase();
+        // 1) Si viene un código tipo AIR2609096hyXgs-001 (formato China Air),
+        //    respetarlo tal cual (sólo upper) — incluye guion final del child_no.
+        const airMatch = tracking.match(/AIR[A-Z0-9]+-?\d+/i);
+        if (airMatch) {
+            tracking = airMatch[0].toUpperCase();
         } else {
-            const allMatches = tracking.match(/[A-Z]{2}[-_']?[A-Z0-9]{4,}/gi) || [];
-            const candidate = allMatches.find((m) => !/TREGAX/i.test(m));
-            if (candidate) {
-                tracking = candidate.replace(/[_']/g, '-').toUpperCase();
-                if (!tracking.includes('-') && tracking.length > 2) {
-                    tracking = tracking.slice(0, 2) + '-' + tracking.slice(2);
+            // 2) Limpieza para PO Box / CN / US (prefijo 2 letras)
+            const afterTrack = tracking.match(/track[^A-Za-z0-9]+([A-Za-z]{2})[^A-Za-z0-9]?([A-Za-z0-9]{4,})/i);
+            if (afterTrack) {
+                tracking = `${afterTrack[1]}-${afterTrack[2]}`.toUpperCase();
+            } else {
+                const allMatches = tracking.match(/[A-Z]{2}[-_']?[A-Z0-9]{4,}/gi) || [];
+                const candidate = allMatches.find((m) => !/TREGAX/i.test(m));
+                if (candidate) {
+                    tracking = candidate.replace(/[_']/g, '-').toUpperCase();
+                    if (!tracking.includes('-') && tracking.length > 2) {
+                        tracking = tracking.slice(0, 2) + '-' + tracking.slice(2);
+                    }
                 }
             }
         }
