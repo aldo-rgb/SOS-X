@@ -174,13 +174,23 @@ const normalizeBarcode = (raw: string): string => {
 const fmtDate = (iso?: string | null): string => {
   if (!iso) return '—';
   try {
-    return new Date(iso).toLocaleString('es-MX', {
-      day: '2-digit',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
+    // México (zona Centro) está fija en UTC-6 desde 2022 (sin horario de verano).
+    // Hacemos la conversión manual porque RN/iOS suele ignorar el option `timeZone`
+    // de toLocaleString cuando no hay polyfill de Intl, y muestra la hora en la
+    // TZ del dispositivo (UTC en simuladores, lo cual produce un desfase de +6h).
+    const MX_OFFSET_MIN = -6 * 60;
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    const shifted = new Date(d.getTime() + MX_OFFSET_MIN * 60 * 1000);
+    const months = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    const dd = String(shifted.getUTCDate()).padStart(2, '0');
+    const mm = months[shifted.getUTCMonth()];
+    const yyyy = shifted.getUTCFullYear();
+    let h = shifted.getUTCHours();
+    const min = String(shifted.getUTCMinutes()).padStart(2, '0');
+    const ampm = h >= 12 ? 'p.m.' : 'a.m.';
+    h = h % 12 || 12;
+    return `${dd} ${mm} ${yyyy}, ${h}:${min} ${ampm}`;
   } catch {
     return iso;
   }
@@ -210,12 +220,12 @@ const statusColor = (status?: string): string => {
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  received: 'Recibido',
+  received: 'Recibido Hidalgo TX',
   received_origin: 'Recibido en China',
   received_china: 'Recibido en China',
-  in_transit: 'En tránsito',
+  in_transit: 'En tránsito a MTY, N.L.',
   in_transit_mx: 'En tránsito a MX',
-  in_transit_mty: 'En tránsito a MTY',
+  in_transit_mty: 'En tránsito a MTY, N.L.',
   at_customs: 'En aduana',
   customs: 'En aduana',
   received_cedis: 'Recibido CEDIS',
@@ -784,9 +794,7 @@ export default function WarehouseScannerScreen({ navigation, route }: Props) {
 
               {/* Cliente */}
               <Section title="Cliente" icon="person">
-                <Row label="Nombre" value={client?.name || 'Sin cliente'} bold />
-                <Row label="BOX" value={client?.boxId || 'N/A'} />
-                {!!client?.email && <Row label="Email" value={client.email} />}
+                <Row label="BOX" value={client?.boxId || 'N/A'} bold />
               </Section>
 
               {/* Sucursal donde se escaneó */}
@@ -805,12 +813,14 @@ export default function WarehouseScannerScreen({ navigation, route }: Props) {
               )}
 
               {/* Carrier / tracking proveedor */}
-              <Section title="Carrier proveedor" icon="cube">
-                <Row
-                  label="Tracking proveedor"
-                  value={m.trackingProvider || m.trackingCourier || '—'}
-                />
-              </Section>
+              {!!(String(m.trackingProvider || m.trackingCourier || '').trim()) && (
+                <Section title="Carrier proveedor" icon="cube">
+                  <Row
+                    label="Tracking proveedor"
+                    value={m.trackingProvider || m.trackingCourier || '—'}
+                  />
+                </Section>
+              )}
 
               {/* Última milla */}
               {(m.nationalCarrier || m.nationalTracking) && (

@@ -1280,9 +1280,9 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
 const formatStatusLabelForMovement = (status: string | null | undefined): string => {
     if (!status) return 'Sin estado';
     const labels: Record<string, string> = {
-        received: 'Recibido',
-        received_mty: 'Recibido en CEDIS MTY',
-        in_transit: 'En tránsito',
+        received: 'Recibido Hidalgo TX',
+        received_mty: 'Recibido MTY',
+        in_transit: 'En tránsito a MTY, N.L.',
         customs: 'En aduana',
         ready_pickup: 'Listo para recoger',
         out_for_delivery: 'En ruta',
@@ -1531,13 +1531,19 @@ const buildPackageMovementsResponse = async (pkg: any) => {
 
     const hasInitialRow = movementRows.some((m) => Number(m.package_id) === Number(pkg.id));
     if (!hasInitialRow && pkg.created_at) {
+        // Para masters/paquetes ya recibidos en MTY usamos updated_at como
+        // referencia (cu\u00e1ndo realmente lleg\u00f3) en vez de created_at (cu\u00e1ndo se
+        // registr\u00f3 la gu\u00eda).
+        const initialAt = pkg.status === 'received_mty' && pkg.updated_at
+            ? pkg.updated_at
+            : pkg.created_at;
         movementRows.push({
             id: -1,
             package_id: pkg.id,
             tracking: pkg.tracking_internal || pkg.tracking_provider,
             status: pkg.status,
-            notes: 'Guía registrada en sistema',
-            created_at: pkg.created_at,
+            notes: 'Gu\u00eda registrada en sistema',
+            created_at: initialAt,
             created_by: null,
             created_by_name: null,
             branch_id: pkg.current_branch_id || null,

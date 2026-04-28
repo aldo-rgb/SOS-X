@@ -162,6 +162,24 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
         [scanned, mtyBranchId]
       );
 
+      // Registrar en historial: tránsito previo + recepción en MTY
+      try {
+        await client.query(
+          `INSERT INTO package_history (package_id, status, notes, created_by, branch_id, warehouse_location, created_at)
+           SELECT id, 'in_transit', 'En ruta a MTY, N.L.', $2, NULL, 'in_transit', NOW() - INTERVAL '1 minute'
+             FROM packages WHERE id = ANY($1::int[])`,
+          [scanned, userId || null]
+        );
+        await client.query(
+          `INSERT INTO package_history (package_id, status, notes, created_by, branch_id, warehouse_location, created_at)
+           SELECT id, 'received_mty', 'Recibido en CEDIS MTY', $2, $3::int, 'cedis_mty', NOW()
+             FROM packages WHERE id = ANY($1::int[])`,
+          [scanned, userId || null, mtyBranchId]
+        );
+      } catch (e) {
+        console.warn('[pobox-consolidation] package_history insert falló (no bloqueante):', (e as any)?.message);
+      }
+
       // Reflejar en branch_inventory para que aparezca en "Inventario por Sucursal"
       if (mtyBranchId) {
         try {
@@ -210,6 +228,24 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
                 )`,
             [masterIds, mtyBranchId]
           );
+
+          // Registrar en historial los masters que efectivamente cambiaron
+          try {
+            await client.query(
+              `INSERT INTO package_history (package_id, status, notes, created_by, branch_id, warehouse_location, created_at)
+               SELECT id, 'in_transit', 'En ruta a MTY, N.L.', $2, NULL, 'in_transit', NOW() - INTERVAL '1 minute'
+                 FROM packages WHERE id = ANY($1::int[]) AND status::text = 'received_mty'`,
+              [masterIds, userId || null]
+            );
+            await client.query(
+              `INSERT INTO package_history (package_id, status, notes, created_by, branch_id, warehouse_location, created_at)
+               SELECT id, 'received_mty', 'Recibido en CEDIS MTY', $2, $3::int, 'cedis_mty', NOW()
+                 FROM packages WHERE id = ANY($1::int[]) AND status::text = 'received_mty'`,
+              [masterIds, userId || null, mtyBranchId]
+            );
+          } catch (e) {
+            console.warn('[pobox-consolidation] package_history (master) insert falló:', (e as any)?.message);
+          }
 
           if (mtyBranchId) {
             await client.query(
