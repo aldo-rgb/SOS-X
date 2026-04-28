@@ -49,6 +49,8 @@ import {
   CheckCircle as CheckIcon,
   AccessTime as ClockIcon,
   ContentCopy as CopyIcon,
+  Store as StoreIcon,
+  DirectionsCar as DeliveryIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -93,6 +95,7 @@ interface ShipmentMaster {
   totalCost?: number | null;
   poboxCostUsd?: number | null;
   assignedAddress?: Address | null;
+  currentBranch?: { id: number; code?: string | null; name?: string | null } | null;
 }
 
 interface ShipmentChild {
@@ -188,6 +191,25 @@ const fmtMoney = (n?: number | null, currency = 'MXN') => {
     currency,
     maximumFractionDigits: 2,
   }).format(Number(n));
+};
+// Marcar como usado por si se usa en otros lados (suprime warning si no)
+void fmtMoney;
+
+const isEntregaXLocal = (carrier?: string | null): boolean => {
+  const s = (carrier || '').toLowerCase();
+  return s.includes('entregax') || s.includes('local') || s.includes('propia');
+};
+
+const lastMileLabel = (carrier?: string | null): string => {
+  if (!carrier) return 'No asignada';
+  const s = carrier.toLowerCase();
+  if (isEntregaXLocal(carrier)) return '🚐 EntregaXa Local';
+  if (s.includes('paquete') || s.includes('pqtx') || s.includes('express')) return '📦 Paquete Express';
+  if (s.includes('estafeta')) return '📦 Estafeta';
+  if (s.includes('fedex')) return '📦 FedEx';
+  if (s.includes('dhl')) return '📦 DHL';
+  if (s.includes('redpack')) return '📦 Redpack';
+  return `📦 ${carrier.toUpperCase()}`;
 };
 
 const statusColor = (status?: string): 'default' | 'success' | 'warning' | 'info' | 'error' | 'primary' => {
@@ -471,19 +493,68 @@ const UnifiedWarehousePanel: React.FC = () => {
                   <ShippingIcon color="action" />
                   <Box>
                     <Typography variant="overline" color="text.secondary">
-                      Carrier / Tracking proveedor
+                      Carrier proveedor
                     </Typography>
                     <Typography variant="body1">
                       {m.trackingProvider || m.trackingCourier || '—'}
                     </Typography>
-                    {m.nationalTracking && (
-                      <Typography variant="body2" color="primary" fontWeight="bold">
-                        Nacional: {m.nationalCarrier?.toUpperCase()} · {m.nationalTracking}
-                      </Typography>
-                    )}
                   </Box>
                 </Stack>
               </Grid>
+
+              {/* Sucursal donde se escaneó */}
+              {m.currentBranch && (
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                    <StoreIcon color="warning" />
+                    <Box>
+                      <Typography variant="overline" color="text.secondary">
+                        Sucursal actual
+                      </Typography>
+                      <Typography variant="body1" fontWeight="bold">
+                        {m.currentBranch.name || m.currentBranch.code || `#${m.currentBranch.id}`}
+                      </Typography>
+                      {!!m.currentBranch.code && !!m.currentBranch.name && (
+                        <Typography variant="caption" color="text.secondary">
+                          Código: {m.currentBranch.code}
+                        </Typography>
+                      )}
+                    </Box>
+                  </Stack>
+                </Grid>
+              )}
+
+              {/* Última milla (paquetería final) */}
+              {(m.nationalCarrier || m.nationalTracking) && (
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                    <DeliveryIcon
+                      sx={{
+                        color: isEntregaXLocal(m.nationalCarrier) ? 'warning.main' : 'info.main',
+                      }}
+                    />
+                    <Box>
+                      <Typography variant="overline" color="text.secondary">
+                        Última milla (entrega final)
+                      </Typography>
+                      <Typography
+                        variant="body1"
+                        fontWeight="bold"
+                        sx={{
+                          color: isEntregaXLocal(m.nationalCarrier) ? 'warning.main' : 'info.main',
+                        }}
+                      >
+                        {lastMileLabel(m.nationalCarrier)}
+                      </Typography>
+                      {!!m.nationalTracking && (
+                        <Typography variant="body2" color="text.secondary">
+                          Guía: <strong>{m.nationalTracking}</strong>
+                        </Typography>
+                      )}
+                    </Box>
+                  </Stack>
+                </Grid>
+              )}
 
               {/* Peso */}
               <Grid size={{ xs: 6, md: 3 }}>
@@ -511,41 +582,6 @@ const UnifiedWarehousePanel: React.FC = () => {
                     <Typography variant="body1" fontWeight="bold">
                       {m.totalBoxes || 1}
                     </Typography>
-                  </Box>
-                </Stack>
-              </Grid>
-
-              {/* Valor declarado */}
-              <Grid size={{ xs: 6, md: 3 }}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <PaymentsIcon fontSize="small" color="action" />
-                  <Box>
-                    <Typography variant="overline" color="text.secondary">
-                      Valor declarado
-                    </Typography>
-                    <Typography variant="body1" fontWeight="bold">
-                      {fmtMoney(m.declaredValue, 'USD')}
-                    </Typography>
-                  </Box>
-                </Stack>
-              </Grid>
-
-              {/* Costo total */}
-              <Grid size={{ xs: 6, md: 3 }}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <PaymentsIcon fontSize="small" color="action" />
-                  <Box>
-                    <Typography variant="overline" color="text.secondary">
-                      Costo total
-                    </Typography>
-                    <Typography variant="body1" fontWeight="bold">
-                      {fmtMoney(m.totalCost)}
-                    </Typography>
-                    {m.poboxCostUsd != null && (
-                      <Typography variant="caption" color="text.secondary">
-                        PO Box: {fmtMoney(m.poboxCostUsd, 'USD')}
-                      </Typography>
-                    )}
                   </Box>
                 </Stack>
               </Grid>

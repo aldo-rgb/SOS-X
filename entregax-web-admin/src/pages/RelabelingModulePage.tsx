@@ -254,11 +254,28 @@ export default function RelabelingModulePage() {
                 packageId: shipment.master.id,
             });
             if (res.data?.success) {
-                const tn: string = res.data.trackingNumber;
-                setPqtxMsg(`✅ Guía generada: ${tn}`);
-                // abrir PDF en nueva pestaña
                 const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');
-                window.open(`${baseUrl}/admin/paquete-express/label/pdf/${tn}`, '_blank');
+                const trackings: Array<{ tracking: string; labelUrl?: string; boxNumber?: number | null }> = Array.isArray(res.data.trackings) && res.data.trackings.length > 0
+                    ? res.data.trackings
+                    : [{ tracking: res.data.trackingNumber, labelUrl: res.data.labelUrl }];
+
+                if (trackings.length > 1) {
+                    setPqtxMsg(`✅ ${trackings.length} guías generadas: ${trackings.map(t => t.tracking).join(', ')}`);
+                } else {
+                    setPqtxMsg(`✅ Guía generada: ${trackings[0]?.tracking}`);
+                }
+
+                // Abrir todos los PDFs en pestañas (con un pequeño delay entre cada uno
+                // para que el navegador no bloquee los pop-ups)
+                trackings.forEach((t, idx) => {
+                    const url = `${baseUrl}/admin/paquete-express/label/pdf/${t.tracking}`;
+                    setTimeout(() => window.open(url, '_blank'), idx * 250);
+                });
+
+                if (Array.isArray(res.data.errors) && res.data.errors.length > 0) {
+                    setError(`Algunas cajas fallaron: ${res.data.errors.map((e: any) => `Caja ${e.boxNumber || '?'}: ${e.error}`).join(' | ')}`);
+                }
+
                 // Refrescar shipment para que aparezca el tracking nacional
                 await handleSearch();
             } else {
@@ -909,7 +926,9 @@ export default function RelabelingModulePage() {
                                     ) : isPaqueteExpressAssigned ? (
                                         <>
                                             <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
-                                                Aún no generada. Se creará en línea con la API de Paquete Express usando la dirección de entrega asignada.
+                                                {shipment.labels.filter(l => !l.isMaster).length > 1
+                                                    ? `Aún no generadas. Se crearán ${shipment.labels.filter(l => !l.isMaster).length} guías (una por bulto) con la API de Paquete Express.`
+                                                    : 'Aún no generada. Se creará en línea con la API de Paquete Express usando la dirección de entrega asignada.'}
                                             </Typography>
                                             <Box sx={{ flex: 1 }} />
                                             <Button
@@ -920,7 +939,11 @@ export default function RelabelingModulePage() {
                                                 disabled={generatingPqtx}
                                                 sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
                                             >
-                                                {generatingPqtx ? 'Generando...' : 'Generar guía PQTX'}
+                                                {generatingPqtx
+                                                    ? 'Generando...'
+                                                    : shipment.labels.filter(l => !l.isMaster).length > 1
+                                                        ? `Generar ${shipment.labels.filter(l => !l.isMaster).length} guías PQTX`
+                                                        : 'Generar guía PQTX'}
                                             </Button>
                                         </>
                                     ) : (

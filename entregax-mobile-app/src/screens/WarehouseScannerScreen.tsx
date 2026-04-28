@@ -25,11 +25,15 @@ import {
   Modal,
   Platform,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../services/api';
+
+const SCAN_MODE_KEY = '@warehouse_scanner_mode';
 
 const ORANGE = '#F05A28';
 const GREEN = '#4CAF50';
@@ -83,6 +87,11 @@ interface ShipmentMaster {
   totalCost?: number | null;
   poboxCostUsd?: number | null;
   assignedAddress?: Address | null;
+  currentBranch?: {
+    id: number;
+    code?: string | null;
+    name?: string | null;
+  } | null;
 }
 
 interface ShipmentChild {
@@ -189,6 +198,23 @@ const statusColor = (status?: string): string => {
   return TEXT_MUTED;
 };
 
+const isEntregaXLocal = (carrier?: string | null): boolean => {
+  const s = (carrier || '').toLowerCase();
+  return s.includes('entregax') || s.includes('local') || s.includes('propia');
+};
+
+const lastMileLabel = (carrier?: string | null): string => {
+  if (!carrier) return 'No asignada';
+  const s = carrier.toLowerCase();
+  if (isEntregaXLocal(carrier)) return '🚐 EntregaXa Local';
+  if (s.includes('paquete') || s.includes('pqtx') || s.includes('express')) return '📦 Paquete Express';
+  if (s.includes('estafeta')) return '📦 Estafeta';
+  if (s.includes('fedex')) return '📦 FedEx';
+  if (s.includes('dhl')) return '📦 DHL';
+  if (s.includes('redpack')) return '📦 Redpack';
+  return `📦 ${carrier.toUpperCase()}`;
+};
+
 const formatAddress = (a?: Address | null): string => {
   if (!a) return '';
   const parts = [
@@ -206,8 +232,72 @@ const formatAddress = (a?: Address | null): string => {
 // ============================================
 // COMPONENTE
 // ============================================
-export default function WarehouseScannerScreen({ navigation }: Props) {
+type InputMode = 'select' | 'camera' | 'manual';
+
+export default function WarehouseScannerScreen({ navigation, route }: Props) {
+  const token: string | undefined = route?.params?.token;
   const [permission, requestPermission] = useCameraPermissions();
+
+  // Modo de entrada: la primera vez se le pregunta al usuario qué quiere usar.
+  // Se guarda en AsyncStorage para no volver a preguntar.
+  const [inputMode, setInputMode] = useState<InputMode>('select');
+  const [modeLoaded, setModeLoaded] = useState(false);
+
+  // Cargar preferencia guardada al montar; si no existe, preguntar UNA vez
+  useEffect(() => {
+    (async () => {
+      try {
+        const saved = await AsyncStorage.getItem(SCAN_MODE_KEY);
+        if (saved === 'camera' || saved === 'manual') {
+          setInputMode(saved as InputMode);
+          setModeLoaded(true);
+          return;
+        }
+      } catch {
+        // ignore
+      }
+      // Sin preferencia: mostrar Alert nativo y guardar la elección
+      setModeLoaded(true);
+      Alert.alert(
+        '¿Cómo quieres escanear?',
+        'Elige el método de entrada para consultar guías. Se guardará como tu preferencia.',
+        [
+          {
+            text: '📷 Cámara',
+            onPress: async () => {
+              if (!permission?.granted) {
+                const r = await requestPermission();
+                if (!r.granted) {
+                  setInputMode('manual');
+                  AsyncStorage.setItem(SCAN_MODE_KEY, 'manual').catch(() => {});
+                  return;
+                }
+              }
+              setInputMode('camera');
+              AsyncStorage.setItem(SCAN_MODE_KEY, 'camera').catch(() => {});
+            },
+          },
+          {
+            text: '⌨️ Manual / Pistola',
+            onPress: () => {
+              setInputMode('manual');
+              AsyncStorage.setItem(SCAN_MODE_KEY, 'manual').catch(() => {});
+            },
+          },
+        ],
+        { cancelable: false }
+      );
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const persistMode = async (mode: InputMode) => {
+    try {
+      await AsyncStorage.setItem(SCAN_MODE_KEY, mode);
+    } catch {
+      // ignore
+    }
+  };
 
   const [scannerActive, setScannerActive] = useState(true);
   const [searching, setSearching] = useState(false);
@@ -239,7 +329,9 @@ export default function WarehouseScannerScreen({ navigation }: Props) {
     setMovements([]);
 
     try {
-      const res = await api.get(`/packages/track/${encodeURIComponent(tracking)}`);
+      const res = await api.get(`/api/packages/track/${encodeURIComponent(tracking)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
       if (res.data?.success && res.data?.shipment) {
         setData(res.data.shipment);
         Vibration.vibrate(80);
@@ -264,7 +356,9 @@ export default function WarehouseScannerScreen({ navigation }: Props) {
   const loadMovements = async (tracking: string) => {
     setLoadingMovements(true);
     try {
-      const res = await api.get(`/packages/track/${encodeURIComponent(tracking)}/movements`);
+      const res = await api.get(`/api/packages/track/${encodeURIComponent(tracking)}/movements`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
       const list: MovementEvent[] =
         res.data?.movements ||
         res.data?.events ||
@@ -309,14 +403,82 @@ export default function WarehouseScannerScreen({ navigation }: Props) {
     setData(null);
     setError(null);
     setMovements([]);
+    setManualBarcode('');
     lastScanRef.current = { code: '', at: 0 };
     setScannerActive(true);
+    // Mantener el modo elegido por el usuario (no volver al selector)
+  };
+
+  const pickCamera = async () => {
+    if (!permission?.granted) {
+      const r = await requestPermission();
+      if (!r.granted) return;
+    }
+    setInputMode('camera');
+    persistMode('camera');
+  };
+
+  const pickManual = () => {
+    setInputMode('manual');
+    persistMode('manual');
+  };
+
+  const switchMode = () => {
+    // Botón en el header para alternar entre cámara y manual
+    setData(null);
+    setError(null);
+    setManualBarcode('');
+    if (inputMode === 'camera') {
+      setInputMode('manual');
+      persistMode('manual');
+    } else if (inputMode === 'manual') {
+      if (permission?.granted) {
+        setInputMode('camera');
+        persistMode('camera');
+      } else {
+        pickCamera();
+      }
+    } else {
+      setInputMode('select');
+    }
+  };
+
+  const resetModePreference = async () => {
+    Alert.alert(
+      'Cambiar método de escaneo',
+      'Elige el método que quieres usar:',
+      [
+        {
+          text: '📷 Cámara',
+          onPress: async () => {
+            if (!permission?.granted) {
+              const r = await requestPermission();
+              if (!r.granted) return;
+            }
+            setInputMode('camera');
+            persistMode('camera');
+            setData(null);
+            setError(null);
+          },
+        },
+        {
+          text: '⌨️ Manual',
+          onPress: () => {
+            setInputMode('manual');
+            persistMode('manual');
+            setData(null);
+            setError(null);
+          },
+        },
+        { text: 'Cancelar', style: 'cancel' },
+      ]
+    );
   };
 
   // ============================================
   // RENDER
   // ============================================
-  if (!permission) {
+  if (!permission || !modeLoaded) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centerContent}>
@@ -326,7 +488,7 @@ export default function WarehouseScannerScreen({ navigation }: Props) {
     );
   }
 
-  if (!permission.granted) {
+  if (!permission.granted && inputMode === 'camera') {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centerContent}>
@@ -338,6 +500,12 @@ export default function WarehouseScannerScreen({ navigation }: Props) {
           <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
             <Text style={styles.permissionButtonText}>Permitir Cámara</Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.permissionButton, { backgroundColor: '#666', marginTop: 12 }]}
+            onPress={() => setInputMode('manual')}
+          >
+            <Text style={styles.permissionButtonText}>Usar Scanner Manual</Text>
+          </TouchableOpacity>
         </View>
       </SafeAreaView>
     );
@@ -346,6 +514,36 @@ export default function WarehouseScannerScreen({ navigation }: Props) {
   const m = data?.master;
   const client = data?.client;
   const children = data?.children || [];
+
+  // ============================================
+  // PANTALLA INICIAL: ESPERANDO ELECCIÓN DEL ALERT
+  // ============================================
+  if (inputMode === 'select' && !data && !error) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top']}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={28} color="#fff" />
+          </TouchableOpacity>
+          <View style={styles.headerCenter}>
+            <Text style={styles.headerTitle}>🔎 Escáner Multi-Sucursal</Text>
+            <Text style={styles.headerSubtitle}>Solo consulta · sin entrada/salida</Text>
+          </View>
+          <View style={{ width: 28 }} />
+        </View>
+
+        <View style={styles.centerContent}>
+          <ActivityIndicator size="large" color={ORANGE} />
+          <Text style={[styles.permissionText, { marginTop: 18 }]}>
+            Selecciona el método de escaneo en el cuadro de diálogo…
+          </Text>
+          <TouchableOpacity style={styles.permissionButton} onPress={resetModePreference}>
+            <Text style={styles.permissionButtonText}>Volver a preguntar</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -358,13 +556,17 @@ export default function WarehouseScannerScreen({ navigation }: Props) {
           <Text style={styles.headerTitle}>🔎 Escáner Multi-Sucursal</Text>
           <Text style={styles.headerSubtitle}>Solo consulta · sin entrada/salida</Text>
         </View>
-        <TouchableOpacity onPress={() => setShowManualInput(true)}>
-          <Ionicons name="keypad-outline" size={26} color="#fff" />
+        <TouchableOpacity onPress={switchMode} onLongPress={resetModePreference}>
+          <Ionicons
+            name={inputMode === 'camera' ? 'keypad-outline' : 'camera-outline'}
+            size={26}
+            color="#fff"
+          />
         </TouchableOpacity>
       </View>
 
-      {/* Cámara o Resultado */}
-      {!data && !error ? (
+      {/* Cámara o Manual o Resultado */}
+      {!data && !error && inputMode === 'camera' ? (
         <View style={styles.scannerContainer}>
           <CameraView
             style={styles.scanner}
@@ -402,6 +604,48 @@ export default function WarehouseScannerScreen({ navigation }: Props) {
             </Text>
           </View>
         </View>
+      ) : !data && !error && inputMode === 'manual' ? (
+        <View style={styles.manualPanelContainer}>
+          <View style={styles.manualPanelCard}>
+            <Ionicons name="keypad" size={48} color={BLUE} />
+            <Text style={styles.manualPanelTitle}>Scanner físico / Manual</Text>
+            <Text style={styles.manualPanelSubtitle}>
+              Escanea con la pistola o escribe la guía y presiona consultar
+            </Text>
+            <TextInput
+              style={styles.manualPanelInput}
+              value={manualBarcode}
+              onChangeText={setManualBarcode}
+              placeholder="Ej: 1234567890, AIR-12345..."
+              autoCapitalize="characters"
+              autoCorrect={false}
+              autoFocus
+              returnKeyType="search"
+              onSubmitEditing={handleManualSubmit}
+              editable={!searching}
+            />
+            <TouchableOpacity
+              style={[styles.primaryBtn, !manualBarcode.trim() && { opacity: 0.5 }]}
+              onPress={handleManualSubmit}
+              disabled={!manualBarcode.trim() || searching}
+            >
+              {searching ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="search" size={20} color="#fff" />
+                  <Text style={styles.primaryBtnText}>Consultar</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+          <View style={styles.bottomHint}>
+            <Ionicons name="information-circle-outline" size={18} color="#fff" />
+            <Text style={styles.bottomHintText}>
+              Acepta DHL, AIR-XXX, LOG-XXX, US-XXX, marítimos y nacionales
+            </Text>
+          </View>
+        </View>
       ) : (
         <ScrollView
           style={styles.resultScroll}
@@ -415,9 +659,43 @@ export default function WarehouseScannerScreen({ navigation }: Props) {
               <Text style={styles.errorCardText}>
                 Verifica que el código sea correcto. Puedes intentar de nuevo.
               </Text>
-              <TouchableOpacity style={styles.primaryBtn} onPress={handleNewScan}>
-                <Ionicons name="scan" size={20} color="#fff" />
-                <Text style={styles.primaryBtnText}>Escanear otra guía</Text>
+
+              {/* Campo manual siempre disponible para reintentar sin salir */}
+              <TextInput
+                style={[styles.manualPanelInput, { marginTop: 4 }]}
+                value={manualBarcode}
+                onChangeText={setManualBarcode}
+                placeholder="Escribe la guía y presiona buscar"
+                autoCapitalize="characters"
+                autoCorrect={false}
+                returnKeyType="search"
+                onSubmitEditing={handleManualSubmit}
+                editable={!searching}
+              />
+              <TouchableOpacity
+                style={[styles.primaryBtn, !manualBarcode.trim() && { opacity: 0.5 }]}
+                onPress={handleManualSubmit}
+                disabled={!manualBarcode.trim() || searching}
+              >
+                {searching ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="search" size={20} color="#fff" />
+                    <Text style={styles.primaryBtnText}>Buscar guía</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity style={styles.secondaryBtn} onPress={handleNewScan}>
+                <Ionicons
+                  name={inputMode === 'camera' ? 'scan' : 'keypad'}
+                  size={18}
+                  color={ORANGE}
+                />
+                <Text style={styles.secondaryBtnText}>
+                  {inputMode === 'camera' ? 'Volver al escáner' : 'Limpiar campo'}
+                </Text>
               </TouchableOpacity>
             </View>
           )}
@@ -468,21 +746,43 @@ export default function WarehouseScannerScreen({ navigation }: Props) {
                 {!!client?.email && <Row label="Email" value={client.email} />}
               </Section>
 
-              {/* Carrier / tracking */}
-              <Section title="Carrier y tracking" icon="cube">
+              {/* Sucursal donde se escaneó */}
+              {m.currentBranch && (
+                <Section title="Sucursal actual" icon="business">
+                  <Row
+                    label="Sucursal"
+                    value={
+                      m.currentBranch.name
+                        ? `${m.currentBranch.name}${m.currentBranch.code ? ` (${m.currentBranch.code})` : ''}`
+                        : m.currentBranch.code || `#${m.currentBranch.id}`
+                    }
+                    bold
+                  />
+                </Section>
+              )}
+
+              {/* Carrier / tracking proveedor */}
+              <Section title="Carrier proveedor" icon="cube">
                 <Row
                   label="Tracking proveedor"
                   value={m.trackingProvider || m.trackingCourier || '—'}
                 />
-                {!!m.nationalTracking && (
-                  <Row
-                    label="Tracking nacional"
-                    value={`${m.nationalCarrier?.toUpperCase() || ''} · ${m.nationalTracking}`}
-                    color={ORANGE}
-                    bold
-                  />
-                )}
               </Section>
+
+              {/* Última milla */}
+              {(m.nationalCarrier || m.nationalTracking) && (
+                <Section title="Última milla (entrega final)" icon="car">
+                  <Row
+                    label="Paquetería"
+                    value={lastMileLabel(m.nationalCarrier)}
+                    bold
+                    color={isEntregaXLocal(m.nationalCarrier) ? ORANGE : BLUE}
+                  />
+                  {!!m.nationalTracking && (
+                    <Row label="Guía nacional" value={m.nationalTracking} />
+                  )}
+                </Section>
+              )}
 
               {/* Datos físicos */}
               <Section title="Datos del envío" icon="resize">
@@ -490,13 +790,6 @@ export default function WarehouseScannerScreen({ navigation }: Props) {
                   <Cell label="Peso" value={m.weight != null ? `${Number(m.weight).toFixed(2)} kg` : '—'} />
                   <Cell label="Cajas" value={String(m.totalBoxes || 1)} />
                 </View>
-                <View style={styles.gridRow}>
-                  <Cell label="Valor declarado" value={fmtMoney(m.declaredValue, 'USD')} />
-                  <Cell label="Costo total" value={fmtMoney(m.totalCost)} />
-                </View>
-                {m.poboxCostUsd != null && (
-                  <Row label="Costo PO Box" value={fmtMoney(m.poboxCostUsd, 'USD')} />
-                )}
               </Section>
 
               {/* Estado de pago */}
@@ -940,6 +1233,15 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  secondaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    marginTop: 8,
+  },
+  secondaryBtnText: { color: ORANGE, fontWeight: '600', fontSize: 14 },
 
   // Modal
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
@@ -970,4 +1272,64 @@ const styles = StyleSheet.create({
   permissionText: { fontSize: 14, color: TEXT_MUTED, textAlign: 'center', marginTop: 8, marginBottom: 20, paddingHorizontal: 20 },
   permissionButton: { backgroundColor: ORANGE, paddingHorizontal: 32, paddingVertical: 16, borderRadius: 12 },
   permissionButtonText: { fontSize: 16, fontWeight: 'bold', color: '#fff' },
+
+  // Picker (selector de modo inicial)
+  pickerContainer: { flex: 1, padding: 20, gap: 16 },
+  pickerTitle: { fontSize: 22, fontWeight: 'bold', color: TEXT_DARK, marginTop: 12, textAlign: 'center' },
+  pickerSubtitle: { fontSize: 14, color: TEXT_MUTED, textAlign: 'center', marginBottom: 12 },
+  pickerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    padding: 18,
+    borderRadius: 16,
+    gap: 14,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
+      android: { elevation: 2 },
+    }),
+  },
+  pickerIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerCardTitle: { fontSize: 16, fontWeight: '700', color: TEXT_DARK, marginBottom: 4 },
+  pickerCardText: { fontSize: 12, color: TEXT_MUTED, lineHeight: 16 },
+  pickerHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 10,
+    marginTop: 'auto',
+  },
+  pickerHintText: { color: TEXT_MUTED, fontSize: 12, flex: 1 },
+
+  // Panel de entrada manual (pantalla completa)
+  manualPanelContainer: { flex: 1, backgroundColor: '#1a1a1a', padding: 20, justifyContent: 'space-between' },
+  manualPanelCard: {
+    backgroundColor: '#fff',
+    padding: 24,
+    borderRadius: 16,
+    alignItems: 'center',
+    marginTop: 40,
+  },
+  manualPanelTitle: { fontSize: 20, fontWeight: 'bold', color: TEXT_DARK, marginTop: 12 },
+  manualPanelSubtitle: { fontSize: 13, color: TEXT_MUTED, textAlign: 'center', marginTop: 6, marginBottom: 18 },
+  manualPanelInput: {
+    width: '100%',
+    borderWidth: 2,
+    borderColor: '#ddd',
+    borderRadius: 12,
+    padding: 14,
+    fontSize: 18,
+    marginBottom: 16,
+    color: TEXT_DARK,
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
 });

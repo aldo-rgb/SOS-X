@@ -883,11 +883,13 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                    a.neighborhood as addr_neighborhood, a.city as addr_city,
                    a.state as addr_state, a.zip_code as addr_zip,
                    a.phone as addr_phone, a.reference as addr_reference,
-                   a.carrier_config as addr_carrier_config
+                   a.carrier_config as addr_carrier_config,
+                   br.id as branch_id_val, br.code as branch_code, br.name as branch_name
             FROM packages p 
             LEFT JOIN users u ON p.user_id = u.id
             LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
             LEFT JOIN addresses a ON p.assigned_address_id = a.id
+            LEFT JOIN branches br ON p.current_branch_id = br.id
             WHERE UPPER(COALESCE(p.tracking_internal, '')) = $1
                OR UPPER(COALESCE(p.tracking_provider, '')) = $1
                OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal, '')), '[^A-Z0-9]', '', 'g') = $2
@@ -1106,6 +1108,43 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     clientPaidAt: pkg.client_paid_at || null,
                     totalCost: pkg.gex_total_cost ? parseFloat(pkg.gex_total_cost) : null,
                     poboxCostUsd: pkg.pobox_cost_usd ? parseFloat(pkg.pobox_cost_usd) : null,
+                    currentBranch: (() => {
+                        // Determinar ubicación real según warehouse_location y status.
+                        // El campo current_branch_id solo aplica a sucursales MX; cuando el
+                        // paquete sigue en USA o China se ignora.
+                        const wl = String(pkg.warehouse_location || '').toLowerCase();
+                        const st = String(pkg.status || '').toLowerCase();
+                        const isInMexico =
+                            wl === 'mx_cedis' ||
+                            wl === 'mx_national' ||
+                            st.startsWith('received_') || // received_mty, received_cdmx, etc.
+                            st === 'out_for_delivery' ||
+                            st === 'ready_pickup' ||
+                            st === 'returned_to_warehouse';
+
+                        if (wl === 'usa_pobox' || (!isInMexico && (wl === '' ? false : wl.startsWith('usa')))) {
+                            return {
+                                id: 0,
+                                code: 'POBOX-USA',
+                                name: 'PO Box Hidalgo TX (USA)',
+                            };
+                        }
+                        if (wl === 'china_air') {
+                            return { id: 0, code: 'CHN-AIR', name: 'Bodega China (Aérea)' };
+                        }
+                        if (wl === 'china_sea') {
+                            return { id: 0, code: 'CHN-SEA', name: 'Bodega China (Marítima)' };
+                        }
+                        // En México: usar current_branch_id si existe
+                        if (pkg.branch_id_val) {
+                            return {
+                                id: pkg.branch_id_val,
+                                code: pkg.branch_code || null,
+                                name: pkg.branch_name || null,
+                            };
+                        }
+                        return null;
+                    })(),
                     assignedAddress: pkg.assigned_address_id ? {
                         id: pkg.assigned_address_id,
                         alias: pkg.addr_alias,
