@@ -152,20 +152,33 @@ function mergeCookies(prev: string, addSetCookie: string[] | string | undefined)
     return Array.from(map.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
 }
 
-async function loginFacturamaPortal(email: string, password: string): Promise<PortalSession | null> {
+async function loginFacturamaPortal(email: string, password: string): Promise<{
+    session: PortalSession | null;
+    diagnostic: any;
+}> {
+    const diagnostic: any = {
+        email_used: email,
+        steps: [],
+    };
     try {
-        // 1) GET / o /Account/Login para obtener cookies iniciales y __RequestVerificationToken
+        // 1) GET /Account/Login para obtener cookies iniciales y __RequestVerificationToken
         const loginPageRes = await axios.get(`${FACTURAMA_PORTAL_BASE}/Account/Login`, {
             validateStatus: () => true,
             maxRedirects: 0,
             headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SOS-X/1.0)' },
         });
         let cookies = extractCookies(loginPageRes.headers['set-cookie']);
+        diagnostic.steps.push({
+            step: 'GET /Account/Login',
+            status: loginPageRes.status,
+            cookies_received: !!cookies,
+        });
 
         // Extraer token CSRF del HTML
         const html: string = typeof loginPageRes.data === 'string' ? loginPageRes.data : '';
         const tokenMatch = html.match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/);
-        const csrfToken = tokenMatch ? tokenMatch[1] : '';
+        const csrfToken: string = tokenMatch && tokenMatch[1] ? tokenMatch[1] : '';
+        diagnostic.csrf_found = !!csrfToken;
 
         // 2) POST /Account/Login con email/password + CSRF token
         const form = new URLSearchParams();
@@ -185,17 +198,35 @@ async function loginFacturamaPortal(email: string, password: string): Promise<Po
             },
         });
         cookies = mergeCookies(cookies, loginRes.headers['set-cookie']);
+        diagnostic.steps.push({
+            step: 'POST /Account/Login',
+            status: loginRes.status,
+            location: loginRes.headers?.location || null,
+        });
 
         // Si el login fue exitoso, recibimos cookie .ASPXAUTH
         const hasAuth = /\.ASPXAUTH=/i.test(cookies);
+        diagnostic.has_aspxauth = hasAuth;
+
         if (!hasAuth) {
-            console.warn('[FacturamaPortal] login fallido: no se recibió .ASPXAUTH');
-            return null;
+            // Intentar extraer mensaje de error del HTML que devuelve el portal
+            const respHtml: string = typeof loginRes.data === 'string' ? loginRes.data : '';
+            const errMatch = respHtml.match(/<li>([^<]{5,200})<\/li>/i)
+                          || respHtml.match(/validation-summary-errors[^>]*>\s*<ul>\s*<li>([^<]+)/i)
+                          || respHtml.match(/field-validation-error[^>]*>([^<]+)/i);
+            diagnostic.portal_error_message = errMatch && errMatch[1] ? errMatch[1].trim() : null;
+            diagnostic.html_sample = respHtml.slice(0, 400);
+            console.warn('[FacturamaPortal] login fallido. Mensaje portal:', diagnostic.portal_error_message);
+            return { session: null, diagnostic };
         }
-        return { cookies, requestVerificationToken: csrfToken };
+        return {
+            session: { cookies, requestVerificationToken: csrfToken },
+            diagnostic,
+        };
     } catch (err: any) {
         console.error('[FacturamaPortal] login error:', err.message);
-        return null;
+        diagnostic.error = err.message;
+        return { session: null, diagnostic };
     }
 }
 
@@ -203,7 +234,10 @@ async function loginFacturamaPortal(email: string, password: string): Promise<Po
  * Llama a /Accounting/ExpenseControl/GetVoucher con las cookies de sesión.
  * Retorna array de facturas recibidas { Id, Folio, ClientName, Total, Date, Type, Paid... }
  */
-async function getPortalVouchers(session: PortalSession, paid: boolean = false): Promise<any[]> {
+async function getPortalVouchers(session: PortalSession, paid: boolean = false): Promise<{
+    invoices: any[];
+    diagnostic: any;
+}> {
     const form = new URLSearchParams();
     form.append('valCmbType', 'receivedInvoice');
     form.append('valCmbPaid', paid ? '0' : '1'); // 1 = sin pagar, 0 = pagadas (a confirmar)
@@ -223,16 +257,32 @@ async function getPortalVouchers(session: PortalSession, paid: boolean = false):
         }
     );
 
-    if (r.status !== 200) {
-        console.warn(`[FacturamaPortal] GetVoucher status ${r.status}`);
-        return [];
+    const data = r.data;
+    const diagnostic: any = {
+        status: r.status,
+        paid_filter: paid,
+        response_type: typeof data,
+        is_array: Array.isArray(data),
+    };
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+        diagnostic.response_keys = Object.keys(data).slice(0, 10);
+        diagnostic.invoices_length = Array.isArray(data.invoices) ? data.invoices.length : null;
+        diagnostic.PageMax = data.PageMax;
+        diagnostic.PageCurrent = data.PageCurrent;
     }
 
-    // La respuesta es { PageMax, PageCurrent, invoices: [...] }
-    const data = r.data;
-    if (data && Array.isArray(data.invoices)) return data.invoices;
-    if (Array.isArray(data)) return data;
-    return [];
+    if (r.status !== 200) {
+        console.warn(`[FacturamaPortal] GetVoucher status ${r.status}`);
+        if (typeof data === 'string') {
+            diagnostic.html_sample = data.slice(0, 300);
+        }
+        return { invoices: [], diagnostic };
+    }
+
+    if (data && Array.isArray(data.invoices)) return { invoices: data.invoices, diagnostic };
+    if (Array.isArray(data)) return { invoices: data, diagnostic };
+    if (typeof data === 'string') diagnostic.html_sample = data.slice(0, 300);
+    return { invoices: [], diagnostic };
 }
 
 /**
@@ -241,7 +291,7 @@ async function getPortalVouchers(session: PortalSession, paid: boolean = false):
 function parseDotNetDate(s: any): Date | null {
     if (!s || typeof s !== 'string') return null;
     const m = s.match(/\/Date\((-?\d+)\)\//);
-    if (!m) return null;
+    if (!m || !m[1]) return null;
     return new Date(parseInt(m[1], 10));
 }
 
@@ -251,29 +301,39 @@ export const syncFacturamaPortal = async (req: AuthRequest, res: Response): Prom
     const cfg = await loadEmitterCredentials(parseInt(emitterId, 10));
     if (!cfg) return res.status(404).json({ error: 'Emisor no encontrado' });
 
+    // Las credenciales del PORTAL pueden ser las mismas que las del API (caen al fallback)
     const email = cfg.facturama_portal_email || cfg.facturama_username;
     const password = cfg.facturama_portal_password || cfg.facturama_password;
+    const usingFallback = !cfg.facturama_portal_email && !!cfg.facturama_username;
+
     if (!email || !password) {
         return res.status(400).json({
             error: 'Credenciales del portal Facturama no configuradas',
-            detail: 'Agrega facturama_portal_email y facturama_portal_password en la configuración del emisor.',
+            detail: 'Agrega facturama_portal_email y facturama_portal_password (o usa los del API si son los mismos) en la configuración del emisor.',
         });
     }
 
-    const session = await loginFacturamaPortal(email, password);
-    if (!session) {
+    const loginResult = await loginFacturamaPortal(email, password);
+    if (!loginResult.session) {
+        const portalMsg = loginResult.diagnostic?.portal_error_message;
         return res.status(401).json({
             error: 'No fue posible iniciar sesión en app.facturama.mx',
-            detail: 'Verifica que el email/password de portal sean correctos. Recuerda que las credenciales del PORTAL son distintas a las del API.',
+            detail: portalMsg
+                ? `El portal respondió: "${portalMsg}". ${usingFallback ? 'Estás usando las credenciales del API; quizá las del portal son distintas.' : 'Verifica que el email/password de portal sean correctos.'}`
+                : `Login no aceptado. ${usingFallback ? 'Estás usando las credenciales del API como fallback; agrega las credenciales específicas del portal si son distintas.' : 'Verifica las credenciales del portal.'}`,
+            using_api_credentials_as_fallback: usingFallback,
+            diagnostic: loginResult.diagnostic,
         });
     }
 
     try {
         // Traer recibidas sin pagar y pagadas
-        const [unpaid, paid] = await Promise.all([
-            getPortalVouchers(session, false),
-            getPortalVouchers(session, true),
+        const [unpaidRes, paidRes] = await Promise.all([
+            getPortalVouchers(loginResult.session, false),
+            getPortalVouchers(loginResult.session, true),
         ]);
+        const unpaid = unpaidRes.invoices;
+        const paid = paidRes.invoices;
         const all = [...unpaid, ...paid];
 
         let inserted = 0;
@@ -345,6 +405,12 @@ export const syncFacturamaPortal = async (req: AuthRequest, res: Response): Prom
             unpaid_count: unpaid.length,
             paid_count: paid.length,
             mode: 'portal_scraper',
+            using_api_credentials_as_fallback: usingFallback,
+            diagnostic: {
+                login: loginResult.diagnostic,
+                unpaid_request: unpaidRes.diagnostic,
+                paid_request: paidRes.diagnostic,
+            },
         });
     } catch (err: any) {
         console.error('syncFacturamaPortal:', err.message);

@@ -1,14 +1,16 @@
 /**
- * WarehouseScannerScreen - Escáner Multisucursal para App Móvil 📦
- * 
- * Funcionalidad:
- * - Escanear códigos de barras (QR, Barcode)
- * - Modo INGRESO y SALIDA
- * - Validación de supervisor por PIN escrito o NFC
- * - Feedback sonoro y vibración
- * - Historial de escaneos del día
- * 
- * Roles permitidos: repartidor, warehouse_ops, counter_staff, branch_manager, admin, super_admin
+ * WarehouseScannerScreen - Escáner Multi-Sucursal (SOLO CONSULTA) 🔎
+ *
+ * ⚠️ Este módulo NO da entrada ni salida a paquetes.
+ * Su único propósito es escanear cualquier guía y mostrar información detallada:
+ *   - Cliente, BOX, contacto
+ *   - Carrier / tracking proveedor / tracking nacional
+ *   - Estado actual y fechas (recibido, entregado)
+ *   - Peso, cajas, dimensiones
+ *   - Costos y estado de pago
+ *   - Dirección de entrega asignada
+ *   - Cajas hijas (multipieza)
+ *   - Historial de movimientos (timeline)
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -18,74 +20,100 @@ import {
   StyleSheet,
   TouchableOpacity,
   TextInput,
-  Alert,
   ActivityIndicator,
   Vibration,
   Modal,
-  FlatList,
   Platform,
-  Animated,
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons, MaterialIcons } from '@expo/vector-icons';
+import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { api } from '../services/api';
-
-// Intentar cargar NFC (puede no estar disponible en todos los dispositivos)
-let NfcManager: any = null;
-let NfcEvents: any = null;
-let Ndef: any = null;
-try {
-  const nfcModule = require('react-native-nfc-manager');
-  NfcManager = nfcModule.default;
-  NfcEvents = nfcModule.NfcEvents;
-  Ndef = nfcModule.Ndef;
-  // Verificar que NfcManager tenga los métodos necesarios
-  if (!NfcManager || typeof NfcManager.isSupported !== 'function') {
-    NfcManager = null;
-  }
-} catch (e) {
-  // NFC no disponible - silencioso en simulador
-  NfcManager = null;
-}
 
 const ORANGE = '#F05A28';
 const GREEN = '#4CAF50';
 const RED = '#F44336';
 const BLUE = '#2196F3';
 const YELLOW = '#FF9800';
+const PURPLE = '#9C27B0';
+const TEXT_DARK = '#222';
+const TEXT_MUTED = '#666';
+const BG = '#f5f5f5';
 
-type ScanMode = 'INGRESO' | 'SALIDA' | null;
-type TrackingType = 'DHL' | 'AIR' | 'LOG' | 'US' | 'INVALID';
-
-interface BranchInfo {
-  branch_id: number;
-  branch_code: string;
-  branch_name: string;
-  worker_name: string;
-  allowed_services: string[];
+// ============================================
+// TIPOS
+// ============================================
+interface Address {
+  alias?: string;
+  recipientName?: string;
+  street?: string;
+  exterior?: string;
+  interior?: string;
+  neighborhood?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  phone?: string;
+  reference?: string;
 }
 
-interface ScanResult {
-  success: boolean;
-  message: string;
-  package_id?: number;
-  tracking_number?: string;
-  client_name?: string;
-  service_type?: string;
-  labelUrl?: string;
-  nationalTracking?: string;
-  nationalCarrier?: string;
-}
-
-interface ScanHistoryItem {
+interface ShipmentMaster {
   id: number;
-  tracking_number: string;
-  scan_type: string;
-  scanned_at: string;
-  client_name: string;
-  service_type: string;
+  tracking: string;
+  trackingProvider?: string | null;
+  trackingCourier?: string | null;
+  description?: string | null;
+  weight?: number | null;
+  declaredValue?: number | null;
+  isMaster?: boolean;
+  totalBoxes?: number;
+  status?: string;
+  statusLabel?: string;
+  receivedAt?: string | null;
+  deliveredAt?: string | null;
+  destinationCity?: string | null;
+  destinationCountry?: string | null;
+  destinationCode?: string | null;
+  nationalCarrier?: string | null;
+  nationalTracking?: string | null;
+  paymentStatus?: string | null;
+  clientPaid?: boolean;
+  clientPaidAt?: string | null;
+  totalCost?: number | null;
+  poboxCostUsd?: number | null;
+  assignedAddress?: Address | null;
+}
+
+interface ShipmentChild {
+  id: number;
+  tracking: string;
+  boxNumber: number;
+  trackingCourier?: string | null;
+  weight?: number | null;
+  dimensions?: { formatted?: string };
+  status?: string;
+}
+
+interface ShipmentClient {
+  id: number;
+  name: string;
+  email: string;
+  boxId: string;
+}
+
+interface MovementEvent {
+  id?: number | string;
+  status?: string;
+  statusLabel?: string;
+  label?: string;
+  description?: string;
+  notes?: string | null;
+  createdAt?: string;
+  date?: string;
+  branch?: string | null;
+  location?: string | null;
+  user?: string | null;
 }
 
 interface Props {
@@ -93,418 +121,212 @@ interface Props {
   route: any;
 }
 
-// Detectar tipo de guía
-const detectTrackingType = (tracking: string): TrackingType => {
-  const trimmed = tracking.trim().toUpperCase();
-  
-  if (/^\d{10}$/.test(trimmed)) return 'DHL';
-  if (/^AIR[-_]?\d+/i.test(trimmed) || /^AIR\d+/i.test(trimmed)) return 'AIR';
-  if (/^LOG[-_]?\d+/i.test(trimmed) || /^LOG\d+/i.test(trimmed)) return 'LOG';
-  if (/^US[-_]?\d+/i.test(trimmed) || /^US\d+/i.test(trimmed)) return 'US';
-  if (/^TRK[-_]?\d+/i.test(trimmed)) return 'AIR';
-  
-  return 'INVALID';
+// ============================================
+// HELPERS
+// ============================================
+const normalizeBarcode = (raw: string): string => {
+  let v = raw.trim();
+  // Remap teclado ES (Mac) por si llega un QR mal mapeado
+  v = v
+    .replace(/Ñ/g, ':')
+    .replace(/ñ/g, ':')
+    .replace(/'/g, '-')
+    .replace(/¿/g, '/')
+    .replace(/¡/g, '!');
+
+  if (/^https?:[-/]/i.test(v)) {
+    v = v.replace(/^(https?):-+/i, '$1://');
+    v = v.replace(/([a-z]{2,}\.[a-z]{2,})-/gi, '$1/');
+    v = v.replace(/track-/gi, 'track/');
+  }
+
+  const urlMatch = v.match(/(?:track|t)[/-]([A-Z0-9-]+)/i);
+  if (urlMatch) v = urlMatch[1];
+
+  v = v.toUpperCase().trim();
+
+  const prefixMatch = v.match(/^(US|AIR|LOG|TRK)(\d+)$/);
+  if (prefixMatch) v = `${prefixMatch[1]}-${prefixMatch[2]}`;
+
+  return v;
 };
 
-export default function WarehouseScannerScreen({ navigation, route }: Props) {
-  const { user, token } = route.params;
-  
-  // Estados principales
-  const [mode, setMode] = useState<ScanMode>(null);
-  const [branchInfo, setBranchInfo] = useState<BranchInfo | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [scanning, setScanning] = useState(false);
-  const [scannerActive, setScannerActive] = useState(true);
-  const [lastScannedCode, setLastScannedCode] = useState('');
-  const [lastResult, setLastResult] = useState<ScanResult | null>(null);
-  const [scanHistory, setScanHistory] = useState<ScanHistoryItem[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
-  
-  // Estados para DHL y supervisor
-  const [showSupervisorModal, setShowSupervisorModal] = useState(false);
-  const [supervisorPin, setSupervisorPin] = useState('');
-  const [supervisorError, setSupervisorError] = useState('');
-  const [pendingDhlTracking, setPendingDhlTracking] = useState('');
-  const [validatingSupervisor, setValidatingSupervisor] = useState(false);
-  
-  // Estados NFC
-  const [nfcSupported, setNfcSupported] = useState(false);
-  const [nfcEnabled, setNfcEnabled] = useState(false);
-  const [nfcReading, setNfcReading] = useState(false);
-  
-  // Estadísticas del día
-  const [dailyStats, setDailyStats] = useState({ ingresos: 0, salidas: 0 });
-  
-  // Permisos de cámara
+const fmtDate = (iso?: string | null): string => {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('es-MX', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return iso;
+  }
+};
+
+const fmtMoney = (n?: number | null, currency: 'MXN' | 'USD' = 'MXN'): string => {
+  if (n == null || isNaN(Number(n))) return '—';
+  try {
+    return new Intl.NumberFormat('es-MX', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 2,
+    }).format(Number(n));
+  } catch {
+    return `${currency} ${Number(n).toFixed(2)}`;
+  }
+};
+
+const statusColor = (status?: string): string => {
+  const s = (status || '').toLowerCase();
+  if (s.includes('deliver')) return GREEN;
+  if (s.includes('return')) return RED;
+  if (s.includes('out_for') || s.includes('ready')) return YELLOW;
+  if (s.includes('transit') || s.includes('customs')) return BLUE;
+  if (s.includes('reempacado') || s.includes('processing')) return PURPLE;
+  return TEXT_MUTED;
+};
+
+const formatAddress = (a?: Address | null): string => {
+  if (!a) return '';
+  const parts = [
+    a.street,
+    a.exterior ? `#${a.exterior}` : '',
+    a.interior ? `Int. ${a.interior}` : '',
+    a.neighborhood,
+    a.city,
+    a.state,
+    a.zip,
+  ].filter(Boolean);
+  return parts.join(', ');
+};
+
+// ============================================
+// COMPONENTE
+// ============================================
+export default function WarehouseScannerScreen({ navigation }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
-  
-  // Animaciones
-  const feedbackOpacity = useRef(new Animated.Value(0)).current;
-  const feedbackScale = useRef(new Animated.Value(1)).current;
-  
-  // Manual barcode input
-  const [manualBarcode, setManualBarcode] = useState('');
+
+  const [scannerActive, setScannerActive] = useState(true);
+  const [searching, setSearching] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [data, setData] = useState<{
+    master: ShipmentMaster;
+    children: ShipmentChild[];
+    client: ShipmentClient;
+  } | null>(null);
+  const [movements, setMovements] = useState<MovementEvent[]>([]);
+  const [loadingMovements, setLoadingMovements] = useState(false);
+
   const [showManualInput, setShowManualInput] = useState(false);
+  const [manualBarcode, setManualBarcode] = useState('');
+
+  const lastScanRef = useRef<{ code: string; at: number }>({ code: '', at: 0 });
 
   // ============================================
-  // INICIALIZACIÓN
+  // CONSULTA
   // ============================================
-  useEffect(() => {
-    loadBranchInfo();
-    loadDailyStats();
-    initNfc();
-    
-    return () => {
-      cleanupNfc();
-    };
+  const lookupTracking = useCallback(async (raw: string) => {
+    const tracking = normalizeBarcode(raw);
+    if (!tracking) return;
+
+    setSearching(true);
+    setScannerActive(false);
+    setError(null);
+    setData(null);
+    setMovements([]);
+
+    try {
+      const res = await api.get(`/packages/track/${encodeURIComponent(tracking)}`);
+      if (res.data?.success && res.data?.shipment) {
+        setData(res.data.shipment);
+        Vibration.vibrate(80);
+        // Cargar movimientos en paralelo
+        loadMovements(tracking);
+      } else {
+        setError('No se encontró información para esta guía');
+        Vibration.vibrate([0, 150, 80, 150]);
+      }
+    } catch (err: any) {
+      if (err?.response?.status === 404) {
+        setError(`Guía "${tracking}" no encontrada`);
+      } else {
+        setError(err?.response?.data?.error || 'Error al consultar la guía');
+      }
+      Vibration.vibrate([0, 150, 80, 150]);
+    } finally {
+      setSearching(false);
+    }
   }, []);
 
-  // ============================================
-  // NFC SETUP
-  // ============================================
-  const initNfc = async () => {
-    if (!NfcManager) {
-      console.log('NFC Manager no disponible');
-      setNfcSupported(false);
-      return;
-    }
-    
+  const loadMovements = async (tracking: string) => {
+    setLoadingMovements(true);
     try {
-      const supported = await NfcManager.isSupported();
-      setNfcSupported(supported);
-      
-      if (supported) {
-        await NfcManager.start();
-        const enabled = await NfcManager.isEnabled();
-        setNfcEnabled(enabled);
-      }
-    } catch (error: any) {
-      // En simulador o dispositivos sin NFC, esto es esperado
-      console.log('NFC no disponible en este dispositivo');
-      setNfcSupported(false);
-      setNfcEnabled(false);
-    }
-  };
-
-  const cleanupNfc = () => {
-    if (NfcManager) {
-      try {
-        NfcManager.setEventListener(NfcEvents?.DiscoverTag, null);
-        NfcManager.unregisterTagEvent().catch(() => {});
-      } catch (e) {}
-    }
-  };
-
-  // Leer tarjeta NFC para PIN de supervisor
-  const startNfcReading = async () => {
-    if (!NfcManager || !nfcSupported || !nfcEnabled) {
-      Alert.alert('NFC No Disponible', 'Tu dispositivo no soporta NFC o está deshabilitado.');
-      return;
-    }
-    
-    setNfcReading(true);
-    
-    try {
-      await NfcManager.registerTagEvent();
-      
-      NfcManager.setEventListener(NfcEvents.DiscoverTag, async (tag: any) => {
-        console.log('📱 Tag NFC detectado:', tag);
-        
-        Vibration.vibrate(100);
-        
-        // Extraer datos del tag NFC
-        let nfcData = '';
-        
-        if (tag.ndefMessage && tag.ndefMessage.length > 0) {
-          // Intentar leer datos NDEF
-          const ndefRecord = tag.ndefMessage[0];
-          if (ndefRecord.payload) {
-            // Decodificar payload NDEF
-            const payloadBytes = ndefRecord.payload;
-            // Saltar el primer byte (language code length) y los bytes del language code
-            const langCodeLength = payloadBytes[0] & 0x3F;
-            nfcData = String.fromCharCode.apply(null, payloadBytes.slice(1 + langCodeLength));
-          }
-        } else if (tag.id) {
-          // Usar el ID del tag como PIN
-          nfcData = tag.id.replace(/:/g, '').slice(-8); // Últimos 8 caracteres del ID
-        }
-        
-        if (nfcData) {
-          console.log('📱 Datos NFC:', nfcData);
-          
-          // Validar como PIN de supervisor
-          await validateSupervisorWithPin(nfcData);
-        } else {
-          Alert.alert('Error', 'No se pudo leer la tarjeta NFC');
-        }
-        
-        await NfcManager.unregisterTagEvent();
-        setNfcReading(false);
-      });
-      
-    } catch (error) {
-      console.error('Error leyendo NFC:', error);
-      setNfcReading(false);
-      Alert.alert('Error NFC', 'No se pudo leer la tarjeta');
-    }
-  };
-
-  const cancelNfcReading = async () => {
-    if (NfcManager) {
-      try {
-        await NfcManager.unregisterTagEvent();
-      } catch (e) {}
-    }
-    setNfcReading(false);
-  };
-
-  // ============================================
-  // API CALLS
-  // ============================================
-  const loadBranchInfo = async () => {
-    try {
-      const res = await api.get('/warehouse/branch-info');
-      setBranchInfo(res.data);
-      setLoading(false);
-    } catch (error: any) {
-      console.error('Error cargando branch info:', error);
-      setLoading(false);
-      Alert.alert('Error', error.response?.data?.error || 'No se pudo cargar información de sucursal');
-    }
-  };
-
-  const loadDailyStats = async () => {
-    try {
-      const res = await api.get('/warehouse/daily-stats');
-      setDailyStats({
-        ingresos: res.data.total_ingresos || 0,
-        salidas: res.data.total_salidas || 0,
-      });
-    } catch (error) {
-      console.error('Error cargando stats:', error);
-    }
-  };
-
-  const loadScanHistory = async () => {
-    try {
-      const res = await api.get('/warehouse/scan-history?limit=50');
-      setScanHistory(res.data.history || []);
-      setShowHistory(true);
-    } catch (error) {
-      console.error('Error cargando historial:', error);
-    }
-  };
-
-  // ============================================
-  // BARCODE SCANNING
-  // ============================================
-  const handleBarCodeScanned = useCallback(async (result: BarcodeScanningResult) => {
-    const { data } = result;
-    
-    if (!scannerActive || scanning || data === lastScannedCode || !mode) {
-      return;
-    }
-    
-    setScanning(true);
-    setScannerActive(false);
-    setLastScannedCode(data);
-    
-    await processBarcode(data);
-    
-    // Reactivar escáner después de delay
-    setTimeout(() => {
-      setScanning(false);
-      setScannerActive(true);
-      setLastScannedCode('');
-    }, 2000);
-  }, [scannerActive, scanning, lastScannedCode, mode]);
-
-  const processBarcode = async (barcode: string) => {
-    const trackingType = detectTrackingType(barcode.trim());
-    
-    // Validar tipo
-    if (trackingType === 'INVALID') {
-      showFeedback({
-        success: false,
-        message: '❌ Guía no válida. Solo: DHL, AIR-XXX, LOG-XXX, US-XXX',
-      });
-      playErrorFeedback();
-      return;
-    }
-    
-    // Si es DHL, pedir autorización de supervisor
-    if (trackingType === 'DHL') {
-      setPendingDhlTracking(barcode.trim());
-      setShowSupervisorModal(true);
-      setSupervisorPin('');
-      setSupervisorError('');
-      return;
-    }
-    
-    // Procesar guía directamente
-    await processTracking(barcode.trim(), trackingType);
-  };
-
-  const processTracking = async (tracking: string, trackingType: TrackingType) => {
-    setLastResult(null);
-    
-    try {
-      const res = await api.post('/warehouse/scan', {
-        barcode: tracking,
-        scanType: mode,
-        tracking_type: trackingType,
-      });
-      
-      const result: ScanResult = {
-        success: res.data.success,
-        message: res.data.message,
-        package_id: res.data.package?.id,
-        tracking_number: res.data.package?.tracking,
-        client_name: res.data.package?.clientName,
-        service_type: res.data.package?.serviceType,
-        labelUrl: res.data.labelUrl,
-        nationalTracking: res.data.nationalTracking,
-        nationalCarrier: res.data.nationalCarrier,
-      };
-      
-      showFeedback(result);
-      
-      if (result.success) {
-        playSuccessFeedback();
-        loadDailyStats();
-      } else {
-        playErrorFeedback();
-      }
-      
-    } catch (error: any) {
-      const errorMessage = error.response?.data?.error || 'Error al procesar escaneo';
-      showFeedback({
-        success: false,
-        message: errorMessage,
-      });
-      playErrorFeedback();
-    }
-  };
-
-  // ============================================
-  // SUPERVISOR VALIDATION
-  // ============================================
-  const validateSupervisorWithPin = async (pin: string) => {
-    setValidatingSupervisor(true);
-    setSupervisorError('');
-    
-    try {
-      const res = await api.post('/warehouse/validate-supervisor', {
-        pin: pin,
-        branch_id: branchInfo?.branch_id,
-        action_type: 'dhl_reception_mobile',
-      });
-      
-      if (res.data.valid) {
-        // Autorización exitosa
-        setShowSupervisorModal(false);
-        setSupervisorPin('');
-        playSuccessFeedback();
-        
-        // Mostrar mensaje de autorización
-        Alert.alert(
-          '✅ Autorizado',
-          `Supervisor: ${res.data.supervisor?.name}\n\nAhora puedes procesar guías DHL.`,
-          [{ text: 'OK' }]
-        );
-        
-        // Procesar la guía DHL pendiente
-        if (pendingDhlTracking) {
-          await processTracking(pendingDhlTracking, 'DHL');
-          setPendingDhlTracking('');
-        }
-        
-      } else {
-        setSupervisorError('PIN de supervisor incorrecto');
-        playErrorFeedback();
-      }
-    } catch (error: any) {
-      setSupervisorError(error.response?.data?.error || 'Error al validar');
-      playErrorFeedback();
+      const res = await api.get(`/packages/track/${encodeURIComponent(tracking)}/movements`);
+      const list: MovementEvent[] =
+        res.data?.movements ||
+        res.data?.events ||
+        res.data?.history ||
+        res.data?.timeline ||
+        [];
+      setMovements(Array.isArray(list) ? list : []);
+    } catch {
+      setMovements([]);
     } finally {
-      setValidatingSupervisor(false);
+      setLoadingMovements(false);
     }
   };
 
-  const handleSupervisorPinSubmit = () => {
-    if (!supervisorPin.trim()) {
-      setSupervisorError('Ingresa el PIN');
-      return;
-    }
-    validateSupervisorWithPin(supervisorPin.trim());
-  };
-
   // ============================================
-  // FEEDBACK
+  // ESCANEO POR CÁMARA
   // ============================================
-  const showFeedback = (result: ScanResult) => {
-    setLastResult(result);
-    
-    Animated.sequence([
-      Animated.parallel([
-        Animated.timing(feedbackOpacity, {
-          toValue: 1,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-        Animated.spring(feedbackScale, {
-          toValue: 1.1,
-          useNativeDriver: true,
-        }),
-      ]),
-      Animated.timing(feedbackScale, {
-        toValue: 1,
-        duration: 150,
-        useNativeDriver: true,
-      }),
-      Animated.delay(3000),
-      Animated.timing(feedbackOpacity, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-    ]).start(() => setLastResult(null));
-  };
+  const handleBarCodeScanned = useCallback(
+    (result: BarcodeScanningResult) => {
+      const { data: code } = result;
+      if (!scannerActive || searching) return;
 
-  const playSuccessFeedback = () => {
-    Vibration.vibrate(100);
-  };
+      // Anti-rebote: ignorar mismo código por 3 segundos
+      const now = Date.now();
+      if (lastScanRef.current.code === code && now - lastScanRef.current.at < 3000) return;
+      lastScanRef.current = { code, at: now };
 
-  const playErrorFeedback = () => {
-    Vibration.vibrate([0, 200, 100, 200]);
-  };
+      lookupTracking(code);
+    },
+    [scannerActive, searching, lookupTracking]
+  );
 
-  // ============================================
-  // MANUAL INPUT
-  // ============================================
   const handleManualSubmit = () => {
     if (!manualBarcode.trim()) return;
-    processBarcode(manualBarcode.trim().toUpperCase());
+    const code = manualBarcode.trim();
     setManualBarcode('');
     setShowManualInput(false);
+    lookupTracking(code);
+  };
+
+  const handleNewScan = () => {
+    setData(null);
+    setError(null);
+    setMovements([]);
+    lastScanRef.current = { code: '', at: 0 };
+    setScannerActive(true);
   };
 
   // ============================================
   // RENDER
   // ============================================
-  if (loading) {
+  if (!permission) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centerContent}>
           <ActivityIndicator size="large" color={ORANGE} />
-          <Text style={styles.loadingText}>Cargando información...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  if (!permission?.granted) {
+  if (!permission.granted) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centerContent}>
@@ -521,320 +343,344 @@ export default function WarehouseScannerScreen({ navigation, route }: Props) {
     );
   }
 
-  if (!branchInfo) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.centerContent}>
-          <Ionicons name="alert-circle-outline" size={80} color={RED} />
-          <Text style={styles.errorTitle}>Sin Sucursal Asignada</Text>
-          <Text style={styles.errorText}>
-            No tienes una sucursal asignada. Contacta al administrador.
-          </Text>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Text style={styles.backButtonText}>Volver</Text>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const m = data?.master;
+  const client = data?.client;
+  const children = data?.children || [];
 
-  // Pantalla de selección de modo
-  if (!mode) {
-    return (
-      <SafeAreaView style={styles.container} edges={['top']}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Ionicons name="arrow-back" size={28} color="#fff" />
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>📦 Escáner de Bodega</Text>
-          <TouchableOpacity onPress={loadScanHistory}>
-            <Ionicons name="time-outline" size={28} color="#fff" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Branch Info */}
-        <View style={styles.branchCard}>
-          <View style={styles.branchIcon}>
-            <Ionicons name="business" size={32} color={ORANGE} />
-          </View>
-          <View style={styles.branchInfo}>
-            <Text style={styles.branchName}>{branchInfo.branch_name}</Text>
-            <Text style={styles.branchCode}>Código: {branchInfo.branch_code}</Text>
-            <Text style={styles.workerName}>👤 {branchInfo.worker_name}</Text>
-          </View>
-        </View>
-
-        {/* Daily Stats */}
-        <View style={styles.statsRow}>
-          <View style={[styles.statCard, { backgroundColor: GREEN + '20' }]}>
-            <Ionicons name="arrow-down-circle" size={32} color={GREEN} />
-            <Text style={[styles.statNumber, { color: GREEN }]}>{dailyStats.ingresos}</Text>
-            <Text style={styles.statLabel}>Ingresos Hoy</Text>
-          </View>
-          <View style={[styles.statCard, { backgroundColor: BLUE + '20' }]}>
-            <Ionicons name="arrow-up-circle" size={32} color={BLUE} />
-            <Text style={[styles.statNumber, { color: BLUE }]}>{dailyStats.salidas}</Text>
-            <Text style={styles.statLabel}>Salidas Hoy</Text>
-          </View>
-        </View>
-
-        {/* Mode Selection */}
-        <Text style={styles.selectModeTitle}>Selecciona el tipo de escaneo:</Text>
-        
-        <View style={styles.modeButtonsContainer}>
-          <TouchableOpacity
-            style={[styles.modeButton, { backgroundColor: GREEN }]}
-            onPress={() => setMode('INGRESO')}
-          >
-            <Ionicons name="arrow-down-circle-outline" size={60} color="#fff" />
-            <Text style={styles.modeButtonText}>INGRESO</Text>
-            <Text style={styles.modeButtonSubtext}>Paquete llega a bodega</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.modeButton, { backgroundColor: BLUE }]}
-            onPress={() => setMode('SALIDA')}
-          >
-            <Ionicons name="arrow-up-circle-outline" size={60} color="#fff" />
-            <Text style={styles.modeButtonText}>SALIDA</Text>
-            <Text style={styles.modeButtonSubtext}>Paquete sale de bodega</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* History Modal */}
-        <Modal visible={showHistory} animationType="slide" transparent>
-          <View style={styles.modalOverlay}>
-            <View style={styles.historyModal}>
-              <View style={styles.historyHeader}>
-                <Text style={styles.historyTitle}>📋 Historial de Hoy</Text>
-                <TouchableOpacity onPress={() => setShowHistory(false)}>
-                  <Ionicons name="close" size={28} color="#333" />
-                </TouchableOpacity>
-              </View>
-              <FlatList
-                data={scanHistory}
-                keyExtractor={(item) => item.id.toString()}
-                renderItem={({ item }) => (
-                  <View style={styles.historyItem}>
-                    <View style={[
-                      styles.historyIcon,
-                      { backgroundColor: item.scan_type === 'INGRESO' ? GREEN + '20' : BLUE + '20' }
-                    ]}>
-                      <Ionicons
-                        name={item.scan_type === 'INGRESO' ? 'arrow-down' : 'arrow-up'}
-                        size={20}
-                        color={item.scan_type === 'INGRESO' ? GREEN : BLUE}
-                      />
-                    </View>
-                    <View style={styles.historyContent}>
-                      <Text style={styles.historyTracking}>{item.tracking_number}</Text>
-                      <Text style={styles.historyClient}>{item.client_name}</Text>
-                    </View>
-                    <Text style={styles.historyTime}>
-                      {new Date(item.scanned_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
-                    </Text>
-                  </View>
-                )}
-                ListEmptyComponent={
-                  <Text style={styles.emptyText}>No hay escaneos registrados hoy</Text>
-                }
-              />
-            </View>
-          </View>
-        </Modal>
-      </SafeAreaView>
-    );
-  }
-
-  // Pantalla de escáner activo
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      {/* Header con modo activo */}
-      <View style={[styles.header, { backgroundColor: mode === 'INGRESO' ? GREEN : BLUE }]}>
-        <TouchableOpacity onPress={() => setMode(null)}>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={28} color="#fff" />
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerTitle}>
-            {mode === 'INGRESO' ? '📥 INGRESO' : '📤 SALIDA'}
-          </Text>
-          <Text style={styles.headerSubtitle}>{branchInfo.branch_name}</Text>
+          <Text style={styles.headerTitle}>🔎 Escáner Multi-Sucursal</Text>
+          <Text style={styles.headerSubtitle}>Solo consulta · sin entrada/salida</Text>
         </View>
         <TouchableOpacity onPress={() => setShowManualInput(true)}>
-          <Ionicons name="keypad-outline" size={28} color="#fff" />
+          <Ionicons name="keypad-outline" size={26} color="#fff" />
         </TouchableOpacity>
       </View>
 
-      {/* Scanner */}
-      <View style={styles.scannerContainer}>
-        <CameraView
-          style={styles.scanner}
-          barcodeScannerSettings={{
-            barcodeTypes: ['qr', 'code128', 'code39', 'ean13', 'ean8', 'pdf417'],
-          }}
-          onBarcodeScanned={scannerActive && !scanning ? handleBarCodeScanned : undefined}
-        />
-        
-        {/* Overlay */}
-        <View style={styles.scannerOverlay}>
-          <View style={styles.scannerFrame}>
-            <View style={styles.cornerTL} />
-            <View style={styles.cornerTR} />
-            <View style={styles.cornerBL} />
-            <View style={styles.cornerBR} />
-          </View>
-          
-          <Text style={styles.scannerHint}>
-            {scanning ? '⏳ Procesando...' : '📷 Apunta al código de barras'}
-          </Text>
-        </View>
-      </View>
-
-      {/* Feedback */}
-      {lastResult && (
-        <Animated.View
-          style={[
-            styles.feedbackContainer,
-            {
-              backgroundColor: lastResult.success ? GREEN : RED,
-              opacity: feedbackOpacity,
-              transform: [{ scale: feedbackScale }],
-            },
-          ]}
-        >
-          <Ionicons
-            name={lastResult.success ? 'checkmark-circle' : 'close-circle'}
-            size={40}
-            color="#fff"
+      {/* Cámara o Resultado */}
+      {!data && !error ? (
+        <View style={styles.scannerContainer}>
+          <CameraView
+            style={styles.scanner}
+            barcodeScannerSettings={{
+              barcodeTypes: ['qr', 'code128', 'code39', 'ean13', 'ean8', 'pdf417'],
+            }}
+            onBarcodeScanned={
+              scannerActive && !searching ? handleBarCodeScanned : undefined
+            }
           />
-          <Text style={styles.feedbackMessage}>{lastResult.message}</Text>
-          {lastResult.client_name && (
-            <Text style={styles.feedbackDetail}>👤 {lastResult.client_name}</Text>
-          )}
-          {lastResult.nationalTracking && (
-            <Text style={styles.feedbackDetail}>
-              🚚 {lastResult.nationalCarrier}: {lastResult.nationalTracking}
+          <View style={styles.scannerOverlay}>
+            <View style={styles.scannerFrame}>
+              <View style={styles.cornerTL} />
+              <View style={styles.cornerTR} />
+              <View style={styles.cornerBL} />
+              <View style={styles.cornerBR} />
+            </View>
+            <View style={styles.scannerHintBox}>
+              {searching ? (
+                <View style={styles.scannerHintInner}>
+                  <ActivityIndicator color="#fff" />
+                  <Text style={styles.scannerHint}>Consultando guía...</Text>
+                </View>
+              ) : (
+                <Text style={styles.scannerHint}>
+                  📷 Apunta al código de barras o QR
+                </Text>
+              )}
+            </View>
+          </View>
+          <View style={styles.bottomHint}>
+            <Ionicons name="information-circle-outline" size={18} color="#fff" />
+            <Text style={styles.bottomHintText}>
+              Acepta DHL, AIR-XXX, LOG-XXX, US-XXX, marítimos y nacionales
             </Text>
+          </View>
+        </View>
+      ) : (
+        <ScrollView
+          style={styles.resultScroll}
+          contentContainerStyle={{ paddingBottom: 32 }}
+        >
+          {/* Error */}
+          {error && (
+            <View style={styles.errorCard}>
+              <Ionicons name="alert-circle" size={48} color={RED} />
+              <Text style={styles.errorCardTitle}>{error}</Text>
+              <Text style={styles.errorCardText}>
+                Verifica que el código sea correcto. Puedes intentar de nuevo.
+              </Text>
+              <TouchableOpacity style={styles.primaryBtn} onPress={handleNewScan}>
+                <Ionicons name="scan" size={20} color="#fff" />
+                <Text style={styles.primaryBtnText}>Escanear otra guía</Text>
+              </TouchableOpacity>
+            </View>
           )}
-        </Animated.View>
-      )}
 
-      {/* Stats Bar */}
-      <View style={styles.bottomStats}>
-        <View style={styles.bottomStatItem}>
-          <Ionicons name="arrow-down" size={20} color={GREEN} />
-          <Text style={styles.bottomStatText}>{dailyStats.ingresos} ingresos</Text>
-        </View>
-        <View style={styles.bottomStatDivider} />
-        <View style={styles.bottomStatItem}>
-          <Ionicons name="arrow-up" size={20} color={BLUE} />
-          <Text style={styles.bottomStatText}>{dailyStats.salidas} salidas</Text>
-        </View>
-      </View>
+          {/* Resultado exitoso */}
+          {data && m && (
+            <>
+              {/* Tarjeta principal */}
+              <View style={styles.mainCard}>
+                <View style={styles.mainHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.mainLabel}>GUÍA</Text>
+                    <Text style={styles.mainTracking} selectable>
+                      {m.tracking}
+                    </Text>
+                    {!!m.description && (
+                      <Text style={styles.mainDescription} numberOfLines={2}>
+                        {m.description}
+                      </Text>
+                    )}
+                  </View>
+                  <View
+                    style={[
+                      styles.statusPill,
+                      { backgroundColor: statusColor(m.status) },
+                    ]}
+                  >
+                    <Text style={styles.statusPillText}>
+                      {m.statusLabel || m.status || 'Sin estado'}
+                    </Text>
+                  </View>
+                </View>
+
+                {m.isMaster && (
+                  <View style={styles.multipieceBadge}>
+                    <Ionicons name="cube" size={14} color={ORANGE} />
+                    <Text style={styles.multipieceText}>
+                      Multipieza · {m.totalBoxes || 1} cajas
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Cliente */}
+              <Section title="Cliente" icon="person">
+                <Row label="Nombre" value={client?.name || 'Sin cliente'} bold />
+                <Row label="BOX" value={client?.boxId || 'N/A'} />
+                {!!client?.email && <Row label="Email" value={client.email} />}
+              </Section>
+
+              {/* Carrier / tracking */}
+              <Section title="Carrier y tracking" icon="cube">
+                <Row
+                  label="Tracking proveedor"
+                  value={m.trackingProvider || m.trackingCourier || '—'}
+                />
+                {!!m.nationalTracking && (
+                  <Row
+                    label="Tracking nacional"
+                    value={`${m.nationalCarrier?.toUpperCase() || ''} · ${m.nationalTracking}`}
+                    color={ORANGE}
+                    bold
+                  />
+                )}
+              </Section>
+
+              {/* Datos físicos */}
+              <Section title="Datos del envío" icon="resize">
+                <View style={styles.gridRow}>
+                  <Cell label="Peso" value={m.weight != null ? `${Number(m.weight).toFixed(2)} kg` : '—'} />
+                  <Cell label="Cajas" value={String(m.totalBoxes || 1)} />
+                </View>
+                <View style={styles.gridRow}>
+                  <Cell label="Valor declarado" value={fmtMoney(m.declaredValue, 'USD')} />
+                  <Cell label="Costo total" value={fmtMoney(m.totalCost)} />
+                </View>
+                {m.poboxCostUsd != null && (
+                  <Row label="Costo PO Box" value={fmtMoney(m.poboxCostUsd, 'USD')} />
+                )}
+              </Section>
+
+              {/* Estado de pago */}
+              <Section title="Estado de pago" icon="cash">
+                <View style={styles.payRow}>
+                  <View
+                    style={[
+                      styles.statusPill,
+                      {
+                        backgroundColor: m.clientPaid ? GREEN : YELLOW,
+                        alignSelf: 'flex-start',
+                      },
+                    ]}
+                  >
+                    <Text style={styles.statusPillText}>
+                      {m.clientPaid ? 'PAGADO' : (m.paymentStatus || 'PENDIENTE')}
+                    </Text>
+                  </View>
+                  {!!m.clientPaidAt && (
+                    <Text style={styles.paySubtext}>{fmtDate(m.clientPaidAt)}</Text>
+                  )}
+                </View>
+              </Section>
+
+              {/* Fechas */}
+              <Section title="Fechas" icon="time">
+                <Row label="Recibido" value={fmtDate(m.receivedAt)} />
+                <Row label="Entregado" value={fmtDate(m.deliveredAt)} />
+              </Section>
+
+              {/* Dirección */}
+              {m.assignedAddress ? (
+                <Section title="Dirección de entrega" icon="location">
+                  {!!m.assignedAddress.recipientName && (
+                    <Row
+                      label="Destinatario"
+                      value={`${m.assignedAddress.recipientName}${m.assignedAddress.phone ? ` · ${m.assignedAddress.phone}` : ''}`}
+                      bold
+                    />
+                  )}
+                  <Row label="Dirección" value={formatAddress(m.assignedAddress) || '—'} />
+                  {!!m.assignedAddress.reference && (
+                    <Row label="Referencia" value={m.assignedAddress.reference} />
+                  )}
+                </Section>
+              ) : (m.destinationCity || m.destinationCountry) ? (
+                <Section title="Destino" icon="location">
+                  <Row
+                    label="Ciudad"
+                    value={[m.destinationCity, m.destinationCountry].filter(Boolean).join(', ')}
+                  />
+                  {!!m.destinationCode && <Row label="Código" value={m.destinationCode} />}
+                </Section>
+              ) : null}
+
+              {/* Cajas hijas */}
+              {children.length > 0 && (
+                <Section title={`Cajas del envío (${children.length})`} icon="cube-outline">
+                  {children.map((c) => (
+                    <View key={c.id} style={styles.childRow}>
+                      <View style={styles.childIndex}>
+                        <Text style={styles.childIndexText}>{c.boxNumber}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.childTracking}>{c.tracking}</Text>
+                        <Text style={styles.childMeta} numberOfLines={1}>
+                          {[
+                            c.trackingCourier,
+                            c.weight != null ? `${Number(c.weight).toFixed(2)} kg` : null,
+                            c.dimensions?.formatted,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ') || '—'}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.childStatusPill,
+                          { borderColor: statusColor(c.status) },
+                        ]}
+                      >
+                        <Text style={[styles.childStatusText, { color: statusColor(c.status) }]}>
+                          {c.status || '—'}
+                        </Text>
+                      </View>
+                    </View>
+                  ))}
+                </Section>
+              )}
+
+              {/* Movimientos */}
+              <Section title="Historial de movimientos" icon="git-network">
+                {loadingMovements && (
+                  <View style={{ alignItems: 'center', paddingVertical: 12 }}>
+                    <ActivityIndicator color={ORANGE} />
+                  </View>
+                )}
+                {!loadingMovements && movements.length === 0 && (
+                  <Text style={styles.emptyText}>
+                    No hay movimientos registrados para esta guía.
+                  </Text>
+                )}
+                {movements.map((ev, i) => (
+                  <View key={ev.id ?? i} style={styles.timelineRow}>
+                    <View
+                      style={[
+                        styles.timelineDot,
+                        { backgroundColor: statusColor(ev.status) },
+                      ]}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.timelineStatus}>
+                        {ev.statusLabel || ev.label || ev.status || 'Evento'}
+                      </Text>
+                      <Text style={styles.timelineDate}>
+                        {fmtDate(ev.createdAt || ev.date)}
+                      </Text>
+                      {!!(ev.branch || ev.location) && (
+                        <Text style={styles.timelineMeta}>
+                          📍 {ev.branch || ev.location}
+                        </Text>
+                      )}
+                      {!!ev.user && (
+                        <Text style={styles.timelineMeta}>👤 {ev.user}</Text>
+                      )}
+                      {!!(ev.description || ev.notes) && (
+                        <Text style={styles.timelineNotes}>
+                          {ev.description || ev.notes}
+                        </Text>
+                      )}
+                    </View>
+                  </View>
+                ))}
+              </Section>
+
+              {/* Acciones */}
+              <View style={styles.actionsRow}>
+                <TouchableOpacity style={styles.primaryBtn} onPress={handleNewScan}>
+                  <Ionicons name="scan" size={20} color="#fff" />
+                  <Text style={styles.primaryBtnText}>Escanear otra guía</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </ScrollView>
+      )}
 
       {/* Manual Input Modal */}
       <Modal visible={showManualInput} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.manualInputModal}>
-            <Text style={styles.manualInputTitle}>📝 Ingreso Manual</Text>
+            <Text style={styles.manualInputTitle}>📝 Búsqueda Manual</Text>
+            <Text style={styles.manualInputSubtitle}>
+              Escribe la guía a consultar
+            </Text>
             <TextInput
               style={styles.manualInput}
-              placeholder="Código de barras"
+              placeholder="Ej: US-2722344044, AIR-12345, 1234567890"
               placeholderTextColor="#999"
               value={manualBarcode}
               onChangeText={setManualBarcode}
               autoCapitalize="characters"
               autoFocus
+              onSubmitEditing={handleManualSubmit}
+              returnKeyType="search"
             />
             <View style={styles.manualInputButtons}>
               <TouchableOpacity
                 style={[styles.manualButton, { backgroundColor: '#ccc' }]}
-                onPress={() => { setShowManualInput(false); setManualBarcode(''); }}
+                onPress={() => {
+                  setShowManualInput(false);
+                  setManualBarcode('');
+                }}
               >
                 <Text style={styles.manualButtonText}>Cancelar</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.manualButton, { backgroundColor: ORANGE }]}
                 onPress={handleManualSubmit}
+                disabled={!manualBarcode.trim()}
               >
-                <Text style={[styles.manualButtonText, { color: '#fff' }]}>Procesar</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Supervisor Modal */}
-      <Modal visible={showSupervisorModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.supervisorModal}>
-            <View style={styles.supervisorHeader}>
-              <Ionicons name="shield-checkmark" size={50} color={YELLOW} />
-              <Text style={styles.supervisorTitle}>🔐 Autorización Requerida</Text>
-              <Text style={styles.supervisorSubtitle}>
-                Las guías DHL requieren PIN de supervisor
-              </Text>
-            </View>
-
-            <View style={styles.supervisorTracking}>
-              <Text style={styles.trackingLabel}>Guía:</Text>
-              <Text style={styles.trackingValue}>{pendingDhlTracking}</Text>
-            </View>
-
-            {/* PIN Input */}
-            <TextInput
-              style={styles.pinInput}
-              placeholder="Ingresa PIN de supervisor"
-              placeholderTextColor="#999"
-              value={supervisorPin}
-              onChangeText={(text) => { setSupervisorPin(text); setSupervisorError(''); }}
-              keyboardType="number-pad"
-              secureTextEntry
-              maxLength={10}
-            />
-
-            {supervisorError ? (
-              <Text style={styles.supervisorError}>{supervisorError}</Text>
-            ) : null}
-
-            {/* NFC Option */}
-            {nfcSupported && nfcEnabled && (
-              <TouchableOpacity
-                style={styles.nfcButton}
-                onPress={nfcReading ? cancelNfcReading : startNfcReading}
-              >
-                <Ionicons name="wifi" size={24} color={nfcReading ? ORANGE : '#666'} />
-                <Text style={[styles.nfcButtonText, nfcReading && { color: ORANGE }]}>
-                  {nfcReading ? 'Acerca tu tarjeta NFC...' : 'Usar Tarjeta NFC'}
+                <Text style={[styles.manualButtonText, { color: '#fff' }]}>
+                  Consultar
                 </Text>
-                {nfcReading && <ActivityIndicator size="small" color={ORANGE} />}
-              </TouchableOpacity>
-            )}
-
-            <View style={styles.supervisorButtons}>
-              <TouchableOpacity
-                style={[styles.supervisorButton, { backgroundColor: '#ccc' }]}
-                onPress={() => {
-                  setShowSupervisorModal(false);
-                  setPendingDhlTracking('');
-                  cancelNfcReading();
-                }}
-              >
-                <Text style={styles.supervisorButtonText}>Cancelar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.supervisorButton, { backgroundColor: GREEN }]}
-                onPress={handleSupervisorPinSubmit}
-                disabled={validatingSupervisor || !supervisorPin.trim()}
-              >
-                {validatingSupervisor ? (
-                  <ActivityIndicator color="#fff" />
-                ) : (
-                  <Text style={[styles.supervisorButtonText, { color: '#fff' }]}>
-                    Validar PIN
-                  </Text>
-                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -844,22 +690,61 @@ export default function WarehouseScannerScreen({ navigation, route }: Props) {
   );
 }
 
+// ============================================
+// SUBCOMPONENTES
+// ============================================
+const Section: React.FC<{
+  title: string;
+  icon: any;
+  children: React.ReactNode;
+}> = ({ title, icon, children }) => (
+  <View style={styles.section}>
+    <View style={styles.sectionHeader}>
+      <Ionicons name={icon} size={18} color={ORANGE} />
+      <Text style={styles.sectionTitle}>{title}</Text>
+    </View>
+    <View style={styles.sectionBody}>{children}</View>
+  </View>
+);
+
+const Row: React.FC<{
+  label: string;
+  value: string;
+  bold?: boolean;
+  color?: string;
+}> = ({ label, value, bold, color }) => (
+  <View style={styles.row}>
+    <Text style={styles.rowLabel}>{label}</Text>
+    <Text
+      style={[
+        styles.rowValue,
+        bold && { fontWeight: '700' },
+        color && { color },
+      ]}
+      selectable
+    >
+      {value}
+    </Text>
+  </View>
+);
+
+const Cell: React.FC<{ label: string; value: string }> = ({ label, value }) => (
+  <View style={styles.cell}>
+    <Text style={styles.cellLabel}>{label}</Text>
+    <Text style={styles.cellValue} selectable>
+      {value}
+    </Text>
+  </View>
+);
+
+// ============================================
+// STYLES
+// ============================================
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  centerContent: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#666',
-  },
+  container: { flex: 1, backgroundColor: BG },
+  centerContent: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20 },
+
+  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -868,280 +753,196 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
-  headerCenter: {
-    alignItems: 'center',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.8)',
-  },
-  branchCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    margin: 16,
-    padding: 16,
-    borderRadius: 12,
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  branchIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: ORANGE + '20',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  branchInfo: {
-    flex: 1,
-  },
-  branchName: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  branchCode: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 2,
-  },
-  workerName: {
-    fontSize: 14,
-    color: ORANGE,
-    marginTop: 4,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  statCard: {
-    flex: 1,
-    alignItems: 'center',
-    padding: 16,
-    borderRadius: 12,
-  },
-  statNumber: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    marginTop: 8,
-  },
-  statLabel: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 4,
-  },
-  selectModeTitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginTop: 24,
-    marginBottom: 16,
-  },
-  modeButtonsContainer: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    gap: 12,
-  },
-  modeButton: {
-    flex: 1,
-    alignItems: 'center',
-    padding: 24,
-    borderRadius: 16,
-  },
-  modeButtonText: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginTop: 12,
-  },
-  modeButtonSubtext: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 4,
-  },
-  scannerContainer: {
-    flex: 1,
-    position: 'relative',
-  },
-  scanner: {
-    flex: 1,
-  },
+  headerCenter: { alignItems: 'center', flex: 1 },
+  headerTitle: { fontSize: 18, fontWeight: 'bold', color: '#fff' },
+  headerSubtitle: { fontSize: 11, color: 'rgba(255,255,255,0.85)', marginTop: 2 },
+
+  // Scanner
+  scannerContainer: { flex: 1, position: 'relative', backgroundColor: '#000' },
+  scanner: { flex: 1 },
   scannerOverlay: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  scannerFrame: {
-    width: 280,
-    height: 280,
-    position: 'relative',
-  },
-  cornerTL: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    width: 40,
-    height: 40,
-    borderTopWidth: 4,
-    borderLeftWidth: 4,
-    borderColor: '#fff',
-  },
-  cornerTR: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    width: 40,
-    height: 40,
-    borderTopWidth: 4,
-    borderRightWidth: 4,
-    borderColor: '#fff',
-  },
-  cornerBL: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    width: 40,
-    height: 40,
-    borderBottomWidth: 4,
-    borderLeftWidth: 4,
-    borderColor: '#fff',
-  },
-  cornerBR: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 40,
-    height: 40,
-    borderBottomWidth: 4,
-    borderRightWidth: 4,
-    borderColor: '#fff',
-  },
-  scannerHint: {
-    position: 'absolute',
-    bottom: 80,
-    fontSize: 16,
-    color: '#fff',
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 20,
-  },
-  feedbackContainer: {
+  scannerFrame: { width: 280, height: 280, position: 'relative' },
+  cornerTL: { position: 'absolute', top: 0, left: 0, width: 40, height: 40, borderTopWidth: 4, borderLeftWidth: 4, borderColor: '#fff' },
+  cornerTR: { position: 'absolute', top: 0, right: 0, width: 40, height: 40, borderTopWidth: 4, borderRightWidth: 4, borderColor: '#fff' },
+  cornerBL: { position: 'absolute', bottom: 0, left: 0, width: 40, height: 40, borderBottomWidth: 4, borderLeftWidth: 4, borderColor: '#fff' },
+  cornerBR: { position: 'absolute', bottom: 0, right: 0, width: 40, height: 40, borderBottomWidth: 4, borderRightWidth: 4, borderColor: '#fff' },
+  scannerHintBox: {
     position: 'absolute',
     bottom: 100,
-    left: 20,
-    right: 20,
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    borderRadius: 22,
   },
-  feedbackMessage: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  feedbackDetail: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.9)',
-    marginTop: 4,
-  },
-  bottomStats: {
+  scannerHintInner: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  scannerHint: { fontSize: 15, color: '#fff', fontWeight: '500' },
+  bottomHint: {
+    position: 'absolute',
+    bottom: 16,
+    left: 16,
+    right: 16,
     flexDirection: 'row',
-    backgroundColor: '#fff',
-    padding: 16,
-    justifyContent: 'center',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
   },
-  bottomStatItem: {
+  bottomHintText: { color: '#fff', fontSize: 12, flex: 1 },
+
+  // Result
+  resultScroll: { flex: 1, padding: 14 },
+
+  // Error card
+  errorCard: {
+    backgroundColor: '#fff',
+    padding: 24,
+    borderRadius: 14,
+    alignItems: 'center',
+    borderLeftWidth: 5,
+    borderLeftColor: RED,
+  },
+  errorCardTitle: { fontSize: 18, fontWeight: 'bold', color: TEXT_DARK, marginTop: 12, textAlign: 'center' },
+  errorCardText: { fontSize: 14, color: TEXT_MUTED, marginTop: 8, marginBottom: 18, textAlign: 'center' },
+
+  // Main card
+  mainCard: {
+    backgroundColor: '#fff',
+    padding: 18,
+    borderRadius: 14,
+    marginBottom: 12,
+    borderLeftWidth: 5,
+    borderLeftColor: ORANGE,
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
+      android: { elevation: 2 },
+    }),
+  },
+  mainHeader: { flexDirection: 'row', alignItems: 'flex-start' },
+  mainLabel: { fontSize: 11, color: TEXT_MUTED, fontWeight: '700', letterSpacing: 1 },
+  mainTracking: { fontSize: 22, fontWeight: 'bold', color: TEXT_DARK, marginTop: 2 },
+  mainDescription: { fontSize: 13, color: TEXT_MUTED, marginTop: 6 },
+  statusPill: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginLeft: 8 },
+  statusPillText: { color: '#fff', fontWeight: '700', fontSize: 12, textTransform: 'uppercase' },
+  multipieceBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: ORANGE + '15',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    marginTop: 12,
+  },
+  multipieceText: { fontSize: 12, fontWeight: '600', color: ORANGE },
+
+  // Sections
+  section: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    marginBottom: 12,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: { shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
+      android: { elevation: 1 },
+    }),
+  },
+  sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-  },
-  bottomStatDivider: {
-    width: 1,
-    height: 20,
-    backgroundColor: '#ddd',
-    marginHorizontal: 24,
-  },
-  bottomStatText: {
-    fontSize: 14,
-    color: '#666',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  historyModal: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '80%',
-    paddingBottom: 30,
-  },
-  historyHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  historyTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  historyItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#f0f0f0',
   },
-  historyIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+  sectionTitle: { fontSize: 14, fontWeight: '700', color: TEXT_DARK },
+  sectionBody: { padding: 14 },
+
+  // Rows
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
+  rowLabel: { fontSize: 12, color: TEXT_MUTED, flex: 0.4 },
+  rowValue: { fontSize: 13, color: TEXT_DARK, flex: 0.6, textAlign: 'right' },
+
+  // Grid
+  gridRow: { flexDirection: 'row', gap: 10, marginBottom: 8 },
+  cell: { flex: 1, backgroundColor: '#f8f8f8', padding: 10, borderRadius: 8 },
+  cellLabel: { fontSize: 11, color: TEXT_MUTED, fontWeight: '600' },
+  cellValue: { fontSize: 15, color: TEXT_DARK, fontWeight: '700', marginTop: 2 },
+
+  // Pago
+  payRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  paySubtext: { fontSize: 12, color: TEXT_MUTED },
+
+  // Hijos
+  childRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f4f4f4',
+  },
+  childIndex: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: ORANGE + '20',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
+    marginRight: 10,
   },
-  historyContent: {
-    flex: 1,
+  childIndexText: { color: ORANGE, fontWeight: '700' },
+  childTracking: { fontSize: 13, fontWeight: '700', color: TEXT_DARK },
+  childMeta: { fontSize: 11, color: TEXT_MUTED, marginTop: 2 },
+  childStatusPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    borderWidth: 1,
   },
-  historyTracking: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#333',
+  childStatusText: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
+
+  // Timeline
+  timelineRow: {
+    flexDirection: 'row',
+    paddingBottom: 14,
+    paddingLeft: 4,
+    gap: 10,
   },
-  historyClient: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
+  timelineDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginTop: 4,
   },
-  historyTime: {
-    fontSize: 12,
-    color: '#999',
+  timelineStatus: { fontSize: 13, fontWeight: '700', color: TEXT_DARK },
+  timelineDate: { fontSize: 11, color: TEXT_MUTED, marginTop: 2 },
+  timelineMeta: { fontSize: 11, color: TEXT_MUTED, marginTop: 2 },
+  timelineNotes: { fontSize: 12, color: TEXT_DARK, marginTop: 4, fontStyle: 'italic' },
+  emptyText: { textAlign: 'center', color: TEXT_MUTED, paddingVertical: 14 },
+
+  // Actions
+  actionsRow: { marginTop: 4, marginBottom: 14 },
+  primaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: ORANGE,
+    paddingVertical: 14,
+    borderRadius: 12,
   },
-  emptyText: {
-    textAlign: 'center',
-    padding: 40,
-    color: '#999',
-  },
+  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+
+  // Modal
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   manualInputModal: {
     backgroundColor: '#fff',
     borderTopLeftRadius: 20,
@@ -1149,168 +950,24 @@ const styles = StyleSheet.create({
     padding: 24,
     paddingBottom: 40,
   },
-  manualInputTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
+  manualInputTitle: { fontSize: 20, fontWeight: 'bold', color: TEXT_DARK, textAlign: 'center' },
+  manualInputSubtitle: { fontSize: 13, color: TEXT_MUTED, textAlign: 'center', marginTop: 4, marginBottom: 16 },
   manualInput: {
     borderWidth: 2,
     borderColor: '#ddd',
     borderRadius: 12,
-    padding: 16,
-    fontSize: 18,
+    padding: 14,
+    fontSize: 16,
     marginBottom: 16,
+    color: TEXT_DARK,
   },
-  manualInputButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  manualButton: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  manualButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  supervisorModal: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 24,
-    paddingBottom: 40,
-  },
-  supervisorHeader: {
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  supervisorTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 12,
-  },
-  supervisorSubtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 8,
-    textAlign: 'center',
-  },
-  supervisorTracking: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 20,
-  },
-  trackingLabel: {
-    fontSize: 14,
-    color: '#666',
-    marginRight: 8,
-  },
-  trackingValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  pinInput: {
-    borderWidth: 2,
-    borderColor: '#ddd',
-    borderRadius: 12,
-    padding: 16,
-    fontSize: 24,
-    textAlign: 'center',
-    letterSpacing: 8,
-    marginBottom: 12,
-  },
-  supervisorError: {
-    color: RED,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  nfcButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 16,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 12,
-    marginBottom: 16,
-    gap: 8,
-  },
-  nfcButtonText: {
-    fontSize: 16,
-    color: '#666',
-  },
-  supervisorButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  supervisorButton: {
-    flex: 1,
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  supervisorButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  permissionTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 20,
-  },
-  permissionText: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 20,
-    paddingHorizontal: 20,
-  },
-  permissionButton: {
-    backgroundColor: ORANGE,
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 12,
-  },
-  permissionButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  errorTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: RED,
-    marginTop: 20,
-  },
-  errorText: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginTop: 8,
-    marginBottom: 20,
-    paddingHorizontal: 20,
-  },
-  backButton: {
-    backgroundColor: '#666',
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 12,
-  },
-  backButtonText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
+  manualInputButtons: { flexDirection: 'row', gap: 12 },
+  manualButton: { flex: 1, padding: 14, borderRadius: 12, alignItems: 'center' },
+  manualButtonText: { fontSize: 15, fontWeight: 'bold', color: TEXT_DARK },
+
+  // Permission
+  permissionTitle: { fontSize: 20, fontWeight: 'bold', color: TEXT_DARK, marginTop: 20 },
+  permissionText: { fontSize: 14, color: TEXT_MUTED, textAlign: 'center', marginTop: 8, marginBottom: 20, paddingHorizontal: 20 },
+  permissionButton: { backgroundColor: ORANGE, paddingHorizontal: 32, paddingVertical: 16, borderRadius: 12 },
+  permissionButtonText: { fontSize: 16, fontWeight: 'bold', color: '#fff' },
 });

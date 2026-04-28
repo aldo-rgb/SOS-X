@@ -241,7 +241,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
   {
     id: 'panel_scanner',
     title: 'Escáner Multi-Sucursal',
-    subtitle: 'Panel unificado entrada/salida CEDIS',
+    subtitle: 'Consulta detallada de cualquier guía',
     icon: 'barcode-outline',
     iconFamily: 'ionicons',
     color: '#F05A28',
