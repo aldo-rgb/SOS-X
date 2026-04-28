@@ -610,6 +610,20 @@ export default function FiscalPage() {
         message: `✅ Sincronización: ${r.data.inserted} nuevas, ${r.data.skipped} omitidas (de ${r.data.total_found})`,
         severity: 'success'
       });
+      if (r.data.diagnostic) {
+        console.log('[Facturama] diagnóstico sync:', r.data.diagnostic);
+      }
+      if (r.data.total_found === 0 && r.data.diagnostic) {
+        const d = r.data.diagnostic;
+        const envWarn = d.environment === 'sandbox'
+          ? '\n⚠️ Estás en SANDBOX. Las facturas reales están en PRODUCCIÓN.'
+          : '';
+        setSnackbar({
+          open: true,
+          message: `⚠️ 0 facturas. Endpoint: ${d.endpoint_used}. Forma: ${d.response_shape}.${envWarn}`,
+          severity: 'warning'
+        });
+      }
       loadData();
     } catch (error: any) {
       setSnackbar({

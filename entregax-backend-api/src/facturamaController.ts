@@ -277,9 +277,28 @@ export const syncFacturamaReceived = async (req: AuthRequest, res: Response): Pr
         }
         console.log(`[Facturama] sync usando endpoint ${usedPath}`);
 
-        const items: any[] = Array.isArray(listRes.data)
-            ? listRes.data
-            : (listRes.data?.Cfdis || listRes.data?.Items || listRes.data?.Data || []);
+        // Extraer items del response (Facturama varía la forma según endpoint)
+        const rawData = listRes.data;
+        let items: any[] = [];
+        if (Array.isArray(rawData)) {
+            items = rawData;
+        } else if (rawData && typeof rawData === 'object') {
+            items = rawData.Cfdis || rawData.Items || rawData.Data
+                 || rawData.cfdis || rawData.items || rawData.data
+                 || rawData.Results || rawData.results
+                 || rawData.value || [];
+        }
+
+        // Diagnóstico: log de la forma del response
+        const responseShape = Array.isArray(rawData)
+            ? `Array(${rawData.length})`
+            : (rawData && typeof rawData === 'object'
+                ? `Object{${Object.keys(rawData).slice(0, 8).join(',')}}`
+                : typeof rawData);
+        console.log(`[Facturama] response shape: ${responseShape}, items extraídos: ${items.length}`);
+        if (items.length > 0) {
+            console.log(`[Facturama] primer item keys:`, Object.keys(items[0]).slice(0, 15).join(','));
+        }
 
         let inserted = 0;
         let skipped  = 0;
@@ -345,7 +364,20 @@ export const syncFacturamaReceived = async (req: AuthRequest, res: Response): Pr
             WHERE id=$2
         `, [inserted, emitterId]);
 
-        res.json({ success: true, total_found: items.length, inserted, skipped });
+        // Diagnóstico devuelto al frontend para debugging
+        const diagnostic: any = {
+            endpoint_used: usedPath,
+            environment: cfg.facturama_environment || 'sandbox',
+            base_url: baseUrl,
+            response_shape: responseShape,
+            tried: triedPaths,
+        };
+        if (items.length === 0 && rawData && typeof rawData === 'object') {
+            diagnostic.response_keys = Object.keys(rawData).slice(0, 20);
+            diagnostic.response_sample = JSON.stringify(rawData).slice(0, 500);
+        }
+
+        res.json({ success: true, total_found: items.length, inserted, skipped, diagnostic });
     } catch (err: any) {
         console.error('syncFacturamaReceived:', err.response?.data || err.message);
         res.status(500).json({
