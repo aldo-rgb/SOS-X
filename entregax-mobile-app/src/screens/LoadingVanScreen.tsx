@@ -55,6 +55,9 @@ interface FeedbackMessage {
   type: 'success' | 'error' | 'warning';
   message: string;
   details?: string;
+  errorData?: any;
+  httpStatus?: number;
+  scannedCode?: string;
 }
 
 type ScanMode = 'camera' | 'scanner';
@@ -108,6 +111,7 @@ export default function LoadingVanScreen({ navigation, route }: any) {
   const [routeData, setRouteData] = useState<RouteData | null>(null);
   const [scannedCount, setScannedCount] = useState(0);
   const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
+  const [errorDetail, setErrorDetail] = useState<FeedbackMessage | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scannerActive, setScannerActive] = useState(true);
   const [lastScannedCode, setLastScannedCode] = useState<string>('');
@@ -127,6 +131,7 @@ export default function LoadingVanScreen({ navigation, route }: any) {
   const errorSound = useRef<Audio.Sound | null>(null);
   const hasAskedModeRef = useRef(false);
   const manualInputRef = useRef<TextInput | null>(null);
+  const autoSubmitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     loadRouteData();
@@ -215,13 +220,15 @@ export default function LoadingVanScreen({ navigation, route }: any) {
 
   const showFeedback = (fb: FeedbackMessage) => {
     setFeedback(fb);
+    // Errores y advertencias permanecen visibles más tiempo para poder tocarlos
+    const dismissDelay = fb.type === 'success' ? 2500 : 6000;
     Animated.sequence([
       Animated.timing(feedbackOpacity, {
         toValue: 1,
         duration: 200,
         useNativeDriver: true,
       }),
-      Animated.delay(2500),
+      Animated.delay(dismissDelay),
       Animated.timing(feedbackOpacity, {
         toValue: 0,
         duration: 300,
@@ -299,11 +306,15 @@ export default function LoadingVanScreen({ navigation, route }: any) {
       // ERROR: Vibración larga, feedback rojo
       Vibration.vibrate([0, 200, 100, 200, 100, 200]);
       
-      const errorMsg = error.response?.data?.error || 'Error al escanear';
+      const respData = error?.response?.data;
+      const errorMsg = respData?.error || error?.message || 'Error al escanear';
       showFeedback({
         type: 'error',
         message: errorMsg,
         details: data,
+        errorData: respData,
+        httpStatus: error?.response?.status,
+        scannedCode: data,
       });
     } finally {
       // Reactivar escáner después de un delay
@@ -326,12 +337,39 @@ export default function LoadingVanScreen({ navigation, route }: any) {
   }, [processScanCode]);
 
   const handleManualSubmit = async () => {
+    if (autoSubmitTimer.current) {
+      clearTimeout(autoSubmitTimer.current);
+      autoSubmitTimer.current = null;
+    }
     const code = normalizeScanCode(manualCode);
     if (!code) {
       return;
     }
     setManualCode('');
     await processScanCode(code, 'scanner');
+  };
+
+  // Auto-submit: la mayoría de scanners USB/HID escriben rápido sin ENTER.
+  // Si el código deja de cambiar por ~250ms y parece válido, lo enviamos solos.
+  const handleScannerInputChange = (raw: string) => {
+    setManualCode(raw);
+
+    if (autoSubmitTimer.current) {
+      clearTimeout(autoSubmitTimer.current);
+      autoSubmitTimer.current = null;
+    }
+
+    const normalized = normalizeScanCode(raw);
+    // Solo auto-enviar si parece un tracking razonable (>=8 chars, alfanumérico)
+    if (!normalized || normalized.length < 8) return;
+
+    autoSubmitTimer.current = setTimeout(async () => {
+      if (isScanning) return;
+      const code = normalizeScanCode(raw);
+      if (!code) return;
+      setManualCode('');
+      await processScanCode(code, 'scanner');
+    }, 250);
   };
 
   const totalPackages = routeData 
@@ -509,7 +547,7 @@ export default function LoadingVanScreen({ navigation, route }: any) {
                 autoFocus
                 showSoftInputOnFocus={true}
                 blurOnSubmit={false}
-                onChangeText={setManualCode}
+                onChangeText={handleScannerInputChange}
                 onSubmitEditing={handleManualSubmit}
                 onBlur={() => {
                   if (scanMode === 'scanner') {
@@ -563,19 +601,127 @@ export default function LoadingVanScreen({ navigation, route }: any) {
             { opacity: feedbackOpacity }
           ]}
         >
-          <MaterialIcons 
-            name={feedback.type === 'success' ? 'check-circle' : feedback.type === 'error' ? 'error' : 'warning'} 
-            size={24} 
-            color="#fff" 
-          />
-          <View style={styles.feedbackContent}>
-            <Text style={styles.feedbackText}>{feedback.message}</Text>
-            {feedback.details && (
-              <Text style={styles.feedbackDetails}>{feedback.details}</Text>
-            )}
-          </View>
+          <TouchableOpacity
+            activeOpacity={feedback.type === 'error' || feedback.type === 'warning' ? 0.7 : 1}
+            disabled={feedback.type === 'success'}
+            onPress={() => {
+              if (feedback.type === 'error' || feedback.type === 'warning') {
+                setErrorDetail(feedback);
+              }
+            }}
+            style={styles.feedbackTouchable}
+          >
+            <MaterialIcons 
+              name={feedback.type === 'success' ? 'check-circle' : feedback.type === 'error' ? 'error' : 'warning'} 
+              size={24} 
+              color="#fff" 
+            />
+            <View style={styles.feedbackContent}>
+              <Text style={styles.feedbackText}>{feedback.message}</Text>
+              {feedback.details ? (
+                <Text style={styles.feedbackDetails}>{feedback.details}</Text>
+              ) : null}
+              {(feedback.type === 'error' || feedback.type === 'warning') ? (
+                <Text style={styles.feedbackHint}>Toca para ver detalles ▸</Text>
+              ) : null}
+            </View>
+          </TouchableOpacity>
         </Animated.View>
       )}
+
+      {/* Modal: Detalle del Error */}
+      <Modal
+        visible={!!errorDetail}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setErrorDetail(null)}
+      >
+        <View style={styles.errorModalOverlay}>
+          <View style={styles.errorModalCard}>
+            <View style={styles.errorModalHeader}>
+              <MaterialIcons
+                name={errorDetail?.type === 'warning' ? 'warning' : 'error'}
+                size={32}
+                color={errorDetail?.type === 'warning' ? '#FFA726' : '#F44336'}
+              />
+              <Text style={styles.errorModalTitle}>Detalle del rechazo</Text>
+              <TouchableOpacity onPress={() => setErrorDetail(null)}>
+                <MaterialIcons name="close" size={26} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ paddingBottom: 12 }}>
+              <Text style={styles.errorModalLabel}>Motivo</Text>
+              <Text style={styles.errorModalValue}>{errorDetail?.message || '—'}</Text>
+
+              {errorDetail?.scannedCode ? (
+                <>
+                  <Text style={styles.errorModalLabel}>Código escaneado</Text>
+                  <Text style={styles.errorModalValueMono}>{errorDetail.scannedCode}</Text>
+                </>
+              ) : null}
+
+              {typeof errorDetail?.httpStatus === 'number' ? (
+                <>
+                  <Text style={styles.errorModalLabel}>Código HTTP</Text>
+                  <Text style={styles.errorModalValueMono}>{String(errorDetail.httpStatus)}</Text>
+                </>
+              ) : null}
+
+              {errorDetail?.errorData?.currentStatus ? (
+                <>
+                  <Text style={styles.errorModalLabel}>Estado actual del paquete</Text>
+                  <Text style={styles.errorModalValueMono}>{String(errorDetail.errorData.currentStatus)}</Text>
+                </>
+              ) : null}
+
+              {errorDetail?.errorData?.paymentStatus ? (
+                <>
+                  <Text style={styles.errorModalLabel}>Estado de pago</Text>
+                  <Text style={styles.errorModalValueMono}>{String(errorDetail.errorData.paymentStatus)}</Text>
+                </>
+              ) : null}
+
+              {typeof errorDetail?.errorData?.hasLabel === 'boolean' ? (
+                <>
+                  <Text style={styles.errorModalLabel}>¿Tiene etiqueta?</Text>
+                  <Text style={styles.errorModalValueMono}>{errorDetail.errorData.hasLabel ? 'Sí' : 'No'}</Text>
+                </>
+              ) : null}
+
+              {errorDetail?.errorData?.assignedTo ? (
+                <>
+                  <Text style={styles.errorModalLabel}>Asignado a</Text>
+                  <Text style={styles.errorModalValue}>{String(errorDetail.errorData.assignedTo)}</Text>
+                </>
+              ) : null}
+
+              {errorDetail?.errorData?.loadedAt ? (
+                <>
+                  <Text style={styles.errorModalLabel}>Cargado el</Text>
+                  <Text style={styles.errorModalValueMono}>{String(errorDetail.errorData.loadedAt)}</Text>
+                </>
+              ) : null}
+
+              <Text style={styles.errorModalLabel}>Respuesta completa</Text>
+              <View style={styles.errorModalRaw}>
+                <Text style={styles.errorModalRawText}>
+                  {errorDetail?.errorData
+                    ? JSON.stringify(errorDetail.errorData, null, 2)
+                    : 'Sin datos del servidor'}
+                </Text>
+              </View>
+            </ScrollView>
+
+            <TouchableOpacity
+              style={styles.errorModalCloseBtn}
+              onPress={() => setErrorDetail(null)}
+            >
+              <Text style={styles.errorModalCloseText}>Cerrar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Bottom Actions - Solo si hay paquetes cargados pero no está completo */}
       {!isLoadComplete && scannedCount > 0 && (
@@ -978,15 +1124,17 @@ const styles = StyleSheet.create({
     bottom: 100,
     left: 20,
     right: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 15,
     borderRadius: 10,
     elevation: 5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 4,
+  },
+  feedbackTouchable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
   },
   feedbackSuccess: {
     backgroundColor: '#4CAF50',
@@ -1010,6 +1158,85 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.8)',
     fontSize: 12,
     marginTop: 2,
+  },
+  feedbackHint: {
+    color: 'rgba(255,255,255,0.95)',
+    fontSize: 12,
+    marginTop: 6,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+
+  // Error detail modal
+  errorModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorModalCard: {
+    width: '100%',
+    maxWidth: 480,
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 18,
+    elevation: 8,
+  },
+  errorModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 10,
+  },
+  errorModalTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#222',
+    marginLeft: 8,
+  },
+  errorModalLabel: {
+    fontSize: 12,
+    color: '#888',
+    fontWeight: '600',
+    marginTop: 12,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  errorModalValue: {
+    fontSize: 15,
+    color: '#222',
+    marginTop: 4,
+  },
+  errorModalValueMono: {
+    fontSize: 14,
+    color: '#222',
+    marginTop: 4,
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  errorModalRaw: {
+    marginTop: 6,
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 10,
+  },
+  errorModalRawText: {
+    fontSize: 12,
+    color: '#444',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+  errorModalCloseBtn: {
+    marginTop: 14,
+    backgroundColor: '#F05A28',
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  errorModalCloseText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 16,
   },
   
   // Bottom Actions

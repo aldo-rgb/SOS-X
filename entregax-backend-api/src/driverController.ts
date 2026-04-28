@@ -18,6 +18,9 @@ const TRACKING_MATCH_SQL = `(
     ${TRACKING_PUBLIC_SQL} = $1
     OR to_jsonb(p)->>'skydropx_label_id' = $1
     OR to_jsonb(p)->>'dhl_awb' = $1
+    OR REPLACE(UPPER(${TRACKING_PUBLIC_SQL}), '-', '') = REPLACE(UPPER($1), '-', '')
+    OR REPLACE(UPPER(COALESCE(to_jsonb(p)->>'skydropx_label_id', '')), '-', '') = REPLACE(UPPER($1), '-', '')
+    OR REPLACE(UPPER(COALESCE(to_jsonb(p)->>'dhl_awb', '')), '-', '') = REPLACE(UPPER($1), '-', '')
 )`;
 
 const DELIVERY_STATUS_SQL = `COALESCE(

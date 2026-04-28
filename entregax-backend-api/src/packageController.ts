@@ -1055,6 +1055,41 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             children = childResult.rows;
         }
 
+        // Si es una HIJA (master_id != null), heredar status y payment del master
+        // para mantener consistencia con la vista del cliente (el master es la fuente de verdad).
+        if (pkg.master_id) {
+            try {
+                const masterRes = await pool.query(
+                    `SELECT status, payment_status, client_paid, client_paid_at, monto_pagado,
+                            saldo_pendiente, assigned_cost_mxn, received_at, delivered_at,
+                            warehouse_location, current_branch_id
+                     FROM packages WHERE id = $1`,
+                    [pkg.master_id]
+                );
+                if (masterRes.rows.length > 0) {
+                    const m = masterRes.rows[0];
+                    // El master rige el cobro y el progreso "público" del envío.
+                    pkg.payment_status = m.payment_status ?? pkg.payment_status;
+                    pkg.client_paid = m.client_paid ?? pkg.client_paid;
+                    pkg.client_paid_at = m.client_paid_at ?? pkg.client_paid_at;
+                    pkg.monto_pagado = m.monto_pagado ?? pkg.monto_pagado;
+                    pkg.saldo_pendiente = m.saldo_pendiente ?? pkg.saldo_pendiente;
+                    pkg.assigned_cost_mxn = m.assigned_cost_mxn ?? pkg.assigned_cost_mxn;
+                    // Status: el más avanzado entre child y master
+                    const order = ['received', 'in_transit', 'received_mty', 'received_partial',
+                                   'out_for_delivery', 'ready_pickup', 'delivered'];
+                    const childIdx = order.indexOf(String(pkg.status || '').toLowerCase());
+                    const masterIdx = order.indexOf(String(m.status || '').toLowerCase());
+                    if (masterIdx > childIdx && masterIdx >= 0) {
+                        pkg.status = m.status;
+                    }
+                    pkg.warehouse_location = m.warehouse_location ?? pkg.warehouse_location;
+                }
+            } catch (err) {
+                console.warn('[getShipmentByTracking] No se pudo heredar payment del master:', err);
+            }
+        }
+
         const labels = [];
         const resolvedName = pkg.full_name || pkg.legacy_name || 'SIN CLIENTE';
         const resolvedBoxId = pkg.user_box_id || pkg.legacy_box_id || pkg.box_id || 'PENDIENTE';
@@ -2754,27 +2789,53 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                 UPDATE packages 
                 SET status = 'ready_pickup',
                     carrier = 'Pick Up Hidalgo TX',
+                    assigned_address_id = NULL,
+                    national_carrier = NULL,
+                    national_shipping_cost = 0,
+                    notes = COALESCE($2, notes),
                     needs_instructions = false,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE master_id = $1
-            `, [packageId]);
+            `, [packageId, deliveryInstructions]);
             console.log(`✅ Child packages actualizados a "ready_pickup" con carrier "Pick Up Hidalgo TX"`);
         }
-        
-        // Si viene de pickup y se cambió a otro método, actualizar child packages también
+
+        // Entrega a domicilio: propagar dirección + carrier + instrucciones a TODAS las hijas
         if (!isPickup && (packageType === 'usa' || packageType === 'pobox' || packageType === 'air')) {
-            // Verificar si hay child packages que estaban en ready_pickup
-            const childUpdate = await pool.query(`
+            // 1) Hijas que venían de ready_pickup → volver a 'received'
+            const childPickupUpdate = await pool.query(`
                 UPDATE packages 
                 SET status = 'received',
-                    carrier = NULL,
-                    needs_instructions = false,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE master_id = $1 AND status = 'ready_pickup'
                 RETURNING id
             `, [packageId]);
-            if (childUpdate.rowCount && childUpdate.rowCount > 0) {
-                console.log(`✅ ${childUpdate.rowCount} child packages cambiados de "ready_pickup" a "received"`);
+            if (childPickupUpdate.rowCount && childPickupUpdate.rowCount > 0) {
+                console.log(`✅ ${childPickupUpdate.rowCount} child packages cambiados de "ready_pickup" a "received"`);
+            }
+
+            // 2) Propagar dirección, carrier nacional, costo y notas a TODAS las hijas
+            //    (para que cada hija herede automáticamente las instrucciones del master)
+            const carrierLabelForChildren = carrierName || carrier || 'EntregaX Local';
+            const childCount = await pool.query(`
+                UPDATE packages 
+                SET assigned_address_id = $1,
+                    national_carrier = $2,
+                    national_shipping_cost = COALESCE($3, national_shipping_cost),
+                    notes = COALESCE($4, notes),
+                    needs_instructions = false,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE master_id = $5
+                RETURNING id
+            `, [
+                deliveryAddressId || null,
+                carrierLabelForChildren,
+                parseFloat(carrierCost) || 0,
+                deliveryInstructions,
+                packageId,
+            ]);
+            if (childCount.rowCount && childCount.rowCount > 0) {
+                console.log(`✅ ${childCount.rowCount} child packages heredaron instrucciones del master (dirección, carrier="${carrierLabelForChildren}")`);
             }
         }
 
