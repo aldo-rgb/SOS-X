@@ -1166,7 +1166,10 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     weight: parseFloat(c.weight), dimensions: { length: parseFloat(c.pkg_length),
                         width: parseFloat(c.pkg_width), height: parseFloat(c.pkg_height),
                         formatted: formatDimensions(parseFloat(c.pkg_length), parseFloat(c.pkg_width), parseFloat(c.pkg_height)) },
-                    status: c.status, imageUrl: c.image_url || null })),
+                    status: c.status, imageUrl: c.image_url || null,
+                    nationalTracking: c.national_tracking || null,
+                    nationalLabelUrl: c.national_label_url || null,
+                    nationalCarrier: c.national_carrier || null })),
                 labels,
                 client: pkg.user_id 
                     ? { id: pkg.user_id, name: pkg.full_name || 'Sin nombre', email: pkg.email || '', boxId: pkg.user_box_id || 'N/A' } 

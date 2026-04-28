@@ -18,6 +18,7 @@ import {
     Divider,
     IconButton,
     InputAdornment,
+    Checkbox,
 } from '@mui/material';
 import {
     Search as SearchIcon,
@@ -25,6 +26,7 @@ import {
     QrCodeScanner as QrCodeScannerIcon,
     LocalShipping as LocalShippingIcon,
     Clear as ClearIcon,
+    PrintOutlined as PrintOutlinedIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -91,6 +93,9 @@ interface ShipmentData {
         tracking: string;
         boxNumber: number;
         weight: number;
+        nationalTracking?: string | null;
+        nationalLabelUrl?: string | null;
+        nationalCarrier?: string | null;
     }>;
     labels: LabelData[];
     client: {
@@ -243,6 +248,7 @@ export default function RelabelingModulePage() {
     const [shipment, setShipment] = useState<ShipmentData | null>(null);
     const [generatingPqtx, setGeneratingPqtx] = useState(false);
     const [pqtxMsg, setPqtxMsg] = useState<string | null>(null);
+    const [selectedPqtx, setSelectedPqtx] = useState<Set<string>>(new Set());
 
     const handleGeneratePqtxLabel = async () => {
         if (!shipment) return;
@@ -560,14 +566,17 @@ export default function RelabelingModulePage() {
     const getAssignedCarrierGuideUrl = (opts?: { format4x6?: boolean }): string | null => {
         if (!shipment) return null;
         const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');
+        // baseUrl ya termina en /api → si raw también empieza con /api/ removerlo
+        const baseEndsWithApi = /\/api$/.test(baseUrl);
         const raw = String(shipment.master.nationalLabelUrl || '').trim();
 
         const maybeFormat = (url: string) => (opts?.format4x6 ? with4x6Format(url) : url);
 
         if (raw) {
             if (/^https?:\/\//i.test(raw)) return maybeFormat(raw);
-            if (raw.startsWith('/')) return maybeFormat(`${baseUrl}${raw}`);
-            return maybeFormat(`${baseUrl}/${raw}`);
+            const path = baseEndsWithApi && raw.startsWith('/api/') ? raw.slice(4) : raw;
+            if (path.startsWith('/')) return maybeFormat(`${baseUrl}${path}`);
+            return maybeFormat(`${baseUrl}/${path}`);
         }
 
         if (isPaqueteExpressAssigned && shipment.master.nationalTracking) {
@@ -584,6 +593,57 @@ export default function RelabelingModulePage() {
             return;
         }
         window.open(guideUrl, '_blank');
+    };
+
+    // Construye URL de PDF para cualquier tracking PQTX (de hija o master)
+    const buildPqtxLabelUrl = (tracking: string, opts?: { format4x6?: boolean }): string => {
+        const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');
+        const url = `${baseUrl}/admin/paquete-express/label/pdf/${tracking}`;
+        return opts?.format4x6 ? with4x6Format(url) : url;
+    };
+
+    // Lista de guías PQTX a mostrar: una por hija con tracking nacional, o el master si single
+    const pqtxGuides: Array<{ tracking: string; boxNumber: number | null; childId: number | null }> = (() => {
+        if (!shipment) return [];
+        const childGuides = (shipment.children || [])
+            .filter(c => c.nationalTracking)
+            .map(c => ({
+                tracking: c.nationalTracking as string,
+                boxNumber: c.boxNumber,
+                childId: c.id,
+            }));
+        if (childGuides.length > 0) return childGuides;
+        if (shipment.master.nationalTracking) {
+            return [{ tracking: shipment.master.nationalTracking, boxNumber: null, childId: null }];
+        }
+        return [];
+    })();
+
+    const togglePqtxSelection = (tracking: string) => {
+        setSelectedPqtx(prev => {
+            const next = new Set(prev);
+            if (next.has(tracking)) next.delete(tracking);
+            else next.add(tracking);
+            return next;
+        });
+    };
+
+    const toggleSelectAllPqtx = () => {
+        setSelectedPqtx(prev => {
+            if (prev.size === pqtxGuides.length) return new Set();
+            return new Set(pqtxGuides.map(g => g.tracking));
+        });
+    };
+
+    const handlePrintAllPqtx = (trackings: string[], opts?: { format4x6?: boolean }) => {
+        if (trackings.length === 0) {
+            setError('Selecciona al menos una guía para imprimir');
+            return;
+        }
+        trackings.forEach((t, idx) => {
+            const url = buildPqtxLabelUrl(t, opts);
+            setTimeout(() => window.open(url, '_blank'), idx * 250);
+        });
     };
 
     return (
@@ -862,7 +922,136 @@ export default function RelabelingModulePage() {
                             </Grid>
                         ))}
 
-                        {hasAssignedCarrier && (
+                        {hasAssignedCarrier && isPaqueteExpressAssigned && pqtxGuides.length > 0 && (
+                            <>
+                                {pqtxGuides.length > 1 && (
+                                    <Grid size={{ xs: 12 }}>
+                                        <Paper
+                                            variant="outlined"
+                                            sx={{
+                                                p: 1.5,
+                                                display: 'flex',
+                                                flexWrap: 'wrap',
+                                                alignItems: 'center',
+                                                gap: 1.5,
+                                                borderColor: '#1976d2',
+                                                bgcolor: '#E3F2FD',
+                                            }}
+                                        >
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                <Checkbox
+                                                    size="small"
+                                                    checked={selectedPqtx.size === pqtxGuides.length && pqtxGuides.length > 0}
+                                                    indeterminate={selectedPqtx.size > 0 && selectedPqtx.size < pqtxGuides.length}
+                                                    onChange={toggleSelectAllPqtx}
+                                                />
+                                                <Typography variant="body2" fontWeight={700} sx={{ color: '#1976d2' }}>
+                                                    {selectedPqtx.size === 0
+                                                        ? 'Seleccionar todas'
+                                                        : selectedPqtx.size === pqtxGuides.length
+                                                            ? `Todas seleccionadas (${selectedPqtx.size})`
+                                                            : `${selectedPqtx.size} de ${pqtxGuides.length} seleccionadas`}
+                                                </Typography>
+                                            </Box>
+                                            <Box sx={{ flex: 1 }} />
+                                            <Button
+                                                size="small"
+                                                variant="contained"
+                                                startIcon={<PrintIcon />}
+                                                onClick={() => handlePrintAllPqtx(pqtxGuides.map(g => g.tracking), { format4x6: true })}
+                                                sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
+                                            >
+                                                Imprimir todas las etiquetas ({pqtxGuides.length})
+                                            </Button>
+                                            <Button
+                                                size="small"
+                                                variant="outlined"
+                                                startIcon={<PrintOutlinedIcon />}
+                                                disabled={selectedPqtx.size === 0}
+                                                onClick={() => handlePrintAllPqtx(
+                                                    pqtxGuides.filter(g => selectedPqtx.has(g.tracking)).map(g => g.tracking),
+                                                    { format4x6: true }
+                                                )}
+                                                sx={{ borderColor: '#1976d2', color: '#1976d2' }}
+                                            >
+                                                Imprimir seleccionadas ({selectedPqtx.size})
+                                            </Button>
+                                        </Paper>
+                                    </Grid>
+                                )}
+                                {pqtxGuides.map((g, idx) => (
+                                    <Grid size={{ xs: 12, sm: 6, md: 4 }} key={`pqtx-${g.tracking}-${idx}`}>
+                                        <Paper
+                                            variant="outlined"
+                                            sx={{
+                                                p: 2,
+                                                height: '100%',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                borderColor: selectedPqtx.has(g.tracking) ? '#0d47a1' : '#1976d2',
+                                                borderWidth: selectedPqtx.has(g.tracking) ? 2 : 1,
+                                                bgcolor: '#F3F8FF',
+                                            }}
+                                        >
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                                {pqtxGuides.length > 1 && (
+                                                    <Checkbox
+                                                        size="small"
+                                                        checked={selectedPqtx.has(g.tracking)}
+                                                        onChange={() => togglePqtxSelection(g.tracking)}
+                                                        sx={{ p: 0.5 }}
+                                                    />
+                                                )}
+                                                <LocalShippingIcon sx={{ color: '#1976d2' }} />
+                                                <Typography variant="body2" fontWeight={700} sx={{ color: '#1976d2' }}>
+                                                    {g.boxNumber
+                                                        ? `Guía Paquete Express — Caja ${g.boxNumber} de ${shipment.master.totalBoxes || pqtxGuides.length}`
+                                                        : carrierGuideTitle}
+                                                </Typography>
+                                            </Box>
+                                            <Typography sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 13, mb: 1 }}>
+                                                {g.tracking}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
+                                                {g.boxNumber
+                                                    ? `Etiqueta de la caja ${g.boxNumber}`
+                                                    : 'Imprime la guía de la paquetería asignada'}
+                                            </Typography>
+                                            <Box sx={{ flex: 1 }} />
+                                            <Box sx={{ display: 'grid', gap: 1 }}>
+                                                <Button
+                                                    fullWidth
+                                                    variant="contained"
+                                                    startIcon={<PrintIcon />}
+                                                    onClick={() => window.open(buildPqtxLabelUrl(g.tracking, { format4x6: true }), '_blank')}
+                                                    sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
+                                                >
+                                                    Imprimir Etiqueta
+                                                </Button>
+                                                <Button
+                                                    fullWidth
+                                                    variant="outlined"
+                                                    startIcon={<PrintIcon />}
+                                                    onClick={() => window.open(buildPqtxLabelUrl(g.tracking), '_blank')}
+                                                    sx={{ borderColor: '#1976d2', color: '#1976d2', '&:hover': { borderColor: '#0d47a1', color: '#0d47a1' } }}
+                                                >
+                                                    Imprimir guía
+                                                </Button>
+                                            </Box>
+                                        </Paper>
+                                    </Grid>
+                                ))}
+                                {pqtxMsg && (
+                                    <Grid size={{ xs: 12 }}>
+                                        <Typography variant="caption" sx={{ color: 'success.main', fontWeight: 600 }}>
+                                            {pqtxMsg}
+                                        </Typography>
+                                    </Grid>
+                                )}
+                            </>
+                        )}
+
+                        {hasAssignedCarrier && !(isPaqueteExpressAssigned && pqtxGuides.length > 0) && (
                             <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                                 <Paper
                                     variant="outlined"
@@ -890,38 +1079,15 @@ export default function RelabelingModulePage() {
                                                 Imprime la guía de la paquetería asignada
                                             </Typography>
                                             <Box sx={{ flex: 1 }} />
-                                            {isPaqueteExpressAssigned ? (
-                                                <Box sx={{ display: 'grid', gap: 1 }}>
-                                                    <Button
-                                                        fullWidth
-                                                        variant="contained"
-                                                        startIcon={<PrintIcon />}
-                                                        onClick={() => handlePrintAssignedCarrierGuide({ format4x6: true })}
-                                                        sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
-                                                    >
-                                                        Imprimir Etiqueta
-                                                    </Button>
-                                                    <Button
-                                                        fullWidth
-                                                        variant="outlined"
-                                                        startIcon={<PrintIcon />}
-                                                        onClick={() => handlePrintAssignedCarrierGuide()}
-                                                        sx={{ borderColor: '#1976d2', color: '#1976d2', '&:hover': { borderColor: '#0d47a1', color: '#0d47a1' } }}
-                                                    >
-                                                        Imprimir guía
-                                                    </Button>
-                                                </Box>
-                                            ) : (
-                                                <Button
-                                                    fullWidth
-                                                    variant="contained"
-                                                    startIcon={<PrintIcon />}
-                                                    onClick={() => handlePrintAssignedCarrierGuide()}
-                                                    sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
-                                                >
-                                                    Imprimir guía asignada
-                                                </Button>
-                                            )}
+                                            <Button
+                                                fullWidth
+                                                variant="contained"
+                                                startIcon={<PrintIcon />}
+                                                onClick={() => handlePrintAssignedCarrierGuide()}
+                                                sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
+                                            >
+                                                Imprimir guía asignada
+                                            </Button>
                                         </>
                                     ) : isPaqueteExpressAssigned ? (
                                         <>

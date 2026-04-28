@@ -1385,8 +1385,10 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
         }
       }
 
+      const first = generated[0];
+
       // Reflejar la primera guía en el master para compatibilidad UI
-      if (generated.length > 0 && !pkg.national_tracking) {
+      if (first && !pkg.national_tracking) {
         try {
           await pool.query(
             `UPDATE packages
@@ -1395,14 +1397,14 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
                     national_carrier = COALESCE(national_carrier, 'Paquete Express'),
                     updated_at = NOW()
               WHERE id = $3`,
-            [generated[0].tracking, generated[0].labelUrl, packageId]
+            [first.tracking, first.labelUrl, packageId]
           );
         } catch (e: any) {
           console.error('No se pudo actualizar master.national_tracking:', e.message);
         }
       }
 
-      if (generated.length === 0) {
+      if (!first) {
         res.status(400).json({
           success: false,
           error: `No se pudo generar ninguna guía. ${errors.map(e => `Caja ${e.boxNumber}: ${e.error}`).join(' | ')}`,
@@ -1418,8 +1420,8 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
         trackings: generated,
         errors,
         // Compat con UI single-tracking
-        trackingNumber: generated[0].tracking,
-        labelUrl: generated[0].labelUrl,
+        trackingNumber: first.tracking,
+        labelUrl: first.labelUrl,
         message: errors.length > 0
           ? `${generated.length} guías generadas, ${errors.length} con error`
           : `${generated.length} guías generadas correctamente`,
