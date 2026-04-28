@@ -209,6 +209,38 @@ const statusColor = (status?: string): string => {
   return TEXT_MUTED;
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  received: 'Recibido',
+  received_origin: 'Recibido en China',
+  received_china: 'Recibido en China',
+  in_transit: 'En tránsito',
+  in_transit_mx: 'En tránsito a MX',
+  in_transit_mty: 'En tránsito a MTY',
+  at_customs: 'En aduana',
+  customs: 'En aduana',
+  received_cedis: 'Recibido CEDIS',
+  received_mty: 'Recibido MTY',
+  ready_pickup: 'Listo para recoger',
+  out_for_delivery: 'En ruta de entrega',
+  en_ruta_entrega: 'En ruta de entrega',
+  delivered: 'Entregado',
+  shipped: 'Enviado',
+  sent: 'Enviado',
+  enviado: 'Enviado',
+  processing: 'Procesando',
+  reempacado: 'Reempacado',
+  returned: 'Devuelto',
+};
+
+const prettyStatus = (status?: string | null): string => {
+  if (!status) return '—';
+  const key = String(status).toLowerCase();
+  if (STATUS_LABELS[key]) return STATUS_LABELS[key];
+  return key
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
 const isEntregaXLocal = (carrier?: string | null): boolean => {
   const s = (carrier || '').toLowerCase();
   return s.includes('entregax') || s.includes('local') || s.includes('propia');
@@ -735,7 +767,7 @@ export default function WarehouseScannerScreen({ navigation, route }: Props) {
                     ]}
                   >
                     <Text style={styles.statusPillText}>
-                      {m.statusLabel || m.status || 'Sin estado'}
+                      {m.statusLabel || prettyStatus(m.status) || 'Sin estado'}
                     </Text>
                   </View>
                 </View>
@@ -883,7 +915,7 @@ export default function WarehouseScannerScreen({ navigation, route }: Props) {
                         ]}
                       >
                         <Text style={[styles.childStatusText, { color: statusColor(c.status) }]}>
-                          {c.status || '—'}
+                          {prettyStatus(c.status)}
                         </Text>
                       </View>
                     </View>
@@ -913,7 +945,7 @@ export default function WarehouseScannerScreen({ navigation, route }: Props) {
                     />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.timelineStatus}>
-                        {ev.statusLabel || ev.status_label || ev.label || ev.status || 'Evento'}
+                        {ev.statusLabel || ev.status_label || ev.label || prettyStatus(ev.status) || 'Evento'}
                       </Text>
                       <Text style={styles.timelineDate}>
                         {fmtDate(ev.createdAt || ev.created_at || ev.date)}
