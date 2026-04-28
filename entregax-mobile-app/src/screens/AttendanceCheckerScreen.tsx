@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import api from '../services/api';
 
@@ -22,6 +23,7 @@ interface AttendanceRecord {
 }
 
 export default function AttendanceCheckerScreen() {
+  const navigation = useNavigation<any>();
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -185,6 +187,13 @@ export default function AttendanceCheckerScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Ionicons name="arrow-back" size={24} color="#1F2937" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Asistencia</Text>
+        <View style={{ width: 32 }} />
+      </View>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -337,6 +346,27 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  backBtn: {
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
   },
   scrollContent: {
     padding: 20,

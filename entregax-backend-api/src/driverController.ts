@@ -283,6 +283,9 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
             SELECT 
                 p.id, 
                 ${TRACKING_PUBLIC_SQL} as tracking_number,
+                COALESCE((to_jsonb(p)->>'is_master')::boolean, false) as is_master,
+                (to_jsonb(p)->>'master_id')::int as master_id,
+                (SELECT COUNT(*) FROM packages c WHERE (to_jsonb(c)->>'master_id')::int = p.id) as children_count,
                 ${ASSIGNED_DRIVER_SQL} as assigned_driver_id,
                 ${DELIVERY_STATUS_SQL} as delivery_status,
                 ${LOADED_AT_SQL} as loaded_at,
@@ -310,6 +313,18 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         }
 
         const pkg = pkgRes.rows[0];
+
+        // 1.b RECHAZAR MASTER: el master es lógico, no es una caja física.
+        // El chofer debe escanear cada hija (caja real).
+        const isMaster = pkg.is_master === true || (Number(pkg.children_count) > 0 && !pkg.master_id);
+        if (isMaster) {
+            return res.status(400).json({
+                error: '📦 Este es un MASTER. Escanea cada caja física (hijas) en lugar de la guía maestra.',
+                isMaster: true,
+                childrenCount: Number(pkg.children_count) || 0,
+                barcode
+            });
+        }
 
         const isPaid = String(pkg.payment_status || '').toLowerCase() === 'paid';
         const carrierLower = String(pkg.national_carrier || '').toLowerCase();
@@ -445,6 +460,8 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
 
         // Si el repartidor tiene sucursal, mostrar paquetes listos de su CEDIS
         // (pagados + etiquetados) tal como se ve en panel de etiquetado.
+        // IMPORTANTE: excluimos masters (no son cajas físicas). Las hijas heredan
+        // payment/label/carrier del master via LEFT JOIN.
         const pendingRes = driverBranchId
             ? await pool.query(`
                 SELECT 
@@ -457,10 +474,25 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ${RECIPIENT_NAME_SQL} as recipient_name,
                     ${RECIPIENT_PHONE_SQL} as recipient_phone
                 FROM packages p
+                LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
                 WHERE ${packageBranchSql} = $1
-                  AND ${DELIVERY_STATUS_SQL} IN ('in_cedis', 'ready_for_pickup', 'assigned', 'received_mty', 'inspected', 'pending_inspection', 'returned_to_warehouse')
-                  AND ${PAYMENT_STATUS_SQL} = 'paid'
-                                    AND ${HAS_LABEL_SQL}
+                  AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+                  AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
+                  AND COALESCE(LOWER(to_jsonb(p)->>'payment_status'), LOWER(to_jsonb(m)->>'payment_status'), 'paid') = 'paid'
+                  AND (
+                        to_jsonb(p)->>'national_label_url' IS NOT NULL
+                     OR to_jsonb(p)->>'national_tracking' IS NOT NULL
+                     OR to_jsonb(p)->>'skydropx_label_id' IS NOT NULL
+                     OR to_jsonb(p)->>'dhl_awb' IS NOT NULL
+                     OR to_jsonb(m)->>'national_label_url' IS NOT NULL
+                     OR to_jsonb(m)->>'national_tracking' IS NOT NULL
+                     OR to_jsonb(m)->>'skydropx_label_id' IS NOT NULL
+                     OR to_jsonb(m)->>'dhl_awb' IS NOT NULL
+                     OR (
+                        LOWER(COALESCE(to_jsonb(p)->>'national_carrier', to_jsonb(p)->>'carrier', to_jsonb(m)->>'national_carrier', to_jsonb(m)->>'carrier', '')) ~ '(entregax|local|pick ?up)'
+                        AND COALESCE(to_jsonb(p)->>'assigned_address_id', to_jsonb(m)->>'assigned_address_id') IS NOT NULL
+                     )
+                  )
                 ORDER BY p.updated_at ASC NULLS LAST, p.created_at ASC
             `, [driverBranchId])
             : await pool.query(`
@@ -475,7 +507,8 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ${RECIPIENT_PHONE_SQL} as recipient_phone
                 FROM packages p
                 WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
-                  AND ${DELIVERY_STATUS_SQL} IN ('in_cedis', 'ready_for_pickup', 'assigned', 'received_mty', 'inspected', 'pending_inspection', 'returned_to_warehouse')
+                  AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+                  AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
                 ORDER BY p.created_at ASC
             `, [driverId]);
 
