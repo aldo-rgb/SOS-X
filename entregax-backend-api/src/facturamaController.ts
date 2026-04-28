@@ -376,6 +376,12 @@ export const syncFacturamaReceived = async (req: AuthRequest, res: Response): Pr
             diagnostic.response_keys = Object.keys(rawData).slice(0, 20);
             diagnostic.response_sample = JSON.stringify(rawData).slice(0, 500);
         }
+        if (items.length === 0 && typeof rawData === 'string') {
+            diagnostic.response_sample = rawData.slice(0, 1000);
+        }
+        if (items.length === 0 && Array.isArray(rawData)) {
+            diagnostic.response_sample = `Array vacío (length=${rawData.length})`;
+        }
 
         res.json({ success: true, total_found: items.length, inserted, skipped, diagnostic });
     } catch (err: any) {
