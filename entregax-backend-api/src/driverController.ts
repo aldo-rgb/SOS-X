@@ -278,6 +278,7 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         const packageBranchSql = await getPackageBranchSql('p');
 
         // 1. BUSCAR EL PAQUETE POR TRACKING NUMBER O CÓDIGO DE BARRAS
+        // Hacemos LEFT JOIN con master para que las hijas hereden payment/label del master.
         const pkgRes = await pool.query(`
             SELECT 
                 p.id, 
@@ -285,16 +286,17 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
                 ${ASSIGNED_DRIVER_SQL} as assigned_driver_id,
                 ${DELIVERY_STATUS_SQL} as delivery_status,
                 ${LOADED_AT_SQL} as loaded_at,
-                ${PAYMENT_STATUS_SQL} as payment_status,
-                to_jsonb(p)->>'national_label_url' as national_label_url,
-                to_jsonb(p)->>'national_tracking' as national_tracking,
-                to_jsonb(p)->>'skydropx_label_id' as skydropx_label_id,
-                to_jsonb(p)->>'dhl_awb' as dhl_awb,
+                COALESCE(LOWER(to_jsonb(p)->>'payment_status'), LOWER(to_jsonb(m)->>'payment_status'), 'paid') as payment_status,
+                COALESCE(to_jsonb(p)->>'national_label_url', to_jsonb(m)->>'national_label_url') as national_label_url,
+                COALESCE(to_jsonb(p)->>'national_tracking', to_jsonb(m)->>'national_tracking') as national_tracking,
+                COALESCE(to_jsonb(p)->>'skydropx_label_id', to_jsonb(m)->>'skydropx_label_id') as skydropx_label_id,
+                COALESCE(to_jsonb(p)->>'dhl_awb', to_jsonb(m)->>'dhl_awb') as dhl_awb,
                 ${packageBranchSql} as package_branch_id,
                 NULL::text as driver_name,
                 NULL::text as client_name,
                 NULL::text as client_email
             FROM packages p
+            LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
             WHERE ${TRACKING_MATCH_SQL}
         `, [barcode]);
 
@@ -773,7 +775,7 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
     try {
         const packageBranchSql = await getPackageBranchSql('p');
 
-        // 1. BUSCAR EL PAQUETE
+        // 1. BUSCAR EL PAQUETE (con herencia de master para hijas)
         const pkgRes = await pool.query(`
             SELECT 
                 p.id, 
@@ -781,10 +783,23 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
                 ${ASSIGNED_DRIVER_SQL} as assigned_driver_id,
                 ${DELIVERY_STATUS_SQL} as delivery_status,
                 ${packageBranchSql} as package_branch_id,
-                ${NATIONAL_TRACKING_SQL} as national_tracking,
-                ${NATIONAL_CARRIER_SQL} as national_carrier,
+                COALESCE(
+                    to_jsonb(p)->>'national_tracking',
+                    to_jsonb(p)->>'skydropx_label_id',
+                    to_jsonb(p)->>'dhl_awb',
+                    to_jsonb(m)->>'national_tracking',
+                    to_jsonb(m)->>'skydropx_label_id',
+                    to_jsonb(m)->>'dhl_awb'
+                ) as national_tracking,
+                COALESCE(
+                    to_jsonb(p)->>'national_carrier',
+                    to_jsonb(p)->>'carrier',
+                    to_jsonb(m)->>'national_carrier',
+                    to_jsonb(m)->>'carrier'
+                ) as national_carrier,
                 NULL::int as client_id
             FROM packages p
+            LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
             WHERE ${TRACKING_MATCH_SQL}
         `, [barcode]);
 
