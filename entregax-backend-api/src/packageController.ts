@@ -892,8 +892,10 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             LEFT JOIN branches br ON p.current_branch_id = br.id
             WHERE UPPER(COALESCE(p.tracking_internal, '')) = $1
                OR UPPER(COALESCE(p.tracking_provider, '')) = $1
+               OR UPPER(COALESCE(p.child_no, '')) = $1
                OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal, '')), '[^A-Z0-9]', '', 'g') = $2
                OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_provider, '')), '[^A-Z0-9]', '', 'g') = $2
+               OR REGEXP_REPLACE(UPPER(COALESCE(p.child_no, '')), '[^A-Z0-9]', '', 'g') = $2
         `, [trackingUpper, trackingCompact]);
 
         if (result.rows.length === 0) {

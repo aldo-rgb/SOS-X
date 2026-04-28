@@ -80,7 +80,10 @@ export const getAwbPackages = async (req: AuthRequest, res: Response): Promise<v
       `
         SELECT
           p.id,
-          p.tracking_internal,
+          -- Mostrar child_no si empieza con AIR (la guía impresa), si no tracking_internal
+          CASE WHEN p.child_no IS NOT NULL AND p.child_no LIKE 'AIR%' THEN p.child_no ELSE p.tracking_internal END AS tracking_internal,
+          p.tracking_internal AS tracking_internal_raw,
+          p.child_no,
           p.status,
           p.description,
           p.weight,
@@ -140,11 +143,11 @@ export const scanAwbPackage = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
 
-    // Buscar paquete vinculado a este AWB
+    // Buscar paquete vinculado a este AWB (tracking_internal o child_no AIR)
     const pkgRes = await client.query(
-      `SELECT id, tracking_internal, status, COALESCE(missing_on_arrival, FALSE) AS missing_on_arrival
+      `SELECT id, tracking_internal, child_no, status, COALESCE(missing_on_arrival, FALSE) AS missing_on_arrival
        FROM packages
-       WHERE UPPER(tracking_internal) = $1
+       WHERE (UPPER(tracking_internal) = $1 OR UPPER(child_no) = $1)
          AND international_tracking = $2
        LIMIT 1`,
       [cleanTracking, awb.awb_number]
