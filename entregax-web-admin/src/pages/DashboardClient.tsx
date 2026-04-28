@@ -113,6 +113,8 @@ import {
 import { Collapse } from '@mui/material';
 import api from '../services/api';
 import ClientTicketsPage from './ClientTicketsPage';
+import OpenpaySavedCards from '../components/OpenpaySavedCards';
+import type { OpenpaySelection } from '../components/OpenpaySavedCards';
 
 const ORANGE = '#F05A28';
 const GREEN = '#4CAF50';
@@ -926,6 +928,8 @@ export default function DashboardClient() {
   // Modal de Pago
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'card' | 'paypal' | 'branch'>('card');  const [requiresInvoice, setRequiresInvoice] = useState(false);
+  // Selección de tarjeta Openpay (guardada o nueva tokenizada)
+  const [openpaySelection, setOpenpaySelection] = useState<OpenpaySelection>(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [invoiceData, setInvoiceData] = useState({
     rfc: '',
@@ -3059,9 +3063,20 @@ export default function DashboardClient() {
       return;
     }
 
+    // Construir payload de facturación combinando datos guardados (fiscalData)
+    // con cualquier override manual del formulario (invoiceData).
+    const effectiveInvoice = {
+      razon_social: invoiceData.razon_social || fiscalData?.fiscal_razon_social || '',
+      rfc: (invoiceData.rfc || fiscalData?.fiscal_rfc || '').toUpperCase(),
+      codigo_postal: invoiceData.codigo_postal || fiscalData?.fiscal_codigo_postal || '',
+      regimen_fiscal: invoiceData.regimen_fiscal || fiscalData?.fiscal_regimen_fiscal || '',
+      uso_cfdi: invoiceData.uso_cfdi || fiscalData?.fiscal_uso_cfdi || 'G03',
+      email: invoiceData.email || '',
+    };
+
     // Validar datos de facturación si es necesaria
     if (requiresInvoice && selectedPaymentMethod !== 'branch') {
-      if (!invoiceData.rfc || !invoiceData.razon_social || !invoiceData.email || !invoiceData.codigo_postal || !invoiceData.regimen_fiscal) {
+      if (!effectiveInvoice.rfc || !effectiveInvoice.razon_social || !effectiveInvoice.email || !effectiveInvoice.codigo_postal || !effectiveInvoice.regimen_fiscal) {
         setSnackbar({ open: true, message: t('cd.snackbar.completeBilling'), severity: 'warning' });
         return;
       }
@@ -3091,7 +3106,7 @@ export default function DashboardClient() {
         total: total,
         currency: 'MXN',
         invoiceRequired: requiresInvoice && selectedPaymentMethod !== 'branch',
-        invoiceData: (requiresInvoice && selectedPaymentMethod !== 'branch') ? invoiceData : null,
+        invoiceData: (requiresInvoice && selectedPaymentMethod !== 'branch') ? effectiveInvoice : null,
         company: companyConfig[predominantService] || companyConfig['china_air'],
         returnUrl: `${window.location.origin}/payment-callback`,
         cancelUrl: `${window.location.origin}/payment-cancelled`
@@ -3100,7 +3115,68 @@ export default function DashboardClient() {
       // Integración con pasarelas específicas
       if (selectedPaymentMethod === 'card') {
         // OpenPay - Tarjeta de Crédito/Débito
-        const response = await api.post('/payments/openpay/card', paymentData);
+        // Si el usuario eligió una tarjeta guardada o tokenizó una nueva con
+        // el SDK JS, hacemos cobro directo (sin redirect a card_capture).
+        if (openpaySelection) {
+          // 1) Si es tarjeta nueva, primero guardarla (opcional) y obtener su cardId
+          let cardIdToCharge: string | null = null;
+          if (openpaySelection.mode === 'saved') {
+            cardIdToCharge = openpaySelection.cardId;
+          } else if (openpaySelection.mode === 'new') {
+            // Guardar SIEMPRE en Openpay (ellos requieren tener customer+card para usar source_id),
+            // luego si saveCard=false, podemos eliminarla post-cobro. Por simplicidad la dejamos
+            // guardada cuando saveCard=true; si saveCard=false la borramos al final.
+            const saveRes = await api.post('/payments/openpay/cards', {
+              tokenId: openpaySelection.tokenId,
+              deviceSessionId: openpaySelection.deviceSessionId,
+            });
+            if (!saveRes.data?.success) {
+              throw new Error(saveRes.data?.error || 'No se pudo registrar la tarjeta');
+            }
+            cardIdToCharge = saveRes.data.card.id;
+          }
+
+          if (!cardIdToCharge) {
+            throw new Error('No se pudo determinar la tarjeta para el cobro');
+          }
+
+          const chargeRes = await api.post('/payments/openpay/charge-saved-card', {
+            packageIds: selectedPackageIds,
+            total,
+            currency: 'MXN',
+            cardId: cardIdToCharge,
+            deviceSessionId: openpaySelection.deviceSessionId,
+            invoiceRequired: requiresInvoice,
+            invoiceData: (requiresInvoice ? effectiveInvoice : null),
+          });
+
+          // Si era tarjeta nueva y NO quería guardarla, eliminar después del cobro
+          if (openpaySelection.mode === 'new' && !openpaySelection.saveCard) {
+            try {
+              await api.delete(`/payments/openpay/cards/${cardIdToCharge}`);
+            } catch { /* noop */ }
+          }
+
+          if (chargeRes.data?.success && chargeRes.data?.completed) {
+            setSnackbar({
+              open: true,
+              message: '✅ Pago procesado con tarjeta exitosamente',
+              severity: 'success'
+            });
+            setPaymentModalOpen(false);
+            setTimeout(() => { loadData(); }, 1500);
+          } else if (chargeRes.data?.success) {
+            setSnackbar({
+              open: true,
+              message: `Pago en estado: ${chargeRes.data.status}`,
+              severity: 'info'
+            });
+          } else {
+            throw new Error(chargeRes.data?.error || 'Error procesando el cobro');
+          }
+        } else {
+          // Sin selección Openpay → fallback al flujo hospedado (redirect)
+          const response = await api.post('/payments/openpay/card', paymentData);
         
         if (response.data.success) {
           if (response.data.requiresRedirection && response.data.paymentUrl) {
@@ -3130,6 +3206,7 @@ export default function DashboardClient() {
           }
         } else {
           throw new Error(response.data.error || 'Error en el procesamiento con tarjeta');
+        }
         }
         
       } else if (selectedPaymentMethod === 'paypal') {
@@ -11489,6 +11566,35 @@ export default function DashboardClient() {
               </RadioGroup>
             </FormControl>
           </Paper>
+
+          {/* Tarjetas Openpay (guardadas o nueva) */}
+          {selectedPaymentMethod === 'card' && (
+            <Paper sx={{ p: 2, mb: 3 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+                <Box sx={{ fontSize: '1.2rem', mr: 1 }}>💳</Box>
+                <Typography variant="subtitle1" fontWeight="bold">
+                  Tarjeta de pago
+                </Typography>
+              </Box>
+              <OpenpaySavedCards
+                service={
+                  // Mapear servicio del paquete predominante al ServiceType backend
+                  (() => {
+                    const sel = getSelectedPackages();
+                    const t = sel[0]?.servicio || 'china_air';
+                    const map: Record<string, string> = {
+                      china_air: 'aereo',
+                      china_sea: 'maritimo',
+                      usa_pobox: 'po_box',
+                      dhl: 'dhl_liberacion',
+                    };
+                    return map[t] || 'aereo';
+                  })()
+                }
+                onSelectionChange={setOpenpaySelection}
+              />
+            </Paper>
+          )}
 
           {/* Facturación - oculta en Pago en Sucursal */}
           {selectedPaymentMethod !== 'branch' && (

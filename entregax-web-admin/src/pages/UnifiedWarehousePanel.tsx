@@ -128,15 +128,26 @@ interface ShipmentResponse {
 interface MovementEvent {
   id?: number | string;
   status?: string;
+  // Etiquetas (camel y snake)
   statusLabel?: string;
+  status_label?: string;
   label?: string;
+  // Notas / descripción
   description?: string;
   notes?: string | null;
+  // Fechas
   createdAt?: string;
+  created_at?: string;
   date?: string;
+  // Sucursal / ubicación
   branch?: string | null;
+  branch_name?: string | null;
   location?: string | null;
+  warehouse_location?: string | null;
+  // Usuario
   user?: string | null;
+  created_by_name?: string | null;
+  source?: string | null;
 }
 
 // =============== Helpers =================
@@ -448,7 +459,11 @@ const UnifiedWarehousePanel: React.FC = () => {
                   <Stack alignItems="flex-end" spacing={1}>
                     <Chip
                       icon={<CheckIcon />}
-                      label={m.statusLabel || m.status || 'Sin estado'}
+                      label={
+                        m.currentBranch?.name
+                          ? `${m.statusLabel || m.status || 'Sin estado'} · ${m.currentBranch.name}`
+                          : (m.statusLabel || m.status || 'Sin estado')
+                      }
                       color={statusColor(m.status)}
                       sx={{ fontWeight: 'bold', fontSize: '0.95rem', py: 2 }}
                     />
@@ -749,16 +764,18 @@ const UnifiedWarehousePanel: React.FC = () => {
                   <TableBody>
                     {movements.map((ev, i) => (
                       <TableRow key={ev.id ?? i} hover>
-                        <TableCell>{fmtDate(ev.createdAt || ev.date)}</TableCell>
+                        <TableCell>{fmtDate(ev.createdAt || ev.created_at || ev.date)}</TableCell>
                         <TableCell>
                           <Chip
                             size="small"
-                            label={ev.statusLabel || ev.label || ev.status || '—'}
+                            label={ev.statusLabel || ev.status_label || ev.label || ev.status || '—'}
                             color={statusColor(ev.status)}
                           />
                         </TableCell>
-                        <TableCell>{ev.branch || ev.location || '—'}</TableCell>
-                        <TableCell>{ev.user || '—'}</TableCell>
+                        <TableCell>
+                          {ev.branch || ev.branch_name || ev.location || ev.warehouse_location || '—'}
+                        </TableCell>
+                        <TableCell>{ev.user || ev.created_by_name || (ev.source === 'system' ? 'Sistema' : '—')}</TableCell>
                         <TableCell>{ev.description || ev.notes || '—'}</TableCell>
                       </TableRow>
                     ))}

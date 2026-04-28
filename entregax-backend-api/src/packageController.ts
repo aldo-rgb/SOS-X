@@ -1279,8 +1279,10 @@ const formatStatusLabelForMovement = (status: string | null | undefined): string
 const getPackageMovementsBaseByTracking = async (tracking: string) => {
     const result = await pool.query(
         `SELECT p.id, p.user_id, p.status, p.created_at, p.updated_at, p.tracking_internal, p.tracking_provider,
-                p.is_master
+                p.is_master, p.current_branch_id, p.warehouse_location,
+                b.name AS current_branch_name, b.code AS current_branch_code
          FROM packages p
+         LEFT JOIN branches b ON b.id = p.current_branch_id
          WHERE UPPER(p.tracking_internal) = UPPER($1)
             OR UPPER(COALESCE(p.tracking_provider, '')) = UPPER($1)
          LIMIT 1`,
@@ -1348,6 +1350,51 @@ const inferLegacyMilestones = (pkg: any, movementRows: any[]): any[] => {
     const d2 = new Date(baseDate.getTime() + 60 * 1000);
     const d3 = new Date(baseDate.getTime() + 2 * 60 * 1000);
 
+    // Resolver branch / warehouse para cada milestone heurísticamente.
+    // Si el milestone corresponde al status actual del paquete usamos su
+    // current_branch_id real; el resto se rellena con etiquetas conocidas.
+    const currentBranchId = pkg.current_branch_id || null;
+    const currentBranchName = pkg.current_branch_name || null;
+    const currentBranchCode = pkg.current_branch_code || null;
+    const currentWarehouse = pkg.warehouse_location || null;
+
+    // Etiqueta canónica por status (representa DÓNDE ocurrió ese hito).
+    // Si el hito coincide con el status actual y la sucursal real del paquete
+    // concuerda con la canónica del status, usamos la real (más precisa).
+    const labelFor = (status: string) => {
+        const canonical = (() => {
+            if (status === 'received') {
+                return { branch_id: null, branch_name: 'PO Box Hidalgo TX (USA)', branch_code: 'POBOX-USA', warehouse_location: 'hidalgo_tx' };
+            }
+            if (status === 'in_transit') {
+                return { branch_id: null, branch_name: 'En tránsito', branch_code: null, warehouse_location: 'in_transit' };
+            }
+            if (status === 'received_mty') {
+                return { branch_id: null, branch_name: 'CEDIS Monterrey', branch_code: 'MTY', warehouse_location: 'cedis_mty' };
+            }
+            return { branch_id: null, branch_name: null, branch_code: null, warehouse_location: null };
+        })();
+
+        // Solo sobreescribimos con la sucursal real si el milestone es el status
+        // actual Y el warehouse_location del paquete confirma la ubicación canónica.
+        if (String(pkg.status) === status) {
+            const wh = String(currentWarehouse || '').toLowerCase();
+            const matchesCanonical =
+                (status === 'received' && (wh.includes('hidalgo') || wh.includes('pobox') || wh === 'hidalgo_tx')) ||
+                (status === 'received_mty' && (wh.includes('mty') || wh.includes('monterrey') || wh === 'cedis_mty')) ||
+                (status === 'in_transit' && wh.includes('transit'));
+            if (matchesCanonical && currentBranchName) {
+                return {
+                    branch_id: currentBranchId,
+                    branch_name: currentBranchName,
+                    branch_code: currentBranchCode,
+                    warehouse_location: currentWarehouse,
+                };
+            }
+        }
+        return canonical;
+    };
+
     const inferred: any[] = [];
 
     if (currentRank >= 1 && !existingStatuses.has('received')) {
@@ -1360,6 +1407,7 @@ const inferLegacyMilestones = (pkg: any, movementRows: any[]): any[] => {
             created_at: d1.toISOString(),
             created_by: null,
             created_by_name: null,
+            ...labelFor('received'),
         });
     }
 
@@ -1373,6 +1421,7 @@ const inferLegacyMilestones = (pkg: any, movementRows: any[]): any[] => {
             created_at: d2.toISOString(),
             created_by: null,
             created_by_name: null,
+            ...labelFor('in_transit'),
         });
     }
 
@@ -1386,6 +1435,7 @@ const inferLegacyMilestones = (pkg: any, movementRows: any[]): any[] => {
             created_at: pkg.status === 'received_mty' && pkg.updated_at ? pkg.updated_at : d3.toISOString(),
             created_by: null,
             created_by_name: null,
+            ...labelFor('received_mty'),
         });
     }
 
@@ -1443,10 +1493,15 @@ const buildPackageMovementsResponse = async (pkg: any) => {
                     ph.notes,
                     ph.created_at,
                     ph.created_by,
-                    u.full_name AS created_by_name
+                    u.full_name AS created_by_name,
+                    ph.branch_id,
+                    b.name AS branch_name,
+                    b.code AS branch_code,
+                    ph.warehouse_location
              FROM package_history ph
              JOIN packages p ON p.id = ph.package_id
              LEFT JOIN users u ON u.id = ph.created_by
+             LEFT JOIN branches b ON b.id = ph.branch_id
              WHERE ph.package_id = ANY($1::int[])
              ORDER BY ph.created_at DESC, ph.id DESC`,
             [packageIds]
@@ -1466,7 +1521,11 @@ const buildPackageMovementsResponse = async (pkg: any) => {
             notes: 'Guía registrada en sistema',
             created_at: pkg.created_at,
             created_by: null,
-            created_by_name: null
+            created_by_name: null,
+            branch_id: pkg.current_branch_id || null,
+            branch_name: pkg.current_branch_name || null,
+            branch_code: pkg.current_branch_code || null,
+            warehouse_location: pkg.warehouse_location || null,
         });
     }
 
@@ -1477,8 +1536,51 @@ const buildPackageMovementsResponse = async (pkg: any) => {
 
     movementRows = dedupeMovements(movementRows);
 
+    // Normalizar la ubicación según el status del evento.
+    // Esto corrige filas heredadas donde branch_id quedó apuntando a otra
+    // sucursal (ej. CEDIS MTY) por backfill incorrecto.
+    const normalizeBranchByStatus = (row: any): any => {
+        const wh = String(row.warehouse_location || pkg.warehouse_location || '').toLowerCase();
+        const isHidalgo = wh.includes('hidalgo') || wh.includes('pobox') || wh === 'hidalgo_tx';
+        const isMty = wh.includes('mty') || wh.includes('monterrey') || wh === 'cedis_mty';
+
+        if (row.status === 'received') {
+            // Recibido siempre es en Hidalgo TX salvo que la sucursal real claramente sea otra
+            if (!isMty) {
+                return {
+                    ...row,
+                    branch_id: row.branch_name && /hidalgo/i.test(row.branch_name) ? row.branch_id : null,
+                    branch_name: 'PO Box Hidalgo TX (USA)',
+                    branch_code: 'POBOX-USA',
+                    warehouse_location: row.warehouse_location || 'hidalgo_tx',
+                };
+            }
+        }
+        if (row.status === 'in_transit') {
+            return {
+                ...row,
+                branch_id: null,
+                branch_name: 'En tránsito',
+                branch_code: null,
+                warehouse_location: row.warehouse_location || 'in_transit',
+            };
+        }
+        if (row.status === 'received_mty') {
+            if (!isHidalgo) {
+                return {
+                    ...row,
+                    branch_name: row.branch_name || 'CEDIS Monterrey',
+                    branch_code: row.branch_code || 'MTY',
+                    warehouse_location: row.warehouse_location || 'cedis_mty',
+                };
+            }
+        }
+        return row;
+    };
+
     const movements = movementRows
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .map(normalizeBranchByStatus)
         .map((row) => ({
             id: row.id,
             package_id: row.package_id,
@@ -1489,6 +1591,10 @@ const buildPackageMovementsResponse = async (pkg: any) => {
             created_at: row.created_at,
             created_by: row.created_by,
             created_by_name: row.created_by_name,
+            branch_id: row.branch_id ?? null,
+            branch_name: row.branch_name ?? null,
+            branch_code: row.branch_code ?? null,
+            warehouse_location: row.warehouse_location ?? null,
             source: row.created_by ? 'manual' : 'system'
         }));
 

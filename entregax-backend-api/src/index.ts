@@ -2805,6 +2805,20 @@ app.post('/api/payments/openpay/card', authenticateToken, processOpenPayCard);
 app.post('/api/payments/paypal/create', authenticateToken, createPayPalPayment);
 app.post('/api/payments/branch/reference', authenticateToken, createBranchPayment);
 
+// --- OPENPAY: TARJETAS GUARDADAS (Opción A) ---
+import {
+  getOpenpayPublicKey,
+  listSavedCards,
+  saveCardFromToken,
+  deleteSavedCard,
+  chargeSavedCard,
+} from './openpaySavedCardsController';
+app.get('/api/payments/openpay/public-key', authenticateToken, getOpenpayPublicKey);
+app.get('/api/payments/openpay/cards', authenticateToken, listSavedCards);
+app.post('/api/payments/openpay/cards', authenticateToken, saveCardFromToken);
+app.delete('/api/payments/openpay/cards/:cardId', authenticateToken, deleteSavedCard);
+app.post('/api/payments/openpay/charge-saved-card', authenticateToken, chargeSavedCard);
+
 // --- CALLBACKS Y WEBHOOKS DE PAGOS (sin auth, son redirecciones de pasarelas) ---
 app.get('/api/payments/openpay/callback', handleOpenpayPaymentCallback);
 app.post('/api/payments/openpay/webhook', handleOpenpayPaymentWebhook);

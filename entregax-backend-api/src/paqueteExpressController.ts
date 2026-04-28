@@ -1169,8 +1169,15 @@ async function generateOnePqtxGuide(params: {
               addrLin6: (params.addr.neighborhood || ' ').toUpperCase(),
               zipCode: params.addr.zip_code || '',
               strtName: (params.addr.street || ' ').toUpperCase(),
-              drnr: params.addr.exterior_number || 'S/N',
-              phno1: (params.addr.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10) || '0000000000',
+              drnr: (() => {
+                const ext = (params.addr.exterior_number || '').toString().trim();
+                const intr = (params.addr.interior_number || '').toString().trim();
+                if (ext && intr) return `${ext} INT ${intr}`.toUpperCase();
+                if (ext) return ext.toUpperCase();
+                if (intr) return `S/N INT ${intr}`.toUpperCase();
+                return 'S/N';
+              })(),
+              phno1: (params.addr.phone || '0000000000').replace(/[^0-9]/g, '').slice(-10).padStart(10, '0') || '0000000000',
               clntName: (params.addr.recipient_name || params.userName || 'CLIENTE').toUpperCase(),
               email: params.userEmail || '',
               contacto: (params.addr.recipient_name || params.userName || 'CLIENTE').toUpperCase(),
