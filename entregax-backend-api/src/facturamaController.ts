@@ -29,6 +29,20 @@ const FACTURAMA_PATHS = {
     deleteWebhook:  '/Webhook/{id}'
 };
 
+// Candidatos para listar CFDIs recibidos (los planes Facturama usan distintos paths).
+// Se prueban en orden hasta encontrar uno que responda 200.
+const FACTURAMA_RECEIVED_LIST_CANDIDATES = [
+    { path: '/api-lite/cfdis-mailbox',      params: (from?: string, to?: string) => ({ dateInitial: from, dateFinal: to }) },
+    { path: '/api-lite/3/cfdis-mailbox',    params: (from?: string, to?: string) => ({ dateInitial: from, dateFinal: to }) },
+    { path: '/api-lite/cfdis-received',     params: (from?: string, to?: string) => ({ dateFrom: from, dateTo: to }) },
+    { path: '/api-lite/3/cfdis-received',   params: (from?: string, to?: string) => ({ dateFrom: from, dateTo: to }) },
+    { path: '/api-lite/2/cfdis',            params: (from?: string, to?: string) => ({ type: 'Received', dateFrom: from, dateTo: to }) },
+    { path: '/api-lite/cfdis',              params: (from?: string, to?: string) => ({ type: 'Received', dateFrom: from, dateTo: to }) },
+    { path: '/Cfdi',                        params: (from?: string, to?: string) => ({ type: 'Received', dateFrom: from, dateTo: to }) },
+    // Original (lo dejamos como último intento por compatibilidad)
+    { path: '/api-lite/cfdis-recibidos',    params: (from?: string, to?: string) => ({ dateFrom: from, dateTo: to }) },
+];
+
 // Endpoints candidatos para probar credenciales (varían según plan API Web vs Multiemisor)
 const FACTURAMA_TEST_ENDPOINTS = [
     '/api-lite/2/cfdis?keyword=&take=1',  // API Lite (multiemisor moderno)
@@ -218,19 +232,54 @@ export const syncFacturamaReceived = async (req: AuthRequest, res: Response): Pr
     const baseUrl = getFacturamaUrl(cfg.facturama_environment || 'sandbox');
     const auth    = getFacturamaAuth(cfg.facturama_username, cfg.facturama_password);
 
-    const params: any = {};
-    if (from) params.dateFrom = from;
-    if (to)   params.dateTo   = to;
-
     try {
-        const listRes = await axios.get(
-            `${baseUrl}${FACTURAMA_PATHS.listReceived}`,
-            { ...auth, params }
-        );
+        // Probar varios paths hasta encontrar el que soporta el plan/cuenta
+        let listRes: any = null;
+        let usedPath: string | null = null;
+        const triedPaths: string[] = [];
+        for (const candidate of FACTURAMA_RECEIVED_LIST_CANDIDATES) {
+            const params: any = {};
+            const built = candidate.params(from, to);
+            for (const [k, v] of Object.entries(built)) {
+                if (v !== undefined && v !== null && v !== '') params[k] = v;
+            }
+            try {
+                const r = await axios.get(`${baseUrl}${candidate.path}`, {
+                    ...auth,
+                    params,
+                    validateStatus: () => true,
+                });
+                triedPaths.push(`${candidate.path}→${r.status}`);
+                if (r.status >= 200 && r.status < 300) {
+                    listRes = r;
+                    usedPath = candidate.path;
+                    break;
+                }
+                // 401/403: credenciales mal → no tiene sentido seguir probando
+                if (r.status === 401 || r.status === 403) {
+                    return res.status(401).json({
+                        error: 'Credenciales Facturama rechazadas',
+                        detail: r.data?.Message || 'Verifica usuario/contraseña y ambiente (sandbox/producción).',
+                        status: r.status,
+                    });
+                }
+            } catch (e: any) {
+                triedPaths.push(`${candidate.path}→err:${e.message}`);
+            }
+        }
+
+        if (!listRes || !usedPath) {
+            return res.status(404).json({
+                error: 'No se encontró un endpoint compatible para CFDIs recibidos',
+                detail: 'Tu plan de Facturama puede no incluir Buzón Fiscal / Recepción de CFDI. Contacta a Facturama o desactiva la sincronización.',
+                tried: triedPaths,
+            });
+        }
+        console.log(`[Facturama] sync usando endpoint ${usedPath}`);
 
         const items: any[] = Array.isArray(listRes.data)
             ? listRes.data
-            : (listRes.data?.Cfdis || listRes.data?.Items || []);
+            : (listRes.data?.Cfdis || listRes.data?.Items || listRes.data?.Data || []);
 
         let inserted = 0;
         let skipped  = 0;
