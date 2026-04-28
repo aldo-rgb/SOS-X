@@ -177,6 +177,56 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
           console.warn('[pobox-consolidation] branch_inventory upsert falló (no bloqueante):', (e as any)?.message);
         }
       }
+
+      // Propagar a paquetes master cuyos hijos fueron recibidos
+      // (los masters no traen consolidation_id, solo las hijas, por eso quedan rezagados)
+      try {
+        const masterRes = await client.query(
+          `SELECT DISTINCT m.id
+             FROM packages c
+             JOIN packages m ON m.id = c.master_id
+            WHERE c.id = ANY($1::int[])
+              AND c.master_id IS NOT NULL
+              AND m.is_master = TRUE`,
+          [scanned]
+        );
+        const masterIds: number[] = masterRes.rows.map((r: any) => r.id);
+        if (masterIds.length > 0) {
+          // Solo subir el master cuando TODAS sus hijas estén received_mty
+          await client.query(
+            `UPDATE packages m
+                SET status = 'received_mty',
+                    received_at = COALESCE(m.received_at, NOW()),
+                    dispatched_at = COALESCE(m.dispatched_at, NOW()),
+                    missing_on_arrival = FALSE,
+                    missing_reported_at = NULL,
+                    current_branch_id = COALESCE($2::int, m.current_branch_id),
+                    updated_at = NOW()
+              WHERE m.id = ANY($1::int[])
+                AND NOT EXISTS (
+                  SELECT 1 FROM packages c2
+                   WHERE c2.master_id = m.id
+                     AND c2.status::text <> 'received_mty'
+                )`,
+            [masterIds, mtyBranchId]
+          );
+
+          if (mtyBranchId) {
+            await client.query(
+              `INSERT INTO branch_inventory (branch_id, package_type, package_id, tracking_number, status, received_at, received_by, released_at, released_by)
+               SELECT $1, 'package', p.id, COALESCE(p.tracking_internal, p.tracking_provider, p.id::text), 'in_stock', NOW(), $2, NULL, NULL
+                 FROM packages p
+                WHERE p.id = ANY($3::int[])
+                  AND p.status::text = 'received_mty'
+               ON CONFLICT (branch_id, package_type, package_id)
+               DO UPDATE SET status='in_stock', received_at=NOW(), released_at=NULL, released_by=NULL, received_by=EXCLUDED.received_by`,
+              [mtyBranchId, userId || null, masterIds]
+            );
+          }
+        }
+      } catch (e) {
+        console.warn('[pobox-consolidation] propagación a master falló (no bloqueante):', (e as any)?.message);
+      }
     }
 
     // Marcar faltantes

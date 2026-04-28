@@ -235,6 +235,14 @@ const isPaqueteExpressCarrier = (normalized: string): boolean => (
     normalized.includes('pqtx')
 );
 
+const isEntregaxLocalCarrier = (normalized: string): boolean => (
+    normalized.includes('entregax local') ||
+    normalized.includes('entregax_local') ||
+    normalized === 'entregax' ||
+    normalized.includes('local mty') ||
+    normalized.includes('local cdmx')
+);
+
 const with4x6Format = (url: string): string => {
     if (!url) return url;
     if (/([?&])format=/.test(url)) return url;
@@ -561,6 +569,7 @@ export default function RelabelingModulePage() {
     const assignedCarrier = getAssignedCarrier(shipment);
     const hasAssignedCarrier = Boolean(assignedCarrier);
     const isPaqueteExpressAssigned = Boolean(assignedCarrier && isPaqueteExpressCarrier(assignedCarrier.normalized));
+    const isEntregaxLocalAssigned = Boolean(assignedCarrier && isEntregaxLocalCarrier(assignedCarrier.normalized));
     const carrierGuideTitle = assignedCarrier ? `Guía ${assignedCarrier.displayName}` : 'Guía de paquetería';
 
     const getAssignedCarrierGuideUrl = (opts?: { format4x6?: boolean }): string | null => {
@@ -1041,7 +1050,7 @@ export default function RelabelingModulePage() {
                             </>
                         )}
 
-                        {hasAssignedCarrier && !(isPaqueteExpressAssigned && pqtxGuides.length > 0) && (
+                        {hasAssignedCarrier && !isEntregaxLocalAssigned && !(isPaqueteExpressAssigned && pqtxGuides.length > 0) && (
                             <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                                 <Paper
                                     variant="outlined"
@@ -1128,7 +1137,7 @@ export default function RelabelingModulePage() {
                             </Grid>
                         )}
 
-                        {shipment.master.assignedAddress && !hasAssignedCarrier && (
+                        {shipment.master.assignedAddress && (!hasAssignedCarrier || isEntregaxLocalAssigned) && (
                             <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                                 <Paper
                                     variant="outlined"

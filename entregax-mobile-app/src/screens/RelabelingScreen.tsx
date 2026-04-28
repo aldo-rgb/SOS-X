@@ -156,6 +156,14 @@ const isPaqueteExpressCarrier = (normalized: string): boolean => (
   normalized.includes('pqtx')
 );
 
+const isEntregaxLocalCarrier = (normalized: string): boolean => (
+  normalized.includes('entregax local') ||
+  normalized.includes('entregax_local') ||
+  normalized === 'entregax' ||
+  normalized.includes('local mty') ||
+  normalized.includes('local cdmx')
+);
+
 const with4x6Format = (url: string): string => {
   if (!url) return url;
   if (/([?&])format=/.test(url)) return url;
@@ -389,8 +397,9 @@ export default function RelabelingScreen({ route, navigation }: any) {
   const assignedCarrier = getAssignedCarrier(shipment);
   const hasAssignedCarrier = Boolean(assignedCarrier);
   const isPaqueteExpressAssigned = Boolean(assignedCarrier && isPaqueteExpressCarrier(assignedCarrier.normalized));
-  const hasLocalDeliveryOption = Boolean(shipment?.master.assignedAddress) && !hasAssignedCarrier;
-  const hasCarrierGuideOption = hasAssignedCarrier;
+  const isEntregaxLocalAssigned = Boolean(assignedCarrier && isEntregaxLocalCarrier(assignedCarrier.normalized));
+  const hasLocalDeliveryOption = Boolean(shipment?.master.assignedAddress) && (!hasAssignedCarrier || isEntregaxLocalAssigned);
+  const hasCarrierGuideOption = hasAssignedCarrier && !isEntregaxLocalAssigned;
   const availableLabelsCount = (shipment?.labels.length || 0) + ((hasCarrierGuideOption || hasLocalDeliveryOption) ? 1 : 0);
 
   // Una sola guía PQTX (multipieza). Las hijas comparten el mismo national_tracking del master.
@@ -866,7 +875,7 @@ export default function RelabelingScreen({ route, navigation }: any) {
               </View>
             )}
 
-            {hasAssignedCarrier && !showMultiPqtx && (
+            {hasAssignedCarrier && !isEntregaxLocalAssigned && !showMultiPqtx && (
               <View style={styles.carrierCard}>
                 <Text style={styles.carrierTitle}>🚚 Guía {assignedCarrier?.displayName}</Text>
                 <Text style={styles.carrierSubtitle}>
