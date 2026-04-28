@@ -362,7 +362,7 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         }
 
         // 4. VALIDAR QUE EL PAQUETE ESTÉ EN ESTADO CORRECTO PARA CARGAR
-        const validStatusesToLoad = ['in_cedis', 'ready_for_pickup', 'assigned', 'received_mty', 'inspected', 'pending_inspection', 'returned_to_warehouse'];
+        const validStatusesToLoad = ['received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse'];
         if (!validStatusesToLoad.includes(pkg.delivery_status) && pkg.delivery_status !== 'out_for_delivery') {
             return res.status(400).json({ 
                 error: `⚠️ Este paquete no puede cargarse. Estado actual: ${pkg.delivery_status}`,
