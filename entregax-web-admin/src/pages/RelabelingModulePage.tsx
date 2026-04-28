@@ -602,19 +602,17 @@ export default function RelabelingModulePage() {
         return opts?.format4x6 ? with4x6Format(url) : url;
     };
 
-    // Lista de guías PQTX a mostrar: una por hija con tracking nacional, o el master si single
-    const pqtxGuides: Array<{ tracking: string; boxNumber: number | null; childId: number | null }> = (() => {
+    // Una sola guía PQTX (multipieza). Si hay hijas comparten el mismo national_tracking.
+    const pqtxGuides: Array<{ tracking: string; pieces: number; childId: number | null }> = (() => {
         if (!shipment) return [];
-        const childGuides = (shipment.children || [])
-            .filter(c => c.nationalTracking)
-            .map(c => ({
-                tracking: c.nationalTracking as string,
-                boxNumber: c.boxNumber,
-                childId: c.id,
-            }));
-        if (childGuides.length > 0) return childGuides;
+        const totalPieces = Math.max(1, shipment.master.totalBoxes || (shipment.children || []).length || 1);
         if (shipment.master.nationalTracking) {
-            return [{ tracking: shipment.master.nationalTracking, boxNumber: null, childId: null }];
+            return [{ tracking: shipment.master.nationalTracking, pieces: totalPieces, childId: null }];
+        }
+        // Fallback: alguna hija con tracking (sistemas legacy con guías por caja antes del refactor)
+        const firstChildWithTracking = (shipment.children || []).find(c => c.nationalTracking);
+        if (firstChildWithTracking?.nationalTracking) {
+            return [{ tracking: firstChildWithTracking.nationalTracking as string, pieces: totalPieces, childId: firstChildWithTracking.id }];
         }
         return [];
     })();
@@ -980,7 +978,7 @@ export default function RelabelingModulePage() {
                                     </Grid>
                                 )}
                                 {pqtxGuides.map((g, idx) => (
-                                    <Grid size={{ xs: 12, sm: 6, md: 4 }} key={`pqtx-${g.tracking}-${idx}`}>
+                                    <Grid size={{ xs: 12, sm: 8, md: 6 }} key={`pqtx-${g.tracking}-${idx}`}>
                                         <Paper
                                             variant="outlined"
                                             sx={{
@@ -988,33 +986,25 @@ export default function RelabelingModulePage() {
                                                 height: '100%',
                                                 display: 'flex',
                                                 flexDirection: 'column',
-                                                borderColor: selectedPqtx.has(g.tracking) ? '#0d47a1' : '#1976d2',
-                                                borderWidth: selectedPqtx.has(g.tracking) ? 2 : 1,
+                                                borderColor: '#1976d2',
+                                                borderWidth: 1,
                                                 bgcolor: '#F3F8FF',
                                             }}
                                         >
                                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                                                {pqtxGuides.length > 1 && (
-                                                    <Checkbox
-                                                        size="small"
-                                                        checked={selectedPqtx.has(g.tracking)}
-                                                        onChange={() => togglePqtxSelection(g.tracking)}
-                                                        sx={{ p: 0.5 }}
-                                                    />
-                                                )}
                                                 <LocalShippingIcon sx={{ color: '#1976d2' }} />
                                                 <Typography variant="body2" fontWeight={700} sx={{ color: '#1976d2' }}>
-                                                    {g.boxNumber
-                                                        ? `Guía Paquete Express — Caja ${g.boxNumber} de ${shipment.master.totalBoxes || pqtxGuides.length}`
+                                                    {g.pieces > 1
+                                                        ? `Guía Paquete Express — Multipieza (${g.pieces} cajas)`
                                                         : carrierGuideTitle}
                                                 </Typography>
                                             </Box>
-                                            <Typography sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 13, mb: 1 }}>
+                                            <Typography sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 14, mb: 1 }}>
                                                 {g.tracking}
                                             </Typography>
                                             <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
-                                                {g.boxNumber
-                                                    ? `Etiqueta de la caja ${g.boxNumber}`
+                                                {g.pieces > 1
+                                                    ? `Una sola guía PQTX que ampara las ${g.pieces} cajas del envío`
                                                     : 'Imprime la guía de la paquetería asignada'}
                                             </Typography>
                                             <Box sx={{ flex: 1 }} />
@@ -1026,7 +1016,7 @@ export default function RelabelingModulePage() {
                                                     onClick={() => window.open(buildPqtxLabelUrl(g.tracking, { format4x6: true }), '_blank')}
                                                     sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
                                                 >
-                                                    Imprimir Etiqueta
+                                                    Imprimir Etiqueta {g.pieces > 1 ? `(${g.pieces} cajas)` : ''}
                                                 </Button>
                                                 <Button
                                                     fullWidth

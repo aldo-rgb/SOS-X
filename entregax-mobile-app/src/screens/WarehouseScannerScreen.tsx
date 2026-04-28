@@ -114,15 +114,26 @@ interface ShipmentClient {
 interface MovementEvent {
   id?: number | string;
   status?: string;
+  // Etiquetas
   statusLabel?: string;
+  status_label?: string;
   label?: string;
+  // Notas / descripción
   description?: string;
   notes?: string | null;
+  // Fechas
   createdAt?: string;
+  created_at?: string;
   date?: string;
+  // Sucursal / ubicación
   branch?: string | null;
+  branch_name?: string | null;
   location?: string | null;
+  warehouse_location?: string | null;
+  // Usuario
   user?: string | null;
+  created_by_name?: string | null;
+  source?: string | null;
 }
 
 interface Props {
@@ -902,18 +913,18 @@ export default function WarehouseScannerScreen({ navigation, route }: Props) {
                     />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.timelineStatus}>
-                        {ev.statusLabel || ev.label || ev.status || 'Evento'}
+                        {ev.statusLabel || ev.status_label || ev.label || ev.status || 'Evento'}
                       </Text>
                       <Text style={styles.timelineDate}>
-                        {fmtDate(ev.createdAt || ev.date)}
+                        {fmtDate(ev.createdAt || ev.created_at || ev.date)}
                       </Text>
-                      {!!(ev.branch || ev.location) && (
+                      {!!(ev.branch || ev.branch_name || ev.location || ev.warehouse_location) && (
                         <Text style={styles.timelineMeta}>
-                          📍 {ev.branch || ev.location}
+                          📍 {ev.branch || ev.branch_name || ev.location || ev.warehouse_location}
                         </Text>
                       )}
-                      {!!ev.user && (
-                        <Text style={styles.timelineMeta}>👤 {ev.user}</Text>
+                      {!!(ev.user || ev.created_by_name || ev.source === 'system') && (
+                        <Text style={styles.timelineMeta}>👤 {ev.user || ev.created_by_name || 'Sistema'}</Text>
                       )}
                       {!!(ev.description || ev.notes) && (
                         <Text style={styles.timelineNotes}>

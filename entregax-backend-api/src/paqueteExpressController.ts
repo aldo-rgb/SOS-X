@@ -1097,17 +1097,22 @@ interface PqtxAddrCtx {
 async function generateOnePqtxGuide(params: {
   pkgId: number;
   trackingInternal: string;
-  weight: number;
-  pkgLength: number;
-  pkgWidth: number;
-  pkgHeight: number;
-  description: string | null;
+  // Lista de bultos (cajas). Si hay 1 caja → guía single. Si hay N → guía multipieza.
+  pieces: Array<{
+    weight: number;
+    pkgLength: number;
+    pkgWidth: number;
+    pkgHeight: number;
+    description: string | null;
+  }>;
   addr: PqtxAddrCtx;
   userName: string | null;
   userEmail: string | null;
   token: string;
   createdBy: number | null;
-}): Promise<{ ok: true; tracking: string; folioPorte: string; labelUrl: string } | { ok: false; error: string; raw?: any }> {
+  // IDs de hijas para persistir el mismo national_tracking en todas
+  childIds?: number[];
+}): Promise<{ ok: true; tracking: string; folioPorte: string; labelUrl: string; pieces: number } | { ok: false; error: string; raw?: any }> {
   const PQTX_ORIGIN_ZIP = process.env.PQTX_ORIGIN_ZIP || '64860';
   const PQTX_ORIGIN_CITY = process.env.PQTX_ORIGIN_CITY || 'MONTERREY';
   const PQTX_ORIGIN_STATE = process.env.PQTX_ORIGIN_STATE || 'NUEVO LEON';
@@ -1119,16 +1124,33 @@ async function generateOnePqtxGuide(params: {
   const PQTX_ORIGIN_NAME = process.env.PQTX_ORIGIN_NAME || 'ENTREGAX';
   const PQTX_ORIGIN_EMAIL = process.env.PQTX_ORIGIN_EMAIL || 'operaciones@entregax.com';
 
+  const piecesArr = params.pieces && params.pieces.length > 0
+    ? params.pieces
+    : [{ weight: 1, pkgLength: 30, pkgWidth: 30, pkgHeight: 30, description: null }];
+
+  const totalPieces = piecesArr.length;
+  const totalWeight = piecesArr.reduce((acc, p) => acc + (Number(p.weight) || 0), 0) || 1;
+
+  // PQTX espera UN item con qunt = N (número de bultos) para guías multipieza,
+  // NO un array de N items. Usamos peso total + dimensiones promedio (o de la primera caja).
+  const avgL = piecesArr.reduce((s, p) => s + (Number(p.pkgLength) || 0), 0) / totalPieces || 30;
+  const avgW = piecesArr.reduce((s, p) => s + (Number(p.pkgWidth) || 0), 0) / totalPieces || 30;
+  const avgH = piecesArr.reduce((s, p) => s + (Number(p.pkgHeight) || 0), 0) / totalPieces || 30;
+  const firstDesc = piecesArr.find((p) => p.description)?.description || 'PAQUETE';
+
   const radSrvcItemDTOList = [{
     srvcId: 'PACKETS',
     productIdSAT: '01010101',
-    weight: String(params.weight || 1),
-    volL: String(params.pkgLength || 30),
-    volW: String(params.pkgWidth || 30),
-    volH: String(params.pkgHeight || 30),
-    cont: params.description || 'PAQUETE',
-    qunt: '1',
+    weight: String(totalWeight.toFixed(2)),
+    volL: String(Math.round(avgL)),
+    volW: String(Math.round(avgW)),
+    volH: String(Math.round(avgH)),
+    cont: firstDesc,
+    qunt: String(totalPieces),
   }];
+
+  const commentSuffix = totalPieces > 1 ? ` (${totalPieces} cajas)` : '';
+
 
   const url = `${PQTX_BASE_URL}/RadRestFul/api/rad/v1/guia`;
   const body = {
@@ -1144,7 +1166,7 @@ async function generateOnePqtxGuide(params: {
           billClntId: PQTX_BILL_CLIENT_ID,
           pymtMode: 'PAID',
           pymtType: 'C',
-          comt: `Paquete ${params.trackingInternal}`,
+          comt: `Paquete ${params.trackingInternal}${commentSuffix}`,
           radGuiaAddrDTOList: [
             {
               addrLin1: 'MEXICO',
@@ -1198,7 +1220,7 @@ async function generateOnePqtxGuide(params: {
     },
   };
 
-  console.log(`🚚 [PQTX-GEN] Generando guía para ${params.trackingInternal} → ${params.addr.zip_code}`);
+  console.log(`🚚 [PQTX-GEN] Generando guía para ${params.trackingInternal} (${totalPieces} bulto${totalPieces === 1 ? '' : 's'}, ${totalWeight.toFixed(2)} kg) → ${params.addr.zip_code}`);
   const response = await axios.post(url, body, {
     headers: { 'Content-Type': 'application/json' },
     timeout: 30000,
@@ -1220,7 +1242,7 @@ async function generateOnePqtxGuide(params: {
   const addData = respBody.additionalData || null;
   const labelUrl = `/api/admin/paquete-express/label/pdf/${guiaNo}`;
 
-  // Persistir
+  // Persistir master
   try {
     await pool.query(
       `UPDATE packages
@@ -1232,19 +1254,37 @@ async function generateOnePqtxGuide(params: {
       [guiaNo, labelUrl, params.pkgId]
     );
   } catch (e: any) {
-    console.error('No se pudo actualizar packages.national_tracking:', e.message);
+    console.error('No se pudo actualizar packages.national_tracking (master):', e.message);
+  }
+
+  // Persistir el MISMO national_tracking en todas las hijas (multipieza)
+  if (params.childIds && params.childIds.length > 0) {
+    try {
+      await pool.query(
+        `UPDATE packages
+            SET national_tracking = $1,
+                national_label_url = $2,
+                national_carrier = COALESCE(national_carrier, 'Paquete Express'),
+                updated_at = NOW()
+          WHERE id = ANY($3::int[])`,
+        [guiaNo, labelUrl, params.childIds]
+      );
+    } catch (e: any) {
+      console.error('No se pudo actualizar children.national_tracking:', e.message);
+    }
   }
 
   try {
     await pool.query(
       `INSERT INTO pqtx_shipments (tracking_number, folio_porte, service_type, origin_name, origin_zip_code, origin_city, dest_name, dest_zip_code, dest_city, weight, pieces, subtotal, total, status, created_by, raw_response)
-       VALUES ($1,$2,'STD-T',$3,$4,$5,$6,$7,$8,$9,1,$10,$11,'generated',$12,$13)`,
+       VALUES ($1,$2,'STD-T',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'generated',$13,$14)`,
       [
         guiaNo, folioPorte,
         PQTX_ORIGIN_NAME, PQTX_ORIGIN_ZIP, PQTX_ORIGIN_CITY,
         (params.addr.recipient_name || params.userName || 'CLIENTE'),
         params.addr.zip_code || '', params.addr.city || '',
-        params.weight || 1,
+        totalWeight,
+        totalPieces,
         addData?.subTotlAmnt || null,
         addData?.totalAmnt || null,
         params.createdBy,
@@ -1255,7 +1295,7 @@ async function generateOnePqtxGuide(params: {
     console.error('No se pudo guardar pqtx_shipments:', e.message);
   }
 
-  return { ok: true, tracking: guiaNo, folioPorte, labelUrl };
+  return { ok: true, tracking: guiaNo, folioPorte, labelUrl, pieces: totalPieces };
 }
 
 export async function pqtxGenerateForPackage(req: Request, res: Response) {
@@ -1299,35 +1339,32 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     );
     const children = childrenRes.rows;
 
-    // Si ya tiene guía nacional Y no hay hijas pendientes, devolverla
-    const pendingChildren = children.filter((c: any) => !c.national_tracking);
-    if (pkg.national_tracking && (children.length === 0 || pendingChildren.length === 0)) {
-      // Recopilar todas las guías ya existentes (master + hijas)
-      const trackings: Array<{ packageId: number; tracking: string; labelUrl: string; boxNumber: number | null }> = [];
+    // Si ya tiene guía nacional, devolverla (una sola guía multipieza para master + hijas)
+    if (pkg.national_tracking) {
+      const labelUrl = pkg.national_label_url || `/api/admin/paquete-express/label/pdf/${pkg.national_tracking}`;
+      const trackings: Array<{ packageId: number; tracking: string; labelUrl: string; boxNumber: number | null }> = [
+        { packageId: pkg.id, tracking: pkg.national_tracking, labelUrl, boxNumber: null },
+      ];
+      // Asegurar que hijas estén alineadas al mismo tracking (sincronización)
       if (children.length > 0) {
-        children.forEach((c: any) => {
-          if (c.national_tracking) {
-            trackings.push({
-              packageId: c.id,
-              tracking: c.national_tracking,
-              labelUrl: c.national_label_url || `/api/admin/paquete-express/label/pdf/${c.national_tracking}`,
-              boxNumber: c.box_number || null,
-            });
-          }
-        });
-      } else {
-        trackings.push({
-          packageId: pkg.id,
-          tracking: pkg.national_tracking,
-          labelUrl: pkg.national_label_url || `/api/admin/paquete-express/label/pdf/${pkg.national_tracking}`,
-          boxNumber: null,
-        });
+        const stale = children.filter((c: any) => c.national_tracking !== pkg.national_tracking).map((c: any) => c.id);
+        if (stale.length > 0) {
+          try {
+            await pool.query(
+              `UPDATE packages SET national_tracking = $1, national_label_url = $2,
+                 national_carrier = COALESCE(national_carrier, 'Paquete Express'), updated_at = NOW()
+               WHERE id = ANY($3::int[])`,
+              [pkg.national_tracking, labelUrl, stale]
+            );
+          } catch (e: any) { console.error('No se pudo sincronizar hijas:', e.message); }
+        }
       }
       res.json({
         success: true,
         alreadyExists: true,
         trackingNumber: pkg.national_tracking,
-        labelUrl: `/api/admin/paquete-express/label/pdf/${pkg.national_tracking}`,
+        labelUrl,
+        pieces: Math.max(1, children.length || 1),
         trackings,
       });
       return;
@@ -1348,119 +1385,35 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       phone: pkg.phone,
     };
 
-    const generated: Array<{ packageId: number; tracking: string; labelUrl: string; folioPorte: string; boxNumber: number | null }> = [];
-    const errors: Array<{ packageId: number; error: string; boxNumber: number | null }> = [];
+    // Construir lista de bultos: hijas si existen, si no master como única caja
+    const piecesData = children.length > 0
+      ? children.map((c: any) => ({
+          weight: Number(c.weight) || Number(pkg.weight) || 1,
+          pkgLength: Number(c.pkg_length) || Number(pkg.pkg_length) || 30,
+          pkgWidth: Number(c.pkg_width) || Number(pkg.pkg_width) || 30,
+          pkgHeight: Number(c.pkg_height) || Number(pkg.pkg_height) || 30,
+          description: c.description || pkg.description,
+        }))
+      : [{
+          weight: Number(pkg.weight) || 1,
+          pkgLength: Number(pkg.pkg_length) || 30,
+          pkgWidth: Number(pkg.pkg_width) || 30,
+          pkgHeight: Number(pkg.pkg_height) || 30,
+          description: pkg.description,
+        }];
 
-    if (children.length > 0) {
-      // Caso multi-bultos: generar una guía por cada hija
-      console.log(`🚚 [PQTX-GEN] Master ${pkg.tracking_internal} con ${children.length} hijas. Generando ${pendingChildren.length} guías…`);
-      for (const child of children) {
-        if (child.national_tracking) {
-          generated.push({
-            packageId: child.id,
-            tracking: child.national_tracking,
-            labelUrl: child.national_label_url || `/api/admin/paquete-express/label/pdf/${child.national_tracking}`,
-            folioPorte: '',
-            boxNumber: child.box_number || null,
-          });
-          continue;
-        }
-        const result = await generateOnePqtxGuide({
-          pkgId: child.id,
-          trackingInternal: child.tracking_internal,
-          weight: Number(child.weight) || Number(pkg.weight) || 1,
-          pkgLength: Number(child.pkg_length) || Number(pkg.pkg_length) || 30,
-          pkgWidth: Number(child.pkg_width) || Number(pkg.pkg_width) || 30,
-          pkgHeight: Number(child.pkg_height) || Number(pkg.pkg_height) || 30,
-          description: child.description || pkg.description,
-          addr,
-          userName: pkg.user_name,
-          userEmail: pkg.user_email,
-          token,
-          createdBy: userId,
-        });
-        if (result.ok) {
-          generated.push({
-            packageId: child.id,
-            tracking: result.tracking,
-            labelUrl: result.labelUrl,
-            folioPorte: result.folioPorte,
-            boxNumber: child.box_number || null,
-          });
-        } else {
-          errors.push({ packageId: child.id, error: result.error, boxNumber: child.box_number || null });
-        }
-      }
-
-      const first = generated[0];
-
-      // Reflejar la primera guía en el master para compatibilidad UI
-      if (first && !pkg.national_tracking) {
-        try {
-          await pool.query(
-            `UPDATE packages
-                SET national_tracking = $1,
-                    national_label_url = $2,
-                    national_carrier = COALESCE(national_carrier, 'Paquete Express'),
-                    updated_at = NOW()
-              WHERE id = $3`,
-            [first.tracking, first.labelUrl, packageId]
-          );
-        } catch (e: any) {
-          console.error('No se pudo actualizar master.national_tracking:', e.message);
-        }
-      }
-
-      if (!first) {
-        res.status(400).json({
-          success: false,
-          error: `No se pudo generar ninguna guía. ${errors.map(e => `Caja ${e.boxNumber}: ${e.error}`).join(' | ')}`,
-          errors,
-        });
-        return;
-      }
-
-      res.json({
-        success: true,
-        multi: true,
-        count: generated.length,
-        trackings: generated,
-        errors,
-        // Compat con UI single-tracking
-        trackingNumber: first.tracking,
-        labelUrl: first.labelUrl,
-        message: errors.length > 0
-          ? `${generated.length} guías generadas, ${errors.length} con error`
-          : `${generated.length} guías generadas correctamente`,
-      });
-      return;
-    }
-
-    // Caso single (sin hijas): generar UNA guía sobre el master
-    if (pkg.national_tracking) {
-      res.json({
-        success: true,
-        alreadyExists: true,
-        trackingNumber: pkg.national_tracking,
-        labelUrl: `/api/admin/paquete-express/label/pdf/${pkg.national_tracking}`,
-        trackings: [{ packageId: pkg.id, tracking: pkg.national_tracking, labelUrl: `/api/admin/paquete-express/label/pdf/${pkg.national_tracking}`, boxNumber: null }],
-      });
-      return;
-    }
+    const childIds = children.map((c: any) => c.id);
 
     const result = await generateOnePqtxGuide({
       pkgId: pkg.id,
       trackingInternal: pkg.tracking_internal,
-      weight: Number(pkg.weight) || 1,
-      pkgLength: Number(pkg.pkg_length) || 30,
-      pkgWidth: Number(pkg.pkg_width) || 30,
-      pkgHeight: Number(pkg.pkg_height) || 30,
-      description: pkg.description,
+      pieces: piecesData,
       addr,
       userName: pkg.user_name,
       userEmail: pkg.user_email,
       token,
       createdBy: userId,
+      childIds,
     });
 
     if (!result.ok) {
@@ -1470,11 +1423,15 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
 
     res.json({
       success: true,
+      multi: piecesData.length > 1,
+      pieces: result.pieces,
       trackingNumber: result.tracking,
       folioPorte: result.folioPorte,
       labelUrl: result.labelUrl,
       trackings: [{ packageId: pkg.id, tracking: result.tracking, labelUrl: result.labelUrl, folioPorte: result.folioPorte, boxNumber: null }],
-      message: 'Guía generada correctamente',
+      message: piecesData.length > 1
+        ? `Guía multipieza (${result.pieces} cajas) generada correctamente`
+        : 'Guía generada correctamente',
     });
   } catch (error: any) {
     console.error('Error en pqtxGenerateForPackage:', error?.response?.data || error.message);

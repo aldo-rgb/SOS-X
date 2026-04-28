@@ -131,7 +131,7 @@ export default function WarehouseHubPage({ users = [] }: Props) {
         { code: 'usa_pobox', name: 'POBOX USA', services: ['reception', 'shipping'] },
         { code: 'mx_national', name: 'Nacional MX', services: ['quotes'] },
         { code: 'mx_cedis', name: 'CEDIS MX', services: ['inventory'] },
-        { code: 'scanner_unificado', name: 'Scanner Unificado', services: ['scanner'] },
+        { code: 'scanner_unificado', name: 'Escáner Multi-Sucursal', services: ['scanner'] },
         { code: 'inventario_sucursal', name: 'Inventario Sucursal', services: ['inventory'] },
         { code: 'reetiquetado', name: 'Módulo de Reetiquetado', services: ['reprint'] },
     ];

@@ -61,7 +61,7 @@ INSERT INTO admin_panels (panel_key, panel_name, category, description, icon, so
 ('ops_china_sea', 'Recepción China Marítimo', 'operations', 'Recepción de carga marítima', 'DirectionsBoat', 3),
 ('ops_mx_cedis', 'Bodega CEDIS', 'operations', 'Operaciones de almacén CEDIS', 'Warehouse', 4),
 ('ops_mx_national', 'Cotizaciones Nacional', 'operations', 'Cotizaciones de flete nacional', 'LocationOn', 5),
-('ops_scanner', 'Scanner Unificado', 'operations', 'Scanner universal de paquetes', 'QrCodeScanner', 6),
+('ops_scanner', 'Escáner Multi-Sucursal', 'operations', 'Consulta de paquetes en todas las sucursales', 'TravelExplore', 6),
 ('ops_inventory', 'Inventario Sucursal', 'operations', 'Control de inventario por sucursal', 'Inventory', 7),
 
 -- Paneles de Servicio a Cliente (CustomerServiceHubPage)

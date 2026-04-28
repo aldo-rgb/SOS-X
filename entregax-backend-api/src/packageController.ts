@@ -1109,20 +1109,38 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     totalCost: pkg.gex_total_cost ? parseFloat(pkg.gex_total_cost) : null,
                     poboxCostUsd: pkg.pobox_cost_usd ? parseFloat(pkg.pobox_cost_usd) : null,
                     currentBranch: (() => {
-                        // Determinar ubicación real según warehouse_location y status.
-                        // El campo current_branch_id solo aplica a sucursales MX; cuando el
-                        // paquete sigue en USA o China se ignora.
+                        // Determinar ubicación real según status (master o hijas) y warehouse_location.
+                        // PRIORIDAD: el `status` manda sobre `warehouse_location`, ya que
+                        // el campo wl puede quedar desincronizado cuando un master pasa de
+                        // USA a MX y solo se actualizan las hijas (caso real US-3856078504).
                         const wl = String(pkg.warehouse_location || '').toLowerCase();
-                        const st = String(pkg.status || '').toLowerCase();
-                        const isInMexico =
-                            wl === 'mx_cedis' ||
-                            wl === 'mx_national' ||
-                            st.startsWith('received_') || // received_mty, received_cdmx, etc.
+                        const masterSt = String(pkg.status || '').toLowerCase();
+
+                        const isMxStatus = (st: string): boolean =>
+                            st.startsWith('received_') ||
                             st === 'out_for_delivery' ||
                             st === 'ready_pickup' ||
-                            st === 'returned_to_warehouse';
+                            st === 'returned_to_warehouse' ||
+                            st === 'delivered';
 
-                        if (wl === 'usa_pobox' || (!isInMexico && (wl === '' ? false : wl.startsWith('usa')))) {
+                        // Si master O cualquier hija ya tiene status de MX, el envío está en MX
+                        const masterInMx = isMxStatus(masterSt);
+                        const anyChildInMx = (children || []).some((c: any) => isMxStatus(String(c.status || '').toLowerCase()));
+                        const inMx = masterInMx || anyChildInMx || wl === 'mx_cedis' || wl === 'mx_national';
+
+                        if (inMx) {
+                            if (pkg.branch_id_val) {
+                                return {
+                                    id: pkg.branch_id_val,
+                                    code: pkg.branch_code || null,
+                                    name: pkg.branch_name || null,
+                                };
+                            }
+                            // Fallback: status MX pero sin branch_id → CEDIS por defecto
+                            return { id: 0, code: 'CEDIS-MTY', name: 'CEDIS Monterrey' };
+                        }
+
+                        if (wl === 'usa_pobox' || (wl !== '' && wl.startsWith('usa'))) {
                             return {
                                 id: 0,
                                 code: 'POBOX-USA',
@@ -1135,7 +1153,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         if (wl === 'china_sea') {
                             return { id: 0, code: 'CHN-SEA', name: 'Bodega China (Marítima)' };
                         }
-                        // En México: usar current_branch_id si existe
+                        // Sin pistas: usar branch_id si existe
                         if (pkg.branch_id_val) {
                             return {
                                 id: pkg.branch_id_val,

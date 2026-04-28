@@ -68,6 +68,15 @@ interface ShipmentData {
     } | null;
   };
   labels: LabelData[];
+  children?: Array<{
+    id: number;
+    tracking: string;
+    boxNumber: number;
+    weight?: number | null;
+    nationalTracking?: string | null;
+    nationalLabelUrl?: string | null;
+    nationalCarrier?: string | null;
+  }>;
   client: { id: number; name: string; email: string; boxId: string };
 }
 
@@ -374,6 +383,8 @@ export default function RelabelingScreen({ route, navigation }: any) {
   const [printingId, setPrintingId] = useState<string | null>(null);
   const [selectedLabelKeys, setSelectedLabelKeys] = useState<string[]>([]);
   const [generatingAssignedGuide, setGeneratingAssignedGuide] = useState(false);
+  const [selectedPqtx, setSelectedPqtx] = useState<string[]>([]);
+  const [printingAllPqtx, setPrintingAllPqtx] = useState(false);
 
   const assignedCarrier = getAssignedCarrier(shipment);
   const hasAssignedCarrier = Boolean(assignedCarrier);
@@ -381,6 +392,71 @@ export default function RelabelingScreen({ route, navigation }: any) {
   const hasLocalDeliveryOption = Boolean(shipment?.master.assignedAddress) && !hasAssignedCarrier;
   const hasCarrierGuideOption = hasAssignedCarrier;
   const availableLabelsCount = (shipment?.labels.length || 0) + ((hasCarrierGuideOption || hasLocalDeliveryOption) ? 1 : 0);
+
+  // Una sola guía PQTX (multipieza). Las hijas comparten el mismo national_tracking del master.
+  const pqtxGuides: Array<{ tracking: string; pieces: number; childId: number | null }> = (() => {
+    if (!shipment) return [];
+    const totalPieces = Math.max(1, shipment.master.totalBoxes || (shipment.children || []).length || 1);
+    if (shipment.master.nationalTracking) {
+      return [{ tracking: shipment.master.nationalTracking, pieces: totalPieces, childId: null }];
+    }
+    // Fallback legacy: alguna hija con tracking
+    const firstChildWithTracking = (shipment.children || []).find((c) => c.nationalTracking);
+    if (firstChildWithTracking?.nationalTracking) {
+      return [{ tracking: firstChildWithTracking.nationalTracking as string, pieces: totalPieces, childId: firstChildWithTracking.id }];
+    }
+    return [];
+  })();
+
+  const showMultiPqtx = isPaqueteExpressAssigned && pqtxGuides.length > 0;
+
+  useEffect(() => {
+    setSelectedPqtx([]);
+  }, [shipment?.master?.id]);
+
+  const buildPqtxLabelUrl = (tracking: string, opts?: { format4x6?: boolean }): string => {
+    const base = `${API_URL}/api/admin/paquete-express/label/pdf/${tracking}`;
+    return opts?.format4x6 ? with4x6Format(base) : base;
+  };
+
+  const togglePqtxSelection = (tracking: string) => {
+    setSelectedPqtx((prev) => prev.includes(tracking) ? prev.filter((t) => t !== tracking) : [...prev, tracking]);
+  };
+
+  const toggleSelectAllPqtx = () => {
+    setSelectedPqtx((prev) => prev.length === pqtxGuides.length ? [] : pqtxGuides.map((g) => g.tracking));
+  };
+
+  const printPqtxGuide = async (tracking: string, opts?: { format4x6?: boolean }) => {
+    try {
+      const url = buildPqtxLabelUrl(tracking, opts);
+      await Print.printAsync({ uri: url });
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'No se pudo imprimir la guía');
+    }
+  };
+
+  const printPqtxList = async (trackings: string[], opts?: { format4x6?: boolean }) => {
+    if (trackings.length === 0) {
+      Alert.alert('Selección requerida', 'Selecciona al menos una guía para imprimir.');
+      return;
+    }
+    setPrintingAllPqtx(true);
+    try {
+      for (const t of trackings) {
+        try {
+          await Print.printAsync({ uri: buildPqtxLabelUrl(t, opts) });
+        } catch (e: any) {
+          // Continúa con la siguiente si el usuario cancela una
+          if (!/cancel/i.test(e?.message || '')) throw e;
+        }
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'No se pudieron imprimir todas las guías');
+    } finally {
+      setPrintingAllPqtx(false);
+    }
+  };
 
   const getAssignedCarrierGuideUrl = (opts?: { format4x6?: boolean }): string | null => {
     if (!shipment) return null;
@@ -682,7 +758,115 @@ export default function RelabelingScreen({ route, navigation }: any) {
               );
             })}
 
-            {hasAssignedCarrier && (
+            {showMultiPqtx && (
+              <View style={{ marginTop: 10 }}>
+                <Text style={styles.sectionTitle}>
+                  🚚 Guías {assignedCarrier?.displayName} ({pqtxGuides.length})
+                </Text>
+
+                {pqtxGuides.length > 1 && (
+                  <View style={styles.pqtxToolbar}>
+                    <TouchableOpacity
+                      style={styles.pqtxToolbarSelectBtn}
+                      onPress={toggleSelectAllPqtx}
+                    >
+                      <Ionicons
+                        name={selectedPqtx.length === pqtxGuides.length ? 'checkbox' : 'square-outline'}
+                        size={18}
+                        color="#1976d2"
+                      />
+                      <Text style={styles.pqtxToolbarSelectText}>
+                        {selectedPqtx.length === 0
+                          ? 'Seleccionar todas'
+                          : selectedPqtx.length === pqtxGuides.length
+                            ? `Todas (${selectedPqtx.length})`
+                            : `${selectedPqtx.length} de ${pqtxGuides.length}`}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.pqtxToolbarPrintAll, printingAllPqtx && { opacity: 0.6 }]}
+                      onPress={() => printPqtxList(pqtxGuides.map((g) => g.tracking), { format4x6: true })}
+                      disabled={printingAllPqtx}
+                    >
+                      {printingAllPqtx ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <Ionicons name="print" size={16} color="#fff" />
+                      )}
+                      <Text style={styles.pqtxToolbarPrintAllText}>
+                        Imprimir todas ({pqtxGuides.length})
+                      </Text>
+                    </TouchableOpacity>
+                    {selectedPqtx.length > 0 && (
+                      <TouchableOpacity
+                        style={styles.pqtxToolbarPrintSel}
+                        onPress={() => printPqtxList(selectedPqtx, { format4x6: true })}
+                        disabled={printingAllPqtx}
+                      >
+                        <Ionicons name="print-outline" size={16} color="#1976d2" />
+                        <Text style={styles.pqtxToolbarPrintSelText}>
+                          Imprimir seleccionadas ({selectedPqtx.length})
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+
+                {!shipment.master.nationalTracking && pqtxGuides.length === 0 && (
+                  <TouchableOpacity
+                    style={[styles.carrierPrintBtn, generatingAssignedGuide && { opacity: 0.65 }, { marginBottom: 8 }]}
+                    onPress={() => printAssignedCarrierGuide({ format4x6: true })}
+                    disabled={generatingAssignedGuide}
+                  >
+                    {generatingAssignedGuide ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="add-circle" size={18} color="#fff" />}
+                    <Text style={styles.carrierPrintBtnText}>
+                      {generatingAssignedGuide ? 'Generando guía...' : 'Generar guía'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+
+                {pqtxGuides.map((g, idx) => {
+                  return (
+                    <View key={`pqtx-${g.tracking}-${idx}`} style={styles.pqtxCard}>
+                      <View style={styles.pqtxCardHeader}>
+                        <MaterialCommunityIcons name="truck-fast" size={18} color="#1976d2" />
+                        <Text style={styles.pqtxCardTitle}>
+                          {g.pieces > 1
+                            ? `${assignedCarrier?.displayName} — Multipieza (${g.pieces} cajas)`
+                            : `Guía ${assignedCarrier?.displayName}`}
+                        </Text>
+                      </View>
+                      <Text style={styles.pqtxCardTracking}>{g.tracking}</Text>
+                      <Text style={styles.pqtxCardSubtitle}>
+                        {g.pieces > 1
+                          ? `Una sola guía PQTX que ampara las ${g.pieces} cajas del envío`
+                          : 'Imprime la guía de la paquetería asignada'}
+                      </Text>
+                      <View style={styles.pqtxCardActions}>
+                        <TouchableOpacity
+                          style={styles.pqtxCardPrimary}
+                          onPress={() => printPqtxGuide(g.tracking, { format4x6: true })}
+                        >
+                          <Ionicons name="print" size={16} color="#fff" />
+                          <Text style={styles.pqtxCardPrimaryText}>
+                            Imprimir Etiqueta {g.pieces > 1 ? `(${g.pieces} cajas)` : ''}
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.pqtxCardSecondary}
+                          onPress={() => printPqtxGuide(g.tracking)}
+                        >
+                          <Ionicons name="document-text-outline" size={16} color="#1976d2" />
+                          <Text style={styles.pqtxCardSecondaryText}>Imprimir guía</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            {hasAssignedCarrier && !showMultiPqtx && (
               <View style={styles.carrierCard}>
                 <Text style={styles.carrierTitle}>🚚 Guía {assignedCarrier?.displayName}</Text>
                 <Text style={styles.carrierSubtitle}>
@@ -838,6 +1022,25 @@ const styles = StyleSheet.create({
   carrierPrintBtnSecondaryText: { color: BLACK, fontWeight: '800', fontSize: 12 },
   printBtn: { flexDirection: 'row', backgroundColor: ORANGE, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, alignItems: 'center', gap: 6 },
   printBtnText: { color: '#fff', fontWeight: '800', fontSize: 12 },
+  // PQTX multi-guide
+  pqtxToolbar: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8, padding: 10, borderRadius: 10, borderWidth: 1, borderColor: '#1976d2', backgroundColor: '#E3F2FD', marginBottom: 8 },
+  pqtxToolbarSelectBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  pqtxToolbarSelectText: { color: '#1976d2', fontWeight: '700', fontSize: 12 },
+  pqtxToolbarPrintAll: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#1976d2', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8 },
+  pqtxToolbarPrintAllText: { color: '#fff', fontWeight: '800', fontSize: 12 },
+  pqtxToolbarPrintSel: { flexDirection: 'row', alignItems: 'center', gap: 6, borderWidth: 1, borderColor: '#1976d2', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#fff' },
+  pqtxToolbarPrintSelText: { color: '#1976d2', fontWeight: '700', fontSize: 12 },
+  pqtxCard: { backgroundColor: '#F3F8FF', borderColor: '#1976d2', borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 8 },
+  pqtxCardSelected: { borderColor: '#0d47a1', borderWidth: 2 },
+  pqtxCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6 },
+  pqtxCardTitle: { fontSize: 13, fontWeight: '800', color: '#1976d2', flex: 1 },
+  pqtxCardTracking: { fontFamily: 'monospace', fontSize: 14, fontWeight: '700', color: BLACK, marginBottom: 4 },
+  pqtxCardSubtitle: { fontSize: 11, color: '#555', marginBottom: 10 },
+  pqtxCardActions: { gap: 8 },
+  pqtxCardPrimary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#1976d2', paddingVertical: 10, borderRadius: 8 },
+  pqtxCardPrimaryText: { color: '#fff', fontWeight: '800', fontSize: 12 },
+  pqtxCardSecondary: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1, borderColor: '#1976d2', paddingVertical: 10, borderRadius: 8, backgroundColor: '#fff' },
+  pqtxCardSecondaryText: { color: '#1976d2', fontWeight: '800', fontSize: 12 },
   scanOverlay: { position: 'absolute', bottom: 50, left: 0, right: 0, alignItems: 'center', gap: 12 },
   scanText: { color: '#fff', fontSize: 14, fontWeight: '600', backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
   scanCloseBtn: { backgroundColor: '#fff', paddingHorizontal: 30, paddingVertical: 12, borderRadius: 24 },
