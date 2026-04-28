@@ -25,8 +25,10 @@ interface AttendanceRecord {
   status: string | null;
 }
 
-export default function AttendanceCheckerScreen() {
+export default function AttendanceCheckerScreen({ route }: any) {
   const navigation = useNavigation<any>();
+  const token: string | undefined = route?.params?.token;
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : undefined;
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -43,7 +45,7 @@ export default function AttendanceCheckerScreen() {
   // Cargar estado de asistencia
   const loadAttendanceStatus = useCallback(async () => {
     try {
-      const response = await api.get('/hr/my-attendance');
+      const response = await api.get('/api/hr/my-attendance', { headers: authHeaders });
       // Backend devuelve la fila directamente o {checkedIn:false} si no hay registro
       const data = response.data;
       if (data && data.check_in_time) {
@@ -132,10 +134,10 @@ export default function AttendanceCheckerScreen() {
         return;
       }
 
-      const response = await api.post('/hr/check-in', {
+      const response = await api.post('/api/hr/check-in', {
         lat: location.latitude,
         lng: location.longitude,
-      });
+      }, { headers: authHeaders });
 
       Alert.alert(
         '✅ Entrada Registrada',
@@ -172,10 +174,10 @@ export default function AttendanceCheckerScreen() {
                 return;
               }
 
-              const response = await api.post('/hr/check-out', {
+              const response = await api.post('/api/hr/check-out', {
                 lat: location.latitude,
                 lng: location.longitude,
-              });
+              }, { headers: authHeaders });
 
               Alert.alert(
                 '👋 Salida Registrada',
