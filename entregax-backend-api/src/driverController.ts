@@ -291,6 +291,8 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
                 COALESCE(to_jsonb(p)->>'national_tracking', to_jsonb(m)->>'national_tracking') as national_tracking,
                 COALESCE(to_jsonb(p)->>'skydropx_label_id', to_jsonb(m)->>'skydropx_label_id') as skydropx_label_id,
                 COALESCE(to_jsonb(p)->>'dhl_awb', to_jsonb(m)->>'dhl_awb') as dhl_awb,
+                COALESCE(to_jsonb(p)->>'national_carrier', to_jsonb(p)->>'carrier', to_jsonb(m)->>'national_carrier', to_jsonb(m)->>'carrier') as national_carrier,
+                COALESCE(to_jsonb(p)->>'assigned_address_id', to_jsonb(m)->>'assigned_address_id') as assigned_address_id,
                 ${packageBranchSql} as package_branch_id,
                 NULL::text as driver_name,
                 NULL::text as client_name,
@@ -310,13 +312,20 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         const pkg = pkgRes.rows[0];
 
         const isPaid = String(pkg.payment_status || '').toLowerCase() === 'paid';
-        const hasLabel = Boolean(pkg.national_label_url || pkg.national_tracking || pkg.skydropx_label_id || pkg.dhl_awb);
+        const carrierLower = String(pkg.national_carrier || '').toLowerCase();
+        // EntregaX Local / Pickup no usa paquetería externa: no requiere etiqueta nacional.
+        const isLocalDelivery = carrierLower.includes('entregax') || carrierLower.includes('local') || carrierLower.includes('pick up') || carrierLower.includes('pickup');
+        const hasExternalLabel = Boolean(pkg.national_label_url || pkg.national_tracking || pkg.skydropx_label_id || pkg.dhl_awb);
+        // Para entrega local basta tener dirección asignada o estar marcado para pickup.
+        const hasLabel = hasExternalLabel || (isLocalDelivery && Boolean(pkg.assigned_address_id));
 
         if (!isPaid || !hasLabel) {
             return res.status(400).json({
                 error: '⚠️ Este paquete aún no está listo para reparto (debe estar pagado y etiquetado).',
                 paymentStatus: pkg.payment_status || 'pending',
                 hasLabel,
+                nationalCarrier: pkg.national_carrier || null,
+                isLocalDelivery,
                 barcode
             });
         }
