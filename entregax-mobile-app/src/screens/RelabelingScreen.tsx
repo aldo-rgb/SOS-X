@@ -563,12 +563,9 @@ export default function RelabelingScreen({ route, navigation }: any) {
     setPrintingId(label.tracking + '-' + label.boxNumber);
     try {
       const html = buildLabelHtml(label);
-      if (Sharing.isAvailableAsync && await Sharing.isAvailableAsync()) {
-        const { uri } = await Print.printToFileAsync({ html, width: 288, height: 432 }); // 4x6 in points
-        await Sharing.shareAsync(uri, { UTI: 'com.adobe.pdf', mimeType: 'application/pdf' });
-      } else {
-        await Print.printAsync({ html });
-      }
+      // Mandar directo al diálogo nativo de impresión (igual que la guía PQTX),
+      // sin pasar por el share sheet.
+      await Print.printAsync({ html });
     } catch (e: any) {
       Alert.alert('Error al imprimir', e.message || 'No se pudo generar la etiqueta');
     } finally { setPrintingId(null); }
@@ -600,12 +597,7 @@ export default function RelabelingScreen({ route, navigation }: any) {
     const selected = shipment.labels.filter((l, idx) => selectedLabelKeys.includes(labelKey(l, idx)));
     try {
       const html = buildBulkLabelsHtml(selected);
-      if (Sharing.isAvailableAsync && await Sharing.isAvailableAsync()) {
-        const { uri } = await Print.printToFileAsync({ html, width: 288, height: 432 });
-        await Sharing.shareAsync(uri, { UTI: 'com.adobe.pdf', mimeType: 'application/pdf' });
-      } else {
-        await Print.printAsync({ html });
-      }
+      await Print.printAsync({ html });
     } catch (e: any) {
       Alert.alert('Error al imprimir', e.message || 'No se pudo imprimir en masivo');
     }
@@ -686,6 +678,7 @@ export default function RelabelingScreen({ route, navigation }: any) {
                 value={tracking}
                 onChangeText={setTracking}
                 autoCapitalize="characters"
+                autoFocus
                 returnKeyType="search"
                 onSubmitEditing={() => search()}
               />
