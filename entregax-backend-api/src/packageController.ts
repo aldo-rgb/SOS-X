@@ -898,6 +898,45 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                OR REGEXP_REPLACE(UPPER(COALESCE(p.child_no, '')), '[^A-Z0-9]', '', 'g') = $2
         `, [trackingUpper, trackingCompact]);
 
+        // Fallback: si no se encontró match exacto, buscar por prefijo (caso master AIR
+        // sin sufijo "-NNN" — el usuario escribió la guía maestra y queremos resolver
+        // al package master para listar todas las hijas).
+        if (result.rows.length === 0) {
+            const prefixLike = `${trackingUpper}-%`;
+            const childByPrefix = await pool.query(
+                `SELECT id, master_id FROM packages
+                 WHERE UPPER(COALESCE(child_no, '')) LIKE $1
+                    OR UPPER(COALESCE(tracking_internal, '')) LIKE $1
+                 ORDER BY box_number ASC NULLS LAST
+                 LIMIT 1`,
+                [prefixLike]
+            );
+            if (childByPrefix.rows.length > 0) {
+                const masterId = childByPrefix.rows[0].master_id || childByPrefix.rows[0].id;
+                const masterRes = await pool.query(`
+                    SELECT p.*, u.full_name, u.email, u.box_id as user_box_id,
+                           lc.full_name as legacy_name, lc.box_id as legacy_box_id,
+                           a.alias as addr_alias, a.recipient_name as addr_recipient, a.street as addr_street,
+                           a.exterior_number as addr_ext, a.interior_number as addr_int,
+                           a.neighborhood as addr_neighborhood, a.city as addr_city,
+                           a.state as addr_state, a.zip_code as addr_zip,
+                           a.phone as addr_phone, a.reference as addr_reference,
+                           a.carrier_config as addr_carrier_config,
+                           br.id as branch_id_val, br.code as branch_code, br.name as branch_name
+                    FROM packages p
+                    LEFT JOIN users u ON p.user_id = u.id
+                    LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
+                    LEFT JOIN addresses a ON p.assigned_address_id = a.id
+                    LEFT JOIN branches br ON p.current_branch_id = br.id
+                    WHERE p.id = $1
+                `, [masterId]);
+                if (masterRes.rows.length > 0) {
+                    result.rows = masterRes.rows;
+                    (result as any).rowCount = 1;
+                }
+            }
+        }
+
         if (result.rows.length === 0) {
             const fallbackQueries = [
                 {
