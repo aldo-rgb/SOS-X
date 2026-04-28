@@ -7326,6 +7326,17 @@ async function ensureRequiredColumns() {
       ALTER TABLE china_receipts ADD COLUMN IF NOT EXISTS monto_pagado NUMERIC(12,2);
     `);
     console.log('✅ [STARTUP] Columnas de paquetería nacional verificadas');
+
+    // Limpieza idempotente: borrar CLABEs simuladas legacy (formato 646180XXXXXXXXXXX)
+    // que se generaban con generateVirtualClabe() antes de desactivar la simulación.
+    const cleanup = await pool.query(
+      `UPDATE users SET virtual_clabe = NULL
+       WHERE virtual_clabe IS NOT NULL
+         AND virtual_clabe ~ '^646180[0-9]{11}$'`
+    );
+    if (cleanup.rowCount && cleanup.rowCount > 0) {
+      console.log(`🧹 [STARTUP] CLABEs virtuales simuladas removidas: ${cleanup.rowCount}`);
+    }
   } catch (err: any) {
     console.error('⚠️ [STARTUP] Error asegurando columnas:', err.message);
   }

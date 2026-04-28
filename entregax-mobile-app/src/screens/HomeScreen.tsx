@@ -1748,7 +1748,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               Tu cuenta está bloqueada por adeudo vencido de ${(user.usedCredit || 0).toLocaleString('es-MX')} MXN.
             </Text>
             <Text style={styles.blockedCta}>
-              Deposita a tu CLABE: {user.virtualClabe || 'Solicita tu CLABE'}
+              {user.virtualClabe
+                ? `Deposita a tu CLABE: ${user.virtualClabe}`
+                : 'Contacta a soporte para regularizar tu adeudo.'}
             </Text>
           </View>
         </View>

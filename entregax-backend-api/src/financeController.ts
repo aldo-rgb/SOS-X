@@ -31,19 +31,10 @@ interface WalletInfo {
 }
 
 // ============================================
-// GENERAR CLABE VIRTUAL (Simulación)
-// En producción esto viene de Openpay/STP
+// CLABE VIRTUAL
+// La generación se delega a Openpay/STP en `multiServicePaymentController`.
+// La función simulada anterior fue removida para no exponer CLABEs ficticias.
 // ============================================
-
-const generateVirtualClabe = (userId: number): string => {
-  // Formato CLABE: 3 dígitos banco + 3 dígitos plaza + 11 dígitos cuenta + 1 dígito verificador
-  // Este es un ejemplo simulado - en producción viene de Openpay
-  const banco = '646'; // STP
-  const plaza = '180';
-  const cuenta = String(userId).padStart(10, '0') + '1';
-  const verificador = String((userId * 7) % 10);
-  return banco + plaza + cuenta + verificador;
-};
 
 // ============================================
 // OBTENER ESTADO DEL MONEDERO
@@ -71,12 +62,11 @@ export const getWalletStatus = async (req: AuthRequest, res: Response): Promise<
 
     const user = result.rows[0];
 
-    // Si no tiene CLABE virtual, generarla
-    let virtualClabe = user.virtual_clabe;
-    if (!virtualClabe && userId) {
-      virtualClabe = generateVirtualClabe(userId);
-      await pool.query('UPDATE users SET virtual_clabe = $1 WHERE id = $2', [virtualClabe, userId]);
-    }
+    // ⚠️ La generación de CLABE simulada está DESACTIVADA.
+    // La CLABE virtual real proviene de Openpay/STP a través de
+    // `user_financial_profiles` (ver multiServicePaymentController). Mientras no
+    // se aprovisione una CLABE real, devolvemos null y el frontend oculta el bloque.
+    const virtualClabe: string | null = user.virtual_clabe || null;
 
     const walletInfo: WalletInfo = {
       wallet_balance: parseFloat(user.wallet_balance) || 0,

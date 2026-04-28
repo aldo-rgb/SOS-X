@@ -261,16 +261,24 @@ export default function WalletScreen({ navigation }: any) {
           <Text style={styles.balanceAmount}>
             {formatCurrency(wallet?.wallet_balance || 0)}
           </Text>
-          <View style={styles.clabeContainer}>
-            <Text style={styles.clabeLabel}>CLABE para fondear (STP/SPEI):</Text>
-            <TouchableOpacity style={styles.clabeBox} onPress={copyClabe}>
-              <Text style={styles.clabeNumber}>{wallet?.virtual_clabe || 'Generando...'}</Text>
-              <Ionicons name="copy-outline" size={20} color="#fff" />
-            </TouchableOpacity>
-            <Text style={styles.clabeNote}>
-              💡 Transferencias reflejadas en 5 min, 24/7
-            </Text>
-          </View>
+          {wallet?.virtual_clabe ? (
+            <View style={styles.clabeContainer}>
+              <Text style={styles.clabeLabel}>CLABE para fondear (STP/SPEI):</Text>
+              <TouchableOpacity style={styles.clabeBox} onPress={copyClabe}>
+                <Text style={styles.clabeNumber}>{wallet.virtual_clabe}</Text>
+                <Ionicons name="copy-outline" size={20} color="#fff" />
+              </TouchableOpacity>
+              <Text style={styles.clabeNote}>
+                💡 Transferencias reflejadas en 5 min, 24/7
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.clabeContainer}>
+              <Text style={styles.clabeNote}>
+                ℹ️ Para fondear tu monedero contacta a soporte para activar tu CLABE virtual.
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* Tarjeta de Crédito (si tiene) */}
