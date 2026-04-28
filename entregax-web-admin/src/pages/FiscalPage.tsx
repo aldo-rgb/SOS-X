@@ -163,7 +163,9 @@ export default function FiscalPage() {
     facturama_password: '',
     facturama_environment: 'sandbox',
     facturama_reception_enabled: true,
-    facturama_webhook_secret: ''
+    facturama_webhook_secret: '',
+    facturama_portal_email: '',
+    facturama_portal_password: '',
   });
   const [facturamaConfig, setFacturamaConfig] = useState<any>(null);
   const [savingFacturama, setSavingFacturama] = useState(false);
@@ -551,7 +553,9 @@ export default function FiscalPage() {
       facturama_password: '',
       facturama_environment: emitter.facturama_environment || 'sandbox',
       facturama_reception_enabled: emitter.facturama_reception_enabled ?? true,
-      facturama_webhook_secret: ''
+      facturama_webhook_secret: '',
+      facturama_portal_email: '',
+      facturama_portal_password: '',
     });
     setOpenFacturamaModal(true);
     try {
@@ -563,7 +567,8 @@ export default function FiscalPage() {
         ...f,
         facturama_username: r.data.facturama_username || '',
         facturama_environment: r.data.facturama_environment || 'sandbox',
-        facturama_reception_enabled: r.data.facturama_reception_enabled ?? true
+        facturama_reception_enabled: r.data.facturama_reception_enabled ?? true,
+        facturama_portal_email: r.data.facturama_portal_email || '',
       }));
     } catch { /* sin config previa */ }
   };
@@ -599,37 +604,20 @@ export default function FiscalPage() {
     if (!selectedEmpresaFacturama) return;
     setSyncingFacturama(true);
     try {
-      const today = new Date();
-      const monthAgo = new Date(today);
-      monthAgo.setDate(today.getDate() - 30);
-      const r = await axios.post(`${API_URL}/admin/facturama/sync/${selectedEmpresaFacturama.id}`, {
-        from: monthAgo.toISOString().slice(0, 10),
-        to: today.toISOString().slice(0, 10)
-      }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      // Usa el scraper del PORTAL (app.facturama.mx) que sí trae las facturas recibidas reales.
+      // Requiere que el emisor tenga configuradas las credenciales del portal (email + password).
+      const r = await axios.post(`${API_URL}/admin/facturama/sync-portal/${selectedEmpresaFacturama.id}`, {},
+        { headers: { Authorization: `Bearer ${getToken()}` } });
       setSnackbar({
         open: true,
-        message: `✅ Sincronización: ${r.data.inserted} nuevas, ${r.data.skipped} omitidas (de ${r.data.total_found})`,
+        message: `✅ ${r.data.inserted} nuevas, ${r.data.skipped} omitidas (de ${r.data.total_found} encontradas en portal)`,
         severity: 'success'
       });
-      if (r.data.diagnostic) {
-        console.log('[Facturama] diagnóstico sync:', r.data.diagnostic);
-      }
-      if (r.data.total_found === 0 && r.data.diagnostic) {
-        const d = r.data.diagnostic;
-        const envWarn = d.environment === 'sandbox'
-          ? '\n⚠️ Estás en SANDBOX. Las facturas reales están en PRODUCCIÓN.'
-          : '';
-        setSnackbar({
-          open: true,
-          message: `⚠️ 0 facturas. Endpoint: ${d.endpoint_used}. Forma: ${d.response_shape}.${envWarn}`,
-          severity: 'warning'
-        });
-      }
       loadData();
     } catch (error: any) {
       setSnackbar({
         open: true,
-        message: error.response?.data?.detail || error.response?.data?.error || 'Error sincronizando',
+        message: error.response?.data?.detail || error.response?.data?.error || 'Error sincronizando con portal Facturama',
         severity: 'error'
       });
     } finally {
@@ -1672,6 +1660,29 @@ export default function FiscalPage() {
                   value={facturamaForm.facturama_webhook_secret}
                   onChange={(e) => setFacturamaForm(f => ({ ...f, facturama_webhook_secret: e.target.value }))}
                   helperText="Opcional. Se usa para validar la firma del webhook entrante."
+                />
+
+                {/* Credenciales del PORTAL (app.facturama.mx) — para sincronizar facturas recibidas */}
+                <Alert severity="info" sx={{ fontSize: 12 }}>
+                  🔐 <strong>Credenciales del Portal Facturama</strong> (distintas a las del API).<br/>
+                  Necesarias para sincronizar las facturas recibidas / cuentas por pagar.
+                </Alert>
+                <TextField
+                  label="Email del Portal Facturama"
+                  fullWidth
+                  size="small"
+                  value={facturamaForm.facturama_portal_email}
+                  onChange={(e) => setFacturamaForm(f => ({ ...f, facturama_portal_email: e.target.value }))}
+                  helperText="El email con el que entras a app.facturama.mx"
+                />
+                <TextField
+                  label="Contraseña del Portal Facturama"
+                  type="password"
+                  fullWidth
+                  size="small"
+                  value={facturamaForm.facturama_portal_password}
+                  onChange={(e) => setFacturamaForm(f => ({ ...f, facturama_portal_password: e.target.value }))}
+                  helperText={facturamaConfig?.has_portal_password ? 'Dejar vacío para conservar la actual' : 'Contraseña del login en el portal'}
                 />
 
                 <FormControlLabel

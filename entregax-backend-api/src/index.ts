@@ -183,6 +183,7 @@ import {
   testFacturamaConnection,
   syncFacturamaReceived,
   registerFacturamaWebhook,
+  syncFacturamaPortal,
   handleFacturamaWebhook,
   listAccountsPayable,
   approveAccountPayable,
@@ -3119,6 +3120,7 @@ app.get('/api/admin/facturama/config/:emitterId', authenticateToken, requireMinL
 app.post('/api/admin/facturama/config', authenticateToken, requireMinLevel(ROLES.DIRECTOR), saveFacturamaConfig);
 app.post('/api/admin/facturama/test/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), testFacturamaConnection);
 app.post('/api/admin/facturama/sync/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), syncFacturamaReceived);
+app.post('/api/admin/facturama/sync-portal/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), syncFacturamaPortal);
 app.post('/api/admin/facturama/register-webhook/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), registerFacturamaWebhook);
 // Webhook público (firma validada con secret por emisor)
 app.post('/api/webhooks/facturama/:emitterId', handleFacturamaWebhook);
@@ -7326,6 +7328,9 @@ async function ensureRequiredColumns() {
       ALTER TABLE china_receipts ADD COLUMN IF NOT EXISTS assigned_cost_mxn NUMERIC(12,2);
       ALTER TABLE china_receipts ADD COLUMN IF NOT EXISTS saldo_pendiente NUMERIC(12,2);
       ALTER TABLE china_receipts ADD COLUMN IF NOT EXISTS monto_pagado NUMERIC(12,2);
+      -- Credenciales del PORTAL Facturama (app.facturama.mx) para scraper de Cuentas por Pagar
+      ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturama_portal_email TEXT;
+      ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturama_portal_password TEXT;
     `);
     console.log('✅ [STARTUP] Columnas de paquetería nacional verificadas');
 

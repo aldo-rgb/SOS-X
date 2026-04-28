@@ -108,12 +108,252 @@ async function loadEmitterCredentials(emitterId: number) {
     const r = await pool.query(
         `SELECT id, alias, rfc,
                 facturama_username, facturama_password, facturama_environment,
-                facturama_reception_enabled, facturama_webhook_secret, facturama_configured
+                facturama_reception_enabled, facturama_webhook_secret, facturama_configured,
+                facturama_portal_email, facturama_portal_password
          FROM fiscal_emitters WHERE id=$1`,
         [emitterId]
     );
     return r.rows[0] || null;
 }
+
+/* ================================================================
+ * PORTAL SCRAPER (app.facturama.mx) — login + GetVoucher
+ * Endpoint NO oficial pero el único que devuelve facturas recibidas reales.
+ * Usa cookies de sesión (.ASPXAUTH + ASP.NET_SessionId).
+ * ============================================================== */
+
+const FACTURAMA_PORTAL_BASE = 'https://app.facturama.mx';
+
+interface PortalSession {
+    cookies: string;          // string a usar como header Cookie en peticiones siguientes
+    requestVerificationToken?: string;
+}
+
+function extractCookies(setCookieHeader: string[] | string | undefined): string {
+    if (!setCookieHeader) return '';
+    const arr = Array.isArray(setCookieHeader) ? setCookieHeader : [setCookieHeader];
+    return arr.map(c => c.split(';')[0]).join('; ');
+}
+
+function mergeCookies(prev: string, addSetCookie: string[] | string | undefined): string {
+    const fresh = extractCookies(addSetCookie);
+    if (!fresh) return prev;
+    if (!prev) return fresh;
+    // sobreescribir cookies con mismo nombre
+    const map = new Map<string, string>();
+    for (const piece of prev.split('; ')) {
+        const eq = piece.indexOf('=');
+        if (eq > 0) map.set(piece.slice(0, eq), piece.slice(eq + 1));
+    }
+    for (const piece of fresh.split('; ')) {
+        const eq = piece.indexOf('=');
+        if (eq > 0) map.set(piece.slice(0, eq), piece.slice(eq + 1));
+    }
+    return Array.from(map.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+}
+
+async function loginFacturamaPortal(email: string, password: string): Promise<PortalSession | null> {
+    try {
+        // 1) GET / o /Account/Login para obtener cookies iniciales y __RequestVerificationToken
+        const loginPageRes = await axios.get(`${FACTURAMA_PORTAL_BASE}/Account/Login`, {
+            validateStatus: () => true,
+            maxRedirects: 0,
+            headers: { 'User-Agent': 'Mozilla/5.0 (compatible; SOS-X/1.0)' },
+        });
+        let cookies = extractCookies(loginPageRes.headers['set-cookie']);
+
+        // Extraer token CSRF del HTML
+        const html: string = typeof loginPageRes.data === 'string' ? loginPageRes.data : '';
+        const tokenMatch = html.match(/name="__RequestVerificationToken"[^>]*value="([^"]+)"/);
+        const csrfToken = tokenMatch ? tokenMatch[1] : '';
+
+        // 2) POST /Account/Login con email/password + CSRF token
+        const form = new URLSearchParams();
+        form.append('Email', email);
+        form.append('Password', password);
+        form.append('RememberMe', 'false');
+        if (csrfToken) form.append('__RequestVerificationToken', csrfToken);
+
+        const loginRes = await axios.post(`${FACTURAMA_PORTAL_BASE}/Account/Login`, form.toString(), {
+            validateStatus: () => true,
+            maxRedirects: 0,
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Cookie': cookies,
+                'User-Agent': 'Mozilla/5.0 (compatible; SOS-X/1.0)',
+                'Referer': `${FACTURAMA_PORTAL_BASE}/Account/Login`,
+            },
+        });
+        cookies = mergeCookies(cookies, loginRes.headers['set-cookie']);
+
+        // Si el login fue exitoso, recibimos cookie .ASPXAUTH
+        const hasAuth = /\.ASPXAUTH=/i.test(cookies);
+        if (!hasAuth) {
+            console.warn('[FacturamaPortal] login fallido: no se recibió .ASPXAUTH');
+            return null;
+        }
+        return { cookies, requestVerificationToken: csrfToken };
+    } catch (err: any) {
+        console.error('[FacturamaPortal] login error:', err.message);
+        return null;
+    }
+}
+
+/**
+ * Llama a /Accounting/ExpenseControl/GetVoucher con las cookies de sesión.
+ * Retorna array de facturas recibidas { Id, Folio, ClientName, Total, Date, Type, Paid... }
+ */
+async function getPortalVouchers(session: PortalSession, paid: boolean = false): Promise<any[]> {
+    const form = new URLSearchParams();
+    form.append('valCmbType', 'receivedInvoice');
+    form.append('valCmbPaid', paid ? '0' : '1'); // 1 = sin pagar, 0 = pagadas (a confirmar)
+
+    const r = await axios.post(`${FACTURAMA_PORTAL_BASE}/Accounting/ExpenseControl/GetVoucher`,
+        form.toString(),
+        {
+            validateStatus: () => true,
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'Cookie': session.cookies,
+                'User-Agent': 'Mozilla/5.0 (compatible; SOS-X/1.0)',
+                'X-Requested-With': 'XMLHttpRequest',
+                'Referer': `${FACTURAMA_PORTAL_BASE}/Accounting/ExpenseControl`,
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+            },
+        }
+    );
+
+    if (r.status !== 200) {
+        console.warn(`[FacturamaPortal] GetVoucher status ${r.status}`);
+        return [];
+    }
+
+    // La respuesta es { PageMax, PageCurrent, invoices: [...] }
+    const data = r.data;
+    if (data && Array.isArray(data.invoices)) return data.invoices;
+    if (Array.isArray(data)) return data;
+    return [];
+}
+
+/**
+ * Convierte fecha .NET "/Date(1777380232000)/" a Date.
+ */
+function parseDotNetDate(s: any): Date | null {
+    if (!s || typeof s !== 'string') return null;
+    const m = s.match(/\/Date\((-?\d+)\)\//);
+    if (!m) return null;
+    return new Date(parseInt(m[1], 10));
+}
+
+// POST /api/admin/facturama/sync-portal/:emitterId
+export const syncFacturamaPortal = async (req: AuthRequest, res: Response): Promise<any> => {
+    const emitterId = String(req.params.emitterId);
+    const cfg = await loadEmitterCredentials(parseInt(emitterId, 10));
+    if (!cfg) return res.status(404).json({ error: 'Emisor no encontrado' });
+
+    const email = cfg.facturama_portal_email || cfg.facturama_username;
+    const password = cfg.facturama_portal_password || cfg.facturama_password;
+    if (!email || !password) {
+        return res.status(400).json({
+            error: 'Credenciales del portal Facturama no configuradas',
+            detail: 'Agrega facturama_portal_email y facturama_portal_password en la configuración del emisor.',
+        });
+    }
+
+    const session = await loginFacturamaPortal(email, password);
+    if (!session) {
+        return res.status(401).json({
+            error: 'No fue posible iniciar sesión en app.facturama.mx',
+            detail: 'Verifica que el email/password de portal sean correctos. Recuerda que las credenciales del PORTAL son distintas a las del API.',
+        });
+    }
+
+    try {
+        // Traer recibidas sin pagar y pagadas
+        const [unpaid, paid] = await Promise.all([
+            getPortalVouchers(session, false),
+            getPortalVouchers(session, true),
+        ]);
+        const all = [...unpaid, ...paid];
+
+        let inserted = 0;
+        let skipped = 0;
+
+        for (const inv of all) {
+            const facturamaId = String(inv.Id || '');
+            if (!facturamaId || facturamaId === '0') { skipped++; continue; }
+
+            // Idempotencia por facturama_id (no tenemos UUID en este endpoint)
+            const dup = await pool.query(
+                `SELECT id FROM accounting_received_invoices
+                 WHERE fiscal_emitter_id=$1 AND facturama_id=$2`,
+                [emitterId, facturamaId]
+            );
+            if (dup.rows.length) { skipped++; continue; }
+
+            const fecha = parseDotNetDate(inv.Date);
+            const folio = inv.Folio ? String(inv.Folio) : null;
+            const total = parseFloat(inv.Total ?? 0) || 0;
+            const subtotal = parseFloat(inv.SubTot ?? 0) || 0;
+            const moneda = inv.Currency || 'MXN';
+            const emisorNombre = inv.ClientName || null;
+            const isPaid = inv.Paid === 1 || inv.Paid === true;
+
+            await pool.query(`
+                INSERT INTO accounting_received_invoices (
+                    fiscal_emitter_id, uuid_sat, folio, serie,
+                    emisor_rfc, emisor_nombre,
+                    receptor_rfc, receptor_nombre,
+                    tipo_comprobante, uso_cfdi, metodo_pago, forma_pago,
+                    moneda, subtotal, total, fecha_emision,
+                    pdf_url, xml_url, facturama_id, detection_source,
+                    approval_status, payment_status
+                ) VALUES (
+                    $1,$2,$3,$4,
+                    $5,$6,
+                    $7,$8,
+                    $9,$10,$11,$12,
+                    $13,$14,$15,$16,
+                    $17,$18,$19,'facturama_portal',
+                    'pending',$20
+                )
+            `, [
+                emitterId,
+                facturamaId, // usamos facturama_id como uuid_sat temporal hasta que descarguemos el XML
+                folio, null,
+                null, emisorNombre,
+                cfg.rfc, null,
+                'I', null, null, null,
+                moneda, subtotal, total, fecha,
+                null, null, facturamaId,
+                isPaid ? 'paid' : 'pending'
+            ]);
+            inserted++;
+        }
+
+        await pool.query(`
+            UPDATE fiscal_emitters
+            SET facturama_last_sync = NOW(), facturama_last_sync_count = $1
+            WHERE id=$2
+        `, [inserted, emitterId]);
+
+        return res.json({
+            success: true,
+            total_found: all.length,
+            inserted,
+            skipped,
+            unpaid_count: unpaid.length,
+            paid_count: paid.length,
+            mode: 'portal_scraper',
+        });
+    } catch (err: any) {
+        console.error('syncFacturamaPortal:', err.message);
+        return res.status(500).json({
+            error: 'Error sincronizando con el portal Facturama',
+            detail: err.message,
+        });
+    }
+};
 
 /* ================================================================
  * 1. CONFIGURACIÓN POR EMISOR
@@ -131,8 +371,10 @@ export const getFacturamaConfig = async (req: Request, res: Response): Promise<a
                    facturama_configured,
                    facturama_last_sync,
                    facturama_last_sync_count,
+                   facturama_portal_email,
                    CASE WHEN facturama_password IS NOT NULL THEN '********' ELSE NULL END AS has_password,
-                   CASE WHEN facturama_webhook_secret IS NOT NULL THEN '********' ELSE NULL END AS has_webhook_secret
+                   CASE WHEN facturama_webhook_secret IS NOT NULL THEN '********' ELSE NULL END AS has_webhook_secret,
+                   CASE WHEN facturama_portal_password IS NOT NULL THEN '********' ELSE NULL END AS has_portal_password
             FROM fiscal_emitters WHERE id=$1
         `, [emitterId]);
         if (!r.rows[0]) return res.status(404).json({ error: 'Emisor no encontrado' });
@@ -152,7 +394,9 @@ export const saveFacturamaConfig = async (req: AuthRequest, res: Response): Prom
             facturama_password,
             facturama_environment,
             facturama_reception_enabled,
-            facturama_webhook_secret
+            facturama_webhook_secret,
+            facturama_portal_email,
+            facturama_portal_password,
         } = req.body;
 
         if (!emitter_id || !facturama_username || !facturama_password) {
@@ -182,14 +426,18 @@ export const saveFacturamaConfig = async (req: AuthRequest, res: Response): Prom
                 facturama_environment = $3,
                 facturama_reception_enabled = COALESCE($4, facturama_reception_enabled),
                 facturama_webhook_secret = COALESCE($5, facturama_webhook_secret),
-                facturama_configured = TRUE
-            WHERE id = $6
+                facturama_configured = TRUE,
+                facturama_portal_email = COALESCE($6, facturama_portal_email),
+                facturama_portal_password = COALESCE($7, facturama_portal_password)
+            WHERE id = $8
         `, [
             facturama_username,
             facturama_password,
             env,
             facturama_reception_enabled ?? false,
             facturama_webhook_secret ?? null,
+            facturama_portal_email || null,
+            facturama_portal_password || null,
             emitter_id
         ]);
 
