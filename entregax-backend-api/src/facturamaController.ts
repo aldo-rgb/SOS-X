@@ -30,17 +30,24 @@ const FACTURAMA_PATHS = {
 };
 
 // Candidatos para listar CFDIs recibidos (los planes Facturama usan distintos paths).
-// Se prueban en orden hasta encontrar uno que responda 200.
+// Se prueban en orden hasta encontrar uno que responda 200 CON contenido útil.
 const FACTURAMA_RECEIVED_LIST_CANDIDATES = [
-    { path: '/api-lite/cfdis-mailbox',      params: (from?: string, to?: string) => ({ dateInitial: from, dateFinal: to }) },
-    { path: '/api-lite/3/cfdis-mailbox',    params: (from?: string, to?: string) => ({ dateInitial: from, dateFinal: to }) },
-    { path: '/api-lite/cfdis-received',     params: (from?: string, to?: string) => ({ dateFrom: from, dateTo: to }) },
-    { path: '/api-lite/3/cfdis-received',   params: (from?: string, to?: string) => ({ dateFrom: from, dateTo: to }) },
-    { path: '/api-lite/2/cfdis',            params: (from?: string, to?: string) => ({ type: 'Received', dateFrom: from, dateTo: to }) },
-    { path: '/api-lite/cfdis',              params: (from?: string, to?: string) => ({ type: 'Received', dateFrom: from, dateTo: to }) },
-    { path: '/Cfdi',                        params: (from?: string, to?: string) => ({ type: 'Received', dateFrom: from, dateTo: to }) },
-    // Original (lo dejamos como último intento por compatibilidad)
-    { path: '/api-lite/cfdis-recibidos',    params: (from?: string, to?: string) => ({ dateFrom: from, dateTo: to }) },
+    // Buzón Fiscal moderno (requiere RFC del receptor)
+    { path: '/api-lite/cfdi-received',      params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    { path: '/api-lite/3/cfdi-received',    params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    { path: '/api-lite/2/cfdi-received',    params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    // Buzón Fiscal antiguo (CFDI emitidos vs recibidos vía type)
+    { path: '/api-lite/cfdis',              params: (from?: string, to?: string, rfc?: string) => ({ type: 'received', rfc, dateInitial: from, dateFinal: to }) },
+    { path: '/api-lite/2/cfdis',            params: (from?: string, to?: string, rfc?: string) => ({ type: 'received', rfc, dateInitial: from, dateFinal: to }) },
+    // Mailbox (lo que estaba respondiendo string vacío - probablemente requiere otro plan)
+    { path: '/api-lite/3/cfdis-mailbox',    params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    { path: '/api-lite/cfdis-mailbox',      params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    // Endpoint genérico Cfdi con type filter
+    { path: '/Cfdi',                        params: (from?: string, to?: string, rfc?: string) => ({ type: 'Received', rfc, dateFrom: from, dateTo: to }) },
+    // Originales
+    { path: '/api-lite/cfdis-received',     params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateFrom: from, dateTo: to }) },
+    { path: '/api-lite/3/cfdis-received',   params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateFrom: from, dateTo: to }) },
+    { path: '/api-lite/cfdis-recibidos',    params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateFrom: from, dateTo: to }) },
 ];
 
 // Endpoints candidatos para probar credenciales (varían según plan API Web vs Multiemisor)
@@ -233,13 +240,16 @@ export const syncFacturamaReceived = async (req: AuthRequest, res: Response): Pr
     const auth    = getFacturamaAuth(cfg.facturama_username, cfg.facturama_password);
 
     try {
-        // Probar varios paths hasta encontrar el que soporta el plan/cuenta
+        // Probar varios paths hasta encontrar el que devuelve datos útiles
         let listRes: any = null;
         let usedPath: string | null = null;
         const triedPaths: string[] = [];
+        let firstSuccessRes: any = null;
+        let firstSuccessPath: string | null = null;
+
         for (const candidate of FACTURAMA_RECEIVED_LIST_CANDIDATES) {
             const params: any = {};
-            const built = candidate.params(from, to);
+            const built = candidate.params(from, to, cfg.rfc);
             for (const [k, v] of Object.entries(built)) {
                 if (v !== undefined && v !== null && v !== '') params[k] = v;
             }
@@ -249,11 +259,30 @@ export const syncFacturamaReceived = async (req: AuthRequest, res: Response): Pr
                     params,
                     validateStatus: () => true,
                 });
-                triedPaths.push(`${candidate.path}→${r.status}`);
+                const dataPreview = typeof r.data === 'string'
+                    ? `string(${r.data.length})`
+                    : (Array.isArray(r.data) ? `array(${r.data.length})` : `obj(${r.data ? Object.keys(r.data).length : 0})`);
+                triedPaths.push(`${candidate.path}→${r.status}:${dataPreview}`);
+
                 if (r.status >= 200 && r.status < 300) {
-                    listRes = r;
-                    usedPath = candidate.path;
-                    break;
+                    // Guardamos el primer success por si todos están vacíos
+                    if (!firstSuccessRes) {
+                        firstSuccessRes = r;
+                        firstSuccessPath = candidate.path;
+                    }
+                    // Verificar si tiene datos reales (array no vacío u objeto con campos útiles)
+                    const hasItems = Array.isArray(r.data)
+                        ? r.data.length > 0
+                        : (r.data && typeof r.data === 'object' && (
+                            (r.data.Cfdis?.length > 0) || (r.data.Items?.length > 0) ||
+                            (r.data.Data?.length > 0) || (r.data.Results?.length > 0) ||
+                            (r.data.value?.length > 0)
+                          ));
+                    if (hasItems) {
+                        listRes = r;
+                        usedPath = candidate.path;
+                        break;
+                    }
                 }
                 // 401/403: credenciales mal → no tiene sentido seguir probando
                 if (r.status === 401 || r.status === 403) {
@@ -266,6 +295,12 @@ export const syncFacturamaReceived = async (req: AuthRequest, res: Response): Pr
             } catch (e: any) {
                 triedPaths.push(`${candidate.path}→err:${e.message}`);
             }
+        }
+
+        // Si ningún endpoint devolvió datos pero alguno devolvió 200, usamos ese (probablemente el plan no tiene Buzón Fiscal)
+        if (!listRes && firstSuccessRes) {
+            listRes = firstSuccessRes;
+            usedPath = firstSuccessPath;
         }
 
         if (!listRes || !usedPath) {
