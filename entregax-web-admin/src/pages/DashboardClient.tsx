@@ -12107,12 +12107,13 @@ export default function DashboardClient() {
                       sx={{
                         p: 2,
                         mb: 1.5,
-                        borderRadius: 2,
+                        borderRadius: 3,
                         borderColor: c.is_blocked ? '#f44336' : limit === 0 ? '#e0e0e0' : '#FFE0C0',
-                        bgcolor: c.is_blocked ? '#FFEBEE' : 'transparent',
+                        bgcolor: c.is_blocked ? '#FFEBEE' : '#fff',
+                        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
                       }}
                     >
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
                         <Box>
                           <Typography variant="body1" fontWeight="bold">
                             {serviceNames[c.service] || c.service}
@@ -12130,23 +12131,72 @@ export default function DashboardClient() {
                         )}
                       </Box>
 
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                        <Typography variant="caption" color="text.secondary">Disponible</Typography>
-                        <Typography variant="body2" fontWeight="bold" color="success.main">
-                          {formatCurrency(available)} MXN
-                        </Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                        <Typography variant="caption" color="text.secondary">Utilizado</Typography>
-                        <Typography variant="body2" fontWeight="bold" sx={{ color: used > 0 ? '#E65100' : '#999' }}>
-                          {formatCurrency(used)} MXN
-                        </Typography>
-                      </Box>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                        <Typography variant="caption" color="text.secondary">Límite</Typography>
-                        <Typography variant="body2" fontWeight="bold">
-                          {formatCurrency(limit)} MXN
-                        </Typography>
+                      {/* 4 chips con los montos */}
+                      <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 1, mb: 1.25 }}>
+                        {/* Disponible (verde) */}
+                        <Box sx={{
+                          textAlign: 'center', py: 1, px: 0.5, borderRadius: 2,
+                          bgcolor: '#E8F5E9', border: '1px solid #C8E6C9',
+                        }}>
+                          <Typography variant="caption" sx={{ display: 'block', color: '#2E7D32', fontWeight: 600, fontSize: 10 }}>
+                            Disponible
+                          </Typography>
+                          <Typography variant="body2" fontWeight="bold" sx={{ color: '#1B5E20', fontSize: 13 }}>
+                            {formatCurrency(available)}
+                          </Typography>
+                        </Box>
+                        {/* Utilizado (naranja) */}
+                        <Box sx={{
+                          textAlign: 'center', py: 1, px: 0.5, borderRadius: 2,
+                          bgcolor: used > 0 ? '#FFF3E0' : '#FAFAFA',
+                          border: `1px solid ${used > 0 ? '#FFCC80' : '#E0E0E0'}`,
+                        }}>
+                          <Typography variant="caption" sx={{ display: 'block', color: used > 0 ? '#E65100' : '#9E9E9E', fontWeight: 600, fontSize: 10 }}>
+                            Utilizado
+                          </Typography>
+                          <Typography variant="body2" fontWeight="bold" sx={{ color: used > 0 ? '#BF360C' : '#9E9E9E', fontSize: 13 }}>
+                            {formatCurrency(used)}
+                          </Typography>
+                        </Box>
+                        {/* Límite (gris/azul) */}
+                        <Box sx={{
+                          textAlign: 'center', py: 1, px: 0.5, borderRadius: 2,
+                          bgcolor: '#E3F2FD', border: '1px solid #BBDEFB',
+                        }}>
+                          <Typography variant="caption" sx={{ display: 'block', color: '#1565C0', fontWeight: 600, fontSize: 10 }}>
+                            Límite
+                          </Typography>
+                          <Typography variant="body2" fontWeight="bold" sx={{ color: '#0D47A1', fontSize: 13 }}>
+                            {formatCurrency(limit)}
+                          </Typography>
+                        </Box>
+                        {/* % Uso o Vencido (rojo si vencido, naranja según %) */}
+                        {Number(c.overdue_amount || 0) > 0 ? (
+                          <Box sx={{
+                            textAlign: 'center', py: 1, px: 0.5, borderRadius: 2,
+                            bgcolor: '#FFEBEE', border: '1px solid #FFCDD2',
+                          }}>
+                            <Typography variant="caption" sx={{ display: 'block', color: '#C62828', fontWeight: 600, fontSize: 10 }}>
+                              Vencido
+                            </Typography>
+                            <Typography variant="body2" fontWeight="bold" sx={{ color: '#B71C1C', fontSize: 13 }}>
+                              {formatCurrency(Number(c.overdue_amount))}
+                            </Typography>
+                          </Box>
+                        ) : (
+                          <Box sx={{
+                            textAlign: 'center', py: 1, px: 0.5, borderRadius: 2,
+                            bgcolor: pct > 85 ? '#FFEBEE' : pct > 60 ? '#FFF8E1' : '#F1F8E9',
+                            border: `1px solid ${pct > 85 ? '#FFCDD2' : pct > 60 ? '#FFE082' : '#DCEDC8'}`,
+                          }}>
+                            <Typography variant="caption" sx={{ display: 'block', color: pct > 85 ? '#C62828' : pct > 60 ? '#EF6C00' : '#558B2F', fontWeight: 600, fontSize: 10 }}>
+                              Uso
+                            </Typography>
+                            <Typography variant="body2" fontWeight="bold" sx={{ color: pct > 85 ? '#B71C1C' : pct > 60 ? '#E65100' : '#33691E', fontSize: 13 }}>
+                              {pct.toFixed(0)}%
+                            </Typography>
+                          </Box>
+                        )}
                       </Box>
 
                       {limit > 0 && (
@@ -12158,12 +12208,6 @@ export default function DashboardClient() {
                             transition: 'width 0.3s',
                           }} />
                         </Box>
-                      )}
-
-                      {Number(c.overdue_amount || 0) > 0 && (
-                        <Alert severity="warning" sx={{ mt: 1, py: 0.5 }}>
-                          ⚠️ Vencido: {formatCurrency(Number(c.overdue_amount))} MXN
-                        </Alert>
                       )}
                     </Paper>
                   );
