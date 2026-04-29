@@ -463,7 +463,9 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
       `
         SELECT
           p.id,
-          p.tracking_internal,
+          CASE WHEN p.child_no IS NOT NULL AND p.child_no LIKE 'AIR%' THEN p.child_no ELSE p.tracking_internal END AS tracking_internal,
+          p.tracking_internal AS tracking_internal_raw,
+          p.child_no,
           p.international_tracking AS awb_number,
           p.status,
           cr.status AS china_status,

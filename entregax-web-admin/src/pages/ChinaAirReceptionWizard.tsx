@@ -504,7 +504,7 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
                                                     )}
                                                 </Stack>
                                             }
-                                            secondary={`${p.user_name ? p.user_name + ' · ' : ''}${p.description || 'Sin descripción'} · ${Number(p.weight || 0).toFixed(2)} kg · status: ${p.status}`}
+                                            secondary={`${p.description || 'Sin descripción'} · ${Number(p.weight || 0).toFixed(2)} kg · status: ${p.status}`}
                                         />
                                     </ListItem>
                                 );
