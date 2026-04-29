@@ -4,7 +4,7 @@
 // y reimprimir su etiqueta
 // ============================================
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
     Box,
     Typography,
@@ -268,8 +268,161 @@ export default function RelabelingModulePage() {
     const [reprintFrom, setReprintFrom] = useState<number>(1);
     const [reprintTo, setReprintTo] = useState<number>(1);
 
+    // Captura de medidas/peso por caja (solo LOG marítimo) antes de generar PQTX
+    type DimsBox = {
+        boxNumber: number;
+        tracking: string;
+        weight: number | null;
+        length: number | null;
+        width: number | null;
+        height: number | null;
+        captured: boolean;
+    };
+    const [dimsModalOpen, setDimsModalOpen] = useState(false);
+    const [dimsBoxes, setDimsBoxes] = useState<DimsBox[]>([]);
+    const [dimsLoading, setDimsLoading] = useState(false);
+    const [dimsError, setDimsError] = useState<string | null>(null);
+    const [dimsScan, setDimsScan] = useState('');
+    const [dimsActiveBox, setDimsActiveBox] = useState<number | null>(null);
+    const [dimsForm, setDimsForm] = useState({ weight: '', length: '', width: '', height: '' });
+    const [dimsSaving, setDimsSaving] = useState(false);
+    const dimsScanRef = useRef<HTMLInputElement | null>(null);
+
+    const isMaritimeLog = (tn?: string) => !!tn && /^LOG/i.test(tn);
+
+    const loadDimsBoxes = async (orderId: string | number) => {
+        setDimsLoading(true);
+        setDimsError(null);
+        try {
+            const res = await api.get(`/admin/relabeling/maritime/${orderId}/boxes`);
+            const boxes: DimsBox[] = res.data?.boxes || [];
+            setDimsBoxes(boxes);
+            const firstPending = boxes.find(b => !b.captured);
+            setDimsActiveBox(firstPending ? firstPending.boxNumber : null);
+            setDimsForm({ weight: '', length: '', width: '', height: '' });
+            return res.data;
+        } catch (e: any) {
+            setDimsError(e.response?.data?.error || e.message || 'Error cargando cajas');
+            return null;
+        } finally {
+            setDimsLoading(false);
+        }
+    };
+
+    const openDimsModal = async () => {
+        if (!shipment) return;
+        setDimsModalOpen(true);
+        setDimsScan('');
+        await loadDimsBoxes(shipment.master.id);
+        setTimeout(() => dimsScanRef.current?.focus(), 150);
+    };
+    void openDimsModal; // reservado para uso futuro
+
+    const handleDimsScan = (raw: string) => {
+        const v = (raw || '').trim();
+        setDimsScan(v);
+        if (!v) return;
+        // Aceptar formato "...-NN" (sufijo de caja) o número de caja directo
+        const m = v.match(/-(\d+)\s*$/);
+        let boxNumber: number | null = null;
+        if (m && m[1]) boxNumber = parseInt(m[1], 10);
+        else if (/^\d+$/.test(v)) boxNumber = parseInt(v, 10);
+        if (boxNumber && dimsBoxes.find(b => b.boxNumber === boxNumber)) {
+            setDimsActiveBox(boxNumber);
+            const existing = dimsBoxes.find(b => b.boxNumber === boxNumber);
+            if (existing && existing.captured) {
+                setDimsForm({
+                    weight: String(existing.weight ?? ''),
+                    length: String(existing.length ?? ''),
+                    width: String(existing.width ?? ''),
+                    height: String(existing.height ?? ''),
+                });
+            } else {
+                setDimsForm({ weight: '', length: '', width: '', height: '' });
+            }
+            setDimsScan('');
+        }
+    };
+
+    const saveDimsBox = async () => {
+        if (!shipment || !dimsActiveBox) return;
+        const weight = parseFloat(dimsForm.weight);
+        const length = parseFloat(dimsForm.length);
+        const width = parseFloat(dimsForm.width);
+        const height = parseFloat(dimsForm.height);
+        if (![weight, length, width, height].every(n => !isNaN(n) && n > 0)) {
+            setDimsError('Captura peso y medidas válidas (mayores a 0)');
+            return;
+        }
+        setDimsSaving(true);
+        setDimsError(null);
+        try {
+            await api.post(`/admin/relabeling/maritime/${shipment.master.id}/box`, {
+                boxNumber: dimsActiveBox,
+                weight, length, width, height,
+            });
+            const data = await loadDimsBoxes(shipment.master.id);
+            // Avanzar a la siguiente caja pendiente
+            const next = (data?.boxes || []).find((b: DimsBox) => !b.captured);
+            setDimsActiveBox(next ? next.boxNumber : null);
+            setDimsForm({ weight: '', length: '', width: '', height: '' });
+            setTimeout(() => dimsScanRef.current?.focus(), 100);
+        } catch (e: any) {
+            setDimsError(e.response?.data?.error || e.message || 'Error guardando caja');
+        } finally {
+            setDimsSaving(false);
+        }
+    };
+
+    const handleGenerateMaritimePqtx = async () => {
+        if (!shipment) return;
+        setGeneratingPqtx(true);
+        setError(null);
+        setPqtxMsg(null);
+        try {
+            const res = await api.post(`/admin/relabeling/maritime/${shipment.master.id}/generate-pqtx`, {});
+            if (res.data?.success) {
+                const tn = res.data.trackingNumber;
+                setPqtxMsg(`✅ Guía PQTX generada: ${tn}`);
+                setDimsModalOpen(false);
+                const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');
+                window.open(`${baseUrl}/admin/paquete-express/label/pdf/${tn}`, '_blank');
+                await handleSearch();
+            } else {
+                setError(res.data?.error || 'No se pudo generar la guía');
+            }
+        } catch (e: any) {
+            const data = e.response?.data;
+            if (data?.needsDimensions) {
+                // Reabrir modal con cajas faltantes
+                setDimsModalOpen(true);
+                await loadDimsBoxes(shipment.master.id);
+                setDimsError(`Faltan medidas en ${data.missing?.length || '?'} caja(s)`);
+            } else {
+                setError(data?.error || e.message || 'Error generando guía marítima');
+            }
+        } finally {
+            setGeneratingPqtx(false);
+        }
+    };
+
     const handleGeneratePqtxLabel = async () => {
         if (!shipment) return;
+        // Marítimo LOG: requiere captura previa de medidas por caja
+        if (isMaritimeLog(shipment.master.tracking)) {
+            setError(null);
+            setPqtxMsg(null);
+            const data = await loadDimsBoxes(shipment.master.id);
+            if (!data) return;
+            if (data.complete) {
+                await handleGenerateMaritimePqtx();
+            } else {
+                setDimsModalOpen(true);
+                setDimsScan('');
+                setTimeout(() => dimsScanRef.current?.focus(), 150);
+            }
+            return;
+        }
         setGeneratingPqtx(true);
         setError(null);
         setPqtxMsg(null);
@@ -1061,7 +1214,7 @@ ${body}
                                                 onClick={() => openReprintModal(label)}
                                                 sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
                                             >
-                                                Reimprimir rango (1–{label.totalBoxes})
+                                                Reimprimir Etiquetas (1–{label.totalBoxes})
                                             </Button>
                                         ) : (
                                             <Stack spacing={1}>
@@ -1444,6 +1597,152 @@ ${body}
                         sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
                     >
                         Imprimir
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Modal: captura de medidas por caja para LOG marítimo antes de generar PQTX */}
+            <Dialog open={dimsModalOpen} onClose={() => setDimsModalOpen(false)} maxWidth="md" fullWidth>
+                <DialogTitle sx={{ bgcolor: '#0277BD', color: 'white' }}>
+                    Capturar medidas y peso por caja
+                    {shipment && (
+                        <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                            {shipment.master.tracking} · {dimsBoxes.filter(b => b.captured).length}/{dimsBoxes.length} cajas listas
+                        </Typography>
+                    )}
+                </DialogTitle>
+                <DialogContent sx={{ pt: 2 }}>
+                    {dimsLoading ? (
+                        <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress /></Box>
+                    ) : (
+                        <Stack spacing={2} sx={{ mt: 1 }}>
+                            {dimsError && <Alert severity="warning" onClose={() => setDimsError(null)}>{dimsError}</Alert>}
+
+                            <TextField
+                                inputRef={dimsScanRef}
+                                label="Escanear etiqueta de caja"
+                                placeholder="Escanea el código (ej: LOG26CNMX00082-05) o teclea número"
+                                value={dimsScan}
+                                onChange={(e) => handleDimsScan(e.target.value)}
+                                fullWidth
+                                autoFocus
+                                size="medium"
+                                sx={{ '& input': { fontSize: 18, fontFamily: 'monospace' } }}
+                            />
+
+                            {dimsActiveBox && (
+                                <Box sx={{ p: 2, bgcolor: '#E1F5FE', borderRadius: 1, border: '2px solid #0277BD' }}>
+                                    <Typography variant="h6" gutterBottom>
+                                        Caja {dimsActiveBox} de {dimsBoxes.length}
+                                        {dimsBoxes.find(b => b.boxNumber === dimsActiveBox)?.captured && (
+                                            <Typography component="span" sx={{ ml: 1, color: 'success.main', fontSize: 14 }}>
+                                                (ya capturada — editando)
+                                            </Typography>
+                                        )}
+                                    </Typography>
+                                    <Stack direction="row" spacing={1.5}>
+                                        <TextField
+                                            label="Peso (kg)"
+                                            type="number"
+                                            value={dimsForm.weight}
+                                            onChange={(e) => setDimsForm({ ...dimsForm, weight: e.target.value })}
+                                            inputProps={{ step: '0.01', min: '0' }}
+                                            fullWidth
+                                        />
+                                        <TextField
+                                            label="Largo (cm)"
+                                            type="number"
+                                            value={dimsForm.length}
+                                            onChange={(e) => setDimsForm({ ...dimsForm, length: e.target.value })}
+                                            inputProps={{ step: '0.1', min: '0' }}
+                                            fullWidth
+                                        />
+                                        <TextField
+                                            label="Ancho (cm)"
+                                            type="number"
+                                            value={dimsForm.width}
+                                            onChange={(e) => setDimsForm({ ...dimsForm, width: e.target.value })}
+                                            inputProps={{ step: '0.1', min: '0' }}
+                                            fullWidth
+                                        />
+                                        <TextField
+                                            label="Alto (cm)"
+                                            type="number"
+                                            value={dimsForm.height}
+                                            onChange={(e) => setDimsForm({ ...dimsForm, height: e.target.value })}
+                                            inputProps={{ step: '0.1', min: '0' }}
+                                            fullWidth
+                                        />
+                                    </Stack>
+                                    <Button
+                                        variant="contained"
+                                        onClick={saveDimsBox}
+                                        disabled={dimsSaving}
+                                        startIcon={dimsSaving ? <CircularProgress size={18} /> : null}
+                                        sx={{ mt: 1.5, bgcolor: '#0277BD' }}
+                                        fullWidth
+                                    >
+                                        {dimsSaving ? 'Guardando...' : `Guardar caja ${dimsActiveBox}`}
+                                    </Button>
+                                </Box>
+                            )}
+
+                            {!dimsActiveBox && dimsBoxes.length > 0 && dimsBoxes.every(b => b.captured) && (
+                                <Alert severity="success">
+                                    ✅ Todas las cajas tienen medidas capturadas. Ya puedes generar la guía.
+                                </Alert>
+                            )}
+
+                            <Box>
+                                <Typography variant="subtitle2" gutterBottom>
+                                    Cajas ({dimsBoxes.filter(b => b.captured).length}/{dimsBoxes.length})
+                                </Typography>
+                                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(70px, 1fr))', gap: 0.75, maxHeight: 220, overflowY: 'auto', p: 1, border: '1px solid #ddd', borderRadius: 1 }}>
+                                    {dimsBoxes.map(b => (
+                                        <Box
+                                            key={b.boxNumber}
+                                            onClick={() => {
+                                                setDimsActiveBox(b.boxNumber);
+                                                if (b.captured) {
+                                                    setDimsForm({
+                                                        weight: String(b.weight ?? ''),
+                                                        length: String(b.length ?? ''),
+                                                        width: String(b.width ?? ''),
+                                                        height: String(b.height ?? ''),
+                                                    });
+                                                } else {
+                                                    setDimsForm({ weight: '', length: '', width: '', height: '' });
+                                                }
+                                            }}
+                                            sx={{
+                                                p: 0.75,
+                                                textAlign: 'center',
+                                                borderRadius: 1,
+                                                cursor: 'pointer',
+                                                bgcolor: b.captured ? '#C8E6C9' : '#FFCDD2',
+                                                border: dimsActiveBox === b.boxNumber ? '2px solid #0277BD' : '1px solid transparent',
+                                                fontWeight: 600,
+                                                fontSize: 13,
+                                            }}
+                                        >
+                                            {b.captured ? '✓ ' : ''}{b.boxNumber}
+                                        </Box>
+                                    ))}
+                                </Box>
+                            </Box>
+                        </Stack>
+                    )}
+                </DialogContent>
+                <DialogActions sx={{ p: 2 }}>
+                    <Button onClick={() => setDimsModalOpen(false)}>Cerrar</Button>
+                    <Button
+                        variant="contained"
+                        onClick={handleGenerateMaritimePqtx}
+                        disabled={generatingPqtx || dimsBoxes.length === 0 || dimsBoxes.some(b => !b.captured)}
+                        startIcon={generatingPqtx ? <CircularProgress size={18} /> : null}
+                        sx={{ bgcolor: '#2E7D32', '&:hover': { bgcolor: '#1B5E20' } }}
+                    >
+                        {generatingPqtx ? 'Generando...' : 'Generar guía PQTX'}
                     </Button>
                 </DialogActions>
             </Dialog>

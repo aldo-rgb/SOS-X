@@ -29,7 +29,7 @@ let cachedJwtToken: string | null = null;
 // ============================================
 // HELPER: Obtener JWT Token (con cache)
 // ============================================
-async function getJwtToken(): Promise<string> {
+export async function getJwtToken(): Promise<string> {
   if (cachedJwtToken) return cachedJwtToken;
 
   const url = `${PQTX_BASE_URL}/RadRestFul/api/rad/loginv1/login`;
@@ -1084,7 +1084,7 @@ export async function pqtxClientQuote(req: Request, res: Response) {
 // Si el paquete es master con hijas, se genera UNA guía PQTX por cada hija.
 // ============================================
 
-interface PqtxAddrCtx {
+export interface PqtxAddrCtx {
   recipient_name: string | null;
   street: string | null;
   exterior_number: string | null;
@@ -1096,7 +1096,7 @@ interface PqtxAddrCtx {
   phone: string | null;
 }
 
-async function generateOnePqtxGuide(params: {
+export async function generateOnePqtxGuide(params: {
   pkgId: number;
   trackingInternal: string;
   // Lista de bultos (cajas). Si hay 1 caja → guía single. Si hay N → guía multipieza.

@@ -741,6 +741,11 @@ import {
   pqtxGenerateForPackage,
 } from './paqueteExpressController';
 import {
+  getMaritimeOrderBoxes,
+  upsertMaritimeOrderBox,
+  generatePqtxForMaritimeOrder,
+} from './relabelingMaritimeController';
+import {
   getCarrierOptions,
   getCarrierOptionsByService,
   createCarrierOption,
@@ -3297,6 +3302,11 @@ app.get('/api/admin/paquete-express/label/pdf/:trackingNumber', pqtxLabelPdf); /
 app.get('/api/admin/paquete-express/label/zpl/:trackingNumber', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxLabelZpl);
 app.get('/api/admin/paquete-express/shipments', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxListShipments);
 app.post('/api/admin/paquete-express/generate-for-package', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxGenerateForPackage);
+
+// Maritime relabeling: capture per-box dimensions and generate PQTX guide
+app.get('/api/admin/relabeling/maritime/:orderId/boxes', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getMaritimeOrderBoxes);
+app.post('/api/admin/relabeling/maritime/:orderId/box', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), upsertMaritimeOrderBox);
+app.post('/api/admin/relabeling/maritime/:orderId/generate-pqtx', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), generatePqtxForMaritimeOrder);
 
 // ========== OPCIONES DE PAQUETERÍA POR SERVICIO ==========
 app.get('/api/admin/carrier-options', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getCarrierOptions);
