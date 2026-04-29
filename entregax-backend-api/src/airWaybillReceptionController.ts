@@ -38,7 +38,8 @@ export const listInTransitAwbs = async (_req: AuthRequest, res: Response): Promi
         (
           SELECT COUNT(*) FROM packages p
           WHERE p.international_tracking = ac.awb_number
-            AND p.status = 'received_mty'
+            AND p.status::text LIKE 'received_%'
+            AND p.status::text NOT IN ('received_china','received_china_air','received_china_sea','received_origin')
         ) AS received_packages,
         (
           SELECT COUNT(*) FROM packages p
@@ -126,6 +127,47 @@ export const scanAwbPackage = async (req: AuthRequest, res: Response): Promise<v
 
     await client.query('BEGIN');
 
+    // Determinar sucursal del usuario que escanea (para asignar status received_<code>)
+    let receivedStatus = 'received_mty';
+    let userBranchId: number | null = null;
+    let userBranchCode: string | null = null;
+    if (userId) {
+      try {
+        const userBranchRes = await client.query(
+          `SELECT u.branch_id, b.code AS branch_code
+             FROM users u
+             LEFT JOIN branches b ON b.id = u.branch_id
+            WHERE u.id = $1`,
+          [userId]
+        );
+        if (userBranchRes.rows.length > 0) {
+          const row = userBranchRes.rows[0];
+          userBranchId = row.branch_id || null;
+          userBranchCode = row.branch_code || null;
+          if (userBranchCode) {
+            // Normalizar código: ej 'CEDIS-CDMX' o 'CDMX' → 'cdmx'
+            const codeRaw = String(userBranchCode).trim().toLowerCase();
+            const codeKey = codeRaw.replace(/^cedis[-_ ]?/, '').replace(/[^a-z0-9]/g, '');
+            // Validar contra valores existentes en el enum
+            const enumRes = await client.query(
+              `SELECT 1 FROM pg_enum e
+                 JOIN pg_type t ON t.oid = e.enumtypid
+                WHERE t.typname = 'package_status' AND e.enumlabel = $1
+                LIMIT 1`,
+              [`received_${codeKey}`]
+            );
+            if (enumRes.rows.length > 0) {
+              receivedStatus = `received_${codeKey}`;
+            } else {
+              console.warn(`[AWB-RX] Status received_${codeKey} no existe en enum, usando received_mty`);
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[AWB-RX] No se pudo resolver branch del usuario:', (e as Error).message);
+      }
+    }
+
     // Validar AWB
     const awbRes = await client.query(
       `SELECT id, awb_number, received_at FROM air_waybill_costs WHERE id = $1 FOR UPDATE`,
@@ -164,33 +206,42 @@ export const scanAwbPackage = async (req: AuthRequest, res: Response): Promise<v
 
     const pkg = pkgRes.rows[0];
 
-    if (pkg.status === 'received_mty') {
+    const isMxReceived = (s: string | null | undefined) => {
+      const st = String(s || '').toLowerCase();
+      if (!st.startsWith('received_')) return false;
+      // Excluir status de origen (China)
+      if (st === 'received_china' || st === 'received_china_air' || st === 'received_china_sea' || st === 'received_origin') return false;
+      return true;
+    };
+
+    if (isMxReceived(pkg.status)) {
       await client.query('ROLLBACK');
       res.json({
         success: true,
         already_received: true,
         package: pkg,
-        message: 'Esta guía ya estaba marcada como recibida',
+        message: `Esta guía ya estaba marcada como recibida (${pkg.status})`,
       });
       return;
     }
 
-    // Actualizar paquete
+    // Actualizar paquete con status según sucursal del usuario + branch_id
     await client.query(
       `UPDATE packages
-       SET status = 'received_mty',
+       SET status = $1::package_status,
+           current_branch_id = COALESCE($2, current_branch_id),
            missing_on_arrival = FALSE,
            updated_at = NOW()
-       WHERE id = $1`,
-      [pkg.id]
+       WHERE id = $3`,
+      [receivedStatus, userBranchId, pkg.id]
     );
 
     // Insertar historial si la tabla existe
     try {
       await client.query(
         `INSERT INTO package_history (package_id, status, notes, created_by, created_at)
-         VALUES ($1, 'received_mty', $2, $3, NOW())`,
-        [pkg.id, `Recibido en MTY vía AWB ${awb.awb_number}`, userId || null]
+         VALUES ($1, $2, $3, $4, NOW())`,
+        [pkg.id, receivedStatus, `Recibido en ${userBranchCode || 'CEDIS'} vía AWB ${awb.awb_number}`, userId || null]
       );
     } catch (_) {
       /* tabla puede no existir, ignorar */
@@ -200,8 +251,8 @@ export const scanAwbPackage = async (req: AuthRequest, res: Response): Promise<v
 
     res.json({
       success: true,
-      package: { ...pkg, status: 'received_mty' },
-      message: 'Paquete recibido correctamente',
+      package: { ...pkg, status: receivedStatus },
+      message: `Paquete recibido correctamente en ${userBranchCode || 'CEDIS MTY'}`,
     });
   } catch (error: any) {
     await client.query('ROLLBACK').catch(() => undefined);
@@ -248,7 +299,13 @@ export const finalizeAwbReception = async (req: AuthRequest, res: Response): Pro
     );
 
     const total = pkgs.rows.length;
-    const received = pkgs.rows.filter((p) => p.status === 'received_mty').length;
+    const isMxReceivedFinal = (s: string | null | undefined) => {
+      const st = String(s || '').toLowerCase();
+      if (!st.startsWith('received_')) return false;
+      if (st === 'received_china' || st === 'received_china_air' || st === 'received_china_sea' || st === 'received_origin') return false;
+      return true;
+    };
+    const received = pkgs.rows.filter((p) => isMxReceivedFinal(p.status)).length;
     const missing = total - received;
 
     if (missing > 0 && !allow_partial) {
@@ -266,7 +323,9 @@ export const finalizeAwbReception = async (req: AuthRequest, res: Response): Pro
       await client.query(
         `UPDATE packages
          SET missing_on_arrival = TRUE, updated_at = NOW()
-         WHERE international_tracking = $1 AND status <> 'received_mty'`,
+         WHERE international_tracking = $1
+           AND (status::text NOT LIKE 'received_%'
+                OR status::text IN ('received_china','received_china_air','received_china_sea','received_origin'))`,
         [awb.awb_number]
       );
     }
@@ -324,7 +383,8 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
       if (s === 'missing') {
         where += ` AND COALESCE(p.missing_on_arrival, FALSE) = TRUE`;
       } else if (s === 'in_warehouse') {
-        where += ` AND p.status = 'received_mty'`;
+        where += ` AND p.status::text LIKE 'received_%'
+                   AND p.status::text NOT IN ('received_china','received_china_air','received_china_sea','received_origin')`;
       } else if (s === 'waiting_customs_gz') {
         // El status IN_CUSTOMS_GZ vive en china_receipts (no en packages.status que es enum)
         where += ` AND cr.status = 'in_customs_gz'`;
@@ -376,7 +436,9 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
           p.weight,
           p.dimensions,
           CASE
-            WHEN p.status = 'received_mty' THEN p.updated_at
+            WHEN p.status::text LIKE 'received_%'
+                 AND p.status::text NOT IN ('received_china','received_china_air','received_china_sea','received_origin')
+              THEN p.updated_at
             ELSE NULL
           END AS received_at,
           COALESCE(p.missing_on_arrival, FALSE) AS missing_on_arrival,
@@ -397,7 +459,8 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
       `
         SELECT
           COUNT(*)::int AS total,
-          COUNT(*) FILTER (WHERE p.status = 'received_mty')::int AS in_warehouse,
+          COUNT(*) FILTER (WHERE p.status::text LIKE 'received_%'
+                                 AND p.status::text NOT IN ('received_china','received_china_air','received_china_sea','received_origin'))::int AS in_warehouse,
           COUNT(*) FILTER (WHERE cr.status = 'in_customs_gz')::int AS waiting_customs_gz,
           COUNT(*) FILTER (WHERE p.status = 'received_china')::int AS received_china,
           COUNT(*) FILTER (WHERE p.status = 'in_transit')::int AS in_transit,
