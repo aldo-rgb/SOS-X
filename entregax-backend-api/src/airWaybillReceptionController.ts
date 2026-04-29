@@ -125,48 +125,59 @@ export const scanAwbPackage = async (req: AuthRequest, res: Response): Promise<v
 
     const cleanTracking = String(tracking).trim().toUpperCase();
 
-    await client.query('BEGIN');
-
-    // Determinar sucursal del usuario que escanea (para asignar status received_<code>)
-    let receivedStatus = 'received_mty';
+    // Determinar sucursal del usuario que escanea ANTES de iniciar la transacción
+    // Si el usuario no tiene sucursal asignada, no puede recibir
+    let receivedStatus: string | null = null;
     let userBranchId: number | null = null;
     let userBranchCode: string | null = null;
-    if (userId) {
-      try {
-        const userBranchRes = await client.query(
-          `SELECT u.branch_id, b.code AS branch_code
-             FROM users u
-             LEFT JOIN branches b ON b.id = u.branch_id
-            WHERE u.id = $1`,
-          [userId]
-        );
-        if (userBranchRes.rows.length > 0) {
-          const row = userBranchRes.rows[0];
-          userBranchId = row.branch_id || null;
-          userBranchCode = row.branch_code || null;
-          if (userBranchCode) {
-            // Normalizar código: ej 'CEDIS-CDMX' o 'CDMX' → 'cdmx'
-            const codeRaw = String(userBranchCode).trim().toLowerCase();
-            const codeKey = codeRaw.replace(/^cedis[-_ ]?/, '').replace(/[^a-z0-9]/g, '');
-            // Validar contra valores existentes en el enum
-            const enumRes = await client.query(
-              `SELECT 1 FROM pg_enum e
-                 JOIN pg_type t ON t.oid = e.enumtypid
-                WHERE t.typname = 'package_status' AND e.enumlabel = $1
-                LIMIT 1`,
-              [`received_${codeKey}`]
-            );
-            if (enumRes.rows.length > 0) {
-              receivedStatus = `received_${codeKey}`;
-            } else {
-              console.warn(`[AWB-RX] Status received_${codeKey} no existe en enum, usando received_mty`);
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('[AWB-RX] No se pudo resolver branch del usuario:', (e as Error).message);
-      }
+    if (!userId) {
+      res.status(401).json({ success: false, error: 'Usuario no autenticado' });
+      return;
     }
+    {
+      const userBranchRes = await client.query(
+        `SELECT u.branch_id, b.code AS branch_code
+           FROM users u
+           LEFT JOIN branches b ON b.id = u.branch_id
+          WHERE u.id = $1`,
+        [userId]
+      );
+      if (userBranchRes.rows.length === 0) {
+        res.status(403).json({ success: false, error: 'Usuario no encontrado' });
+        return;
+      }
+      const row = userBranchRes.rows[0];
+      userBranchId = row.branch_id || null;
+      userBranchCode = row.branch_code || null;
+      if (!userBranchId || !userBranchCode) {
+        res.status(403).json({
+          success: false,
+          error: 'No tienes una sucursal asignada. Contacta al administrador para asignarte un CEDIS antes de recibir paquetes.',
+        });
+        return;
+      }
+      // Normalizar código: ej 'CEDIS-CDMX' o 'CDMX' → 'cdmx'
+      const codeRaw = String(userBranchCode).trim().toLowerCase();
+      const codeKey = codeRaw.replace(/^cedis[-_ ]?/, '').replace(/[^a-z0-9]/g, '');
+      // Validar contra valores existentes en el enum
+      const enumRes = await client.query(
+        `SELECT 1 FROM pg_enum e
+           JOIN pg_type t ON t.oid = e.enumtypid
+          WHERE t.typname = 'package_status' AND e.enumlabel = $1
+          LIMIT 1`,
+        [`received_${codeKey}`]
+      );
+      if (enumRes.rows.length === 0) {
+        res.status(500).json({
+          success: false,
+          error: `El status received_${codeKey} no existe en la base de datos. Contacta al administrador.`,
+        });
+        return;
+      }
+      receivedStatus = `received_${codeKey}`;
+    }
+
+    await client.query('BEGIN');
 
     // Validar AWB
     const awbRes = await client.query(
