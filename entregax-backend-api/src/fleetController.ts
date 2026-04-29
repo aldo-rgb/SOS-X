@@ -1,5 +1,18 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { getSignedUrlForKey, extractKeyFromUrl } from './s3Service';
+
+const signDocumentFileUrl = async (fileUrl: string | null | undefined): Promise<string | null> => {
+  if (!fileUrl) return null;
+  try {
+    const key = extractKeyFromUrl(fileUrl);
+    if (!key) return fileUrl;
+    return await getSignedUrlForKey(key, 3600);
+  } catch (err) {
+    console.error('🚚 [FLEET] Error firmando URL de documento:', (err as Error).message);
+    return fileUrl;
+  }
+};
 
 const getAuthUserId = (req: Request): number | null => {
   const rawId = (req as any).user?.userId ?? (req as any).user?.id;
@@ -218,10 +231,28 @@ export const getVehicleDetail = async (req: Request, res: Response) => {
     const docsExpensesResult = await pool.query(`
       SELECT COALESCE(SUM(cost), 0) as total_docs FROM vehicle_documents WHERE vehicle_id = $1
     `, [id]);
+
+    // Generar presigned URLs para los archivos de documentos en S3 (bucket privado)
+    // Restricción: la Factura solo puede ser vista por super_admin, admin y director
+    const requesterRole: string = ((req as any).user?.role || '').toLowerCase();
+    const RESTRICTED_DOC_TYPES = new Set(['Factura']);
+    const PRIVILEGED_ROLES = new Set(['super_admin', 'admin', 'director']);
+    const canViewRestricted = PRIVILEGED_ROLES.has(requesterRole);
+
+    const documentsWithSignedUrls = await Promise.all(
+      docsResult.rows.map(async (doc: any) => {
+        const isRestricted = RESTRICTED_DOC_TYPES.has(doc.document_type) && !canViewRestricted;
+        return {
+          ...doc,
+          file_url: isRestricted ? null : await signDocumentFileUrl(doc.file_url),
+          file_restricted: isRestricted && !!doc.file_url,
+        };
+      })
+    );
     
     res.json({
       vehicle: vehicleResult.rows[0],
-      documents: docsResult.rows,
+      documents: documentsWithSignedUrls,
       maintenance: maintenanceResult.rows,
       inspections: inspectionsResult.rows,
       assignments: assignmentsResult.rows,

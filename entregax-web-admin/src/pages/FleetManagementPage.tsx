@@ -1250,6 +1250,14 @@ export default function FleetManagementPage() {
                                 >
                                   Ver
                                 </Button>
+                              ) : (doc as any).file_restricted ? (
+                                <Chip
+                                  label="🔒 Acceso restringido"
+                                  size="small"
+                                  color="warning"
+                                  variant="outlined"
+                                  title="Solo super admin, admin y director pueden ver este archivo"
+                                />
                               ) : (
                                 <Typography variant="caption" color="text.secondary">—</Typography>
                               )}
