@@ -417,7 +417,7 @@ function App() {
       });
       // Mantener solo notificaciones virtuales (id < 0)
       setNotifications(prev => prev.filter(n => n.id < 0));
-      setUnreadCount(prev => {
+      setUnreadCount(() => {
         // Recalcular: contar virtuales no leídas
         return 0; // Se recargará en el próximo poll
       });
