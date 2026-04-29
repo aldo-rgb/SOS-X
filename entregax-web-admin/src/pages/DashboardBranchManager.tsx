@@ -107,7 +107,10 @@ export default function DashboardBranchManager() {
       ]);
       setDelayedCount((resPobox.data?.packages || []).length);
       setDelayedAirCount((resAir.data?.packages || []).length);
-      setDelayedSeaCount((resSea.data?.packages || []).length);
+      // Marítimo: priorizar el total de cajas perdidas (logs incompletos)
+      const seaSummary = resSea.data?.summary;
+      const seaBoxes = Number(seaSummary?.total_missing_boxes || 0);
+      setDelayedSeaCount(seaBoxes > 0 ? seaBoxes : (resSea.data?.packages || []).length);
     } catch (err) {
       console.error('Error loading delayed counts:', err);
     }
@@ -395,7 +398,7 @@ export default function DashboardBranchManager() {
                   <Typography variant="body2" sx={{ opacity: 0.9 }}>Retraso Marítimo</Typography>
                   <Typography variant="h3" fontWeight="bold">{delayedSeaCount}</Typography>
                   <Typography variant="caption">
-                    {delayedSeaCount === 0 ? 'sin retrasos' : delayedSeaCount === 1 ? 'pedido retrasado' : 'pedidos retrasados'}
+                    {delayedSeaCount === 0 ? 'sin cajas perdidas' : delayedSeaCount === 1 ? 'caja perdida en log' : 'cajas perdidas en logs'}
                   </Typography>
                 </Box>
                 <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>

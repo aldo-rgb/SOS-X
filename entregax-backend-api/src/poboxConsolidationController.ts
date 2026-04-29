@@ -412,6 +412,12 @@ export const getDelayedPackages = async (req: AuthRequest, res: Response): Promi
     }
 
     // ============ SEA (SEA_CHN_MX / FCL_CHN_MX) ============
+    // Lógica: detectar logs (containers) que llegaron incompletos.
+    // Una orden marítima cuenta como "perdida" cuando:
+    //   - el contenedor (log) ya fue recibido (c.received_at IS NOT NULL)
+    //     y la orden quedó marcada como missing_on_arrival = TRUE
+    //     (es decir, el log no llegó completo: faltaron cajas)
+    //   - o el contenedor lleva 5+ días sin recibirse (eta/laden vencidos)
     if (service === 'sea') {
       const result = await pool.query(
         `SELECT
@@ -421,10 +427,16 @@ export const getDelayedPackages = async (req: AuthRequest, res: Response): Promi
            'SEA_CHN_MX' AS service_type,
            COALESCE(mo.summary_description, mo.goods_name) AS description,
            mo.weight,
+           COALESCE(mo.goods_num, mo.summary_boxes, 0) AS boxes,
+           CASE WHEN mo.missing_on_arrival = TRUE
+                THEN COALESCE(mo.goods_num, mo.summary_boxes, 0)
+                ELSE 0 END AS boxes_missing,
            mo.container_id AS consolidation_id,
            NULL::timestamp AS missing_reported_at,
            mo.created_at,
            COALESCE(c.bl_number, c.container_number, c.reference_code) AS master_tracking,
+           c.container_number,
+           c.bl_number,
            c.status AS consolidation_status,
            COALESCE(c.laden_on_board::timestamp, c.eta::timestamp) AS consolidation_dispatched_at,
            c.received_at AS consolidation_received_at,
@@ -444,6 +456,7 @@ export const getDelayedPackages = async (req: AuthRequest, res: Response): Promi
              ELSE NULL
            END AS days_delayed,
            CASE
+             WHEN mo.missing_on_arrival = TRUE AND c.received_at IS NOT NULL THEN 'log_incompleto'
              WHEN mo.missing_on_arrival = TRUE THEN 'faltante'
              WHEN c.received_at IS NULL THEN 'contenedor_atrasado'
              ELSE 'otro'
@@ -464,9 +477,45 @@ export const getDelayedPackages = async (req: AuthRequest, res: Response): Promi
                )
              )
            )
-         ORDER BY days_delayed DESC NULLS LAST`
+         ORDER BY (mo.missing_on_arrival = TRUE AND c.received_at IS NOT NULL) DESC, days_delayed DESC NULLS LAST`
       );
-      return res.json({ success: true, packages: result.rows, service: 'sea' });
+
+      // Resumen agregado por log (contenedor)
+      const summaryRes = await pool.query(
+        `SELECT
+           c.id AS container_id,
+           COALESCE(c.bl_number, c.container_number, c.reference_code) AS master_tracking,
+           c.container_number,
+           c.bl_number,
+           c.received_at,
+           COUNT(*) FILTER (WHERE mo.missing_on_arrival = TRUE)::int AS missing_orders,
+           COALESCE(SUM(CASE WHEN mo.missing_on_arrival = TRUE
+                             THEN COALESCE(mo.goods_num, mo.summary_boxes, 0)
+                             ELSE 0 END), 0)::int AS missing_boxes,
+           COALESCE(SUM(COALESCE(mo.goods_num, mo.summary_boxes, 0)), 0)::int AS total_boxes
+         FROM containers c
+         JOIN maritime_orders mo ON mo.container_id = c.id
+         WHERE EXISTS (
+           SELECT 1 FROM maritime_orders mo2
+           WHERE mo2.container_id = c.id AND mo2.missing_on_arrival = TRUE
+         )
+         GROUP BY c.id, c.bl_number, c.container_number, c.reference_code, c.received_at
+         ORDER BY missing_boxes DESC`
+      );
+
+      const totalMissingBoxes = summaryRes.rows.reduce((s: number, r: any) => s + (r.missing_boxes || 0), 0);
+      const totalIncompleteContainers = summaryRes.rows.length;
+
+      return res.json({
+        success: true,
+        packages: result.rows,
+        service: 'sea',
+        summary: {
+          total_missing_boxes: totalMissingBoxes,
+          total_incomplete_containers: totalIncompleteContainers,
+          containers: summaryRes.rows,
+        },
+      });
     }
 
     // ============ PO BOX (default) ============

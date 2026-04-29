@@ -51,10 +51,31 @@ interface DelayedPackage {
     user_phone: string | null;
     box_id: string | null;
     days_delayed: number | null;
+    boxes?: number;
+    boxes_missing?: number;
+    container_number?: string | null;
+    bl_number?: string | null;
+    delay_reason?: string | null;
+}
+
+interface SeaSummary {
+    total_missing_boxes: number;
+    total_incomplete_containers: number;
+    containers: Array<{
+        container_id: number;
+        master_tracking: string | null;
+        container_number: string | null;
+        bl_number: string | null;
+        received_at: string | null;
+        missing_orders: number;
+        missing_boxes: number;
+        total_boxes: number;
+    }>;
 }
 
 export default function DelayedPackagesPage({ hideActions = false, service = 'pobox' }: { hideActions?: boolean; service?: 'pobox' | 'air' | 'sea' } = {}) {
     const [packages, setPackages] = useState<DelayedPackage[]>([]);
+    const [seaSummary, setSeaSummary] = useState<SeaSummary | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [search, setSearch] = useState('');
@@ -72,6 +93,7 @@ export default function DelayedPackagesPage({ hideActions = false, service = 'po
         try {
             const res = await api.get(`/admin/customer-service/delayed-packages?service=${service}`);
             setPackages(res.data.packages || []);
+            setSeaSummary(res.data?.summary || null);
         } catch (e: any) {
             setError(e.response?.data?.error || e.message);
         } finally {
@@ -242,6 +264,29 @@ export default function DelayedPackagesPage({ hideActions = false, service = 'po
             {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
             {successMsg && <Alert severity="success" sx={{ mb: 2 }} onClose={() => setSuccessMsg(null)}>{successMsg}</Alert>}
 
+            {/* Resumen de logs incompletos (solo marítimo) */}
+            {service === 'sea' && seaSummary && seaSummary.total_incomplete_containers > 0 && (
+                <Alert severity="error" icon={<ReportProblemIcon />} sx={{ mb: 2 }}>
+                    <Typography variant="subtitle2" fontWeight={700}>
+                        {seaSummary.total_incomplete_containers} log(s) llegaron incompletos · {seaSummary.total_missing_boxes} caja(s) perdidas en total
+                    </Typography>
+                    <Box component="ul" sx={{ m: 0, pl: 2, mt: 0.5 }}>
+                        {seaSummary.containers.slice(0, 5).map((c) => (
+                            <li key={c.container_id}>
+                                <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
+                                    {c.master_tracking || `#${c.container_id}`}
+                                </Typography>
+                                {' '}— faltaron <strong>{c.missing_boxes}</strong> de {c.total_boxes} caja(s)
+                                {' '}({c.missing_orders} orden(es))
+                            </li>
+                        ))}
+                        {seaSummary.containers.length > 5 && (
+                            <li><Typography variant="caption" color="text.secondary">y {seaSummary.containers.length - 5} log(s) más…</Typography></li>
+                        )}
+                    </Box>
+                </Alert>
+            )}
+
             <TextField
                 fullWidth
                 size="small"
@@ -337,6 +382,7 @@ export default function DelayedPackagesPage({ hideActions = false, service = 'po
                                 <TableCell>Servicio</TableCell>
                                 <TableCell>Cliente</TableCell>
                                 <TableCell>Consolidación</TableCell>
+                                {service === 'sea' && <TableCell align="center">Cajas perdidas</TableCell>}
                                 <TableCell>Reportado</TableCell>
                                 <TableCell>Días de retraso</TableCell>
                                 {!hideActions && <TableCell align="right">Acciones</TableCell>}
@@ -411,6 +457,22 @@ export default function DelayedPackagesPage({ hideActions = false, service = 'po
                                                 </Typography>
                                             )}
                                         </TableCell>
+                                        {service === 'sea' && (
+                                            <TableCell align="center">
+                                                {(p.boxes_missing || 0) > 0 ? (
+                                                    <Chip
+                                                        label={`${p.boxes_missing} / ${p.boxes || 0}`}
+                                                        color="error"
+                                                        size="small"
+                                                        icon={<ReportProblemIcon />}
+                                                    />
+                                                ) : (
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        {p.boxes || 0} caja(s)
+                                                    </Typography>
+                                                )}
+                                            </TableCell>
+                                        )}
                                         <TableCell>
                                             {p.missing_reported_at
                                                 ? new Date(p.missing_reported_at).toLocaleDateString()
