@@ -174,18 +174,18 @@ const isMaritimeLog = (tn?: string): boolean => !!tn && /^LOG/i.test(tn);
 
 // HTML 2-up para etiquetas LOG marítimo (mismo formato que web RelabelingModulePage)
 const buildMaritimeBulkHtml = (labels: LabelData[]): string => {
-  const renderHalf = (label: LabelData, idx: number, position: 'top' | 'bottom') => {
-    const safeBcId = `bc_${idx}_${Math.random().toString(36).slice(2, 8)}`;
+  const renderHalf = (label: LabelData, _idx: number, position: 'top' | 'bottom') => {
     const cleanBarcode = label.tracking.replace(/[^A-Z0-9]/gi, '');
+    const barcodeUrl = `https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent(cleanBarcode)}&scale=3&height=15&includetext=N&backgroundcolor=FFFFFF`;
     const volumeStr = label.dimensions || '';
     return `
-    <div class="half ${position}" data-bc="${safeBcId}" data-tracking="${cleanBarcode}">
+    <div class="half ${position}">
       <div class="header">
         <div class="service">MARÍTIMO</div>
         <div class="date-badge">${label.boxNumber}/${label.totalBoxes}</div>
       </div>
       <div class="tracking-code">${label.tracking}</div>
-      <div class="barcode-section"><svg id="${safeBcId}"></svg></div>
+      <div class="barcode-section"><img class="barcode-img" src="${barcodeUrl}" alt="${cleanBarcode}" /></div>
       <div class="client-mark">${label.clientBoxId || '—'}</div>
       <div class="details">
         ${volumeStr ? `<span class="detail-item">📐 ${volumeStr}</span>` : ''}
@@ -226,25 +226,15 @@ const buildMaritimeBulkHtml = (labels: LabelData[]): string => {
   .date-badge { color: #000; font-size: 22px; font-weight: 900; }
   .tracking-code { text-align: center; font-size: 18px; font-weight: bold; letter-spacing: 1px; font-family: 'Courier New', monospace; margin: 2px 0; }
   .barcode-section { text-align: center; }
-  .barcode-section svg { width: 92%; height: 50px; }
+  .barcode-img { width: 92%; height: 50px; object-fit: fill; }
   .client-mark { text-align: center; font-size: 38px; color: #FF6B35; font-weight: 900; letter-spacing: 2px; line-height: 1; margin: 2px 0; }
   .details { text-align: center; font-size: 12px; font-weight: 600; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
   .detail-item { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; }
   @page { size: 4in 6in; margin: 0; }
   @media print { body { margin: 0; padding: 0; } .page { page-break-inside: avoid; overflow: hidden; } }
 </style>
-<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
 </head><body>
 ${pages.join('')}
-<script>
-window.addEventListener('load', function() {
-  document.querySelectorAll('.half[data-bc]').forEach(function(el) {
-    var id = el.getAttribute('data-bc');
-    var tracking = el.getAttribute('data-tracking') || '';
-    try { JsBarcode('#' + id, tracking, { format: 'CODE128', width: 2, height: 50, displayValue: false, margin: 0 }); } catch(e) {}
-  });
-});
-</script>
 </body></html>`;
 };
 
@@ -254,11 +244,12 @@ const buildLabelHtml = (label: LabelData): string => {
   const dimsStr = label.dimensions || '—';
   const recvDate = label.receivedAt ? new Date(label.receivedAt).toLocaleDateString() : '';
   const trackingQr = `https://app.entregax.com/track/${label.tracking}`;
+  const cleanBc = label.tracking.replace(/[^A-Z0-9]/gi, '');
+  const barcodeUrl = `https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent(cleanBc)}&scale=3&height=18&includetext=N&backgroundcolor=FFFFFF`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=0&data=${encodeURIComponent(trackingQr)}`;
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/>
-<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <style>
   @page { size: 4in 6in; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -267,7 +258,7 @@ const buildLabelHtml = (label: LabelData): string => {
   .header .service { display: inline-block; padding: 6px 14px; border: 2px solid #000; color: #000; font-size: 16px; font-weight: 900; border-radius: 4px; }
   .tracking-big { font-size: 18px; font-weight: 900; text-align: center; margin: 4px 0; font-family: 'Courier New', monospace; }
   .barcode-box { text-align: center; margin: 4px 0; }
-  .barcode-box svg { max-height: 85px; width: 100%; }
+  .barcode-box img { max-height: 85px; width: 100%; object-fit: fill; }
   .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 6px; font-size: 10px; margin: 4px 0; }
   .info-grid .label { font-weight: 700; color: #555; }
   .client-box { border: 2px solid #000; padding: 6px; margin: 4px 0; text-align: center; }
@@ -284,7 +275,7 @@ const buildLabelHtml = (label: LabelData): string => {
 </style></head><body>
   <div class="header"><div class="service">${svc.emoji} ${svc.label}</div></div>
   <div class="tracking-big">${label.tracking}</div>
-  <div class="barcode-box"><svg id="barcode"></svg></div>
+  <div class="barcode-box"><img src="${barcodeUrl}" alt="${cleanBc}" /></div>
   <div class="client-box"><div class="box-id">Box: ${label.clientBoxId}</div></div>
   ${label.destinationCode ? `<div class="dest-banner">
     <div class="code">${label.destinationCode}</div>
@@ -297,37 +288,29 @@ const buildLabelHtml = (label: LabelData): string => {
     ${recvDate ? `<div><span class="label">Recibido:</span> ${recvDate}</div>` : ''}
   </div>
   <div class="qr-footer">
-    <div class="qr-box"><div id="qrcode"></div></div>
+    <div class="qr-box"><img src="${qrUrl}" alt="QR" /></div>
     <div class="box-count">
       ${label.totalBoxes > 1 ? `<div>Caja</div><div class="big">${label.boxNumber} / ${label.totalBoxes}</div>` : `<div class="big">1 / 1</div>`}
     </div>
   </div>
-<script>
-  window.addEventListener('load', function() {
-    try { JsBarcode('#barcode', '${label.tracking}', { format: 'CODE128', width: 2, height: 60, displayValue: false, margin: 0 }); } catch(e) {}
-    try {
-      var qr = qrcode(0, 'M'); qr.addData('${trackingQr}'); qr.make();
-      document.getElementById('qrcode').innerHTML = qr.createImgTag(3);
-    } catch(e) {}
-  });
-</script>
 </body></html>`;
 };
 
 const buildBulkLabelsHtml = (labels: LabelData[]): string => {
-  const pages = labels.map((label, idx) => {
+  const pages = labels.map((label) => {
     const svc = getServiceInfo(label.tracking);
     const weightStr = label.weight ? `${Number(label.weight).toFixed(2)} kg` : '—';
     const dimsStr = label.dimensions || '—';
     const recvDate = label.receivedAt ? new Date(label.receivedAt).toLocaleDateString() : '';
     const trackingQr = `https://app.entregax.com/track/${label.tracking}`;
-    const barcodeId = `barcode-${idx}`;
-    const qrId = `qrcode-${idx}`;
+    const cleanBc = label.tracking.replace(/[^A-Z0-9]/gi, '');
+    const barcodeUrl = `https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent(cleanBc)}&scale=3&height=18&includetext=N&backgroundcolor=FFFFFF`;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=0&data=${encodeURIComponent(trackingQr)}`;
 
     return `<section class="page">
       <div class="header"><div class="service">${svc.emoji} ${svc.label}</div></div>
       <div class="tracking-big">${label.tracking}</div>
-      <div class="barcode-box"><svg id="${barcodeId}"></svg></div>
+      <div class="barcode-box"><img src="${barcodeUrl}" alt="${cleanBc}" /></div>
       <div class="client-box"><div class="box-id">Box: ${label.clientBoxId}</div></div>
       ${label.destinationCode ? `<div class="dest-banner">
         <div class="code">${label.destinationCode}</div>
@@ -340,22 +323,16 @@ const buildBulkLabelsHtml = (labels: LabelData[]): string => {
         ${recvDate ? `<div><span class="label">Recibido:</span> ${recvDate}</div>` : ''}
       </div>
       <div class="qr-footer">
-        <div class="qr-box"><div id="${qrId}"></div></div>
+        <div class="qr-box"><img src="${qrUrl}" alt="QR" /></div>
         <div class="box-count">
           ${label.totalBoxes > 1 ? `<div>Caja</div><div class="big">${label.boxNumber} / ${label.totalBoxes}</div>` : `<div class="big">1 / 1</div>`}
         </div>
       </div>
-      <script>
-        try { JsBarcode('#${barcodeId}', '${label.tracking}', { format: 'CODE128', width: 2, height: 60, displayValue: false, margin: 0 }); } catch(e) {}
-        try { var qr = qrcode(0, 'M'); qr.addData('${trackingQr}'); qr.make(); document.getElementById('${qrId}').innerHTML = qr.createImgTag(3); } catch(e) {}
-      </script>
     </section>`;
   }).join('');
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/>
-<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <style>
   @page { size: 4in 6in; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -366,7 +343,7 @@ const buildBulkLabelsHtml = (labels: LabelData[]): string => {
   .header .service { display: inline-block; padding: 6px 14px; border: 2px solid #000; color: #000; font-size: 16px; font-weight: 900; border-radius: 4px; }
   .tracking-big { font-size: 18px; font-weight: 900; text-align: center; margin: 4px 0; font-family: 'Courier New', monospace; }
   .barcode-box { text-align: center; margin: 4px 0; }
-  .barcode-box svg { max-height: 85px; width: 100%; }
+  .barcode-box img { max-height: 85px; width: 100%; object-fit: fill; }
   .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 6px; font-size: 10px; margin: 4px 0; }
   .info-grid .label { font-weight: 700; color: #555; }
   .client-box { border: 2px solid #000; padding: 6px; margin: 4px 0; text-align: center; }
@@ -393,11 +370,12 @@ const buildLocalDeliveryHtml = (shipment: ShipmentData): string => {
   const today = new Date().toLocaleDateString('es-MX');
   const trackingQr = `https://app.entregax.com/track/${tn}`;
   const svc = getServiceInfo(tn);
+  const cleanBc = tn.replace(/[^A-Z0-9]/gi, '');
+  const barcodeUrl = `https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent(cleanBc)}&scale=3&height=15&includetext=N&backgroundcolor=FFFFFF`;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=0&data=${encodeURIComponent(trackingQr)}`;
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/>
-<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <style>
   @page { size: 4in 6in; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -409,7 +387,7 @@ const buildLocalDeliveryHtml = (shipment: ShipmentData): string => {
   .tracking-row .tn { font-family: 'Courier New', monospace; font-size: 16px; font-weight: 900; }
   .tracking-row .date { font-size: 10px; color: #555; }
   .barcode-box { text-align: center; margin: 4px 0; }
-  .barcode-box svg { max-height: 65px; width: 100%; }
+  .barcode-box img { max-height: 65px; width: 100%; object-fit: fill; }
   .dest { border: 2px solid #000; padding: 8px; margin: 6px 0; }
   .dest .lbl { font-size: 9px; color: #666; font-weight: 800; margin-bottom: 3px; }
   .dest .name { font-size: 14px; font-weight: 900; color: #111; margin-bottom: 4px; }
@@ -432,7 +410,7 @@ const buildLocalDeliveryHtml = (shipment: ShipmentData): string => {
     <div class="badge">📍 ENTREGA LOCAL</div>
   </div>
   <div class="tracking-row"><div class="tn">${tn}</div><div class="date">${today}</div></div>
-  <div class="barcode-box"><svg id="barcode"></svg></div>
+  <div class="barcode-box"><img src="${barcodeUrl}" alt="${cleanBc}" /></div>
   <div class="dest">
     <div class="lbl">ENTREGAR A</div>
     <div class="name">${recipient}</div>
@@ -448,13 +426,7 @@ const buildLocalDeliveryHtml = (shipment: ShipmentData): string => {
     <div class="cell"><div class="lbl">PESO</div><div class="val">${shipment.master.weight ? Number(shipment.master.weight).toFixed(1) + ' kg' : '—'}</div></div>
     <div class="cell"><div class="lbl">CAJAS</div><div class="val">${shipment.master.totalBoxes || 1}</div></div>
   </div>
-  <div class="footer"><div id="qrcode"></div><div class="service">${svc.emoji} ${svc.label}</div></div>
-<script>
-  window.addEventListener('load', function() {
-    try { JsBarcode('#barcode', '${tn}', { format: 'CODE128', width: 2, height: 50, displayValue: false, margin: 0 }); } catch(e) {}
-    try { var qr = qrcode(0, 'M'); qr.addData('${trackingQr}'); qr.make(); document.getElementById('qrcode').innerHTML = qr.createImgTag(3); } catch(e) {}
-  });
-</script>
+  <div class="footer"><div class="qr-box"><img src="${qrUrl}" alt="QR" /></div><div class="service">${svc.emoji} ${svc.label}</div></div>
 </body></html>`;
 };
 

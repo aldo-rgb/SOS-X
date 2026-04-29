@@ -216,6 +216,14 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                 return;
             }
 
+            // counter_staff (Mostrador): solo Etiquetado y Escáner Multi-Sucursal
+            if (role === 'counter_staff') {
+                const allowed = ['reetiquetado', 'scanner_unificado'];
+                setLocations(ALL_LOCATIONS.filter(l => allowed.includes(l.code)));
+                setLoading(false);
+                return;
+            }
+
             // Cargar permisos del usuario
             const permissionsRes = await fetch(`${API_URL}/api/panels/me`, {
                 headers: { Authorization: `Bearer ${token}` },

@@ -507,7 +507,7 @@ export default function DhlOperationsPage() {
                     </TableCell>
                     <TableCell>
                       <Chip 
-                        label={shipment.product_type === 'standard' ? 'Standard' : 'High Value'}
+                        label={shipment.product_type === 'standard' ? 'General' : 'Específica'}
                         size="small"
                         sx={{ 
                           bgcolor: shipment.product_type === 'standard' ? DHL_COLOR : DHL_YELLOW,
@@ -658,7 +658,7 @@ export default function DhlOperationsPage() {
               <Alert severity="info" sx={{ mb: 2 }}>
                 <strong>Tracking:</strong> {selectedShipment.inbound_tracking}<br />
                 <strong>Cliente:</strong> {selectedShipment.client_name} ({selectedShipment.client_box_id})<br />
-                <strong>Tipo:</strong> {selectedShipment.product_type === 'standard' ? 'Standard' : 'High Value'}
+                <strong>Tipo:</strong> {selectedShipment.product_type === 'standard' ? 'General' : 'Específica'}
               </Alert>
 
               {!quoteResult && (
@@ -819,7 +819,7 @@ export default function DhlOperationsPage() {
               <Grid size={{ xs: 12, md: 6 }}>
                 <Typography variant="subtitle2" color="text.secondary">Tipo de Producto</Typography>
                 <Chip 
-                  label={selectedShipment.product_type === 'standard' ? 'Standard' : 'High Value'}
+                  label={selectedShipment.product_type === 'standard' ? 'General' : 'Específica'}
                   sx={{ 
                     bgcolor: selectedShipment.product_type === 'standard' ? DHL_COLOR : DHL_YELLOW,
                     color: selectedShipment.product_type === 'standard' ? 'white' : 'black',

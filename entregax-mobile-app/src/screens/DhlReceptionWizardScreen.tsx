@@ -16,6 +16,7 @@ import {
   Vibration,
   Platform,
   Dimensions,
+  Modal,
 } from 'react-native';
 import { Camera, CameraView, BarcodeScanningResult } from 'expo-camera';
 // BLE library - needs to be installed: npm install react-native-ble-plx
@@ -31,21 +32,40 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DHL_RED = '#D40511';
 const DHL_YELLOW = '#FFCC00';
 
+// Preferencia persistente del método de captura para Recepción DHL
+const SCAN_METHOD_KEY = 'scanMethod:dhl-reception';
+
 // BLE Service UUIDs para básculas industriales comunes
 const SCALE_SERVICE_UUID = '0000ffe0-0000-1000-8000-00805f9b34fb';
 const SCALE_CHARACTERISTIC_UUID = '0000ffe1-0000-1000-8000-00805f9b34fb';
 
 interface Props {
   navigation: any;
+  route?: any;
 }
 
-type WizardStep = 'scan' | 'classify' | 'weight' | 'measure';
+type WizardStep = 'client' | 'scan' | 'classify' | 'weight' | 'measure';
 
-export default function DhlReceptionWizardScreen({ navigation }: Props) {
+interface ClientInfo {
+  id: number;
+  full_name: string;
+  email: string;
+  box_id: string;
+}
+
+export default function DhlReceptionWizardScreen({ navigation, route }: Props) {
+  // Auth token (recibido desde DriverHome / DhlOperations)
+  const authToken: string | undefined = route?.params?.token;
   // Wizard state
-  const [currentStep, setCurrentStep] = useState<WizardStep>('scan');
+  const [currentStep, setCurrentStep] = useState<WizardStep>('client');
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+
+  // Client data (PASO 1)
+  const [clientSearch, setClientSearch] = useState('');
+  const [clientInfo, setClientInfo] = useState<ClientInfo | null>(null);
+  const [searchingClient, setSearchingClient] = useState(false);
+  const clientInputRef = useRef<TextInput>(null);
 
   // Form data
   const [tracking, setTracking] = useState('');
@@ -63,15 +83,33 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
 
   // Refs
   const cameraRef = useRef<CameraView>(null);
+  const trackingInputRef = useRef<TextInput>(null);
   // BLE Manager - uncomment when react-native-ble-plx is installed
   // const bleManagerRef = useRef<BleManager | null>(null);
   // const connectedDeviceRef = useRef<Device | null>(null);
+
+  // Método de captura: 'scanner' (HID) | 'camera' | null (aún no elegido)
+  const [scanMode, setScanMode] = useState<'scanner' | 'camera' | null>(null);
+  const [scanModalVisible, setScanModalVisible] = useState(false);
+  const [rememberChoice, setRememberChoice] = useState(false);
 
   // ===== PERMISSIONS =====
   useEffect(() => {
     (async () => {
       const { status: cameraStatus } = await Camera.requestCameraPermissionsAsync();
       setHasPermission(cameraStatus === 'granted');
+
+      // Cargar preferencia guardada
+      try {
+        const saved = await AsyncStorage.getItem(SCAN_METHOD_KEY);
+        if (saved === 'scanner' || saved === 'camera') {
+          setScanMode(saved);
+        } else {
+          setScanModalVisible(true);
+        }
+      } catch {
+        setScanModalVisible(true);
+      }
     })();
 
     // Initialize BLE Manager - uncomment when react-native-ble-plx is installed
@@ -100,6 +138,37 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
     setTimeout(() => {
       setCurrentStep('classify');
     }, 500);
+  };
+
+  // Manejar selección método de captura
+  const handleScanModeChoice = async (mode: 'scanner' | 'camera') => {
+    setScanMode(mode);
+    setScanModalVisible(false);
+    if (rememberChoice) {
+      try { await AsyncStorage.setItem(SCAN_METHOD_KEY, mode); } catch {}
+    }
+    if (mode === 'scanner') {
+      // Enfocar el input para que el escáner HID escriba directo
+      setTimeout(() => trackingInputRef.current?.focus(), 200);
+    }
+  };
+
+  // Cuando volvemos al paso 'scan' y ya está en modo scanner, refocus
+  useEffect(() => {
+    if (currentStep === 'scan' && scanMode === 'scanner') {
+      const t = setTimeout(() => trackingInputRef.current?.focus(), 250);
+      return () => clearTimeout(t);
+    }
+  }, [currentStep, scanMode]);
+
+  // Auto-avanzar cuando el escáner HID complete el tracking + Enter
+  const handleScannerSubmit = () => {
+    const value = (tracking || '').trim().toUpperCase();
+    if (value.length >= 5) {
+      Vibration.vibrate(80);
+      setTracking(value);
+      setCurrentStep('classify');
+    }
   };
 
   // ===== STEP 2: CLASSIFICATION =====
@@ -256,7 +325,7 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
       setPhotoTaken(true);
 
       // Send to AI backend
-      const token = await AsyncStorage.getItem('token');
+      const token = authToken || (await AsyncStorage.getItem('token'));
       const measureResponse = await fetch(`${API_URL}/api/admin/dhl/measure-box`, {
         method: 'POST',
         headers: { 
@@ -287,7 +356,7 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
 
   // ===== SUBMIT =====
   const handleSubmit = async () => {
-    if (!tracking || !productType || weight <= 0) {
+    if (!clientInfo || !tracking || !productType || weight <= 0) {
       Alert.alert('Error', 'Faltan datos requeridos');
       return;
     }
@@ -295,7 +364,7 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
     setLoading(true);
 
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = authToken || (await AsyncStorage.getItem('token'));
       const response = await fetch(`${API_URL}/api/admin/dhl/receive`, {
         method: 'POST',
         headers: { 
@@ -303,13 +372,15 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
           Authorization: `Bearer ${token}` 
         },
         body: JSON.stringify({
+          user_id: clientInfo.id,
+          box_id: clientInfo.box_id,
           inbound_tracking: tracking,
           product_type: productType,
           weight_kg: weight,
           length_cm: dimensions.length || 30,
           width_cm: dimensions.width || 20,
           height_cm: dimensions.height || 15,
-          description: productType === 'standard' ? 'Low' : 'High',
+          description: productType === 'standard' ? 'General' : 'Específica',
         })
       });
 
@@ -333,7 +404,9 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
   };
 
   const resetWizard = () => {
-    setCurrentStep('scan');
+    setCurrentStep('client');
+    setClientSearch('');
+    setClientInfo(null);
     setTracking('');
     setProductType(null);
     setWeight(0);
@@ -345,7 +418,7 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
 
   // ===== RENDER STEPS =====
   const renderStepIndicator = () => {
-    const steps = ['scan', 'classify', 'weight', 'measure'];
+    const steps = ['client', 'scan', 'classify', 'weight', 'measure'];
     const currentIndex = steps.indexOf(currentStep);
 
     return (
@@ -391,6 +464,8 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
     }
 
     switch (currentStep) {
+      case 'client':
+        return renderClientStep();
       case 'scan':
         return renderScanStep();
       case 'classify':
@@ -404,42 +479,195 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
     }
   };
 
-  const renderScanStep = () => (
-    <View style={styles.stepContent}>
-      <Text style={styles.stepTitle}>Escanea el Tracking</Text>
-      <Text style={styles.stepSubtitle}>Apunta al código de barras DHL</Text>
+  // ===== STEP 0: BUSCAR CLIENTE =====
+  const searchClient = async () => {
+    const query = clientSearch.trim();
+    if (!query) return;
 
-      {hasPermission ? (
-        <View style={styles.cameraContainer}>
-          <CameraView
-            style={styles.camera}
-            onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
-            barcodeScannerSettings={{
-              barcodeTypes: ['code128', 'code39', 'ean13', 'qr'],
-            }}
-          >
-            <View style={styles.scanOverlay}>
-              <View style={styles.scanFrame} />
-            </View>
-          </CameraView>
-        </View>
-      ) : (
-        <View style={styles.noPermission}>
-          <Ionicons name="close-circle-outline" size={60} color="#999" />
-          <Text style={styles.noPermissionText}>
-            Se requiere permiso de cámara
-          </Text>
+    setSearchingClient(true);
+    try {
+      const token = authToken || (await AsyncStorage.getItem('token'));
+      const response = await fetch(
+        `${API_URL}/api/admin/users/search?q=${encodeURIComponent(query)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const data = await response.json();
+
+      if (Array.isArray(data) && data.length > 0) {
+        const exact = data.find(
+          (u: ClientInfo) => (u.box_id || '').toUpperCase() === query.toUpperCase()
+        );
+        const client: ClientInfo = exact || data[0];
+        setClientInfo(client);
+        setTimeout(() => setCurrentStep('scan'), 500);
+      } else {
+        Alert.alert('Cliente no encontrado', 'Proporcione ID o Box ID válido');
+      }
+    } catch (err) {
+      console.error('Error buscando cliente:', err);
+      Alert.alert('Error', 'No se pudo buscar al cliente');
+    } finally {
+      setSearchingClient(false);
+    }
+  };
+
+  // Auto-focus al entrar al paso cliente
+  useEffect(() => {
+    if (currentStep === 'client') {
+      const t = setTimeout(() => clientInputRef.current?.focus(), 250);
+      return () => clearTimeout(t);
+    }
+  }, [currentStep]);
+
+  const renderClientStep = () => (
+    <View style={styles.stepContent}>
+      <Ionicons
+        name="person-circle-outline"
+        size={90}
+        color={DHL_RED}
+        style={{ alignSelf: 'center', marginBottom: 8 }}
+      />
+      <Text style={styles.stepTitle}>Número de Cliente</Text>
+      <Text style={styles.stepSubtitle}>Ingresa el Box ID o número de cliente</Text>
+
+      <TextInput
+        ref={clientInputRef}
+        style={styles.input}
+        value={clientSearch}
+        onChangeText={(t) => setClientSearch(t.toUpperCase())}
+        placeholder="Ej: S1, A25, 54"
+        placeholderTextColor="#999"
+        autoCapitalize="characters"
+        autoFocus
+        returnKeyType="search"
+        onSubmitEditing={searchClient}
+      />
+
+      {clientInfo && (
+        <View style={styles.clientCard}>
+          <View style={styles.clientAvatar}>
+            <Text style={styles.clientAvatarText}>
+              {(clientInfo.full_name || 'C').charAt(0).toUpperCase()}
+            </Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.clientName} numberOfLines={1}>
+              {clientInfo.full_name}
+            </Text>
+            <Text style={styles.clientMeta} numberOfLines={1}>
+              Box ID: {clientInfo.box_id} · {clientInfo.email}
+            </Text>
+          </View>
+          <Ionicons name="checkmark-circle" size={24} color="#4caf50" />
         </View>
       )}
 
-      <Text style={styles.orText}>— o ingresa manualmente —</Text>
+      <TouchableOpacity
+        style={[
+          styles.continueButton,
+          (!clientSearch.trim() || searchingClient) && styles.buttonDisabled,
+        ]}
+        onPress={searchClient}
+        disabled={!clientSearch.trim() || searchingClient}
+      >
+        {searchingClient ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <>
+            <Ionicons name="search" size={18} color="#fff" />
+            <Text style={styles.continueButtonText}>  Buscar Cliente</Text>
+          </>
+        )}
+      </TouchableOpacity>
+
+      {clientInfo && (
+        <TouchableOpacity
+          style={[styles.continueButton, { backgroundColor: '#4caf50', marginTop: 10 }]}
+          onPress={() => setCurrentStep('scan')}
+        >
+          <Text style={styles.continueButtonText}>Continuar →</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
+  const renderScanStep = () => (
+    <View style={styles.stepContent}>
+      <View style={styles.scanHeaderRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.stepTitle}>Escanea el Tracking</Text>
+          <Text style={styles.stepSubtitle}>
+            {scanMode === 'scanner'
+              ? 'Listo para escáner — apunta al código'
+              : 'Apunta al código de barras DHL'}
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={styles.changeModeBtn}
+          onPress={() => setScanModalVisible(true)}
+        >
+          <Ionicons
+            name={scanMode === 'scanner' ? 'barcode-outline' : 'camera-outline'}
+            size={16}
+            color={DHL_RED}
+          />
+          <Text style={styles.changeModeText}>Cambiar</Text>
+        </TouchableOpacity>
+      </View>
+
+      {scanMode === 'camera' ? (
+        hasPermission ? (
+          <View style={styles.cameraContainer}>
+            <CameraView
+              style={styles.camera}
+              onBarcodeScanned={scanned ? undefined : handleBarCodeScanned}
+              barcodeScannerSettings={{
+                barcodeTypes: ['code128', 'code39', 'ean13', 'qr'],
+              }}
+            >
+              <View style={styles.scanOverlay}>
+                <View style={styles.scanFrame} />
+              </View>
+            </CameraView>
+          </View>
+        ) : (
+          <View style={styles.noPermission}>
+            <Ionicons name="close-circle-outline" size={60} color="#999" />
+            <Text style={styles.noPermissionText}>
+              Se requiere permiso de cámara
+            </Text>
+          </View>
+        )
+      ) : scanMode === 'scanner' ? (
+        <TouchableOpacity
+          activeOpacity={0.9}
+          style={styles.scannerHint}
+          onPress={() => trackingInputRef.current?.focus()}
+        >
+          <Ionicons name="barcode-outline" size={70} color={DHL_RED} />
+          <Text style={styles.scannerHintTitle}>Escáner activo</Text>
+          <Text style={styles.scannerHintSub}>
+            Apunta el lector al código de barras
+          </Text>
+        </TouchableOpacity>
+      ) : null}
+
+      <Text style={styles.orText}>
+        {scanMode === 'scanner' ? '— captura del lector —' : '— o ingresa manualmente —'}
+      </Text>
       <TextInput
+        ref={trackingInputRef}
         style={styles.input}
         value={tracking}
         onChangeText={(text) => setTracking(text.toUpperCase())}
         placeholder="Número de tracking"
         placeholderTextColor="#999"
         autoCapitalize="characters"
+        autoFocus={scanMode === 'scanner'}
+        showSoftInputOnFocus={scanMode !== 'scanner'}
+        returnKeyType="done"
+        onSubmitEditing={handleScannerSubmit}
+        blurOnSubmit={false}
       />
       {tracking.length >= 5 && (
         <TouchableOpacity
@@ -465,9 +693,9 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
           ]}
           onPress={() => handleSelectType('standard')}
         >
-          <Ionicons name="shirt-outline" size={60} color={DHL_RED} />
-          <Text style={styles.classifyButtonTitle}>Standard</Text>
-          <Text style={styles.classifyButtonSubtitle}>Accesorios / Mixto</Text>
+          <Ionicons name="cube-outline" size={60} color={DHL_RED} />
+          <Text style={styles.classifyButtonTitle}>General</Text>
+          <Text style={styles.classifyButtonSubtitle}>Carga General</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -477,9 +705,9 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
           ]}
           onPress={() => handleSelectType('high_value')}
         >
-          <Ionicons name="construct-outline" size={60} color="#ff9800" />
-          <Text style={styles.classifyButtonTitle}>High Value</Text>
-          <Text style={styles.classifyButtonSubtitle}>High</Text>
+          <Ionicons name="shield-checkmark-outline" size={60} color="#ff9800" />
+          <Text style={styles.classifyButtonTitle}>Específica</Text>
+          <Text style={styles.classifyButtonSubtitle}>Carga Específica</Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -667,8 +895,14 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
       {renderContent()}
 
       {/* Summary Bar */}
-      {currentStep !== 'scan' && !success && (
+      {currentStep !== 'client' && currentStep !== 'scan' && !success && (
         <View style={styles.summaryBar}>
+          {clientInfo && (
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryLabel}>Cliente</Text>
+              <Text style={styles.summaryValue}>{clientInfo.box_id}</Text>
+            </View>
+          )}
           <View style={styles.summaryItem}>
             <Text style={styles.summaryLabel}>Tracking</Text>
             <Text style={styles.summaryValue}>{tracking}</Text>
@@ -676,9 +910,16 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
           {productType && (
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabel}>Tipo</Text>
-              <Text style={styles.summaryValue}>
-                {productType === 'standard' ? '👕' : '⚙️'}
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                <Ionicons
+                  name={productType === 'standard' ? 'cube-outline' : 'shield-checkmark-outline'}
+                  size={16}
+                  color={productType === 'standard' ? '#fff' : '#FFCC00'}
+                />
+                <Text style={styles.summaryValue}>
+                  {productType === 'standard' ? 'General' : 'Especif.'}
+                </Text>
+              </View>
             </View>
           )}
           {weight > 0 && (
@@ -689,6 +930,64 @@ export default function DhlReceptionWizardScreen({ navigation }: Props) {
           )}
         </View>
       )}
+
+      {/* Modal: elegir Cámara o Escáner */}
+      <Modal
+        visible={scanModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setScanModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Selecciona método de captura</Text>
+            <Text style={styles.modalSubtitle}>
+              ¿Deseas usar el escáner o la cámara para escanear los códigos?
+            </Text>
+
+            <TouchableOpacity
+              style={styles.rememberRow}
+              onPress={() => setRememberChoice((v) => !v)}
+              activeOpacity={0.7}
+            >
+              <View
+                style={[
+                  styles.checkbox,
+                  rememberChoice && styles.checkboxChecked,
+                ]}
+              >
+                {rememberChoice && (
+                  <Ionicons name="checkmark" size={14} color="#fff" />
+                )}
+              </View>
+              <Text style={styles.rememberText}>No volver a preguntar</Text>
+            </TouchableOpacity>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalBtnGhost}
+                onPress={() => setScanModalVisible(false)}
+              >
+                <Text style={styles.modalBtnGhostText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalBtnSecondary}
+                onPress={() => handleScanModeChoice('camera')}
+              >
+                <Ionicons name="camera-outline" size={18} color="#fff" />
+                <Text style={styles.modalBtnSecondaryText}>Cámara</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.modalBtnPrimary}
+                onPress={() => handleScanModeChoice('scanner')}
+              >
+                <Ionicons name="barcode-outline" size={18} color="#fff" />
+                <Text style={styles.modalBtnPrimaryText}>Escáner</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1090,5 +1389,195 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  },
+
+  // Scan mode chooser
+  scanHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 12,
+  },
+  changeModeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: '#FFF4E5',
+    borderWidth: 1,
+    borderColor: '#FFD9B3',
+  },
+  changeModeText: {
+    color: DHL_RED,
+    fontSize: 12,
+    fontWeight: '700',
+    marginLeft: 4,
+  },
+  scannerHint: {
+    width: '100%',
+    aspectRatio: 1.4,
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: DHL_RED,
+    borderStyle: 'dashed',
+    backgroundColor: '#FFF8F8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  scannerHintTitle: {
+    marginTop: 12,
+    fontSize: 18,
+    fontWeight: '800',
+    color: DHL_RED,
+  },
+  scannerHintSub: {
+    marginTop: 4,
+    fontSize: 13,
+    color: '#666',
+    textAlign: 'center',
+    paddingHorizontal: 12,
+  },
+
+  // Modal
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#0F172A',
+    marginBottom: 6,
+  },
+  modalSubtitle: {
+    fontSize: 13,
+    color: '#475569',
+    marginBottom: 14,
+  },
+  rememberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    marginBottom: 6,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: '#94A3B8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+    backgroundColor: '#fff',
+  },
+  checkboxChecked: {
+    backgroundColor: DHL_RED,
+    borderColor: DHL_RED,
+  },
+  rememberText: {
+    fontSize: 14,
+    color: '#0F172A',
+    fontWeight: '600',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 12,
+    justifyContent: 'flex-end',
+    flexWrap: 'wrap',
+  },
+  modalBtnGhost: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  modalBtnGhostText: {
+    color: '#475569',
+    fontWeight: '700',
+  },
+  modalBtnSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: '#0F172A',
+  },
+  modalBtnSecondaryText: {
+    color: '#fff',
+    fontWeight: '700',
+    marginLeft: 4,
+  },
+  modalBtnPrimary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: DHL_RED,
+  },
+  modalBtnPrimaryText: {
+    color: '#fff',
+    fontWeight: '700',
+    marginLeft: 4,
+  },
+
+  // Client card (paso cliente)
+  clientCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    width: '100%',
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#E8F5E9',
+    borderWidth: 2,
+    borderColor: '#4caf50',
+  },
+  clientAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: DHL_RED,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 8,
+  },
+  clientAvatarText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  clientName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#0F172A',
+  },
+  clientMeta: {
+    fontSize: 11,
+    color: '#475569',
+    marginTop: 2,
   },
 });

@@ -809,6 +809,7 @@ import {
   getVehicleDetail,
   createVehicle,
   updateVehicle,
+  deleteVehicleHandler,
   assignDriver,
   getVehicleDocuments,
   createDocument,
@@ -3415,7 +3416,7 @@ app.get('/api/admin/users/search', authenticateToken, requireMinLevel(ROLES.WARE
 });
 
 // CRUD completo de sucursales
-app.get('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.ADMIN), getAllBranches);
+app.get('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAllBranches);
 app.post('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createBranch);
 app.put('/api/admin/branches/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateBranch);
 app.delete('/api/admin/branches/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteBranch);
@@ -6679,33 +6680,34 @@ app.post('/api/admin/hr/locations', authenticateToken, requireMinLevel(ROLES.ADM
 
 // ========== MÓDULO DE GESTIÓN DE FLOTILLA ==========
 // Vehículos - Admin
-app.get('/api/admin/fleet/vehicles', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getVehicles);
-app.get('/api/admin/fleet/vehicles/:id', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getVehicleDetail);
-app.post('/api/admin/fleet/vehicles', authenticateToken, requireMinLevel(ROLES.ADMIN), createVehicle);
-app.put('/api/admin/fleet/vehicles/:id', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), updateVehicle);
-app.post('/api/admin/fleet/vehicles/:id/assign-driver', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), assignDriver);
+app.get('/api/admin/fleet/vehicles', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getVehicles);
+app.get('/api/admin/fleet/vehicles/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getVehicleDetail);
+app.post('/api/admin/fleet/vehicles', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createVehicle);
+app.put('/api/admin/fleet/vehicles/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateVehicle);
+app.delete('/api/admin/fleet/vehicles/:id', authenticateToken, requireRole('super_admin'), deleteVehicleHandler);
+app.post('/api/admin/fleet/vehicles/:id/assign-driver', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), assignDriver);
 
 // Documentos de vehículos
-app.get('/api/admin/fleet/vehicles/:vehicleId/documents', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getVehicleDocuments);
-app.post('/api/admin/fleet/vehicles/:vehicleId/documents', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), createDocument);
-app.put('/api/admin/fleet/documents/:id', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), updateDocument);
+app.get('/api/admin/fleet/vehicles/:vehicleId/documents', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getVehicleDocuments);
+app.post('/api/admin/fleet/vehicles/:vehicleId/documents', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createDocument);
+app.put('/api/admin/fleet/documents/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateDocument);
 app.delete('/api/admin/fleet/documents/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteDocument);
 
 // Mantenimiento
-app.get('/api/admin/fleet/vehicles/:vehicleId/maintenance', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getMaintenanceHistory);
-app.post('/api/admin/fleet/vehicles/:vehicleId/maintenance', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), createMaintenance);
+app.get('/api/admin/fleet/vehicles/:vehicleId/maintenance', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getMaintenanceHistory);
+app.post('/api/admin/fleet/vehicles/:vehicleId/maintenance', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createMaintenance);
 
 // Inspecciones diarias
-app.get('/api/admin/fleet/inspections', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getInspections);
-app.put('/api/admin/fleet/inspections/:id/review', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), reviewInspection);
+app.get('/api/admin/fleet/inspections', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getInspections);
+app.put('/api/admin/fleet/inspections/:id/review', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), reviewInspection);
 
 // Alertas
-app.get('/api/admin/fleet/alerts', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getFleetAlerts);
-app.put('/api/admin/fleet/alerts/:id/resolve', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), resolveAlert);
+app.get('/api/admin/fleet/alerts', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getFleetAlerts);
+app.put('/api/admin/fleet/alerts/:id/resolve', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), resolveAlert);
 
 // Dashboard y reportes
-app.get('/api/admin/fleet/dashboard', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getFleetDashboard);
-app.get('/api/admin/fleet/drivers', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getAvailableDrivers);
+app.get('/api/admin/fleet/dashboard', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getFleetDashboard);
+app.get('/api/admin/fleet/drivers', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAvailableDrivers);
 
 // Rutas para choferes (mobile app)
 app.get('/api/fleet/available-vehicles', authenticateToken, getAvailableVehicles);

@@ -10,6 +10,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
+import * as Print from 'expo-print';
 import { API_URL } from '../services/api';
 
 const TEAL = '#0097A7';
@@ -39,12 +40,16 @@ interface Order {
   ordersn: string;
   shipping_mark: string | null;
   goods_name: string | null;
+  goods_num: number | null;
+  summary_boxes: number | null;
   weight: string | number | null;
   volume: string | number | null;
   status: string;
   missing_on_arrival: boolean;
   user_box_id: string | null;
   user_name: string | null;
+  bl_client_code?: string | null;
+  bl_client_name?: string | null;
 }
 
 const cleanRef = (raw: string): string => {
@@ -77,6 +82,33 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [confirmPartial, setConfirmPartial] = useState(false);
   const [result, setResult] = useState<{ received: number; missing: number; total: number } | null>(null);
+
+  // === Impresión de etiquetas + recepción parcial ===
+  const [labelsOpen, setLabelsOpen] = useState(false);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set());
+  const [receivedByOrder, setReceivedByOrder] = useState<Record<number, number>>({});
+  const [reportingPartial, setReportingPartial] = useState(false);
+  const [printing, setPrinting] = useState(false);
+
+  const totalBoxesInContainer = orders.reduce(
+    (acc, o) => acc + (Number(o.summary_boxes) || Number(o.goods_num) || 0),
+    0,
+  );
+  const selectedBoxesCount = orders
+    .filter((o) => selectedOrderIds.has(o.id))
+    .reduce((acc, o) => {
+      const expected = Number(o.summary_boxes) || Number(o.goods_num) || 0;
+      const received = receivedByOrder[o.id];
+      return acc + (received !== undefined ? Math.min(received, expected) : expected);
+    }, 0);
+  const partialMissingCount = orders
+    .filter((o) => selectedOrderIds.has(o.id))
+    .reduce((acc, o) => {
+      const expected = Number(o.summary_boxes) || Number(o.goods_num) || 0;
+      const received = receivedByOrder[o.id];
+      if (received === undefined) return acc;
+      return acc + Math.max(0, expected - Math.min(received, expected));
+    }, 0);
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -191,6 +223,177 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
     setStep(0); setSelected(null); setOrders([]); setScanInput('');
     setFeedback(null); setResult(null);
     load();
+  };
+
+  // === Impresión de etiquetas (1 por caja) ===
+  const openLabelsModal = () => {
+    setSelectedOrderIds(new Set(orders.map((o) => o.id)));
+    setReceivedByOrder({});
+    setLabelsOpen(true);
+  };
+  const toggleOrderForLabel = (id: number) => {
+    setSelectedOrderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleAllOrdersForLabel = () => {
+    if (selectedOrderIds.size === orders.length) setSelectedOrderIds(new Set());
+    else setSelectedOrderIds(new Set(orders.map((o) => o.id)));
+  };
+  const setReceivedForOrder = (orderId: number, value: number, expected: number) => {
+    const safe = Math.max(0, Math.min(Math.floor(Number(value) || 0), expected));
+    setReceivedByOrder((prev) => ({ ...prev, [orderId]: safe }));
+  };
+
+  const printContainerLabels = async () => {
+    if (!selected) return;
+    const ordersToPrint = orders.filter((o) => selectedOrderIds.has(o.id));
+    if (ordersToPrint.length === 0) {
+      setFeedback({ type: 'error', msg: 'Selecciona al menos una orden' });
+      return;
+    }
+    type Label = {
+      tracking: string; ordersn: string; boxNumber: number; totalBoxes: number;
+      shippingMark: string; weight: string; volume: string;
+    };
+    const labels: Label[] = [];
+    ordersToPrint.forEach((o) => {
+      const expected = Number(o.summary_boxes) || Number(o.goods_num) || 1;
+      const override = receivedByOrder[o.id];
+      const boxes = override !== undefined ? Math.min(override, expected) : expected;
+      for (let i = 1; i <= boxes; i++) {
+        labels.push({
+          tracking: `${o.ordersn}-${String(i).padStart(4, '0')}`,
+          ordersn: o.ordersn,
+          boxNumber: i,
+          totalBoxes: expected,
+          shippingMark: o.shipping_mark || o.bl_client_code || o.user_box_id || '—',
+          weight: o.weight ? `${Number(o.weight).toFixed(2)} kg` : '',
+          volume: o.volume ? `${Number(o.volume).toFixed(3)} CBM` : '',
+        });
+      }
+    });
+    if (labels.length === 0) {
+      setFeedback({ type: 'error', msg: 'No hay cajas para imprimir' });
+      return;
+    }
+
+    const renderHalf = (label: Label, idx: number, position: 'top' | 'bottom') => {
+      const safeText = label.tracking.replace(/[^A-Z0-9-]/gi, '');
+      const barcodeUrl = `https://bwipjs-api.metafloor.com/?bcid=code128&text=${encodeURIComponent(safeText)}&scale=3&height=15&includetext=N&backgroundcolor=FFFFFF`;
+      return `
+      <div class="half ${position}">
+        <div class="header">
+          <div class="service">MARÍTIMO</div>
+          <div class="date-badge">${label.boxNumber}/${label.totalBoxes}</div>
+        </div>
+        <div class="tracking-code">${label.tracking}</div>
+        <div class="barcode-section"><img class="barcode-img" src="${barcodeUrl}" alt="${safeText}" /></div>
+        <div class="client-mark">${label.shippingMark}</div>
+        <div class="details">
+          ${label.volume ? `<span class="detail-item">${label.volume}</span>` : ''}
+        </div>
+      </div>`;
+    };
+
+    const pages: string[] = [];
+    for (let i = 0; i < labels.length; i += 2) {
+      const top = labels[i];
+      const bottom = labels[i + 1];
+      const isLast = i + 2 >= labels.length;
+      pages.push(`
+        <div class="page" style="page-break-after: ${isLast ? 'auto' : 'always'};">
+          ${renderHalf(top, i, 'top')}
+          ${bottom ? renderHalf(bottom, i + 1, 'bottom') : '<div class="half bottom empty"></div>'}
+        </div>`);
+    }
+
+    const html = `<!DOCTYPE html><html><head>
+      <meta charset="utf-8" />
+      <title>Etiquetas Marítimo · ${selected.reference_code || selected.container_number || ''}</title>
+      <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: Arial, sans-serif; }
+        .page { width: 4in; height: 6in; margin: 0 auto; position: relative; overflow: hidden; }
+        .half { position: absolute; left: 0; right: 0; padding: 0.18in 0.18in 0.14in 0.18in;
+          display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
+        .half.top { top: 0; height: calc(3in + 1cm); }
+        .half.bottom { bottom: 0; height: calc(3in - 1cm); padding-top: 0.45in; }
+        .half.empty { background: transparent; }
+        .header { display: flex; justify-content: space-between; align-items: center; }
+        .service { color: #000; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+        .date-badge { color: #000; font-size: 22px; font-weight: 900; }
+        .tracking-code { text-align: center; font-size: 18px; font-weight: bold;
+          letter-spacing: 1px; font-family: 'Courier New', monospace; margin: 2px 0; }
+        .barcode-section { text-align: center; }
+        .barcode-img { width: 92%; height: 50px; object-fit: fill; }
+        .client-mark { text-align: center; font-size: 38px; color: #FF6B35; font-weight: 900;
+          letter-spacing: 2px; line-height: 1; margin: 2px 0; }
+        .details { text-align: center; font-size: 12px; font-weight: 600;
+          display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+        .detail-item { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; }
+        @page { size: 4in 6in; margin: 0; }
+      </style>
+    </head><body>${pages.join('')}
+    </body></html>`;
+
+    try {
+      setPrinting(true);
+      await Print.printAsync({ html });
+      setLabelsOpen(false);
+      setFeedback({ type: 'success', msg: `${labels.length} etiqueta(s) enviadas a impresión` });
+    } catch (err) {
+      console.error('Error imprimiendo:', err);
+      setFeedback({ type: 'error', msg: 'Error al generar PDF de etiquetas' });
+    } finally {
+      setPrinting(false);
+    }
+  };
+
+  // === Reportar cajas faltantes (parciales) ===
+  const reportPartialBoxes = async () => {
+    if (!selected) return;
+    const payload = orders
+      .filter((o) => selectedOrderIds.has(o.id))
+      .filter((o) => receivedByOrder[o.id] !== undefined)
+      .map((o) => {
+        const expected = Number(o.summary_boxes) || Number(o.goods_num) || 0;
+        return { order_id: o.id, received_boxes: Math.min(receivedByOrder[o.id], expected) };
+      });
+    if (payload.length === 0) {
+      setFeedback({ type: 'info', msg: 'No hay órdenes con cajas faltantes para reportar' });
+      return;
+    }
+    try {
+      setReportingPartial(true);
+      const res = await fetch(
+        `${API_URL}/api/admin/china-sea/containers/${selected.id}/report-partial-boxes`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ orders: payload }),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Error');
+      const partialCount = data.partial_orders_count || 0;
+      const missingBoxes = data.total_missing_boxes || 0;
+      if (partialCount > 0) {
+        setFeedback({
+          type: 'success',
+          msg: `${partialCount} orden(es) con ${missingBoxes} caja(s) faltante(s) reportadas`,
+        });
+        await refresh();
+      } else {
+        setFeedback({ type: 'info', msg: 'Sin cambios — todas completas' });
+      }
+    } catch (e: any) {
+      setFeedback({ type: 'error', msg: e.message || 'Error al reportar' });
+    } finally {
+      setReportingPartial(false);
+    }
   };
 
   const receivedCount = orders.filter((o) => o.status === 'received_mty').length;
@@ -313,6 +516,18 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
                 </Text>
               </View>
             </View>
+
+            <TouchableOpacity
+              style={[styles.printBannerBtn, { backgroundColor: ORANGE, opacity: orders.length === 0 ? 0.5 : 1 }]}
+              onPress={openLabelsModal}
+              disabled={orders.length === 0}
+              activeOpacity={0.85}
+            >
+              <Ionicons name="print-outline" size={18} color="#fff" />
+              <Text style={styles.printBannerBtnText}>
+                Imprimir Etiquetas ({totalBoxesInContainer} cajas)
+              </Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.scanRow}>
@@ -460,6 +675,151 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
           </View>
         </View>
       </Modal>
+
+      {/* Modal: Imprimir Etiquetas + Recepción Parcial */}
+      <Modal visible={labelsOpen} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setLabelsOpen(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+          <View style={styles.labelsHeader}>
+            <Ionicons name="print" size={20} color="#fff" />
+            <Text style={styles.labelsHeaderTitle} numberOfLines={1}>
+              Imprimir · {selected?.reference_code || selected?.container_number || ''}
+            </Text>
+            <TouchableOpacity onPress={() => setLabelsOpen(false)} hitSlop={12}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.labelsBanner}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.labelsBannerText}>
+                <Text style={{ fontWeight: '800' }}>{selectedOrderIds.size}</Text> de {orders.length} órden(es) ·{' '}
+                <Text style={{ fontWeight: '800' }}>{selectedBoxesCount}</Text> etiqueta(s)
+              </Text>
+              {partialMissingCount > 0 && (
+                <Text style={[styles.labelsBannerText, { color: RED, marginTop: 2 }]}>
+                  ⚠ {partialMissingCount} caja(s) faltante(s)
+                </Text>
+              )}
+            </View>
+            <TouchableOpacity onPress={toggleAllOrdersForLabel} style={styles.toggleAllBtn}>
+              <Text style={styles.toggleAllText}>
+                {selectedOrderIds.size === orders.length ? 'Quitar todo' : 'Todo'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.labelsHint}>
+            💡 Si un log llegó incompleto ajusta las cajas recibidas. Al "Reportar faltantes" se notifica a CEDIS y Administradores.
+          </Text>
+
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 8, paddingBottom: 16 }}>
+            {orders.map((o) => {
+              const checked = selectedOrderIds.has(o.id);
+              const expected = Number(o.summary_boxes) || Number(o.goods_num) || 1;
+              const receivedVal = receivedByOrder[o.id] !== undefined ? receivedByOrder[o.id] : expected;
+              const isPartial = receivedVal < expected;
+              return (
+                <View
+                  key={o.id}
+                  style={[
+                    styles.labelRow,
+                    {
+                      backgroundColor: isPartial
+                        ? '#FFEBEE'
+                        : checked
+                        ? '#E8F5E9'
+                        : '#FAFAFA',
+                      borderColor: isPartial ? RED : checked ? GREEN : '#DDD',
+                    },
+                  ]}
+                >
+                  <TouchableOpacity onPress={() => toggleOrderForLabel(o.id)} style={{ marginRight: 8 }}>
+                    <Ionicons
+                      name={checked ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={26}
+                      color={checked ? GREEN : '#999'}
+                    />
+                  </TouchableOpacity>
+
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.labelOrderSn} numberOfLines={1}>{o.ordersn}</Text>
+                    {!!o.shipping_mark && (
+                      <Text style={styles.labelMark} numberOfLines={1}>Mark: {o.shipping_mark}</Text>
+                    )}
+                    <Text style={styles.labelMeta} numberOfLines={1}>
+                      {isPartial
+                        ? `${receivedVal}/${expected} cajas (faltan ${expected - receivedVal})`
+                        : `${expected} caja(s)`}
+                      {o.weight ? ` · ${Number(o.weight).toFixed(2)} kg` : ''}
+                    </Text>
+                  </View>
+
+                  <View style={styles.qtyBox}>
+                    <TouchableOpacity
+                      onPress={() => setReceivedForOrder(o.id, receivedVal - 1, expected)}
+                      disabled={receivedVal <= 0}
+                      style={styles.qtyBtn}
+                    >
+                      <Text style={[styles.qtyBtnText, receivedVal <= 0 && { color: '#CCC' }]}>−</Text>
+                    </TouchableOpacity>
+                    <TextInput
+                      style={styles.qtyInput}
+                      value={String(receivedVal)}
+                      onChangeText={(t) => setReceivedForOrder(o.id, Number(t), expected)}
+                      keyboardType="number-pad"
+                    />
+                    <Text style={styles.qtyTotal}>/{expected}</Text>
+                    <TouchableOpacity
+                      onPress={() => setReceivedForOrder(o.id, receivedVal + 1, expected)}
+                      disabled={receivedVal >= expected}
+                      style={styles.qtyBtn}
+                    >
+                      <Text style={[styles.qtyBtnText, receivedVal >= expected && { color: '#CCC' }]}>+</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              );
+            })}
+          </ScrollView>
+
+          <View style={styles.labelsFooter}>
+            <TouchableOpacity style={styles.btnSecondary} onPress={() => setLabelsOpen(false)}>
+              <Text style={styles.btnSecondaryText}>Cerrar</Text>
+            </TouchableOpacity>
+            {partialMissingCount > 0 && (
+              <TouchableOpacity
+                style={[styles.btnPrimary, { backgroundColor: RED }]}
+                onPress={reportPartialBoxes}
+                disabled={reportingPartial}
+              >
+                {reportingPartial ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.btnPrimaryText} numberOfLines={1}>
+                    ⚠ Reportar {partialMissingCount}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[
+                styles.btnPrimary,
+                { backgroundColor: ORANGE, opacity: selectedBoxesCount === 0 ? 0.5 : 1 },
+              ]}
+              onPress={printContainerLabels}
+              disabled={selectedOrderIds.size === 0 || selectedBoxesCount === 0 || printing}
+            >
+              {printing ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.btnPrimaryText} numberOfLines={1}>
+                  🖨 Imprimir {selectedBoxesCount}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -518,4 +878,91 @@ const styles = StyleSheet.create({
   dialog: { backgroundColor: '#fff', borderRadius: 12, padding: 16, width: '100%', maxWidth: 400 },
   dialogTitle: { fontSize: 16, fontWeight: '800', color: BLACK },
   dialogText: { fontSize: 13, color: '#333' },
+
+  // Banner: bot\u00f3n imprimir etiquetas
+  printBannerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  printBannerBtnText: { color: '#fff', fontWeight: '800', fontSize: 13, marginLeft: 6 },
+
+  // Modal de etiquetas
+  labelsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: ORANGE,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  labelsHeaderTitle: { flex: 1, color: '#fff', fontWeight: '800', fontSize: 16 },
+  labelsBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FFF8E1',
+    borderBottomWidth: 1,
+    borderColor: '#FFE082',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  labelsBannerText: { fontSize: 12, color: '#333' },
+  toggleAllBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: BLACK,
+  },
+  toggleAllText: { color: BLACK, fontWeight: '700', fontSize: 12 },
+  labelsHint: {
+    fontSize: 11,
+    color: '#666',
+    paddingHorizontal: 14,
+    paddingTop: 8,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  labelOrderSn: { fontFamily: 'monospace', fontWeight: '800', fontSize: 14, color: BLACK },
+  labelMark: { fontSize: 11, color: '#555', marginTop: 2 },
+  labelMeta: { fontSize: 11, color: '#777', marginTop: 2 },
+  qtyBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#DDD',
+    borderRadius: 8,
+    paddingHorizontal: 4,
+  },
+  qtyBtn: { paddingHorizontal: 8, paddingVertical: 6 },
+  qtyBtnText: { fontSize: 18, fontWeight: '900', color: BLACK },
+  qtyInput: {
+    width: 36,
+    textAlign: 'center',
+    fontWeight: '800',
+    fontSize: 14,
+    color: BLACK,
+    paddingVertical: 2,
+  },
+  qtyTotal: { fontSize: 11, color: '#888', marginRight: 4 },
+  labelsFooter: {
+    flexDirection: 'row',
+    gap: 8,
+    padding: 12,
+    backgroundColor: '#fff',
+    borderTopWidth: 1,
+    borderColor: '#EEE',
+  },
 });

@@ -22,6 +22,7 @@ interface DhlShipment {
   inbound_tracking: string;
   client_name: string;
   client_box_id: string;
+  product_type?: 'standard' | 'high_value';
   description: string;
   weight_kg: number;
   total_cost_mxn: number | null;
@@ -177,12 +178,25 @@ export default function DhlOperationsScreen({ route, navigation }: any) {
 
   const renderItem = ({ item }: { item: DhlShipment }) => {
     const cfg = STATUS_CONFIG[item.status] || { label: item.status, color: '#888' };
+    // Etiqueta de tipo: priorizar product_type, luego mapear descripciones legacy
+    const legacyMap: Record<string, string> = {
+      'Accesorios/Mixto': 'General',
+      'Accesorios / Mixto': 'General',
+      'Sensible': 'Específica',
+      'Low': 'General',
+      'High': 'Específica',
+    };
+    const typeLabel = item.product_type === 'standard'
+      ? 'General'
+      : item.product_type === 'high_value'
+        ? 'Específica'
+        : (legacyMap[item.description] || item.description);
     return (
       <TouchableOpacity style={styles.card} onPress={() => setDetailItem(item)}>
         <View style={{ flex: 1 }}>
           <Text style={styles.cardTracking}>{item.inbound_tracking}</Text>
           <Text style={styles.cardClient}>{item.client_box_id} · {item.client_name}</Text>
-          {item.description ? <Text style={styles.cardDesc} numberOfLines={1}>{item.description}</Text> : null}
+          {typeLabel ? <Text style={styles.cardDesc} numberOfLines={1}>{typeLabel}</Text> : null}
           <Text style={styles.cardDest}>📍 {item.delivery_city}, {item.delivery_state}</Text>
           {item.outbound_tracking && <Text style={styles.cardOut}>Salida: {item.outbound_tracking}</Text>}
         </View>

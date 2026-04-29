@@ -553,6 +553,12 @@ function App() {
   const hasPermissionInCategory = (category: string): boolean => {
     if (isSuperAdmin) return true;
 
+    // counter_staff (Mostrador): garantiza acceso a Operaciones (Etiquetado + Escáner Multi-Sucursal),
+    // pero también respeta permisos en otras categorías si los tiene asignados.
+    if (currentUser?.role === 'counter_staff' && category === 'panelsOperations') {
+      return true;
+    }
+
     // Accounting: visible para roles financieros/directivos y accountant (se filtra por rol arriba)
     if (category === 'accounting') {
       const role = currentUser?.role || '';
@@ -605,6 +611,11 @@ function App() {
       // advisor / sub_advisor: Solo dashboard (panel completo interno)
       if (role === 'advisor' || role === 'sub_advisor') {
         return ['dashboard'].includes(item.key);
+      }
+
+      // counter_staff (Mostrador): Dashboard + Herramientas (subItems filtrados por permisos: Etiquetado y Escáner Multi-Sucursal)
+      if (role === 'counter_staff') {
+        return ['dashboard', 'panels'].includes(item.key);
       }
       
       // Todos los demás: Dashboard, Herramientas

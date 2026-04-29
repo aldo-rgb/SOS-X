@@ -55,6 +55,8 @@ import POBoxCajaPage from './POBoxCajaPage';
 import ShipmentsPage from './ShipmentsPage';
 import ReprintLabelsPage from './ReprintLabelsPage';
 import POBoxHubPage from './POBoxHubPage';
+import RelabelingModulePage from './RelabelingModulePage';
+import UnifiedWarehousePanel from './UnifiedWarehousePanel';
 
 interface CounterStats {
   entregas: {
@@ -169,30 +171,18 @@ export default function DashboardCounterStaff() {
   };
 
   const quickActions = [
-    { icon: <ScannerIcon sx={{ fontSize: 48 }} />, title: 'Escanear Entrega', color: '#4CAF50', action: 'scan' },
-    { icon: <ShippingIcon sx={{ fontSize: 48 }} />, title: 'Salida', color: '#2196F3', action: 'exit' },
-    { icon: <InventoryIcon sx={{ fontSize: 48 }} />, title: 'Recepción', color: '#FF9800', action: 'receive' },
-    { icon: <PrintIcon sx={{ fontSize: 48 }} />, title: 'Imprimir Etiqueta', color: '#9C27B0', action: 'print' },
+    { icon: <PrintIcon sx={{ fontSize: 48 }} />, title: 'Etiquetado', color: '#F05A28', action: 'relabeling' },
+    { icon: <ScannerIcon sx={{ fontSize: 48 }} />, title: 'Escáner Multi-Sucursal', color: '#2196F3', action: 'scanner_multi' },
   ];
 
   // Handler para acciones rápidas
   const handleQuickAction = (action: string) => {
     switch (action) {
-      case 'scan':
-        // Abrir modal de entrega para escanear guías
-        handleOpenDeliveryModalEmpty();
+      case 'relabeling':
+        setActiveView('relabeling');
         break;
-      case 'exit':
-        // Abrir página de Salidas (OutboundControlPage)
-        setActiveView('exit');
-        break;
-      case 'receive':
-        // Abrir modal preguntando Usuario o Paquetería
-        setReceptionModalOpen(true);
-        break;
-      case 'print':
-        // Abrir página de reimprimir etiquetas
-        setActiveView('print');
+      case 'scanner_multi':
+        setActiveView('scanner_multi');
         break;
     }
   };
@@ -207,15 +197,6 @@ export default function DashboardCounterStaff() {
       // Abrir wizard de Entrada (recibir envío de usuario)
       setEntryWizardOpen(true);
     }
-  };
-
-  // ============ FLUJO DE ENTREGA PICK UP ============
-  // Abrir modal de entrega vacío (para escanear guías)
-  const handleOpenDeliveryModalEmpty = () => {
-    setSelectedPackages([]); // Iniciar vacío
-    setScanTrackingInput('');
-    setDeliveryStep('scan');
-    setDeliveryModalOpen(true);
   };
 
   // Continuar al pago
@@ -363,6 +344,8 @@ export default function DashboardCounterStaff() {
           />
         )}
         {activeView === 'print' && <ReprintLabelsPage />}
+        {activeView === 'relabeling' && <RelabelingModulePage onBack={handleBackToDashboard} />}
+        {activeView === 'scanner_multi' && <UnifiedWarehousePanel />}
       </Box>
     );
   }

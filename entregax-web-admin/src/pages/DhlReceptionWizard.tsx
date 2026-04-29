@@ -32,8 +32,8 @@ import {
 } from '@mui/material';
 import {
   QrCodeScanner as ScanIcon,
-  Checkroom as ClothingIcon,
-  Build as PartsIcon,
+  Inventory2 as ClothingIcon,
+  VerifiedUser as PartsIcon,
   Scale as ScaleIcon,
   CameraAlt as CameraIcon,
   CheckCircle as CheckIcon,
@@ -372,7 +372,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
           length_cm: dimensions.length || 30,
           width_cm: dimensions.width || 20,
           height_cm: dimensions.height || 15,
-          description: productType === 'standard' ? 'Accesorios/Mixto' : 'Sensible'
+          description: productType === 'standard' ? 'General' : 'Específica'
         },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -675,10 +675,10 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
                 >
                   <ClothingIcon sx={{ fontSize: 80, color: DHL_RED, mb: 2 }} />
                   <Typography variant="h5" fontWeight="bold">
-                    Standard
+                    General
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Accesorios / Mixto
+                    Carga General
                   </Typography>
                 </Paper>
 
@@ -702,10 +702,10 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
                 >
                   <PartsIcon sx={{ fontSize: 80, color: '#ff9800', mb: 2 }} />
                   <Typography variant="h5" fontWeight="bold">
-                    High Value
+                    Específica
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Sensible
+                    Carga Específica
                   </Typography>
                 </Paper>
               </Box>

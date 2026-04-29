@@ -42,9 +42,11 @@ export const getVehicles = async (req: Request, res: Response) => {
       SELECT 
         v.*,
         u.full_name as driver_name,
-        u.phone as driver_phone
+        u.phone as driver_phone,
+        b.name as branch_name
       FROM vehicles v
       LEFT JOIN users u ON v.assigned_driver_id = u.id
+      LEFT JOIN branches b ON v.branch_id = b.id
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -70,6 +72,7 @@ export const getVehicles = async (req: Request, res: Response) => {
 
     // Obtener conteos de documentos en una sola consulta
     let docCounts: Record<number, { expired: number; expiring: number }> = {};
+    let validDocTypes: Record<number, Set<string>> = {};
     try {
       const docsResult = await pool.query(`
         SELECT 
@@ -82,13 +85,31 @@ export const getVehicles = async (req: Request, res: Response) => {
       docsResult.rows.forEach((d: any) => {
         docCounts[d.vehicle_id] = { expired: parseInt(d.expired_docs) || 0, expiring: parseInt(d.expiring_soon_docs) || 0 };
       });
+      // Tipos de documento vigentes por vehículo (para determinar completitud)
+      const typesResult = await pool.query(`
+        SELECT vehicle_id, document_type
+        FROM vehicle_documents
+        WHERE expiration_date >= CURRENT_DATE
+      `);
+      typesResult.rows.forEach((d: any) => {
+        let set = validDocTypes[d.vehicle_id];
+        if (!set) {
+          set = new Set();
+          validDocTypes[d.vehicle_id] = set;
+        }
+        set.add(d.document_type);
+      });
     } catch (e) {
       console.log('Documentos de vehículos no disponibles');
     }
     
     // Calcular estado de salud de cada vehículo
+    const REQUIRED_DOC_TYPES = ['Tenencia', 'Tarjeta Circulación', 'Seguro', 'Factura', 'Constancia'];
     const vehicles = result.rows.map((v: VehicleRow) => {
       const docs = docCounts[v.id] || { expired: 0, expiring: 0 };
+      const validTypes = validDocTypes[v.id] || new Set<string>();
+      const missing_required_docs = REQUIRED_DOC_TYPES.filter((t) => !validTypes.has(t));
+      const documents_complete = missing_required_docs.length === 0;
       let health_status = 'green';
       let health_issues: string[] = [];
       
@@ -114,6 +135,8 @@ export const getVehicles = async (req: Request, res: Response) => {
         ...v,
         expired_docs: docs.expired,
         expiring_soon_docs: docs.expiring,
+        documents_complete,
+        missing_required_docs,
         next_service_km: null, // Se obtiene bajo demanda
         health_status,
         health_issues
@@ -221,20 +244,20 @@ export const createVehicle = async (req: Request, res: Response) => {
     const {
       economic_number, vehicle_type, brand, model, year, vin_number,
       license_plates, color, fuel_type, tank_capacity, current_mileage,
-      purchase_date, purchase_price, notes, photo_url
+      purchase_date, purchase_price, notes, photo_url, branch_id
     } = req.body;
     
     const result = await pool.query(`
       INSERT INTO vehicles (
         economic_number, vehicle_type, brand, model, year, vin_number,
         license_plates, color, fuel_type, tank_capacity, current_mileage,
-        purchase_date, purchase_price, notes, photo_url
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        purchase_date, purchase_price, notes, photo_url, branch_id
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING *
     `, [
       economic_number, vehicle_type, brand, model, year, vin_number,
       license_plates, color, fuel_type, tank_capacity, current_mileage || 0,
-      purchase_date, purchase_price, notes, photo_url
+      purchase_date, purchase_price, notes, photo_url, branch_id || null
     ]);
     
     res.status(201).json(result.rows[0]);
@@ -256,7 +279,8 @@ export const updateVehicle = async (req: Request, res: Response) => {
     const allowedFields = [
       'economic_number', 'vehicle_type', 'brand', 'model', 'year', 'vin_number',
       'license_plates', 'color', 'fuel_type', 'tank_capacity', 'current_mileage',
-      'status', 'assigned_driver_id', 'purchase_date', 'purchase_price', 'notes', 'photo_url'
+      'status', 'assigned_driver_id', 'purchase_date', 'purchase_price', 'notes', 'photo_url',
+      'branch_id'
     ];
     
     const setClause: string[] = [];
@@ -290,6 +314,29 @@ export const updateVehicle = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error actualizando vehículo:', error);
     res.status(500).json({ error: 'Error al actualizar vehículo' });
+  }
+};
+
+// Eliminar vehículo (solo super_admin)
+export const deleteVehicleHandler = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // Borrar dependencias en orden FK
+    await pool.query('DELETE FROM vehicle_documents WHERE vehicle_id = $1', [id]);
+    await pool.query('DELETE FROM vehicle_maintenance WHERE vehicle_id = $1', [id]);
+    await pool.query('DELETE FROM fleet_alerts WHERE vehicle_id = $1', [id]);
+    try { await pool.query('DELETE FROM vehicle_assignments WHERE vehicle_id = $1', [id]); } catch (e) { /* no-op */ }
+    try { await pool.query('DELETE FROM daily_inspections WHERE vehicle_id = $1', [id]); } catch (e) { /* no-op */ }
+
+    const result = await pool.query('DELETE FROM vehicles WHERE id = $1 RETURNING id', [id]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Vehículo no encontrado' });
+    }
+    res.json({ message: 'Vehículo eliminado', id: result.rows[0].id });
+  } catch (error) {
+    console.error('Error eliminando vehículo:', error);
+    res.status(500).json({ error: 'Error al eliminar vehículo' });
   }
 };
 

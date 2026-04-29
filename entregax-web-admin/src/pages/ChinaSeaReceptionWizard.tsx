@@ -16,7 +16,6 @@ import {
     List,
     ListItem,
     ListItemText,
-    ListItemIcon,
     Chip,
     Alert,
     Dialog,
@@ -317,7 +316,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             if (partialCount > 0) {
                 setScanFeedback({ type: 'success', msg: `Reportado: ${partialCount} orden(es) con ${missingBoxes} caja(s) faltante(s). Notificación enviada.` });
                 // Refrescar órdenes para reflejar missing_on_arrival
-                await loadOrders(selected.id);
+                await refreshOrders();
             } else {
                 setScanFeedback({ type: 'info', msg: 'No hubo cambios — todas las órdenes están completas.' });
             }
@@ -906,64 +905,124 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             💡 Si un log llegó incompleto, ajusta las cajas recibidas. Al dar <strong>Reportar faltantes</strong> se marcarán como retraso y se notificará a CEDIS CDMX y Administradores.
                         </Typography>
                     </Box>
-                    <List dense sx={{ maxHeight: '60vh', overflow: 'auto' }}>
+                    <Box sx={{ maxHeight: '60vh', overflow: 'auto' }}>
                         {orders.map((o) => {
                             const checked = selectedOrderIds.has(o.id);
                             const boxes = Number(o.summary_boxes) || Number(o.goods_num) || 1;
                             const receivedVal = receivedByOrder[o.id] !== undefined ? receivedByOrder[o.id] : boxes;
                             const isPartial = receivedVal < boxes;
+                            const rowBg = isPartial ? '#FFEBEE' : (checked ? '#E8F5E9' : '#FFF');
+                            const rowHover = isPartial ? '#FFCDD2' : (checked ? '#C8E6C9' : '#FAFAFA');
                             return (
-                                <ListItem
+                                <Box
                                     key={o.id}
                                     sx={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: 1.5,
+                                        px: 2,
+                                        py: 1.5,
                                         borderBottom: '1px solid #f0f0f0',
-                                        bgcolor: isPartial ? '#FFEBEE' : (checked ? '#E8F5E9' : 'transparent'),
-                                        '&:hover': { bgcolor: isPartial ? '#FFCDD2' : (checked ? '#C8E6C9' : '#FAFAFA') },
+                                        bgcolor: rowBg,
+                                        transition: 'background-color 0.15s',
+                                        '&:hover': { bgcolor: rowHover },
                                     }}
                                 >
-                                    <ListItemIcon onClick={() => toggleOrderForLabel(o.id)} sx={{ cursor: 'pointer' }}>
+                                    {/* Checkbox */}
+                                    <Box onClick={() => toggleOrderForLabel(o.id)} sx={{ cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
                                         {checked
-                                            ? <CheckCircleIcon sx={{ color: '#2E7D32' }} />
-                                            : <UncheckedIcon sx={{ color: '#999' }} />}
-                                    </ListItemIcon>
-                                    <ListItemText
-                                        onClick={() => toggleOrderForLabel(o.id)}
-                                        sx={{ cursor: 'pointer' }}
-                                        primary={
-                                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                                                <Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{o.ordersn}</Typography>
-                                                {o.shipping_mark && <Chip label={o.shipping_mark} size="small" variant="outlined" />}
-                                                <Chip
-                                                    label={isPartial ? `${receivedVal}/${boxes} cajas (faltan ${boxes - receivedVal})` : `${boxes} caja(s)`}
-                                                    size="small"
-                                                    sx={isPartial
-                                                        ? { bgcolor: RED, color: '#FFF', fontWeight: 700 }
-                                                        : { bgcolor: TEAL, color: '#FFF', fontWeight: 700 }}
-                                                />
-                                                {o.missing_on_arrival && <Chip label="⚠️ Reportado" size="small" sx={{ bgcolor: '#FF9800', color: '#FFF' }} />}
-                                            </Stack>
-                                        }
-                                        secondary={
-                                            <Typography variant="caption" color="text.secondary">
-                                                {o.user_name || o.bl_client_name || '—'} · {o.weight ? `${Number(o.weight).toFixed(2)} kg` : ''} {o.volume ? `· ${Number(o.volume).toFixed(3)} CBM` : ''}
-                                                {o.goods_name ? ` · ${o.goods_name}` : ''}
-                                            </Typography>
-                                        }
-                                    />
-                                    <TextField
-                                        size="small"
-                                        type="number"
-                                        label="Recibidas"
-                                        value={receivedVal}
-                                        onChange={(e) => setReceivedForOrder(o.id, Number(e.target.value), boxes)}
-                                        inputProps={{ min: 0, max: boxes, style: { width: 70, textAlign: 'center' } }}
-                                        sx={{ ml: 1, width: 110 }}
-                                        helperText={`de ${boxes}`}
-                                    />
-                                </ListItem>
+                                            ? <CheckCircleIcon sx={{ color: '#2E7D32', fontSize: 28 }} />
+                                            : <UncheckedIcon sx={{ color: '#BDBDBD', fontSize: 28 }} />}
+                                    </Box>
+
+                                    {/* Info */}
+                                    <Box onClick={() => toggleOrderForLabel(o.id)} sx={{ cursor: 'pointer', flex: 1, minWidth: 0 }}>
+                                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ mb: 0.5 }}>
+                                            <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 14 }}>{o.ordersn}</Typography>
+                                            {o.shipping_mark && <Chip label={o.shipping_mark} size="small" variant="outlined" sx={{ height: 22 }} />}
+                                            <Chip
+                                                label={isPartial ? `${receivedVal}/${boxes} · faltan ${boxes - receivedVal}` : `${boxes} caja(s)`}
+                                                size="small"
+                                                sx={{
+                                                    height: 22,
+                                                    fontWeight: 700,
+                                                    bgcolor: isPartial ? RED : TEAL,
+                                                    color: '#FFF',
+                                                }}
+                                            />
+                                            {o.missing_on_arrival && <Chip label="⚠ Reportado" size="small" sx={{ height: 22, bgcolor: '#FF9800', color: '#FFF' }} />}
+                                        </Stack>
+                                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', lineHeight: 1.3 }}>
+                                            {o.user_name || o.bl_client_name || '—'}
+                                            {o.weight ? ` · ${Number(o.weight).toFixed(2)} kg` : ''}
+                                            {o.volume ? ` · ${Number(o.volume).toFixed(3)} CBM` : ''}
+                                            {o.goods_name ? ` · ${o.goods_name}` : ''}
+                                        </Typography>
+                                    </Box>
+
+                                    {/* Stepper compacto */}
+                                    <Box
+                                        sx={{
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            alignItems: 'center',
+                                            gap: 0.25,
+                                            flexShrink: 0,
+                                        }}
+                                    >
+                                        <Box
+                                            sx={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                border: `1.5px solid ${isPartial ? RED : '#CFD8DC'}`,
+                                                borderRadius: 1.5,
+                                                bgcolor: '#FFF',
+                                                overflow: 'hidden',
+                                            }}
+                                        >
+                                            <IconButton
+                                                size="small"
+                                                onClick={() => setReceivedForOrder(o.id, receivedVal - 1, boxes)}
+                                                disabled={receivedVal <= 0}
+                                                sx={{ borderRadius: 0, width: 32, height: 32, color: BLACK, fontWeight: 700 }}
+                                            >
+                                                −
+                                            </IconButton>
+                                            <TextField
+                                                variant="standard"
+                                                value={receivedVal}
+                                                onChange={(e) => setReceivedForOrder(o.id, Number(e.target.value) || 0, boxes)}
+                                                InputProps={{ disableUnderline: true, sx: { fontSize: 16, fontWeight: 700 } }}
+                                                inputProps={{
+                                                    min: 0,
+                                                    max: boxes,
+                                                    style: { width: 44, textAlign: 'center', padding: '4px 0', MozAppearance: 'textfield' },
+                                                }}
+                                                type="number"
+                                                sx={{
+                                                    '& input::-webkit-outer-spin-button, & input::-webkit-inner-spin-button': {
+                                                        WebkitAppearance: 'none',
+                                                        margin: 0,
+                                                    },
+                                                }}
+                                            />
+                                            <IconButton
+                                                size="small"
+                                                onClick={() => setReceivedForOrder(o.id, receivedVal + 1, boxes)}
+                                                disabled={receivedVal >= boxes}
+                                                sx={{ borderRadius: 0, width: 32, height: 32, color: BLACK, fontWeight: 700 }}
+                                            >
+                                                +
+                                            </IconButton>
+                                        </Box>
+                                        <Typography variant="caption" sx={{ fontSize: 10, color: isPartial ? RED : '#757575', fontWeight: isPartial ? 700 : 400 }}>
+                                            de {boxes}
+                                        </Typography>
+                                    </Box>
+                                </Box>
                             );
                         })}
-                    </List>
+                    </Box>
                 </DialogContent>
                 <DialogActions sx={{ p: 2, justifyContent: 'space-between' }}>
                     <Button onClick={() => setLabelsModalOpen(false)} sx={{ color: BLACK }}>Cancelar</Button>

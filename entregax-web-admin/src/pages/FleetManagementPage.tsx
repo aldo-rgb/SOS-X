@@ -51,8 +51,8 @@ import {
   Add as AddIcon,
   Refresh as RefreshIcon,
   Visibility as ViewIcon,
-  // Edit as EditIcon, // No se usa actualmente
-  // Delete as DeleteIcon, // No se usa actualmente
+  Edit as EditIcon,
+  Delete as DeleteIcon,
   Person as PersonIcon,
   Speed as SpeedIcon,
   // CalendarMonth as CalendarIcon, // No se usa actualmente
@@ -232,6 +232,7 @@ export default function FleetManagementPage() {
   const [assignDriverOpen, setAssignDriverOpen] = useState(false);
 
   // Forms
+  const [branches, setBranches] = useState<Array<{ id: number; name: string }>>([]);
   const [newVehicle, setNewVehicle] = useState({
     economic_number: '',
     vehicle_type: 'Camioneta',
@@ -242,7 +243,8 @@ export default function FleetManagementPage() {
     vin_number: '',
     color: '',
     fuel_type: 'Gasolina',
-    current_mileage: 0
+    current_mileage: 0,
+    branch_id: '' as number | ''
   });
   
   const [newDocument, setNewDocument] = useState({
@@ -251,8 +253,11 @@ export default function FleetManagementPage() {
     policy_number: '',
     issue_date: '',
     expiration_date: '',
-    cost: 0
+    cost: 0,
+    file_url: ''
   });
+  const [uploadingDocFile, setUploadingDocFile] = useState(false);
+  const [editingDocId, setEditingDocId] = useState<number | null>(null);
   
   const [newMaintenance, setNewMaintenance] = useState({
     service_type: 'Preventivo',
@@ -265,6 +270,17 @@ export default function FleetManagementPage() {
   });
 
   const [selectedDriverId, setSelectedDriverId] = useState<number | null>(null);
+
+  // Rol del usuario actual (para mostrar botón eliminar solo a super_admin)
+  const currentUserRole = (() => {
+    try {
+      const raw = localStorage.getItem('user');
+      return raw ? (JSON.parse(raw).role || '').toLowerCase() : '';
+    } catch {
+      return '';
+    }
+  })();
+  const isSuperAdmin = currentUserRole === 'super_admin';
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
   const getToken = () => localStorage.getItem('token') || '';
@@ -325,6 +341,19 @@ export default function FleetManagementPage() {
     }
   }, [API_URL]);
 
+  const loadBranches = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/admin/branches`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      const data = res.data;
+      const list = Array.isArray(data) ? data : (Array.isArray(data?.branches) ? data.branches : []);
+      setBranches(list);
+    } catch (error) {
+      console.error('Error cargando sucursales:', error);
+    }
+  }, [API_URL]);
+
   useEffect(() => {
     const loadAll = async () => {
       // Cargar vehículos primero y mostrar UI
@@ -334,9 +363,10 @@ export default function FleetManagementPage() {
       loadInspections();
       loadAlerts();
       loadDrivers();
+      loadBranches();
     };
     loadAll();
-  }, [loadVehicles, loadDashboard, loadInspections, loadAlerts, loadDrivers]);
+  }, [loadVehicles, loadDashboard, loadInspections, loadAlerts, loadDrivers, loadBranches]);
 
   // Cargar detalle de vehículo
   const loadVehicleDetail = async (vehicleId: number) => {
@@ -376,7 +406,8 @@ export default function FleetManagementPage() {
         vin_number: '',
         color: '',
         fuel_type: 'Gasolina',
-        current_mileage: 0
+        current_mileage: 0,
+        branch_id: ''
       });
       loadVehicles();
       loadDashboard();
@@ -385,27 +416,51 @@ export default function FleetManagementPage() {
     }
   };
 
-  // Crear documento
+  // Crear o actualizar documento
   const handleCreateDocument = async () => {
     if (!selectedVehicle) return;
     try {
-      await axios.post(`${API_URL}/api/admin/fleet/vehicles/${selectedVehicle.id}/documents`, newDocument, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      if (editingDocId) {
+        await axios.put(`${API_URL}/api/admin/fleet/documents/${editingDocId}`, newDocument, {
+          headers: { Authorization: `Bearer ${getToken()}` }
+        });
+      } else {
+        await axios.post(`${API_URL}/api/admin/fleet/vehicles/${selectedVehicle.id}/documents`, newDocument, {
+          headers: { Authorization: `Bearer ${getToken()}` }
+        });
+      }
       setAddDocOpen(false);
+      setEditingDocId(null);
       setNewDocument({
         document_type: 'Seguro',
         provider_name: '',
         policy_number: '',
         issue_date: '',
         expiration_date: '',
-        cost: 0
+        cost: 0,
+        file_url: ''
       });
       loadVehicleDetail(selectedVehicle.id);
+      loadVehicles();
       loadDashboard();
     } catch (error: any) {
-      alert(error.response?.data?.error || 'Error al crear documento');
+      alert(error.response?.data?.error || 'Error al guardar documento');
     }
+  };
+
+  // Iniciar edición de un documento
+  const handleEditDocument = (doc: VehicleDocument) => {
+    setEditingDocId(doc.id);
+    setNewDocument({
+      document_type: doc.document_type || 'Seguro',
+      provider_name: doc.provider_name || '',
+      policy_number: doc.policy_number || '',
+      issue_date: doc.issue_date ? String(doc.issue_date).split('T')[0] : '',
+      expiration_date: doc.expiration_date ? String(doc.expiration_date).split('T')[0] : '',
+      cost: Number(doc.cost) || 0,
+      file_url: doc.file_url || ''
+    });
+    setAddDocOpen(true);
   };
 
   // Crear mantenimiento
@@ -596,9 +651,11 @@ export default function FleetManagementPage() {
                 <TableCell>Tipo</TableCell>
                 <TableCell>Marca / Modelo</TableCell>
                 <TableCell>Placas</TableCell>
+                <TableCell>Ubicación</TableCell>
                 <TableCell align="right">Kilometraje</TableCell>
                 <TableCell>Estado</TableCell>
                 <TableCell>Conductor</TableCell>
+                <TableCell>Documentación</TableCell>
                 <TableCell>Salud</TableCell>
                 <TableCell align="center">Acciones</TableCell>
               </TableRow>
@@ -616,16 +673,18 @@ export default function FleetManagementPage() {
                     <TableCell><Skeleton width={80} /></TableCell>
                     <TableCell><Skeleton width={120} /></TableCell>
                     <TableCell><Skeleton width={80} /></TableCell>
+                    <TableCell><Skeleton width={100} /></TableCell>
                     <TableCell><Skeleton width={60} /></TableCell>
                     <TableCell><Skeleton variant="rounded" width={70} height={24} /></TableCell>
                     <TableCell><Skeleton width={100} /></TableCell>
+                    <TableCell><Skeleton variant="rounded" width={90} height={24} /></TableCell>
                     <TableCell><Skeleton width={60} /></TableCell>
                     <TableCell><Skeleton variant="circular" width={30} height={30} /></TableCell>
                   </TableRow>
                 ))
               ) : vehicles.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">No hay vehículos registrados</Typography>
                   </TableCell>
                 </TableRow>
@@ -645,6 +704,13 @@ export default function FleetManagementPage() {
                     {vehicle.brand} {vehicle.model} {vehicle.year}
                   </TableCell>
                   <TableCell>{vehicle.license_plates}</TableCell>
+                  <TableCell>
+                    {(vehicle as any).branch_name ? (
+                      <Chip label={(vehicle as any).branch_name} size="small" variant="outlined" />
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">Sin asignar</Typography>
+                    )}
+                  </TableCell>
                   <TableCell align="right">
                     <Typography fontWeight={500}>
                       {vehicle.current_mileage?.toLocaleString()} km
@@ -667,6 +733,21 @@ export default function FleetManagementPage() {
                       </Box>
                     ) : (
                       <Typography variant="body2" color="text.secondary">Sin asignar</Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {(vehicle as any).documents_complete ? (
+                      <Chip label="Completo" color="success" size="small" />
+                    ) : (
+                      <Tooltip
+                        title={
+                          ((vehicle as any).missing_required_docs || []).length > 0
+                            ? `Faltan: ${((vehicle as any).missing_required_docs || []).join(', ')}`
+                            : 'Documentación incompleta'
+                        }
+                      >
+                        <Chip label="Incompleto" color="error" size="small" />
+                      </Tooltip>
                     )}
                   </TableCell>
                   <TableCell>
@@ -697,6 +778,26 @@ export default function FleetManagementPage() {
                     <IconButton size="small" onClick={() => handleViewVehicle(vehicle)}>
                       <ViewIcon />
                     </IconButton>
+                    {isSuperAdmin && (
+                      <IconButton
+                        size="small"
+                        color="error"
+                        onClick={async () => {
+                          if (!window.confirm(`¿Eliminar la unidad ${vehicle.economic_number}? Esta acción no se puede deshacer.`)) return;
+                          try {
+                            await axios.delete(`${API_URL}/api/admin/fleet/vehicles/${vehicle.id}`, {
+                              headers: { Authorization: `Bearer ${getToken()}` }
+                            });
+                            loadVehicles();
+                            loadDashboard();
+                          } catch (err: any) {
+                            alert(err.response?.data?.error || 'Error al eliminar vehículo');
+                          }
+                        }}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    )}
                   </TableCell>
                 </TableRow>
               ))
@@ -984,7 +1085,22 @@ export default function FleetManagementPage() {
                 <Button 
                   variant="outlined" 
                   startIcon={<DocumentIcon />}
-                  onClick={() => setAddDocOpen(true)}
+                  onClick={() => {
+                    setEditingDocId(null);
+                    const allTypes = ['Seguro', 'Tenencia', 'Tarjeta Circulación', 'Factura', 'Constancia', 'Verificación', 'Permiso SCT'];
+                    const used = new Set<string>((vehicleDetailData?.documents || []).map((d: VehicleDocument) => d.document_type));
+                    const firstAvailable = allTypes.find((t) => !used.has(t)) || 'Otro';
+                    setNewDocument({
+                      document_type: firstAvailable,
+                      provider_name: '',
+                      policy_number: '',
+                      issue_date: '',
+                      expiration_date: '',
+                      cost: 0,
+                      file_url: ''
+                    });
+                    setAddDocOpen(true);
+                  }}
                 >
                   Agregar Documento
                 </Button>
@@ -1002,6 +1118,81 @@ export default function FleetManagementPage() {
 
               <Divider sx={{ my: 2 }} />
 
+              {/* Documentos Obligatorios - Checklist */}
+              {(() => {
+                const required = ['Tenencia', 'Tarjeta Circulación', 'Seguro', 'Factura', 'Constancia'];
+                const now = new Date();
+                const status = required.map((reqType) => {
+                  const matches = vehicleDetailData.documents.filter(
+                    (d: VehicleDocument) => d.document_type === reqType
+                  );
+                  const valid = matches.find((d: VehicleDocument) => new Date(d.expiration_date) >= now);
+                  const expired = matches.find((d: VehicleDocument) => new Date(d.expiration_date) < now);
+                  if (valid) return { type: reqType, state: 'ok' as const, doc: valid };
+                  if (expired) return { type: reqType, state: 'expired' as const, doc: expired };
+                  return { type: reqType, state: 'missing' as const, doc: null };
+                });
+                const missingCount = status.filter((s) => s.state !== 'ok').length;
+                return (
+                  <Box sx={{ mb: 3 }}>
+                    <Typography variant="h6" gutterBottom>
+                      ✅ Documentos Obligatorios
+                      {missingCount > 0 ? (
+                        <Chip
+                          label={`${missingCount} pendiente${missingCount > 1 ? 's' : ''}`}
+                          color="error"
+                          size="small"
+                          sx={{ ml: 1 }}
+                        />
+                      ) : (
+                        <Chip label="Completo" color="success" size="small" sx={{ ml: 1 }} />
+                      )}
+                    </Typography>
+                    <Grid container spacing={1}>
+                      {status.map((s) => (
+                        <Grid size={{ xs: 12, sm: 6, md: 'auto' }} sx={{ flex: { md: '1 1 0' }, minWidth: { md: 0 }, display: 'flex' }} key={s.type}>
+                          <Card
+                            variant="outlined"
+                            sx={{
+                              borderColor:
+                                s.state === 'ok'
+                                  ? 'success.main'
+                                  : s.state === 'expired'
+                                  ? 'error.main'
+                                  : 'warning.main',
+                              borderWidth: 2,
+                              width: '100%',
+                              display: 'flex',
+                              flexDirection: 'column',
+                            }}
+                          >
+                            <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 }, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                                <Typography variant="body2" fontWeight={700}>
+                                  {s.type}
+                                </Typography>
+                                {s.state === 'ok' && <Chip label="✓ Vigente" color="success" size="small" />}
+                                {s.state === 'expired' && <Chip label="VENCIDO" color="error" size="small" />}
+                                {s.state === 'missing' && <Chip label="FALTANTE" color="warning" size="small" />}
+                              </Box>
+                              {s.doc ? (
+                                <Typography variant="caption" color="text.secondary">
+                                  Vence: {formatDate(s.doc.expiration_date)}
+                                </Typography>
+                              ) : (
+                                <Typography variant="caption" color="text.secondary">
+                                  No registrado
+                                </Typography>
+                              )}
+                            </CardContent>
+                          </Card>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </Box>
+                );
+              })()}
+
               {/* Documentos */}
               <Typography variant="h6" gutterBottom>📄 Documentos Legales</Typography>
               {vehicleDetailData.documents.length === 0 ? (
@@ -1017,6 +1208,8 @@ export default function FleetManagementPage() {
                         <TableCell>Vencimiento</TableCell>
                         <TableCell align="right">Costo</TableCell>
                         <TableCell>Estado</TableCell>
+                        <TableCell align="center">Archivo</TableCell>
+                        <TableCell align="center">Acciones</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -1038,6 +1231,32 @@ export default function FleetManagementPage() {
                               ) : (
                                 <Chip label="Vigente" color="success" size="small" />
                               )}
+                            </TableCell>
+                            <TableCell align="center">
+                              {doc.file_url ? (
+                                <Button
+                                  size="small"
+                                  href={doc.file_url}
+                                  target="_blank"
+                                  rel="noopener"
+                                  startIcon={<DocumentIcon fontSize="small" />}
+                                >
+                                  Ver
+                                </Button>
+                              ) : (
+                                <Typography variant="caption" color="text.secondary">—</Typography>
+                              )}
+                            </TableCell>
+                            <TableCell align="center">
+                              <Button
+                                size="small"
+                                color="primary"
+                                variant="outlined"
+                                startIcon={<EditIcon fontSize="small" />}
+                                onClick={() => handleEditDocument(doc)}
+                              >
+                                Renovar
+                              </Button>
                             </TableCell>
                           </TableRow>
                         );
@@ -1213,6 +1432,24 @@ export default function FleetManagementPage() {
                 </Select>
               </FormControl>
             </Grid>
+            <Grid size={{ xs: 12 }}>
+              <FormControl fullWidth>
+                <InputLabel>Ubicación (Sucursal)</InputLabel>
+                <Select
+                  value={newVehicle.branch_id}
+                  label="Ubicación (Sucursal)"
+                  onChange={(e) => {
+                    const val = String(e.target.value);
+                    setNewVehicle({ ...newVehicle, branch_id: val === '' ? '' : Number(val) });
+                  }}
+                >
+                  <MenuItem value=""><em>Sin asignar</em></MenuItem>
+                  {branches.map((b) => (
+                    <MenuItem key={b.id} value={b.id}>{b.name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+            </Grid>
           </Grid>
         </DialogContent>
         <DialogActions>
@@ -1222,8 +1459,8 @@ export default function FleetManagementPage() {
       </Dialog>
 
       {/* Dialog: Agregar Documento */}
-      <Dialog open={addDocOpen} onClose={() => setAddDocOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Agregar Documento - {selectedVehicle?.economic_number}</DialogTitle>
+      <Dialog open={addDocOpen} onClose={() => { setAddDocOpen(false); setEditingDocId(null); }} maxWidth="sm" fullWidth>
+        <DialogTitle>{editingDocId ? 'Editar Documento' : 'Agregar Documento'} - {selectedVehicle?.economic_number}</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid size={{ xs: 6 }}>
@@ -1234,12 +1471,30 @@ export default function FleetManagementPage() {
                   label="Tipo de Documento"
                   onChange={(e) => setNewDocument({ ...newDocument, document_type: e.target.value })}
                 >
-                  <MenuItem value="Seguro">Seguro</MenuItem>
-                  <MenuItem value="Tenencia">Tenencia</MenuItem>
-                  <MenuItem value="Tarjeta Circulación">Tarjeta de Circulación</MenuItem>
-                  <MenuItem value="Verificación">Verificación Vehicular</MenuItem>
-                  <MenuItem value="Permiso SCT">Permiso SCT</MenuItem>
-                  <MenuItem value="Otro">Otro</MenuItem>
+                  {(() => {
+                    const allTypes = [
+                      { value: 'Seguro', label: 'Seguro' },
+                      { value: 'Tenencia', label: 'Tenencia' },
+                      { value: 'Tarjeta Circulación', label: 'Tarjeta de Circulación' },
+                      { value: 'Factura', label: 'Factura' },
+                      { value: 'Constancia', label: 'Constancia' },
+                      { value: 'Verificación', label: 'Verificación Vehicular' },
+                      { value: 'Permiso SCT', label: 'Permiso SCT' },
+                      { value: 'Otro', label: 'Otro' },
+                    ];
+                    // Tipos ya usados (excepto el que se está editando)
+                    const usedTypes = new Set<string>(
+                      (vehicleDetailData?.documents || [])
+                        .filter((d: VehicleDocument) => d.id !== editingDocId)
+                        .map((d: VehicleDocument) => d.document_type)
+                    );
+                    // "Otro" siempre disponible
+                    return allTypes
+                      .filter((t) => t.value === 'Otro' || !usedTypes.has(t.value))
+                      .map((t) => (
+                        <MenuItem key={t.value} value={t.value}>{t.label}</MenuItem>
+                      ));
+                  })()}
                 </Select>
               </FormControl>
             </Grid>
@@ -1290,10 +1545,73 @@ export default function FleetManagementPage() {
                 InputProps={{ startAdornment: '$' }}
               />
             </Grid>
+            <Grid size={{ xs: 12 }}>
+              <Box sx={{ border: '1px dashed', borderColor: 'divider', borderRadius: 1, p: 2 }}>
+                <Typography variant="body2" fontWeight={600} gutterBottom>
+                  📎 Archivo del Documento (PDF o Imagen)
+                </Typography>
+                <Button
+                  variant="outlined"
+                  component="label"
+                  size="small"
+                  disabled={uploadingDocFile}
+                  startIcon={<DocumentIcon />}
+                >
+                  {uploadingDocFile ? 'Subiendo...' : newDocument.file_url ? 'Reemplazar archivo' : 'Seleccionar archivo'}
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/*,application/pdf"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      try {
+                        setUploadingDocFile(true);
+                        const formData = new FormData();
+                        formData.append('file', file);
+                        const res = await axios.post(`${API_URL}/api/uploads/evidence`, formData, {
+                          headers: {
+                            Authorization: `Bearer ${getToken()}`,
+                            'Content-Type': 'multipart/form-data'
+                          }
+                        });
+                        setNewDocument((prev) => ({ ...prev, file_url: res.data.url }));
+                      } catch (err: any) {
+                        alert(err.response?.data?.message || 'Error al subir archivo');
+                      } finally {
+                        setUploadingDocFile(false);
+                        e.target.value = '';
+                      }
+                    }}
+                  />
+                </Button>
+                {newDocument.file_url && (
+                  <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Chip
+                      label="✓ Archivo subido"
+                      color="success"
+                      size="small"
+                      onDelete={() => setNewDocument({ ...newDocument, file_url: '' })}
+                    />
+                    <Button
+                      size="small"
+                      href={newDocument.file_url}
+                      target="_blank"
+                      rel="noopener"
+                    >
+                      Ver
+                    </Button>
+                  </Box>
+                )}
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                  Formatos: PDF, JPG, PNG. Máx 10 MB.
+                </Typography>
+              </Box>
+            </Grid>
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAddDocOpen(false)}>Cancelar</Button>
+          <Button onClick={() => { setAddDocOpen(false); setEditingDocId(null); }}>Cancelar</Button>
           <Button variant="contained" onClick={handleCreateDocument}>Guardar</Button>
         </DialogActions>
       </Dialog>
