@@ -97,6 +97,23 @@ interface ShipmentMaster {
   poboxCostUsd?: number | null;
   assignedAddress?: Address | null;
   currentBranch?: { id: number; code?: string | null; name?: string | null } | null;
+  boxDimensions?: Array<{
+    box_number: number;
+    weight?: number | null;
+    length?: number | null;
+    width?: number | null;
+    height?: number | null;
+    captured_at?: string | null;
+  }>;
+  scannedBox?: {
+    boxNumber: number;
+    tracking: string;
+    weight?: number | null;
+    length?: number | null;
+    width?: number | null;
+    height?: number | null;
+    captured: boolean;
+  } | null;
 }
 
 interface ShipmentChild {
@@ -717,6 +734,108 @@ const UnifiedWarehousePanel: React.FC = () => {
               )}
             </Grid>
           </Paper>
+
+          {/* Caja escaneada (LOG marítimo con sufijo) */}
+          {m.scannedBox && (
+            <Paper sx={{ p: 3, border: '2px solid', borderColor: m.scannedBox.captured ? 'success.main' : 'warning.main', bgcolor: m.scannedBox.captured ? '#E8F5E9' : '#FFF3E0' }}>
+              <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1.5 }}>
+                <Box sx={{ width: 44, height: 44, borderRadius: 1, bgcolor: m.scannedBox.captured ? 'success.main' : 'warning.main', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 900 }}>
+                  {m.scannedBox.boxNumber}
+                </Box>
+                <Box flex={1}>
+                  <Typography variant="overline" color="text.secondary">Caja escaneada</Typography>
+                  <Typography variant="h6" fontFamily="monospace" fontWeight={800}>{m.scannedBox.tracking}</Typography>
+                  <Typography variant="caption" color={m.scannedBox.captured ? 'success.dark' : 'warning.dark'} fontWeight={700}>
+                    {m.scannedBox.captured ? '✓ Medidas capturadas' : '⚠ Sin medidas capturadas'}
+                  </Typography>
+                </Box>
+              </Stack>
+              {m.scannedBox.captured && (
+                <Grid container spacing={2} sx={{ mt: 0.5 }}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="overline" color="text.secondary">Peso</Typography>
+                    <Typography variant="h6" fontWeight={800}>{m.scannedBox.weight != null ? `${Number(m.scannedBox.weight).toFixed(2)} kg` : '—'}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="overline" color="text.secondary">Largo</Typography>
+                    <Typography variant="h6" fontWeight={800}>{m.scannedBox.length != null ? `${m.scannedBox.length} cm` : '—'}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="overline" color="text.secondary">Ancho</Typography>
+                    <Typography variant="h6" fontWeight={800}>{m.scannedBox.width != null ? `${m.scannedBox.width} cm` : '—'}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="overline" color="text.secondary">Alto</Typography>
+                    <Typography variant="h6" fontWeight={800}>{m.scannedBox.height != null ? `${m.scannedBox.height} cm` : '—'}</Typography>
+                  </Grid>
+                </Grid>
+              )}
+            </Paper>
+          )}
+
+          {/* Tabla de medidas por caja (LOG marítimo) */}
+          {Array.isArray(m.boxDimensions) && m.boxDimensions.length > 0 && (
+            <Paper sx={{ p: 3 }}>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+                <Typography variant="h6">
+                  Medidas y peso por caja
+                </Typography>
+                <Chip
+                  size="small"
+                  label={`${m.boxDimensions.length}/${m.totalBoxes || m.boxDimensions.length} capturadas`}
+                  color={m.boxDimensions.length === (m.totalBoxes || 0) ? 'success' : 'warning'}
+                />
+              </Stack>
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Caja</TableCell>
+                      <TableCell align="right">Peso (kg)</TableCell>
+                      <TableCell align="right">Largo (cm)</TableCell>
+                      <TableCell align="right">Ancho (cm)</TableCell>
+                      <TableCell align="right">Alto (cm)</TableCell>
+                      <TableCell align="right">Vol. (cm³)</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {[...m.boxDimensions].sort((a, b) => (a.box_number || 0) - (b.box_number || 0)).map((b) => {
+                      const vol = (b.length && b.width && b.height) ? Number(b.length) * Number(b.width) * Number(b.height) : null;
+                      const isScanned = m.scannedBox?.boxNumber === b.box_number;
+                      return (
+                        <TableRow key={b.box_number} hover selected={isScanned}>
+                          <TableCell>
+                            <Typography fontWeight={isScanned ? 900 : 600}>
+                              {isScanned ? '➜ ' : ''}{b.box_number}
+                            </Typography>
+                          </TableCell>
+                          <TableCell align="right">{b.weight != null ? Number(b.weight).toFixed(2) : '—'}</TableCell>
+                          <TableCell align="right">{b.length ?? '—'}</TableCell>
+                          <TableCell align="right">{b.width ?? '—'}</TableCell>
+                          <TableCell align="right">{b.height ?? '—'}</TableCell>
+                          <TableCell align="right">{vol != null ? vol.toLocaleString('es-MX') : '—'}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+              {/* Totales */}
+              {(() => {
+                const total = m.boxDimensions.reduce((acc, b) => {
+                  acc.weight += b.weight ? Number(b.weight) : 0;
+                  if (b.length && b.width && b.height) acc.volume += Number(b.length) * Number(b.width) * Number(b.height);
+                  return acc;
+                }, { weight: 0, volume: 0 });
+                return (
+                  <Stack direction="row" spacing={3} sx={{ mt: 2, pt: 2, borderTop: '1px dashed', borderColor: 'divider' }}>
+                    <Typography variant="body2"><strong>Peso total capturado:</strong> {total.weight.toFixed(2)} kg</Typography>
+                    <Typography variant="body2"><strong>Volumen total:</strong> {total.volume.toLocaleString('es-MX')} cm³ ({(total.volume / 1_000_000).toFixed(3)} m³)</Typography>
+                  </Stack>
+                );
+              })()}
+            </Paper>
+          )}
 
           {/* Cajas hijas (multipieza) */}
           {children.length > 0 && (

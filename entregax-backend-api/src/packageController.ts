@@ -945,6 +945,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         SELECT mo.id, mo.ordersn as tracking_number, mo.shipping_mark as description,
                                mo.weight, mo.volume as cbm, mo.status, mo.created_at, mo.delivery_address_id,
                                mo.national_carrier, mo.national_tracking, mo.national_label_url,
+                               mo.box_dimensions,
                                COALESCE(mo.summary_boxes, mo.goods_num, 1) as total_boxes,
                                u.id as user_id, u.full_name, u.email, u.box_id as user_box_id,
                                a.alias as addr_alias, a.recipient_name as addr_recipient, a.street as addr_street,
@@ -993,6 +994,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
 
             let fallbackRow: any = null;
             let fallbackKind: 'maritime_order' | 'maritime' | 'national' | null = null;
+            let logBoxSuffix: number | null = null;
 
             for (const q of fallbackQueries) {
                 const fallbackResult = await pool.query(q.sql, [trackingUpper, trackingCompact]);
@@ -1000,6 +1002,60 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     fallbackRow = fallbackResult.rows[0];
                     fallbackKind = q.kind;
                     break;
+                }
+            }
+
+            // Fallback adicional: guía hija de LOG marítimo con sufijo de caja
+            // Formatos aceptados:
+            //   LOG26CNMX00082-02   (con dash)
+            //   LOG26CNMX0008202    (compacto, viene del barcode escaneado)
+            //   LOG26CNMX000820002  (compacto con padding extra)
+            if (!fallbackRow && /^LOG/i.test(trackingUpper)) {
+                const candidates: Array<{ ordersn: string; box: number }> = [];
+                // 1) Forma con dash: separar última parte numérica
+                const dashMatch = trackingUpper.match(/^(LOG[A-Z0-9]+?)-(\d{1,3})$/);
+                if (dashMatch) {
+                    candidates.push({ ordersn: dashMatch[1], box: parseInt(dashMatch[2], 10) });
+                }
+                // 2) Compacto: probar quitando los últimos 1-3 dígitos como número de caja
+                for (const len of [3, 2, 1]) {
+                    if (trackingCompact.length > len + 6) {
+                        const ordersn = trackingCompact.slice(0, -len);
+                        const box = parseInt(trackingCompact.slice(-len), 10);
+                        if (!isNaN(box) && box > 0) {
+                            candidates.push({ ordersn, box });
+                        }
+                    }
+                }
+                for (const cand of candidates) {
+                    const r = await pool.query(`
+                        SELECT mo.id, mo.ordersn as tracking_number, mo.shipping_mark as description,
+                               mo.weight, mo.volume as cbm, mo.status, mo.created_at, mo.delivery_address_id,
+                               mo.national_carrier, mo.national_tracking, mo.national_label_url,
+                               mo.box_dimensions,
+                               COALESCE(mo.summary_boxes, mo.goods_num, 1) as total_boxes,
+                               u.id as user_id, u.full_name, u.email, u.box_id as user_box_id,
+                               a.alias as addr_alias, a.recipient_name as addr_recipient, a.street as addr_street,
+                               a.exterior_number as addr_ext, a.interior_number as addr_int,
+                               a.neighborhood as addr_neighborhood, a.city as addr_city,
+                               a.state as addr_state, a.zip_code as addr_zip,
+                               a.phone as addr_phone, a.reference as addr_reference,
+                               a.carrier_config as addr_carrier_config
+                        FROM maritime_orders mo
+                        LEFT JOIN users u ON mo.user_id = u.id
+                        LEFT JOIN addresses a ON mo.delivery_address_id = a.id
+                        WHERE REGEXP_REPLACE(UPPER(COALESCE(mo.ordersn, '')), '[^A-Z0-9]', '', 'g') = $1
+                        LIMIT 1
+                    `, [cand.ordersn]);
+                    if (r.rows.length > 0) {
+                        const totalBoxes = parseInt(String(r.rows[0].total_boxes || 1), 10) || 1;
+                        if (cand.box >= 1 && cand.box <= totalBoxes) {
+                            fallbackRow = r.rows[0];
+                            fallbackKind = 'maritime_order';
+                            logBoxSuffix = cand.box;
+                            break;
+                        }
+                    }
                 }
             }
 
@@ -1013,14 +1069,37 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             const numericWeight = fallbackRow.weight ? parseFloat(fallbackRow.weight) : null;
             const totalBoxes = Math.max(1, parseInt(String(fallbackRow.total_boxes || 1), 10) || 1);
 
+            // Parsear box_dimensions (JSONB) si vienen en la respuesta
+            let boxDimensions: any[] = [];
+            if (fallbackRow.box_dimensions) {
+                try {
+                    boxDimensions = Array.isArray(fallbackRow.box_dimensions)
+                        ? fallbackRow.box_dimensions
+                        : JSON.parse(fallbackRow.box_dimensions);
+                } catch { boxDimensions = []; }
+            }
+
+            // Si el escaneo apuntó a una caja específica (LOG con sufijo), buscar sus dims
+            const activeBox = logBoxSuffix
+                ? boxDimensions.find((b: any) => Number(b.box_number) === logBoxSuffix)
+                : null;
+            const activeBoxNumber = logBoxSuffix || 1;
+            const activeWeight = activeBox?.weight != null ? parseFloat(activeBox.weight) : numericWeight;
+            const activeDims = activeBox && activeBox.length && activeBox.width && activeBox.height
+                ? `${activeBox.length}×${activeBox.width}×${activeBox.height} cm`
+                : undefined;
+            const activeTracking = logBoxSuffix
+                ? `${fallbackRow.tracking_number}-${String(logBoxSuffix).padStart(2, '0')}`
+                : fallbackRow.tracking_number;
+
             const label = {
-                boxNumber: 1,
+                boxNumber: activeBoxNumber,
                 totalBoxes,
-                tracking: fallbackRow.tracking_number,
-                labelCode: fallbackRow.tracking_number,
-                isMaster: false,
-                weight: numericWeight,
-                dimensions: undefined,
+                tracking: activeTracking,
+                labelCode: activeTracking,
+                isMaster: !logBoxSuffix,
+                weight: activeWeight,
+                dimensions: activeDims,
                 clientName: resolvedName,
                 clientBoxId: resolvedBoxId,
                 description: fallbackRow.description || undefined,
@@ -1054,6 +1133,16 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         nationalCarrier: fallbackRow.national_carrier || null,
                         nationalTracking: fallbackRow.national_tracking || null,
                         nationalLabelUrl: fallbackRow.national_label_url || null,
+                        boxDimensions,
+                        scannedBox: logBoxSuffix ? {
+                            boxNumber: logBoxSuffix,
+                            tracking: activeTracking,
+                            weight: activeWeight,
+                            length: activeBox?.length ?? null,
+                            width: activeBox?.width ?? null,
+                            height: activeBox?.height ?? null,
+                            captured: !!activeBox,
+                        } : null,
                         paymentStatus: null,
                         clientPaid: false,
                         clientPaidAt: null,
