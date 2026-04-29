@@ -11,3 +11,4 @@ ALTER TYPE package_status ADD VALUE IF NOT EXISTS 'received_mid';
 ALTER TYPE package_status ADD VALUE IF NOT EXISTS 'received_cun';
 ALTER TYPE package_status ADD VALUE IF NOT EXISTS 'received_leo';
 ALTER TYPE package_status ADD VALUE IF NOT EXISTS 'received_hgo';
+ALTER TYPE package_status ADD VALUE IF NOT EXISTS 'received_cc';
