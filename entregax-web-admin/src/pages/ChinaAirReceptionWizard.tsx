@@ -197,9 +197,17 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
         setScanInput('');
     };
 
+    const isReceivedMx = (status?: string) => {
+        if (!status) return false;
+        if (!status.startsWith('received_')) return false;
+        if (status.startsWith('received_china')) return false;
+        if (status === 'received_origin') return false;
+        return true;
+    };
+
     const finalize = async (forcePartial = false) => {
         if (!selected) return;
-        const missingCount = packages.filter((p) => p.status !== 'received_mty').length;
+        const missingCount = packages.filter((p) => !isReceivedMx(p.status)).length;
         if (missingCount > 0 && !forcePartial) {
             setConfirmPartialOpen(true);
             return;
@@ -237,7 +245,7 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
         loadAwbs();
     };
 
-    const receivedCount = packages.filter((p) => p.status === 'received_mty').length;
+    const receivedCount = packages.filter((p) => isReceivedMx(p.status)).length;
     const missingCount = packages.length - receivedCount;
 
     return (
@@ -451,7 +459,7 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
                     <Paper variant="outlined">
                         <List dense>
                             {packages.map((p) => {
-                                const isReceived = p.status === 'received_mty';
+                                const isReceived = isReceivedMx(p.status);
                                 const wasPreviouslyMissing = p.missing_on_arrival === true;
                                 return (
                                     <ListItem
