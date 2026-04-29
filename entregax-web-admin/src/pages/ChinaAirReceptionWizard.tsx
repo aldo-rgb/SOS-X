@@ -89,6 +89,7 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
 
     // Step 1: scan
     const [packages, setPackages] = useState<Pkg[]>([]);
+    const [userBranch, setUserBranch] = useState<{ id: number | null; code: string | null; name: string | null }>({ id: null, code: null, name: null });
     const [scanInput, setScanInput] = useState('');
     const [scanFeedback, setScanFeedback] = useState<{ type: 'success' | 'error' | 'info'; msg: string } | null>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
@@ -132,6 +133,7 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
         try {
             const res = await api.get(`/admin/china-air/awbs/${awb.id}/packages`);
             setPackages(res.data.packages || []);
+            if (res.data.user_branch) setUserBranch(res.data.user_branch);
             setSelected(awb);
             setStep(1);
         } catch (e) {
@@ -147,6 +149,7 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
         try {
             const res = await api.get(`/admin/china-air/awbs/${selected.id}/packages`);
             setPackages(res.data.packages || []);
+            if (res.data.user_branch) setUserBranch(res.data.user_branch);
         } catch {
             /* noop */
         }
@@ -501,7 +504,7 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
                                                     )}
                                                 </Stack>
                                             }
-                                            secondary={`${p.user_name || 'Sin cliente'} · ${p.description || 'Sin descripción'} · ${Number(p.weight || 0).toFixed(2)} kg · status: ${p.status}`}
+                                            secondary={`${p.user_name ? p.user_name + ' · ' : ''}${p.description || 'Sin descripción'} · ${Number(p.weight || 0).toFixed(2)} kg · status: ${p.status}`}
                                         />
                                     </ListItem>
                                 );
@@ -542,7 +545,7 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
                     <Stack direction="row" spacing={4} justifyContent="center">
                         <Box>
                             <Typography variant="h4" sx={{ color: '#2E7D32' }}>{result.scanned_count}</Typography>
-                            <Typography variant="caption" color="text.secondary">Recibidos en MTY</Typography>
+                            <Typography variant="caption" color="text.secondary">Recibidos en {userBranch.name || userBranch.code || 'CEDIS'}</Typography>
                         </Box>
                         <Box>
                             <Typography variant="h4" sx={{ color: result.missing_count === 0 ? 'text.secondary' : RED }}>
@@ -588,7 +591,7 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
                         Faltan <strong>{missingCount}</strong> de {packages.length} paquete(s) por escanear.
                     </Typography>
                     <Typography sx={{ mt: 2 }} color="text.secondary">
-                        Los paquetes escaneados quedarán como <strong>recibidos en MTY</strong> y los faltantes se marcarán como <strong>retrasados</strong>.
+                        Los paquetes escaneados quedarán como <strong>recibidos en {userBranch.name || userBranch.code || 'tu CEDIS'}</strong> y los faltantes se marcarán como <strong>retrasados</strong>.
                     </Typography>
                 </DialogContent>
                 <DialogActions>

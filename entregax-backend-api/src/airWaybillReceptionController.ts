@@ -66,6 +66,7 @@ export const listInTransitAwbs = async (_req: AuthRequest, res: Response): Promi
 export const getAwbPackages = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
+    const userId = req.user?.userId;
 
     const awbRes = await pool.query(
       `SELECT id, awb_number, status, received_at FROM air_waybill_costs WHERE id = $1`,
@@ -76,6 +77,26 @@ export const getAwbPackages = async (req: AuthRequest, res: Response): Promise<v
       return;
     }
     const awb = awbRes.rows[0];
+
+    // Sucursal del usuario que está escaneando (para mostrar "Recibido en CEDIS X")
+    let userBranch: { id: number | null; code: string | null; name: string | null } = { id: null, code: null, name: null };
+    if (userId) {
+      try {
+        const ub = await pool.query(
+          `SELECT u.branch_id, b.code AS branch_code, b.name AS branch_name
+             FROM users u LEFT JOIN branches b ON b.id = u.branch_id
+            WHERE u.id = $1`,
+          [userId]
+        );
+        if (ub.rows.length > 0) {
+          userBranch = {
+            id: ub.rows[0].branch_id || null,
+            code: ub.rows[0].branch_code || null,
+            name: ub.rows[0].branch_name || null,
+          };
+        }
+      } catch {}
+    }
 
     const pkgRes = await pool.query(
       `
@@ -99,7 +120,7 @@ export const getAwbPackages = async (req: AuthRequest, res: Response): Promise<v
       [awb.awb_number]
     );
 
-    res.json({ success: true, awb, packages: pkgRes.rows });
+    res.json({ success: true, awb, packages: pkgRes.rows, user_branch: userBranch });
   } catch (error: any) {
     console.error('✈️ [AWB-RX] Error paquetes AWB:', error.message);
     res.status(500).json({ success: false, error: error.message });
