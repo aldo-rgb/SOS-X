@@ -1052,26 +1052,39 @@ ${body}
                                     </Typography>
                                     <Box sx={{ flex: 1 }} />
                                     {label.totalBoxes > 1 && !label.isMaster ? (
-                                        <Stack spacing={1}>
+                                        /^LOG/i.test(label.tracking) ? (
+                                            // LOG marítimo: solo botón "Reimprimir rango" en naranja sólido
                                             <Button
                                                 fullWidth
                                                 variant="contained"
                                                 startIcon={<PrintIcon />}
-                                                onClick={() => handlePrintLabel(label)}
-                                                sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
-                                            >
-                                                Imprimir caja {label.boxNumber}
-                                            </Button>
-                                            <Button
-                                                fullWidth
-                                                variant="outlined"
-                                                startIcon={<PrintOutlinedIcon />}
                                                 onClick={() => openReprintModal(label)}
-                                                sx={{ borderColor: '#F05A28', color: '#F05A28' }}
+                                                sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
                                             >
                                                 Reimprimir rango (1–{label.totalBoxes})
                                             </Button>
-                                        </Stack>
+                                        ) : (
+                                            <Stack spacing={1}>
+                                                <Button
+                                                    fullWidth
+                                                    variant="contained"
+                                                    startIcon={<PrintIcon />}
+                                                    onClick={() => handlePrintLabel(label)}
+                                                    sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
+                                                >
+                                                    Imprimir caja {label.boxNumber}
+                                                </Button>
+                                                <Button
+                                                    fullWidth
+                                                    variant="outlined"
+                                                    startIcon={<PrintOutlinedIcon />}
+                                                    onClick={() => openReprintModal(label)}
+                                                    sx={{ borderColor: '#F05A28', color: '#F05A28' }}
+                                                >
+                                                    Reimprimir rango (1–{label.totalBoxes})
+                                                </Button>
+                                            </Stack>
+                                        )
                                     ) : (
                                         <Button
                                             fullWidth
