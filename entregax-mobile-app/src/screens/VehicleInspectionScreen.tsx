@@ -248,7 +248,7 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
 
       Alert.alert(
         '✅ Inspección Completada',
-        'Tu inspección diaria ha sido registrada. ¡Puedes iniciar tu ruta!',
+        'Tu inspección semanal ha sido registrada. ¡Puedes iniciar tu ruta!',
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
     } catch (error: any) {
@@ -530,7 +530,7 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
           <MaterialIcons name="check-circle" size={100} color="#4CAF50" />
           <Text style={styles.completedTitle}>¡Inspección Completada!</Text>
           <Text style={styles.completedSubtitle}>
-            Ya realizaste tu inspección diaria. Puedes continuar con tu ruta.
+            Ya realizaste tu inspección semanal. Puedes continuar con tu ruta.
           </Text>
           <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
             <Text style={styles.backButtonText}>Volver al inicio</Text>
@@ -547,7 +547,7 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
         <TouchableOpacity onPress={handleBack}>
           <MaterialIcons name="arrow-back" size={28} color="#333" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Inspección Diaria</Text>
+        <Text style={styles.headerTitle}>Inspección Semanal</Text>
         <View style={{ width: 28 }} />
       </View>
 

@@ -594,14 +594,16 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Vehículo y kilometraje son requeridos' });
     }
     
-    // Verificar si ya existe inspección hoy para este vehículo y tipo
+    // Verificar si ya existe inspección esta semana (lun-dom, zona CDMX) para este vehículo y tipo
     const existing = await pool.query(`
       SELECT id FROM daily_vehicle_inspections 
-      WHERE vehicle_id = $1 AND driver_id = $2 AND inspection_type = $3 AND DATE(inspection_date) = CURRENT_DATE
+      WHERE vehicle_id = $1 AND driver_id = $2 AND inspection_type = $3
+        AND date_trunc('week', (inspection_date AT TIME ZONE 'America/Mexico_City'))
+            = date_trunc('week', (NOW() AT TIME ZONE 'America/Mexico_City'))
     `, [vehicle_id, userId, inspection_type || 'check_in']);
     
     if (existing.rows.length > 0) {
-      return res.status(400).json({ error: 'Ya registraste una inspección de este tipo hoy' });
+      return res.status(400).json({ error: 'Ya registraste una inspección de este tipo esta semana' });
     }
     
     // Validar kilometraje (no puede ser menor al actual)
@@ -701,7 +703,9 @@ export const checkTodayInspection = async (req: Request, res: Response) => {
       SELECT dvi.*, v.economic_number, v.brand, v.model
       FROM daily_vehicle_inspections dvi
       JOIN vehicles v ON dvi.vehicle_id = v.id
-      WHERE dvi.driver_id = $1 AND DATE(dvi.inspection_date) = CURRENT_DATE
+      WHERE dvi.driver_id = $1
+        AND date_trunc('week', (dvi.inspection_date AT TIME ZONE 'America/Mexico_City'))
+            = date_trunc('week', (NOW() AT TIME ZONE 'America/Mexico_City'))
       ${type ? 'AND dvi.inspection_type = $2' : ''}
       ORDER BY dvi.inspection_date DESC
     `, type ? [userId, type] : [userId]);

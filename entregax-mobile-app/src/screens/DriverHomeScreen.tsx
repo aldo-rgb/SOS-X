@@ -238,8 +238,8 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   const quickActions: QuickAction[] = [
     {
       id: 'inspection',
-      title: 'Inspección Diaria',
-      subtitle: inspectionDone ? 'Completada ✓' : 'Requerida antes de salir',
+      title: 'Inspección Semanal',
+      subtitle: inspectionDone ? 'Completada ✓' : 'Requerida una vez por semana',
       icon: 'assignment',
       color: inspectionDone ? '#4CAF50' : '#FF9800',
       screen: 'VehicleInspection',
