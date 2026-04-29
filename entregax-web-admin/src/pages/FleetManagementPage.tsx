@@ -270,6 +270,11 @@ export default function FleetManagementPage() {
   });
 
   const [selectedDriverId, setSelectedDriverId] = useState<number | null>(null);
+  const [assignBranchOpen, setAssignBranchOpen] = useState(false);
+  const [selectedBranchId, setSelectedBranchId] = useState<number | ''>('');
+  const [deleteVehicleOpen, setDeleteVehicleOpen] = useState(false);
+  const [vehicleToDelete, setVehicleToDelete] = useState<Vehicle | null>(null);
+  const [deletingVehicle, setDeletingVehicle] = useState(false);
 
   // Rol del usuario actual (para mostrar botón eliminar solo a super_admin)
   const currentUserRole = (() => {
@@ -782,17 +787,9 @@ export default function FleetManagementPage() {
                       <IconButton
                         size="small"
                         color="error"
-                        onClick={async () => {
-                          if (!window.confirm(`¿Eliminar la unidad ${vehicle.economic_number}? Esta acción no se puede deshacer.`)) return;
-                          try {
-                            await axios.delete(`${API_URL}/api/admin/fleet/vehicles/${vehicle.id}`, {
-                              headers: { Authorization: `Bearer ${getToken()}` }
-                            });
-                            loadVehicles();
-                            loadDashboard();
-                          } catch (err: any) {
-                            alert(err.response?.data?.error || 'Error al eliminar vehículo');
-                          }
+                        onClick={() => {
+                          setVehicleToDelete(vehicle);
+                          setDeleteVehicleOpen(true);
                         }}
                       >
                         <DeleteIcon />
@@ -1081,6 +1078,16 @@ export default function FleetManagementPage() {
                   onClick={() => setAssignDriverOpen(true)}
                 >
                   {vehicleDetailData.vehicle.driver_name ? 'Cambiar Conductor' : 'Asignar Conductor'}
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<TruckIcon />}
+                  onClick={() => {
+                    setSelectedBranchId(vehicleDetailData.vehicle.branch_id || '');
+                    setAssignBranchOpen(true);
+                  }}
+                >
+                  {vehicleDetailData.vehicle.branch_id ? 'Cambiar Ubicación' : 'Asignar Ubicación'}
                 </Button>
                 <Button 
                   variant="outlined" 
@@ -1730,6 +1737,122 @@ export default function FleetManagementPage() {
         <DialogActions>
           <Button onClick={() => setAssignDriverOpen(false)}>Cancelar</Button>
           <Button variant="contained" onClick={handleAssignDriver}>Asignar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog: Cambiar Ubicación */}
+      <Dialog open={assignBranchOpen} onClose={() => setAssignBranchOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Ubicación del Vehículo - {selectedVehicle?.economic_number}</DialogTitle>
+        <DialogContent>
+          <FormControl fullWidth sx={{ mt: 2 }}>
+            <InputLabel>Sucursal</InputLabel>
+            <Select
+              value={selectedBranchId}
+              label="Sucursal"
+              onChange={(e) => {
+                const v = String(e.target.value);
+                setSelectedBranchId(v === '' ? '' : Number(v));
+              }}
+            >
+              <MenuItem value=""><em>Sin asignar</em></MenuItem>
+              {branches.map((b) => (
+                <MenuItem key={b.id} value={b.id}>{b.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setAssignBranchOpen(false)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            onClick={async () => {
+              if (!selectedVehicle) return;
+              try {
+                await axios.put(
+                  `${API_URL}/api/admin/fleet/vehicles/${selectedVehicle.id}`,
+                  { branch_id: selectedBranchId === '' ? null : selectedBranchId },
+                  { headers: { Authorization: `Bearer ${getToken()}` } }
+                );
+                setAssignBranchOpen(false);
+                loadVehicles();
+                loadVehicleDetail(selectedVehicle.id);
+              } catch (err: any) {
+                alert(err.response?.data?.error || 'Error al actualizar ubicación');
+              }
+            }}
+          >
+            Guardar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog: Eliminar Vehículo */}
+      <Dialog
+        open={deleteVehicleOpen}
+        onClose={() => !deletingVehicle && setDeleteVehicleOpen(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WarningIcon color="error" />
+          Eliminar Unidad
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ textAlign: 'center', py: 2 }}>
+            <Box
+              sx={{
+                width: 64,
+                height: 64,
+                borderRadius: '50%',
+                bgcolor: 'error.50',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mb: 2,
+              }}
+            >
+              <DeleteIcon sx={{ fontSize: 36, color: 'error.main' }} />
+            </Box>
+            <Typography variant="h6" gutterBottom>
+              ¿Eliminar <strong>{vehicleToDelete?.economic_number}</strong>?
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {vehicleToDelete?.brand} {vehicleToDelete?.model} • {vehicleToDelete?.license_plates}
+            </Typography>
+            <Alert severity="error" sx={{ mt: 2, textAlign: 'left' }}>
+              Esta acción eliminará permanentemente el vehículo, sus documentos, mantenimientos, alertas e inspecciones. <strong>No se puede deshacer.</strong>
+            </Alert>
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setDeleteVehicleOpen(false)} disabled={deletingVehicle}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            disabled={deletingVehicle}
+            startIcon={<DeleteIcon />}
+            onClick={async () => {
+              if (!vehicleToDelete) return;
+              try {
+                setDeletingVehicle(true);
+                await axios.delete(`${API_URL}/api/admin/fleet/vehicles/${vehicleToDelete.id}`, {
+                  headers: { Authorization: `Bearer ${getToken()}` }
+                });
+                setDeleteVehicleOpen(false);
+                setVehicleToDelete(null);
+                loadVehicles();
+                loadDashboard();
+              } catch (err: any) {
+                alert(err.response?.data?.error || 'Error al eliminar vehículo');
+              } finally {
+                setDeletingVehicle(false);
+              }
+            }}
+          >
+            {deletingVehicle ? 'Eliminando...' : 'Eliminar'}
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

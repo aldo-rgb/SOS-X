@@ -216,13 +216,8 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                 return;
             }
 
-            // counter_staff (Mostrador): solo Etiquetado y Escáner Multi-Sucursal
-            if (role === 'counter_staff') {
-                const allowed = ['reetiquetado', 'scanner_unificado'];
-                setLocations(ALL_LOCATIONS.filter(l => allowed.includes(l.code)));
-                setLoading(false);
-                return;
-            }
+            // El resto de roles (incluido counter_staff) se filtra por permisos reales
+            // asignados desde el módulo de Permisos (tabla panels_admin / api/panels/me)
 
             // Cargar permisos del usuario
             const permissionsRes = await fetch(`${API_URL}/api/panels/me`, {
