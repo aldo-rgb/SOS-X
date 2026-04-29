@@ -545,7 +545,8 @@ export default function LoadingVanScreen({ navigation, route }: any) {
                 autoCorrect={false}
                 returnKeyType="send"
                 autoFocus
-                showSoftInputOnFocus={true}
+                showSoftInputOnFocus={false}
+                caretHidden={true}
                 blurOnSubmit={false}
                 onChangeText={handleScannerInputChange}
                 onSubmitEditing={handleManualSubmit}

@@ -492,6 +492,10 @@ export default function ReturnScanScreen({ navigation, route }: any) {
                 autoCapitalize="characters"
                 autoCorrect={false}
                 returnKeyType="send"
+                autoFocus
+                showSoftInputOnFocus={false}
+                caretHidden={true}
+                blurOnSubmit={false}
                 onChangeText={setManualCode}
                 onSubmitEditing={handleManualSubmit}
               />
