@@ -158,14 +158,8 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             boxNumber: number;
             totalBoxes: number;
             shippingMark: string;
-            clientName: string;
-            clientCode: string;
             weight: string;
             volume: string;
-            container: string;
-            bl: string;
-            reference: string;
-            description: string;
         };
 
         const labels: Label[] = [];
@@ -177,15 +171,9 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                     ordersn: o.ordersn,
                     boxNumber: i,
                     totalBoxes: boxes,
-                    shippingMark: o.shipping_mark || '',
-                    clientName: o.user_name || o.bl_client_name || o.shipping_mark || '—',
-                    clientCode: o.bl_client_code || o.user_box_id || '—',
+                    shippingMark: o.shipping_mark || o.bl_client_code || o.user_box_id || '—',
                     weight: o.weight ? `${Number(o.weight).toFixed(2)} kg` : '',
                     volume: o.volume ? `${Number(o.volume).toFixed(3)} CBM` : '',
-                    container: selected.container_number || '',
-                    bl: selected.bl_number || '',
-                    reference: selected.reference_code || '',
-                    description: o.goods_name || '',
                 });
             }
         });
@@ -201,34 +189,35 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             return;
         }
 
-        const labelsHTML = labels.map((label, index) => `
-            <div class="label" style="page-break-after: ${index < labels.length - 1 ? 'always' : 'auto'};">
+        // Renderiza una mini-etiqueta (4in × ~2.9in) — caben 2 por página 4×6
+        const renderHalf = (label: Label, idx: number) => `
+            <div class="half">
                 <div class="header">
                     <div class="service">🚢 MARÍTIMO CHINA</div>
                     <div class="date-badge">${label.boxNumber}/${label.totalBoxes}</div>
                 </div>
-                <div class="tracking-main">
-                    <div class="tracking-code">${label.tracking}</div>
-                    <div class="box-indicator">CAJA ${label.boxNumber} de ${label.totalBoxes}</div>
-                </div>
-                <div class="barcode-section"><svg id="barcode-${index}"></svg></div>
-                <div class="divider"></div>
-                <div class="client-info">
-                    <div class="client-mark">${label.shippingMark || label.clientCode}</div>
-                    <div class="client-name">${label.clientName}</div>
-                </div>
+                <div class="tracking-code">${label.tracking}</div>
+                <div class="barcode-section"><svg id="barcode-${idx}"></svg></div>
+                <div class="client-mark">${label.shippingMark}</div>
                 <div class="details">
                     ${label.weight ? `<span class="detail-item">⚖️ ${label.weight}</span>` : ''}
                     ${label.volume ? `<span class="detail-item">📐 ${label.volume}</span>` : ''}
                 </div>
-                <div class="container-info">
-                    <div><strong>Contenedor:</strong> ${label.container || '—'}</div>
-                    <div><strong>BL:</strong> ${label.bl || '—'}</div>
-                    <div><strong>Ref:</strong> ${label.reference || '—'}</div>
-                </div>
-                ${label.description ? `<div class="description">${label.description}</div>` : ''}
-            </div>
-        `).join('');
+            </div>`;
+
+        // Empareja etiquetas de a 2 por página (corte en la línea punteada del medio)
+        const pages: string[] = [];
+        for (let i = 0; i < labels.length; i += 2) {
+            const top = labels[i];
+            const bottom = labels[i + 1];
+            const isLast = i + 2 >= labels.length;
+            pages.push(`
+                <div class="page" style="page-break-after: ${isLast ? 'auto' : 'always'};">
+                    ${renderHalf(top, i)}
+                    <div class="cut-line"><span>✂  cortar aquí  ✂</span></div>
+                    ${bottom ? renderHalf(bottom, i + 1) : '<div class="half empty"></div>'}
+                </div>`);
+        }
 
         try {
             printWindow.document.write(`<!DOCTYPE html><html><head>
@@ -236,39 +225,55 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 <style>
                     * { margin: 0; padding: 0; box-sizing: border-box; }
                     body { font-family: 'Arial', sans-serif; }
-                    .label {
-                        width: 4in; height: 6in; padding: 0.2in;
-                        border: 2px solid #000; display: flex; flex-direction: column;
+                    .page {
+                        width: 4in; height: 6in;
+                        display: flex; flex-direction: column;
                         margin: 0 auto; position: relative; overflow: hidden;
                     }
-                    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
-                    .service { background: #0097A7; color: white; padding: 4px 10px; font-size: 11px; font-weight: bold; border-radius: 4px; }
-                    .date-badge { background: #111; color: white; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 4px; }
-                    .tracking-main { text-align: center; margin: 6px 0 2px 0; }
-                    .tracking-code { font-size: 22px; font-weight: bold; letter-spacing: 1px; font-family: 'Courier New', monospace; }
-                    .box-indicator { font-size: 13px; color: #0097A7; font-weight: 700; margin-top: 2px; }
-                    .barcode-section { text-align: center; margin: 6px 0; }
-                    .barcode-section svg { width: 90%; height: 70px; }
-                    .divider { border-top: 2px dashed #ccc; margin: 6px 0; }
-                    .client-info { text-align: center; margin: 4px 0; }
-                    .client-mark { font-size: 38px; color: #FF6B35; font-weight: 900; letter-spacing: 2px; line-height: 1; }
-                    .client-name { font-size: 13px; color: #333; font-weight: 600; margin-top: 4px; }
-                    .details { text-align: center; font-size: 13px; font-weight: 600; margin: 6px 0; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+                    .half {
+                        flex: 1 1 0; min-height: 0;
+                        padding: 0.12in 0.18in;
+                        display: flex; flex-direction: column; justify-content: space-between;
+                        overflow: hidden;
+                    }
+                    .half.empty { background: transparent; }
+                    .cut-line {
+                        height: 0.18in;
+                        border-top: 2px dashed #777;
+                        border-bottom: 2px dashed #777;
+                        text-align: center;
+                        font-size: 9px;
+                        color: #888;
+                        letter-spacing: 2px;
+                        line-height: calc(0.18in - 4px);
+                        background: repeating-linear-gradient(90deg, #fff 0 6px, #f5f5f5 6px 12px);
+                    }
+                    .cut-line span { background: #fff; padding: 0 6px; }
+                    .header { display: flex; justify-content: space-between; align-items: center; }
+                    .service { background: #0097A7; color: white; padding: 3px 8px; font-size: 10px; font-weight: bold; border-radius: 4px; }
+                    .date-badge { background: #111; color: white; padding: 3px 8px; font-size: 11px; font-weight: bold; border-radius: 4px; }
+                    .tracking-code { text-align: center; font-size: 18px; font-weight: bold; letter-spacing: 1px; font-family: 'Courier New', monospace; margin: 2px 0; }
+                    .barcode-section { text-align: center; }
+                    .barcode-section svg { width: 92%; height: 55px; }
+                    .client-mark { text-align: center; font-size: 42px; color: #FF6B35; font-weight: 900; letter-spacing: 2px; line-height: 1; margin: 2px 0; }
+                    .details { text-align: center; font-size: 12px; font-weight: 600; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
                     .detail-item { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; }
-                    .container-info { font-size: 10px; color: #555; margin-top: 6px; line-height: 1.4; padding: 4px 6px; background: #fafafa; border-radius: 4px; }
-                    .description { text-align: center; font-size: 9px; color: #666; margin-top: 4px; font-style: italic; }
                     @page { size: 4in 6in; margin: 0; }
-                    @media print { body { margin: 0; padding: 0; } .label { border: none; page-break-inside: avoid; overflow: hidden; } }
+                    @media print {
+                        body { margin: 0; padding: 0; }
+                        .page { page-break-inside: avoid; overflow: hidden; }
+                    }
                 </style>
                 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
-            </head><body>${labelsHTML}
+            </head><body>${pages.join('')}
             <script>
-                ${labels.map((label, i) => `try { JsBarcode("#barcode-${i}", "${label.tracking.replace(/[^A-Z0-9]/gi, '')}", { format: "CODE128", width: 2.2, height: 60, displayValue: false, margin: 0 }); } catch(e) {}`).join('\n')}
+                ${labels.map((label, i) => `try { JsBarcode("#barcode-${i}", "${label.tracking.replace(/[^A-Z0-9]/gi, '')}", { format: "CODE128", width: 2, height: 50, displayValue: false, margin: 0 }); } catch(e) {}`).join('\n')}
                 window.onload = function() { setTimeout(function() { window.print(); }, 600); };
             <\/script></body></html>`);
             printWindow.document.close();
             setLabelsModalOpen(false);
-            setScanFeedback({ type: 'success', msg: `${labels.length} etiqueta(s) generadas` });
+            const pageCount = Math.ceil(labels.length / 2);
+            setScanFeedback({ type: 'success', msg: `${labels.length} etiqueta(s) en ${pageCount} hoja(s) 4×6` });
         } catch (err) {
             console.error('Error generando etiquetas:', err);
             setScanFeedback({ type: 'error', msg: 'Error generando etiquetas' });
