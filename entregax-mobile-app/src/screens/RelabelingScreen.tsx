@@ -170,6 +170,84 @@ const with4x6Format = (url: string): string => {
   return `${url}${url.includes('?') ? '&' : '?'}format=4x6`;
 };
 
+const isMaritimeLog = (tn?: string): boolean => !!tn && /^LOG/i.test(tn);
+
+// HTML 2-up para etiquetas LOG marítimo (mismo formato que web RelabelingModulePage)
+const buildMaritimeBulkHtml = (labels: LabelData[]): string => {
+  const renderHalf = (label: LabelData, idx: number, position: 'top' | 'bottom') => {
+    const safeBcId = `bc_${idx}_${Math.random().toString(36).slice(2, 8)}`;
+    const cleanBarcode = label.tracking.replace(/[^A-Z0-9]/gi, '');
+    const volumeStr = label.dimensions || '';
+    return `
+    <div class="half ${position}" data-bc="${safeBcId}" data-tracking="${cleanBarcode}">
+      <div class="header">
+        <div class="service">MARÍTIMO</div>
+        <div class="date-badge">${label.boxNumber}/${label.totalBoxes}</div>
+      </div>
+      <div class="tracking-code">${label.tracking}</div>
+      <div class="barcode-section"><svg id="${safeBcId}"></svg></div>
+      <div class="client-mark">${label.clientBoxId || '—'}</div>
+      <div class="details">
+        ${volumeStr ? `<span class="detail-item">📐 ${volumeStr}</span>` : ''}
+      </div>
+    </div>`;
+  };
+
+  const pages: string[] = [];
+  for (let i = 0; i < labels.length; i += 2) {
+    const top = labels[i];
+    const bottom = labels[i + 1];
+    const isLast = i + 2 >= labels.length;
+    pages.push(`
+      <div class="page" style="page-break-after: ${isLast ? 'auto' : 'always'};">
+        ${renderHalf(top, i, 'top')}
+        ${bottom ? renderHalf(bottom, i + 1, 'bottom') : '<div class="half bottom empty"></div>'}
+      </div>`);
+  }
+
+  return `<!DOCTYPE html><html><head>
+<meta charset="utf-8"/>
+<title>Etiquetas Marítimo (${labels.length})</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Arial', sans-serif; }
+  .page { width: 4in; height: 6in; margin: 0 auto; position: relative; overflow: hidden; }
+  .half {
+    position: absolute; left: 0; right: 0;
+    padding: 0.18in 0.18in 0.14in 0.18in;
+    display: flex; flex-direction: column; justify-content: space-between;
+    overflow: hidden;
+  }
+  .half.top { top: 0; height: calc(3in + 1cm); }
+  .half.bottom { bottom: 0; height: calc(3in - 1cm); padding-top: 0.45in; }
+  .half.empty { background: transparent; }
+  .header { display: flex; justify-content: space-between; align-items: center; }
+  .service { color: #000; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+  .date-badge { color: #000; font-size: 22px; font-weight: 900; }
+  .tracking-code { text-align: center; font-size: 18px; font-weight: bold; letter-spacing: 1px; font-family: 'Courier New', monospace; margin: 2px 0; }
+  .barcode-section { text-align: center; }
+  .barcode-section svg { width: 92%; height: 50px; }
+  .client-mark { text-align: center; font-size: 38px; color: #FF6B35; font-weight: 900; letter-spacing: 2px; line-height: 1; margin: 2px 0; }
+  .details { text-align: center; font-size: 12px; font-weight: 600; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+  .detail-item { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; }
+  @page { size: 4in 6in; margin: 0; }
+  @media print { body { margin: 0; padding: 0; } .page { page-break-inside: avoid; overflow: hidden; } }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+</head><body>
+${pages.join('')}
+<script>
+window.addEventListener('load', function() {
+  document.querySelectorAll('.half[data-bc]').forEach(function(el) {
+    var id = el.getAttribute('data-bc');
+    var tracking = el.getAttribute('data-tracking') || '';
+    try { JsBarcode('#' + id, tracking, { format: 'CODE128', width: 2, height: 50, displayValue: false, margin: 0 }); } catch(e) {}
+  });
+});
+</script>
+</body></html>`;
+};
+
 const buildLabelHtml = (label: LabelData): string => {
   const svc = getServiceInfo(label.tracking);
   const weightStr = label.weight ? `${Number(label.weight).toFixed(2)} kg` : '—';
@@ -394,6 +472,32 @@ export default function RelabelingScreen({ route, navigation }: any) {
   const [selectedPqtx, setSelectedPqtx] = useState<string[]>([]);
   const [printingAllPqtx, setPrintingAllPqtx] = useState(false);
 
+  // Reimpresión por rango (LOG marítimo)
+  const [reprintModalOpen, setReprintModalOpen] = useState(false);
+  const [reprintLabel, setReprintLabel] = useState<LabelData | null>(null);
+  const [reprintFrom, setReprintFrom] = useState<string>('1');
+  const [reprintTo, setReprintTo] = useState<string>('1');
+
+  // Captura de medidas/peso por caja para LOG marítimo antes de generar PQTX
+  type DimsBox = {
+    boxNumber: number;
+    tracking: string;
+    weight: number | null;
+    length: number | null;
+    width: number | null;
+    height: number | null;
+    captured: boolean;
+  };
+  const [dimsModalOpen, setDimsModalOpen] = useState(false);
+  const [dimsBoxes, setDimsBoxes] = useState<DimsBox[]>([]);
+  const [dimsLoading, setDimsLoading] = useState(false);
+  const [dimsError, setDimsError] = useState<string | null>(null);
+  const [dimsScan, setDimsScan] = useState('');
+  const [dimsActiveBox, setDimsActiveBox] = useState<number | null>(null);
+  const [dimsForm, setDimsForm] = useState({ weight: '', length: '', width: '', height: '' });
+  const [dimsSaving, setDimsSaving] = useState(false);
+  const [dimsScannerOpen, setDimsScannerOpen] = useState(false);
+
   const assignedCarrier = getAssignedCarrier(shipment);
   const hasAssignedCarrier = Boolean(assignedCarrier);
   const isPaqueteExpressAssigned = Boolean(assignedCarrier && isPaqueteExpressCarrier(assignedCarrier.normalized));
@@ -492,6 +596,18 @@ export default function RelabelingScreen({ route, navigation }: any) {
       return null;
     }
 
+    // LOG marítimo: requiere captura previa de medidas por caja
+    if (isMaritimeLog(shipment.master.tracking)) {
+      const data = await loadDimsBoxes(shipment.master.id);
+      if (!data) return null;
+      if (data.complete) {
+        await handleGenerateMaritimePqtx();
+      } else {
+        setDimsModalOpen(true);
+      }
+      return null;
+    }
+
     setGeneratingAssignedGuide(true);
     try {
       const res = await fetch(`${API_URL}/api/admin/paquete-express/generate-for-package`, {
@@ -560,6 +676,11 @@ export default function RelabelingScreen({ route, navigation }: any) {
   };
 
   const printLabel = async (label: LabelData) => {
+    // LOG marítimo: abrir directamente el modal de reimpresión por rango
+    if (isMaritimeLog(label.tracking)) {
+      openReprintRange(label);
+      return;
+    }
     setPrintingId(label.tracking + '-' + label.boxNumber);
     try {
       const html = buildLabelHtml(label);
@@ -569,6 +690,171 @@ export default function RelabelingScreen({ route, navigation }: any) {
     } catch (e: any) {
       Alert.alert('Error al imprimir', e.message || 'No se pudo generar la etiqueta');
     } finally { setPrintingId(null); }
+  };
+
+  // Abrir modal de reimpresión por rango (LOG)
+  const openReprintRange = (label: LabelData) => {
+    setReprintLabel(label);
+    setReprintFrom('1');
+    setReprintTo(String(label.totalBoxes || 1));
+    setReprintModalOpen(true);
+  };
+
+  const handleConfirmReprintRange = async () => {
+    if (!reprintLabel) return;
+    const total = reprintLabel.totalBoxes;
+    const from = Math.max(1, Math.min(total, Math.floor(parseInt(reprintFrom, 10) || 1)));
+    const to = Math.max(from, Math.min(total, Math.floor(parseInt(reprintTo, 10) || from)));
+    const baseTracking = reprintLabel.tracking.replace(/-\d{1,3}$/, '');
+    const labels: LabelData[] = [];
+    for (let i = from; i <= to; i++) {
+      const suffix = String(i).padStart(2, '0');
+      labels.push({
+        ...reprintLabel,
+        boxNumber: i,
+        tracking: `${baseTracking}-${suffix}`,
+      });
+    }
+    setReprintModalOpen(false);
+    try {
+      const html = buildMaritimeBulkHtml(labels);
+      await Print.printAsync({ html });
+    } catch (e: any) {
+      Alert.alert('Error al imprimir', e.message || 'No se pudo imprimir el rango');
+    }
+  };
+
+  // === Captura de medidas por caja (LOG → PQTX) ===
+  const loadDimsBoxes = async (orderId: string | number): Promise<any | null> => {
+    setDimsLoading(true);
+    setDimsError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/relabeling/maritime/${orderId}/boxes`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Error cargando cajas');
+      const boxes: DimsBox[] = data?.boxes || [];
+      setDimsBoxes(boxes);
+      const firstPending = boxes.find((b) => !b.captured);
+      setDimsActiveBox(firstPending ? firstPending.boxNumber : null);
+      setDimsForm({ weight: '', length: '', width: '', height: '' });
+      return data;
+    } catch (e: any) {
+      setDimsError(e.message || 'Error cargando cajas');
+      return null;
+    } finally {
+      setDimsLoading(false);
+    }
+  };
+
+  const handleDimsScan = (raw: string) => {
+    const v = (raw || '').trim();
+    setDimsScan(v);
+    if (!v) return;
+    const m = v.match(/-(\d+)\s*$/);
+    let boxNumber: number | null = null;
+    if (m && m[1]) boxNumber = parseInt(m[1], 10);
+    else if (/^\d+$/.test(v)) boxNumber = parseInt(v, 10);
+    if (boxNumber && dimsBoxes.find((b) => b.boxNumber === boxNumber)) {
+      setDimsActiveBox(boxNumber);
+      const existing = dimsBoxes.find((b) => b.boxNumber === boxNumber);
+      if (existing && existing.captured) {
+        setDimsForm({
+          weight: String(existing.weight ?? ''),
+          length: String(existing.length ?? ''),
+          width: String(existing.width ?? ''),
+          height: String(existing.height ?? ''),
+        });
+      } else {
+        setDimsForm({ weight: '', length: '', width: '', height: '' });
+      }
+      setDimsScan('');
+    }
+  };
+
+  const onDimsScanCamera = ({ data }: { data: string }) => {
+    setDimsScannerOpen(false);
+    handleDimsScan(data);
+  };
+
+  const openDimsScanner = async () => {
+    if (!permission?.granted) {
+      const r = await requestPermission();
+      if (!r.granted) { Alert.alert('Cámara', 'Se requiere permiso de cámara'); return; }
+    }
+    setDimsScannerOpen(true);
+  };
+
+  const saveDimsBox = async () => {
+    if (!shipment || !dimsActiveBox) return;
+    const weight = parseFloat(dimsForm.weight);
+    const length = parseFloat(dimsForm.length);
+    const width = parseFloat(dimsForm.width);
+    const height = parseFloat(dimsForm.height);
+    if (![weight, length, width, height].every((n) => !isNaN(n) && n > 0)) {
+      setDimsError('Captura peso y medidas válidas (mayores a 0)');
+      return;
+    }
+    setDimsSaving(true);
+    setDimsError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/relabeling/maritime/${shipment.master.id}/box`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ boxNumber: dimsActiveBox, weight, length, width, height }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Error guardando caja');
+      const refreshed = await loadDimsBoxes(shipment.master.id);
+      const next = (refreshed?.boxes || []).find((b: DimsBox) => !b.captured);
+      setDimsActiveBox(next ? next.boxNumber : null);
+      setDimsForm({ weight: '', length: '', width: '', height: '' });
+    } catch (e: any) {
+      setDimsError(e.message || 'Error guardando caja');
+    } finally {
+      setDimsSaving(false);
+    }
+  };
+
+  const handleGenerateMaritimePqtx = async () => {
+    if (!shipment) return;
+    setGeneratingAssignedGuide(true);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/relabeling/maritime/${shipment.master.id}/generate-pqtx`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        if (data?.needsDimensions) {
+          setDimsModalOpen(true);
+          await loadDimsBoxes(shipment.master.id);
+          setDimsError(`Faltan medidas en ${data.missing?.length || '?'} caja(s)`);
+          return;
+        }
+        throw new Error(data?.error || 'No se pudo generar la guía');
+      }
+      const tn: string = data.trackingNumber;
+      setShipment((prev) => prev ? {
+        ...prev,
+        master: { ...prev.master, nationalTracking: tn, nationalLabelUrl: `/api/admin/paquete-express/label/pdf/${tn}` },
+      } : prev);
+      setDimsModalOpen(false);
+      Alert.alert('✅ Guía generada', `Tracking: ${tn}`);
+      try {
+        await Print.printAsync({ uri: with4x6Format(`${API_URL}/api/admin/paquete-express/label/pdf/${tn}`) });
+      } catch (e: any) {
+        if (!/cancel/i.test(e?.message || '')) {
+          Alert.alert('Aviso', e.message || 'No se pudo abrir el PDF');
+        }
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'No se pudo generar la guía marítima');
+    } finally {
+      setGeneratingAssignedGuide(false);
+    }
   };
 
   const labelKey = (label: LabelData, idx: number) => `${label.tracking}-${label.boxNumber}-${idx}`;
@@ -596,7 +882,8 @@ export default function RelabelingScreen({ route, navigation }: any) {
     }
     const selected = shipment.labels.filter((l, idx) => selectedLabelKeys.includes(labelKey(l, idx)));
     try {
-      const html = buildBulkLabelsHtml(selected);
+      const allMaritime = selected.length > 0 && selected.every((l) => isMaritimeLog(l.tracking));
+      const html = allMaritime ? buildMaritimeBulkHtml(selected) : buildBulkLabelsHtml(selected);
       await Print.printAsync({ html });
     } catch (e: any) {
       Alert.alert('Error al imprimir', e.message || 'No se pudo imprimir en masivo');
@@ -714,7 +1001,7 @@ export default function RelabelingScreen({ route, navigation }: any) {
             </View>
 
             <Text style={styles.sectionTitle}>Etiquetas disponibles ({availableLabelsCount})</Text>
-            {!!shipment.labels.length && (
+            {!!shipment.labels.length && !isMaritimeLog(shipment.master.tracking) && (
               <View style={styles.bulkActionsRow}>
                 <TouchableOpacity style={styles.bulkSecondaryBtn} onPress={selectedLabelKeys.length === shipment.labels.length ? clearSelectedLabels : selectAllLabels}>
                   <Text style={styles.bulkSecondaryBtnText}>
@@ -735,13 +1022,16 @@ export default function RelabelingScreen({ route, navigation }: any) {
               const svc = getServiceInfo(label.tracking);
               const printingThis = printingId === label.tracking + '-' + label.boxNumber;
               const selected = selectedLabelKeys.includes(labelKey(label, idx));
+              const isLog = isMaritimeLog(label.tracking);
               return (
-                <View key={`${label.tracking}-${idx}`} style={[styles.labelCard, selected && styles.labelCardSelected]}>
+                <View key={`${label.tracking}-${idx}`} style={[styles.labelCard, selected && !isLog && styles.labelCardSelected]}>
                   <View style={{ flex: 1 }}>
-                    <TouchableOpacity style={styles.selectRow} onPress={() => toggleLabelSelection(label, idx)}>
-                      <Ionicons name={selected ? 'checkbox' : 'square-outline'} size={18} color={selected ? ORANGE : '#777'} />
-                      <Text style={styles.selectRowText}>{selected ? 'Seleccionada' : 'Seleccionar'}</Text>
-                    </TouchableOpacity>
+                    {!isLog && (
+                      <TouchableOpacity style={styles.selectRow} onPress={() => toggleLabelSelection(label, idx)}>
+                        <Ionicons name={selected ? 'checkbox' : 'square-outline'} size={18} color={selected ? ORANGE : '#777'} />
+                        <Text style={styles.selectRowText}>{selected ? 'Seleccionada' : 'Seleccionar'}</Text>
+                      </TouchableOpacity>
+                    )}
                     <View style={[styles.smallBadge, { backgroundColor: svc.color + '20' }]}>
                       <Text style={[styles.smallBadgeText, { color: svc.color }]}>{svc.emoji} {svc.label}</Text>
                     </View>
@@ -753,9 +1043,16 @@ export default function RelabelingScreen({ route, navigation }: any) {
                     </Text>
                     {label.destinationCode && <Text style={styles.labelDest}>📍 {label.destinationCode} {label.destinationCity ? `· ${label.destinationCity}` : ''}</Text>}
                   </View>
-                  <TouchableOpacity style={[styles.printBtn, printingThis && { opacity: 0.6 }]} onPress={() => printLabel(label)} disabled={printingThis}>
-                    {printingThis ? <ActivityIndicator color="#fff" size="small" /> : <><Ionicons name="print" size={18} color="#fff" /><Text style={styles.printBtnText}>Imprimir</Text></>}
-                  </TouchableOpacity>
+                  {isLog ? (
+                    <TouchableOpacity style={styles.printBtn} onPress={() => openReprintRange(label)}>
+                      <Ionicons name="print" size={18} color="#fff" />
+                      <Text style={styles.printBtnText}>Reimprimir rango</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity style={[styles.printBtn, printingThis && { opacity: 0.6 }]} onPress={() => printLabel(label)} disabled={printingThis}>
+                      {printingThis ? <ActivityIndicator color="#fff" size="small" /> : <><Ionicons name="print" size={18} color="#fff" /><Text style={styles.printBtnText}>Imprimir</Text></>}
+                    </TouchableOpacity>
+                  )}
                 </View>
               );
             })}
@@ -963,6 +1260,257 @@ export default function RelabelingScreen({ route, navigation }: any) {
           </View>
         </View>
       </Modal>
+
+      {/* Modal reimprimir rango (LOG marítimo) */}
+      <Modal visible={reprintModalOpen} animationType="slide" transparent onRequestClose={() => setReprintModalOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalSheet}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Reimprimir rango de cajas</Text>
+              <TouchableOpacity onPress={() => setReprintModalOpen(false)}>
+                <Ionicons name="close" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            <View style={{ padding: 16 }}>
+              {reprintLabel && (
+                <>
+                  <Text style={styles.modalLabel}>{reprintLabel.tracking.replace(/-\d+$/, '')}</Text>
+                  <Text style={styles.modalSubtle}>Total de cajas: {reprintLabel.totalBoxes}</Text>
+                  <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.fieldLabel}>Desde</Text>
+                      <TextInput
+                        style={styles.numInput}
+                        keyboardType="number-pad"
+                        value={reprintFrom}
+                        onChangeText={setReprintFrom}
+                      />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.fieldLabel}>Hasta</Text>
+                      <TextInput
+                        style={styles.numInput}
+                        keyboardType="number-pad"
+                        value={reprintTo}
+                        onChangeText={setReprintTo}
+                      />
+                    </View>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+                    <TouchableOpacity
+                      style={styles.chipBtn}
+                      onPress={() => { setReprintFrom('1'); setReprintTo(String(reprintLabel.totalBoxes)); }}
+                    >
+                      <Text style={styles.chipBtnText}>Todas (1-{reprintLabel.totalBoxes})</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.chipBtn}
+                      onPress={() => { setReprintFrom(String(reprintLabel.boxNumber)); setReprintTo(String(reprintLabel.boxNumber)); }}
+                    >
+                      <Text style={styles.chipBtnText}>Solo caja {reprintLabel.boxNumber}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.infoBox}>
+                    <Text style={styles.infoBoxText}>
+                      Se imprimirán <Text style={{ fontWeight: '900' }}>
+                        {Math.max(0, Math.min(reprintLabel.totalBoxes, Math.floor(parseInt(reprintTo, 10) || 0)) - Math.max(1, Math.floor(parseInt(reprintFrom, 10) || 0)) + 1)}
+                      </Text> etiqueta(s)
+                    </Text>
+                  </View>
+                </>
+              )}
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setReprintModalOpen(false)}>
+                <Text style={styles.modalCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalConfirmBtn} onPress={handleConfirmReprintRange}>
+                <Ionicons name="print" size={16} color="#fff" />
+                <Text style={styles.modalConfirmText}>Imprimir</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Modal captura de medidas y peso por caja (LOG marítimo) */}
+      <Modal visible={dimsModalOpen} animationType="slide" transparent onRequestClose={() => setDimsModalOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={[styles.modalSheet, { maxHeight: '92%' }]}>
+            <View style={[styles.modalHeader, { backgroundColor: '#0277BD' }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>Capturar medidas y peso</Text>
+                {shipment && (
+                  <Text style={{ color: '#fff', fontSize: 12, opacity: 0.9 }}>
+                    {shipment.master.tracking} · {dimsBoxes.filter(b => b.captured).length}/{dimsBoxes.length} listas
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity onPress={() => setDimsModalOpen(false)}>
+                <Ionicons name="close" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: '80%' }} contentContainerStyle={{ padding: 14 }}>
+              {dimsLoading ? (
+                <ActivityIndicator color="#0277BD" style={{ marginVertical: 30 }} />
+              ) : (
+                <>
+                  {dimsError && (
+                    <View style={styles.warnBox}>
+                      <Text style={styles.warnText}>{dimsError}</Text>
+                    </View>
+                  )}
+
+                  <Text style={styles.fieldLabel}>Escanear etiqueta de caja</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, alignItems: 'center' }}>
+                    <TextInput
+                      style={[styles.numInput, { flex: 1, fontFamily: 'monospace' }]}
+                      placeholder="LOG...-NN o número"
+                      placeholderTextColor="#999"
+                      value={dimsScan}
+                      onChangeText={handleDimsScan}
+                      autoCapitalize="characters"
+                    />
+                    <TouchableOpacity style={styles.scanBtn} onPress={openDimsScanner}>
+                      <MaterialCommunityIcons name="qrcode-scan" size={22} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+
+                  {dimsActiveBox && (
+                    <View style={styles.activeBoxCard}>
+                      <Text style={styles.activeBoxTitle}>
+                        Caja {dimsActiveBox} de {dimsBoxes.length}
+                        {dimsBoxes.find(b => b.boxNumber === dimsActiveBox)?.captured && (
+                          <Text style={{ color: '#2E7D32', fontSize: 12 }}> (ya capturada)</Text>
+                        )}
+                      </Text>
+                      <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.fieldLabel}>Peso (kg)</Text>
+                          <TextInput
+                            style={styles.numInput}
+                            keyboardType="decimal-pad"
+                            value={dimsForm.weight}
+                            onChangeText={(t) => setDimsForm({ ...dimsForm, weight: t })}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.fieldLabel}>Largo (cm)</Text>
+                          <TextInput
+                            style={styles.numInput}
+                            keyboardType="decimal-pad"
+                            value={dimsForm.length}
+                            onChangeText={(t) => setDimsForm({ ...dimsForm, length: t })}
+                          />
+                        </View>
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.fieldLabel}>Ancho (cm)</Text>
+                          <TextInput
+                            style={styles.numInput}
+                            keyboardType="decimal-pad"
+                            value={dimsForm.width}
+                            onChangeText={(t) => setDimsForm({ ...dimsForm, width: t })}
+                          />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.fieldLabel}>Alto (cm)</Text>
+                          <TextInput
+                            style={styles.numInput}
+                            keyboardType="decimal-pad"
+                            value={dimsForm.height}
+                            onChangeText={(t) => setDimsForm({ ...dimsForm, height: t })}
+                          />
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        style={[styles.modalConfirmBtn, { backgroundColor: '#0277BD', marginTop: 12 }, dimsSaving && { opacity: 0.6 }]}
+                        onPress={saveDimsBox}
+                        disabled={dimsSaving}
+                      >
+                        {dimsSaving ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="save" size={16} color="#fff" />}
+                        <Text style={styles.modalConfirmText}>{dimsSaving ? 'Guardando...' : `Guardar caja ${dimsActiveBox}`}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {!dimsActiveBox && dimsBoxes.length > 0 && dimsBoxes.every(b => b.captured) && (
+                    <View style={[styles.infoBox, { backgroundColor: '#E8F5E9', borderColor: '#2E7D32' }]}>
+                      <Text style={[styles.infoBoxText, { color: '#1B5E20' }]}>
+                        ✅ Todas las cajas tienen medidas capturadas. Ya puedes generar la guía.
+                      </Text>
+                    </View>
+                  )}
+
+                  <Text style={[styles.fieldLabel, { marginTop: 14 }]}>
+                    Cajas ({dimsBoxes.filter(b => b.captured).length}/{dimsBoxes.length})
+                  </Text>
+                  <View style={styles.boxGrid}>
+                    {dimsBoxes.map((b) => (
+                      <TouchableOpacity
+                        key={b.boxNumber}
+                        onPress={() => {
+                          setDimsActiveBox(b.boxNumber);
+                          if (b.captured) {
+                            setDimsForm({
+                              weight: String(b.weight ?? ''),
+                              length: String(b.length ?? ''),
+                              width: String(b.width ?? ''),
+                              height: String(b.height ?? ''),
+                            });
+                          } else {
+                            setDimsForm({ weight: '', length: '', width: '', height: '' });
+                          }
+                        }}
+                        style={[
+                          styles.boxChip,
+                          { backgroundColor: b.captured ? '#C8E6C9' : '#FFCDD2' },
+                          dimsActiveBox === b.boxNumber && { borderWidth: 2, borderColor: '#0277BD' },
+                        ]}
+                      >
+                        <Text style={styles.boxChipText}>{b.captured ? '✓ ' : ''}{b.boxNumber}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setDimsModalOpen(false)}>
+                <Text style={styles.modalCancelText}>Cerrar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.modalConfirmBtn,
+                  { backgroundColor: '#2E7D32' },
+                  (generatingAssignedGuide || dimsBoxes.length === 0 || dimsBoxes.some(b => !b.captured)) && { opacity: 0.5 },
+                ]}
+                onPress={handleGenerateMaritimePqtx}
+                disabled={generatingAssignedGuide || dimsBoxes.length === 0 || dimsBoxes.some(b => !b.captured)}
+              >
+                {generatingAssignedGuide ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="document-text" size={16} color="#fff" />}
+                <Text style={styles.modalConfirmText}>{generatingAssignedGuide ? 'Generando...' : 'Generar guía PQTX'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Scanner para captura de medidas */}
+      <Modal visible={dimsScannerOpen} animationType="slide" onRequestClose={() => setDimsScannerOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: '#000' }}>
+          <CameraView style={{ flex: 1 }} facing="back" onBarcodeScanned={onDimsScanCamera} barcodeScannerSettings={{ barcodeTypes: ['qr', 'code128', 'code39', 'ean13', 'pdf417'] }} />
+          <View style={styles.scanOverlay}>
+            <Text style={styles.scanText}>Escanea la etiqueta de la caja</Text>
+            <TouchableOpacity style={styles.scanCloseBtn} onPress={() => setDimsScannerOpen(false)}>
+              <Text style={styles.scanCloseText}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1047,4 +1595,29 @@ const styles = StyleSheet.create({
   scanText: { color: '#fff', fontSize: 14, fontWeight: '600', backgroundColor: 'rgba(0,0,0,0.6)', paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20 },
   scanCloseBtn: { backgroundColor: '#fff', paddingHorizontal: 30, paddingVertical: 12, borderRadius: 24 },
   scanCloseText: { fontWeight: '700', color: BLACK },
+  // Modales (reprint range + dims capture)
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  modalSheet: { backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '90%' },
+  modalHeader: { flexDirection: 'row', alignItems: 'center', backgroundColor: ORANGE, paddingHorizontal: 16, paddingVertical: 14, borderTopLeftRadius: 16, borderTopRightRadius: 16 },
+  modalTitle: { color: '#fff', fontSize: 16, fontWeight: '900', flex: 1 },
+  modalLabel: { fontSize: 16, fontWeight: '900', color: BLACK, fontFamily: 'monospace' },
+  modalSubtle: { fontSize: 12, color: '#666', marginTop: 4 },
+  fieldLabel: { fontSize: 11, color: '#666', fontWeight: '700', marginBottom: 4 },
+  numInput: { backgroundColor: '#F8F8F8', borderWidth: 1, borderColor: '#E0E0E0', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 16, color: BLACK },
+  chipBtn: { borderWidth: 1, borderColor: ORANGE, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6 },
+  chipBtnText: { color: ORANGE, fontWeight: '700', fontSize: 12 },
+  infoBox: { marginTop: 14, padding: 10, backgroundColor: '#FFF3E0', borderWidth: 1, borderColor: '#FFB74D', borderRadius: 8 },
+  infoBoxText: { color: '#E65100', fontSize: 13, fontWeight: '600' },
+  warnBox: { padding: 10, backgroundColor: '#FFF3CD', borderWidth: 1, borderColor: '#FFC107', borderRadius: 8, marginBottom: 10 },
+  warnText: { color: '#7A4F01', fontSize: 12, fontWeight: '600' },
+  modalActions: { flexDirection: 'row', gap: 8, padding: 14, borderTopWidth: 1, borderTopColor: '#EEE' },
+  modalCancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', backgroundColor: '#EEE' },
+  modalCancelText: { color: BLACK, fontWeight: '700', fontSize: 13 },
+  modalConfirmBtn: { flex: 2, flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 6, paddingVertical: 12, borderRadius: 8, backgroundColor: ORANGE },
+  modalConfirmText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+  activeBoxCard: { marginTop: 14, padding: 12, backgroundColor: '#E1F5FE', borderWidth: 2, borderColor: '#0277BD', borderRadius: 10 },
+  activeBoxTitle: { fontSize: 15, fontWeight: '800', color: BLACK },
+  boxGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, padding: 8, borderWidth: 1, borderColor: '#DDD', borderRadius: 8, marginTop: 6 },
+  boxChip: { paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6, minWidth: 44, alignItems: 'center' },
+  boxChipText: { fontSize: 12, fontWeight: '700', color: BLACK },
 });
