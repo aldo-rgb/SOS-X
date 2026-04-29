@@ -189,9 +189,9 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             return;
         }
 
-        // Renderiza una mini-etiqueta (4in × ~2.9in) — caben 2 por página 4×6
-        const renderHalf = (label: Label, idx: number) => `
-            <div class="half">
+        // Renderiza una mini-etiqueta (4in × 3in) — caben exactamente 2 por página 4×6
+        const renderHalf = (label: Label, idx: number, position: 'top' | 'bottom') => `
+            <div class="half ${position}">
                 <div class="header">
                     <div class="service">🚢 MARÍTIMO CHINA</div>
                     <div class="date-badge">${label.boxNumber}/${label.totalBoxes}</div>
@@ -205,7 +205,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 </div>
             </div>`;
 
-        // Empareja etiquetas de a 2 por página (corte en la línea punteada del medio)
+        // Empareja etiquetas de a 2 por página (corte exacto a la mitad: 3in)
         const pages: string[] = [];
         for (let i = 0; i < labels.length; i += 2) {
             const top = labels[i];
@@ -213,9 +213,9 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             const isLast = i + 2 >= labels.length;
             pages.push(`
                 <div class="page" style="page-break-after: ${isLast ? 'auto' : 'always'};">
-                    ${renderHalf(top, i)}
+                    ${renderHalf(top, i, 'top')}
                     <div class="cut-line"><span>✂  cortar aquí  ✂</span></div>
-                    ${bottom ? renderHalf(bottom, i + 1) : '<div class="half empty"></div>'}
+                    ${bottom ? renderHalf(bottom, i + 1, 'bottom') : '<div class="half bottom empty"></div>'}
                 </div>`);
         }
 
@@ -227,35 +227,40 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                     body { font-family: 'Arial', sans-serif; }
                     .page {
                         width: 4in; height: 6in;
-                        display: flex; flex-direction: column;
                         margin: 0 auto; position: relative; overflow: hidden;
                     }
                     .half {
-                        flex: 1 1 0; min-height: 0;
-                        padding: 0.12in 0.18in;
+                        position: absolute;
+                        left: 0; right: 0;
+                        height: 3in;
+                        padding: 0.18in 0.18in 0.14in 0.18in;
                         display: flex; flex-direction: column; justify-content: space-between;
                         overflow: hidden;
                     }
+                    .half.top { top: 0; border-bottom: 2px dashed #666; }
+                    .half.bottom { bottom: 0; }
                     .half.empty { background: transparent; }
                     .cut-line {
-                        height: 0.18in;
-                        border-top: 2px dashed #777;
-                        border-bottom: 2px dashed #777;
+                        position: absolute;
+                        left: 0; right: 0;
+                        top: 3in;
+                        transform: translateY(-50%);
+                        height: 16px;
                         text-align: center;
                         font-size: 9px;
                         color: #888;
                         letter-spacing: 2px;
-                        line-height: calc(0.18in - 4px);
-                        background: repeating-linear-gradient(90deg, #fff 0 6px, #f5f5f5 6px 12px);
+                        line-height: 16px;
+                        pointer-events: none;
                     }
-                    .cut-line span { background: #fff; padding: 0 6px; }
+                    .cut-line span { background: #fff; padding: 0 8px; }
                     .header { display: flex; justify-content: space-between; align-items: center; }
                     .service { background: #0097A7; color: white; padding: 3px 8px; font-size: 10px; font-weight: bold; border-radius: 4px; }
                     .date-badge { background: #111; color: white; padding: 3px 8px; font-size: 11px; font-weight: bold; border-radius: 4px; }
                     .tracking-code { text-align: center; font-size: 18px; font-weight: bold; letter-spacing: 1px; font-family: 'Courier New', monospace; margin: 2px 0; }
                     .barcode-section { text-align: center; }
-                    .barcode-section svg { width: 92%; height: 55px; }
-                    .client-mark { text-align: center; font-size: 42px; color: #FF6B35; font-weight: 900; letter-spacing: 2px; line-height: 1; margin: 2px 0; }
+                    .barcode-section svg { width: 92%; height: 50px; }
+                    .client-mark { text-align: center; font-size: 38px; color: #FF6B35; font-weight: 900; letter-spacing: 2px; line-height: 1; margin: 2px 0; }
                     .details { text-align: center; font-size: 12px; font-weight: 600; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
                     .detail-item { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; }
                     @page { size: 4in 6in; margin: 0; }
