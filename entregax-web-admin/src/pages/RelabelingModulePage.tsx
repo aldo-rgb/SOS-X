@@ -19,6 +19,11 @@ import {
     IconButton,
     InputAdornment,
     Checkbox,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    Stack,
 } from '@mui/material';
 import {
     Search as SearchIcon,
@@ -257,6 +262,11 @@ export default function RelabelingModulePage() {
     const [generatingPqtx, setGeneratingPqtx] = useState(false);
     const [pqtxMsg, setPqtxMsg] = useState<string | null>(null);
     const [selectedPqtx, setSelectedPqtx] = useState<Set<string>>(new Set());
+    // Reimpresión por rango de cajas (LOG marítimo y multi-caja)
+    const [reprintOpen, setReprintOpen] = useState(false);
+    const [reprintLabel, setReprintLabel] = useState<LabelData | null>(null);
+    const [reprintFrom, setReprintFrom] = useState<number>(1);
+    const [reprintTo, setReprintTo] = useState<number>(1);
 
     const handleGeneratePqtxLabel = async () => {
         if (!shipment) return;
@@ -454,53 +464,17 @@ export default function RelabelingModulePage() {
         setError(null);
     };
 
-    const handlePrintLabel = (label: LabelData) => {
-        const printWindow = window.open('', '_blank', 'width=400,height=600');
-        if (!printWindow) {
-            setError('Permite ventanas emergentes para imprimir');
-            return;
-        }
-
+    const buildLabelHTML = (label: LabelData): string => {
         const serviceInfo = getServiceInfo(label.tracking);
         const weightStr = label.weight ? `${Number(label.weight).toFixed(2)} kg` : '—';
         const dimsStr = label.dimensions || '—';
         const recvDate = label.receivedAt ? new Date(label.receivedAt).toLocaleDateString() : '';
         const trackingQr = `https://app.entregax.com/track/${label.tracking}`;
+        const safeId = `bc_${label.boxNumber}_${Math.random().toString(36).slice(2, 8)}`;
+        const qrId = `qr_${label.boxNumber}_${Math.random().toString(36).slice(2, 8)}`;
 
-        const html = `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8"/>
-<title>Etiqueta ${label.tracking}</title>
-<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
-<style>
-  @page { size: 4in 6in; margin: 0; }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, sans-serif; font-size: 10px; padding: 0.18in; width: 4in; height: 6in; display: flex; flex-direction: column; }
-  .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 6px; }
-  .header .service { display: inline-block; padding: 6px 14px; border: 2px solid #000; color: #000; font-size: 16px; font-weight: 900; letter-spacing: 0.5px; border-radius: 4px; }
-  .tracking-big { font-size: 18px; font-weight: 900; text-align: center; margin: 4px 0; font-family: 'Courier New', monospace; }
-  .barcode-box { text-align: center; margin: 4px 0; }
-  .barcode-box svg { max-height: 85px; width: 100%; }
-  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 6px; font-size: 10px; margin: 4px 0; }
-  .info-grid .label { font-weight: 700; color: #555; }
-  .client-box { border: 2px solid #000; padding: 6px; margin: 4px 0; text-align: center; }
-  .client-box .box-id { font-size: 22px; font-weight: 900; color: #C1272D; letter-spacing: 1px; }
-  .qr-footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 4px; border-top: 1px dashed #999; }
-  .qr-box { text-align: center; }
-  .qr-box #qrcode img { width: 120px !important; height: 120px !important; }
-  .qr-box .qr-label { font-size: 8px; color: #666; margin-top: 2px; }
-  .box-count { text-align: right; font-size: 11px; font-weight: 700; }
-  .box-count .big { font-size: 20px; }
-  .dest-banner { display: flex; align-items: center; justify-content: center; gap: 8px; border: 3px solid #000; padding: 6px 8px; margin: 4px 0; background: #FFF3E0; }
-  .dest-banner .code { font-size: 44px; font-weight: 900; color: #C1272D; line-height: 1; font-family: 'Arial Black', sans-serif; letter-spacing: 2px; }
-  .dest-banner .meta { text-align: left; }
-  .dest-banner .meta .lbl { font-size: 9px; color: #666; font-weight: 700; letter-spacing: 1px; }
-  .dest-banner .meta .city { font-size: 12px; font-weight: 700; color: #222; }
-</style>
-</head>
-<body>
+        return `
+  <div class="label-page">
   <div class="header">
     <div class="service">${serviceInfo.emoji} ${serviceInfo.label}</div>
   </div>
@@ -508,7 +482,7 @@ export default function RelabelingModulePage() {
   <div class="tracking-big">${label.tracking}</div>
 
   <div class="barcode-box">
-    <svg id="barcode"></svg>
+    <svg id="${safeId}" class="barcode"></svg>
   </div>
 
   <div class="client-box">
@@ -533,30 +507,82 @@ export default function RelabelingModulePage() {
 
   <div class="qr-footer">
     <div class="qr-box">
-      <div id="qrcode"></div>
+      <div id="${qrId}" class="qrcode"></div>
       <div class="qr-label">QR tracking</div>
     </div>
     <div class="box-count">
       ${label.totalBoxes > 1 ? `<div>Caja</div><div class="big">${label.boxNumber} / ${label.totalBoxes}</div>` : `<div class="big">1 / 1</div>`}
     </div>
   </div>
+  </div>
+  <script type="application/json" class="label-data" data-bc="${safeId}" data-qr="${qrId}" data-tracking="${encodeURIComponent(label.tracking)}" data-qrurl="${encodeURIComponent(trackingQr)}"></script>`;
+    };
 
+    const openPrintWindow = (labels: LabelData[]) => {
+        const printWindow = window.open('', '_blank', 'width=420,height=640');
+        if (!printWindow) {
+            setError('Permite ventanas emergentes para imprimir');
+            return;
+        }
+
+        const body = labels.map(l => buildLabelHTML(l)).join('\n');
+
+        const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8"/>
+<title>Etiquetas (${labels.length})</title>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<style>
+  @page { size: 4in 6in; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { font-family: Arial, sans-serif; font-size: 10px; }
+  .label-page { padding: 0.18in; width: 4in; height: 6in; display: flex; flex-direction: column; page-break-after: always; }
+  .label-page:last-of-type { page-break-after: auto; }
+  .header { text-align: center; border-bottom: 2px solid #000; padding-bottom: 8px; margin-bottom: 6px; }
+  .header .service { display: inline-block; padding: 6px 14px; border: 2px solid #000; color: #000; font-size: 16px; font-weight: 900; letter-spacing: 0.5px; border-radius: 4px; }
+  .tracking-big { font-size: 18px; font-weight: 900; text-align: center; margin: 4px 0; font-family: 'Courier New', monospace; }
+  .barcode-box { text-align: center; margin: 4px 0; }
+  .barcode-box svg { max-height: 85px; width: 100%; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 6px; font-size: 10px; margin: 4px 0; }
+  .info-grid .label { font-weight: 700; color: #555; }
+  .client-box { border: 2px solid #000; padding: 6px; margin: 4px 0; text-align: center; }
+  .client-box .box-id { font-size: 22px; font-weight: 900; color: #C1272D; letter-spacing: 1px; }
+  .qr-footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 4px; border-top: 1px dashed #999; }
+  .qr-box { text-align: center; }
+  .qrcode img { width: 120px !important; height: 120px !important; }
+  .qr-box .qr-label { font-size: 8px; color: #666; margin-top: 2px; }
+  .box-count { text-align: right; font-size: 11px; font-weight: 700; }
+  .box-count .big { font-size: 20px; }
+  .dest-banner { display: flex; align-items: center; justify-content: center; gap: 8px; border: 3px solid #000; padding: 6px 8px; margin: 4px 0; background: #FFF3E0; }
+  .dest-banner .code { font-size: 44px; font-weight: 900; color: #C1272D; line-height: 1; font-family: 'Arial Black', sans-serif; letter-spacing: 2px; }
+  .dest-banner .meta { text-align: left; }
+  .dest-banner .meta .lbl { font-size: 9px; color: #666; font-weight: 700; letter-spacing: 1px; }
+  .dest-banner .meta .city { font-size: 12px; font-weight: 700; color: #222; }
+</style>
+</head>
+<body>
+${body}
 <script>
   window.addEventListener('load', function() {
-    try {
-      JsBarcode('#barcode', ${JSON.stringify(label.tracking)}, {
-        format: 'CODE128', width: 2, height: 60, displayValue: false, margin: 0
-      });
-    } catch(e) { console.error('barcode', e); }
-
-    try {
-      var qr = qrcode(0, 'M');
-      qr.addData(${JSON.stringify(trackingQr)});
-      qr.make();
-      document.getElementById('qrcode').innerHTML = qr.createImgTag(3);
-    } catch(e) { console.error('qr', e); }
-
-    setTimeout(function() { window.print(); }, 500);
+    var datas = document.querySelectorAll('.label-data');
+    datas.forEach(function(d) {
+      var bcId = d.getAttribute('data-bc');
+      var qrId = d.getAttribute('data-qr');
+      var tracking = decodeURIComponent(d.getAttribute('data-tracking') || '');
+      var qrurl = decodeURIComponent(d.getAttribute('data-qrurl') || '');
+      try {
+        JsBarcode('#' + bcId, tracking, { format: 'CODE128', width: 2, height: 60, displayValue: false, margin: 0 });
+      } catch(e) { console.error('barcode', e); }
+      try {
+        var qr = qrcode(0, 'M');
+        qr.addData(qrurl);
+        qr.make();
+        document.getElementById(qrId).innerHTML = qr.createImgTag(3);
+      } catch(e) { console.error('qr', e); }
+    });
+    setTimeout(function() { window.print(); }, 600);
   });
 </script>
 </body>
@@ -565,6 +591,40 @@ export default function RelabelingModulePage() {
         printWindow.document.write(html);
         printWindow.document.close();
     };
+
+    const handlePrintLabel = (label: LabelData) => {
+        openPrintWindow([label]);
+    };
+
+    // Abre modal para reimprimir un rango de cajas (solo cuando totalBoxes > 1)
+    const openReprintModal = (label: LabelData) => {
+        setReprintLabel(label);
+        setReprintFrom(1);
+        setReprintTo(label.totalBoxes);
+        setReprintOpen(true);
+    };
+
+    const handleConfirmReprintRange = () => {
+        if (!reprintLabel) return;
+        const total = reprintLabel.totalBoxes;
+        const from = Math.max(1, Math.min(total, Math.floor(reprintFrom || 1)));
+        const to = Math.max(from, Math.min(total, Math.floor(reprintTo || from)));
+        const labels: LabelData[] = [];
+        // El tracking original suele incluir el sufijo `-NN` correspondiente al boxNumber.
+        // Quitamos el sufijo si existe para reconstruir cada caja del rango.
+        const baseTracking = reprintLabel.tracking.replace(/-\d{1,3}$/, '');
+        for (let i = from; i <= to; i++) {
+            const suffix = String(i).padStart(2, '0');
+            labels.push({
+                ...reprintLabel,
+                boxNumber: i,
+                tracking: `${baseTracking}-${suffix}`,
+            });
+        }
+        openPrintWindow(labels);
+        setReprintOpen(false);
+    };
+
 
     const assignedCarrier = getAssignedCarrier(shipment);
     const hasAssignedCarrier = Boolean(assignedCarrier);
@@ -907,15 +967,38 @@ export default function RelabelingModulePage() {
                                         {label.dimensions ? ` · ${label.dimensions}` : ''}
                                     </Typography>
                                     <Box sx={{ flex: 1 }} />
-                                    <Button
-                                        fullWidth
-                                        variant="contained"
-                                        startIcon={<PrintIcon />}
-                                        onClick={() => handlePrintLabel(label)}
-                                        sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
-                                    >
-                                        Imprimir
-                                    </Button>
+                                    {label.totalBoxes > 1 && !label.isMaster ? (
+                                        <Stack spacing={1}>
+                                            <Button
+                                                fullWidth
+                                                variant="contained"
+                                                startIcon={<PrintIcon />}
+                                                onClick={() => handlePrintLabel(label)}
+                                                sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
+                                            >
+                                                Imprimir caja {label.boxNumber}
+                                            </Button>
+                                            <Button
+                                                fullWidth
+                                                variant="outlined"
+                                                startIcon={<PrintOutlinedIcon />}
+                                                onClick={() => openReprintModal(label)}
+                                                sx={{ borderColor: '#F05A28', color: '#F05A28' }}
+                                            >
+                                                Reimprimir rango (1–{label.totalBoxes})
+                                            </Button>
+                                        </Stack>
+                                    ) : (
+                                        <Button
+                                            fullWidth
+                                            variant="contained"
+                                            startIcon={<PrintIcon />}
+                                            onClick={() => handlePrintLabel(label)}
+                                            sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
+                                        >
+                                            Imprimir
+                                        </Button>
+                                    )}
                                 </Paper>
                             </Grid>
                         ))}
@@ -1184,6 +1267,89 @@ export default function RelabelingModulePage() {
                     </Typography>
                 </Paper>
             )}
+
+            {/* Modal de reimpresión por rango de cajas */}
+            <Dialog open={reprintOpen} onClose={() => setReprintOpen(false)} maxWidth="xs" fullWidth>
+                <DialogTitle sx={{ bgcolor: '#F05A28', color: 'white', fontWeight: 700 }}>
+                    🖨️ Reimprimir rango de cajas
+                </DialogTitle>
+                <DialogContent sx={{ pt: 3 }}>
+                    {reprintLabel && (
+                        <Stack spacing={2} sx={{ mt: 1 }}>
+                            <Box>
+                                <Typography variant="caption" color="text.secondary">Tracking base</Typography>
+                                <Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                                    {reprintLabel.tracking.replace(/-\d{1,3}$/, '')}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                    Total de cajas: <strong>{reprintLabel.totalBoxes}</strong>
+                                </Typography>
+                            </Box>
+
+                            <Alert severity="info" sx={{ py: 0.5 }}>
+                                Selecciona desde qué caja hasta qué caja quieres reimprimir.
+                                Se generará una etiqueta por cada caja del rango.
+                            </Alert>
+
+                            <Box sx={{ display: 'flex', gap: 2 }}>
+                                <TextField
+                                    label="Desde"
+                                    type="number"
+                                    fullWidth
+                                    value={reprintFrom}
+                                    onChange={(e) => setReprintFrom(Number(e.target.value))}
+                                    inputProps={{ min: 1, max: reprintLabel.totalBoxes }}
+                                />
+                                <TextField
+                                    label="Hasta"
+                                    type="number"
+                                    fullWidth
+                                    value={reprintTo}
+                                    onChange={(e) => setReprintTo(Number(e.target.value))}
+                                    inputProps={{ min: 1, max: reprintLabel.totalBoxes }}
+                                />
+                            </Box>
+
+                            {/* Atajos rápidos */}
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                                <Button
+                                    size="small"
+                                    variant="outlined"
+                                    onClick={() => { setReprintFrom(1); setReprintTo(reprintLabel.totalBoxes); }}
+                                >
+                                    Todas (1–{reprintLabel.totalBoxes})
+                                </Button>
+                                <Button
+                                    size="small"
+                                    variant="outlined"
+                                    onClick={() => { setReprintFrom(reprintLabel.boxNumber); setReprintTo(reprintLabel.boxNumber); }}
+                                >
+                                    Solo caja {reprintLabel.boxNumber}
+                                </Button>
+                            </Box>
+
+                            <Box sx={{ p: 1.5, bgcolor: '#FFF3E0', borderRadius: 1, border: '1px solid #FFB74D' }}>
+                                <Typography variant="body2" fontWeight={600}>
+                                    Se imprimirán <strong>
+                                        {Math.max(0, Math.min(reprintLabel.totalBoxes, Math.floor(reprintTo || 0)) - Math.max(1, Math.floor(reprintFrom || 0)) + 1)}
+                                    </strong> etiqueta(s)
+                                </Typography>
+                            </Box>
+                        </Stack>
+                    )}
+                </DialogContent>
+                <DialogActions sx={{ p: 2 }}>
+                    <Button onClick={() => setReprintOpen(false)}>Cancelar</Button>
+                    <Button
+                        variant="contained"
+                        startIcon={<PrintIcon />}
+                        onClick={handleConfirmReprintRange}
+                        sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
+                    >
+                        Imprimir
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 }
