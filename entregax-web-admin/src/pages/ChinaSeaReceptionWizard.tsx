@@ -427,7 +427,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                                     {wasMissing && !isReceived && <Chip label="⏳ ESPERANDO" size="small" color="warning" />}
                                                 </Stack>
                                             }
-                                            secondary={`${o.user_name || 'Sin cliente'} · ${o.goods_name || 'Sin descripción'} · ${Number(o.weight || 0).toFixed(2)} kg · ${Number(o.volume || 0).toFixed(3)} CBM · status: ${o.status}`}
+                                            secondary={`${Number(o.weight || 0).toFixed(2)} kg · ${Number(o.volume || 0).toFixed(3)} CBM · status: ${o.status}`}
                                         />
                                     </ListItem>
                                 );
