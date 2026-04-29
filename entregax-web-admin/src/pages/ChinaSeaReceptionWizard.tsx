@@ -112,6 +112,169 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     const [confirmPartialOpen, setConfirmPartialOpen] = useState(false);
     const [result, setResult] = useState<{ new_status: string; received: number; missing: number; total: number } | null>(null);
 
+    // Impresión de etiquetas (1 por caja)
+    const [labelsModalOpen, setLabelsModalOpen] = useState(false);
+    const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set());
+
+    const totalBoxesInContainer = orders.reduce((acc, o) => acc + (Number(o.goods_num) || Number(o.summary_boxes) || 0), 0);
+    const selectedBoxesCount = orders
+        .filter((o) => selectedOrderIds.has(o.id))
+        .reduce((acc, o) => acc + (Number(o.goods_num) || Number(o.summary_boxes) || 0), 0);
+
+    const openLabelsModal = () => {
+        // Por defecto seleccionar todas las órdenes
+        setSelectedOrderIds(new Set(orders.map((o) => o.id)));
+        setLabelsModalOpen(true);
+    };
+
+    const toggleOrderForLabel = (id: number) => {
+        setSelectedOrderIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id); else next.add(id);
+            return next;
+        });
+    };
+
+    const toggleAllOrdersForLabel = () => {
+        if (selectedOrderIds.size === orders.length) {
+            setSelectedOrderIds(new Set());
+        } else {
+            setSelectedOrderIds(new Set(orders.map((o) => o.id)));
+        }
+    };
+
+    const printContainerLabels = () => {
+        if (!selected) return;
+        const ordersToPrint = orders.filter((o) => selectedOrderIds.has(o.id));
+        if (ordersToPrint.length === 0) {
+            setScanFeedback({ type: 'error', msg: 'Selecciona al menos una orden' });
+            return;
+        }
+
+        // Generar 1 etiqueta por caja
+        type Label = {
+            tracking: string;
+            ordersn: string;
+            boxNumber: number;
+            totalBoxes: number;
+            shippingMark: string;
+            clientName: string;
+            clientCode: string;
+            weight: string;
+            volume: string;
+            container: string;
+            bl: string;
+            reference: string;
+            description: string;
+        };
+
+        const labels: Label[] = [];
+        ordersToPrint.forEach((o) => {
+            const boxes = Number(o.goods_num) || Number(o.summary_boxes) || 1;
+            for (let i = 1; i <= boxes; i++) {
+                labels.push({
+                    tracking: `${o.ordersn}-${String(i).padStart(2, '0')}`,
+                    ordersn: o.ordersn,
+                    boxNumber: i,
+                    totalBoxes: boxes,
+                    shippingMark: o.shipping_mark || '',
+                    clientName: o.user_name || o.bl_client_name || o.shipping_mark || '—',
+                    clientCode: o.bl_client_code || o.user_box_id || '—',
+                    weight: o.weight ? `${Number(o.weight).toFixed(2)} kg` : '',
+                    volume: o.volume ? `${Number(o.volume).toFixed(3)} CBM` : '',
+                    container: selected.container_number || '',
+                    bl: selected.bl_number || '',
+                    reference: selected.reference_code || '',
+                    description: o.goods_name || '',
+                });
+            }
+        });
+
+        if (labels.length === 0) {
+            setScanFeedback({ type: 'error', msg: 'No hay cajas para imprimir' });
+            return;
+        }
+
+        const printWindow = window.open('', '_blank', 'width=800,height=600');
+        if (!printWindow) {
+            setScanFeedback({ type: 'error', msg: 'Popup bloqueado. Permite popups para imprimir etiquetas.' });
+            return;
+        }
+
+        const labelsHTML = labels.map((label, index) => `
+            <div class="label" style="page-break-after: ${index < labels.length - 1 ? 'always' : 'auto'};">
+                <div class="header">
+                    <div class="service">🚢 MARÍTIMO CHINA</div>
+                    <div class="date-badge">${label.boxNumber}/${label.totalBoxes}</div>
+                </div>
+                <div class="tracking-main">
+                    <div class="tracking-code">${label.tracking}</div>
+                    <div class="box-indicator">CAJA ${label.boxNumber} de ${label.totalBoxes}</div>
+                </div>
+                <div class="barcode-section"><svg id="barcode-${index}"></svg></div>
+                <div class="divider"></div>
+                <div class="client-info">
+                    <div class="client-mark">${label.shippingMark || label.clientCode}</div>
+                    <div class="client-name">${label.clientName}</div>
+                </div>
+                <div class="details">
+                    ${label.weight ? `<span class="detail-item">⚖️ ${label.weight}</span>` : ''}
+                    ${label.volume ? `<span class="detail-item">📐 ${label.volume}</span>` : ''}
+                </div>
+                <div class="container-info">
+                    <div><strong>Contenedor:</strong> ${label.container || '—'}</div>
+                    <div><strong>BL:</strong> ${label.bl || '—'}</div>
+                    <div><strong>Ref:</strong> ${label.reference || '—'}</div>
+                </div>
+                ${label.description ? `<div class="description">${label.description}</div>` : ''}
+            </div>
+        `).join('');
+
+        try {
+            printWindow.document.write(`<!DOCTYPE html><html><head>
+                <title>Etiquetas Marítimo - ${selected.reference_code || selected.container_number || ''}</title>
+                <style>
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body { font-family: 'Arial', sans-serif; }
+                    .label {
+                        width: 4in; height: 6in; padding: 0.2in;
+                        border: 2px solid #000; display: flex; flex-direction: column;
+                        margin: 0 auto; position: relative; overflow: hidden;
+                    }
+                    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+                    .service { background: #0097A7; color: white; padding: 4px 10px; font-size: 11px; font-weight: bold; border-radius: 4px; }
+                    .date-badge { background: #111; color: white; padding: 4px 10px; font-size: 12px; font-weight: bold; border-radius: 4px; }
+                    .tracking-main { text-align: center; margin: 6px 0 2px 0; }
+                    .tracking-code { font-size: 22px; font-weight: bold; letter-spacing: 1px; font-family: 'Courier New', monospace; }
+                    .box-indicator { font-size: 13px; color: #0097A7; font-weight: 700; margin-top: 2px; }
+                    .barcode-section { text-align: center; margin: 6px 0; }
+                    .barcode-section svg { width: 90%; height: 70px; }
+                    .divider { border-top: 2px dashed #ccc; margin: 6px 0; }
+                    .client-info { text-align: center; margin: 4px 0; }
+                    .client-mark { font-size: 38px; color: #FF6B35; font-weight: 900; letter-spacing: 2px; line-height: 1; }
+                    .client-name { font-size: 13px; color: #333; font-weight: 600; margin-top: 4px; }
+                    .details { text-align: center; font-size: 13px; font-weight: 600; margin: 6px 0; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+                    .detail-item { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; }
+                    .container-info { font-size: 10px; color: #555; margin-top: 6px; line-height: 1.4; padding: 4px 6px; background: #fafafa; border-radius: 4px; }
+                    .description { text-align: center; font-size: 9px; color: #666; margin-top: 4px; font-style: italic; }
+                    @page { size: 4in 6in; margin: 0; }
+                    @media print { body { margin: 0; padding: 0; } .label { border: none; page-break-inside: avoid; overflow: hidden; } }
+                </style>
+                <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
+            </head><body>${labelsHTML}
+            <script>
+                ${labels.map((label, i) => `try { JsBarcode("#barcode-${i}", "${label.tracking.replace(/[^A-Z0-9]/gi, '')}", { format: "CODE128", width: 2.2, height: 60, displayValue: false, margin: 0 }); } catch(e) {}`).join('\n')}
+                window.onload = function() { setTimeout(function() { window.print(); }, 600); };
+            <\/script></body></html>`);
+            printWindow.document.close();
+            setLabelsModalOpen(false);
+            setScanFeedback({ type: 'success', msg: `${labels.length} etiqueta(s) generadas` });
+        } catch (err) {
+            console.error('Error generando etiquetas:', err);
+            setScanFeedback({ type: 'error', msg: 'Error generando etiquetas' });
+        }
+    };
+
     useEffect(() => { loadContainers(); }, []);
     useEffect(() => {
         if (step === 1 && inputRef.current) inputRef.current.focus();
@@ -367,6 +530,16 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             {selected.total_cbm && (
                                 <Chip label={`${Number(selected.total_cbm).toFixed(2)} CBM`} size="small" variant="outlined" />
                             )}
+                            <Box sx={{ flex: 1 }} />
+                            <Button
+                                variant="contained"
+                                size="small"
+                                onClick={openLabelsModal}
+                                disabled={orders.length === 0}
+                                sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#E64A19' } }}
+                            >
+                                🖨️ Imprimir Etiquetas ({totalBoxesInContainer} cajas)
+                            </Button>
                         </Stack>
                     </Paper>
 
@@ -515,6 +688,75 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                         sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#E55A28' } }}
                     >
                         Confirmar recepción parcial
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Modal: Selección de etiquetas para imprimir */}
+            <Dialog open={labelsModalOpen} onClose={() => setLabelsModalOpen(false)} maxWidth="md" fullWidth>
+                <DialogTitle sx={{ bgcolor: ORANGE, color: '#FFF', display: 'flex', alignItems: 'center', gap: 1 }}>
+                    🖨️ Imprimir Etiquetas · {selected?.reference_code || selected?.container_number || ''}
+                </DialogTitle>
+                <DialogContent dividers sx={{ p: 0 }}>
+                    <Box sx={{ p: 2, bgcolor: '#FFF8E1', borderBottom: '1px solid #FFE082' }}>
+                        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between" flexWrap="wrap">
+                            <Typography variant="body2">
+                                <strong>{selectedOrderIds.size}</strong> de {orders.length} órden(es) · <strong>{selectedBoxesCount}</strong> etiqueta(s) a imprimir (1 por caja)
+                            </Typography>
+                            <Button size="small" variant="outlined" onClick={toggleAllOrdersForLabel} sx={{ color: BLACK, borderColor: BLACK }}>
+                                {selectedOrderIds.size === orders.length ? 'Quitar todo' : 'Seleccionar todo'}
+                            </Button>
+                        </Stack>
+                    </Box>
+                    <List dense sx={{ maxHeight: '60vh', overflow: 'auto' }}>
+                        {orders.map((o) => {
+                            const checked = selectedOrderIds.has(o.id);
+                            const boxes = Number(o.goods_num) || Number(o.summary_boxes) || 1;
+                            return (
+                                <ListItem
+                                    key={o.id}
+                                    onClick={() => toggleOrderForLabel(o.id)}
+                                    sx={{
+                                        cursor: 'pointer',
+                                        borderBottom: '1px solid #f0f0f0',
+                                        bgcolor: checked ? '#E8F5E9' : 'transparent',
+                                        '&:hover': { bgcolor: checked ? '#C8E6C9' : '#FAFAFA' },
+                                    }}
+                                >
+                                    <ListItemIcon>
+                                        {checked
+                                            ? <CheckCircleIcon sx={{ color: '#2E7D32' }} />
+                                            : <UncheckedIcon sx={{ color: '#999' }} />}
+                                    </ListItemIcon>
+                                    <ListItemText
+                                        primary={
+                                            <Stack direction="row" spacing={1} alignItems="center">
+                                                <Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{o.ordersn}</Typography>
+                                                {o.shipping_mark && <Chip label={o.shipping_mark} size="small" variant="outlined" />}
+                                                <Chip label={`${boxes} caja(s)`} size="small" sx={{ bgcolor: TEAL, color: '#FFF', fontWeight: 700 }} />
+                                            </Stack>
+                                        }
+                                        secondary={
+                                            <Typography variant="caption" color="text.secondary">
+                                                {o.user_name || o.bl_client_name || '—'} · {o.weight ? `${Number(o.weight).toFixed(2)} kg` : ''} {o.volume ? `· ${Number(o.volume).toFixed(3)} CBM` : ''}
+                                                {o.goods_name ? ` · ${o.goods_name}` : ''}
+                                            </Typography>
+                                        }
+                                    />
+                                </ListItem>
+                            );
+                        })}
+                    </List>
+                </DialogContent>
+                <DialogActions sx={{ p: 2 }}>
+                    <Button onClick={() => setLabelsModalOpen(false)} sx={{ color: BLACK }}>Cancelar</Button>
+                    <Button
+                        variant="contained"
+                        onClick={printContainerLabels}
+                        disabled={selectedOrderIds.size === 0 || selectedBoxesCount === 0}
+                        sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#E64A19' } }}
+                    >
+                        🖨️ Imprimir {selectedBoxesCount} etiqueta(s)
                     </Button>
                 </DialogActions>
             </Dialog>
