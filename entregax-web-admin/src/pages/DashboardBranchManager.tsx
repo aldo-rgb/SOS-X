@@ -40,6 +40,7 @@ interface BranchStats {
   sucursal: {
     nombre: string;
     codigo: string;
+    allowed_services?: string[];
   };
   paquetes: {
     en_bodega: number;
@@ -80,7 +81,10 @@ export default function DashboardBranchManager() {
   const [stats, setStats] = useState<BranchStats | null>(null);
   const [userName, setUserName] = useState('');
   const [delayedCount, setDelayedCount] = useState<number>(0);
+  const [delayedAirCount, setDelayedAirCount] = useState<number>(0);
+  const [delayedSeaCount, setDelayedSeaCount] = useState<number>(0);
   const [delayedOpen, setDelayedOpen] = useState(false);
+  const [delayedService, setDelayedService] = useState<'pobox' | 'air' | 'sea'>('pobox');
 
   useEffect(() => {
     loadData();
@@ -96,12 +100,28 @@ export default function DashboardBranchManager() {
 
   const loadDelayedCount = async () => {
     try {
-      const res = await api.get('/admin/customer-service/delayed-packages');
-      const list = res.data?.packages || [];
-      setDelayedCount(list.length);
+      const [resPobox, resAir, resSea] = await Promise.all([
+        api.get('/admin/customer-service/delayed-packages?service=pobox'),
+        api.get('/admin/customer-service/delayed-packages?service=air'),
+        api.get('/admin/customer-service/delayed-packages?service=sea'),
+      ]);
+      setDelayedCount((resPobox.data?.packages || []).length);
+      setDelayedAirCount((resAir.data?.packages || []).length);
+      setDelayedSeaCount((resSea.data?.packages || []).length);
     } catch (err) {
-      console.error('Error loading delayed count:', err);
+      console.error('Error loading delayed counts:', err);
     }
+  };
+
+  const openDelayedModal = (svc: 'pobox' | 'air' | 'sea') => {
+    setDelayedService(svc);
+    setDelayedOpen(true);
+  };
+
+  const hasService = (code: string) => {
+    const list = stats?.sucursal?.allowed_services || [];
+    if (!Array.isArray(list) || list.length === 0) return false;
+    return list.includes('ALL') || list.includes(code);
   };
 
   const loadData = async () => {
@@ -116,7 +136,7 @@ export default function DashboardBranchManager() {
       console.error('Error cargando dashboard:', error);
       // Evitar datos ficticios en dashboard
       setStats({
-        sucursal: { nombre: 'CEDIS MTY', codigo: 'MTY' },
+        sucursal: { nombre: 'CEDIS MTY', codigo: 'MTY', allowed_services: [] },
         paquetes: { en_bodega: 0, en_transito: 0, en_espera_cajas: 0, en_espera_maritimo: 0, en_espera_aereo: 0, entregados_hoy: 0, pendientes_cobro: 0 },
         financiero: { ingresos_hoy: 0, ingresos_mes: 0, saldo_caja: 0, cuentas_por_cobrar: 0 },
         operaciones: { recepciones_hoy: 0, despachos_hoy: 0, consolidaciones_pendientes: 0 },
@@ -281,39 +301,113 @@ export default function DashboardBranchManager() {
           </Paper>
         </Grid>
 
-        {/* Guías con Retraso (click para ver detalles) */}
-        <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-          <Paper
-            onClick={() => setDelayedOpen(true)}
-            sx={{
-              p: 3,
-              height: '100%',
-              background: delayedCount > 0
-                ? 'linear-gradient(135deg, #C62828 0%, #EF5350 100%)'
-                : 'linear-gradient(135deg, #616161 0%, #9E9E9E 100%)',
-              color: 'white',
-              cursor: 'pointer',
-              transition: 'transform 0.2s, box-shadow 0.2s',
-              '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 },
-            }}
-          >
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <Box>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>Guías con Retraso</Typography>
-                <Typography variant="h3" fontWeight="bold">{delayedCount}</Typography>
-                <Typography variant="caption">
-                  {delayedCount === 0 ? 'sin retrasos' : delayedCount === 1 ? 'paquete retrasado' : 'paquetes retrasados'}
-                </Typography>
+        {/* Guías con Retraso PO Box - solo si la sucursal tiene servicio POBOX_USA */}
+        {hasService('POBOX_USA') && (
+          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+            <Paper
+              onClick={() => openDelayedModal('pobox')}
+              sx={{
+                p: 3,
+                height: '100%',
+                background: delayedCount > 0
+                  ? 'linear-gradient(135deg, #C62828 0%, #EF5350 100%)'
+                  : 'linear-gradient(135deg, #616161 0%, #9E9E9E 100%)',
+                color: 'white',
+                cursor: 'pointer',
+                transition: 'transform 0.2s, box-shadow 0.2s',
+                '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 },
+              }}
+            >
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <Box>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Retraso PO Box</Typography>
+                  <Typography variant="h3" fontWeight="bold">{delayedCount}</Typography>
+                  <Typography variant="caption">
+                    {delayedCount === 0 ? 'sin retrasos' : delayedCount === 1 ? 'paquete retrasado' : 'paquetes retrasados'}
+                  </Typography>
+                </Box>
+                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
+                  <LocalShippingIcon />
+                </Avatar>
               </Box>
-              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                <LocalShippingIcon />
-              </Avatar>
-            </Box>
-            <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.85, fontSize: '0.7rem' }}>
-              Click para ver detalles →
-            </Typography>
-          </Paper>
-        </Grid>
+              <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.85, fontSize: '0.7rem' }}>
+                Click para ver detalles →
+              </Typography>
+            </Paper>
+          </Grid>
+        )}
+
+        {/* Guías con Retraso Aéreo - solo si la sucursal tiene servicio AIR_CHN_MX */}
+        {hasService('AIR_CHN_MX') && (
+          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+            <Paper
+              onClick={() => openDelayedModal('air')}
+              sx={{
+                p: 3,
+                height: '100%',
+                background: delayedAirCount > 0
+                  ? 'linear-gradient(135deg, #C62828 0%, #EF5350 100%)'
+                  : 'linear-gradient(135deg, #616161 0%, #9E9E9E 100%)',
+                color: 'white',
+                cursor: 'pointer',
+                transition: 'transform 0.2s, box-shadow 0.2s',
+                '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 },
+              }}
+            >
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <Box>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Retraso Aéreo</Typography>
+                  <Typography variant="h3" fontWeight="bold">{delayedAirCount}</Typography>
+                  <Typography variant="caption">
+                    {delayedAirCount === 0 ? 'sin retrasos' : delayedAirCount === 1 ? 'guía retrasada' : 'guías retrasadas'}
+                  </Typography>
+                </Box>
+                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
+                  <FlightTakeoffIcon />
+                </Avatar>
+              </Box>
+              <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.85, fontSize: '0.7rem' }}>
+                Click para ver detalles →
+              </Typography>
+            </Paper>
+          </Grid>
+        )}
+
+        {/* Guías con Retraso Marítimo - solo si la sucursal tiene servicio SEA_CHN_MX */}
+        {(hasService('SEA_CHN_MX') || hasService('FCL_CHN_MX')) && (
+          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+            <Paper
+              onClick={() => openDelayedModal('sea')}
+              sx={{
+                p: 3,
+                height: '100%',
+                background: delayedSeaCount > 0
+                  ? 'linear-gradient(135deg, #C62828 0%, #EF5350 100%)'
+                  : 'linear-gradient(135deg, #616161 0%, #9E9E9E 100%)',
+                color: 'white',
+                cursor: 'pointer',
+                transition: 'transform 0.2s, box-shadow 0.2s',
+                '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 },
+              }}
+            >
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <Box>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Retraso Marítimo</Typography>
+                  <Typography variant="h3" fontWeight="bold">{delayedSeaCount}</Typography>
+                  <Typography variant="caption">
+                    {delayedSeaCount === 0 ? 'sin retrasos' : delayedSeaCount === 1 ? 'pedido retrasado' : 'pedidos retrasados'}
+                  </Typography>
+                </Box>
+                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
+                  <DirectionsBoatIcon />
+                </Avatar>
+              </Box>
+              <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.85, fontSize: '0.7rem' }}>
+                Click para ver detalles →
+              </Typography>
+            </Paper>
+          </Grid>
+        )}
       </Grid>
 
       {/* Modal: Detalle de Guías con Retraso */}
@@ -327,14 +421,16 @@ export default function DashboardBranchManager() {
         <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#F05A28', color: 'white' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <LocalShippingIcon />
-            <Typography variant="h6" fontWeight={700}>Guías con Retraso</Typography>
+            <Typography variant="h6" fontWeight={700}>
+              Guías con Retraso{delayedService === 'air' ? ' · Aéreo' : delayedService === 'sea' ? ' · Marítimo' : ' · PO Box'}
+            </Typography>
           </Box>
           <IconButton onClick={() => setDelayedOpen(false)} sx={{ color: 'white' }}>
             <CloseIcon />
           </IconButton>
         </DialogTitle>
         <DialogContent sx={{ p: 0 }}>
-          <DelayedPackagesPage hideActions />
+          <DelayedPackagesPage hideActions service={delayedService} />
         </DialogContent>
       </Dialog>
 

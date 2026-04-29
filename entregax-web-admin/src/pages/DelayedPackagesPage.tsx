@@ -53,7 +53,7 @@ interface DelayedPackage {
     days_delayed: number | null;
 }
 
-export default function DelayedPackagesPage({ hideActions = false }: { hideActions?: boolean } = {}) {
+export default function DelayedPackagesPage({ hideActions = false, service = 'pobox' }: { hideActions?: boolean; service?: 'pobox' | 'air' | 'sea' } = {}) {
     const [packages, setPackages] = useState<DelayedPackage[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -70,7 +70,7 @@ export default function DelayedPackagesPage({ hideActions = false }: { hideActio
         setLoading(true);
         setError(null);
         try {
-            const res = await api.get('/admin/customer-service/delayed-packages');
+            const res = await api.get(`/admin/customer-service/delayed-packages?service=${service}`);
             setPackages(res.data.packages || []);
         } catch (e: any) {
             setError(e.response?.data?.error || e.message);
@@ -81,7 +81,8 @@ export default function DelayedPackagesPage({ hideActions = false }: { hideActio
 
     useEffect(() => {
         load();
-    }, []);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [service]);
 
     const openLostModal = (pkg: DelayedPackage) => {
         setLostTarget(pkg);
@@ -215,10 +216,14 @@ export default function DelayedPackagesPage({ hideActions = false }: { hideActio
                 <WarningIcon sx={{ color: '#F05A28' }} />
                 <Box sx={{ flex: 1 }}>
                     <Typography variant="h6" fontWeight={700}>
-                        Guías con Retraso
+                        {service === 'air' ? 'Guías con Retraso · Aéreo' : service === 'sea' ? 'Guías con Retraso · Marítimo' : 'Guías con Retraso · PO Box'}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                        Paquetes cuya consolidación llegó a MTY sin ellos
+                        {service === 'air'
+                            ? 'Paquetes cuyo AWB lleva 5+ días sin recepción o reportados como faltantes'
+                            : service === 'sea'
+                            ? 'Pedidos cuyo contenedor lleva 5+ días sin recepción o reportados como faltantes'
+                            : 'Paquetes cuya consolidación llegó a MTY sin ellos'}
                     </Typography>
                 </Box>
                 <Chip

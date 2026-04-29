@@ -752,7 +752,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
 
         const userResult = await pool.query(
             `
-                SELECT u.id, u.role, u.branch_id, b.name as branch_name, b.code as branch_code
+                SELECT u.id, u.role, u.branch_id, b.name as branch_name, b.code as branch_code, b.allowed_services as branch_allowed_services
                 FROM users u
                 LEFT JOIN branches b ON b.id = u.branch_id
                 WHERE u.id = $1
@@ -772,10 +772,11 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
         let targetBranchId: number | null = user.branch_id || null;
         let branchName = user.branch_name || null;
         let branchCode = user.branch_code || null;
+        let branchAllowedServices: string[] = Array.isArray(user.branch_allowed_services) ? user.branch_allowed_services : [];
         if (!branchName) {
             const mtyBranch = await pool.query(
                 `
-                    SELECT id, name, code
+                    SELECT id, name, code, allowed_services
                     FROM branches
                     WHERE UPPER(code) = 'MTY' AND is_active = TRUE
                     ORDER BY id ASC
@@ -785,6 +786,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             targetBranchId = mtyBranch.rows[0]?.id || null;
             branchName = mtyBranch.rows[0]?.name || 'CEDIS MTY';
             branchCode = mtyBranch.rows[0]?.code || 'MTY';
+            branchAllowedServices = Array.isArray(mtyBranch.rows[0]?.allowed_services) ? mtyBranch.rows[0].allowed_services : [];
         }
 
         // En Bodega: mismo criterio que Inventario por Sucursal (status = in_stock)
@@ -968,6 +970,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             sucursal: {
                 nombre: branchName || 'CEDIS MTY',
                 codigo: branchCode || 'MTY',
+                allowed_services: branchAllowedServices,
             },
             paquetes: {
                 en_bodega: parseInt(inWarehouseResult.rows[0]?.total || 0) || 0,

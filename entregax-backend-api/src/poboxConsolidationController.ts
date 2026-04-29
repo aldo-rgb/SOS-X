@@ -345,13 +345,131 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
 };
 
 /**
- * GET /api/admin/customer-service/delayed-packages
- * Lista paquetes con retraso:
- *  - Paquetes marcados como faltantes (missing_on_arrival) cuando su consolidación llegó sin ellos
- *  - Paquetes cuyo consolidación lleva 5+ días en tránsito y aún no llega a MTY (semáforo rojo)
+ * GET /api/admin/customer-service/delayed-packages?service=pobox|air|sea
+ * Lista paquetes con retraso según el servicio:
+ *  - pobox (default): paquetes faltantes / consolidaciones 5+ días en tránsito
+ *  - air: paquetes AIR_CHN_MX cuyo AWB tiene flight_date 5+ días y no llega; o faltantes
+ *  - sea: maritime_orders cuyo contenedor tiene ETA/laden 5+ días y no llega; o faltantes
  */
-export const getDelayedPackages = async (_req: AuthRequest, res: Response): Promise<any> => {
+export const getDelayedPackages = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
+    const service = String((req.query?.service as string) || 'pobox').toLowerCase();
+
+    // ============ AIR (AIR_CHN_MX) ============
+    if (service === 'air') {
+      const result = await pool.query(
+        `SELECT
+           p.id,
+           p.tracking_internal,
+           p.status,
+           p.service_type,
+           p.description,
+           p.weight,
+           NULL::int AS consolidation_id,
+           p.missing_reported_at,
+           p.created_at,
+           ac.awb_number AS master_tracking,
+           ac.status AS consolidation_status,
+           ac.flight_date AS consolidation_dispatched_at,
+           ac.received_at AS consolidation_received_at,
+           ac.created_at AS consolidation_created_at,
+           u.id AS user_id,
+           u.full_name AS user_name,
+           u.email AS user_email,
+           u.phone AS user_phone,
+           u.box_id,
+           CASE
+             WHEN p.missing_on_arrival = TRUE AND p.missing_reported_at IS NOT NULL
+               THEN EXTRACT(EPOCH FROM (NOW() - p.missing_reported_at)) / 86400
+             WHEN ac.received_at IS NULL AND ac.flight_date IS NOT NULL
+               THEN EXTRACT(EPOCH FROM (NOW() - ac.flight_date::timestamp)) / 86400
+             ELSE NULL
+           END AS days_delayed,
+           CASE
+             WHEN p.missing_on_arrival = TRUE THEN 'faltante'
+             WHEN ac.received_at IS NULL THEN 'awb_atrasado'
+             ELSE 'otro'
+           END AS delay_reason
+         FROM packages p
+         LEFT JOIN air_waybill_costs ac ON ac.awb_number = p.international_tracking
+         LEFT JOIN users u ON u.id = p.user_id
+         WHERE p.service_type = 'AIR_CHN_MX'
+           AND COALESCE(p.is_lost, FALSE) = FALSE
+           AND p.status NOT IN ('delivered', 'ready_pickup')
+           AND (
+             p.missing_on_arrival = TRUE
+             OR (
+               ac.received_at IS NULL
+               AND ac.flight_date IS NOT NULL
+               AND COALESCE(p.missing_on_arrival, FALSE) = FALSE
+               AND p.status NOT IN ('received_mty', 'received_cedis')
+               AND EXTRACT(EPOCH FROM (NOW() - ac.flight_date::timestamp)) / 86400 >= 5
+             )
+           )
+         ORDER BY days_delayed DESC NULLS LAST`
+      );
+      return res.json({ success: true, packages: result.rows, service: 'air' });
+    }
+
+    // ============ SEA (SEA_CHN_MX / FCL_CHN_MX) ============
+    if (service === 'sea') {
+      const result = await pool.query(
+        `SELECT
+           mo.id,
+           mo.ordersn AS tracking_internal,
+           mo.status,
+           'SEA_CHN_MX' AS service_type,
+           COALESCE(mo.summary_description, mo.goods_name) AS description,
+           mo.weight,
+           mo.container_id AS consolidation_id,
+           NULL::timestamp AS missing_reported_at,
+           mo.created_at,
+           COALESCE(c.bl_number, c.container_number, c.reference_code) AS master_tracking,
+           c.status AS consolidation_status,
+           COALESCE(c.laden_on_board::timestamp, c.eta::timestamp) AS consolidation_dispatched_at,
+           c.received_at AS consolidation_received_at,
+           c.created_at AS consolidation_created_at,
+           u.id AS user_id,
+           u.full_name AS user_name,
+           u.email AS user_email,
+           u.phone AS user_phone,
+           u.box_id,
+           CASE
+             WHEN mo.missing_on_arrival = TRUE
+               THEN EXTRACT(EPOCH FROM (NOW() - COALESCE(c.received_at, NOW()))) / 86400
+             WHEN c.received_at IS NULL AND c.eta IS NOT NULL
+               THEN EXTRACT(EPOCH FROM (NOW() - c.eta::timestamp)) / 86400
+             WHEN c.received_at IS NULL AND c.laden_on_board IS NOT NULL
+               THEN EXTRACT(EPOCH FROM (NOW() - c.laden_on_board::timestamp)) / 86400
+             ELSE NULL
+           END AS days_delayed,
+           CASE
+             WHEN mo.missing_on_arrival = TRUE THEN 'faltante'
+             WHEN c.received_at IS NULL THEN 'contenedor_atrasado'
+             ELSE 'otro'
+           END AS delay_reason
+         FROM maritime_orders mo
+         LEFT JOIN containers c ON c.id = mo.container_id
+         LEFT JOIN users u ON u.id = mo.user_id
+         WHERE mo.status NOT IN ('delivered', 'ready_pickup')
+           AND (
+             mo.missing_on_arrival = TRUE
+             OR (
+               c.received_at IS NULL
+               AND COALESCE(mo.missing_on_arrival, FALSE) = FALSE
+               AND mo.status NOT IN ('received_mty', 'received_cedis')
+               AND (
+                 (c.eta IS NOT NULL AND EXTRACT(EPOCH FROM (NOW() - c.eta::timestamp)) / 86400 >= 5)
+                 OR (c.laden_on_board IS NOT NULL AND EXTRACT(EPOCH FROM (NOW() - c.laden_on_board::timestamp)) / 86400 >= 5)
+               )
+             )
+           )
+         ORDER BY days_delayed DESC NULLS LAST`
+      );
+      return res.json({ success: true, packages: result.rows, service: 'sea' });
+    }
+
+    // ============ PO BOX (default) ============
     const result = await pool.query(
       `SELECT 
          p.id,
@@ -404,7 +522,7 @@ export const getDelayedPackages = async (_req: AuthRequest, res: Response): Prom
          )
        ORDER BY days_delayed DESC NULLS LAST`
     );
-    res.json({ success: true, packages: result.rows });
+    res.json({ success: true, packages: result.rows, service: 'pobox' });
   } catch (error: any) {
     console.error('getDelayedPackages:', error);
     res.status(500).json({ success: false, error: error.message });
