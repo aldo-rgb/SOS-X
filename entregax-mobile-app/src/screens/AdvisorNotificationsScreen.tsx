@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -73,6 +74,8 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
   const [stats, setStats] = useState({ ownUnread: 0, clientActivity: 0 });
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const loadNotifications = useCallback(async () => {
     try {
@@ -123,6 +126,81 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
     } catch {}
   };
 
+  // Solo se pueden archivar notificaciones reales (source === 'own')
+  const archiveOne = async (id: number) => {
+    try {
+      await fetch(`${API_URL}/api/notifications/${id}/archive`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setNotifications(prev => prev.filter(n => !(n.id === id && n.source === 'own')));
+      setSelectedIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+    } catch (e) {
+      console.error('archiveOne', e);
+    }
+  };
+
+  const archiveSelected = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    try {
+      await fetch(`${API_URL}/api/notifications/archive-bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ids }),
+      });
+      setNotifications(prev => prev.filter(n => !(n.source === 'own' && ids.includes(n.id))));
+      setSelectedIds(new Set());
+      setSelectionMode(false);
+    } catch (e) {
+      console.error('archiveSelected', e);
+    }
+  };
+
+  const archiveAllOwn = () => {
+    Alert.alert(
+      '¿Archivar todas?',
+      'Se ocultarán todas las notificaciones del sistema (no afecta actividad de clientes).',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Archivar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await fetch(`${API_URL}/api/notifications/archive-all`, {
+                method: 'PUT',
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              setNotifications(prev => prev.filter(n => n.source !== 'own'));
+              setSelectedIds(new Set());
+              setSelectionMode(false);
+            } catch (e) {
+              console.error('archiveAll', e);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev => {
+      const s = new Set(prev);
+      if (s.has(id)) s.delete(id); else s.add(id);
+      return s;
+    });
+  };
+
+  const toggleSelectAllOwn = () => {
+    const ownIds = notifications.filter(n => n.source === 'own').map(n => n.id);
+    if (selectedIds.size === ownIds.length && ownIds.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(ownIds));
+    }
+  };
+
   const formatTime = (dateStr: string) => {
     const now = new Date();
     const d = new Date(dateStr);
@@ -144,6 +222,10 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
       : notifications.filter(n => n.source === activeTab);
 
   const handleNotificationPress = (notif: Notification) => {
+    if (selectionMode && notif.source === 'own') {
+      toggleSelect(notif.id);
+      return;
+    }
     // Mark as read if it's an own notification
     if (notif.source === 'own' && !notif.is_read) {
       markAsRead(notif.id);
@@ -154,21 +236,54 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
     const data = typeof notif.data === 'string' ? JSON.parse(notif.data) : notif.data;
     if (notif.source === 'own_verification') {
       navigation.navigate('MyProfile', { user, token });
+      return;
     } else if (notif.source === 'new_client' || notif.source === 'client_package' || notif.source === 'client_payment' || notif.source === 'pending_verification') {
       navigation.navigate('AdvisorClients', { user, token });
+      return;
     } else if (notif.source === 'client_ticket') {
       navigation.navigate('AdvisorClientTickets', { user, token });
+      return;
     }
+
+    // Notificaciones propias (source === 'own'): usar action_url
+    if (notif.action_url) {
+      const m = notif.action_url.match(/\/(packages?|paquetes?)\/([\w-]+)/i);
+      if (m) {
+        navigation.navigate('PackageDetail', { user, token, packageId: m[2] });
+        return;
+      }
+      if (/maritime|china-sea/i.test(notif.action_url)) {
+        navigation.navigate('ChinaSeaHub', { user, token });
+        return;
+      }
+      if (/china-air/i.test(notif.action_url)) {
+        navigation.navigate('ChinaAirHub', { user, token });
+        return;
+      }
+      if (/pobox/i.test(notif.action_url)) {
+        navigation.navigate('POBoxHub', { user, token });
+        return;
+      }
+    }
+  };
+
+  const handleLongPress = (notif: Notification) => {
+    if (notif.source !== 'own') return;
+    setSelectionMode(true);
+    toggleSelect(notif.id);
   };
 
   const renderNotification = ({ item }: { item: Notification }) => {
     const color = TYPE_COLORS[item.type] || '#666';
     const isUnread = (!item.is_read && item.source === 'own') || item.source === 'pending_verification' || item.source === 'own_verification';
+    const canArchive = item.source === 'own';
+    const isSelected = selectedIds.has(item.id);
 
     return (
       <TouchableOpacity
-        style={[styles.notifCard, isUnread && styles.notifCardUnread]}
+        style={[styles.notifCard, isUnread && styles.notifCardUnread, isSelected && { borderWidth: 2, borderColor: ORANGE }]}
         onPress={() => handleNotificationPress(item)}
+        onLongPress={() => handleLongPress(item)}
       >
         <View style={[styles.notifIcon, { backgroundColor: color + '15' }]}>
           <Ionicons name={getIconName(item.icon) as any} size={22} color={color} />
@@ -195,7 +310,16 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
             </View>
           )}
         </View>
-        {isUnread && <View style={styles.unreadDot} />}
+        {isUnread && !selectionMode && <View style={styles.unreadDot} />}
+        {canArchive && !selectionMode && (
+          <TouchableOpacity
+            onPress={() => archiveOne(item.id)}
+            style={{ padding: 6, marginLeft: 4 }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <Ionicons name="archive-outline" size={20} color="#999" />
+          </TouchableOpacity>
+        )}
       </TouchableOpacity>
     );
   };
@@ -211,21 +335,47 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
       {/* Summary Bar */}
-      <View style={styles.summaryBar}>
-        <View style={styles.summaryItem}>
-          <Ionicons name="notifications" size={18} color={ORANGE} />
-          <Text style={styles.summaryText}>{stats.ownUnread} sin leer</Text>
-        </View>
-        <View style={styles.summaryItem}>
-          <Ionicons name="pulse" size={18} color="#4CAF50" />
-          <Text style={styles.summaryText}>{stats.clientActivity} movimientos</Text>
-        </View>
-        {stats.ownUnread > 0 && (
-          <TouchableOpacity onPress={markAllAsRead} style={styles.markAllButton}>
-            <Text style={styles.markAllText}>Marcar leídas</Text>
+      {selectionMode ? (
+        <View style={styles.summaryBar}>
+          <TouchableOpacity onPress={() => { setSelectionMode(false); setSelectedIds(new Set()); }} style={{ padding: 4 }}>
+            <Ionicons name="close" size={22} color="#333" />
           </TouchableOpacity>
-        )}
-      </View>
+          <Text style={[styles.summaryText, { fontSize: 14 }]}>{selectedIds.size} seleccionada(s)</Text>
+          <TouchableOpacity onPress={toggleSelectAllOwn} style={{ marginLeft: 'auto', paddingHorizontal: 8 }}>
+            <Ionicons name="checkmark-done" size={20} color={ORANGE} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={archiveSelected}
+            disabled={selectedIds.size === 0}
+            style={[styles.markAllButton, { backgroundColor: selectedIds.size > 0 ? ORANGE : '#ccc' }]}
+          >
+            <Text style={[styles.markAllText, { color: '#fff' }]}>Archivar</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={styles.summaryBar}>
+          <View style={styles.summaryItem}>
+            <Ionicons name="notifications" size={18} color={ORANGE} />
+            <Text style={styles.summaryText}>{stats.ownUnread} sin leer</Text>
+          </View>
+          <View style={styles.summaryItem}>
+            <Ionicons name="pulse" size={18} color="#4CAF50" />
+            <Text style={styles.summaryText}>{stats.clientActivity} movimientos</Text>
+          </View>
+          <View style={{ marginLeft: 'auto', flexDirection: 'row', gap: 6 }}>
+            {stats.ownUnread > 0 && (
+              <TouchableOpacity onPress={markAllAsRead} style={styles.markAllButton}>
+                <Text style={styles.markAllText}>Leídas</Text>
+              </TouchableOpacity>
+            )}
+            {notifications.some(n => n.source === 'own') && (
+              <TouchableOpacity onPress={archiveAllOwn} style={[styles.markAllButton, { backgroundColor: '#11111115' }]}>
+                <Text style={[styles.markAllText, { color: '#333' }]}>Archivar todas</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
 
       {/* Filter Tabs */}
       <FlatList

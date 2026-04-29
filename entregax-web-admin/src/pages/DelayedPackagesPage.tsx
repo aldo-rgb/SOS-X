@@ -242,10 +242,10 @@ export default function DelayedPackagesPage({ hideActions = false, service = 'po
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
                         {service === 'air'
-                            ? 'Paquetes cuyo AWB lleva 5+ días sin recepción o reportados como faltantes'
+                            ? 'Paquetes cuyo AWB ya llegó a CDMX pero ellos no se escanearon (compañeras recibidas, este faltó)'
                             : service === 'sea'
-                            ? 'Pedidos cuyo contenedor lleva 5+ días sin recepción o reportados como faltantes'
-                            : 'Paquetes cuya consolidación llegó a MTY sin ellos'}
+                            ? 'Pedidos cuyo contenedor ya llegó pero el operador marcó cajas como faltantes al escanear'
+                            : 'Paquetes cuya consolidación llegó sin ellos'}
                     </Typography>
                 </Box>
                 <Chip
@@ -446,15 +446,20 @@ export default function DelayedPackagesPage({ hideActions = false, service = 'po
                                             </Typography>
                                         </TableCell>
                                         <TableCell>
-                                            <Chip
-                                                label={`#${p.consolidation_id}`}
-                                                size="small"
-                                                variant="outlined"
-                                            />
+                                            {p.consolidation_id && (
+                                                <Chip
+                                                    label={`#${p.consolidation_id}`}
+                                                    size="small"
+                                                    variant="outlined"
+                                                />
+                                            )}
                                             {p.master_tracking && (
                                                 <Typography variant="caption" sx={{ display: 'block', fontFamily: 'monospace' }}>
                                                     {p.master_tracking}
                                                 </Typography>
+                                            )}
+                                            {!p.consolidation_id && !p.master_tracking && (
+                                                <Typography variant="caption" color="text.secondary">—</Typography>
                                             )}
                                         </TableCell>
                                         {service === 'sea' && (

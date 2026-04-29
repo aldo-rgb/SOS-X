@@ -360,7 +360,7 @@ export const getDelayedPackages = async (req: AuthRequest, res: Response): Promi
       const result = await pool.query(
         `SELECT
            p.id,
-           p.tracking_internal,
+           CASE WHEN p.child_no IS NOT NULL AND p.child_no LIKE 'AIR%' THEN p.child_no ELSE p.tracking_internal END AS tracking_internal,
            p.status,
            p.service_type,
            p.description,
@@ -374,36 +374,50 @@ export const getDelayedPackages = async (req: AuthRequest, res: Response): Promi
            ac.received_at AS consolidation_received_at,
            ac.created_at AS consolidation_created_at,
            u.id AS user_id,
-           u.full_name AS user_name,
-           u.email AS user_email,
-           u.phone AS user_phone,
-           u.box_id,
+           COALESCE(u.full_name, ucr.full_name) AS user_name,
+           COALESCE(u.email, ucr.email) AS user_email,
+           COALESCE(u.phone, ucr.phone) AS user_phone,
+           COALESCE(u.box_id, ucr.box_id) AS box_id,
            CASE
              WHEN p.missing_on_arrival = TRUE AND p.missing_reported_at IS NOT NULL
                THEN EXTRACT(EPOCH FROM (NOW() - p.missing_reported_at)) / 86400
-             WHEN ac.received_at IS NULL AND ac.flight_date IS NOT NULL
-               THEN EXTRACT(EPOCH FROM (NOW() - ac.flight_date::timestamp)) / 86400
+             WHEN ac.status = 'partial'
+               THEN EXTRACT(EPOCH FROM (NOW() - COALESCE(ac.updated_at, ac.created_at))) / 86400
+             WHEN ac.received_at IS NOT NULL
+               THEN EXTRACT(EPOCH FROM (NOW() - ac.received_at)) / 86400
              ELSE NULL
            END AS days_delayed,
            CASE
              WHEN p.missing_on_arrival = TRUE THEN 'faltante'
-             WHEN ac.received_at IS NULL THEN 'awb_atrasado'
+             WHEN ac.status = 'partial' THEN 'awb_parcial'
+             WHEN ac.received_at IS NOT NULL THEN 'no_escaneado'
              ELSE 'otro'
            END AS delay_reason
          FROM packages p
          LEFT JOIN air_waybill_costs ac ON ac.awb_number = p.international_tracking
          LEFT JOIN users u ON u.id = p.user_id
+         LEFT JOIN china_receipts cr ON cr.id = p.china_receipt_id
+         LEFT JOIN users ucr ON ucr.id = cr.user_id
          WHERE p.service_type = 'AIR_CHN_MX'
            AND COALESCE(p.is_lost, FALSE) = FALSE
            AND p.status NOT IN ('delivered', 'ready_pickup')
+           -- Solo AWBs que YA llegaron a CDMX (recibidos completos o parciales)
+           AND (ac.received_at IS NOT NULL OR ac.status = 'partial')
            AND (
+             -- Reportado como faltante explícitamente
              p.missing_on_arrival = TRUE
              OR (
-               ac.received_at IS NULL
-               AND ac.flight_date IS NOT NULL
+               -- AWB recibido (total o parcial) pero este paquete NO se escaneó en CDMX:
+               -- sus compañeras tienen status received_* y este sigue en China / tránsito
+               (ac.status = 'partial' OR ac.received_at IS NOT NULL)
                AND COALESCE(p.missing_on_arrival, FALSE) = FALSE
-               AND p.status NOT IN ('received_mty', 'received_cedis')
-               AND EXTRACT(EPOCH FROM (NOW() - ac.flight_date::timestamp)) / 86400 >= 5
+               AND p.status::text NOT LIKE 'received_%'
+             )
+             OR (
+               -- O quedó en received_china / received_origin después de que el AWB llegó
+               (ac.status = 'partial' OR ac.received_at IS NOT NULL)
+               AND COALESCE(p.missing_on_arrival, FALSE) = FALSE
+               AND p.status::text IN ('received_china','received_china_air','received_china_sea','received_origin')
              )
            )
          ORDER BY days_delayed DESC NULLS LAST`
@@ -412,12 +426,8 @@ export const getDelayedPackages = async (req: AuthRequest, res: Response): Promi
     }
 
     // ============ SEA (SEA_CHN_MX / FCL_CHN_MX) ============
-    // Lógica: detectar logs (containers) que llegaron incompletos.
-    // Una orden marítima cuenta como "perdida" cuando:
-    //   - el contenedor (log) ya fue recibido (c.received_at IS NOT NULL)
-    //     y la orden quedó marcada como missing_on_arrival = TRUE
-    //     (es decir, el log no llegó completo: faltaron cajas)
-    //   - o el contenedor lleva 5+ días sin recibirse (eta/laden vencidos)
+    // Solo se cuenta como "con retraso" cuando el operador marcó cajas como
+    // missing_on_arrival = TRUE durante el escaneo del log/contenedor.
     if (service === 'sea') {
       const result = await pool.query(
         `SELECT
@@ -428,69 +438,48 @@ export const getDelayedPackages = async (req: AuthRequest, res: Response): Promi
            COALESCE(mo.summary_description, mo.goods_name) AS description,
            mo.weight,
            COALESCE(mo.goods_num, mo.summary_boxes, 0) AS boxes,
-           CASE WHEN mo.missing_on_arrival = TRUE
-                THEN COALESCE(mo.goods_num, mo.summary_boxes, 0)
-                ELSE 0 END AS boxes_missing,
+           GREATEST(
+             COALESCE(mo.goods_num, mo.summary_boxes, 0) - COALESCE(mo.received_boxes, 0),
+             0
+           ) AS boxes_missing,
            mo.container_id AS consolidation_id,
-           NULL::timestamp AS missing_reported_at,
+           mo.missing_reported_at,
            mo.created_at,
-           COALESCE(c.bl_number, c.container_number, c.reference_code) AS master_tracking,
+           COALESCE(c.bl_number, c.container_number, c.so_number) AS master_tracking,
            c.container_number,
            c.bl_number,
-           c.status AS consolidation_status,
-           COALESCE(c.laden_on_board::timestamp, c.eta::timestamp) AS consolidation_dispatched_at,
-           c.received_at AS consolidation_received_at,
+           c.status::text AS consolidation_status,
+           COALESCE(mo.dispatched_at, c.laden_on_board::timestamp, c.eta::timestamp) AS consolidation_dispatched_at,
+           NULL::timestamp AS consolidation_received_at,
            c.created_at AS consolidation_created_at,
            u.id AS user_id,
            u.full_name AS user_name,
            u.email AS user_email,
            u.phone AS user_phone,
            u.box_id,
-           CASE
-             WHEN mo.missing_on_arrival = TRUE
-               THEN EXTRACT(EPOCH FROM (NOW() - COALESCE(c.received_at, NOW()))) / 86400
-             WHEN c.received_at IS NULL AND c.eta IS NOT NULL
-               THEN EXTRACT(EPOCH FROM (NOW() - c.eta::timestamp)) / 86400
-             WHEN c.received_at IS NULL AND c.laden_on_board IS NOT NULL
-               THEN EXTRACT(EPOCH FROM (NOW() - c.laden_on_board::timestamp)) / 86400
-             ELSE NULL
-           END AS days_delayed,
-           CASE
-             WHEN mo.missing_on_arrival = TRUE AND c.received_at IS NOT NULL THEN 'log_incompleto'
-             WHEN mo.missing_on_arrival = TRUE THEN 'faltante'
-             WHEN c.received_at IS NULL THEN 'contenedor_atrasado'
-             ELSE 'otro'
-           END AS delay_reason
+           EXTRACT(EPOCH FROM (NOW() - COALESCE(mo.missing_reported_at, mo.updated_at, NOW()))) / 86400 AS days_delayed,
+           'log_incompleto' AS delay_reason
          FROM maritime_orders mo
          LEFT JOIN containers c ON c.id = mo.container_id
          LEFT JOIN users u ON u.id = mo.user_id
-         WHERE mo.status NOT IN ('delivered', 'ready_pickup')
-           AND (
-             mo.missing_on_arrival = TRUE
-             OR (
-               c.received_at IS NULL
-               AND COALESCE(mo.missing_on_arrival, FALSE) = FALSE
-               AND mo.status NOT IN ('received_mty', 'received_cedis')
-               AND (
-                 (c.eta IS NOT NULL AND EXTRACT(EPOCH FROM (NOW() - c.eta::timestamp)) / 86400 >= 5)
-                 OR (c.laden_on_board IS NOT NULL AND EXTRACT(EPOCH FROM (NOW() - c.laden_on_board::timestamp)) / 86400 >= 5)
-               )
-             )
-           )
-         ORDER BY (mo.missing_on_arrival = TRUE AND c.received_at IS NOT NULL) DESC, days_delayed DESC NULLS LAST`
+         WHERE mo.missing_on_arrival = TRUE
+           AND COALESCE(mo.status, '') NOT IN ('delivered','cancelled','returned')
+         ORDER BY days_delayed DESC NULLS LAST`
       );
 
-      // Resumen agregado por log (contenedor)
+      // Resumen agregado por log (contenedor) — solo logs con faltantes confirmados al escanear
       const summaryRes = await pool.query(
         `SELECT
            c.id AS container_id,
-           COALESCE(c.bl_number, c.container_number, c.reference_code) AS master_tracking,
+           COALESCE(c.bl_number, c.container_number, c.so_number) AS master_tracking,
            c.container_number,
            c.bl_number,
-           c.received_at,
+           c.eta,
+           c.status::text AS status,
+           c.updated_at,
            COUNT(*) FILTER (WHERE mo.missing_on_arrival = TRUE)::int AS missing_orders,
            COALESCE(SUM(CASE WHEN mo.missing_on_arrival = TRUE
-                             THEN COALESCE(mo.goods_num, mo.summary_boxes, 0)
+                             THEN GREATEST(COALESCE(mo.goods_num, mo.summary_boxes, 0) - COALESCE(mo.received_boxes, 0), 0)
                              ELSE 0 END), 0)::int AS missing_boxes,
            COALESCE(SUM(COALESCE(mo.goods_num, mo.summary_boxes, 0)), 0)::int AS total_boxes
          FROM containers c
@@ -499,7 +488,7 @@ export const getDelayedPackages = async (req: AuthRequest, res: Response): Promi
            SELECT 1 FROM maritime_orders mo2
            WHERE mo2.container_id = c.id AND mo2.missing_on_arrival = TRUE
          )
-         GROUP BY c.id, c.bl_number, c.container_number, c.reference_code, c.received_at
+         GROUP BY c.id, c.bl_number, c.container_number, c.so_number, c.eta, c.status, c.updated_at
          ORDER BY missing_boxes DESC`
       );
 
@@ -543,13 +532,16 @@ export const getDelayedPackages = async (req: AuthRequest, res: Response): Promi
          CASE
            WHEN p.missing_on_arrival = TRUE AND p.missing_reported_at IS NOT NULL
              THEN EXTRACT(EPOCH FROM (NOW() - p.missing_reported_at)) / 86400
-           WHEN c.status IN ('in_transit', 'received_partial')
+           WHEN c.status = 'received_partial'
+             THEN EXTRACT(EPOCH FROM (NOW() - COALESCE(c.updated_at, c.dispatched_at, c.created_at))) / 86400
+           WHEN c.status = 'in_transit'
              THEN EXTRACT(EPOCH FROM (NOW() - COALESCE(c.dispatched_at, c.created_at))) / 86400
            ELSE NULL
          END AS days_delayed,
          CASE
            WHEN p.missing_on_arrival = TRUE THEN 'faltante'
-           WHEN c.status IN ('in_transit', 'received_partial')
+           WHEN c.status = 'received_partial' THEN 'consolidacion_parcial'
+           WHEN c.status = 'in_transit'
                 AND EXTRACT(EPOCH FROM (NOW() - COALESCE(c.dispatched_at, c.created_at))) / 86400 >= 5
              THEN 'consolidacion_atrasada'
            ELSE 'otro'
@@ -557,14 +549,20 @@ export const getDelayedPackages = async (req: AuthRequest, res: Response): Promi
        FROM packages p
        LEFT JOIN consolidations c ON c.id = p.consolidation_id
        LEFT JOIN users u ON u.id = p.user_id
-       WHERE COALESCE(p.is_lost, FALSE) = FALSE
+       WHERE p.service_type = 'POBOX_USA'
+         AND COALESCE(p.is_lost, FALSE) = FALSE
          AND p.status NOT IN ('delivered', 'ready_pickup')
          AND (
            -- Caso 1: paquete faltante reportado
            p.missing_on_arrival = TRUE
            OR
-           -- Caso 2: consolidación en tránsito con 5+ días (semáforo rojo)
-           (c.status IN ('in_transit', 'received_partial')
+           -- Caso 2a: consolidación parcial confirmada (sin importar días)
+           (c.status = 'received_partial'
+            AND COALESCE(p.missing_on_arrival, FALSE) = FALSE
+            AND p.status NOT IN ('received_mty'))
+           OR
+           -- Caso 2b: consolidación en tránsito con 5+ días (semáforo rojo)
+           (c.status = 'in_transit'
             AND COALESCE(p.missing_on_arrival, FALSE) = FALSE
             AND p.status NOT IN ('received_mty')
             AND EXTRACT(EPOCH FROM (NOW() - COALESCE(c.dispatched_at, c.created_at))) / 86400 >= 5)

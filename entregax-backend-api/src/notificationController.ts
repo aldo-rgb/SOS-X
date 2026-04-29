@@ -21,18 +21,35 @@ export const NOTIFICATION_TYPES = {
   SYSTEM: { type: 'info', icon: 'bell', title: 'Aviso del Sistema' },
 };
 
+// � Auto-migración: garantizar columna archived_at (silenciosa)
+let _archivedColumnEnsured = false;
+const ensureArchivedColumn = async () => {
+  if (_archivedColumnEnsured) return;
+  try {
+    await pool.query(`ALTER TABLE notifications ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP`);
+    _archivedColumnEnsured = true;
+  } catch (e) {
+    console.warn('No se pudo asegurar columna archived_at en notifications:', e);
+  }
+};
+
 // 📱 APP: Obtener mis notificaciones
 export const getMyNotifications = async (req: Request, res: Response): Promise<any> => {
   try {
+    await ensureArchivedColumn();
     const userId = (req as any).user?.userId;
-    const { limit = 50, offset = 0, unreadOnly } = req.query;
+    const { limit = 50, offset = 0, unreadOnly, includeArchived } = req.query;
 
     let query = `
-      SELECT id, title, message, type, icon, is_read, action_url, data, created_at
+      SELECT id, title, message, type, icon, is_read, action_url, data, created_at, archived_at
       FROM notifications
       WHERE user_id = $1
     `;
     const params: any[] = [userId];
+
+    if (includeArchived !== 'true') {
+      query += ' AND archived_at IS NULL';
+    }
 
     if (unreadOnly === 'true') {
       query += ' AND is_read = false';
@@ -43,9 +60,9 @@ export const getMyNotifications = async (req: Request, res: Response): Promise<a
 
     const result = await pool.query(query, params);
 
-    // Contar no leídas
+    // Contar no leídas (excluyendo archivadas)
     const unreadCount = await pool.query(
-      'SELECT COUNT(*) as count FROM notifications WHERE user_id = $1 AND is_read = false',
+      'SELECT COUNT(*) as count FROM notifications WHERE user_id = $1 AND is_read = false AND archived_at IS NULL',
       [userId]
     );
 
@@ -101,10 +118,11 @@ export const markAllAsRead = async (req: Request, res: Response): Promise<any> =
 // 📱 APP: Obtener conteo de no leídas
 export const getUnreadCount = async (req: Request, res: Response): Promise<any> => {
   try {
+    await ensureArchivedColumn();
     const userId = (req as any).user?.userId;
 
     const result = await pool.query(
-      'SELECT COUNT(*) as count FROM notifications WHERE user_id = $1 AND is_read = false',
+      'SELECT COUNT(*) as count FROM notifications WHERE user_id = $1 AND is_read = false AND archived_at IS NULL',
       [userId]
     );
 
@@ -115,6 +133,91 @@ export const getUnreadCount = async (req: Request, res: Response): Promise<any> 
   } catch (error) {
     console.error('Error en getUnreadCount:', error);
     res.status(500).json({ success: false, error: 'Error al obtener conteo' });
+  }
+};
+
+// 📱 APP: Archivar una notificación
+export const archiveNotification = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureArchivedColumn();
+    const userId = (req as any).user?.userId;
+    const { notificationId } = req.params;
+
+    const result = await pool.query(
+      `UPDATE notifications
+       SET archived_at = NOW(), is_read = true
+       WHERE id = $1 AND user_id = $2 AND archived_at IS NULL
+       RETURNING id`,
+      [notificationId, userId]
+    );
+
+    res.json({ success: true, archived: result.rowCount ?? 0 });
+  } catch (error) {
+    console.error('Error en archiveNotification:', error);
+    res.status(500).json({ success: false, error: 'Error al archivar notificación' });
+  }
+};
+
+// 📱 APP: Archivar todas las notificaciones del usuario
+export const archiveAllNotifications = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureArchivedColumn();
+    const userId = (req as any).user?.userId;
+
+    const result = await pool.query(
+      `UPDATE notifications
+       SET archived_at = NOW(), is_read = true
+       WHERE user_id = $1 AND archived_at IS NULL
+       RETURNING id`,
+      [userId]
+    );
+
+    res.json({
+      success: true,
+      archived: result.rowCount ?? 0,
+      message: `${result.rowCount ?? 0} notificaciones archivadas`,
+    });
+  } catch (error) {
+    console.error('Error en archiveAllNotifications:', error);
+    res.status(500).json({ success: false, error: 'Error al archivar notificaciones' });
+  }
+};
+
+// 📱 APP: Archivar un conjunto de notificaciones
+export const archiveBulkNotifications = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureArchivedColumn();
+    const userId = (req as any).user?.userId;
+    const { ids } = req.body || {};
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ success: false, error: 'ids[] es requerido' });
+    }
+
+    const numericIds = ids
+      .map((v: any) => parseInt(v, 10))
+      .filter((n: number) => Number.isFinite(n) && n > 0);
+
+    if (numericIds.length === 0) {
+      return res.json({ success: true, archived: 0 });
+    }
+
+    const result = await pool.query(
+      `UPDATE notifications
+       SET archived_at = NOW(), is_read = true
+       WHERE user_id = $1 AND archived_at IS NULL AND id = ANY($2::int[])
+       RETURNING id`,
+      [userId, numericIds]
+    );
+
+    res.json({
+      success: true,
+      archived: result.rowCount ?? 0,
+      message: `${result.rowCount ?? 0} notificaciones archivadas`,
+    });
+  } catch (error) {
+    console.error('Error en archiveBulkNotifications:', error);
+    res.status(500).json({ success: false, error: 'Error al archivar notificaciones' });
   }
 };
 

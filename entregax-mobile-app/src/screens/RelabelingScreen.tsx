@@ -497,6 +497,10 @@ export default function RelabelingScreen({ route, navigation }: any) {
   const [dimsForm, setDimsForm] = useState({ weight: '', length: '', width: '', height: '' });
   const [dimsSaving, setDimsSaving] = useState(false);
   const [dimsScannerOpen, setDimsScannerOpen] = useState(false);
+  // Selección múltiple para "Aplicar a N" (paridad con web)
+  const [dimsSelectMode, setDimsSelectMode] = useState(false);
+  const [dimsSelected, setDimsSelected] = useState<Set<number>>(new Set());
+  const [dimsBulkSaving, setDimsBulkSaving] = useState(false);
 
   const assignedCarrier = getAssignedCarrier(shipment);
   const hasAssignedCarrier = Boolean(assignedCarrier);
@@ -717,7 +721,8 @@ export default function RelabelingScreen({ route, navigation }: any) {
     }
     setReprintModalOpen(false);
     try {
-      const html = buildMaritimeBulkHtml(labels);
+      const isLog = isMaritimeLog(reprintLabel.tracking);
+      const html = isLog ? buildMaritimeBulkHtml(labels) : buildBulkLabelsHtml(labels);
       await Print.printAsync({ html });
     } catch (e: any) {
       Alert.alert('Error al imprimir', e.message || 'No se pudo imprimir el rango');
@@ -817,6 +822,84 @@ export default function RelabelingScreen({ route, navigation }: any) {
     }
   };
 
+  // Aplica los valores actuales del formulario a todas las cajas seleccionadas
+  const applyDimsToSelection = async () => {
+    if (!shipment) return;
+    const weight = parseFloat(dimsForm.weight);
+    const length = parseFloat(dimsForm.length);
+    const width = parseFloat(dimsForm.width);
+    const height = parseFloat(dimsForm.height);
+    if (![weight, length, width, height].every((n) => !isNaN(n) && n > 0)) {
+      setDimsError('Captura peso y medidas válidas (mayores a 0) antes de aplicar en lote');
+      return;
+    }
+    const targets = dimsSelected.size > 0
+      ? Array.from(dimsSelected).sort((a, b) => a - b)
+      : dimsBoxes.map((b) => b.boxNumber);
+    if (targets.length === 0) return;
+
+    Alert.alert(
+      'Aplicar a varias cajas',
+      `¿Aplicar peso ${weight}kg y medidas ${length}×${width}×${height} cm a ${targets.length} caja(s)?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Aplicar',
+          onPress: async () => {
+            setDimsBulkSaving(true);
+            setDimsError(null);
+            try {
+              for (const boxNumber of targets) {
+                const res = await fetch(`${API_URL}/api/admin/relabeling/maritime/${shipment.master.id}/box`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                  body: JSON.stringify({ boxNumber, weight, length, width, height }),
+                });
+                if (!res.ok) {
+                  const err = await res.json().catch(() => ({}));
+                  throw new Error(err?.error || `Error en caja ${boxNumber}`);
+                }
+              }
+              await loadDimsBoxes(shipment.master.id);
+              setDimsSelected(new Set());
+              setDimsSelectMode(false);
+              setDimsActiveBox(null);
+              setDimsForm({ weight: '', length: '', width: '', height: '' });
+              setDimsScan('');
+            } catch (e: any) {
+              setDimsError(e.message || 'Error aplicando medidas en lote');
+            } finally {
+              setDimsBulkSaving(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const toggleDimsSelected = (boxNumber: number) => {
+    setDimsSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(boxNumber)) next.delete(boxNumber);
+      else next.add(boxNumber);
+      return next;
+    });
+  };
+
+  const selectAllDimsBoxes = () => {
+    setDimsSelected(new Set(dimsBoxes.map((b) => b.boxNumber)));
+    setDimsSelectMode(true);
+  };
+
+  const selectPendingDimsBoxes = () => {
+    setDimsSelected(new Set(dimsBoxes.filter((b) => !b.captured).map((b) => b.boxNumber)));
+    setDimsSelectMode(true);
+  };
+
+  const clearDimsSelection = () => {
+    setDimsSelected(new Set());
+  };
+
   const handleGenerateMaritimePqtx = async () => {
     if (!shipment) return;
     setGeneratingAssignedGuide(true);
@@ -861,6 +944,8 @@ export default function RelabelingScreen({ route, navigation }: any) {
 
   useEffect(() => {
     setSelectedLabelKeys([]);
+    setDimsSelected(new Set());
+    setDimsSelectMode(false);
   }, [shipment?.master?.id]);
 
   const toggleLabelSelection = (label: LabelData, idx: number) => {
@@ -1023,10 +1108,11 @@ export default function RelabelingScreen({ route, navigation }: any) {
               const printingThis = printingId === label.tracking + '-' + label.boxNumber;
               const selected = selectedLabelKeys.includes(labelKey(label, idx));
               const isLog = isMaritimeLog(label.tracking);
+              const isMasterMulti = label.isMaster && (label.totalBoxes || 0) > 1;
               return (
                 <View key={`${label.tracking}-${idx}`} style={[styles.labelCard, selected && !isLog && styles.labelCardSelected]}>
                   <View style={{ flex: 1 }}>
-                    {!isLog && (
+                    {!isLog && !isMasterMulti && (
                       <TouchableOpacity style={styles.selectRow} onPress={() => toggleLabelSelection(label, idx)}>
                         <Ionicons name={selected ? 'checkbox' : 'square-outline'} size={18} color={selected ? ORANGE : '#777'} />
                         <Text style={styles.selectRowText}>{selected ? 'Seleccionada' : 'Seleccionar'}</Text>
@@ -1047,6 +1133,11 @@ export default function RelabelingScreen({ route, navigation }: any) {
                     <TouchableOpacity style={styles.printBtn} onPress={() => openReprintRange(label)}>
                       <Ionicons name="print" size={18} color="#fff" />
                       <Text style={styles.printBtnText}>Reimprimir rango</Text>
+                    </TouchableOpacity>
+                  ) : isMasterMulti ? (
+                    <TouchableOpacity style={styles.printBtn} onPress={() => openReprintRange(label)}>
+                      <Ionicons name="print" size={18} color="#fff" />
+                      <Text style={styles.printBtnText}>Reimprimir (1-{label.totalBoxes})</Text>
                     </TouchableOpacity>
                   ) : (
                     <TouchableOpacity style={[styles.printBtn, printingThis && { opacity: 0.6 }]} onPress={() => printLabel(label)} disabled={printingThis}>
@@ -1172,41 +1263,64 @@ export default function RelabelingScreen({ route, navigation }: any) {
                   {getAssignedCarrierGuideUrl()
                     ? 'Imprime la guía de la paquetería asignada'
                     : isPaqueteExpressAssigned
-                      ? 'No hay guía aún. Toca el botón para generarla y mandarla a imprimir.'
+                      ? 'Aún no se ha generado la guía PQTX. Captura medidas y peso por caja para generarla.'
                       : 'Esta paquetería aún no tiene guía disponible para impresión'}
                 </Text>
                 {isPaqueteExpressAssigned ? (
                   <View style={styles.carrierButtonsCol}>
-                    <TouchableOpacity
-                      style={[
-                        styles.carrierPrintBtn,
-                        generatingAssignedGuide && { opacity: 0.65 },
-                      ]}
-                      onPress={() => printAssignedCarrierGuide({ format4x6: true })}
-                      disabled={generatingAssignedGuide}
-                    >
-                      {generatingAssignedGuide ? (
-                        <ActivityIndicator color="#fff" size="small" />
-                      ) : (
-                        <Ionicons name="print" size={18} color="#fff" />
-                      )}
-                      <Text style={styles.carrierPrintBtnText}>
-                        {generatingAssignedGuide ? 'Generando guía...' : 'Imprimir etiqueta'}
-                      </Text>
-                    </TouchableOpacity>
+                    {!shipment.master.nationalTracking ? (
+                      // Sin guía: solo botón "Generar guía PQTX (N cajas)"
+                      <TouchableOpacity
+                        style={[
+                          styles.carrierPrintBtn,
+                          generatingAssignedGuide && { opacity: 0.65 },
+                        ]}
+                        onPress={() => printAssignedCarrierGuide({ format4x6: true })}
+                        disabled={generatingAssignedGuide}
+                      >
+                        {generatingAssignedGuide ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <Ionicons name="document-text" size={18} color="#fff" />
+                        )}
+                        <Text style={styles.carrierPrintBtnText}>
+                          {generatingAssignedGuide
+                            ? 'Generando guía...'
+                            : `Generar guía PQTX (${shipment.master.totalBoxes || 1} ${(shipment.master.totalBoxes || 1) === 1 ? 'caja' : 'cajas'})`}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      // Con guía: imprimir etiqueta / imprimir guía
+                      <>
+                        <TouchableOpacity
+                          style={[
+                            styles.carrierPrintBtn,
+                            generatingAssignedGuide && { opacity: 0.65 },
+                          ]}
+                          onPress={() => printAssignedCarrierGuide({ format4x6: true })}
+                          disabled={generatingAssignedGuide}
+                        >
+                          {generatingAssignedGuide ? (
+                            <ActivityIndicator color="#fff" size="small" />
+                          ) : (
+                            <Ionicons name="print" size={18} color="#fff" />
+                          )}
+                          <Text style={styles.carrierPrintBtnText}>Imprimir etiqueta</Text>
+                        </TouchableOpacity>
 
-                    <TouchableOpacity
-                      style={[
-                        styles.carrierPrintBtnSecondary,
-                        generatingAssignedGuide && { opacity: 0.65 },
-                        (!getAssignedCarrierGuideUrl() && !isPaqueteExpressAssigned) && { opacity: 0.55 },
-                      ]}
-                      onPress={() => printAssignedCarrierGuide()}
-                      disabled={generatingAssignedGuide || (!getAssignedCarrierGuideUrl() && !isPaqueteExpressAssigned)}
-                    >
-                      <Ionicons name="document-text-outline" size={16} color={BLACK} />
-                      <Text style={styles.carrierPrintBtnSecondaryText}>Imprimir guía</Text>
-                    </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.carrierPrintBtnSecondary,
+                            generatingAssignedGuide && { opacity: 0.65 },
+                          ]}
+                          onPress={() => printAssignedCarrierGuide()}
+                          disabled={generatingAssignedGuide}
+                        >
+                          <Ionicons name="document-text-outline" size={16} color={BLACK} />
+                          <Text style={styles.carrierPrintBtnSecondaryText}>Imprimir guía</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
                   </View>
                 ) : (
                   <TouchableOpacity
@@ -1447,32 +1561,103 @@ export default function RelabelingScreen({ route, navigation }: any) {
                   <Text style={[styles.fieldLabel, { marginTop: 14 }]}>
                     Cajas ({dimsBoxes.filter(b => b.captured).length}/{dimsBoxes.length})
                   </Text>
-                  <View style={styles.boxGrid}>
-                    {dimsBoxes.map((b) => (
+
+                  {/* Toolbar de selección (paridad con web) */}
+                  {dimsBoxes.length > 0 && (
+                    <View style={styles.dimsToolbar}>
                       <TouchableOpacity
-                        key={b.boxNumber}
+                        style={[styles.dimsToolbarChip, dimsSelectMode && styles.dimsToolbarChipActive]}
                         onPress={() => {
-                          setDimsActiveBox(b.boxNumber);
-                          if (b.captured) {
-                            setDimsForm({
-                              weight: String(b.weight ?? ''),
-                              length: String(b.length ?? ''),
-                              width: String(b.width ?? ''),
-                              height: String(b.height ?? ''),
-                            });
+                          if (dimsSelectMode) {
+                            setDimsSelectMode(false);
+                            setDimsSelected(new Set());
                           } else {
-                            setDimsForm({ weight: '', length: '', width: '', height: '' });
+                            setDimsSelectMode(true);
                           }
                         }}
-                        style={[
-                          styles.boxChip,
-                          { backgroundColor: b.captured ? '#C8E6C9' : '#FFCDD2' },
-                          dimsActiveBox === b.boxNumber && { borderWidth: 2, borderColor: '#0277BD' },
-                        ]}
                       >
-                        <Text style={styles.boxChipText}>{b.captured ? '✓ ' : ''}{b.boxNumber}</Text>
+                        <Ionicons
+                          name={dimsSelectMode ? 'checkbox' : 'square-outline'}
+                          size={14}
+                          color={dimsSelectMode ? '#fff' : '#0277BD'}
+                        />
+                        <Text style={[styles.dimsToolbarChipText, dimsSelectMode && { color: '#fff' }]}>
+                          {dimsSelectMode ? 'Salir selección' : 'Seleccionar'}
+                        </Text>
                       </TouchableOpacity>
-                    ))}
+                      <TouchableOpacity style={styles.dimsToolbarChip} onPress={selectAllDimsBoxes}>
+                        <Text style={styles.dimsToolbarChipText}>Todas</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.dimsToolbarChip} onPress={selectPendingDimsBoxes}>
+                        <Text style={styles.dimsToolbarChipText}>Pendientes</Text>
+                      </TouchableOpacity>
+                      {dimsSelected.size > 0 && (
+                        <TouchableOpacity style={styles.dimsToolbarChip} onPress={clearDimsSelection}>
+                          <Text style={styles.dimsToolbarChipText}>Limpiar</Text>
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity
+                        style={[
+                          styles.dimsToolbarApply,
+                          (dimsSelected.size === 0 || dimsBulkSaving) && { opacity: 0.55 },
+                        ]}
+                        onPress={applyDimsToSelection}
+                        disabled={dimsSelected.size === 0 || dimsBulkSaving}
+                      >
+                        {dimsBulkSaving ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <Ionicons name="copy-outline" size={14} color="#fff" />
+                        )}
+                        <Text style={styles.dimsToolbarApplyText}>
+                          Aplicar a {dimsSelected.size}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {dimsSelectMode && (
+                    <Text style={styles.dimsHint}>
+                      Captura peso y medidas arriba, luego toca cajas y presiona "Aplicar a N".
+                    </Text>
+                  )}
+
+                  <View style={styles.boxGrid}>
+                    {dimsBoxes.map((b) => {
+                      const isSelected = dimsSelected.has(b.boxNumber);
+                      const isActive = dimsActiveBox === b.boxNumber;
+                      return (
+                        <TouchableOpacity
+                          key={b.boxNumber}
+                          onPress={() => {
+                            if (dimsSelectMode) {
+                              toggleDimsSelected(b.boxNumber);
+                              return;
+                            }
+                            setDimsActiveBox(b.boxNumber);
+                            if (b.captured) {
+                              setDimsForm({
+                                weight: String(b.weight ?? ''),
+                                length: String(b.length ?? ''),
+                                width: String(b.width ?? ''),
+                                height: String(b.height ?? ''),
+                              });
+                            } else {
+                              setDimsForm({ weight: '', length: '', width: '', height: '' });
+                            }
+                          }}
+                          style={[
+                            styles.boxChip,
+                            { backgroundColor: b.captured ? '#C8E6C9' : '#FFCDD2' },
+                            isActive && !dimsSelectMode && { borderWidth: 2, borderColor: '#0277BD' },
+                            dimsSelectMode && isSelected && { borderWidth: 2, borderColor: '#F05A28', backgroundColor: '#FFE0B2' },
+                          ]}
+                        >
+                          <Text style={styles.boxChipText}>
+                            {dimsSelectMode && isSelected ? '◉ ' : b.captured ? '✓ ' : ''}{b.boxNumber}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
                 </>
               )}
@@ -1620,4 +1805,11 @@ const styles = StyleSheet.create({
   boxGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, padding: 8, borderWidth: 1, borderColor: '#DDD', borderRadius: 8, marginTop: 6 },
   boxChip: { paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6, minWidth: 44, alignItems: 'center' },
   boxChipText: { fontSize: 12, fontWeight: '700', color: BLACK },
+  dimsToolbar: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8, alignItems: 'center' },
+  dimsToolbarChip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: '#0277BD', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: '#fff' },
+  dimsToolbarChipActive: { backgroundColor: '#0277BD' },
+  dimsToolbarChipText: { color: '#0277BD', fontWeight: '700', fontSize: 11 },
+  dimsToolbarApply: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#F05A28', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, marginLeft: 'auto' },
+  dimsToolbarApplyText: { color: '#fff', fontWeight: '800', fontSize: 11 },
+  dimsHint: { fontSize: 11, color: '#666', fontStyle: 'italic', marginTop: 6, marginBottom: 2 },
 });

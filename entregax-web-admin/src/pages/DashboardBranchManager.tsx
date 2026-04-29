@@ -12,7 +12,6 @@ import {
   Card,
   CardActionArea,
   CircularProgress,
-  Avatar,
   Chip,
 
   Alert,
@@ -20,18 +19,24 @@ import {
   DialogTitle,
   DialogContent,
   IconButton,
+  Stack,
+  Divider,
+  Badge,
 } from '@mui/material';
 import {
-  Inventory as InventoryIcon,
-  AttachMoney as MoneyIcon,
-  Warning as WarningIcon,
-  CheckCircle as CheckCircleIcon,
-  DirectionsBoat as DirectionsBoatIcon,
-  FlightTakeoff as FlightTakeoffIcon,
-  Store as StoreIcon,
-  LocalShipping as LocalShippingIcon,
-  ConfirmationNumber as TicketIcon,
+  Inventory2Outlined as InventoryIcon,
+  WarningAmberOutlined as WarningIcon,
+  CheckCircleOutlineOutlined as CheckCircleIcon,
+  DirectionsBoatOutlined as DirectionsBoatIcon,
+  FlightTakeoffOutlined as FlightTakeoffIcon,
+  StorefrontOutlined as StoreIcon,
+  LocalShippingOutlined as LocalShippingIcon,
   Close as CloseIcon,
+  ArrowForwardRounded as ArrowForwardIcon,
+  TimerOutlined as TimerIcon,
+  TuneOutlined as TuneIcon,
+  PrintOutlined as PrintIcon,
+  HeadsetMicOutlined as HeadsetIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import DelayedPackagesPage from './DelayedPackagesPage';
@@ -94,6 +99,7 @@ export default function DashboardBranchManager() {
   const [partialOpen, setPartialOpen] = useState(false);
   const [delayedOpen, setDelayedOpen] = useState(false);
   const [delayedService, setDelayedService] = useState<'pobox' | 'air' | 'sea'>('pobox');
+  const [userRole, setUserRole] = useState<string>('');
 
   useEffect(() => {
     loadData();
@@ -102,10 +108,14 @@ export default function DashboardBranchManager() {
     if (user) {
       const parsed = JSON.parse(user);
       setUserName(parsed.name?.split(' ')[0] || 'Gerente');
+      setUserRole(String(parsed.role || '').toLowerCase());
     }
     const iv = setInterval(loadDelayedCount, 60000);
     return () => clearInterval(iv);
   }, []);
+
+  // Widget "Recepción Parcial" solo visible para roles globales (no gerente sucursal)
+  const canSeePartialReceptions = ['super_admin', 'admin', 'director', 'customer_service'].includes(userRole);
 
   const loadDelayedCount = async () => {
     try {
@@ -122,12 +132,25 @@ export default function DashboardBranchManager() {
       const seaBoxes = Number(seaSummary?.total_missing_boxes || 0);
       setDelayedSeaCount(seaBoxes > 0 ? seaBoxes : (resSea.data?.packages || []).length);
       if (resPartial.data?.success) {
-        setPartialReceptions({
+        const partial = {
           total: resPartial.data.total || 0,
           pobox: resPartial.data.pobox || { count: 0, items: [] },
           air: resPartial.data.air || { count: 0, items: [] },
           sea: resPartial.data.sea || { count: 0, items: [] },
-        });
+        };
+        setPartialReceptions(partial);
+
+        // Sumar a los contadores de retraso los faltantes de las recepciones parciales
+        // (una guía con recepción parcial cuenta como guía con retraso).
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const sumMissing = (items: any[]) =>
+          items.reduce((acc, it) => acc + (Number(it.missing) || 0), 0);
+        const airPartialMissing = sumMissing(partial.air.items);
+        const seaPartialMissing = sumMissing(partial.sea.items);
+        const poboxPartialMissing = sumMissing(partial.pobox.items);
+        setDelayedAirCount((prev) => prev + airPartialMissing);
+        setDelayedSeaCount((prev) => prev + seaPartialMissing);
+        setDelayedCount((prev) => prev + poboxPartialMissing);
       }
     } catch (err) {
       console.error('Error loading delayed counts:', err);
@@ -151,7 +174,9 @@ export default function DashboardBranchManager() {
   const isCedis = sucursalCodigo === 'MTY' || sucursalCodigo === 'CDMX' || sucursalCodigo.includes('CEDIS');
   const showAirWidget = hasService('AIR_CHN_MX') || isCedis;
   const showSeaWidget = hasService('SEA_CHN_MX') || hasService('FCL_CHN_MX') || isCedis;
-  const showPoboxWidget = hasService('POBOX_USA') || isCedis;
+  // POBox sólo aplica a sucursales con servicio POBOX_USA (ej. CEDIS MTY).
+  // CEDIS CDMX NO opera POBox, no debe ver el widget.
+  const showPoboxWidget = hasService('POBOX_USA');
 
   const loadData = async () => {
     setLoading(true);
@@ -180,29 +205,29 @@ export default function DashboardBranchManager() {
     {
       title: 'Operaciones',
       description: 'Ir al panel de operaciones',
-      icon: <InventoryIcon sx={{ fontSize: 40 }} />,
-      color: '#2196F3',
+      icon: <TuneIcon sx={{ fontSize: 28 }} />,
+      color: '#F05A28',
       action: 'operations',
     },
     {
-      title: 'Acceso directo a etiquetado',
+      title: 'Etiquetado',
       description: 'Abrir módulo de reetiquetado',
-      icon: <LocalShippingIcon sx={{ fontSize: 40 }} />,
-      color: '#4CAF50',
+      icon: <PrintIcon sx={{ fontSize: 28 }} />,
+      color: '#F05A28',
       action: 'relabeling',
     },
     {
-      title: 'Tráfico por Sucursal',
-      description: 'Abrir tráfico de tu sucursal',
-      icon: <StoreIcon sx={{ fontSize: 40 }} />,
-      color: '#9C27B0',
+      title: 'Tráfico Sucursal',
+      description: 'Tráfico e inventario de tu sucursal',
+      icon: <StoreIcon sx={{ fontSize: 28 }} />,
+      color: '#F05A28',
       action: 'branch_inventory',
     },
     {
-      title: 'Soporte técnico',
-      description: 'Abrir servicio al cliente',
-      icon: <TicketIcon sx={{ fontSize: 40 }} />,
-      color: '#FF9800',
+      title: 'Soporte Técnico',
+      description: 'Servicio al cliente y tickets',
+      icon: <HeadsetIcon sx={{ fontSize: 28 }} />,
+      color: '#F05A28',
       action: 'service_tickets',
     },
   ];
@@ -219,288 +244,385 @@ export default function DashboardBranchManager() {
     );
   }
 
+  // ====== Helpers de diseño minimalista ======
+  type KpiTone = 'neutral' | 'warning' | 'danger' | 'success' | 'info';
+
+  // Todas las barras de acento usan naranja corporativo (línea única).
+  const ORANGE = '#F05A28';
+  const ICON_BLACK = '#0F172A';
+
+  const KpiCard = (props: {
+    icon: React.ReactNode;
+    label: string;
+    value: number | string;
+    sub?: string;
+    tone?: KpiTone;
+    badge?: number;
+    onClick?: () => void;
+    accentBar?: string;
+    category?: 'ops' | 'finance' | 'alert';
+  }) => {
+    const { icon, label, value, sub, tone = 'neutral', badge, onClick, category = 'ops' } = props;
+    // Línea siempre naranja, sin importar tone/accentBar entrante
+    void tone;
+    const accent = ORANGE;
+    const isAlert = category === 'alert';
+    return (
+      <Paper
+        onClick={onClick}
+        elevation={0}
+        sx={{
+          position: 'relative',
+          p: 2.25,
+          height: '100%',
+          bgcolor: '#fff',
+          borderRadius: 2,
+          border: '1px solid #E5E7EB',
+          cursor: onClick ? 'pointer' : 'default',
+          transition: 'box-shadow .18s ease, transform .18s ease, border-color .18s ease',
+          boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+          '&:hover': onClick
+            ? {
+                boxShadow: '0 6px 18px rgba(15,23,42,0.08)',
+                transform: 'translateY(-1px)',
+                borderColor: '#F05A28',
+              }
+            : {},
+          // barra de acento superior (sutil)
+          '&::before': {
+            content: '""',
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 3,
+            borderTopLeftRadius: 8,
+            borderTopRightRadius: 8,
+            bgcolor: accent,
+            opacity: isAlert ? 1 : 0.9,
+          },
+        }}
+      >
+        <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography
+              variant="caption"
+              sx={{ color: '#64748B', fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase', fontSize: '0.7rem' }}
+            >
+              {label}
+            </Typography>
+            <Typography
+              sx={{
+                color: '#0F172A',
+                fontWeight: 700,
+                fontSize: '2rem',
+                lineHeight: 1.1,
+                mt: 0.5,
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            >
+              {typeof value === 'number' ? value.toLocaleString() : value}
+            </Typography>
+            {sub && (
+              <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', mt: 0.5 }}>
+                {sub}
+              </Typography>
+            )}
+          </Box>
+          <Box sx={{ position: 'relative', flexShrink: 0 }}>
+            <Box
+              sx={{
+                width: 38,
+                height: 38,
+                borderRadius: 1.5,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                bgcolor: '#F1F5F9',
+                color: ICON_BLACK,
+              }}
+            >
+              {icon}
+            </Box>
+            {badge !== undefined && badge > 0 && (
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: -6,
+                  right: -6,
+                  minWidth: 18,
+                  height: 18,
+                  px: 0.5,
+                  borderRadius: '9px',
+                  bgcolor: '#DC2626',
+                  color: '#fff',
+                  fontSize: '0.65rem',
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {badge}
+              </Box>
+            )}
+          </Box>
+        </Stack>
+        {onClick && (
+          <Stack direction="row" alignItems="center" spacing={0.5} sx={{ mt: 1.25, color: accent }}>
+            <Typography variant="caption" sx={{ fontWeight: 600 }}>
+              Ver detalles
+            </Typography>
+            <ArrowForwardIcon sx={{ fontSize: 14 }} />
+          </Stack>
+        )}
+      </Paper>
+    );
+  };
+
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: { xs: 2, md: 3 }, bgcolor: '#F8FAFC', minHeight: '100%' }}>
       {/* Header */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h4" fontWeight={700}>
-          Buenos días, <span style={{ color: '#F05A28' }}>{userName}</span> 👋
+      <Box sx={{ mb: 3 }}>
+        <Typography sx={{ fontSize: '1.75rem', fontWeight: 700, color: '#0F172A', letterSpacing: -0.5 }}>
+          Buenos días, <Box component="span" sx={{ color: '#F05A28' }}>{userName}</Box> 👋
         </Typography>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}>
-          <Chip 
-            icon={<StoreIcon />} 
-            label={stats?.sucursal.nombre || 'Mi Sucursal'} 
-            color="primary" 
-            variant="outlined" 
+        <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }} spacing={1.5} sx={{ mt: 1 }}>
+          <Chip
+            icon={<StoreIcon sx={{ fontSize: 16 }} />}
+            label={stats?.sucursal.nombre || 'Mi Sucursal'}
+            size="small"
+            sx={{
+              bgcolor: '#fff',
+              border: '1px solid #E5E7EB',
+              color: '#0F172A',
+              fontWeight: 600,
+              '& .MuiChip-icon': { color: '#F05A28' },
+            }}
           />
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant="body2" sx={{ color: '#64748B' }}>
             {new Date().toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
           </Typography>
-        </Box>
+        </Stack>
       </Box>
 
       {/* Alertas importantes */}
       {stats && stats.paquetes.pendientes_cobro > 20 && (
-        <Alert severity="warning" sx={{ mb: 3 }} icon={<WarningIcon />}>
+        <Alert
+          severity="warning"
+          icon={<WarningIcon />}
+          sx={{
+            mb: 3,
+            border: '1px solid #FCD34D',
+            bgcolor: '#FFFBEB',
+            color: '#92400E',
+            borderRadius: 2,
+            '& .MuiAlert-icon': { color: '#F59E0B' },
+          }}
+        >
           <strong>Atención:</strong> Tienes {stats.paquetes.pendientes_cobro} paquetes pendientes de cobro
         </Alert>
       )}
 
-      {/* KPIs Principales */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        {/* Paquetes en Bodega */}
-        <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-          <Paper sx={{ p: 3, height: '100%', background: 'linear-gradient(135deg, #1976D2 0%, #42A5F5 100%)', color: 'white' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <Box>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>En Bodega</Typography>
-                <Typography variant="h3" fontWeight="bold">{stats?.paquetes.en_bodega || 0}</Typography>
-                <Typography variant="caption">paquetes</Typography>
-              </Box>
-              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                <InventoryIcon />
-              </Avatar>
-            </Box>
-          </Paper>
+      {/* === Sección: Operaciones === */}
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+        <Box sx={{ width: 4, height: 18, bgcolor: '#F05A28', borderRadius: 1 }} />
+        <Typography sx={{ fontWeight: 700, color: '#0F172A', fontSize: '0.9rem', letterSpacing: 0.2, textTransform: 'uppercase' }}>
+          Operaciones
+        </Typography>
+        <Divider sx={{ flex: 1, ml: 1, borderColor: '#E5E7EB' }} />
+      </Stack>
+
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+          <KpiCard
+            icon={<InventoryIcon sx={{ fontSize: 22 }} />}
+            label="En Bodega"
+            value={stats?.paquetes.en_bodega ?? 0}
+            sub="paquetes"
+            tone="info"
+          />
         </Grid>
 
-        {/* Entregas Hoy */}
-        <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-          <Paper sx={{ p: 3, height: '100%', background: 'linear-gradient(135deg, #388E3C 0%, #66BB6A 100%)', color: 'white' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <Box>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>Entregas Hoy</Typography>
-                <Typography variant="h3" fontWeight="bold">{stats?.paquetes.entregados_hoy || 0}</Typography>
-                <Typography variant="caption">completadas</Typography>
-              </Box>
-              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                <CheckCircleIcon />
-              </Avatar>
-            </Box>
-          </Paper>
+        <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+          <KpiCard
+            icon={<CheckCircleIcon sx={{ fontSize: 22 }} />}
+            label="Entregas Hoy"
+            value={stats?.paquetes.entregados_hoy ?? 0}
+            sub="completadas"
+            tone="success"
+          />
         </Grid>
 
-        {/* En espera (cajas en tránsito a MTY NL) - solo visible para MTY */}
         {stats?.sucursal.codigo === 'MTY' && (
-          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-            <Paper sx={{ p: 3, height: '100%', background: 'linear-gradient(135deg, #7B1FA2 0%, #BA68C8 100%)', color: 'white' }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>En espera</Typography>
-                  <Typography variant="h3" fontWeight="bold">{(stats?.paquetes.en_espera_cajas ?? stats?.paquetes.en_transito ?? 0).toLocaleString()}</Typography>
-                  <Typography variant="caption">cajas en tránsito a MTY NL</Typography>
-                </Box>
-                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                  <MoneyIcon />
-                </Avatar>
-              </Box>
-            </Paper>
+          <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+            <KpiCard
+              icon={<LocalShippingIcon sx={{ fontSize: 22 }} />}
+              label="En tránsito a MTY"
+              value={stats?.paquetes.en_espera_cajas ?? stats?.paquetes.en_transito ?? 0}
+              sub="cajas en camino"
+              tone="info"
+            />
           </Grid>
         )}
 
-        {/* En espera marítimo */}
-        <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-          <Paper sx={{ p: 3, height: '100%', background: 'linear-gradient(135deg, #00695C 0%, #26A69A 100%)', color: 'white' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <Box>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>En espera Marítimo</Typography>
-                <Typography variant="h3" fontWeight="bold">{(stats?.paquetes.en_espera_maritimo ?? 0).toLocaleString()}</Typography>
-                <Typography variant="caption">cajas marítimas</Typography>
-              </Box>
-              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                <DirectionsBoatIcon />
-              </Avatar>
-            </Box>
-          </Paper>
+        <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+          <KpiCard
+            icon={<DirectionsBoatIcon sx={{ fontSize: 22 }} />}
+            label="En espera Marítimo"
+            value={stats?.paquetes.en_espera_maritimo ?? 0}
+            sub="cajas LCL en aduana"
+            tone="info"
+            accentBar="#0E7490"
+          />
         </Grid>
 
-        {/* En espera aéreo */}
-        <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-          <Paper sx={{ p: 3, height: '100%', background: 'linear-gradient(135deg, #5E35B1 0%, #7E57C2 100%)', color: 'white' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <Box>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>En espera Aéreo</Typography>
-                <Typography variant="h3" fontWeight="bold">{(stats?.paquetes.en_espera_aereo ?? 0).toLocaleString()}</Typography>
-                <Typography variant="caption">cajas aereas</Typography>
-              </Box>
-              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                <FlightTakeoffIcon />
-              </Avatar>
-            </Box>
-          </Paper>
+        <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+          <KpiCard
+            icon={<FlightTakeoffIcon sx={{ fontSize: 22 }} />}
+            label="En espera Aéreo"
+            value={stats?.paquetes.en_espera_aereo ?? 0}
+            sub="cajas aéreas"
+            tone="info"
+            accentBar="#7C3AED"
+          />
         </Grid>
-
-        {/* Guías con Retraso PO Box - solo si la sucursal tiene servicio POBOX_USA */}
-        {showPoboxWidget && (
-          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-            <Paper
-              onClick={() => openDelayedModal('pobox')}
-              sx={{
-                p: 3,
-                height: '100%',
-                background: delayedCount > 0
-                  ? 'linear-gradient(135deg, #C62828 0%, #EF5350 100%)'
-                  : 'linear-gradient(135deg, #616161 0%, #9E9E9E 100%)',
-                color: 'white',
-                cursor: 'pointer',
-                transition: 'transform 0.2s, box-shadow 0.2s',
-                '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 },
-              }}
-            >
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Retraso PO Box</Typography>
-                  <Typography variant="h3" fontWeight="bold">{delayedCount}</Typography>
-                  <Typography variant="caption">
-                    {delayedCount === 0 ? 'sin retrasos' : delayedCount === 1 ? 'paquete retrasado' : 'paquetes retrasados'}
-                  </Typography>
-                </Box>
-                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                  <LocalShippingIcon />
-                </Avatar>
-              </Box>
-              <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.85, fontSize: '0.7rem' }}>
-                Click para ver detalles →
-              </Typography>
-            </Paper>
-          </Grid>
-        )}
-
-        {/* Guías con Retraso Aéreo - sucursal con AIR_CHN_MX o cualquier CEDIS (recibe aéreo China) */}
-        {showAirWidget && (
-          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-            <Paper
-              onClick={() => openDelayedModal('air')}
-              sx={{
-                p: 3,
-                height: '100%',
-                background: delayedAirCount > 0
-                  ? 'linear-gradient(135deg, #C62828 0%, #EF5350 100%)'
-                  : 'linear-gradient(135deg, #616161 0%, #9E9E9E 100%)',
-                color: 'white',
-                cursor: 'pointer',
-                transition: 'transform 0.2s, box-shadow 0.2s',
-                '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 },
-              }}
-            >
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Retraso Aéreo</Typography>
-                  <Typography variant="h3" fontWeight="bold">{delayedAirCount}</Typography>
-                  <Typography variant="caption">
-                    {delayedAirCount === 0 ? 'sin retrasos' : delayedAirCount === 1 ? 'guía retrasada' : 'guías retrasadas'}
-                  </Typography>
-                </Box>
-                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                  <FlightTakeoffIcon />
-                </Avatar>
-              </Box>
-              <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.85, fontSize: '0.7rem' }}>
-                Click para ver detalles →
-              </Typography>
-            </Paper>
-          </Grid>
-        )}
-
-        {/* Guías con Retraso Marítimo - sucursal con SEA/FCL_CHN_MX o cualquier CEDIS (recibe marítimo China) */}
-        {showSeaWidget && (
-          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-            <Paper
-              onClick={() => openDelayedModal('sea')}
-              sx={{
-                p: 3,
-                height: '100%',
-                background: delayedSeaCount > 0
-                  ? 'linear-gradient(135deg, #C62828 0%, #EF5350 100%)'
-                  : 'linear-gradient(135deg, #616161 0%, #9E9E9E 100%)',
-                color: 'white',
-                cursor: 'pointer',
-                transition: 'transform 0.2s, box-shadow 0.2s',
-                '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 },
-              }}
-            >
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography variant="body2" sx={{ opacity: 0.9 }}>Retraso Marítimo</Typography>
-                  <Typography variant="h3" fontWeight="bold">{delayedSeaCount}</Typography>
-                  <Typography variant="caption">
-                    {delayedSeaCount === 0 ? 'sin cajas perdidas' : delayedSeaCount === 1 ? 'caja perdida en log' : 'cajas perdidas en logs'}
-                  </Typography>
-                </Box>
-                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                  <DirectionsBoatIcon />
-                </Avatar>
-              </Box>
-              <Typography variant="caption" sx={{ display: 'block', mt: 1, opacity: 0.85, fontSize: '0.7rem' }}>
-                Click para ver detalles →
-              </Typography>
-            </Paper>
-          </Grid>
-        )}
-
-        {/* Recepciones parciales: AWBs/contenedores/consolidaciones que llegaron incompletos */}
-        {partialReceptions.total > 0 && (
-          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-            <Paper
-              onClick={() => setPartialOpen(true)}
-              sx={{
-                p: 3,
-                height: '100%',
-                background: 'linear-gradient(135deg, #E65100 0%, #FB8C00 100%)',
-                color: 'white',
-                cursor: 'pointer',
-                transition: 'transform 0.2s, box-shadow 0.2s',
-                '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 },
-                position: 'relative',
-                overflow: 'hidden',
-                '&::before': {
-                  content: '""',
-                  position: 'absolute',
-                  top: -8,
-                  right: -8,
-                  width: 60,
-                  height: 60,
-                  borderRadius: '50%',
-                  background: 'rgba(255,255,255,0.1)',
-                },
-              }}
-            >
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography variant="body2" sx={{ opacity: 0.95, fontWeight: 600 }}>Recepción Parcial</Typography>
-                  <Typography variant="h3" fontWeight="bold">{partialReceptions.total}</Typography>
-                  <Typography variant="caption">
-                    {partialReceptions.total === 1 ? 'guía pendiente' : 'guías pendientes'}
-                  </Typography>
-                </Box>
-                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                  <WarningIcon />
-                </Avatar>
-              </Box>
-              <Box sx={{ mt: 1, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                {partialReceptions.air.count > 0 && (
-                  <Chip size="small" icon={<FlightTakeoffIcon sx={{ color: 'white !important', fontSize: 14 }} />}
-                    label={`${partialReceptions.air.count} aéreo`}
-                    sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontSize: '0.65rem', height: 20 }} />
-                )}
-                {partialReceptions.sea.count > 0 && (
-                  <Chip size="small" icon={<DirectionsBoatIcon sx={{ color: 'white !important', fontSize: 14 }} />}
-                    label={`${partialReceptions.sea.count} marítimo`}
-                    sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontSize: '0.65rem', height: 20 }} />
-                )}
-                {partialReceptions.pobox.count > 0 && (
-                  <Chip size="small" icon={<LocalShippingIcon sx={{ color: 'white !important', fontSize: 14 }} />}
-                    label={`${partialReceptions.pobox.count} pobox`}
-                    sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontSize: '0.65rem', height: 20 }} />
-                )}
-              </Box>
-              <Typography variant="caption" sx={{ display: 'block', mt: 0.5, opacity: 0.85, fontSize: '0.7rem' }}>
-                Click para ver detalles →
-              </Typography>
-            </Paper>
-          </Grid>
-        )}
       </Grid>
+
+      {/* === Sección: Alertas (retrasos / parciales) === */}
+      {(showPoboxWidget || showAirWidget || showSeaWidget || (canSeePartialReceptions && partialReceptions.total > 0)) && (        <>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+            <Box sx={{ width: 4, height: 18, bgcolor: '#F05A28', borderRadius: 1 }} />
+            <Typography sx={{ fontWeight: 700, color: '#0F172A', fontSize: '0.9rem', letterSpacing: 0.2, textTransform: 'uppercase' }}>
+              Alertas y Retrasos
+            </Typography>
+            <Divider sx={{ flex: 1, ml: 1, borderColor: '#E5E7EB' }} />
+          </Stack>
+
+          <Grid container spacing={2} sx={{ mb: 4 }}>
+            {showPoboxWidget && (
+              <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+                <KpiCard
+                  icon={<TimerIcon sx={{ fontSize: 22 }} />}
+                  label="Retraso PO Box"
+                  value={delayedCount}
+                  sub={delayedCount === 0 ? 'sin retrasos' : delayedCount === 1 ? 'paquete retrasado' : 'paquetes retrasados'}
+                  tone={delayedCount > 0 ? 'danger' : 'neutral'}
+                  category="alert"
+                  badge={delayedCount > 0 ? delayedCount : undefined}
+                  onClick={() => openDelayedModal('pobox')}
+                />
+              </Grid>
+            )}
+
+            {showAirWidget && (
+              <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+                <KpiCard
+                  icon={<FlightTakeoffIcon sx={{ fontSize: 22 }} />}
+                  label="Retraso Aéreo"
+                  value={delayedAirCount}
+                  sub={delayedAirCount === 0 ? 'sin retrasos' : delayedAirCount === 1 ? 'guía retrasada' : 'guías retrasadas'}
+                  tone={delayedAirCount > 0 ? 'danger' : 'neutral'}
+                  category="alert"
+                  badge={delayedAirCount > 0 ? delayedAirCount : undefined}
+                  onClick={() => openDelayedModal('air')}
+                />
+              </Grid>
+            )}
+
+            {showSeaWidget && (
+              <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+                <KpiCard
+                  icon={<DirectionsBoatIcon sx={{ fontSize: 22 }} />}
+                  label="Retraso Marítimo"
+                  value={delayedSeaCount}
+                  sub={delayedSeaCount === 0 ? 'sin retrasos' : delayedSeaCount === 1 ? 'guía retrasada' : 'guías retrasadas'}
+                  tone={delayedSeaCount > 0 ? 'danger' : 'neutral'}
+                  category="alert"
+                  badge={delayedSeaCount > 0 ? delayedSeaCount : undefined}
+                  onClick={() => openDelayedModal('sea')}
+                />
+              </Grid>
+            )}
+
+            {canSeePartialReceptions && partialReceptions.total > 0 && (
+              <Grid size={{ xs: 12, sm: 6, md: 3, lg: 4 }}>
+                <Paper
+                  onClick={() => setPartialOpen(true)}
+                  elevation={0}
+                  sx={{
+                    position: 'relative',
+                    p: 2.25,
+                    height: '100%',
+                    bgcolor: '#fff',
+                    borderRadius: 2,
+                    border: '1px solid #FED7AA',
+                    cursor: 'pointer',
+                    transition: 'box-shadow .18s, transform .18s, border-color .18s',
+                    boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                    '&:hover': {
+                      boxShadow: '0 6px 18px rgba(15,23,42,0.08)',
+                      transform: 'translateY(-1px)',
+                      borderColor: '#F05A28',
+                    },
+                    '&::before': {
+                      content: '""',
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: 3,
+                      borderTopLeftRadius: 8,
+                      borderTopRightRadius: 8,
+                      bgcolor: '#F05A28',
+                    },
+                  }}
+                >
+                  <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
+                    <Box>
+                      <Typography variant="caption" sx={{ color: '#64748B', fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase', fontSize: '0.7rem' }}>
+                        Recepción Parcial
+                      </Typography>
+                      <Typography sx={{ color: '#0F172A', fontWeight: 700, fontSize: '2rem', lineHeight: 1.1, mt: 0.5 }}>
+                        {partialReceptions.total}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', mt: 0.5 }}>
+                        {partialReceptions.total === 1 ? 'guía pendiente' : 'guías pendientes'}
+                      </Typography>
+                    </Box>
+                    <Badge
+                      badgeContent={partialReceptions.total}
+                      color="warning"
+                      sx={{
+                        '& .MuiBadge-badge': { bgcolor: '#F59E0B', color: '#fff', fontWeight: 700 },
+                      }}
+                    >
+                      <Box sx={{ width: 38, height: 38, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#F1F5F9', color: '#0F172A' }}>
+                        <WarningIcon sx={{ fontSize: 22 }} />
+                      </Box>
+                    </Badge>
+                  </Stack>
+                  <Stack direction="row" spacing={0.5} sx={{ mt: 1.25, flexWrap: 'wrap', gap: 0.5 }}>
+                    {partialReceptions.air.count > 0 && (
+                      <Chip size="small" icon={<FlightTakeoffIcon sx={{ fontSize: 12 }} />} label={`${partialReceptions.air.count} aéreo`}
+                        sx={{ bgcolor: '#EEF2FF', color: '#4338CA', height: 22, fontWeight: 600, fontSize: '0.7rem' }} />
+                    )}
+                    {partialReceptions.sea.count > 0 && (
+                      <Chip size="small" icon={<DirectionsBoatIcon sx={{ fontSize: 12 }} />} label={`${partialReceptions.sea.count} marítimo`}
+                        sx={{ bgcolor: '#ECFEFF', color: '#0E7490', height: 22, fontWeight: 600, fontSize: '0.7rem' }} />
+                    )}
+                    {partialReceptions.pobox.count > 0 && (
+                      <Chip size="small" icon={<LocalShippingIcon sx={{ fontSize: 12 }} />} label={`${partialReceptions.pobox.count} pobox`}
+                        sx={{ bgcolor: '#FEF2F2', color: '#B91C1C', height: 22, fontWeight: 600, fontSize: '0.7rem' }} />
+                    )}
+                  </Stack>
+                </Paper>
+              </Grid>
+            )}
+          </Grid>
+        </>
+      )}
+
 
       {/* Modal: Recepciones Parciales */}
       <Dialog
@@ -620,38 +742,63 @@ export default function DashboardBranchManager() {
       </Dialog>
 
       {/* Accesos Rápidos */}
-      <Grid container spacing={3}>
-        <Grid size={{ xs: 12 }}>
-          <Paper sx={{ p: 3, height: '100%' }}>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
-              ⚡ Accesos Rápidos
-            </Typography>
-
-            <Grid container spacing={2} sx={{ mt: 1 }}>
-              {quickActions.map((action, index) => (
-                <Grid size={{ xs: 12, sm: 6, md: 3 }} key={index}>
-                  <Card
+      <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+        <Box sx={{ width: 4, height: 18, bgcolor: '#F05A28', borderRadius: 1 }} />
+        <Typography sx={{ fontWeight: 700, color: '#0F172A', fontSize: '0.9rem', letterSpacing: 0.2, textTransform: 'uppercase' }}>
+          Accesos Rápidos
+        </Typography>
+        <Divider sx={{ flex: 1, ml: 1, borderColor: '#E5E7EB' }} />
+      </Stack>
+      <Grid container spacing={2}>
+        {quickActions.map((action, index) => (
+          <Grid size={{ xs: 12, sm: 6, md: 3 }} key={index}>
+            <Card
+              elevation={0}
+              sx={{
+                height: '100%',
+                bgcolor: '#fff',
+                borderRadius: 2,
+                border: '1px solid #E5E7EB',
+                boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                transition: 'box-shadow .18s ease, transform .18s ease, border-color .18s ease',
+                '&:hover': {
+                  boxShadow: '0 6px 18px rgba(15,23,42,0.08)',
+                  transform: 'translateY(-1px)',
+                  borderColor: '#F05A28',
+                },
+              }}
+            >
+              <CardActionArea onClick={() => handleQuickAction(action.action)} sx={{ p: 2.25, height: '100%' }}>
+                <Stack direction="row" alignItems="center" spacing={1.5}>
+                  <Box
                     sx={{
-                      height: '100%',
-                      transition: 'transform 0.2s',
-                      '&:hover': { transform: 'scale(1.02)' }
+                      width: 44,
+                      height: 44,
+                      borderRadius: 1.5,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      bgcolor: `${action.color}14`,
+                      color: action.color,
+                      flexShrink: 0,
                     }}
                   >
-                    <CardActionArea onClick={() => handleQuickAction(action.action)} sx={{ p: 2, height: '100%' }}>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-                        <Avatar sx={{ bgcolor: action.color, width: 56, height: 56, mb: 1 }}>
-                          {action.icon}
-                        </Avatar>
-                        <Typography variant="subtitle2" fontWeight="bold">{action.title}</Typography>
-                        <Typography variant="caption" color="text.secondary">{action.description}</Typography>
-                      </Box>
-                    </CardActionArea>
-                  </Card>
-                </Grid>
-              ))}
-            </Grid>
-          </Paper>
-        </Grid>
+                    {action.icon}
+                  </Box>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography sx={{ fontWeight: 700, color: '#0F172A', fontSize: '0.95rem' }}>
+                      {action.title}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: '#64748B', display: 'block', mt: 0.25 }}>
+                      {action.description}
+                    </Typography>
+                  </Box>
+                  <ArrowForwardIcon sx={{ color: '#CBD5E1', fontSize: 18 }} />
+                </Stack>
+              </CardActionArea>
+            </Card>
+          </Grid>
+        ))}
       </Grid>
     </Box>
   );

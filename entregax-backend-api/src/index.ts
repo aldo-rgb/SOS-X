@@ -421,6 +421,9 @@ import {
   markAsRead,
   markAllAsRead,
   getUnreadCount,
+  archiveNotification,
+  archiveAllNotifications,
+  archiveBulkNotifications,
   sendNotificationToUser,
   sendBroadcastNotification
 } from './notificationController';
@@ -604,6 +607,7 @@ import {
   getContainerOrders,
   scanContainerOrder,
   finalizeContainerReception,
+  reportPartialBoxes,
   getSeaInventory
 } from './maritimeContainerReceptionController';
 import {
@@ -1655,6 +1659,9 @@ app.get('/api/migrate/orders-summary', async (_req: Request, res: Response) => {
       ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS summary_weight DECIMAL(10,2);
       ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS summary_volume DECIMAL(10,4);
       ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS summary_description TEXT;
+      ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS missing_on_arrival BOOLEAN DEFAULT FALSE;
+      ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS missing_reported_at TIMESTAMP;
+      ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS received_boxes INTEGER;
     `);
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_maritime_orders_container_id ON maritime_orders(container_id);
@@ -3653,6 +3660,15 @@ app.put('/api/notifications/:notificationId/read', authenticateToken, markAsRead
 
 // App: Marcar todas como leídas
 app.put('/api/notifications/read-all', authenticateToken, markAllAsRead);
+
+// App: Archivar notificación individual
+app.put('/api/notifications/:notificationId/archive', authenticateToken, archiveNotification);
+
+// App: Archivar todas
+app.put('/api/notifications/archive-all', authenticateToken, archiveAllNotifications);
+
+// App: Archivar varias por id
+app.post('/api/notifications/archive-bulk', authenticateToken, archiveBulkNotifications);
 
 // App: Obtener conteo de no leídas
 app.get('/api/notifications/unread-count', authenticateToken, getUnreadCount);
@@ -6615,6 +6631,7 @@ app.get('/api/admin/china-sea/containers/in-transit', authenticateToken, require
 app.get('/api/admin/china-sea/containers/:id/orders', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getContainerOrders);
 app.post('/api/admin/china-sea/containers/:id/scan', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), scanContainerOrder);
 app.post('/api/admin/china-sea/containers/:id/finalize', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), finalizeContainerReception);
+app.post('/api/admin/china-sea/containers/:id/report-partial-boxes', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), reportPartialBoxes);
 app.get('/api/admin/china-sea/inventory', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getSeaInventory);
 
 // Upload manual aéreo (AWB PDF + Packing List Excel)

@@ -823,17 +823,19 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             `
         );
 
-        // En espera marítimo: pedidos LCL en Despacho Aduanal en Proceso
+        // En espera marítimo: solo cajas de contenedores LCL multi-cliente (WEEK)
+        // que ya están en Despacho Aduanal en México. Excluye contenedores de un
+        // solo cliente (FCL o LCL con client_user_id) y órdenes sin contenedor.
         const waitingMaritimeBoxesResult = await pool.query(
             `
                 SELECT COALESCE(SUM(CASE WHEN COALESCE(mo.goods_num, 0) > 0 THEN mo.goods_num ELSE 1 END), 0)::int as total
                 FROM maritime_orders mo
-                LEFT JOIN containers c ON c.id = mo.container_id
-                WHERE COALESCE(c.type, 'LCL') = 'LCL'
+                INNER JOIN containers c ON c.id = mo.container_id
+                WHERE c.type = 'LCL'
+                  AND c.client_user_id IS NULL
                   AND (
                     mo.status = 'customs_mx'
-                    OR LOWER(COALESCE(mo.last_tracking_status, '')) LIKE '%customs clearance in process%'
-                    OR LOWER(COALESCE(mo.last_tracking_status, '')) LIKE '%despacho aduanal en proceso%'
+                    OR LOWER(COALESCE(c.status::text, '')) IN ('customs_mx','in_customs','customs','customs_clearance')
                   )
                   AND mo.status NOT IN ('delivered', 'cancelled', 'returned')
             `

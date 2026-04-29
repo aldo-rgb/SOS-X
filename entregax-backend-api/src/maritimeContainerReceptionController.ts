@@ -350,6 +350,21 @@ export const finalizeContainerReception = async (req: AuthRequest, res: Response
         );
         const masterTrk = containerInfoRes.rows[0]?.master || `#${containerId}`;
 
+        // Cajas parciales (logs escaneados pero con cajas faltantes)
+        const partialBoxesRes = await client.query(
+          `SELECT
+             COUNT(*) FILTER (WHERE received_boxes IS NOT NULL
+                              AND received_boxes < COALESCE(summary_boxes, goods_num, 0))::int AS partial_orders,
+             COALESCE(SUM(GREATEST(COALESCE(summary_boxes, goods_num, 0) - COALESCE(received_boxes, 0), 0))
+                      FILTER (WHERE received_boxes IS NOT NULL
+                              AND received_boxes < COALESCE(summary_boxes, goods_num, 0)), 0)::int AS partial_boxes_missing
+           FROM maritime_orders
+           WHERE container_id = $1`,
+          [containerId]
+        );
+        const partialOrders = partialBoxesRes.rows[0]?.partial_orders || 0;
+        const partialBoxesMissing = partialBoxesRes.rows[0]?.partial_boxes_missing || 0;
+
         // Marítimo China llega a CEDIS CDMX → notificar a operadores de CEDIS + admins
         const receiversRes = await client.query(
           `SELECT DISTINCT u.id
@@ -363,9 +378,19 @@ export const finalizeContainerReception = async (req: AuthRequest, res: Response
         );
 
         const title = '⚠️ Contenedor recibido con faltantes';
-        const message = `Contenedor ${masterTrk}: ${missing} orden(es) faltante(s) (${received}/${total} recibidas)`;
+        const parts: string[] = [];
+        if (missing > 0) parts.push(`${missing} log(s) sin escanear`);
+        if (partialOrders > 0) parts.push(`${partialOrders} log(s) con ${partialBoxesMissing} caja(s) faltante(s)`);
+        const message = `Contenedor ${masterTrk}: ${parts.join(' + ')} (${received}/${total} logs recibidos)`;
         const actionUrl = `/admin/china-sea/reception/${containerId}`;
-        const data = { container_id: Number(containerId), missing, received, total };
+        const data = {
+          container_id: Number(containerId),
+          missing_logs: missing,
+          partial_orders: partialOrders,
+          partial_boxes_missing: partialBoxesMissing,
+          received,
+          total,
+        };
 
         for (const row of receiversRes.rows) {
           await client.query(
@@ -381,17 +406,172 @@ export const finalizeContainerReception = async (req: AuthRequest, res: Response
 
     await client.query('COMMIT');
 
+    // Calcular cajas faltantes parciales (para mostrar en el frontend)
+    const partialFinalRes = await pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE received_boxes IS NOT NULL
+                          AND received_boxes < COALESCE(summary_boxes, goods_num, 0))::int AS partial_orders,
+         COALESCE(SUM(GREATEST(COALESCE(summary_boxes, goods_num, 0) - COALESCE(received_boxes, 0), 0))
+                  FILTER (WHERE received_boxes IS NOT NULL
+                          AND received_boxes < COALESCE(summary_boxes, goods_num, 0)), 0)::int AS partial_boxes_missing
+       FROM maritime_orders
+       WHERE container_id = $1`,
+      [containerId]
+    );
+
     res.json({
       ok: true,
       new_status: missing === 0 ? 'received_mty' : 'received_partial',
       total,
       received,
       missing,
+      partial_orders: partialFinalRes.rows[0]?.partial_orders || 0,
+      partial_boxes_missing: partialFinalRes.rows[0]?.partial_boxes_missing || 0,
     });
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('finalizeContainerReception error:', err);
     res.status(500).json({ error: 'Error al finalizar recepción' });
+  } finally {
+    client.release();
+  }
+};
+
+// ============================================
+// 4b. REPORTAR CAJAS PARCIALES POR ORDEN
+// POST /api/admin/china-sea/containers/:id/report-partial-boxes
+// body: { orders: [{ order_id, received_boxes }], notes?: string }
+// Marca las órdenes donde received_boxes < expected como missing_on_arrival
+// y notifica a operadores CEDIS / ops_china_sea / admins.
+// ============================================
+export const reportPartialBoxes = async (req: AuthRequest, res: Response): Promise<void> => {
+  const containerId = parseInt(String(req.params.id || ''), 10);
+  const userId = req.user?.userId;
+  const orders: Array<{ order_id: number; received_boxes: number }> = Array.isArray(req.body?.orders) ? req.body.orders : [];
+  const notes: string | null = (req.body?.notes ? String(req.body.notes) : null);
+
+  if (!containerId) {
+    res.status(400).json({ error: 'ID de contenedor inválido' });
+    return;
+  }
+  if (orders.length === 0) {
+    res.status(400).json({ error: 'Debes enviar al menos una orden' });
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Asegurar columnas (auto-migración idempotente)
+    await client.query(`ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS received_boxes INTEGER`);
+    await client.query(`ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS missing_on_arrival BOOLEAN DEFAULT FALSE`);
+    await client.query(`ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS missing_reported_at TIMESTAMP`);
+
+    // Cargar órdenes actuales del contenedor
+    const ordersRes = await client.query(
+      `SELECT id, ordersn, COALESCE(summary_boxes, goods_num, 1) AS expected_boxes
+         FROM maritime_orders
+        WHERE container_id = $1`,
+      [containerId]
+    );
+    const expectedById = new Map<number, { ordersn: string; expected: number }>();
+    ordersRes.rows.forEach((r: { id: number; ordersn: string; expected_boxes: number }) => {
+      expectedById.set(Number(r.id), { ordersn: r.ordersn, expected: Number(r.expected_boxes) || 0 });
+    });
+
+    type PartialRow = { order_id: number; ordersn: string; expected: number; received: number; missing: number };
+    const partials: PartialRow[] = [];
+
+    for (const item of orders) {
+      const id = Number(item.order_id);
+      const received = Math.max(0, Math.floor(Number(item.received_boxes) || 0));
+      const meta = expectedById.get(id);
+      if (!meta) continue;
+      const expected = meta.expected;
+      const safeReceived = Math.min(received, expected);
+      const missing = expected - safeReceived;
+
+      if (missing > 0) {
+        await client.query(
+          `UPDATE maritime_orders
+              SET received_boxes = $1,
+                  missing_on_arrival = TRUE,
+                  missing_reported_at = COALESCE(missing_reported_at, NOW()),
+                  updated_at = NOW()
+            WHERE id = $2`,
+          [safeReceived, id]
+        );
+        partials.push({ order_id: id, ordersn: meta.ordersn, expected, received: safeReceived, missing });
+      } else {
+        // Cantidad completa → limpiar marca de faltante si la tenía
+        await client.query(
+          `UPDATE maritime_orders
+              SET received_boxes = $1,
+                  missing_on_arrival = FALSE,
+                  missing_reported_at = NULL,
+                  updated_at = NOW()
+            WHERE id = $2`,
+          [safeReceived, id]
+        );
+      }
+    }
+
+    // Notificar si hubo faltantes
+    if (partials.length > 0) {
+      const containerInfoRes = await client.query(
+        `SELECT COALESCE(reference_code, bl_number, container_number) AS master FROM containers WHERE id = $1`,
+        [containerId]
+      );
+      const masterTrk = containerInfoRes.rows[0]?.master || `#${containerId}`;
+      const totalMissingBoxes = partials.reduce((s, p) => s + p.missing, 0);
+
+      const receiversRes = await client.query(
+        `SELECT DISTINCT u.id
+           FROM users u
+           LEFT JOIN user_module_permissions ump
+             ON ump.user_id = u.id
+            AND ump.panel_key IN ('ops_mx_cedis','ops_china_sea')
+            AND ump.can_view = TRUE
+          WHERE u.role IN ('super_admin','admin')
+             OR ump.user_id IS NOT NULL`
+      );
+
+      const summary = partials.slice(0, 5)
+        .map((p) => `${p.ordersn} (${p.received}/${p.expected})`)
+        .join(', ');
+      const title = '⚠️ Cajas faltantes en contenedor marítimo';
+      const message = `${masterTrk}: ${partials.length} orden(es) con cajas faltantes · ${totalMissingBoxes} caja(s) faltantes — ${summary}${partials.length > 5 ? '...' : ''}`;
+      const actionUrl = `/admin/china-sea/reception/${containerId}`;
+      const data = {
+        container_id: containerId,
+        total_missing_boxes: totalMissingBoxes,
+        partial_orders: partials,
+        notes,
+        reported_by: userId || null,
+      };
+
+      for (const row of receiversRes.rows) {
+        await client.query(
+          `INSERT INTO notifications (user_id, title, message, type, icon, action_url, data)
+           VALUES ($1::int, $2::varchar, $3::text, 'warning'::varchar, '⚠️'::varchar, $4::varchar, $5::jsonb)`,
+          [row.id, title, message, actionUrl, JSON.stringify(data)]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      ok: true,
+      partial_orders_count: partials.length,
+      total_missing_boxes: partials.reduce((s, p) => s + p.missing, 0),
+      partials,
+    });
+  } catch (err: unknown) {
+    await client.query('ROLLBACK').catch(() => undefined);
+    const msg = err instanceof Error ? err.message : 'Error';
+    console.error('reportPartialBoxes error:', msg);
+    res.status(500).json({ error: 'Error al reportar cajas parciales', details: msg });
   } finally {
     client.release();
   }

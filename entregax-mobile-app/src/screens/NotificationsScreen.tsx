@@ -10,6 +10,7 @@ import {
   FlatList,
   RefreshControl,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import {
   Text,
@@ -19,6 +20,8 @@ import {
   ActivityIndicator,
   Divider,
   Badge,
+  Checkbox,
+  Button,
 } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
@@ -59,6 +62,8 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
 
   const fetchNotifications = useCallback(async () => {
     try {
@@ -119,6 +124,93 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
     }
   };
 
+  const archiveOne = async (id: number) => {
+    try {
+      await fetch(`${API_URL}/api/notifications/${id}/archive`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setNotifications(prev => {
+        const target = prev.find(n => n.id === id);
+        if (target && !target.is_read) {
+          setUnreadCount(c => Math.max(0, c - 1));
+        }
+        return prev.filter(n => n.id !== id);
+      });
+      setSelectedIds(prev => {
+        const n = new Set(prev); n.delete(id); return n;
+      });
+    } catch (e) {
+      console.error('Error archivando:', e);
+    }
+  };
+
+  const archiveSelected = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    try {
+      await fetch(`${API_URL}/api/notifications/archive-bulk`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ids }),
+      });
+      setNotifications(prev => {
+        const removed = prev.filter(n => ids.includes(n.id));
+        const unreadRemoved = removed.filter(n => !n.is_read).length;
+        if (unreadRemoved > 0) setUnreadCount(c => Math.max(0, c - unreadRemoved));
+        return prev.filter(n => !ids.includes(n.id));
+      });
+      setSelectedIds(new Set());
+      setSelectionMode(false);
+    } catch (e) {
+      console.error('Error archivando seleccionadas:', e);
+    }
+  };
+
+  const archiveAll = async () => {
+    Alert.alert(
+      '¿Archivar todas?',
+      'Se ocultarán todas las notificaciones del listado.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Archivar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await fetch(`${API_URL}/api/notifications/archive-all`, {
+                method: 'PUT',
+                headers: { Authorization: `Bearer ${token}` },
+              });
+              setNotifications([]);
+              setUnreadCount(0);
+              setSelectedIds(new Set());
+              setSelectionMode(false);
+            } catch (e) {
+              console.error('Error archivando todas:', e);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === notifications.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(notifications.map(n => n.id)));
+    }
+  };
+
   const getTypeColor = (type: string) => {
     switch (type) {
       case 'success': return '#4CAF50';
@@ -144,6 +236,10 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
   };
 
   const handleNotificationPress = (item: Notification) => {
+    if (selectionMode) {
+      toggleSelect(item.id);
+      return;
+    }
     // Marcar como leída
     markAsRead(item.id);
     
@@ -168,23 +264,54 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
         token, 
         abandonoToken: item.data.token 
       });
+      return;
     }
+
+    // Navegación genérica por action_url (paquetes, consolidaciones, etc.)
+    if (item.action_url) {
+      // Patrones comunes
+      const m = item.action_url.match(/\/(packages?|paquetes?)\/([\w-]+)/i);
+      if (m) {
+        (navigation as any).navigate('PackageDetail', { user, token, packageId: m[2] });
+        return;
+      }
+      const c = item.action_url.match(/maritime|china-sea|consolidacion/i);
+      if (c) {
+        (navigation as any).navigate('ChinaSeaHub', { user, token });
+        return;
+      }
+    }
+  };
+
+  const handleLongPress = (item: Notification) => {
+    setSelectionMode(true);
+    toggleSelect(item.id);
   };
 
   const renderNotification = ({ item }: { item: Notification }) => {
     const typeColor = getTypeColor(item.type);
+    const isSelected = selectedIds.has(item.id);
     
     return (
       <TouchableOpacity 
         onPress={() => handleNotificationPress(item)}
+        onLongPress={() => handleLongPress(item)}
         activeOpacity={0.7}
       >
         <Surface 
           style={[
             styles.notificationCard, 
-            !item.is_read && styles.unreadCard
+            !item.is_read && styles.unreadCard,
+            isSelected && { borderWidth: 2, borderColor: BRAND_ORANGE },
           ]}
         >
+          {selectionMode && (
+            <Checkbox
+              status={isSelected ? 'checked' : 'unchecked'}
+              onPress={() => toggleSelect(item.id)}
+              color={BRAND_ORANGE}
+            />
+          )}
           <View style={[styles.iconContainer, { backgroundColor: typeColor + '20' }]}>
             <Icon name={item.icon || 'bell'} size={24} color={typeColor} />
           </View>
@@ -197,8 +324,17 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
             <Text style={styles.message} numberOfLines={2}>{item.message}</Text>
           </View>
 
-          {!item.is_read && (
+          {!item.is_read && !selectionMode && (
             <View style={styles.unreadDot} />
+          )}
+          {!selectionMode && (
+            <IconButton
+              icon="archive-outline"
+              size={20}
+              iconColor="#999"
+              onPress={() => archiveOne(item.id)}
+              style={{ margin: 0 }}
+            />
           )}
         </Surface>
       </TouchableOpacity>
@@ -218,14 +354,24 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
   return (
     <View style={styles.container}>
       <Appbar.Header style={styles.appbar}>
-        <Appbar.BackAction onPress={() => navigation.goBack()} color="white" />
-        <Appbar.Content title={t('notifications.title')} titleStyle={styles.appbarTitle} />
-        {unreadCount > 0 && (
-          <Appbar.Action 
-            icon="check-all" 
-            onPress={markAllAsRead} 
-            color="white" 
-          />
+        {selectionMode ? (
+          <>
+            <Appbar.Action icon="close" onPress={() => { setSelectionMode(false); setSelectedIds(new Set()); }} color="white" />
+            <Appbar.Content title={`${selectedIds.size} seleccionada(s)`} titleStyle={styles.appbarTitle} />
+            <Appbar.Action icon="select-all" onPress={toggleSelectAll} color="white" />
+            <Appbar.Action icon="archive" onPress={archiveSelected} color="white" />
+          </>
+        ) : (
+          <>
+            <Appbar.BackAction onPress={() => navigation.goBack()} color="white" />
+            <Appbar.Content title={t('notifications.title')} titleStyle={styles.appbarTitle} />
+            {unreadCount > 0 && (
+              <Appbar.Action icon="check-all" onPress={markAllAsRead} color="white" />
+            )}
+            {notifications.length > 0 && (
+              <Appbar.Action icon="archive-arrow-down" onPress={archiveAll} color="white" />
+            )}
+          </>
         )}
       </Appbar.Header>
 

@@ -8,6 +8,8 @@ import {
   Alert,
   Badge,
   Chip,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import WhatshotIcon from '@mui/icons-material/Whatshot';
@@ -53,6 +55,7 @@ type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed
 export default function CustomerServiceHubPage({ users: _users, loading: _loading, onRefresh: _onRefresh }: CustomerServiceHubPageProps) {
   const { t } = useTranslation();
   const [activeView, setActiveView] = useState<ActiveView>('hub');
+  const [delayedTab, setDelayedTab] = useState<'pobox' | 'air' | 'sea'>('pobox');
   const [userPermissions, setUserPermissions] = useState<Record<string, { can_view: boolean; can_edit: boolean }>>({});
   const [hubStats, setHubStats] = useState<{
     pendingLeads: number;
@@ -276,7 +279,7 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
   if (activeView === 'delayed') {
     return (
       <Box>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
           <IconButton onClick={() => setActiveView('hub')} sx={{ bgcolor: 'rgba(0,0,0,0.05)' }}>
             <ArrowBackIcon />
           </IconButton>
@@ -284,7 +287,20 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
             {t('customerService.delayed.title', 'Guías con Retraso')}
           </Typography>
         </Box>
-        <DelayedPackagesPage />
+        <Paper sx={{ mb: 2 }}>
+          <Tabs
+            value={delayedTab}
+            onChange={(_, v) => setDelayedTab(v)}
+            indicatorColor="primary"
+            textColor="primary"
+            sx={{ borderBottom: 1, borderColor: 'divider' }}
+          >
+            <Tab value="pobox" label="PO Box" />
+            <Tab value="air" label="Aéreo" />
+            <Tab value="sea" label="Marítimo" />
+          </Tabs>
+        </Paper>
+        <DelayedPackagesPage service={delayedTab} />
       </Box>
     );
   }

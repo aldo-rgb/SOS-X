@@ -29,10 +29,13 @@ import {
   DialogContent,
   DialogActions,
   Button,
+  Checkbox,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import ArchiveIcon from '@mui/icons-material/Archive';
+import CloseIcon from '@mui/icons-material/Close';
 import PeopleIcon from '@mui/icons-material/People';
 // StoreIcon, AssessmentIcon, SettingsIcon, InventoryIcon removidos - secciones eliminadas del sidebar
 import LogoutIcon from '@mui/icons-material/Logout';
@@ -274,6 +277,7 @@ function App() {
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifModalOpen, setNotifModalOpen] = useState(false);
+  const [selectedNotifIds, setSelectedNotifIds] = useState<Set<number>>(new Set());
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [pendingVerifications, setPendingVerifications] = useState<number>(0);
@@ -369,6 +373,139 @@ function App() {
       setUnreadCount(0);
     } catch (error) {
       console.error('Error marcando todas como leídas:', error);
+    }
+  };
+
+  // Archivar notificación individual
+  const archiveNotification = async (notifId: number) => {
+    if (notifId < 0) {
+      // Notificación virtual (verificación pendiente): solo ocultar localmente
+      setNotifications(prev => prev.filter(n => n.id !== notifId));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+      return;
+    }
+    const token = localStorage.getItem('token');
+    try {
+      await fetch(`${API_URL}/notifications/${notifId}/archive`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setNotifications(prev => {
+        const target = prev.find(n => n.id === notifId);
+        if (target && !target.is_read) {
+          setUnreadCount(c => Math.max(0, c - 1));
+        }
+        return prev.filter(n => n.id !== notifId);
+      });
+      setSelectedNotifIds(prev => {
+        const next = new Set(prev);
+        next.delete(notifId);
+        return next;
+      });
+    } catch (error) {
+      console.error('Error archivando notificación:', error);
+    }
+  };
+
+  // Archivar todas
+  const archiveAllNotifications = async () => {
+    const token = localStorage.getItem('token');
+    try {
+      await fetch(`${API_URL}/notifications/archive-all`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      // Mantener solo notificaciones virtuales (id < 0)
+      setNotifications(prev => prev.filter(n => n.id < 0));
+      setUnreadCount(prev => {
+        // Recalcular: contar virtuales no leídas
+        return 0; // Se recargará en el próximo poll
+      });
+      setSelectedNotifIds(new Set());
+    } catch (error) {
+      console.error('Error archivando todas:', error);
+    }
+  };
+
+  // Archivar las seleccionadas
+  const archiveSelectedNotifications = async () => {
+    const ids = Array.from(selectedNotifIds).filter(id => id > 0);
+    if (ids.length === 0) {
+      setSelectedNotifIds(new Set());
+      return;
+    }
+    const token = localStorage.getItem('token');
+    try {
+      await fetch(`${API_URL}/notifications/archive-bulk`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ ids }),
+      });
+      setNotifications(prev => {
+        const removed = prev.filter(n => ids.includes(n.id));
+        const unreadRemoved = removed.filter(n => !n.is_read).length;
+        if (unreadRemoved > 0) {
+          setUnreadCount(c => Math.max(0, c - unreadRemoved));
+        }
+        return prev.filter(n => !ids.includes(n.id));
+      });
+      setSelectedNotifIds(new Set());
+    } catch (error) {
+      console.error('Error archivando seleccionadas:', error);
+    }
+  };
+
+  const toggleNotifSelection = (id: number) => {
+    setSelectedNotifIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAllNotifs = () => {
+    const archivableIds = notifications.filter(n => n.id > 0).map(n => n.id as number);
+    setSelectedNotifIds(prev => {
+      if (prev.size === archivableIds.length && archivableIds.length > 0) {
+        return new Set();
+      }
+      return new Set(archivableIds);
+    });
+  };
+
+  // Navegar al action_url de una notificación (para panel admin index-based)
+  const handleNotificationNavigate = (actionUrl: string) => {
+    if (!actionUrl) return;
+    // Despachar evento para que las páginas/App escuchen y enruten
+    window.dispatchEvent(new CustomEvent('notification-navigate', { detail: { url: actionUrl } }));
+    // Mapeo básico de rutas comunes para el panel admin (index-based)
+    // Las páginas que requieran apertura específica pueden escuchar el evento.
+    try {
+      // Si el url empieza con http(s)://, abrir en pestaña nueva
+      if (/^https?:\/\//.test(actionUrl)) {
+        window.open(actionUrl, '_blank');
+      }
+    } catch (e) {
+      console.warn('Error procesando action_url:', e);
+    }
+  };
+
+  const handleNotificationClick = (notif: any) => {
+    if (notif.id > 0 && !notif.is_read) markNotificationAsRead(notif.id);
+    if (notif.type === 'VERIFICATION_PENDING') {
+      setNotifAnchorEl(null);
+      setNotifModalOpen(false);
+      setShowClientProfile(true);
+      return;
+    }
+    if (notif.action_url) {
+      setNotifAnchorEl(null);
+      setNotifModalOpen(false);
+      handleNotificationNavigate(notif.action_url);
     }
   };
 
@@ -748,22 +885,19 @@ function App() {
             return (
               <MenuItem
                 key={notif.id}
-                onClick={() => {
-                  if (!notif.is_read) markNotificationAsRead(notif.id);
-                  if (isVerificationNotif) {
-                    setNotifAnchorEl(null);
-                    setShowClientProfile(true);
-                  }
-                }}
+                onClick={() => handleNotificationClick(notif)}
                 sx={{
                   py: 1.5,
                   borderBottom: index < notifications.length - 1 ? '1px solid #f5f5f5' : 'none',
                   bgcolor: isVerificationNotif ? 'rgba(255,152,0,0.1)' : (notif.is_read ? 'transparent' : 'rgba(240,90,40,0.05)'),
                   borderLeft: isVerificationNotif ? '3px solid #ff9800' : 'none',
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 1,
                 }}
               >
-                <Box sx={{ width: '100%' }}>
-                  <Typography variant="body2" fontWeight="600">
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Typography variant="body2" fontWeight="600" noWrap>
                     {emoji} {notif.title}
                   </Typography>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
@@ -773,6 +907,17 @@ function App() {
                     {tiempoRelativo}
                   </Typography>
                 </Box>
+                {!isVerificationNotif && (
+                  <Tooltip title="Archivar">
+                    <IconButton
+                      size="small"
+                      onClick={(e) => { e.stopPropagation(); archiveNotification(notif.id); }}
+                      sx={{ ml: 0.5, color: 'text.secondary', '&:hover': { color: '#F05A28' } }}
+                    >
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  </Tooltip>
+                )}
               </MenuItem>
             );
           })
@@ -791,22 +936,49 @@ function App() {
 
       <Dialog
         open={notifModalOpen}
-        onClose={() => setNotifModalOpen(false)}
+        onClose={() => { setNotifModalOpen(false); setSelectedNotifIds(new Set()); }}
         maxWidth="sm"
         fullWidth
         PaperProps={{ sx: { borderRadius: 3 } }}
       >
-        <DialogTitle sx={{ bgcolor: '#F05A28', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <DialogTitle sx={{ bgcolor: '#F05A28', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             🔔 Todas las Notificaciones
             {unreadCount > 0 && <Badge badgeContent={unreadCount} color="error" sx={{ ml: 1 }} />}
           </Box>
-          {unreadCount > 0 && (
-            <Button size="small" variant="outlined" onClick={markAllNotificationsAsRead} sx={{ color: 'white', borderColor: 'white', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' } }}>
-              Marcar todas como leídas
-            </Button>
-          )}
+          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            {unreadCount > 0 && (
+              <Button size="small" variant="outlined" onClick={markAllNotificationsAsRead} sx={{ color: 'white', borderColor: 'white', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' } }}>
+                Marcar todas leídas
+              </Button>
+            )}
+            {notifications.some(n => n.id > 0) && (
+              <Button size="small" variant="outlined" startIcon={<ArchiveIcon />} onClick={archiveAllNotifications} sx={{ color: 'white', borderColor: 'white', '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' } }}>
+                Archivar todas
+              </Button>
+            )}
+          </Box>
         </DialogTitle>
+        {notifications.some(n => n.id > 0) && (
+          <Box sx={{ px: 2, py: 1, borderBottom: '1px solid #f0f0f0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', bgcolor: '#fafafa' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Checkbox
+                size="small"
+                checked={selectedNotifIds.size > 0 && selectedNotifIds.size === notifications.filter(n => n.id > 0).length}
+                indeterminate={selectedNotifIds.size > 0 && selectedNotifIds.size < notifications.filter(n => n.id > 0).length}
+                onChange={toggleSelectAllNotifs}
+              />
+              <Typography variant="caption" color="text.secondary">
+                {selectedNotifIds.size > 0 ? `${selectedNotifIds.size} seleccionada(s)` : 'Seleccionar todas'}
+              </Typography>
+            </Box>
+            {selectedNotifIds.size > 0 && (
+              <Button size="small" variant="contained" color="warning" startIcon={<ArchiveIcon />} onClick={archiveSelectedNotifications}>
+                Archivar seleccionadas
+              </Button>
+            )}
+          </Box>
+        )}
         <DialogContent sx={{ p: 0, maxHeight: '70vh' }}>
           {notifications.length === 0 ? (
             <Box sx={{ p: 4, textAlign: 'center' }}>
@@ -824,32 +996,62 @@ function App() {
               if (diffMins < 60) tiempoRelativo = `Hace ${diffMins} min`;
               else if (diffHours < 24) tiempoRelativo = `Hace ${diffHours} hora${diffHours > 1 ? 's' : ''}`;
               else tiempoRelativo = `Hace ${diffDays} día${diffDays > 1 ? 's' : ''}`;
+              const isVirtual = notif.id < 0;
+              const isSelected = selectedNotifIds.has(notif.id);
               return (
                 <Box
                   key={notif.id}
-                  onClick={() => { if (!notif.is_read) markNotificationAsRead(notif.id); }}
                   sx={{
-                    p: 2,
+                    px: 1,
+                    py: 1.5,
                     borderBottom: index < notifications.length - 1 ? '1px solid #f0f0f0' : 'none',
-                    bgcolor: notif.is_read ? 'transparent' : 'rgba(240,90,40,0.05)',
-                    cursor: 'pointer',
-                    '&:hover': { bgcolor: 'rgba(240,90,40,0.08)' },
+                    bgcolor: isSelected ? 'rgba(240,90,40,0.12)' : (notif.is_read ? 'transparent' : 'rgba(240,90,40,0.05)'),
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    gap: 1,
+                    '&:hover': { bgcolor: isSelected ? 'rgba(240,90,40,0.18)' : 'rgba(240,90,40,0.08)' },
                   }}
                 >
-                  <Typography variant="body2" fontWeight="600">{notif.title}</Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                    {notif.message}
-                  </Typography>
-                  <Typography variant="caption" color="primary" sx={{ display: 'block', mt: 0.5 }}>
-                    {tiempoRelativo}
-                  </Typography>
+                  {!isVirtual && (
+                    <Checkbox
+                      size="small"
+                      checked={isSelected}
+                      onChange={() => toggleNotifSelection(notif.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      sx={{ mt: -0.5 }}
+                    />
+                  )}
+                  <Box
+                    onClick={() => handleNotificationClick(notif)}
+                    sx={{ flex: 1, minWidth: 0, cursor: 'pointer', pl: isVirtual ? 1 : 0 }}
+                  >
+                    <Typography variant="body2" fontWeight="600">{notif.title}</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                      {notif.message}
+                    </Typography>
+                    <Typography variant="caption" color="primary" sx={{ display: 'block', mt: 0.5 }}>
+                      {tiempoRelativo}
+                      {notif.action_url && <span style={{ marginLeft: 8, color: '#888' }}>· Click para abrir</span>}
+                    </Typography>
+                  </Box>
+                  {!isVirtual && (
+                    <Tooltip title="Archivar">
+                      <IconButton
+                        size="small"
+                        onClick={(e) => { e.stopPropagation(); archiveNotification(notif.id); }}
+                        sx={{ color: 'text.secondary', '&:hover': { color: '#F05A28' } }}
+                      >
+                        <ArchiveIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                 </Box>
               );
             })
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setNotifModalOpen(false)} sx={{ color: '#666' }}>Cerrar</Button>
+          <Button onClick={() => { setNotifModalOpen(false); setSelectedNotifIds(new Set()); }} sx={{ color: '#666' }}>Cerrar</Button>
         </DialogActions>
       </Dialog>
     </>

@@ -110,21 +110,44 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     const inputRef = useRef<HTMLInputElement | null>(null);
 
     const [confirmPartialOpen, setConfirmPartialOpen] = useState(false);
-    const [result, setResult] = useState<{ new_status: string; received: number; missing: number; total: number } | null>(null);
+    const [result, setResult] = useState<{ new_status: string; received: number; missing: number; total: number; partial_orders?: number; partial_boxes_missing?: number } | null>(null);
 
     // Impresión de etiquetas (1 por caja)
     const [labelsModalOpen, setLabelsModalOpen] = useState(false);
     const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set());
+    // Cajas realmente recibidas por orden (orderId → cantidad). Default = total esperado.
+    const [receivedByOrder, setReceivedByOrder] = useState<Record<number, number>>({});
+    const [reportingPartial, setReportingPartial] = useState(false);
 
     const totalBoxesInContainer = orders.reduce((acc, o) => acc + (Number(o.summary_boxes) || Number(o.goods_num) || 0), 0);
+    // Para impresión: usa la cantidad recibida (no el total esperado) si fue ajustada
     const selectedBoxesCount = orders
         .filter((o) => selectedOrderIds.has(o.id))
-        .reduce((acc, o) => acc + (Number(o.summary_boxes) || Number(o.goods_num) || 0), 0);
+        .reduce((acc, o) => {
+            const expected = Number(o.summary_boxes) || Number(o.goods_num) || 0;
+            const received = receivedByOrder[o.id];
+            return acc + (received !== undefined ? Math.min(received, expected) : expected);
+        }, 0);
+    // Total de cajas faltantes en las órdenes seleccionadas
+    const partialMissingCount = orders
+        .filter((o) => selectedOrderIds.has(o.id))
+        .reduce((acc, o) => {
+            const expected = Number(o.summary_boxes) || Number(o.goods_num) || 0;
+            const received = receivedByOrder[o.id];
+            if (received === undefined) return acc;
+            return acc + Math.max(0, expected - Math.min(received, expected));
+        }, 0);
 
     const openLabelsModal = () => {
-        // Por defecto seleccionar todas las órdenes
+        // Por defecto seleccionar todas las órdenes y resetear cantidades
         setSelectedOrderIds(new Set(orders.map((o) => o.id)));
+        setReceivedByOrder({});
         setLabelsModalOpen(true);
+    };
+
+    const setReceivedForOrder = (orderId: number, value: number, expected: number) => {
+        const safe = Math.max(0, Math.min(Math.floor(Number(value) || 0), expected));
+        setReceivedByOrder((prev) => ({ ...prev, [orderId]: safe }));
     };
 
     const toggleOrderForLabel = (id: number) => {
@@ -164,13 +187,15 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
         const labels: Label[] = [];
         ordersToPrint.forEach((o) => {
-            const boxes = Number(o.summary_boxes) || Number(o.goods_num) || 1;
+            const expected = Number(o.summary_boxes) || Number(o.goods_num) || 1;
+            const receivedOverride = receivedByOrder[o.id];
+            const boxes = receivedOverride !== undefined ? Math.min(receivedOverride, expected) : expected;
             for (let i = 1; i <= boxes; i++) {
                 labels.push({
                     tracking: `${o.ordersn}-${String(i).padStart(4, '0')}`,
                     ordersn: o.ordersn,
                     boxNumber: i,
-                    totalBoxes: boxes,
+                    totalBoxes: expected,
                     shippingMark: o.shipping_mark || o.bl_client_code || o.user_box_id || '—',
                     weight: o.weight ? `${Number(o.weight).toFixed(2)} kg` : '',
                     volume: o.volume ? `${Number(o.volume).toFixed(3)} CBM` : '',
@@ -267,6 +292,40 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         } catch (err) {
             console.error('Error generando etiquetas:', err);
             setScanFeedback({ type: 'error', msg: 'Error generando etiquetas' });
+        }    };
+
+    // Reporta cajas parciales (orden con menos cajas recibidas que esperadas)
+    // y notifica a CEDIS / ops_china_sea / admins.
+    const reportPartialBoxes = async () => {
+        if (!selected) return;
+        const payload = orders
+            .filter((o) => selectedOrderIds.has(o.id))
+            .filter((o) => receivedByOrder[o.id] !== undefined)
+            .map((o) => {
+                const expected = Number(o.summary_boxes) || Number(o.goods_num) || 0;
+                return { order_id: o.id, received_boxes: Math.min(receivedByOrder[o.id], expected) };
+            });
+        if (payload.length === 0) {
+            setScanFeedback({ type: 'info', msg: 'No hay órdenes con cajas faltantes para reportar' });
+            return;
+        }
+        try {
+            setReportingPartial(true);
+            const res = await api.post(`/admin/china-sea/containers/${selected.id}/report-partial-boxes`, { orders: payload });
+            const partialCount = res.data?.partial_orders_count || 0;
+            const missingBoxes = res.data?.total_missing_boxes || 0;
+            if (partialCount > 0) {
+                setScanFeedback({ type: 'success', msg: `Reportado: ${partialCount} orden(es) con ${missingBoxes} caja(s) faltante(s). Notificación enviada.` });
+                // Refrescar órdenes para reflejar missing_on_arrival
+                await loadOrders(selected.id);
+            } else {
+                setScanFeedback({ type: 'info', msg: 'No hubo cambios — todas las órdenes están completas.' });
+            }
+        } catch (err) {
+            console.error('Error reportando parcial:', err);
+            setScanFeedback({ type: 'error', msg: 'Error al reportar cajas faltantes' });
+        } finally {
+            setReportingPartial(false);
         }
     };
 
@@ -344,19 +403,41 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
     const finalize = async (forcePartial = false) => {
         if (!selected) return;
-        const missingCount = orders.filter((o) => o.status !== 'received_mty').length;
-        if (missingCount > 0 && !forcePartial) {
+        // Calcular cajas faltantes en logs ya escaneados (received_mty pero con receivedVal < expected)
+        const partialBoxes = orders
+            .filter((o) => receivedByOrder[o.id] !== undefined)
+            .map((o) => {
+                const expected = Number(o.summary_boxes) || Number(o.goods_num) || 0;
+                const received = Math.min(receivedByOrder[o.id], expected);
+                return { order_id: o.id, received_boxes: received, expected };
+            })
+            .filter((p) => p.received_boxes < p.expected);
+
+        const fullyMissing = orders.filter((o) => o.status !== 'received_mty').length;
+        const totalMissingBoxes = partialBoxes.reduce((s, p) => s + (p.expected - p.received_boxes), 0);
+        const hasIncomplete = fullyMissing > 0 || totalMissingBoxes > 0;
+
+        if (hasIncomplete && !forcePartial) {
             setConfirmPartialOpen(true);
             return;
         }
         setLoading(true); setError(null);
         try {
+            // 1) Si hay logs con cajas parciales, reportarlas primero
+            if (partialBoxes.length > 0) {
+                await api.post(`/admin/china-sea/containers/${selected.id}/report-partial-boxes`, {
+                    orders: partialBoxes.map((p) => ({ order_id: p.order_id, received_boxes: p.received_boxes })),
+                });
+            }
+            // 2) Finalizar contenedor (logs sin escanear se marcan como missing_on_arrival)
             const res = await api.post(`/admin/china-sea/containers/${selected.id}/finalize`, { allow_partial: forcePartial });
             setResult({
                 new_status: res.data.new_status,
                 received: res.data.received,
                 missing: res.data.missing,
                 total: res.data.total,
+                partial_orders: res.data.partial_orders || 0,
+                partial_boxes_missing: res.data.partial_boxes_missing || 0,
             });
             setConfirmPartialOpen(false);
             setStep(2);
@@ -568,54 +649,168 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                     </Paper>
 
                     <Paper variant="outlined">
-                        <List dense>
+                        <List dense disablePadding>
                             {orders.map((o) => {
                                 const isReceived = o.status === 'received_mty';
                                 const wasMissing = o.missing_on_arrival === true;
+                                const expectedBoxes = Number(o.summary_boxes) || Number(o.goods_num) || 0;
+                                const receivedVal = receivedByOrder[o.id] !== undefined
+                                    ? receivedByOrder[o.id]
+                                    : (wasMissing ? (Number((o as any).received_boxes) || 0) : expectedBoxes);
+                                const isPartial = receivedVal < expectedBoxes;
                                 return (
                                     <ListItem
                                         key={o.id}
                                         sx={{
-                                            bgcolor: isReceived ? '#E8F5E9' : (wasMissing ? '#FFF4E5' : 'transparent'),
+                                            bgcolor: wasMissing
+                                                ? '#FFEBEE'
+                                                : isPartial
+                                                ? '#FFF3E0'
+                                                : isReceived
+                                                ? '#E8F5E9'
+                                                : 'transparent',
                                             borderBottom: '1px solid #eee',
+                                            py: 1.2,
+                                            display: 'grid',
+                                            gridTemplateColumns: '40px 1fr auto',
+                                            alignItems: 'center',
+                                            gap: 1.5,
                                         }}
                                     >
-                                        <ListItemIcon>
+                                        <Box>
                                             {isReceived
                                                 ? <CheckCircleIcon color="success" />
-                                                : <UncheckedIcon color={wasMissing ? 'warning' : 'disabled'} />}
-                                        </ListItemIcon>
-                                        <ListItemText
-                                            primary={
-                                                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                                                    <Typography sx={{ fontWeight: 600, fontFamily: 'monospace' }}>{o.ordersn}</Typography>
-                                                    {o.shipping_mark && <Chip label={o.shipping_mark} size="small" variant="outlined" />}
-                                                    {o.user_box_id && <Chip label={o.user_box_id} size="small" sx={{ bgcolor: BLACK, color: '#FFF' }} />}
-                                                    {isReceived && <Chip label="✓ RECIBIDO" size="small" color="success" />}
-                                                    {wasMissing && !isReceived && <Chip label="⏳ ESPERANDO" size="small" color="warning" />}
-                                                </Stack>
-                                            }
-                                            secondary={`${o.summary_boxes || o.goods_num || 0} caja(s) · ${Number(o.weight || 0).toFixed(2)} kg · ${Number(o.volume || 0).toFixed(3)} CBM · status: ${o.status}`}
-                                        />
+                                                : <UncheckedIcon color={wasMissing ? 'error' : 'disabled'} />}
+                                        </Box>
+                                        <Box sx={{ minWidth: 0 }}>
+                                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ rowGap: 0.5 }}>
+                                                <Typography sx={{ fontWeight: 700, fontFamily: 'monospace' }}>{o.ordersn}</Typography>
+                                                {o.shipping_mark && <Chip label={o.shipping_mark} size="small" variant="outlined" />}
+                                                {o.user_box_id && <Chip label={o.user_box_id} size="small" sx={{ bgcolor: BLACK, color: '#FFF' }} />}
+                                                {isReceived && !wasMissing && !isPartial && <Chip label="✓ RECIBIDO" size="small" color="success" />}
+                                                {wasMissing && (
+                                                    <Chip
+                                                        label={`⚠️ ${expectedBoxes - receivedVal} caja(s) faltantes`}
+                                                        size="small"
+                                                        sx={{ bgcolor: RED, color: '#FFF', fontWeight: 700 }}
+                                                    />
+                                                )}
+                                                {isPartial && !wasMissing && (
+                                                    <Chip
+                                                        label={`Faltan ${expectedBoxes - receivedVal}`}
+                                                        size="small"
+                                                        sx={{ bgcolor: '#FF9800', color: '#FFF', fontWeight: 700 }}
+                                                    />
+                                                )}
+                                            </Stack>
+                                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.3 }}>
+                                                {expectedBoxes} caja(s) · {Number(o.weight || 0).toFixed(2)} kg · {Number(o.volume || 0).toFixed(3)} CBM · {o.status}
+                                            </Typography>
+                                        </Box>
+                                        {expectedBoxes > 0 && (
+                                            <Stack
+                                                direction="row"
+                                                spacing={0.5}
+                                                alignItems="center"
+                                                sx={{
+                                                    bgcolor: '#FFF',
+                                                    border: '1px solid #ddd',
+                                                    borderRadius: 1,
+                                                    px: 0.5,
+                                                    py: 0.25,
+                                                }}
+                                            >
+                                                <Button
+                                                    size="small"
+                                                    onClick={() => setReceivedForOrder(o.id, receivedVal - 1, expectedBoxes)}
+                                                    disabled={receivedVal <= 0}
+                                                    sx={{ minWidth: 28, p: 0, color: BLACK }}
+                                                >
+                                                    −
+                                                </Button>
+                                                <TextField
+                                                    size="small"
+                                                    type="number"
+                                                    value={receivedVal}
+                                                    onChange={(e) => setReceivedForOrder(o.id, Number(e.target.value), expectedBoxes)}
+                                                    variant="standard"
+                                                    InputProps={{ disableUnderline: true }}
+                                                    inputProps={{
+                                                        min: 0,
+                                                        max: expectedBoxes,
+                                                        style: { width: 36, textAlign: 'center', fontWeight: 700, fontSize: 16 },
+                                                    }}
+                                                />
+                                                <Typography variant="caption" color="text.secondary" sx={{ pr: 0.5 }}>
+                                                    / {expectedBoxes}
+                                                </Typography>
+                                                <Button
+                                                    size="small"
+                                                    onClick={() => setReceivedForOrder(o.id, receivedVal + 1, expectedBoxes)}
+                                                    disabled={receivedVal >= expectedBoxes}
+                                                    sx={{ minWidth: 28, p: 0, color: BLACK }}
+                                                >
+                                                    +
+                                                </Button>
+                                            </Stack>
+                                        )}
                                     </ListItem>
                                 );
                             })}
                         </List>
                     </Paper>
 
+                    {/* Resumen informativo de cajas faltantes pendientes (se reportan al Finalizar) */}
+                    {(() => {
+                        const totalMissingBoxes = orders.reduce((acc, o) => {
+                            const expected = Number(o.summary_boxes) || Number(o.goods_num) || 0;
+                            const received = receivedByOrder[o.id];
+                            if (received === undefined) return acc;
+                            return acc + Math.max(0, expected - Math.min(received, expected));
+                        }, 0);
+                        const fullyMissing = orders.filter((o) => o.status !== 'received_mty').length;
+                        if (totalMissingBoxes === 0 && fullyMissing === 0) return null;
+                        return (
+                            <Paper sx={{ p: 2, mt: 2, bgcolor: '#FFF8E1', border: `2px dashed ${ORANGE}` }}>
+                                <Typography variant="body2" sx={{ fontWeight: 700, color: ORANGE }}>
+                                    ⚠️ Pendientes a reportar al finalizar:
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                    {fullyMissing > 0 && <>• {fullyMissing} log(s) sin escanear (se marcan como completos faltantes)<br /></>}
+                                    {totalMissingBoxes > 0 && <>• {totalMissingBoxes} caja(s) faltante(s) en logs específicos<br /></>}
+                                    Al dar <strong>Finalizar</strong> se notificará a CEDIS CDMX y Administradores, y aparecerán en "Guías con Retraso".
+                                </Typography>
+                            </Paper>
+                        );
+                    })()}
+
                     <Stack direction="row" spacing={2} sx={{ mt: 3 }} justifyContent="flex-end">
                         <Button onClick={() => setStep(0)} disabled={loading} sx={{ color: BLACK }}>Cancelar</Button>
-                        <Button
-                            variant="contained"
-                            onClick={() => finalize(false)}
-                            disabled={loading || receivedCount === 0}
-                            sx={{
-                                bgcolor: missingCount === 0 ? '#2E7D32' : ORANGE,
-                                '&:hover': { bgcolor: missingCount === 0 ? '#1B5E20' : '#E55A28' },
-                            }}
-                        >
-                            {missingCount === 0 ? 'Finalizar recepción completa' : `Finalizar con ${missingCount} faltante(s)`}
-                        </Button>
+                        {(() => {
+                            const partialBoxes = orders.reduce((acc, o) => {
+                                const expected = Number(o.summary_boxes) || Number(o.goods_num) || 0;
+                                const received = receivedByOrder[o.id];
+                                if (received === undefined) return acc;
+                                return acc + Math.max(0, expected - Math.min(received, expected));
+                            }, 0);
+                            const hasIncomplete = missingCount > 0 || partialBoxes > 0;
+                            const label = !hasIncomplete
+                                ? 'Finalizar recepción completa'
+                                : `Finalizar con ${missingCount > 0 ? `${missingCount} log(s)` : ''}${missingCount > 0 && partialBoxes > 0 ? ' + ' : ''}${partialBoxes > 0 ? `${partialBoxes} caja(s)` : ''} faltante(s)`;
+                            return (
+                                <Button
+                                    variant="contained"
+                                    onClick={() => finalize(false)}
+                                    disabled={loading || receivedCount === 0}
+                                    sx={{
+                                        bgcolor: !hasIncomplete ? '#2E7D32' : ORANGE,
+                                        '&:hover': { bgcolor: !hasIncomplete ? '#1B5E20' : '#E55A28' },
+                                    }}
+                                >
+                                    {label}
+                                </Button>
+                            );
+                        })()}
                     </Stack>
                 </Box>
             )}
@@ -647,7 +842,9 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                     </Stack>
                     {result.missing > 0 && (
                         <Alert severity="warning" sx={{ mt: 3, textAlign: 'left' }}>
-                            Se marcaron {result.missing} orden(es) como faltantes. Aparecerán en inventario con la bandera de retraso.
+                                                        {result.missing > 0 && <>Se marcaron <strong>{result.missing}</strong> log(s) como faltantes completos.<br /></>}
+                            {(result.partial_boxes_missing || 0) > 0 && <>Se reportaron <strong>{result.partial_boxes_missing}</strong> caja(s) faltante(s) en <strong>{result.partial_orders}</strong> log(s) específico(s).<br /></>}
+                            Notificación enviada a CEDIS CDMX y Administradores. Aparecerán en "Guías con Retraso".
                         </Alert>
                     )}
                     <Stack direction="row" spacing={2} justifyContent="center" sx={{ mt: 3 }}>
@@ -696,39 +893,54 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                     <Box sx={{ p: 2, bgcolor: '#FFF8E1', borderBottom: '1px solid #FFE082' }}>
                         <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between" flexWrap="wrap">
                             <Typography variant="body2">
-                                <strong>{selectedOrderIds.size}</strong> de {orders.length} órden(es) · <strong>{selectedBoxesCount}</strong> etiqueta(s) a imprimir (1 por caja)
+                                <strong>{selectedOrderIds.size}</strong> de {orders.length} órden(es) · <strong>{selectedBoxesCount}</strong> etiqueta(s)
+                                {partialMissingCount > 0 && (
+                                    <> · <span style={{ color: RED, fontWeight: 700 }}>{partialMissingCount} caja(s) faltante(s)</span></>
+                                )}
                             </Typography>
                             <Button size="small" variant="outlined" onClick={toggleAllOrdersForLabel} sx={{ color: BLACK, borderColor: BLACK }}>
                                 {selectedOrderIds.size === orders.length ? 'Quitar todo' : 'Seleccionar todo'}
                             </Button>
                         </Stack>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                            💡 Si un log llegó incompleto, ajusta las cajas recibidas. Al dar <strong>Reportar faltantes</strong> se marcarán como retraso y se notificará a CEDIS CDMX y Administradores.
+                        </Typography>
                     </Box>
                     <List dense sx={{ maxHeight: '60vh', overflow: 'auto' }}>
                         {orders.map((o) => {
                             const checked = selectedOrderIds.has(o.id);
                             const boxes = Number(o.summary_boxes) || Number(o.goods_num) || 1;
+                            const receivedVal = receivedByOrder[o.id] !== undefined ? receivedByOrder[o.id] : boxes;
+                            const isPartial = receivedVal < boxes;
                             return (
                                 <ListItem
                                     key={o.id}
-                                    onClick={() => toggleOrderForLabel(o.id)}
                                     sx={{
-                                        cursor: 'pointer',
                                         borderBottom: '1px solid #f0f0f0',
-                                        bgcolor: checked ? '#E8F5E9' : 'transparent',
-                                        '&:hover': { bgcolor: checked ? '#C8E6C9' : '#FAFAFA' },
+                                        bgcolor: isPartial ? '#FFEBEE' : (checked ? '#E8F5E9' : 'transparent'),
+                                        '&:hover': { bgcolor: isPartial ? '#FFCDD2' : (checked ? '#C8E6C9' : '#FAFAFA') },
                                     }}
                                 >
-                                    <ListItemIcon>
+                                    <ListItemIcon onClick={() => toggleOrderForLabel(o.id)} sx={{ cursor: 'pointer' }}>
                                         {checked
                                             ? <CheckCircleIcon sx={{ color: '#2E7D32' }} />
                                             : <UncheckedIcon sx={{ color: '#999' }} />}
                                     </ListItemIcon>
                                     <ListItemText
+                                        onClick={() => toggleOrderForLabel(o.id)}
+                                        sx={{ cursor: 'pointer' }}
                                         primary={
-                                            <Stack direction="row" spacing={1} alignItems="center">
+                                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                                                 <Typography sx={{ fontFamily: 'monospace', fontWeight: 700 }}>{o.ordersn}</Typography>
                                                 {o.shipping_mark && <Chip label={o.shipping_mark} size="small" variant="outlined" />}
-                                                <Chip label={`${boxes} caja(s)`} size="small" sx={{ bgcolor: TEAL, color: '#FFF', fontWeight: 700 }} />
+                                                <Chip
+                                                    label={isPartial ? `${receivedVal}/${boxes} cajas (faltan ${boxes - receivedVal})` : `${boxes} caja(s)`}
+                                                    size="small"
+                                                    sx={isPartial
+                                                        ? { bgcolor: RED, color: '#FFF', fontWeight: 700 }
+                                                        : { bgcolor: TEAL, color: '#FFF', fontWeight: 700 }}
+                                                />
+                                                {o.missing_on_arrival && <Chip label="⚠️ Reportado" size="small" sx={{ bgcolor: '#FF9800', color: '#FFF' }} />}
                                             </Stack>
                                         }
                                         secondary={
@@ -738,21 +950,43 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                             </Typography>
                                         }
                                     />
+                                    <TextField
+                                        size="small"
+                                        type="number"
+                                        label="Recibidas"
+                                        value={receivedVal}
+                                        onChange={(e) => setReceivedForOrder(o.id, Number(e.target.value), boxes)}
+                                        inputProps={{ min: 0, max: boxes, style: { width: 70, textAlign: 'center' } }}
+                                        sx={{ ml: 1, width: 110 }}
+                                        helperText={`de ${boxes}`}
+                                    />
                                 </ListItem>
                             );
                         })}
                     </List>
                 </DialogContent>
-                <DialogActions sx={{ p: 2 }}>
+                <DialogActions sx={{ p: 2, justifyContent: 'space-between' }}>
                     <Button onClick={() => setLabelsModalOpen(false)} sx={{ color: BLACK }}>Cancelar</Button>
-                    <Button
-                        variant="contained"
-                        onClick={printContainerLabels}
-                        disabled={selectedOrderIds.size === 0 || selectedBoxesCount === 0}
-                        sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#E64A19' } }}
-                    >
-                        🖨️ Imprimir {selectedBoxesCount} etiqueta(s)
-                    </Button>
+                    <Stack direction="row" spacing={1}>
+                        {partialMissingCount > 0 && (
+                            <Button
+                                variant="contained"
+                                onClick={reportPartialBoxes}
+                                disabled={reportingPartial}
+                                sx={{ bgcolor: RED, '&:hover': { bgcolor: '#B71C1C' } }}
+                            >
+                                {reportingPartial ? 'Reportando...' : `⚠️ Reportar ${partialMissingCount} caja(s) faltante(s)`}
+                            </Button>
+                        )}
+                        <Button
+                            variant="contained"
+                            onClick={printContainerLabels}
+                            disabled={selectedOrderIds.size === 0 || selectedBoxesCount === 0}
+                            sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#E64A19' } }}
+                        >
+                            🖨️ Imprimir {selectedBoxesCount} etiqueta(s)
+                        </Button>
+                    </Stack>
                 </DialogActions>
             </Dialog>
         </Box>
