@@ -193,14 +193,13 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         const renderHalf = (label: Label, idx: number, position: 'top' | 'bottom') => `
             <div class="half ${position}">
                 <div class="header">
-                    <div class="service">🚢 MARÍTIMO CHINA</div>
+                    <div class="service">MARÍTIMO</div>
                     <div class="date-badge">${label.boxNumber}/${label.totalBoxes}</div>
                 </div>
                 <div class="tracking-code">${label.tracking}</div>
                 <div class="barcode-section"><svg id="barcode-${idx}"></svg></div>
                 <div class="client-mark">${label.shippingMark}</div>
                 <div class="details">
-                    ${label.weight ? `<span class="detail-item">⚖️ ${label.weight}</span>` : ''}
                     ${label.volume ? `<span class="detail-item">📐 ${label.volume}</span>` : ''}
                 </div>
             </div>`;
@@ -232,31 +231,17 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                     .half {
                         position: absolute;
                         left: 0; right: 0;
-                        height: 3in;
                         padding: 0.18in 0.18in 0.14in 0.18in;
                         display: flex; flex-direction: column; justify-content: space-between;
                         overflow: hidden;
                     }
-                    .half.top { top: 0; border-bottom: 2px dashed #666; }
-                    .half.bottom { bottom: 0; }
+                    .half.top { top: 0; height: calc(3in + 1cm); }
+                    .half.bottom { bottom: 0; height: calc(3in - 1cm); padding-top: 0.45in; }
                     .half.empty { background: transparent; }
-                    .cut-line {
-                        position: absolute;
-                        left: 0; right: 0;
-                        top: 3in;
-                        transform: translateY(-50%);
-                        height: 16px;
-                        text-align: center;
-                        font-size: 9px;
-                        color: #888;
-                        letter-spacing: 2px;
-                        line-height: 16px;
-                        pointer-events: none;
-                    }
-                    .cut-line span { background: #fff; padding: 0 8px; }
+                    .cut-line { display: none; }
                     .header { display: flex; justify-content: space-between; align-items: center; }
-                    .service { background: #0097A7; color: white; padding: 3px 8px; font-size: 10px; font-weight: bold; border-radius: 4px; }
-                    .date-badge { background: #111; color: white; padding: 3px 8px; font-size: 11px; font-weight: bold; border-radius: 4px; }
+                    .service { color: #000; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+                    .date-badge { color: #000; font-size: 22px; font-weight: 900; }
                     .tracking-code { text-align: center; font-size: 18px; font-weight: bold; letter-spacing: 1px; font-family: 'Courier New', monospace; margin: 2px 0; }
                     .barcode-section { text-align: center; }
                     .barcode-section svg { width: 92%; height: 50px; }

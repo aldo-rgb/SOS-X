@@ -525,6 +525,90 @@ export default function RelabelingModulePage() {
             return;
         }
 
+        // Si todas las etiquetas son LOG (marítimo), usar formato 2-up con corte central
+        const isMaritime = labels.length > 0 && labels.every(l => /^LOG/i.test(l.tracking.split('-')[0] || ''));
+
+        if (isMaritime) {
+            const renderHalf = (label: LabelData, idx: number, position: 'top' | 'bottom') => {
+                const safeBcId = `bc_${idx}_${Math.random().toString(36).slice(2, 8)}`;
+                const cleanBarcode = label.tracking.replace(/[^A-Z0-9]/gi, '');
+                const volumeStr = label.dimensions || '';
+                return `
+                <div class="half ${position}" data-bc="${safeBcId}" data-tracking="${cleanBarcode}">
+                    <div class="header">
+                        <div class="service">MARÍTIMO</div>
+                        <div class="date-badge">${label.boxNumber}/${label.totalBoxes}</div>
+                    </div>
+                    <div class="tracking-code">${label.tracking}</div>
+                    <div class="barcode-section"><svg id="${safeBcId}"></svg></div>
+                    <div class="client-mark">${label.clientBoxId || '—'}</div>
+                    <div class="details">
+                        ${volumeStr ? `<span class="detail-item">📐 ${volumeStr}</span>` : ''}
+                    </div>
+                </div>`;
+            };
+
+            const pages: string[] = [];
+            for (let i = 0; i < labels.length; i += 2) {
+                const top = labels[i];
+                const bottom = labels[i + 1];
+                const isLast = i + 2 >= labels.length;
+                pages.push(`
+                    <div class="page" style="page-break-after: ${isLast ? 'auto' : 'always'};">
+                        ${renderHalf(top, i, 'top')}
+                        ${bottom ? renderHalf(bottom, i + 1, 'bottom') : '<div class="half bottom empty"></div>'}
+                    </div>`);
+            }
+
+            const html = `<!DOCTYPE html><html><head>
+<meta charset="utf-8"/>
+<title>Etiquetas Marítimo (${labels.length})</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Arial', sans-serif; }
+    .page { width: 4in; height: 6in; margin: 0 auto; position: relative; overflow: hidden; }
+    .half {
+        position: absolute; left: 0; right: 0;
+        padding: 0.18in 0.18in 0.14in 0.18in;
+        display: flex; flex-direction: column; justify-content: space-between;
+        overflow: hidden;
+    }
+    .half.top { top: 0; height: calc(3in + 1cm); }
+    .half.bottom { bottom: 0; height: calc(3in - 1cm); padding-top: 0.45in; }
+    .half.empty { background: transparent; }
+    .header { display: flex; justify-content: space-between; align-items: center; }
+    .service { color: #000; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+    .date-badge { color: #000; font-size: 22px; font-weight: 900; }
+    .tracking-code { text-align: center; font-size: 18px; font-weight: bold; letter-spacing: 1px; font-family: 'Courier New', monospace; margin: 2px 0; }
+    .barcode-section { text-align: center; }
+    .barcode-section svg { width: 92%; height: 50px; }
+    .client-mark { text-align: center; font-size: 38px; color: #FF6B35; font-weight: 900; letter-spacing: 2px; line-height: 1; margin: 2px 0; }
+    .details { text-align: center; font-size: 12px; font-weight: 600; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+    .detail-item { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; }
+    @page { size: 4in 6in; margin: 0; }
+    @media print { body { margin: 0; padding: 0; } .page { page-break-inside: avoid; overflow: hidden; } }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
+</head><body>
+${pages.join('')}
+<script>
+window.addEventListener('load', function() {
+    document.querySelectorAll('.half[data-bc]').forEach(function(el) {
+        var id = el.getAttribute('data-bc');
+        var tracking = el.getAttribute('data-tracking') || '';
+        try { JsBarcode('#' + id, tracking, { format: 'CODE128', width: 2, height: 50, displayValue: false, margin: 0 }); } catch(e) {}
+    });
+    setTimeout(function() { window.print(); }, 600);
+});
+<\/script>
+</body></html>`;
+
+            printWindow.document.write(html);
+            printWindow.document.close();
+            return;
+        }
+
+        // Formato estándar (PO Box, China Aéreo, DHL, Nacional)
         const body = labels.map(l => buildLabelHTML(l)).join('\n');
 
         const html = `<!DOCTYPE html>
@@ -1165,8 +1249,8 @@ ${body}
                                     ) : isPaqueteExpressAssigned ? (
                                         <>
                                             <Typography variant="caption" color="text.secondary" sx={{ mb: 1 }}>
-                                                {shipment.labels.filter(l => !l.isMaster).length > 1
-                                                    ? `Aún no generadas. Se crearán ${shipment.labels.filter(l => !l.isMaster).length} guías (una por bulto) con la API de Paquete Express.`
+                                                {(shipment.master.totalBoxes || 1) > 1
+                                                    ? `Aún no generada. Se creará 1 guía multipieza para ${shipment.master.totalBoxes} cajas con la API de Paquete Express usando la dirección de entrega asignada.`
                                                     : 'Aún no generada. Se creará en línea con la API de Paquete Express usando la dirección de entrega asignada.'}
                                             </Typography>
                                             <Box sx={{ flex: 1 }} />
@@ -1180,8 +1264,8 @@ ${body}
                                             >
                                                 {generatingPqtx
                                                     ? 'Generando...'
-                                                    : shipment.labels.filter(l => !l.isMaster).length > 1
-                                                        ? `Generar ${shipment.labels.filter(l => !l.isMaster).length} guías PQTX`
+                                                    : (shipment.master.totalBoxes || 1) > 1
+                                                        ? `Generar guía PQTX (${shipment.master.totalBoxes} cajas)`
                                                         : 'Generar guía PQTX'}
                                             </Button>
                                         </>
