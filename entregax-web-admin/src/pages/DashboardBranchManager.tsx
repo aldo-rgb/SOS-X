@@ -231,21 +231,23 @@ export default function DashboardBranchManager() {
           </Paper>
         </Grid>
 
-        {/* En espera (cajas en tránsito a MTY NL) */}
-        <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-          <Paper sx={{ p: 3, height: '100%', background: 'linear-gradient(135deg, #7B1FA2 0%, #BA68C8 100%)', color: 'white' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <Box>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>En espera</Typography>
-                <Typography variant="h3" fontWeight="bold">{(stats?.paquetes.en_espera_cajas ?? stats?.paquetes.en_transito ?? 0).toLocaleString()}</Typography>
-                <Typography variant="caption">cajas en tránsito a MTY NL</Typography>
+        {/* En espera (cajas en tránsito a MTY NL) - solo visible para MTY */}
+        {stats?.sucursal.codigo === 'MTY' && (
+          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+            <Paper sx={{ p: 3, height: '100%', background: 'linear-gradient(135deg, #7B1FA2 0%, #BA68C8 100%)', color: 'white' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <Box>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>En espera</Typography>
+                  <Typography variant="h3" fontWeight="bold">{(stats?.paquetes.en_espera_cajas ?? stats?.paquetes.en_transito ?? 0).toLocaleString()}</Typography>
+                  <Typography variant="caption">cajas en tránsito a MTY NL</Typography>
+                </Box>
+                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
+                  <MoneyIcon />
+                </Avatar>
               </Box>
-              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                <MoneyIcon />
-              </Avatar>
-            </Box>
-          </Paper>
-        </Grid>
+            </Paper>
+          </Grid>
+        )}
 
         {/* En espera marítimo */}
         <Grid size={{ xs: 12, sm: 6, md: 2 }}>
