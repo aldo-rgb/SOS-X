@@ -110,10 +110,13 @@ export const getAwbPackages = async (req: AuthRequest, res: Response): Promise<v
           p.description,
           p.weight,
           COALESCE(p.missing_on_arrival, FALSE) AS missing_on_arrival,
-          u.box_id AS user_box_id,
-          u.full_name AS user_name
+          COALESCE(u.box_id, p.box_id, cr.shipping_mark) AS user_box_id,
+          COALESCE(u.full_name, lc.full_name, lc_mark.full_name) AS user_name
         FROM packages p
         LEFT JOIN users u ON u.id = p.user_id
+        LEFT JOIN legacy_clients lc ON p.box_id = lc.box_id
+        LEFT JOIN china_receipts cr ON cr.id = p.china_receipt_id
+        LEFT JOIN legacy_clients lc_mark ON cr.shipping_mark = lc_mark.box_id
         WHERE p.international_tracking = $1
         ORDER BY p.tracking_internal
       `,
