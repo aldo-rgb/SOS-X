@@ -365,17 +365,76 @@ export const finalizeAwbReception = async (req: AuthRequest, res: Response): Pro
       );
     }
 
-    // Cerrar AWB
-    await client.query(
-      `UPDATE air_waybill_costs
-       SET received_at = NOW(),
-           received_by = $2,
-           reception_notes = $3,
-           status = CASE WHEN status = 'pending' THEN 'received' ELSE status END,
-           updated_at = NOW()
-       WHERE id = $1`,
-      [id, userId || null, notes]
-    );
+    // Cerrar AWB: solo completar received_at si la recepción está completa.
+    // Para parciales, dejar received_at NULL para que siga apareciendo en la lista
+    // y permita continuar la recepción al llegar paquetes faltantes.
+    if (missing === 0) {
+      await client.query(
+        `UPDATE air_waybill_costs
+         SET received_at = NOW(),
+             received_by = $2,
+             reception_notes = $3,
+             status = CASE WHEN status = 'pending' THEN 'received' ELSE status END,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [id, userId || null, notes]
+      );
+    } else {
+      await client.query(
+        `UPDATE air_waybill_costs
+         SET received_by = $2,
+             reception_notes = $3,
+             status = 'partial',
+             updated_at = NOW()
+         WHERE id = $1`,
+        [id, userId || null, notes]
+      );
+
+      // Notificar a usuarios con permiso 'ops_china_air' o admins, igual que POBox
+      try {
+        const missingTrackingRes = await client.query(
+          `SELECT tracking_internal FROM packages
+           WHERE international_tracking = $1
+             AND COALESCE(missing_on_arrival, FALSE) = TRUE`,
+          [awb.awb_number]
+        );
+        const missingTrackings = missingTrackingRes.rows.map((r: any) => r.tracking_internal).filter(Boolean);
+
+        // Aéreo China llega a CEDIS CDMX → notificar a operadores de CEDIS + admins
+        const receiversRes = await client.query(
+          `SELECT DISTINCT u.id
+             FROM users u
+             LEFT JOIN user_module_permissions ump
+               ON ump.user_id = u.id
+              AND ump.panel_key IN ('ops_mx_cedis','ops_china_air')
+              AND ump.can_view = TRUE
+            WHERE u.role IN ('super_admin','admin')
+               OR ump.user_id IS NOT NULL`
+        );
+
+        const title = '⚠️ AWB recibido con faltantes';
+        const message = `AWB ${awb.awb_number}: ${missing} paquete(s) faltante(s) (${received}/${total} recibidos)${missingTrackings.length > 0 ? ` — ${missingTrackings.slice(0, 5).join(', ')}${missingTrackings.length > 5 ? '...' : ''}` : ''}`;
+        const actionUrl = `/admin/china-air/reception/${id}`;
+        const data = {
+          awb_id: Number(id),
+          awb_number: awb.awb_number,
+          missing_count: missing,
+          received,
+          total,
+          missing_trackings: missingTrackings,
+        };
+
+        for (const row of receiversRes.rows) {
+          await client.query(
+            `INSERT INTO notifications (user_id, title, message, type, icon, action_url, data)
+             VALUES ($1::int, $2::varchar, $3::text, 'warning'::varchar, '⚠️'::varchar, $4::varchar, $5::jsonb)`,
+            [row.id, title, message, actionUrl, JSON.stringify(data)]
+          );
+        }
+      } catch (e) {
+        console.warn('[AWB-RX] notification dispatch failed:', (e as any)?.message);
+      }
+    }
 
     await client.query('COMMIT');
 

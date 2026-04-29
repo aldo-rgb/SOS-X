@@ -142,30 +142,61 @@ export const scanContainerOrder = async (req: AuthRequest, res: Response): Promi
   }
 
   try {
-    // Match by ordersn primarily, fallback to shipping_mark
-    const orderRes = await pool.query(
-      `SELECT id, ordersn, status, shipping_mark
-         FROM maritime_orders
-        WHERE container_id = $1
-          AND (
-            UPPER(ordersn) = UPPER($2)
-            OR UPPER(shipping_mark) = UPPER($2)
-          )
-        LIMIT 1`,
-      [containerId, reference]
-    );
+    // Si la referencia es una guía hija (LOG con sufijo de caja), normalizar al master.
+    // Formatos aceptados:
+    //   LOG26CNMX00082-0034   (con dash, 4 dígitos nuevo formato)
+    //   LOG26CNMX00082-34     (con dash, formato legacy)
+    //   LOG26CNMX000820034    (compacto del barcode)
+    //   LOG26CNMX00082        (master directo)
+    const refUpper = reference.toUpperCase();
+    const candidates: string[] = [refUpper];
+    // 1) Dash format: separar el sufijo numérico final
+    const dashMatch = refUpper.match(/^(LOG[A-Z0-9]+?)-(\d{1,4})$/);
+    if (dashMatch && dashMatch[1]) candidates.push(dashMatch[1]);
+    // 2) Compacto: probar quitando últimos 1-4 dígitos como caja
+    if (/^LOG/i.test(refUpper) && !dashMatch) {
+        const compact = refUpper.replace(/[^A-Z0-9]/g, '');
+        for (const len of [4, 3, 2, 1]) {
+            if (compact.length > len + 6) {
+                candidates.push(compact.slice(0, -len));
+            }
+        }
+    }
+
+    // Match by ordersn primarily, fallback to shipping_mark, probando todas las variantes
+    let orderRes = { rows: [] as any[] } as any;
+    for (const cand of candidates) {
+      orderRes = await pool.query(
+        `SELECT id, ordersn, status, shipping_mark
+           FROM maritime_orders
+          WHERE container_id = $1
+            AND (
+              UPPER(ordersn) = UPPER($2)
+              OR UPPER(shipping_mark) = UPPER($2)
+              OR REGEXP_REPLACE(UPPER(COALESCE(ordersn, '')), '[^A-Z0-9]', '', 'g') = $2
+            )
+          LIMIT 1`,
+        [containerId, cand]
+      );
+      if (orderRes.rows.length > 0) break;
+    }
 
     if (orderRes.rows.length === 0) {
-      // Check if reference exists in another container
-      const otherRes = await pool.query(
-        `SELECT mo.id, mo.ordersn, mo.container_id, c.reference_code, c.container_number
-           FROM maritime_orders mo
-           LEFT JOIN containers c ON c.id = mo.container_id
-          WHERE UPPER(mo.ordersn) = UPPER($1)
-             OR UPPER(mo.shipping_mark) = UPPER($1)
-          LIMIT 1`,
-        [reference]
-      );
+      // Check if reference exists in another container (probando variantes también)
+      let otherRes = { rows: [] as any[] } as any;
+      for (const cand of candidates) {
+        otherRes = await pool.query(
+          `SELECT mo.id, mo.ordersn, mo.container_id, c.reference_code, c.container_number
+             FROM maritime_orders mo
+             LEFT JOIN containers c ON c.id = mo.container_id
+            WHERE UPPER(mo.ordersn) = UPPER($1)
+               OR UPPER(mo.shipping_mark) = UPPER($1)
+               OR REGEXP_REPLACE(UPPER(COALESCE(mo.ordersn, '')), '[^A-Z0-9]', '', 'g') = $1
+            LIMIT 1`,
+          [cand]
+        );
+        if (otherRes.rows.length > 0) break;
+      }
       if (otherRes.rows.length > 0) {
         const o = otherRes.rows[0];
         res.status(404).json({
@@ -286,22 +317,73 @@ export const finalizeContainerReception = async (req: AuthRequest, res: Response
       );
     }
 
-    await client.query(
-      `UPDATE containers
-          SET received_at = NOW(),
-              received_by = $2,
-              reception_notes = $3,
-              status = 'received_mty',
-              updated_at = NOW()
-        WHERE id = $1`,
-      [containerId, userId || null, notes]
-    );
+    // Solo cerrar contenedor (received_at + status='received_mty') cuando la recepción
+    // está completa. Para parciales, dejar received_at NULL y status='received_partial'
+    // para que siga apareciendo en la lista de pendientes hasta que se complete.
+    if (missing === 0) {
+      await client.query(
+        `UPDATE containers
+            SET received_at = NOW(),
+                received_by = $2,
+                reception_notes = $3,
+                status = 'received_mty',
+                updated_at = NOW()
+          WHERE id = $1`,
+        [containerId, userId || null, notes]
+      );
+    } else {
+      await client.query(
+        `UPDATE containers
+            SET received_by = $2,
+                reception_notes = $3,
+                status = 'received_partial',
+                updated_at = NOW()
+          WHERE id = $1`,
+        [containerId, userId || null, notes]
+      );
+
+      // Notificar a usuarios con permiso 'ops_china_sea' o admins
+      try {
+        const containerInfoRes = await client.query(
+          `SELECT COALESCE(bl_number, container_number, reference_code) AS master FROM containers WHERE id = $1`,
+          [containerId]
+        );
+        const masterTrk = containerInfoRes.rows[0]?.master || `#${containerId}`;
+
+        // Marítimo China llega a CEDIS CDMX → notificar a operadores de CEDIS + admins
+        const receiversRes = await client.query(
+          `SELECT DISTINCT u.id
+             FROM users u
+             LEFT JOIN user_module_permissions ump
+               ON ump.user_id = u.id
+              AND ump.panel_key IN ('ops_mx_cedis','ops_china_sea')
+              AND ump.can_view = TRUE
+            WHERE u.role IN ('super_admin','admin')
+               OR ump.user_id IS NOT NULL`
+        );
+
+        const title = '⚠️ Contenedor recibido con faltantes';
+        const message = `Contenedor ${masterTrk}: ${missing} orden(es) faltante(s) (${received}/${total} recibidas)`;
+        const actionUrl = `/admin/china-sea/reception/${containerId}`;
+        const data = { container_id: Number(containerId), missing, received, total };
+
+        for (const row of receiversRes.rows) {
+          await client.query(
+            `INSERT INTO notifications (user_id, title, message, type, icon, action_url, data)
+             VALUES ($1::int, $2::varchar, $3::text, 'warning'::varchar, '⚠️'::varchar, $4::varchar, $5::jsonb)`,
+            [row.id, title, message, actionUrl, JSON.stringify(data)]
+          );
+        }
+      } catch (e) {
+        console.warn('[SEA-RX] notification dispatch failed:', (e as any)?.message);
+      }
+    }
 
     await client.query('COMMIT');
 
     res.json({
       ok: true,
-      new_status: 'received_mty',
+      new_status: missing === 0 ? 'received_mty' : 'received_partial',
       total,
       received,
       missing,

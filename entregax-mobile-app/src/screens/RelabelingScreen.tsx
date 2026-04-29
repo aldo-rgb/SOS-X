@@ -708,7 +708,7 @@ export default function RelabelingScreen({ route, navigation }: any) {
     const baseTracking = reprintLabel.tracking.replace(/-\d{1,3}$/, '');
     const labels: LabelData[] = [];
     for (let i = from; i <= to; i++) {
-      const suffix = String(i).padStart(2, '0');
+      const suffix = String(i).padStart(4, '0');
       labels.push({
         ...reprintLabel,
         boxNumber: i,

@@ -922,6 +922,7 @@ import {
   getConsolidationPackages,
   receiveConsolidation,
   getDelayedPackages,
+  getPartialReceptions,
   markPackageAsFound,
   markPackageAsLost,
   markPackagesAsLostBulk,
@@ -2893,6 +2894,7 @@ app.post('/api/admin/pobox/packages/:id/mark-found', authenticateToken, requireM
 app.post('/api/admin/pobox/packages/:id/mark-lost', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), markPackageAsLost);
 app.post('/api/admin/pobox/packages/mark-lost-bulk', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), markPackagesAsLostBulk);
 app.get('/api/admin/customer-service/delayed-packages', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getDelayedPackages);
+app.get('/api/admin/customer-service/partial-receptions', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getPartialReceptions);
 app.get('/api/admin/customer-service/lost-packages', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getLostPackages);
 app.post('/webhooks/pobox/openpay', handlePoboxOpenpayWebhook); // Webhook OpenPay (sin auth)
 app.get('/webhooks/pobox/openpay/callback', handlePoboxOpenpayCallback); // Callback después de pago (sin auth)

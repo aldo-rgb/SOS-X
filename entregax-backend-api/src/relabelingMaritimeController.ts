@@ -30,7 +30,7 @@ interface BoxDim {
 }
 
 const buildBoxTracking = (ordersn: string, boxNumber: number): string => {
-  return `${ordersn}-${String(boxNumber).padStart(2, '0')}`;
+  return `${ordersn}-${String(boxNumber).padStart(4, '0')}`;
 };
 
 /**

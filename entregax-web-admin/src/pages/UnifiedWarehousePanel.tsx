@@ -14,6 +14,7 @@
  *   - Cajas hijas (multipieza) y línea de tiempo de movimientos
  */
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Box,
   Paper,
@@ -51,6 +52,7 @@ import {
   ContentCopy as CopyIcon,
   Store as StoreIcon,
   DirectionsCar as DeliveryIcon,
+  ArrowBack as ArrowBackIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -266,7 +268,8 @@ const formatAddress = (a?: Address | null): string => {
 };
 
 // =============== Componente =================
-const UnifiedWarehousePanel: React.FC = () => {
+const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
+  const navigate = useNavigate();
   const [barcode, setBarcode] = useState('');
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -353,6 +356,14 @@ const UnifiedWarehousePanel: React.FC = () => {
   return (
     <Box p={3} sx={{ maxWidth: 1400, mx: 'auto' }}>
       {/* Header */}
+      <Button
+        variant="outlined"
+        startIcon={<ArrowBackIcon />}
+        onClick={() => onBack ? onBack() : navigate(-1)}
+        sx={{ mb: 2, borderColor: '#F05A28', color: '#F05A28', '&:hover': { borderColor: '#d44a1f', bgcolor: 'rgba(240,90,40,0.05)' } }}
+      >
+        Atrás
+      </Button>
       <Paper
         elevation={0}
         sx={{
@@ -447,6 +458,44 @@ const UnifiedWarehousePanel: React.FC = () => {
       {/* Resultado */}
       {data && m && (
         <Stack spacing={3}>
+          {/* Caja escaneada (LOG marítimo con sufijo) — se muestra ANTES del master */}
+          {m.scannedBox && (
+            <Paper sx={{ p: 3, border: '2px solid', borderColor: m.scannedBox.captured ? 'success.main' : 'warning.main', bgcolor: m.scannedBox.captured ? '#E8F5E9' : '#FFF3E0' }}>
+              <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1.5 }}>
+                <Box sx={{ width: 44, height: 44, borderRadius: 1, bgcolor: m.scannedBox.captured ? 'success.main' : 'warning.main', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 900 }}>
+                  {m.scannedBox.boxNumber}
+                </Box>
+                <Box flex={1}>
+                  <Typography variant="overline" color="text.secondary">Caja escaneada</Typography>
+                  <Typography variant="h6" fontFamily="monospace" fontWeight={800}>{m.scannedBox.tracking}</Typography>
+                  <Typography variant="caption" color={m.scannedBox.captured ? 'success.dark' : 'warning.dark'} fontWeight={700}>
+                    {m.scannedBox.captured ? '✓ Medidas capturadas' : '⚠ Sin medidas capturadas'}
+                  </Typography>
+                </Box>
+              </Stack>
+              {m.scannedBox.captured && (
+                <Grid container spacing={2} sx={{ mt: 0.5 }}>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="overline" color="text.secondary">Peso</Typography>
+                    <Typography variant="h6" fontWeight={800}>{m.scannedBox.weight != null ? `${Number(m.scannedBox.weight).toFixed(2)} kg` : '—'}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="overline" color="text.secondary">Largo</Typography>
+                    <Typography variant="h6" fontWeight={800}>{m.scannedBox.length != null ? `${m.scannedBox.length} cm` : '—'}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="overline" color="text.secondary">Ancho</Typography>
+                    <Typography variant="h6" fontWeight={800}>{m.scannedBox.width != null ? `${m.scannedBox.width} cm` : '—'}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <Typography variant="overline" color="text.secondary">Alto</Typography>
+                    <Typography variant="h6" fontWeight={800}>{m.scannedBox.height != null ? `${m.scannedBox.height} cm` : '—'}</Typography>
+                  </Grid>
+                </Grid>
+              )}
+            </Paper>
+          )}
+
           {/* Tarjeta principal */}
           <Paper elevation={3} sx={{ p: 3, borderLeft: 6, borderColor: 'primary.main' }}>
             <Grid container spacing={2}>
@@ -734,44 +783,6 @@ const UnifiedWarehousePanel: React.FC = () => {
               )}
             </Grid>
           </Paper>
-
-          {/* Caja escaneada (LOG marítimo con sufijo) */}
-          {m.scannedBox && (
-            <Paper sx={{ p: 3, border: '2px solid', borderColor: m.scannedBox.captured ? 'success.main' : 'warning.main', bgcolor: m.scannedBox.captured ? '#E8F5E9' : '#FFF3E0' }}>
-              <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1.5 }}>
-                <Box sx={{ width: 44, height: 44, borderRadius: 1, bgcolor: m.scannedBox.captured ? 'success.main' : 'warning.main', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 900 }}>
-                  {m.scannedBox.boxNumber}
-                </Box>
-                <Box flex={1}>
-                  <Typography variant="overline" color="text.secondary">Caja escaneada</Typography>
-                  <Typography variant="h6" fontFamily="monospace" fontWeight={800}>{m.scannedBox.tracking}</Typography>
-                  <Typography variant="caption" color={m.scannedBox.captured ? 'success.dark' : 'warning.dark'} fontWeight={700}>
-                    {m.scannedBox.captured ? '✓ Medidas capturadas' : '⚠ Sin medidas capturadas'}
-                  </Typography>
-                </Box>
-              </Stack>
-              {m.scannedBox.captured && (
-                <Grid container spacing={2} sx={{ mt: 0.5 }}>
-                  <Grid size={{ xs: 6, sm: 3 }}>
-                    <Typography variant="overline" color="text.secondary">Peso</Typography>
-                    <Typography variant="h6" fontWeight={800}>{m.scannedBox.weight != null ? `${Number(m.scannedBox.weight).toFixed(2)} kg` : '—'}</Typography>
-                  </Grid>
-                  <Grid size={{ xs: 6, sm: 3 }}>
-                    <Typography variant="overline" color="text.secondary">Largo</Typography>
-                    <Typography variant="h6" fontWeight={800}>{m.scannedBox.length != null ? `${m.scannedBox.length} cm` : '—'}</Typography>
-                  </Grid>
-                  <Grid size={{ xs: 6, sm: 3 }}>
-                    <Typography variant="overline" color="text.secondary">Ancho</Typography>
-                    <Typography variant="h6" fontWeight={800}>{m.scannedBox.width != null ? `${m.scannedBox.width} cm` : '—'}</Typography>
-                  </Grid>
-                  <Grid size={{ xs: 6, sm: 3 }}>
-                    <Typography variant="overline" color="text.secondary">Alto</Typography>
-                    <Typography variant="h6" fontWeight={800}>{m.scannedBox.height != null ? `${m.scannedBox.height} cm` : '—'}</Typography>
-                  </Grid>
-                </Grid>
-              )}
-            </Paper>
-          )}
 
           {/* Tabla de medidas por caja (LOG marítimo) */}
           {Array.isArray(m.boxDimensions) && m.boxDimensions.length > 0 && (

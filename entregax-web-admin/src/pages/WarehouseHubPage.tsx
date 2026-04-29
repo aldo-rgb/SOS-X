@@ -303,14 +303,14 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                 ) : selectedPanel === 'mx_cedis' ? (
                     <DhlOperationsPage />
                 ) : selectedPanel === 'scanner_unificado' ? (
-                    <UnifiedWarehousePanel />
+                    <UnifiedWarehousePanel onBack={handleBackToHub} />
                 ) : selectedPanel === 'inventario_sucursal' ? (
                     <BranchInventoryPage
                         branchId={inventoryBranchId}
                         showBranchSelector={!lockInventoryBranch}
                     />
                 ) : selectedPanel === 'reetiquetado' ? (
-                    <RelabelingModulePage />
+                    <RelabelingModulePage onBack={handleBackToHub} />
                 ) : (
                     <WarehouseReceptionPage warehouseLocation={selectedPanel} />
                 )}

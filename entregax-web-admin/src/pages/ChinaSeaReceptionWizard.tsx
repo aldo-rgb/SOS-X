@@ -116,10 +116,10 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     const [labelsModalOpen, setLabelsModalOpen] = useState(false);
     const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set());
 
-    const totalBoxesInContainer = orders.reduce((acc, o) => acc + (Number(o.goods_num) || Number(o.summary_boxes) || 0), 0);
+    const totalBoxesInContainer = orders.reduce((acc, o) => acc + (Number(o.summary_boxes) || Number(o.goods_num) || 0), 0);
     const selectedBoxesCount = orders
         .filter((o) => selectedOrderIds.has(o.id))
-        .reduce((acc, o) => acc + (Number(o.goods_num) || Number(o.summary_boxes) || 0), 0);
+        .reduce((acc, o) => acc + (Number(o.summary_boxes) || Number(o.goods_num) || 0), 0);
 
     const openLabelsModal = () => {
         // Por defecto seleccionar todas las órdenes
@@ -164,10 +164,10 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
         const labels: Label[] = [];
         ordersToPrint.forEach((o) => {
-            const boxes = Number(o.goods_num) || Number(o.summary_boxes) || 1;
+            const boxes = Number(o.summary_boxes) || Number(o.goods_num) || 1;
             for (let i = 1; i <= boxes; i++) {
                 labels.push({
-                    tracking: `${o.ordersn}-${String(i).padStart(2, '0')}`,
+                    tracking: `${o.ordersn}-${String(i).padStart(4, '0')}`,
                     ordersn: o.ordersn,
                     boxNumber: i,
                     totalBoxes: boxes,
@@ -595,7 +595,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                                     {wasMissing && !isReceived && <Chip label="⏳ ESPERANDO" size="small" color="warning" />}
                                                 </Stack>
                                             }
-                                            secondary={`${o.goods_num || o.summary_boxes || 0} caja(s) · ${Number(o.weight || 0).toFixed(2)} kg · ${Number(o.volume || 0).toFixed(3)} CBM · status: ${o.status}`}
+                                            secondary={`${o.summary_boxes || o.goods_num || 0} caja(s) · ${Number(o.weight || 0).toFixed(2)} kg · ${Number(o.volume || 0).toFixed(3)} CBM · status: ${o.status}`}
                                         />
                                     </ListItem>
                                 );
@@ -706,7 +706,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                     <List dense sx={{ maxHeight: '60vh', overflow: 'auto' }}>
                         {orders.map((o) => {
                             const checked = selectedOrderIds.has(o.id);
-                            const boxes = Number(o.goods_num) || Number(o.summary_boxes) || 1;
+                            const boxes = Number(o.summary_boxes) || Number(o.goods_num) || 1;
                             return (
                                 <ListItem
                                     key={o.id}

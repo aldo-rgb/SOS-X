@@ -5,6 +5,7 @@
 // ============================================
 
 import { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useScaleReader } from '../hooks/useScaleReader';
 import {
     Box,
@@ -33,6 +34,7 @@ import {
     LocalShipping as LocalShippingIcon,
     Clear as ClearIcon,
     PrintOutlined as PrintOutlinedIcon,
+    ArrowBack as ArrowBackIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -255,7 +257,8 @@ const with4x6Format = (url: string): string => {
     return `${url}${url.includes('?') ? '&' : '?'}format=4x6`;
 };
 
-export default function RelabelingModulePage() {
+export default function RelabelingModulePage({ onBack }: { onBack?: () => void } = {}) {
+    const navigate = useNavigate();
     const [tracking, setTracking] = useState('');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -291,6 +294,10 @@ export default function RelabelingModulePage() {
     const [scaleReading, setScaleReading] = useState(false);
     const [scaleLive, setScaleLive] = useState(false);
     const { readScale, liveWeight } = useScaleReader();
+    // Selección múltiple para aplicar mismas medidas en lote
+    const [dimsSelected, setDimsSelected] = useState<Set<number>>(new Set());
+    const [dimsSelectMode, setDimsSelectMode] = useState(false);
+    const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
 
     // Auto-actualiza peso de la caja activa cuando la báscula cambia
     useEffect(() => {
@@ -367,11 +374,31 @@ export default function RelabelingModulePage() {
         const v = (raw || '').trim();
         setDimsScan(v);
         if (!v) return;
-        // Aceptar formato "...-NN" (sufijo de caja) o número de caja directo
+        // Resolver SOLO formatos completos (no dígitos sueltos durante el typing del scanner)
+        // 1) "...-NN" formato con dash
         const m = v.match(/-(\d+)\s*$/);
         let boxNumber: number | null = null;
         if (m && m[1]) boxNumber = parseInt(m[1], 10);
-        else if (/^\d+$/.test(v)) boxNumber = parseInt(v, 10);
+        // 2) Formato compacto: el scan empieza con el tracking master + sufijo numérico
+        //    El sufijo SIEMPRE es de 4 dígitos (zero-padded), evitando matches prematuros
+        //    mientras llega el escaneo carácter a carácter.
+        if (!boxNumber && shipment?.master?.tracking && dimsBoxes.length > 0) {
+            const masterCompact = shipment.master.tracking.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            const scanCompact = v.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            const expectedWidth = 4; // sufijo de caja siempre 4 dígitos (0001..9999)
+            if (
+                scanCompact.startsWith(masterCompact) &&
+                scanCompact.length === masterCompact.length + expectedWidth
+            ) {
+                const suffix = scanCompact.slice(masterCompact.length);
+                if (/^\d+$/.test(suffix)) {
+                    const candidate = parseInt(suffix, 10);
+                    if (candidate > 0 && dimsBoxes.find(b => b.boxNumber === candidate)) {
+                        boxNumber = candidate;
+                    }
+                }
+            }
+        }
         if (boxNumber && dimsBoxes.find(b => b.boxNumber === boxNumber)) {
             setDimsActiveBox(boxNumber);
             const existing = dimsBoxes.find(b => b.boxNumber === boxNumber);
@@ -386,6 +413,32 @@ export default function RelabelingModulePage() {
                 setDimsForm({ weight: '', length: '', width: '', height: '' });
             }
             setDimsScan('');
+        }
+    };
+
+    // Manejar Enter manual: permite teclear solo "60" + Enter para saltar a caja 60
+    const handleDimsScanKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key !== 'Enter') return;
+        const v = dimsScan.trim();
+        if (!v) return;
+        if (/^\d+$/.test(v)) {
+            const n = parseInt(v, 10);
+            const existing = dimsBoxes.find(b => b.boxNumber === n);
+            if (existing) {
+                setDimsActiveBox(n);
+                if (existing.captured) {
+                    setDimsForm({
+                        weight: String(existing.weight ?? ''),
+                        length: String(existing.length ?? ''),
+                        width: String(existing.width ?? ''),
+                        height: String(existing.height ?? ''),
+                    });
+                } else {
+                    setDimsForm({ weight: '', length: '', width: '', height: '' });
+                }
+                setDimsScan('');
+                e.preventDefault();
+            }
         }
     };
 
@@ -407,16 +460,100 @@ export default function RelabelingModulePage() {
                 weight, length, width, height,
             });
             const data = await loadDimsBoxes(shipment.master.id);
-            // Avanzar a la siguiente caja pendiente
-            const next = (data?.boxes || []).find((b: DimsBox) => !b.captured);
-            setDimsActiveBox(next ? next.boxNumber : null);
+            // Limpiar caja activa y formulario; quedar listo para escanear la siguiente
+            setDimsActiveBox(null);
             setDimsForm({ weight: '', length: '', width: '', height: '' });
-            setTimeout(() => dimsScanRef.current?.focus(), 100);
+            setDimsScan('');
+            setTimeout(() => {
+                if (dimsScanRef.current) {
+                    dimsScanRef.current.value = '';
+                    dimsScanRef.current.focus();
+                }
+            }, 100);
+            // Si todas están capturadas, avisar
+            const allCaptured = (data?.boxes || []).every((b: DimsBox) => b.captured);
+            if (allCaptured && (data?.boxes || []).length > 0) {
+                setDimsError(null);
+            }
         } catch (e: any) {
             setDimsError(e.response?.data?.error || e.message || 'Error guardando caja');
         } finally {
             setDimsSaving(false);
         }
+    };
+
+    // Aplica los valores actuales del formulario a todas las cajas seleccionadas (o a todas si no hay selección)
+    const applyDimsToSelection = async () => {
+        if (!shipment) return;
+        const weight = parseFloat(dimsForm.weight);
+        const length = parseFloat(dimsForm.length);
+        const width = parseFloat(dimsForm.width);
+        const height = parseFloat(dimsForm.height);
+        if (![weight, length, width, height].every(n => !isNaN(n) && n > 0)) {
+            setDimsError('Captura peso y medidas válidas (mayores a 0) antes de aplicar en lote');
+            return;
+        }
+        const targets = dimsSelected.size > 0
+            ? Array.from(dimsSelected).sort((a, b) => a - b)
+            : dimsBoxes.map(b => b.boxNumber);
+        if (targets.length === 0) return;
+        // Abrir diálogo de confirmación con diseño
+        setBulkConfirmOpen(true);
+    };
+
+    const confirmBulkApply = async () => {
+        if (!shipment) return;
+        const weight = parseFloat(dimsForm.weight);
+        const length = parseFloat(dimsForm.length);
+        const width = parseFloat(dimsForm.width);
+        const height = parseFloat(dimsForm.height);
+        const targets = dimsSelected.size > 0
+            ? Array.from(dimsSelected).sort((a, b) => a - b)
+            : dimsBoxes.map(b => b.boxNumber);
+        setBulkConfirmOpen(false);
+        setDimsSaving(true);
+        setDimsError(null);
+        try {
+            for (const boxNumber of targets) {
+                await api.post(`/admin/relabeling/maritime/${shipment.master.id}/box`, {
+                    boxNumber, weight, length, width, height,
+                });
+            }
+            await loadDimsBoxes(shipment.master.id);
+            setDimsSelected(new Set());
+            setDimsSelectMode(false);
+            setDimsActiveBox(null);
+            setDimsForm({ weight: '', length: '', width: '', height: '' });
+            setDimsScan('');
+            setTimeout(() => dimsScanRef.current?.focus(), 100);
+        } catch (e: any) {
+            setDimsError(e.response?.data?.error || e.message || 'Error aplicando medidas en lote');
+        } finally {
+            setDimsSaving(false);
+        }
+    };
+
+    const toggleDimsSelected = (boxNumber: number) => {
+        setDimsSelected(prev => {
+            const next = new Set(prev);
+            if (next.has(boxNumber)) next.delete(boxNumber);
+            else next.add(boxNumber);
+            return next;
+        });
+    };
+
+    const selectAllDimsBoxes = () => {
+        setDimsSelected(new Set(dimsBoxes.map(b => b.boxNumber)));
+        setDimsSelectMode(true);
+    };
+
+    const selectPendingDimsBoxes = () => {
+        setDimsSelected(new Set(dimsBoxes.filter(b => !b.captured).map(b => b.boxNumber)));
+        setDimsSelectMode(true);
+    };
+
+    const clearDimsSelection = () => {
+        setDimsSelected(new Set());
     };
 
     const handleGenerateMaritimePqtx = async () => {
@@ -896,7 +1033,7 @@ ${body}
         // Quitamos el sufijo si existe para reconstruir cada caja del rango.
         const baseTracking = reprintLabel.tracking.replace(/-\d{1,3}$/, '');
         for (let i = from; i <= to; i++) {
-            const suffix = String(i).padStart(2, '0');
+            const suffix = String(i).padStart(4, '0');
             labels.push({
                 ...reprintLabel,
                 boxNumber: i,
@@ -991,6 +1128,14 @@ ${body}
             {/* Header */}
             <Box sx={{ mb: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Button
+                        variant="outlined"
+                        startIcon={<ArrowBackIcon />}
+                        onClick={() => onBack ? onBack() : navigate(-1)}
+                        sx={{ borderColor: '#F05A28', color: '#F05A28', '&:hover': { borderColor: '#d44a1f', bgcolor: 'rgba(240,90,40,0.05)' } }}
+                    >
+                        Atrás
+                    </Button>
                     <Box
                         sx={{
                             bgcolor: '#F05A28',
@@ -1669,6 +1814,7 @@ ${body}
                                 placeholder="Escanea el código (ej: LOG26CNMX00082-05) o teclea número"
                                 value={dimsScan}
                                 onChange={(e) => handleDimsScan(e.target.value)}
+                                onKeyDown={handleDimsScanKeyDown}
                                 fullWidth
                                 autoFocus
                                 size="medium"
@@ -1757,14 +1903,71 @@ ${body}
                             )}
 
                             <Box>
-                                <Typography variant="subtitle2" gutterBottom>
-                                    Cajas ({dimsBoxes.filter(b => b.captured).length}/{dimsBoxes.length})
-                                </Typography>
+                                <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 1, flexWrap: 'wrap', gap: 1 }}>
+                                    <Typography variant="subtitle2">
+                                        Cajas ({dimsBoxes.filter(b => b.captured).length}/{dimsBoxes.length})
+                                        {dimsSelected.size > 0 && (
+                                            <Chip
+                                                label={`${dimsSelected.size} seleccionada(s)`}
+                                                size="small"
+                                                color="primary"
+                                                sx={{ ml: 1 }}
+                                            />
+                                        )}
+                                    </Typography>
+                                    <Stack direction="row" spacing={0.5} flexWrap="wrap">
+                                        <Button
+                                            size="small"
+                                            variant={dimsSelectMode ? 'contained' : 'outlined'}
+                                            onClick={() => {
+                                                setDimsSelectMode(!dimsSelectMode);
+                                                if (dimsSelectMode) setDimsSelected(new Set());
+                                            }}
+                                            sx={{ fontSize: 11 }}
+                                        >
+                                            {dimsSelectMode ? '✕ Salir selección' : '☑️ Seleccionar'}
+                                        </Button>
+                                        {dimsSelectMode && (
+                                            <>
+                                                <Button size="small" variant="outlined" onClick={selectAllDimsBoxes} sx={{ fontSize: 11 }}>
+                                                    Todas
+                                                </Button>
+                                                <Button size="small" variant="outlined" onClick={selectPendingDimsBoxes} sx={{ fontSize: 11 }}>
+                                                    Pendientes
+                                                </Button>
+                                                <Button size="small" variant="outlined" onClick={clearDimsSelection} sx={{ fontSize: 11 }}>
+                                                    Limpiar
+                                                </Button>
+                                                <Button
+                                                    size="small"
+                                                    variant="contained"
+                                                    color="success"
+                                                    onClick={applyDimsToSelection}
+                                                    disabled={dimsSaving || dimsSelected.size === 0}
+                                                    sx={{ fontSize: 11 }}
+                                                >
+                                                    {dimsSaving ? <CircularProgress size={14} /> : `Aplicar a ${dimsSelected.size}`}
+                                                </Button>
+                                            </>
+                                        )}
+                                    </Stack>
+                                </Stack>
+                                {dimsSelectMode && (
+                                    <Alert severity="info" sx={{ mb: 1, py: 0.5 }}>
+                                        Captura peso y medidas arriba, luego haz clic en las cajas a aplicar y presiona <strong>"Aplicar a N"</strong>.
+                                    </Alert>
+                                )}
                                 <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(70px, 1fr))', gap: 0.75, maxHeight: 220, overflowY: 'auto', p: 1, border: '1px solid #ddd', borderRadius: 1 }}>
-                                    {dimsBoxes.map(b => (
+                                    {dimsBoxes.map(b => {
+                                        const isSelected = dimsSelected.has(b.boxNumber);
+                                        return (
                                         <Box
                                             key={b.boxNumber}
                                             onClick={() => {
+                                                if (dimsSelectMode) {
+                                                    toggleDimsSelected(b.boxNumber);
+                                                    return;
+                                                }
                                                 setDimsActiveBox(b.boxNumber);
                                                 if (b.captured) {
                                                     setDimsForm({
@@ -1782,15 +1985,17 @@ ${body}
                                                 textAlign: 'center',
                                                 borderRadius: 1,
                                                 cursor: 'pointer',
-                                                bgcolor: b.captured ? '#C8E6C9' : '#FFCDD2',
-                                                border: dimsActiveBox === b.boxNumber ? '2px solid #0277BD' : '1px solid transparent',
+                                                bgcolor: isSelected ? '#1976D2' : (b.captured ? '#C8E6C9' : '#FFCDD2'),
+                                                color: isSelected ? '#FFF' : 'inherit',
+                                                border: !dimsSelectMode && dimsActiveBox === b.boxNumber ? '2px solid #0277BD' : '1px solid transparent',
                                                 fontWeight: 600,
                                                 fontSize: 13,
                                             }}
                                         >
-                                            {b.captured ? '✓ ' : ''}{b.boxNumber}
+                                            {isSelected ? '☑ ' : (b.captured ? '✓ ' : '')}{b.boxNumber}
                                         </Box>
-                                    ))}
+                                        );
+                                    })}
                                 </Box>
                             </Box>
                         </Stack>
@@ -1806,6 +2011,78 @@ ${body}
                         sx={{ bgcolor: '#2E7D32', '&:hover': { bgcolor: '#1B5E20' } }}
                     >
                         {generatingPqtx ? 'Generando...' : 'Generar guía PQTX'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Confirmación de aplicación masiva de medidas */}
+            <Dialog
+                open={bulkConfirmOpen}
+                onClose={() => setBulkConfirmOpen(false)}
+                maxWidth="xs"
+                fullWidth
+                PaperProps={{ sx: { borderRadius: 2, overflow: 'hidden' } }}
+            >
+                <Box sx={{ background: 'linear-gradient(135deg, #C1272D 0%, #F05A28 100%)', color: '#FFF', p: 2.5, textAlign: 'center' }}>
+                    <Typography variant="h2" sx={{ fontSize: 48, lineHeight: 1, mb: 1 }}>📦</Typography>
+                    <Typography variant="h6" fontWeight={700}>
+                        Aplicar medidas en lote
+                    </Typography>
+                </Box>
+                <DialogContent sx={{ p: 3 }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2, textAlign: 'center' }}>
+                        Se aplicarán los siguientes valores a
+                        {' '}
+                        <Box component="span" sx={{ color: '#F05A28', fontWeight: 800, fontSize: 18 }}>
+                            {dimsSelected.size > 0 ? dimsSelected.size : dimsBoxes.length} caja(s)
+                        </Box>
+                        :
+                    </Typography>
+                    <Box sx={{ bgcolor: '#FAFAFA', borderRadius: 2, p: 2, border: '1px solid #E0E0E0' }}>
+                        <Stack spacing={1.2}>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                <Typography variant="body2" color="text.secondary">⚖️ Peso</Typography>
+                                <Typography variant="body1" fontWeight={700}>{dimsForm.weight} kg</Typography>
+                            </Stack>
+                            <Divider />
+                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                <Typography variant="body2" color="text.secondary">📏 Largo</Typography>
+                                <Typography variant="body1" fontWeight={700}>{dimsForm.length} cm</Typography>
+                            </Stack>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                <Typography variant="body2" color="text.secondary">📐 Ancho</Typography>
+                                <Typography variant="body1" fontWeight={700}>{dimsForm.width} cm</Typography>
+                            </Stack>
+                            <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                <Typography variant="body2" color="text.secondary">📏 Alto</Typography>
+                                <Typography variant="body1" fontWeight={700}>{dimsForm.height} cm</Typography>
+                            </Stack>
+                        </Stack>
+                    </Box>
+                    {dimsSelected.size > 0 && dimsSelected.size <= 20 && (
+                        <Box sx={{ mt: 2 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                                Cajas afectadas:
+                            </Typography>
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                {Array.from(dimsSelected).sort((a, b) => a - b).map(n => (
+                                    <Chip key={n} label={n} size="small" sx={{ bgcolor: '#1976D2', color: '#FFF', fontWeight: 700 }} />
+                                ))}
+                            </Box>
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions sx={{ p: 2, pt: 0, gap: 1 }}>
+                    <Button onClick={() => setBulkConfirmOpen(false)} variant="outlined" fullWidth>
+                        Cancelar
+                    </Button>
+                    <Button
+                        onClick={confirmBulkApply}
+                        variant="contained"
+                        fullWidth
+                        sx={{ bgcolor: '#2E7D32', '&:hover': { bgcolor: '#1B5E20' } }}
+                    >
+                        ✓ Aplicar
                     </Button>
                 </DialogActions>
             </Dialog>

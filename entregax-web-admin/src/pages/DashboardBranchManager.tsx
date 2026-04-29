@@ -83,6 +83,15 @@ export default function DashboardBranchManager() {
   const [delayedCount, setDelayedCount] = useState<number>(0);
   const [delayedAirCount, setDelayedAirCount] = useState<number>(0);
   const [delayedSeaCount, setDelayedSeaCount] = useState<number>(0);
+  const [partialReceptions, setPartialReceptions] = useState<{
+    total: number;
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    pobox: { count: number; items: any[] };
+    air: { count: number; items: any[] };
+    sea: { count: number; items: any[] };
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+  }>({ total: 0, pobox: { count: 0, items: [] }, air: { count: 0, items: [] }, sea: { count: 0, items: [] } });
+  const [partialOpen, setPartialOpen] = useState(false);
   const [delayedOpen, setDelayedOpen] = useState(false);
   const [delayedService, setDelayedService] = useState<'pobox' | 'air' | 'sea'>('pobox');
 
@@ -100,10 +109,11 @@ export default function DashboardBranchManager() {
 
   const loadDelayedCount = async () => {
     try {
-      const [resPobox, resAir, resSea] = await Promise.all([
+      const [resPobox, resAir, resSea, resPartial] = await Promise.all([
         api.get('/admin/customer-service/delayed-packages?service=pobox'),
         api.get('/admin/customer-service/delayed-packages?service=air'),
         api.get('/admin/customer-service/delayed-packages?service=sea'),
+        api.get('/admin/customer-service/partial-receptions').catch(() => ({ data: null })),
       ]);
       setDelayedCount((resPobox.data?.packages || []).length);
       setDelayedAirCount((resAir.data?.packages || []).length);
@@ -111,6 +121,14 @@ export default function DashboardBranchManager() {
       const seaSummary = resSea.data?.summary;
       const seaBoxes = Number(seaSummary?.total_missing_boxes || 0);
       setDelayedSeaCount(seaBoxes > 0 ? seaBoxes : (resSea.data?.packages || []).length);
+      if (resPartial.data?.success) {
+        setPartialReceptions({
+          total: resPartial.data.total || 0,
+          pobox: resPartial.data.pobox || { count: 0, items: [] },
+          air: resPartial.data.air || { count: 0, items: [] },
+          sea: resPartial.data.sea || { count: 0, items: [] },
+        });
+      }
     } catch (err) {
       console.error('Error loading delayed counts:', err);
     }
@@ -126,6 +144,14 @@ export default function DashboardBranchManager() {
     if (!Array.isArray(list) || list.length === 0) return false;
     return list.includes('ALL') || list.includes(code);
   };
+
+  // CEDIS (MTY o CDMX) recibe paquetería aérea y marítima de China,
+  // por lo que siempre debe ver los widgets de retrasos y parciales.
+  const sucursalCodigo = (stats?.sucursal?.codigo || '').toUpperCase();
+  const isCedis = sucursalCodigo === 'MTY' || sucursalCodigo === 'CDMX' || sucursalCodigo.includes('CEDIS');
+  const showAirWidget = hasService('AIR_CHN_MX') || isCedis;
+  const showSeaWidget = hasService('SEA_CHN_MX') || hasService('FCL_CHN_MX') || isCedis;
+  const showPoboxWidget = hasService('POBOX_USA') || isCedis;
 
   const loadData = async () => {
     setLoading(true);
@@ -305,7 +331,7 @@ export default function DashboardBranchManager() {
         </Grid>
 
         {/* Guías con Retraso PO Box - solo si la sucursal tiene servicio POBOX_USA */}
-        {hasService('POBOX_USA') && (
+        {showPoboxWidget && (
           <Grid size={{ xs: 12, sm: 6, md: 2 }}>
             <Paper
               onClick={() => openDelayedModal('pobox')}
@@ -340,8 +366,8 @@ export default function DashboardBranchManager() {
           </Grid>
         )}
 
-        {/* Guías con Retraso Aéreo - solo si la sucursal tiene servicio AIR_CHN_MX */}
-        {hasService('AIR_CHN_MX') && (
+        {/* Guías con Retraso Aéreo - sucursal con AIR_CHN_MX o cualquier CEDIS (recibe aéreo China) */}
+        {showAirWidget && (
           <Grid size={{ xs: 12, sm: 6, md: 2 }}>
             <Paper
               onClick={() => openDelayedModal('air')}
@@ -376,8 +402,8 @@ export default function DashboardBranchManager() {
           </Grid>
         )}
 
-        {/* Guías con Retraso Marítimo - solo si la sucursal tiene servicio SEA_CHN_MX */}
-        {(hasService('SEA_CHN_MX') || hasService('FCL_CHN_MX')) && (
+        {/* Guías con Retraso Marítimo - sucursal con SEA/FCL_CHN_MX o cualquier CEDIS (recibe marítimo China) */}
+        {showSeaWidget && (
           <Grid size={{ xs: 12, sm: 6, md: 2 }}>
             <Paper
               onClick={() => openDelayedModal('sea')}
@@ -411,7 +437,163 @@ export default function DashboardBranchManager() {
             </Paper>
           </Grid>
         )}
+
+        {/* Recepciones parciales: AWBs/contenedores/consolidaciones que llegaron incompletos */}
+        {partialReceptions.total > 0 && (
+          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+            <Paper
+              onClick={() => setPartialOpen(true)}
+              sx={{
+                p: 3,
+                height: '100%',
+                background: 'linear-gradient(135deg, #E65100 0%, #FB8C00 100%)',
+                color: 'white',
+                cursor: 'pointer',
+                transition: 'transform 0.2s, box-shadow 0.2s',
+                '&:hover': { transform: 'translateY(-2px)', boxShadow: 6 },
+                position: 'relative',
+                overflow: 'hidden',
+                '&::before': {
+                  content: '""',
+                  position: 'absolute',
+                  top: -8,
+                  right: -8,
+                  width: 60,
+                  height: 60,
+                  borderRadius: '50%',
+                  background: 'rgba(255,255,255,0.1)',
+                },
+              }}
+            >
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <Box>
+                  <Typography variant="body2" sx={{ opacity: 0.95, fontWeight: 600 }}>Recepción Parcial</Typography>
+                  <Typography variant="h3" fontWeight="bold">{partialReceptions.total}</Typography>
+                  <Typography variant="caption">
+                    {partialReceptions.total === 1 ? 'guía pendiente' : 'guías pendientes'}
+                  </Typography>
+                </Box>
+                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
+                  <WarningIcon />
+                </Avatar>
+              </Box>
+              <Box sx={{ mt: 1, display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                {partialReceptions.air.count > 0 && (
+                  <Chip size="small" icon={<FlightTakeoffIcon sx={{ color: 'white !important', fontSize: 14 }} />}
+                    label={`${partialReceptions.air.count} aéreo`}
+                    sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontSize: '0.65rem', height: 20 }} />
+                )}
+                {partialReceptions.sea.count > 0 && (
+                  <Chip size="small" icon={<DirectionsBoatIcon sx={{ color: 'white !important', fontSize: 14 }} />}
+                    label={`${partialReceptions.sea.count} marítimo`}
+                    sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontSize: '0.65rem', height: 20 }} />
+                )}
+                {partialReceptions.pobox.count > 0 && (
+                  <Chip size="small" icon={<LocalShippingIcon sx={{ color: 'white !important', fontSize: 14 }} />}
+                    label={`${partialReceptions.pobox.count} pobox`}
+                    sx={{ bgcolor: 'rgba(255,255,255,0.2)', color: 'white', fontSize: '0.65rem', height: 20 }} />
+                )}
+              </Box>
+              <Typography variant="caption" sx={{ display: 'block', mt: 0.5, opacity: 0.85, fontSize: '0.7rem' }}>
+                Click para ver detalles →
+              </Typography>
+            </Paper>
+          </Grid>
+        )}
       </Grid>
+
+      {/* Modal: Recepciones Parciales */}
+      <Dialog
+        open={partialOpen}
+        onClose={() => setPartialOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 2 } }}
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(135deg, #E65100 0%, #FB8C00 100%)', color: 'white' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <WarningIcon />
+            <Typography variant="h6" fontWeight={700}>
+              Recepciones Parciales · {partialReceptions.total} pendiente{partialReceptions.total === 1 ? '' : 's'}
+            </Typography>
+          </Box>
+          <IconButton onClick={() => setPartialOpen(false)} sx={{ color: 'white' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          {partialReceptions.total === 0 && (
+            <Typography color="text.secondary" sx={{ p: 2 }}>No hay recepciones parciales pendientes.</Typography>
+          )}
+
+          {partialReceptions.air.count > 0 && (
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, color: '#5E35B1' }}>
+                <FlightTakeoffIcon /> Aéreo · {partialReceptions.air.count} AWB
+              </Typography>
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              {partialReceptions.air.items.map((it: any) => (
+                <Paper key={`air-${it.id}`} sx={{ p: 1.5, mb: 1, borderLeft: '4px solid #5E35B1' }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Box>
+                      <Typography fontWeight={600}>{it.awb_number}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {(Number(it.total) - Number(it.missing))}/{it.total} recibidos · {it.missing} faltante(s)
+                        {it.flight_date ? ` · vuelo ${new Date(it.flight_date).toLocaleDateString()}` : ''}
+                      </Typography>
+                    </Box>
+                    <Chip size="small" label="parcial" color="warning" />
+                  </Box>
+                </Paper>
+              ))}
+            </Box>
+          )}
+
+          {partialReceptions.sea.count > 0 && (
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, color: '#00695C' }}>
+                <DirectionsBoatIcon /> Marítimo · {partialReceptions.sea.count} contenedor(es)
+              </Typography>
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              {partialReceptions.sea.items.map((it: any) => (
+                <Paper key={`sea-${it.id}`} sx={{ p: 1.5, mb: 1, borderLeft: '4px solid #00695C' }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Box>
+                      <Typography fontWeight={600}>{it.master_tracking || it.container_number || it.bl_number}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {(Number(it.total) - Number(it.missing))}/{it.total} órdenes recibidas · {it.missing} faltante(s)
+                      </Typography>
+                    </Box>
+                    <Chip size="small" label="parcial" color="warning" />
+                  </Box>
+                </Paper>
+              ))}
+            </Box>
+          )}
+
+          {partialReceptions.pobox.count > 0 && (
+            <Box sx={{ mb: 1 }}>
+              <Typography variant="subtitle1" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, color: '#C62828' }}>
+                <LocalShippingIcon /> PO Box · {partialReceptions.pobox.count} consolidación(es)
+              </Typography>
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              {partialReceptions.pobox.items.map((it: any) => (
+                <Paper key={`pobox-${it.id}`} sx={{ p: 1.5, mb: 1, borderLeft: '4px solid #C62828' }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Box>
+                      <Typography fontWeight={600}>{it.master_tracking || `Consolidación #${it.id}`}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {(Number(it.total) - Number(it.missing))}/{it.total} paquetes recibidos · {it.missing} faltante(s)
+                      </Typography>
+                    </Box>
+                    <Chip size="small" label="parcial" color="warning" />
+                  </Box>
+                </Paper>
+              ))}
+            </Box>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Modal: Detalle de Guías con Retraso */}
       <Dialog

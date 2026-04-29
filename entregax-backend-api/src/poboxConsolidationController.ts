@@ -811,6 +811,66 @@ export const markPackagesAsLostBulk = async (req: AuthRequest, res: Response): P
 };
 
 /**
+ * GET /api/admin/customer-service/partial-receptions
+ * Devuelve un resumen de recepciones parciales por servicio:
+ *  - POBox: consolidations con status='received_partial'
+ *  - Aéreo: air_waybill_costs con status='partial' (received_at IS NULL)
+ *  - Marítimo: containers con cajas faltantes (mo.missing_on_arrival = TRUE)
+ */
+export const getPartialReceptions = async (_req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const [poboxRes, airRes, seaRes] = await Promise.all([
+      pool.query(
+        `SELECT id, master_tracking, dispatched_at, created_at,
+                (SELECT COUNT(*)::int FROM packages p WHERE p.consolidation_id = c.id) AS total,
+                (SELECT COUNT(*)::int FROM packages p WHERE p.consolidation_id = c.id AND COALESCE(p.missing_on_arrival, FALSE) = TRUE) AS missing
+           FROM consolidations c
+          WHERE c.status = 'received_partial'
+          ORDER BY c.updated_at DESC NULLS LAST
+          LIMIT 50`
+      ),
+      pool.query(
+        `SELECT ac.id, ac.awb_number, ac.flight_date, ac.created_at, ac.reception_notes,
+                (SELECT COUNT(*)::int FROM packages p WHERE p.international_tracking = ac.awb_number) AS total,
+                (SELECT COUNT(*)::int FROM packages p
+                  WHERE p.international_tracking = ac.awb_number
+                    AND COALESCE(p.missing_on_arrival, FALSE) = TRUE) AS missing
+           FROM air_waybill_costs ac
+          WHERE ac.status = 'partial' AND ac.received_at IS NULL
+          ORDER BY ac.updated_at DESC NULLS LAST
+          LIMIT 50`
+      ),
+      pool.query(
+        `SELECT c.id, COALESCE(c.bl_number, c.container_number, c.reference_code) AS master_tracking,
+                c.container_number, c.bl_number, c.received_at, c.eta,
+                (SELECT COUNT(*)::int FROM maritime_orders mo WHERE mo.container_id = c.id) AS total,
+                (SELECT COUNT(*)::int FROM maritime_orders mo
+                  WHERE mo.container_id = c.id AND COALESCE(mo.missing_on_arrival, FALSE) = TRUE) AS missing
+           FROM containers c
+          WHERE EXISTS (
+            SELECT 1 FROM maritime_orders mo
+             WHERE mo.container_id = c.id AND COALESCE(mo.missing_on_arrival, FALSE) = TRUE
+          )
+          ORDER BY c.updated_at DESC NULLS LAST
+          LIMIT 50`
+      ),
+    ]);
+
+    const total = poboxRes.rows.length + airRes.rows.length + seaRes.rows.length;
+    res.json({
+      success: true,
+      total,
+      pobox: { count: poboxRes.rows.length, items: poboxRes.rows },
+      air:   { count: airRes.rows.length,   items: airRes.rows },
+      sea:   { count: seaRes.rows.length,   items: seaRes.rows },
+    });
+  } catch (error: any) {
+    console.error('getPartialReceptions:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
  * GET /api/admin/customer-service/lost-packages
  * Lista el historial de paquetes marcados como PERDIDOS.
  */

@@ -692,7 +692,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
             for (let i = 0; i < boxes.length; i++) {
                 const box = boxes[i] as BoxItem;
                 const boxNumber = i + 1;
-                const childTracking = `${masterTracking}-${String(boxNumber).padStart(2, '0')}`;
+                const childTracking = `${masterTracking}-${String(boxNumber).padStart(4, '0')}`;
                 // 💰 Costo individual de esta caja (calculado en calculatePOBoxCost)
                 const desglose = costResult.desglosePorCaja?.[i];
                 const childPoboxCostUsd = desglose?.costoInternoUsd || 0;
@@ -1014,11 +1014,12 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 const candidates: Array<{ ordersn: string; box: number }> = [];
                 // 1) Forma con dash: separar última parte numérica
                 const dashMatch = trackingUpper.match(/^(LOG[A-Z0-9]+?)-(\d{1,3})$/);
-                if (dashMatch) {
+                if (dashMatch && dashMatch[1] && dashMatch[2]) {
                     candidates.push({ ordersn: dashMatch[1], box: parseInt(dashMatch[2], 10) });
                 }
-                // 2) Compacto: probar quitando los últimos 1-3 dígitos como número de caja
-                for (const len of [3, 2, 1]) {
+                // 2) Compacto: probar quitando los últimos 1-4 dígitos como número de caja
+                //    (4 dígitos es el formato actual, 1-3 para compatibilidad con etiquetas legacy)
+                for (const len of [4, 3, 2, 1]) {
                     if (trackingCompact.length > len + 6) {
                         const ordersn = trackingCompact.slice(0, -len);
                         const box = parseInt(trackingCompact.slice(-len), 10);
@@ -1089,7 +1090,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 ? `${activeBox.length}×${activeBox.width}×${activeBox.height} cm`
                 : undefined;
             const activeTracking = logBoxSuffix
-                ? `${fallbackRow.tracking_number}-${String(logBoxSuffix).padStart(2, '0')}`
+                ? `${fallbackRow.tracking_number}-${String(logBoxSuffix).padStart(4, '0')}`
                 : fallbackRow.tracking_number;
 
             const label = {
@@ -1514,7 +1515,34 @@ const getMaritimeOrderBaseByTracking = async (tracking: string) => {
         [tracking]
     );
 
-    return result.rows[0] || null;
+    if (result.rows[0]) return result.rows[0];
+
+    // Fallback: buscar quitando sufijo de caja (LOG...-NNNN o LOG...NNNN compacto)
+    const upper = tracking.toUpperCase().trim();
+    const candidates: string[] = [];
+    const dashMatch = upper.match(/^(LOG[A-Z0-9]+?)-\d{1,4}$/);
+    if (dashMatch && dashMatch[1]) candidates.push(dashMatch[1]);
+    const compact = upper.replace(/[^A-Z0-9]/g, '');
+    if (/^LOG/.test(compact)) {
+        for (const len of [4, 3, 2, 1]) {
+            if (compact.length > len + 6) {
+                candidates.push(compact.slice(0, -len));
+            }
+        }
+    }
+    for (const cand of candidates) {
+        const r = await pool.query(
+            `SELECT mo.id, mo.user_id, mo.ordersn, mo.status, mo.created_at, mo.updated_at,
+                    mo.last_tracking_status, mo.last_tracking_detail, mo.last_tracking_date
+             FROM maritime_orders mo
+             WHERE REGEXP_REPLACE(UPPER(COALESCE(mo.ordersn, '')), '[^A-Z0-9]', '', 'g') = $1
+             LIMIT 1`,
+            [cand]
+        );
+        if (r.rows[0]) return r.rows[0];
+    }
+
+    return null;
 };
 
 const getPackageMovementsBaseById = async (id: number) => {
