@@ -4,7 +4,8 @@
 // y reimprimir su etiqueta
 // ============================================
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { useScaleReader } from '../hooks/useScaleReader';
 import {
     Box,
     Typography,
@@ -287,6 +288,50 @@ export default function RelabelingModulePage() {
     const [dimsForm, setDimsForm] = useState({ weight: '', length: '', width: '', height: '' });
     const [dimsSaving, setDimsSaving] = useState(false);
     const dimsScanRef = useRef<HTMLInputElement | null>(null);
+    const [scaleReading, setScaleReading] = useState(false);
+    const [scaleLive, setScaleLive] = useState(false);
+    const { readScale, liveWeight } = useScaleReader();
+
+    // Auto-actualiza peso de la caja activa cuando la báscula cambia
+    useEffect(() => {
+        if (!dimsModalOpen || !scaleLive) return;
+        if (liveWeight === null || liveWeight <= 0) return;
+        const w = liveWeight.toFixed(2);
+        setDimsForm(prev => prev.weight === w ? prev : { ...prev, weight: w });
+    }, [liveWeight, scaleLive, dimsModalOpen]);
+
+    // Lectura manual de báscula (botón)
+    const handleReadScaleForBox = async () => {
+        setScaleReading(true);
+        try {
+            const r = await readScale();
+            if (r.success && r.weight !== undefined) {
+                const w = r.weight.toFixed(2);
+                setDimsForm(prev => ({ ...prev, weight: w }));
+                setScaleLive(true);
+                setDimsError(r.stale ? `⚠️ Sin peso actualizado. Peso anterior: ${w} kg` : null);
+            } else {
+                setDimsError(r.error || 'Error leyendo báscula');
+            }
+        } finally {
+            setScaleReading(false);
+        }
+    };
+
+    // Al cambiar de caja activa (no capturada): leer báscula automáticamente si ya está conectada
+    useEffect(() => {
+        if (!dimsModalOpen || !dimsActiveBox) return;
+        const active = dimsBoxes.find(b => b.boxNumber === dimsActiveBox);
+        if (active?.captured) return; // editando una ya capturada: no sobrescribir
+        if (!scaleLive) return; // solo si ya pidió permiso una vez
+        (async () => {
+            const r = await readScale(1500);
+            if (r.success && r.weight !== undefined && r.weight > 0) {
+                setDimsForm(prev => ({ ...prev, weight: r.weight!.toFixed(2) }));
+            }
+        })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [dimsActiveBox]);
 
     const isMaritimeLog = (tn?: string) => !!tn && /^LOG/i.test(tn);
 
@@ -1648,6 +1693,19 @@ ${body}
                                             onChange={(e) => setDimsForm({ ...dimsForm, weight: e.target.value })}
                                             inputProps={{ step: '0.01', min: '0' }}
                                             fullWidth
+                                            InputProps={{
+                                                endAdornment: (
+                                                    <Button
+                                                        size="small"
+                                                        onClick={handleReadScaleForBox}
+                                                        disabled={scaleReading}
+                                                        sx={{ minWidth: 'auto', px: 1, fontSize: 11, fontWeight: 700, color: '#0277BD' }}
+                                                        title="Leer peso desde báscula USB"
+                                                    >
+                                                        {scaleReading ? <CircularProgress size={14} /> : '⚖️ Báscula'}
+                                                    </Button>
+                                                ),
+                                            }}
                                         />
                                         <TextField
                                             label="Largo (cm)"
@@ -1674,6 +1732,11 @@ ${body}
                                             fullWidth
                                         />
                                     </Stack>
+                                    {scaleLive && liveWeight !== null && liveWeight > 0 && (
+                                        <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#0277BD', fontWeight: 700 }}>
+                                            ⚖️ Báscula en vivo: {liveWeight.toFixed(2)} kg
+                                        </Typography>
+                                    )}
                                     <Button
                                         variant="contained"
                                         onClick={saveDimsBox}
