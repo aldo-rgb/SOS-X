@@ -412,6 +412,18 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     await processScanCode(code, 'scanner');
   };
 
+  // Auto-submit cuando el input se llena por scanner QR (escribe rápido y se detiene).
+  // Si pasa 250ms sin nuevos cambios y el código tiene al menos 4 chars, valida automáticamente.
+  useEffect(() => {
+    if (!manualCode || manualCode.length < 4) return;
+    if (isScanning) return;
+    const t = setTimeout(() => {
+      handleManualSubmit();
+    }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manualCode]);
+
   const handleSignatureEnd = () => {
     signatureRef.current?.readSignature();
   };
