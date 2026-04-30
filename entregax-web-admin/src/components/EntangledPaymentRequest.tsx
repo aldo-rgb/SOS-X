@@ -145,6 +145,19 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   const [requiereFactura, setRequiereFactura] = useState(true);
   const [saveFiscalProfile, setSaveFiscalProfile] = useState(true);
   const [pricing, setPricing] = useState<{ tipo_cambio_usd: number; tipo_cambio_rmb: number; porcentaje_compra: number } | null>(null);
+  type EntProviderPub = {
+    id: number;
+    name: string;
+    code: string | null;
+    tipo_cambio_usd: number | string;
+    tipo_cambio_rmb: number | string;
+    porcentaje_compra: number | string;
+    bank_accounts: Array<{ currency: string; bank: string; holder: string; account: string; clabe: string; reference: string }>;
+    is_default: boolean;
+    sort_order: number;
+  };
+  const [providers, setProviders] = useState<EntProviderPub[]>([]);
+  const [selectedProviderId, setSelectedProviderId] = useState<number | ''>('');
   const [quote, setQuote] = useState<{ tipo_cambio: number; porcentaje_compra: number; monto_mxn_base: number; monto_mxn_total: number } | null>(null);
   const [lastCreated, setLastCreated] = useState<{ request: unknown; instrucciones_pago: unknown; quote: { tipo_cambio: number; porcentaje_compra: number; monto_mxn_base: number; monto_mxn_total: number } | null } | null>(null);
   const [instructionsOpen, setInstructionsOpen] = useState(false);
@@ -225,14 +238,24 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   const loadPricing = useCallback(async () => {
     if (!token) return;
     try {
-      const r = await axios.get(`${API_URL}/api/entangled/pricing`, { headers: authHeader });
-      setPricing({
-        tipo_cambio_usd: Number(r.data.tipo_cambio_usd),
-        tipo_cambio_rmb: Number(r.data.tipo_cambio_rmb),
-        porcentaje_compra: Number(r.data.porcentaje_compra),
-      });
+      const r = await axios.get(`${API_URL}/api/entangled/providers`, { headers: authHeader });
+      const list: EntProviderPub[] = (r.data || []).map((p: EntProviderPub) => ({
+        ...p,
+        bank_accounts: Array.isArray(p.bank_accounts) ? p.bank_accounts : [],
+      }));
+      setProviders(list);
+      // Seleccionar default o el primero
+      const def = list.find((x) => x.is_default) || list[0] || null;
+      if (def) {
+        setSelectedProviderId((prev) => (prev ? prev : def.id));
+        setPricing({
+          tipo_cambio_usd: Number(def.tipo_cambio_usd),
+          tipo_cambio_rmb: Number(def.tipo_cambio_rmb),
+          porcentaje_compra: Number(def.porcentaje_compra),
+        });
+      }
     } catch (err: unknown) {
-      console.error('[ENTANGLED] loadPricing:', err);
+      console.error('[ENTANGLED] loadProviders:', err);
     }
   }, [authHeader, token]);
 
@@ -391,6 +414,18 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     return null;
   };
 
+  // Recalcular quote cuando cambia monto, divisa o proveedor
+  useEffect(() => {
+    const prov = providers.find((p) => p.id === selectedProviderId);
+    if (prov) {
+      setPricing({
+        tipo_cambio_usd: Number(prov.tipo_cambio_usd),
+        tipo_cambio_rmb: Number(prov.tipo_cambio_rmb),
+        porcentaje_compra: Number(prov.porcentaje_compra),
+      });
+    }
+  }, [selectedProviderId, providers]);
+
   // Recalcular quote cuando cambia monto o divisa
   useEffect(() => {
     const m = Number(form.monto);
@@ -448,6 +483,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
 
       const payload: Record<string, unknown> = {
         requiere_factura: requiereFactura,
+        provider_id: selectedProviderId || null,
         operacion: {
           montos: Number(form.monto),
           divisa_destino: form.divisa_destino,
@@ -884,6 +920,25 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               💵 {t('entangled.sections.operation')}
             </Typography>
             <Grid container spacing={2}>
+              <Grid size={{ xs: 12 }}>
+                <TextField
+                  select fullWidth label="Proveedor ENTANGLED"
+                  value={selectedProviderId === '' ? '' : String(selectedProviderId)}
+                  onChange={(e) => setSelectedProviderId(e.target.value ? Number(e.target.value) : '')}
+                  required
+                  helperText={
+                    providers.length === 0
+                      ? 'No hay proveedores activos configurados'
+                      : 'Cada proveedor tiene su propio TC y % de compra'
+                  }
+                >
+                  {providers.map((p) => (
+                    <MenuItem key={p.id} value={String(p.id)}>
+                      {p.name}{p.is_default ? ' · default' : ''} — TC USD ${Number(p.tipo_cambio_usd).toFixed(2)} / TC RMB ${Number(p.tipo_cambio_rmb).toFixed(2)} / {Number(p.porcentaje_compra).toFixed(2)}%
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
               <Grid size={{ xs: 6 }}>
                 <TextField
                   fullWidth type="number" label={t('entangled.fields.amount')}

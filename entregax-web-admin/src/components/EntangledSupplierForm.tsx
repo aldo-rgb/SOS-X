@@ -148,21 +148,13 @@ export default function EntangledSupplierForm({
         {t('entangled.suppliers.account', 'Cuenta bancaria')}
       </Typography>
       <Grid container spacing={2}>
-        <Grid size={{ xs: 12, md: 6 }}>
+        <Grid size={{ xs: 12 }}>
           <TextField
             fullWidth
             label={t('entangled.suppliers.accountNumber', 'Número de cuenta')}
             value={value.numero_cuenta}
             onChange={(e) => set({ numero_cuenta: e.target.value.trim() })}
             required
-          />
-        </Grid>
-        <Grid size={{ xs: 12, md: 6 }}>
-          <TextField
-            fullWidth
-            label={t('entangled.suppliers.iban', 'IBAN (opcional)')}
-            value={value.iban}
-            onChange={(e) => set({ iban: e.target.value.trim().toUpperCase() })}
           />
         </Grid>
       </Grid>

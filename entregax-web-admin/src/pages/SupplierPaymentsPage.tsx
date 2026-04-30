@@ -84,10 +84,24 @@ export default function SupplierPaymentsPage() {
   const [providerModal, setProviderModal] = useState(false);
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
 
-  // ENTANGLED pricing config (global)
-  const [entPricing, setEntPricing] = useState<{ tipo_cambio_usd: string; tipo_cambio_rmb: string; porcentaje_compra: string }>({
-    tipo_cambio_usd: '', tipo_cambio_rmb: '', porcentaje_compra: ''
-  });
+  // ENTANGLED — proveedores (cada uno con TC USD, TC RMB, % compra y cuentas bancarias)
+  type EntBankAccount = { currency: string; bank: string; holder: string; account: string; clabe: string; reference: string };
+  type EntProvider = {
+    id: number;
+    name: string;
+    code: string | null;
+    tipo_cambio_usd: number | string;
+    tipo_cambio_rmb: number | string;
+    porcentaje_compra: number | string;
+    bank_accounts: EntBankAccount[];
+    notes: string | null;
+    is_active: boolean;
+    is_default: boolean;
+    sort_order: number;
+  };
+  const [entProviders, setEntProviders] = useState<EntProvider[]>([]);
+  const [providerEditOpen, setProviderEditOpen] = useState(false);
+  const [editingEntProvider, setEditingEntProvider] = useState<EntProvider | null>(null);
   // Overrides por usuario
   type UserPricing = { user_id: number; client_name: string; client_email: string; porcentaje_compra: string; notes: string | null; updated_at: string };
   const [userPricing, setUserPricing] = useState<UserPricing[]>([]);
@@ -117,21 +131,20 @@ export default function SupplierPaymentsPage() {
       setPayments(paymentsRes.data);
       setStats(statsRes.data);
 
-      // ENTANGLED: pricing global + overrides por usuario (no fatal si falla)
+      // ENTANGLED: providers + overrides por usuario (no fatal si falla)
       try {
-        const [pricingRes, upRes] = await Promise.all([
-          axios.get(`${API_URL}/entangled/pricing`, { headers }),
+        const [provRes, upRes] = await Promise.all([
+          axios.get(`${API_URL}/admin/entangled/providers`, { headers }),
           axios.get(`${API_URL}/admin/entangled/user-pricing`, { headers })
         ]);
-        const p = pricingRes.data || {};
-        setEntPricing({
-          tipo_cambio_usd: p.tipo_cambio_usd != null ? String(p.tipo_cambio_usd) : '',
-          tipo_cambio_rmb: p.tipo_cambio_rmb != null ? String(p.tipo_cambio_rmb) : '',
-          porcentaje_compra: p.porcentaje_compra != null ? String(p.porcentaje_compra) : ''
-        });
+        const list = (provRes.data || []).map((p: any) => ({
+          ...p,
+          bank_accounts: Array.isArray(p.bank_accounts) ? p.bank_accounts : [],
+        }));
+        setEntProviders(list);
         setUserPricing(upRes.data || []);
       } catch (e) {
-        console.warn('ENTANGLED pricing endpoints no disponibles:', e);
+        console.warn('ENTANGLED endpoints no disponibles:', e);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -160,19 +173,64 @@ export default function SupplierPaymentsPage() {
   };
 
   // ===== ENTANGLED handlers =====
-  const handleSaveEntPricing = async () => {
+  const emptyEntProvider = (): EntProvider => ({
+    id: 0,
+    name: '',
+    code: '',
+    tipo_cambio_usd: 18.5,
+    tipo_cambio_rmb: 2.85,
+    porcentaje_compra: 6,
+    bank_accounts: [],
+    notes: '',
+    is_active: true,
+    is_default: false,
+    sort_order: 0,
+  });
+
+  const handleSaveEntProvider = async () => {
+    if (!editingEntProvider) return;
+    if (!editingEntProvider.name.trim()) {
+      setSnackbar({ open: true, message: 'Nombre requerido', severity: 'error' });
+      return;
+    }
     try {
-      const payload: any = {};
-      if (entPricing.tipo_cambio_usd !== '') payload.tipo_cambio_usd = Number(entPricing.tipo_cambio_usd);
-      if (entPricing.tipo_cambio_rmb !== '') payload.tipo_cambio_rmb = Number(entPricing.tipo_cambio_rmb);
-      if (entPricing.porcentaje_compra !== '') payload.porcentaje_compra = Number(entPricing.porcentaje_compra);
-      await axios.put(`${API_URL}/admin/entangled/pricing`, payload,
+      const payload = {
+        name: editingEntProvider.name.trim(),
+        code: editingEntProvider.code || null,
+        tipo_cambio_usd: Number(editingEntProvider.tipo_cambio_usd),
+        tipo_cambio_rmb: Number(editingEntProvider.tipo_cambio_rmb),
+        porcentaje_compra: Number(editingEntProvider.porcentaje_compra),
+        bank_accounts: editingEntProvider.bank_accounts || [],
+        notes: editingEntProvider.notes || null,
+        is_active: editingEntProvider.is_active,
+        is_default: editingEntProvider.is_default,
+        sort_order: Number(editingEntProvider.sort_order || 0),
+      };
+      const headers = { Authorization: `Bearer ${getToken()}` };
+      if (editingEntProvider.id) {
+        await axios.put(`${API_URL}/admin/entangled/providers/${editingEntProvider.id}`, payload, { headers });
+      } else {
+        await axios.post(`${API_URL}/admin/entangled/providers`, payload, { headers });
+      }
+      setSnackbar({ open: true, message: 'Proveedor ENTANGLED guardado', severity: 'success' });
+      setProviderEditOpen(false);
+      setEditingEntProvider(null);
+      loadData();
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al guardar', severity: 'error' });
+    }
+  };
+
+  const handleDeleteEntProvider = async (id: number) => {
+    if (!window.confirm('¿Eliminar este proveedor ENTANGLED? Si tiene solicitudes asociadas se desactivará en su lugar.')) return;
+    try {
+      await axios.delete(`${API_URL}/admin/entangled/providers/${id}`,
         { headers: { Authorization: `Bearer ${getToken()}` } }
       );
-      setSnackbar({ open: true, message: 'Configuración ENTANGLED actualizada', severity: 'success' });
+      setSnackbar({ open: true, message: 'Proveedor eliminado', severity: 'success' });
       loadData();
-    } catch (error) {
-      setSnackbar({ open: true, message: 'Error al guardar configuración ENTANGLED', severity: 'error' });
+    } catch (e) {
+      setSnackbar({ open: true, message: 'Error al eliminar', severity: 'error' });
     }
   };
 
@@ -505,51 +563,83 @@ export default function SupplierPaymentsPage() {
         </Paper>
       )}
 
-      {/* Tab: Tipo de Cambio — Sección ENTANGLED */}
+      {/* Tab: Tipo de Cambio — Sección ENTANGLED (CRUD por proveedor) */}
       {tabValue === 1 && (
         <Paper sx={{ p: 3, borderRadius: 3, mt: 3 }}>
-          <Typography variant="h6" fontWeight="bold" gutterBottom>
-            🌐 Configuración ENTANGLED (Triangulación internacional)
-          </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Tipos de cambio MXN→USD / MXN→RMB y porcentaje de compra global aplicado en cotizaciones ENTANGLED.
-          </Typography>
-          <Divider sx={{ my: 2 }} />
-
-          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 2 }}>
-            <TextField
-              label="TC USD (MXN por USD)"
-              type="number"
-              value={entPricing.tipo_cambio_usd}
-              onChange={(e) => setEntPricing({ ...entPricing, tipo_cambio_usd: e.target.value })}
-              slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
-              sx={{ width: 220 }}
-            />
-            <TextField
-              label="TC RMB (MXN por RMB)"
-              type="number"
-              value={entPricing.tipo_cambio_rmb}
-              onChange={(e) => setEntPricing({ ...entPricing, tipo_cambio_rmb: e.target.value })}
-              slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
-              sx={{ width: 220 }}
-            />
-            <TextField
-              label="% de compra (global)"
-              type="number"
-              value={entPricing.porcentaje_compra}
-              onChange={(e) => setEntPricing({ ...entPricing, porcentaje_compra: e.target.value })}
-              slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
-              sx={{ width: 200 }}
-            />
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Box>
+              <Typography variant="h6" fontWeight="bold">
+                🌐 Proveedores ENTANGLED (Triangulación internacional)
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                Cada proveedor define su propio TC USD, TC RMB, % de compra y cuentas bancarias para recibir el depósito MXN del cliente.
+              </Typography>
+            </Box>
             <Button
               variant="contained"
-              startIcon={<SaveIcon />}
-              onClick={handleSaveEntPricing}
+              startIcon={<AddIcon />}
+              onClick={() => { setEditingEntProvider(emptyEntProvider()); setProviderEditOpen(true); }}
               sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)` }}
             >
-              Guardar configuración global
+              Nuevo proveedor
             </Button>
           </Box>
+          <Divider sx={{ my: 2 }} />
+
+          <TableContainer>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'grey.50' }}>
+                  <TableCell>Nombre</TableCell>
+                  <TableCell>Código</TableCell>
+                  <TableCell align="right">TC USD</TableCell>
+                  <TableCell align="right">TC RMB</TableCell>
+                  <TableCell align="right">% compra</TableCell>
+                  <TableCell align="center">Cuentas</TableCell>
+                  <TableCell align="center">Activo</TableCell>
+                  <TableCell align="center">Default</TableCell>
+                  <TableCell align="center">Acciones</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {entProviders.map((p) => (
+                  <TableRow key={p.id} hover>
+                    <TableCell>{p.name}</TableCell>
+                    <TableCell>{p.code || '—'}</TableCell>
+                    <TableCell align="right">${Number(p.tipo_cambio_usd).toFixed(4)}</TableCell>
+                    <TableCell align="right">${Number(p.tipo_cambio_rmb).toFixed(4)}</TableCell>
+                    <TableCell align="right">{Number(p.porcentaje_compra).toFixed(2)}%</TableCell>
+                    <TableCell align="center">{p.bank_accounts?.length || 0}</TableCell>
+                    <TableCell align="center">
+                      {p.is_active ? <CheckCircleIcon fontSize="small" color="success" /> : <CancelIcon fontSize="small" color="error" />}
+                    </TableCell>
+                    <TableCell align="center">
+                      {p.is_default ? <Chip size="small" color="primary" label="Default" /> : '—'}
+                    </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="Editar">
+                        <IconButton size="small" onClick={() => { setEditingEntProvider({ ...p, bank_accounts: [...(p.bank_accounts || [])] }); setProviderEditOpen(true); }}>
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Eliminar">
+                        <IconButton size="small" color="error" onClick={() => handleDeleteEntProvider(p.id)}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {entProviders.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
+                      <Typography color="text.secondary">No hay proveedores configurados.</Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
 
           <Divider sx={{ my: 3 }} />
 
@@ -758,6 +848,217 @@ export default function SupplierPaymentsPage() {
             variant="contained"
             startIcon={<SaveIcon />}
             onClick={handleSaveProvider}
+            sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)` }}
+          >
+            Guardar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog: editor de proveedor ENTANGLED */}
+      <Dialog open={providerEditOpen} onClose={() => setProviderEditOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle>{editingEntProvider?.id ? 'Editar proveedor ENTANGLED' : 'Nuevo proveedor ENTANGLED'}</DialogTitle>
+        <DialogContent>
+          {editingEntProvider && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <TextField
+                  label="Nombre"
+                  value={editingEntProvider.name}
+                  onChange={(e) => setEditingEntProvider({ ...editingEntProvider, name: e.target.value })}
+                  sx={{ flex: 1, minWidth: 240 }}
+                  required
+                />
+                <TextField
+                  label="Código"
+                  value={editingEntProvider.code || ''}
+                  onChange={(e) => setEditingEntProvider({ ...editingEntProvider, code: e.target.value })}
+                  sx={{ width: 160 }}
+                />
+                <TextField
+                  label="Orden"
+                  type="number"
+                  value={editingEntProvider.sort_order}
+                  onChange={(e) => setEditingEntProvider({ ...editingEntProvider, sort_order: Number(e.target.value) })}
+                  sx={{ width: 120 }}
+                />
+              </Box>
+              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                <TextField
+                  label="TC USD (MXN por USD)"
+                  type="number"
+                  value={editingEntProvider.tipo_cambio_usd}
+                  onChange={(e) => setEditingEntProvider({ ...editingEntProvider, tipo_cambio_usd: e.target.value })}
+                  slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
+                  sx={{ width: 200 }}
+                />
+                <TextField
+                  label="TC RMB (MXN por RMB)"
+                  type="number"
+                  value={editingEntProvider.tipo_cambio_rmb}
+                  onChange={(e) => setEditingEntProvider({ ...editingEntProvider, tipo_cambio_rmb: e.target.value })}
+                  slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
+                  sx={{ width: 200 }}
+                />
+                <TextField
+                  label="% de compra"
+                  type="number"
+                  value={editingEntProvider.porcentaje_compra}
+                  onChange={(e) => setEditingEntProvider({ ...editingEntProvider, porcentaje_compra: e.target.value })}
+                  slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+                  sx={{ width: 180 }}
+                />
+              </Box>
+
+              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={editingEntProvider.is_active}
+                      onChange={(e) => setEditingEntProvider({ ...editingEntProvider, is_active: e.target.checked })}
+                    />
+                  }
+                  label="Activo"
+                />
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={editingEntProvider.is_default}
+                      onChange={(e) => setEditingEntProvider({ ...editingEntProvider, is_default: e.target.checked })}
+                    />
+                  }
+                  label="Default (se selecciona automáticamente)"
+                />
+              </Box>
+
+              <TextField
+                label="Notas internas"
+                multiline
+                minRows={2}
+                value={editingEntProvider.notes || ''}
+                onChange={(e) => setEditingEntProvider({ ...editingEntProvider, notes: e.target.value })}
+                fullWidth
+              />
+
+              <Divider />
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="subtitle1" fontWeight="bold">
+                  Cuentas bancarias para depósito MXN del cliente
+                </Typography>
+                <Button
+                  size="small"
+                  startIcon={<AddIcon />}
+                  onClick={() => setEditingEntProvider({
+                    ...editingEntProvider,
+                    bank_accounts: [
+                      ...(editingEntProvider.bank_accounts || []),
+                      { currency: 'MXN', bank: '', holder: '', account: '', clabe: '', reference: '' },
+                    ],
+                  })}
+                >
+                  Agregar cuenta
+                </Button>
+              </Box>
+
+              {(editingEntProvider.bank_accounts || []).map((acc, idx) => (
+                <Card key={idx} variant="outlined" sx={{ p: 1 }}>
+                  <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1, p: 1 }}>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      <FormControl sx={{ width: 120 }}>
+                        <InputLabel>Divisa</InputLabel>
+                        <Select
+                          label="Divisa"
+                          value={acc.currency || 'MXN'}
+                          onChange={(e) => {
+                            const list = [...editingEntProvider.bank_accounts];
+                            list[idx] = { ...acc, currency: String(e.target.value) };
+                            setEditingEntProvider({ ...editingEntProvider, bank_accounts: list });
+                          }}
+                        >
+                          <MenuItem value="MXN">MXN</MenuItem>
+                          <MenuItem value="USD">USD</MenuItem>
+                          <MenuItem value="EUR">EUR</MenuItem>
+                        </Select>
+                      </FormControl>
+                      <TextField
+                        label="Banco"
+                        value={acc.bank}
+                        onChange={(e) => {
+                          const list = [...editingEntProvider.bank_accounts];
+                          list[idx] = { ...acc, bank: e.target.value };
+                          setEditingEntProvider({ ...editingEntProvider, bank_accounts: list });
+                        }}
+                        sx={{ flex: 1, minWidth: 200 }}
+                      />
+                      <TextField
+                        label="Titular"
+                        value={acc.holder}
+                        onChange={(e) => {
+                          const list = [...editingEntProvider.bank_accounts];
+                          list[idx] = { ...acc, holder: e.target.value };
+                          setEditingEntProvider({ ...editingEntProvider, bank_accounts: list });
+                        }}
+                        sx={{ flex: 1, minWidth: 200 }}
+                      />
+                      <IconButton
+                        color="error"
+                        onClick={() => {
+                          const list = editingEntProvider.bank_accounts.filter((_, i) => i !== idx);
+                          setEditingEntProvider({ ...editingEntProvider, bank_accounts: list });
+                        }}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                      <TextField
+                        label="Número de cuenta"
+                        value={acc.account}
+                        onChange={(e) => {
+                          const list = [...editingEntProvider.bank_accounts];
+                          list[idx] = { ...acc, account: e.target.value };
+                          setEditingEntProvider({ ...editingEntProvider, bank_accounts: list });
+                        }}
+                        sx={{ flex: 1, minWidth: 200 }}
+                      />
+                      <TextField
+                        label="CLABE"
+                        value={acc.clabe}
+                        onChange={(e) => {
+                          const list = [...editingEntProvider.bank_accounts];
+                          list[idx] = { ...acc, clabe: e.target.value };
+                          setEditingEntProvider({ ...editingEntProvider, bank_accounts: list });
+                        }}
+                        sx={{ flex: 1, minWidth: 200 }}
+                      />
+                      <TextField
+                        label="Referencia"
+                        value={acc.reference}
+                        onChange={(e) => {
+                          const list = [...editingEntProvider.bank_accounts];
+                          list[idx] = { ...acc, reference: e.target.value };
+                          setEditingEntProvider({ ...editingEntProvider, bank_accounts: list });
+                        }}
+                        sx={{ flex: 1, minWidth: 160 }}
+                      />
+                    </Box>
+                  </CardContent>
+                </Card>
+              ))}
+              {(editingEntProvider.bank_accounts || []).length === 0 && (
+                <Typography variant="body2" color="text.secondary">
+                  Sin cuentas bancarias. Agrega al menos una para que los clientes vean a dónde depositar.
+                </Typography>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setProviderEditOpen(false)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            startIcon={<SaveIcon />}
+            onClick={handleSaveEntProvider}
             sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)` }}
           >
             Guardar

@@ -75,35 +75,60 @@ const validateClientPayload = (body: any): string | null => {
 };
 
 // ---------------------------------------------------------------------------
-// Helper: cotización aplicando pricing config
+// Helper: cotización aplicando pricing del proveedor seleccionado
 // ---------------------------------------------------------------------------
 const computeQuote = async (
   monto: number,
   divisa: string,
-  userId?: number
+  userId?: number,
+  providerId?: number | null
 ): Promise<{
+  provider_id: number | null;
+  provider_name: string | null;
   tipo_cambio: number;
   porcentaje_compra: number;
   porcentaje_es_override: boolean;
   monto_mxn_base: number;
   monto_mxn_total: number;
 }> => {
-  const r = await pool.query(
-    `SELECT tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra
-     FROM entangled_pricing_config WHERE id = 1`
-  );
-  const row = r.rows[0] || { tipo_cambio_usd: 18.5, tipo_cambio_rmb: 2.85, porcentaje_compra: 6 };
-  const div = String(divisa).toUpperCase();
-  const tc = Number(div === 'RMB' ? row.tipo_cambio_rmb : row.tipo_cambio_usd);
+  // 1) Resolver proveedor: el indicado, o el default activo, o el primero activo
+  let provider: any = null;
+  if (providerId) {
+    const r = await pool.query(
+      `SELECT id, name, tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra
+       FROM entangled_providers WHERE id = $1 AND is_active = true`,
+      [providerId]
+    );
+    provider = r.rows[0] || null;
+  }
+  if (!provider) {
+    const r = await pool.query(
+      `SELECT id, name, tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra
+       FROM entangled_providers
+       WHERE is_active = true
+       ORDER BY is_default DESC, sort_order ASC, id ASC LIMIT 1`
+    );
+    provider = r.rows[0] || null;
+  }
 
-  // Buscar override por usuario
-  let pct = Number(row.porcentaje_compra);
+  // 2) Fallback duro a defaults si no hay providers (entornos antiguos)
+  const tcUsd = provider ? Number(provider.tipo_cambio_usd) : 18.5;
+  const tcRmb = provider ? Number(provider.tipo_cambio_rmb) : 2.85;
+  const pctBase = provider ? Number(provider.porcentaje_compra) : 6;
+  const div = String(divisa).toUpperCase();
+  const tc = div === 'RMB' ? tcRmb : tcUsd;
+
+  // 3) Override por usuario (global o específico al provider)
+  let pct = pctBase;
   let isOverride = false;
   if (userId) {
     try {
       const ov = await pool.query(
-        `SELECT porcentaje_compra FROM entangled_user_pricing WHERE user_id = $1`,
-        [userId]
+        `SELECT porcentaje_compra
+         FROM entangled_user_pricing
+         WHERE user_id = $1 AND (provider_id = $2 OR provider_id IS NULL)
+         ORDER BY provider_id NULLS LAST LIMIT 1`,
+        [userId, provider?.id || null]
       );
       if (ov.rows.length > 0) {
         pct = Number(ov.rows[0].porcentaje_compra);
@@ -115,6 +140,8 @@ const computeQuote = async (
   const base = Number(monto) * tc;
   const total = base * (1 + pct / 100);
   return {
+    provider_id: provider?.id || null,
+    provider_name: provider?.name || null,
     tipo_cambio: tc,
     porcentaje_compra: pct,
     porcentaje_es_override: isOverride,
@@ -144,9 +171,14 @@ export const createPaymentRequest = async (
   };
   const requiereFactura = req.body.requiere_factura !== false;
   const proveedor = (req.body as any).proveedor_envio || null;
+  const providerIdRaw = (req.body as any).provider_id;
+  const providerId = providerIdRaw ? Number(providerIdRaw) : null;
 
-  // Calcular cotización con TC + porcentaje configurados
-  const quote = await computeQuote(Number(operacion.montos), operacion.divisa_destino, userId);
+  // Calcular cotización con TC + porcentaje del proveedor seleccionado
+  const quote = await computeQuote(Number(operacion.montos), operacion.divisa_destino, userId, providerId);
+  if (!quote.provider_id) {
+    return res.status(400).json({ error: 'No hay proveedor ENTANGLED activo configurado' });
+  }
 
   // Resolver asesor: si el cliente tiene asesor asignado lo tomamos.
   let advisorId: number | null = null;
@@ -176,6 +208,7 @@ export const createPaymentRequest = async (
     const insertResult = await pool.query(
       `INSERT INTO entangled_payment_requests (
          user_id, advisor_id,
+         provider_id,
          requiere_factura,
          cf_rfc, cf_razon_social, cf_regimen_fiscal, cf_cp, cf_uso_cfdi, cf_email,
          op_monto, op_divisa_destino, op_conceptos, op_comprobante_cliente_url,
@@ -192,22 +225,24 @@ export const createPaymentRequest = async (
        ) VALUES (
          $1, $2,
          $3,
-         $4, $5, $6, $7, $8, $9,
-         $10, $11, $12::jsonb, NULL,
-         $13, $14, $15, $16,
-         $17, $18,
-         'pendiente', $19, 'pendiente',
-         $20,
-         $21, $22, $23,
-         $24, $25,
-         $26, $27,
-         $28, $29,
-         $30, $31,
-         $32, $33
+         $4,
+         $5, $6, $7, $8, $9, $10,
+         $11, $12, $13::jsonb, NULL,
+         $14, $15, $16, $17,
+         $18, $19,
+         'pendiente', $20, 'pendiente',
+         $21,
+         $22, $23, $24,
+         $25, $26,
+         $27, $28,
+         $29, $30,
+         $31, $32,
+         $33, $34
        ) RETURNING id`,
       [
         userId,
         advisorId,
+        quote.provider_id,
         requiereFactura,
         requiereFactura ? String(cliente_final?.rfc || '').toUpperCase() : null,
         requiereFactura ? cliente_final?.razon_social : null,
@@ -810,10 +845,12 @@ export const upsertMyFiscalProfile = async (req: Request, res: Response): Promis
 };
 
 export const getPricingConfig = async (_req: Request, res: Response): Promise<any> => {
+  // DEPRECATED: ahora pricing es por proveedor. Devolvemos el provider default.
   try {
     const r = await pool.query(
       `SELECT tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra, updated_at
-       FROM entangled_pricing_config WHERE id = 1`
+       FROM entangled_providers WHERE is_active = true
+       ORDER BY is_default DESC, sort_order ASC, id ASC LIMIT 1`
     );
     return res.json(r.rows[0] || { tipo_cambio_usd: 18.5, tipo_cambio_rmb: 2.85, porcentaje_compra: 6 });
   } catch (err) {
@@ -822,34 +859,152 @@ export const getPricingConfig = async (_req: Request, res: Response): Promise<an
   }
 };
 
-export const updatePricingConfig = async (req: Request, res: Response): Promise<any> => {
-  const userId = getAuthUserId(req);
-  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+export const updatePricingConfig = async (_req: Request, res: Response): Promise<any> => {
+  // DEPRECATED — ahora se usa CRUD de providers
+  return res.status(410).json({ error: 'Endpoint deprecado. Usa /api/admin/entangled/providers' });
+};
+
+// ===========================================================================
+// Providers ENTANGLED — CRUD admin
+// ===========================================================================
+
+const isAdminRole = (req: Request) => {
   const role = String((req as any).user?.role || '').toLowerCase();
-  if (!['super_admin', 'admin', 'director'].includes(role)) {
-    return res.status(403).json({ error: 'Sin permisos' });
-  }
-  const { tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra } = req.body || {};
+  return ['super_admin', 'admin', 'director'].includes(role);
+};
+
+export const listProviders = async (_req: Request, res: Response): Promise<any> => {
   try {
     const r = await pool.query(
-      `UPDATE entangled_pricing_config SET
-        tipo_cambio_usd = COALESCE($1, tipo_cambio_usd),
-        tipo_cambio_rmb = COALESCE($2, tipo_cambio_rmb),
-        porcentaje_compra = COALESCE($3, porcentaje_compra),
-        updated_by = $4,
-        updated_at = NOW()
-       WHERE id = 1 RETURNING *`,
+      `SELECT * FROM entangled_providers ORDER BY is_default DESC, sort_order ASC, id ASC`
+    );
+    return res.json(r.rows);
+  } catch (err) {
+    console.error('[ENTANGLED] listProviders:', err);
+    return res.status(500).json({ error: 'Error al listar proveedores' });
+  }
+};
+
+export const listActiveProvidersPublic = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    const r = await pool.query(
+      `SELECT id, name, code, tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra,
+              bank_accounts, is_default, sort_order
+       FROM entangled_providers WHERE is_active = true
+       ORDER BY is_default DESC, sort_order ASC, id ASC`
+    );
+    return res.json(r.rows);
+  } catch (err) {
+    console.error('[ENTANGLED] listActiveProvidersPublic:', err);
+    return res.status(500).json({ error: 'Error al listar proveedores' });
+  }
+};
+
+export const createProvider = async (req: Request, res: Response): Promise<any> => {
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  if (!isAdminRole(req)) return res.status(403).json({ error: 'Sin permisos' });
+  const b = req.body || {};
+  if (!b.name || !String(b.name).trim()) return res.status(400).json({ error: 'name requerido' });
+  try {
+    if (b.is_default) {
+      await pool.query(`UPDATE entangled_providers SET is_default = false WHERE is_default = true`);
+    }
+    const r = await pool.query(
+      `INSERT INTO entangled_providers
+        (name, code, tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra,
+         bank_accounts, notes, is_active, is_default, sort_order, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11)
+       RETURNING *`,
       [
-        tipo_cambio_usd !== undefined ? Number(tipo_cambio_usd) : null,
-        tipo_cambio_rmb !== undefined ? Number(tipo_cambio_rmb) : null,
-        porcentaje_compra !== undefined ? Number(porcentaje_compra) : null,
+        String(b.name).trim(),
+        b.code ? String(b.code).trim() : null,
+        Number(b.tipo_cambio_usd ?? 18.5),
+        Number(b.tipo_cambio_rmb ?? 2.85),
+        Number(b.porcentaje_compra ?? 6),
+        JSON.stringify(Array.isArray(b.bank_accounts) ? b.bank_accounts : []),
+        b.notes || null,
+        b.is_active !== false,
+        !!b.is_default,
+        Number(b.sort_order ?? 0),
         userId,
       ]
     );
     return res.json(r.rows[0]);
   } catch (err) {
-    console.error('[ENTANGLED] updatePricingConfig:', err);
-    return res.status(500).json({ error: 'Error al actualizar pricing' });
+    console.error('[ENTANGLED] createProvider:', err);
+    return res.status(500).json({ error: 'Error al crear proveedor' });
+  }
+};
+
+export const updateProvider = async (req: Request, res: Response): Promise<any> => {
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  if (!isAdminRole(req)) return res.status(403).json({ error: 'Sin permisos' });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+  const b = req.body || {};
+  try {
+    if (b.is_default === true) {
+      await pool.query(`UPDATE entangled_providers SET is_default = false WHERE id <> $1`, [id]);
+    }
+    const r = await pool.query(
+      `UPDATE entangled_providers SET
+         name = COALESCE($1, name),
+         code = COALESCE($2, code),
+         tipo_cambio_usd = COALESCE($3, tipo_cambio_usd),
+         tipo_cambio_rmb = COALESCE($4, tipo_cambio_rmb),
+         porcentaje_compra = COALESCE($5, porcentaje_compra),
+         bank_accounts = COALESCE($6::jsonb, bank_accounts),
+         notes = COALESCE($7, notes),
+         is_active = COALESCE($8, is_active),
+         is_default = COALESCE($9, is_default),
+         sort_order = COALESCE($10, sort_order),
+         updated_at = NOW()
+       WHERE id = $11 RETURNING *`,
+      [
+        b.name ?? null,
+        b.code ?? null,
+        b.tipo_cambio_usd !== undefined ? Number(b.tipo_cambio_usd) : null,
+        b.tipo_cambio_rmb !== undefined ? Number(b.tipo_cambio_rmb) : null,
+        b.porcentaje_compra !== undefined ? Number(b.porcentaje_compra) : null,
+        b.bank_accounts !== undefined ? JSON.stringify(b.bank_accounts) : null,
+        b.notes ?? null,
+        b.is_active !== undefined ? !!b.is_active : null,
+        b.is_default !== undefined ? !!b.is_default : null,
+        b.sort_order !== undefined ? Number(b.sort_order) : null,
+        id,
+      ]
+    );
+    if (r.rows.length === 0) return res.status(404).json({ error: 'No encontrado' });
+    return res.json(r.rows[0]);
+  } catch (err) {
+    console.error('[ENTANGLED] updateProvider:', err);
+    return res.status(500).json({ error: 'Error al actualizar proveedor' });
+  }
+};
+
+export const deleteProvider = async (req: Request, res: Response): Promise<any> => {
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  if (!isAdminRole(req)) return res.status(403).json({ error: 'Sin permisos' });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+  try {
+    // Si tiene solicitudes, solo soft-delete
+    const used = await pool.query(
+      `SELECT 1 FROM entangled_payment_requests WHERE provider_id = $1 LIMIT 1`,
+      [id]
+    );
+    if (used.rows.length > 0) {
+      await pool.query(`UPDATE entangled_providers SET is_active = false, updated_at = NOW() WHERE id = $1`, [id]);
+      return res.json({ ok: true, soft: true });
+    }
+    await pool.query(`DELETE FROM entangled_providers WHERE id = $1`, [id]);
+    return res.json({ ok: true, soft: false });
+  } catch (err) {
+    console.error('[ENTANGLED] deleteProvider:', err);
+    return res.status(500).json({ error: 'Error al eliminar proveedor' });
   }
 };
 
@@ -858,10 +1013,12 @@ export const quotePayment = async (req: Request, res: Response): Promise<any> =>
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
   const monto = Number(req.body?.monto ?? req.query?.monto);
   const divisa = String(req.body?.divisa ?? req.query?.divisa ?? '').toUpperCase();
+  const providerIdRaw = req.body?.provider_id ?? req.query?.provider_id;
+  const providerId = providerIdRaw ? Number(providerIdRaw) : null;
   if (!monto || monto <= 0) return res.status(400).json({ error: 'monto inválido' });
   if (!['USD', 'RMB'].includes(divisa)) return res.status(400).json({ error: 'divisa debe ser USD o RMB' });
   try {
-    const q = await computeQuote(monto, divisa, userId);
+    const q = await computeQuote(monto, divisa, userId, providerId);
     return res.json({ monto, divisa, ...q });
   } catch (err) {
     console.error('[ENTANGLED] quotePayment:', err);

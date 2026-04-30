@@ -84,8 +84,28 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [benefAba, setBenefAba] = useState('');
   const [benefAlias, setBenefAlias] = useState('');
 
-  // Pricing / quote
-  const [pricing, setPricing] = useState<{ tipo_cambio_usd: number; tipo_cambio_rmb: number; porcentaje_compra: number } | null>(null);
+  // Pricing / quote — ahora viene de proveedores ENTANGLED
+  type EntProviderPub = {
+    id: number;
+    name: string;
+    code: string | null;
+    tipo_cambio_usd: number | string;
+    tipo_cambio_rmb: number | string;
+    porcentaje_compra: number | string;
+    bank_accounts: Array<{ currency: string; bank: string; holder: string; account: string; clabe: string; reference: string }>;
+    is_default: boolean;
+  };
+  const [providers, setProviders] = useState<EntProviderPub[]>([]);
+  const [selectedProviderId, setSelectedProviderId] = useState<number | null>(null);
+  const pricing = (() => {
+    const p = providers.find(x => x.id === selectedProviderId);
+    if (!p) return null;
+    return {
+      tipo_cambio_usd: Number(p.tipo_cambio_usd),
+      tipo_cambio_rmb: Number(p.tipo_cambio_rmb),
+      porcentaje_compra: Number(p.porcentaje_compra),
+    };
+  })();
 
   const authHeaders = { Authorization: `Bearer ${token}` };
 
@@ -112,17 +132,14 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
   const loadPricing = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/entangled/pricing`, { headers: authHeaders });
+      const res = await fetch(`${API_URL}/api/entangled/providers`, { headers: authHeaders });
       const data = await res.json();
-      if (data) {
-        setPricing({
-          tipo_cambio_usd: Number(data.tipo_cambio_usd),
-          tipo_cambio_rmb: Number(data.tipo_cambio_rmb),
-          porcentaje_compra: Number(data.porcentaje_compra),
-        });
-      }
+      const list: EntProviderPub[] = Array.isArray(data) ? data : [];
+      setProviders(list);
+      const def = list.find(x => x.is_default) || list[0] || null;
+      if (def && !selectedProviderId) setSelectedProviderId(def.id);
     } catch {}
-  }, [token]);
+  }, [token, selectedProviderId]);
 
   const loadFiscalProfile = useCallback(async () => {
     try {
@@ -200,6 +217,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       Alert.alert('Faltan datos', 'Completa beneficiario, número de cuenta y banco del proveedor de envío');
       return;
     }
+    if (!selectedProviderId) {
+      Alert.alert('Falta proveedor', 'Selecciona un proveedor ENTANGLED');
+      return;
+    }
     if (divisa === 'RMB' && !benefNameZh) {
       Alert.alert('Faltan datos', 'Para envíos en RMB se requiere el nombre del beneficiario en chino');
       return;
@@ -235,6 +256,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
       const payload: any = {
         requiere_factura: requiereFactura,
+        provider_id: selectedProviderId,
         operacion: {
           montos: parseFloat(monto),
           divisa_destino: divisa,
@@ -414,9 +436,6 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         <Text style={styles.label}>Número de cuenta *</Text>
         <TextInput style={styles.input} value={benefAccount} onChangeText={setBenefAccount} />
 
-        <Text style={styles.label}>IBAN (opcional)</Text>
-        <TextInput style={styles.input} value={benefIban} onChangeText={setBenefIban} autoCapitalize="characters" />
-
         <Text style={styles.label}>Banco *</Text>
         <TextInput style={styles.input} value={benefBankName} onChangeText={setBenefBankName} />
 
@@ -450,6 +469,27 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
         {/* Monto y divisa */}
         <Text style={[styles.sectionTitle, { fontSize: 14, marginTop: 16 }]}>💵 Monto a enviar</Text>
+
+        <Text style={styles.label}>Proveedor ENTANGLED</Text>
+        {providers.length === 0 ? (
+          <Text style={{ color: '#b91c1c', fontSize: 12, marginBottom: 8 }}>
+            No hay proveedores activos configurados.
+          </Text>
+        ) : (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
+            {providers.map(p => (
+              <TouchableOpacity
+                key={p.id}
+                style={[styles.chip, selectedProviderId === p.id && styles.chipActive]}
+                onPress={() => setSelectedProviderId(p.id)}
+              >
+                <Text style={[styles.chipText, selectedProviderId === p.id && styles.chipTextActive]}>
+                  {p.name}{p.is_default ? ' ★' : ''} · {Number(p.porcentaje_compra).toFixed(2)}%
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
         <Text style={styles.label}>{t('entangled.fields.amount')}</Text>
         <TextInput style={styles.input} value={monto} onChangeText={setMonto} keyboardType="decimal-pad" placeholder="0.00" />

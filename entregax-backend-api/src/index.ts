@@ -245,6 +245,11 @@ import {
   listUserPricing as listEntangledUserPricing,
   upsertUserPricing as upsertEntangledUserPricing,
   deleteUserPricing as deleteEntangledUserPricing,
+  listProviders as listEntangledProviders,
+  listActiveProvidersPublic as listEntangledProvidersPublic,
+  createProvider as createEntangledProvider,
+  updateProvider as updateEntangledProvider,
+  deleteProvider as deleteEntangledProvider,
 } from './entangledController';
 import {
   getLogisticsServices,
@@ -3278,6 +3283,12 @@ app.post('/api/entangled/quote', authenticateToken, quoteEntangledPayment);
 app.get('/api/admin/entangled/user-pricing', authenticateToken, requireMinLevel(ROLES.DIRECTOR), listEntangledUserPricing);
 app.put('/api/admin/entangled/user-pricing/:userId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), upsertEntangledUserPricing);
 app.delete('/api/admin/entangled/user-pricing/:userId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteEntangledUserPricing);
+// Proveedores ENTANGLED — CRUD admin + listado público para clientes
+app.get('/api/entangled/providers', authenticateToken, listEntangledProvidersPublic);
+app.get('/api/admin/entangled/providers', authenticateToken, requireMinLevel(ROLES.DIRECTOR), listEntangledProviders);
+app.post('/api/admin/entangled/providers', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createEntangledProvider);
+app.put('/api/admin/entangled/providers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateEntangledProvider);
+app.delete('/api/admin/entangled/providers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteEntangledProvider);
 // Subida diferida de comprobante
 app.post('/api/entangled/payment-requests/:id/upload-proof', authenticateToken, uploadEntangledProof);
 // Webhooks públicos (verifican HMAC con ENTANGLED_WEBHOOK_SECRET)
