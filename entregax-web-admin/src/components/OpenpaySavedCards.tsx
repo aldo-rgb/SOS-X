@@ -98,17 +98,21 @@ const OpenpaySavedCards: React.FC<Props> = ({ service = 'aereo', onSelectionChan
       setLoading(true);
       setError(null);
       try {
-        const [pkRes, cardsRes] = await Promise.all([
+        const [pkRes, cardsRes] = await Promise.allSettled([
           api.get(`/payments/openpay/public-key?service=${service}`),
           api.get(`/payments/openpay/cards?service=${service}`),
         ]);
         if (!mounted) return;
-        if (pkRes.data?.success) {
-          setMerchantId(pkRes.data.merchantId);
-          setPublicKey(pkRes.data.publicKey);
-          setSandbox(!!pkRes.data.sandbox);
+        // public key (necesaria para tokenizar tarjeta nueva)
+        if (pkRes.status === 'fulfilled' && pkRes.value.data?.success) {
+          setMerchantId(pkRes.value.data.merchantId);
+          setPublicKey(pkRes.value.data.publicKey);
+          setSandbox(!!pkRes.value.data.sandbox);
+        } else if (pkRes.status === 'rejected') {
+          console.warn('Openpay public-key error:', (pkRes.reason as any)?.response?.data || (pkRes.reason as any)?.message);
         }
-        const list: OpenpaySavedCard[] = cardsRes.data?.cards || [];
+        // tarjetas guardadas (no fatal: si falla seguimos con form de nueva tarjeta)
+        const list: OpenpaySavedCard[] = cardsRes.status === 'fulfilled' ? (cardsRes.value.data?.cards || []) : [];
         setCards(list);
         if (list.length > 0) {
           setMode('saved');
@@ -116,9 +120,14 @@ const OpenpaySavedCards: React.FC<Props> = ({ service = 'aereo', onSelectionChan
         } else {
           setMode('new');
         }
+        if (cardsRes.status === 'rejected') {
+          console.warn('Openpay cards list error:', (cardsRes.reason as any)?.response?.data || (cardsRes.reason as any)?.message);
+        }
       } catch (e: any) {
         if (!mounted) return;
-        setError(e.response?.data?.error || e.message);
+        // Solo log; no bloqueamos el form de nueva tarjeta.
+        console.warn('OpenpaySavedCards init error:', e?.response?.data || e?.message);
+        setMode('new');
       } finally {
         if (mounted) setLoading(false);
       }

@@ -146,7 +146,16 @@ export const listSavedCards = async (req: AuthRequest, res: Response): Promise<a
     if (!userId) return res.status(401).json({ success: false, error: 'No autenticado' });
     const service = ((req.query.service as ServiceType) || 'aereo') as ServiceType;
 
-    const ctx = await ensureOpenpayCustomer(userId, service);
+    let ctx;
+    try {
+      ctx = await ensureOpenpayCustomer(userId, service);
+    } catch (e: any) {
+      // Si aún no se pudo crear/asegurar el customer, devolvemos lista vacía
+      // para que el cliente pueda añadir una tarjeta nueva sin ver "Error interno".
+      console.warn('⚠️ listSavedCards: ensureOpenpayCustomer falló, devolviendo lista vacía:', e?.response?.data || e?.message || e);
+      return res.json({ success: true, cards: [], customerPending: true });
+    }
+
     const r = await axios.get(
       `${baseUrl(ctx.isSandbox)}/${ctx.merchantId}/customers/${ctx.customerId}/cards?limit=20`,
       auth(ctx.privateKey)
@@ -169,10 +178,13 @@ export const listSavedCards = async (req: AuthRequest, res: Response): Promise<a
 
     return res.json({ success: true, cards });
   } catch (error: any) {
+    // Cualquier otro error: log completo en backend, lista vacía al cliente
+    // para no bloquear el flujo de "pagar con tarjeta nueva".
     console.error('❌ listSavedCards:', error.response?.data || error.message);
-    return res.status(500).json({
-      success: false,
-      error: error.response?.data?.description || error.message,
+    return res.json({
+      success: true,
+      cards: [],
+      warning: error.response?.data?.description || error.message || 'No se pudieron listar tarjetas guardadas',
     });
   }
 };
