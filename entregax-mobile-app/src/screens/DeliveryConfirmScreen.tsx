@@ -122,6 +122,14 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   const [showCarrierGuideCamera, setShowCarrierGuideCamera] = useState(false);
   const [isCarrierGuideScanning, setIsCarrierGuideScanning] = useState(false);
   
+  // Para entrega múltiple (Paquete Express)
+  const [isBulkDelivery, setIsBulkDelivery] = useState(false);
+  const [scannedPackages, setScannedPackages] = useState<Array<{packageId: string, internalGuide: string, carrierGuide: string}>>([]);
+  const [currentScanStep, setCurrentScanStep] = useState<'internal' | 'carrier'>('internal');
+  const [tempInternalGuide, setTempInternalGuide] = useState('');
+  const [tempCarrierGuide, setTempCarrierGuide] = useState('');
+  const [deliveryTypeAsked, setDeliveryTypeAsked] = useState(false);
+  
   const [permission, requestPermission] = useCameraPermissions();
   const signatureRef = useRef<any>(null);
   const feedbackOpacity = useRef(new Animated.Value(0)).current;
@@ -139,8 +147,36 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     ]).start(() => setFeedback(null));
   };
 
+  // Preguntar tipo de entrega al iniciar
   useEffect(() => {
-    if (currentStep === 'scan' && !route?.params?.scanMode && !hasAskedModeRef.current) {
+    if (!deliveryTypeAsked && !preSelectedPackage) {
+      setDeliveryTypeAsked(true);
+      Alert.alert(
+        'Tipo de Entrega',
+        '¿Es una entrega individual o múltiple?',
+        [
+          {
+            text: 'Individual',
+            onPress: () => {
+              setIsBulkDelivery(false);
+              setCurrentStep('scan');
+            }
+          },
+          {
+            text: 'Múltiple (Paquete Express)',
+            onPress: () => {
+              setIsBulkDelivery(true);
+              setCurrentStep('scan');
+            }
+          }
+        ],
+        { cancelable: false }
+      );
+    }
+  }, [deliveryTypeAsked, preSelectedPackage]);
+
+  useEffect(() => {
+    if (currentStep === 'scan' && !route?.params?.scanMode && !hasAskedModeRef.current && !isBulkDelivery) {
       hasAskedModeRef.current = true;
       Alert.alert(
         'Selecciona método de captura',
@@ -152,6 +188,15 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       );
     }
   }, [currentStep, route?.params?.scanMode]);
+
+  // Detectar si es entrega multi-caja (con guías hijas o múltiples piezas)
+  useEffect(() => {
+    if (packageInfo && (packageInfo as any).child_guides || (packageInfo as any).has_children || (packageInfo as any).total_pieces && (packageInfo as any).total_pieces > 1) {
+      setIsBulkDelivery(true);
+    } else {
+      setIsBulkDelivery(false);
+    }
+  }, [packageInfo]);
 
   useEffect(() => {
     if (currentStep !== 'scan') return;
@@ -184,6 +229,57 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     if (!data || isScanning) return;
     if (source === 'camera' && (!scannerActive || data === lastScannedCode)) return;
 
+    // Modo múltiple (Paquete Express)
+    if (isBulkDelivery) {
+      setIsScanning(true);
+      if (source === 'camera') setScannerActive(false);
+      setLastScannedCode(data);
+
+      try {
+        if (currentScanStep === 'internal') {
+          // Escanear guía interna
+          setTempInternalGuide(data);
+          setCurrentScanStep('carrier');
+          Vibration.vibrate(50);
+          showFeedback({
+            type: 'success',
+            message: 'Guía interna guardada. Escanea la guía de Paquete Express.',
+          });
+          setManualCode('');
+        } else {
+          // Escanear guía Paquete Express
+          const newPackage = {
+            packageId: `${scannedPackages.length + 1}`,
+            internalGuide: tempInternalGuide,
+            carrierGuide: data,
+          };
+          setScannedPackages([...scannedPackages, newPackage]);
+          setTempInternalGuide('');
+          setCurrentScanStep('internal');
+          Vibration.vibrate(100);
+          showFeedback({
+            type: 'success',
+            message: `Caja ${scannedPackages.length + 1} registrada. Siguiente caja...`,
+          });
+          setManualCode('');
+        }
+      } catch (error: any) {
+        Vibration.vibrate([0, 200, 100, 200]);
+        showFeedback({
+          type: 'error',
+          message: 'Error al escanear. Intenta nuevamente.',
+        });
+      } finally {
+        setTimeout(() => {
+          setIsScanning(false);
+          if (source === 'camera') setScannerActive(true);
+          setLastScannedCode('');
+        }, source === 'camera' ? 1500 : 500);
+      }
+      return;
+    }
+
+    // Modo individual (flujo normal)
     setIsScanning(true);
     if (source === 'camera') setScannerActive(false);
     setLastScannedCode(data);
@@ -215,7 +311,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         setLastScannedCode('');
       }, source === 'camera' ? 1500 : 500);
     }
-  }, [scannerActive, isScanning, lastScannedCode, token]);
+  }, [scannerActive, isScanning, lastScannedCode, token, isBulkDelivery, currentScanStep, tempInternalGuide, scannedPackages]);
 
   const handleBarCodeScanned = useCallback(async (result: BarcodeScanningResult) => {
     await processScanCode(result.data, 'camera');
@@ -417,6 +513,11 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
   // Renderizar paso actual
   const renderStep = () => {
+    // Si es modo múltiple, solo mostrar escaneo
+    if (isBulkDelivery && currentStep === 'scan') {
+      return renderBulkScanStep();
+    }
+
     switch (currentStep) {
       case 'scan':
         return renderScanStep();
@@ -510,6 +611,128 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
               )}
             </TouchableOpacity>
           </View>
+        )}
+      </View>
+    );
+  };
+
+  const renderBulkScanStep = () => {
+    if (scanMode === 'camera' && !permission?.granted) {
+      return (
+        <View style={styles.centerContent}>
+          <MaterialIcons name="camera-alt" size={64} color="#ccc" />
+          <Text style={styles.permissionTitle}>Permiso de Cámara Requerido</Text>
+          <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
+            <Text style={styles.permissionButtonText}>Otorgar Permiso</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    const instruction = currentScanStep === 'internal' 
+      ? `Escanea Guía Interna (Caja ${scannedPackages.length + 1})`
+      : `Escanea Guía Paquete Express (Caja ${scannedPackages.length + 1})`;
+
+    return (
+      <View style={styles.stepContent}>
+        {/* Resumen de cajas escaneadas */}
+        {scannedPackages.length > 0 && (
+          <View style={styles.bulkSummaryBox}>
+            <Text style={styles.bulkSummaryTitle}>Cajas Registradas: {scannedPackages.length}</Text>
+            <ScrollView style={{ maxHeight: 150 }} showsVerticalScrollIndicator={true}>
+              {scannedPackages.map((pkg, idx) => (
+                <View key={idx} style={styles.bulkPackageItem}>
+                  <Text style={styles.bulkPackageIndex}>Caja {idx + 1}:</Text>
+                  <Text style={styles.bulkPackageCode}>{pkg.internalGuide}</Text>
+                  {pkg.carrierGuide && (
+                    <Text style={styles.bulkPackageCode}>{pkg.carrierGuide}</Text>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+
+        {scanMode === 'camera' ? (
+          <>
+            <View style={styles.scannerWrapper}>
+              <CameraView
+                style={styles.scanner}
+                barcodeScannerSettings={{
+                  barcodeTypes: ['code128', 'code39', 'qr', 'ean13', 'ean8'],
+                }}
+                onBarcodeScanned={scannerActive ? handleBarCodeScanned : undefined}
+              />
+              <View style={styles.scannerOverlay}>
+                <View style={styles.scannerFrame}>
+                  <View style={[styles.corner, styles.topLeft]} />
+                  <View style={[styles.corner, styles.topRight]} />
+                  <View style={[styles.corner, styles.bottomLeft]} />
+                  <View style={[styles.corner, styles.bottomRight]} />
+                </View>
+              </View>
+              {isScanning && (
+                <View style={styles.scanningIndicator}>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={styles.scanningText}>Verificando...</Text>
+                </View>
+              )}
+            </View>
+            <Text style={styles.helperText}>📷 {instruction}</Text>
+          </>
+        ) : (
+          <View style={styles.scannerInputCard}>
+            <MaterialIcons name="qr-code-scanner" size={52} color="#F05A28" />
+            <Text style={styles.scannerInputTitle}>{instruction}</Text>
+            <Text style={styles.scannerInputSubtitle}>
+              {currentScanStep === 'carrier' ? 'Escanea con el lector externo o escribe manualmente.' : 'Usa lector externo o escribe manualmente.'}
+            </Text>
+            <TextInput
+              ref={manualInputRef}
+              style={styles.scannerInput}
+              placeholder={`${currentScanStep === 'internal' ? 'Guía Interna' : 'Guía Paquete Express'}`}
+              value={manualCode}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              returnKeyType="send"
+              autoFocus
+              showSoftInputOnFocus={false}
+              caretHidden={true}
+              blurOnSubmit={false}
+              onChangeText={setManualCode}
+              onSubmitEditing={handleManualSubmit}
+            />
+            <TouchableOpacity
+              style={[styles.manualSubmitButton, isScanning && styles.buttonDisabled]}
+              onPress={handleManualSubmit}
+              disabled={isScanning}
+            >
+              {isScanning ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <MaterialIcons name="check-circle" size={20} color="#fff" />
+                  <Text style={styles.manualSubmitText}>Validar código</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Botón para terminar de escanear cajas */}
+        {scannedPackages.length > 0 && (
+          <TouchableOpacity
+            style={styles.finishBulkButton}
+            onPress={() => {
+              // Pasar a capturar foto
+              setCurrentStep('photo');
+            }}
+          >
+            <MaterialIcons name="done-all" size={20} color="#fff" />
+            <Text style={styles.finishBulkButtonText}>
+              Terminar Escaneo ({scannedPackages.length} cajas)
+            </Text>
+          </TouchableOpacity>
         )}
       </View>
     );
@@ -833,24 +1056,50 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         </TouchableOpacity>
         <View style={styles.headerTitle}>
           <Text style={styles.title}>Confirmar Entrega 📦</Text>
-          <Text style={styles.subtitle}>Paso {getStepNumber()} de 4</Text>
+          <Text style={styles.subtitle}>
+            {isBulkDelivery ? `Entrega Múltiple - Caja ${scannedPackages.length + 1}` : `Paso ${getStepNumber()} de 4`}
+          </Text>
         </View>
-        {currentStep === 'scan' && (
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {currentStep === 'scan' && (
+            <TouchableOpacity
+              style={styles.modeButton}
+              onPress={() => Alert.alert(
+                'Selecciona método de captura',
+                '¿Deseas usar escáner o cámara?',
+                [
+                  { text: 'Escáner', onPress: () => setScanMode('scanner') },
+                  { text: 'Cámara', onPress: () => setScanMode('camera') },
+                  { text: 'Cancelar', style: 'cancel' },
+                ]
+              )}
+            >
+              <MaterialIcons name={scanMode === 'camera' ? 'photo-camera' : 'qr-code-scanner'} size={22} color="#F05A28" />
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
-            style={styles.modeButton}
-            onPress={() => Alert.alert(
-              'Selecciona método de captura',
-              '¿Deseas usar escáner o cámara?',
-              [
-                { text: 'Escáner', onPress: () => setScanMode('scanner') },
-                { text: 'Cámara', onPress: () => setScanMode('camera') },
-                { text: 'Cancelar', style: 'cancel' },
-              ]
-            )}
+            style={[styles.modeButton, { backgroundColor: isBulkDelivery ? '#FF6B6B' : '#E8E8E8' }]}
+            onPress={() => {
+              if (isBulkDelivery) {
+                // Si ya está en modo múltiple, cancelar
+                setIsBulkDelivery(false);
+                setScannedPackages([]);
+                setCurrentScanStep('internal');
+                setTempInternalGuide('');
+                setTempCarrierGuide('');
+              } else {
+                // Cambiar a modo múltiple
+                setIsBulkDelivery(true);
+              }
+            }}
           >
-            <MaterialIcons name={scanMode === 'camera' ? 'photo-camera' : 'qr-code-scanner'} size={22} color="#F05A28" />
+            <MaterialIcons 
+              name={isBulkDelivery ? 'done-all' : 'inbox'} 
+              size={22} 
+              color={isBulkDelivery ? '#FFF' : '#666'} 
+            />
           </TouchableOpacity>
-        )}
+        </View>
       </View>
 
       {/* Progress dots */}
@@ -1411,5 +1660,52 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginLeft: 10,
+  },
+  
+  // Bulk delivery
+  bulkSummaryBox: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 15,
+    borderLeftWidth: 4,
+    borderLeftColor: '#FF6B6B',
+  },
+  bulkSummaryTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#FF6B6B',
+    marginBottom: 10,
+  },
+  bulkPackageItem: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  bulkPackageIndex: {
+    fontSize: 12,
+    color: '#666',
+    fontWeight: '600',
+  },
+  bulkPackageCode: {
+    fontSize: 13,
+    color: '#333',
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  finishBulkButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#4CAF50',
+    padding: 15,
+    borderRadius: 10,
+    marginTop: 15,
+    gap: 8,
+  },
+  finishBulkButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });
