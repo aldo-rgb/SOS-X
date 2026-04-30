@@ -235,24 +235,6 @@ interface AuthUser {
   verificationStatus?: string;
 }
 
-interface DashboardStats {
-  users: {
-    total: number;
-    clients: number;
-    staff: number;
-    newThisWeek: number;
-  };
-  packages: {
-    inTransit: number;
-    deliveredToday: number;
-    pendingPickup: number;
-  };
-  revenue: {
-    monthly: number;
-    currency: string;
-  };
-}
-
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 
 function App() {
@@ -742,23 +724,6 @@ function App() {
     }
   };
 
-  const fetchDashboardStats = async () => {
-    setStatsLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/dashboard/summary`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      if (response.data.success) {
-        setDashboardStats(response.data.data);
-      }
-    } catch (error) {
-      console.error('Error al cargar estadísticas:', error);
-    } finally {
-      setStatsLoading(false);
-    }
-  };
-
   const fetchPendingVerifications = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -776,9 +741,6 @@ function App() {
   // Roles que pueden ver la lista de usuarios
   const canFetchUsers = currentUser?.role && ['super_admin', 'Super Admin', 'branch_manager', 'Branch Manager', 'admin', 'Admin', 'director', 'Director'].includes(currentUser.role);
   
-  // Roles que pueden ver el dashboard summary
-  const canFetchDashboard = currentUser?.role && ['super_admin', 'Super Admin', 'admin', 'Admin', 'director', 'Director', 'branch_manager', 'Branch Manager', 'customer_service', 'Customer Service', 'operaciones', 'Operaciones', 'counter_staff', 'Counter Staff', 'warehouse_ops', 'Warehouse Ops'].includes(currentUser.role);
-
   useEffect(() => {
     if (isAuthenticated && currentUser) {
       // Solo cargar usuarios si el rol tiene permisos
@@ -786,12 +748,6 @@ function App() {
         fetchUsers();
       } else {
         setLoading(false); // No intentar cargar, marcar como terminado
-      }
-      // Solo cargar dashboard si el rol tiene permisos
-      if (canFetchDashboard) {
-        fetchDashboardStats();
-      } else {
-        setStatsLoading(false);
       }
       // Verificaciones pendientes (solo roles con acceso al endpoint)
       const canFetchVerifications = ['super_admin', 'Super Admin', 'admin', 'Admin', 'director', 'Director'].includes(currentUser.role);

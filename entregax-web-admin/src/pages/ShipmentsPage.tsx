@@ -87,6 +87,7 @@ interface PackageLabel {
   destinationCountry?: string;
   carrier?: string;
   receivedAt?: string;
+  receptionHours?: string;
 }
 
 interface User {
@@ -1291,6 +1292,9 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           <div class="client-box">${label.clientBoxId}</div>
         </div>
         
+        <!-- Horario de entrega para entregas locales -->
+        ${label.receptionHours ? `<div class="reception-hours">📅 ${label.receptionHours}</div>` : ''}
+        
         <!-- Detalles -->
         <div class="details">
           ${label.weight ? `<span class="detail-item">⚖️ ${Number(label.weight).toFixed(2)} kg</span>` : ''}
@@ -1401,6 +1405,16 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           line-height: 1;
         }
         .client-name { font-size: 14px; font-weight: bold; margin-top: 2px; }
+        .reception-hours { 
+          font-size: 11px; 
+          font-weight: bold;
+          color: #111;
+          background: #FFF3E0;
+          padding: 3px 6px;
+          border: 1px solid #F05A28;
+          border-radius: 4px;
+          margin: 3px auto;
+        }
         
         .details { 
           text-align: center; 
