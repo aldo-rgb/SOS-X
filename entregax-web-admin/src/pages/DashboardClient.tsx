@@ -6478,6 +6478,11 @@ export default function DashboardClient() {
                                     Ref: {addr.reference}
                                   </Typography>
                                 )}
+                                {addr.reception_hours && (
+                                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                    🕐 {addr.reception_hours}
+                                  </Typography>
+                                )}
                                 {/* Servicios asignados con paquetería */}
                                 {addr.default_for_service && (
                                   <Box sx={{ display: 'flex', gap: 0.5, mt: 1, flexWrap: 'wrap' }}>
