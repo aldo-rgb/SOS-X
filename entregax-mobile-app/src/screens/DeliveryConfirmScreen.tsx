@@ -467,6 +467,54 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   };
 
   const handleConfirmDelivery = async () => {
+    // Modo múltiple
+    if (isBulkDelivery) {
+      if (!photo) {
+        Alert.alert('Foto requerida', 'Debes tomar una foto antes de confirmar la entrega múltiple.');
+        return;
+      }
+
+      setLoading(true);
+      try {
+        // Confirmar cada caja
+        for (const pkg of scannedPackages) {
+          const res = await api.post('/api/driver/confirm-delivery', {
+            internalGuide: pkg.internalGuide,
+            carrierGuide: pkg.carrierGuide,
+            photoBase64: photo,
+            notes: notes,
+          }, {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          });
+
+          if (!res.data.success) {
+            throw new Error(`Error confirmando caja ${pkg.packageId}`);
+          }
+        }
+
+        Vibration.vibrate(100);
+        Alert.alert(
+          '✅ Entrega Múltiple Confirmada',
+          `${scannedPackages.length} cajas entregadas exitosamente.`,
+          [{ text: 'OK', onPress: () => {
+            // Resetear estado
+            setIsBulkDelivery(false);
+            setScannedPackages([]);
+            setCurrentScanStep('internal');
+            setPhoto('');
+            setNotes('');
+            navigation.goBack();
+          }}]
+        );
+      } catch (error: any) {
+        Alert.alert('Error', error.response?.data?.error || error.message || 'No se pudo confirmar la entrega');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Modo individual (flujo normal)
     if (!packageInfo) return;
 
     const trimmedRecipientName = recipientName.trim();
@@ -513,9 +561,12 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
   // Renderizar paso actual
   const renderStep = () => {
-    // Si es modo múltiple, solo mostrar escaneo
+    // Si es modo múltiple, usar flujo especial
     if (isBulkDelivery && currentStep === 'scan') {
       return renderBulkScanStep();
+    }
+    if (isBulkDelivery && currentStep === 'confirm') {
+      return renderBulkConfirmStep();
     }
 
     switch (currentStep) {
@@ -899,7 +950,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         <MaterialIcons name="photo-camera" size={80} color="#F05A28" />
         <Text style={styles.photoTitle}>📸 Foto de Evidencia</Text>
         <Text style={styles.photoSubtitle}>
-          Toma una foto del paquete entregado o del recibo
+          {isBulkDelivery ? 'Toma una foto de las cajas entregadas' : 'Toma una foto del paquete entregado o del recibo'}
         </Text>
 
         {photo ? (
@@ -940,12 +991,14 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       </View>
 
       <View style={styles.photoActions}>
-        <TouchableOpacity 
-          style={styles.skipButton}
-          onPress={handleSkipPhoto}
-        >
-          <Text style={styles.skipButtonText}>Omitir foto</Text>
-        </TouchableOpacity>
+        {!isBulkDelivery && (
+          <TouchableOpacity 
+            style={styles.skipButton}
+            onPress={handleSkipPhoto}
+          >
+            <Text style={styles.skipButtonText}>Omitir foto</Text>
+          </TouchableOpacity>
+        )}
 
         {photo && (
           <TouchableOpacity 
@@ -1031,6 +1084,115 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       <TouchableOpacity 
         style={styles.cancelButton}
         onPress={() => navigation.goBack()}
+      >
+        <Text style={styles.cancelButtonText}>Cancelar</Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+
+  const renderBulkConfirmStep = () => (
+    <ScrollView style={styles.stepContent}>
+      <Text style={styles.confirmTitle}>Confirmar Entrega de {scannedPackages.length} Cajas</Text>
+      
+      {/* Resumen de cajas */}
+      <View style={styles.summaryBox}>
+        <Text style={[styles.summaryLabel, { fontSize: 16, fontWeight: 'bold', marginBottom: 10 }]}>
+          Cajas Registradas:
+        </Text>
+        {scannedPackages.map((pkg, idx) => (
+          <View key={idx} style={styles.summaryRow}>
+            <Text style={[styles.summaryLabel, { fontWeight: 'bold' }]}>Caja {idx + 1}:</Text>
+            <View style={{ flex: 1, alignItems: 'flex-end' }}>
+              <Text style={[styles.summaryValue, { fontSize: 12 }]}>{pkg.internalGuide}</Text>
+              <Text style={[styles.summaryValue, { fontSize: 12 }]}>{pkg.carrierGuide}</Text>
+            </View>
+          </View>
+        ))}
+      </View>
+
+      {/* Foto */}
+      <View style={styles.photoSection}>
+        <MaterialIcons name="photo-camera" size={80} color="#F05A28" />
+        <Text style={styles.photoTitle}>📸 Foto de Evidencia</Text>
+        <Text style={styles.photoSubtitle}>
+          Toma una foto de las cajas entregadas
+        </Text>
+
+        {photo ? (
+          <View style={styles.photoPreviewContainer}>
+            <Image source={{ uri: photo }} style={styles.photoPreview} />
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+              <TouchableOpacity 
+                style={styles.retakeButton}
+                onPress={handleTakePhoto}
+              >
+                <MaterialIcons name="refresh" size={20} color="#F05A28" />
+                <Text style={styles.retakeText}>Volver a tomar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.retakeButton, { borderColor: '#2196F3' }]}
+                onPress={handlePickFromGallery}
+              >
+                <MaterialIcons name="photo-library" size={20} color="#2196F3" />
+                <Text style={[styles.retakeText, { color: '#2196F3' }]}>Galería</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : (
+          <View style={{ gap: 12, alignItems: 'center', width: '100%' }}>
+            <TouchableOpacity style={styles.takePhotoButton} onPress={handleTakePhoto}>
+              <MaterialIcons name="camera-alt" size={32} color="#fff" />
+              <Text style={styles.takePhotoText}>Tomar Foto</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.takePhotoButton, { backgroundColor: '#2196F3' }]}
+              onPress={handlePickFromGallery}
+            >
+              <MaterialIcons name="photo-library" size={32} color="#fff" />
+              <Text style={styles.takePhotoText}>Seleccionar de Galería</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </View>
+
+      {/* Notas adicionales */}
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Notas adicionales (opcional):</Text>
+        <TextInput
+          style={[styles.input, styles.inputMultiline]}
+          value={notes}
+          onChangeText={setNotes}
+          placeholder="Ej: Entregado en mostrador"
+          multiline
+          numberOfLines={3}
+        />
+      </View>
+
+      {/* Botón confirmar */}
+      <TouchableOpacity 
+        style={[styles.confirmButton, (loading || !photo) && styles.buttonDisabled]}
+        onPress={handleConfirmDelivery}
+        disabled={loading || !photo}
+      >
+        {loading ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <>
+            <MaterialIcons name="check-circle" size={24} color="#fff" />
+            <Text style={styles.confirmButtonText}>CONFIRMAR {scannedPackages.length} CAJAS</Text>
+          </>
+        )}
+      </TouchableOpacity>
+
+      {/* Botón cancelar */}
+      <TouchableOpacity 
+        style={styles.cancelButton}
+        onPress={() => {
+          setIsBulkDelivery(false);
+          setScannedPackages([]);
+          setCurrentScanStep('internal');
+          setCurrentStep('scan');
+        }}
       >
         <Text style={styles.cancelButtonText}>Cancelar</Text>
       </TouchableOpacity>
