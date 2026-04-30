@@ -74,11 +74,18 @@ const normalizeScanCode = (rawCode: string): string => {
     .replace(/\s+/g, '')
     .toUpperCase();
 
-  const canonicalTracking = code.match(/[A-Z]{2,}-[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})*/);
+  // Preservar códigos que ya tienen formato XX-XXXXX... (guías internas)
+  const canonicalTracking = code.match(/^[A-Z]{2,}-[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})*$/);
   if (canonicalTracking?.[0]) {
     return canonicalTracking[0];
   }
 
+  // Preservar códigos alfanuméricos largos (guías Paquete Express de 20 dígitos)
+  if (/^[A-Z0-9]{14,}$/.test(code)) {
+    return code;
+  }
+
+  // Intentar convertir formato compacto XX0000... a XX-0000...
   const compactTrackingDigits = code.match(/^([A-Z]{2,})(\d{4,})$/);
   if (compactTrackingDigits?.[0]) {
     return `${compactTrackingDigits[1]}-${compactTrackingDigits[2]}`;
@@ -89,12 +96,21 @@ const normalizeScanCode = (rawCode: string): string => {
 
 // Función para extraer guía master y números extra de una guía múltiple
 const extractMasterGuide = (scannedCode: string): { masterGuide: string; extraNumbers: string } => {
+  // Las guías de Paquete Express pueden ser:
+  // - 14 dígitos: ej. XXXXXXXXXXXXX
+  // - 20 dígitos: ej. MTY01WE0A18289004003 (14 base + 6 extra)
   // Detecta patrones como: MTY01WE0A18289004003
-  // Donde MTY01WE0A18289 es la guía master y 004003 son números extra
-  const match = scannedCode.match(/^([A-Z0-9]+?)(\d{6})$/);
+  // Donde MTY01WE0A18289 (14 chars) es la guía master y 004003 (6 digits) son números extra
+  const match = scannedCode.match(/^([A-Z0-9]{14})(\d{6})$/);
   if (match) {
     return { masterGuide: match[1], extraNumbers: match[2] };
   }
+  
+  // Si tiene exactamente 14 caracteres, es una guía completa sin números extra
+  if (scannedCode.length === 14) {
+    return { masterGuide: scannedCode, extraNumbers: '' };
+  }
+  
   return { masterGuide: scannedCode, extraNumbers: '' };
 };
 
@@ -147,31 +163,14 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     ]).start(() => setFeedback(null));
   };
 
-  // Preguntar tipo de entrega al iniciar
+  // Por defecto siempre entrega individual
+  // La auto-detección cambiará a múltiple si es necesario
   useEffect(() => {
     if (!deliveryTypeAsked && !preSelectedPackage) {
       setDeliveryTypeAsked(true);
-      Alert.alert(
-        'Tipo de Entrega',
-        '¿Es una entrega individual o múltiple?',
-        [
-          {
-            text: 'Individual',
-            onPress: () => {
-              setIsBulkDelivery(false);
-              setCurrentStep('scan');
-            }
-          },
-          {
-            text: 'Múltiple (Paquete Express)',
-            onPress: () => {
-              setIsBulkDelivery(true);
-              setCurrentStep('scan');
-            }
-          }
-        ],
-        { cancelable: false }
-      );
+      // Iniciar directo en individual, sin preguntar
+      setIsBulkDelivery(false);
+      setCurrentStep('scan');
     }
   }, [deliveryTypeAsked, preSelectedPackage]);
 
@@ -189,14 +188,33 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     }
   }, [currentStep, route?.params?.scanMode]);
 
-  // Detectar si es entrega multi-caja (con guías hijas o múltiples piezas)
+  // Detectar si es entrega multi-caja (con guías hijas o asignada a Paquete Express)
   useEffect(() => {
-    if (packageInfo && (packageInfo as any).child_guides || (packageInfo as any).has_children || (packageInfo as any).total_pieces && (packageInfo as any).total_pieces > 1) {
+    if (!packageInfo || isBulkDelivery) return; // No hacer nada si ya está en bulk o si no hay paquete
+    
+    const hasChildren = (packageInfo as any).child_guides?.length > 0 || 
+                       (packageInfo as any).has_children === true ||
+                       ((packageInfo as any).total_pieces && (packageInfo as any).total_pieces > 1);
+    
+    const isCarrierService = (packageInfo as any).requires_carrier_scan === true ||
+                            (packageInfo as any).national_carrier !== null;
+    
+    // Si detectamos que es multi-caja o Paquete Express, cambiar automáticamente a bulk
+    if (hasChildren || isCarrierService) {
+      // Guardar el paquete ya escaneado como la guía interna del primer paquete
+      const scannedGuide = packageInfo.tracking_number || '';
+      setTempInternalGuide(scannedGuide);
+      setCurrentScanStep('carrier'); // Pasar directamente a escanear guía de Paquete Express
       setIsBulkDelivery(true);
-    } else {
-      setIsBulkDelivery(false);
+      setCurrentStep('scan');
+      showFeedback({
+        type: 'success',
+        message: hasChildren 
+          ? `Guía multi-caja (${scannedGuide}) detectada. Escanea guía de Paquete Express.`
+          : `Paquete Express detectado. Escanea guía ${scannedGuide === '' ? 'de Paquete Express' : 'del carrier'}.`,
+      });
     }
-  }, [packageInfo]);
+  }, [packageInfo, isBulkDelivery]);
 
   useEffect(() => {
     if (currentStep !== 'scan') return;
