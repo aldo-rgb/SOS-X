@@ -22,7 +22,6 @@ import {
   ListItemText,
   ListItemAvatar,
   Divider,
-  Badge,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -87,7 +86,7 @@ interface PendingDelivery {
 
 export default function DashboardCounterStaff() {
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<CounterStats | null>(null);
+  const [, setStats] = useState<CounterStats | null>(null);
   const [pendingDeliveries, setPendingDeliveries] = useState<PendingDelivery[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [userName, setUserName] = useState('');
