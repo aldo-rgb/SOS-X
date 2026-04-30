@@ -532,46 +532,7 @@ export default function DashboardCounterStaff() {
         </Paper>
       </Box>
 
-      {/* KPIs Principales */}
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        {/* Entregas Pendientes */}
-        <Grid size={{ xs: 6, md: 3 }}>
-          <Paper sx={{ p: 3, background: 'linear-gradient(135deg, #FF9800 0%, #FFB74D 100%)', color: 'white', textAlign: 'center' }}>
-            <Badge badgeContent={stats?.entregas.en_espera || 0} color="error" sx={{ '& .MuiBadge-badge': { fontSize: 14, height: 24, minWidth: 24 } }}>
-              <DeliveryIcon sx={{ fontSize: 48, mb: 1 }} />
-            </Badge>
-            <Typography variant="h3" fontWeight="bold">{stats?.entregas.pendientes || 0}</Typography>
-            <Typography variant="body2">Entregas Pendientes</Typography>
-          </Paper>
-        </Grid>
-
-        {/* Entregas Hoy */}
-        <Grid size={{ xs: 6, md: 3 }}>
-          <Paper sx={{ p: 3, background: 'linear-gradient(135deg, #4CAF50 0%, #81C784 100%)', color: 'white', textAlign: 'center' }}>
-            <CheckCircleIcon sx={{ fontSize: 48, mb: 1 }} />
-            <Typography variant="h3" fontWeight="bold">{stats?.entregas.realizadas_hoy || 0}</Typography>
-            <Typography variant="body2">Entregas Hoy</Typography>
-          </Paper>
-        </Grid>
-
-        {/* Por Cobrar */}
-        <Grid size={{ xs: 6, md: 3 }}>
-          <Paper sx={{ p: 3, background: 'linear-gradient(135deg, #F44336 0%, #EF5350 100%)', color: 'white', textAlign: 'center' }}>
-            <MoneyIcon sx={{ fontSize: 48, mb: 1 }} />
-            <Typography variant="h3" fontWeight="bold">{stats?.cobros.pendientes || 0}</Typography>
-            <Typography variant="body2">Cobros Pendientes</Typography>
-          </Paper>
-        </Grid>
-
-        {/* Cobrado Hoy */}
-        <Grid size={{ xs: 6, md: 3 }}>
-          <Paper sx={{ p: 3, background: 'linear-gradient(135deg, #2196F3 0%, #64B5F6 100%)', color: 'white', textAlign: 'center' }}>
-            <CashIcon sx={{ fontSize: 48, mb: 1 }} />
-            <Typography variant="h3" fontWeight="bold">${(stats?.cobros.monto_cobrado || 0).toLocaleString()}</Typography>
-            <Typography variant="body2">Cobrado Hoy</Typography>
-          </Paper>
-        </Grid>
-      </Grid>
+      {/* KPIs Principales — ocultos para rol mostrador (counter_staff) */}
 
       {/* Acciones Rápidas */}
       <Paper sx={{ p: 3, mb: 4 }}>

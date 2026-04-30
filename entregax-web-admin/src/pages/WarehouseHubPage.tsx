@@ -304,7 +304,7 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                 ) : selectedPanel === 'mx_national' ? (
                     <QuotesPage />
                 ) : selectedPanel === 'mx_cedis' ? (
-                    <DhlOperationsPage />
+                    <DhlOperationsPage onBack={handleBackToHub} />
                 ) : selectedPanel === 'scanner_unificado' ? (
                     <UnifiedWarehousePanel onBack={handleBackToHub} />
                 ) : selectedPanel === 'inventario_sucursal' ? (

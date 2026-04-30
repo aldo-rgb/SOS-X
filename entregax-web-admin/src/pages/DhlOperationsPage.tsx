@@ -116,7 +116,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
 
 const CEDIS_MODULES = ['reception', 'storage', 'picking', 'packing', 'dispatch', 'transfers', 'scanning', 'inventory_count'];
 
-export default function DhlOperationsPage() {
+export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = {}) {
   const navigate = useNavigate();
   const { allowedModules, loading: permLoading, canEdit } = useModulePermissions('ops_mx_cedis', CEDIS_MODULES);
   const [tabValue, setTabValue] = useState(0);
@@ -343,7 +343,7 @@ export default function DhlOperationsPage() {
       {/* Header */}
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center' }}>
-          <IconButton onClick={() => navigate(-1)} sx={{ mr: 1 }} aria-label="Atrás">
+          <IconButton onClick={() => (onBack ? onBack() : navigate(-1))} sx={{ mr: 1 }} aria-label="Atrás">
             <ArrowBackIcon />
           </IconButton>
           <DhlIcon sx={{ fontSize: 40, color: DHL_COLOR, mr: 2 }} />

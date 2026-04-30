@@ -212,7 +212,7 @@ export default function ModulePermissionsDialog({
     setPermissions(prev => {
       const updated = { ...prev };
       modules.forEach(m => {
-        updated[m.module_key] = { can_view: value, can_edit: false };
+        updated[m.module_key] = { can_view: value, can_edit: value };
       });
       return updated;
     });

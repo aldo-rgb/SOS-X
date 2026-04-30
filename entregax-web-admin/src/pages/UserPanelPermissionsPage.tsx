@@ -243,7 +243,7 @@ export default function UserPanelPermissionsPage() {
     setUserPermissions(prev => {
       const updated = { ...prev };
       panels.filter(p => p.category === category).forEach(p => {
-        updated[p.panel_key] = { can_view: value, can_edit: false };
+        updated[p.panel_key] = { can_view: value, can_edit: value };
       });
       return updated;
     });
