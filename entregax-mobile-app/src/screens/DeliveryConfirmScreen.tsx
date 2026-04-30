@@ -41,6 +41,8 @@ interface PackageInfo {
   carrier_service_request_code?: string;
   national_carrier?: string;
   requires_carrier_scan?: boolean;
+  has_children?: boolean;
+  child_guides?: string[];
 }
 
 type Step = 'scan' | 'signature' | 'photo' | 'confirm';
