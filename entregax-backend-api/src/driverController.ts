@@ -965,6 +965,122 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
 };
 
 /**
+ * Confirmar entrega múltiple (Paquete Express)
+ * Recibe array de {internalGuide, carrierGuide} y actualiza packages con ambas guías
+ */
+export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<any> => {
+    const { packages, photoBase64, notes } = req.body;
+    const driverId = getAuthUserId(req);
+
+    if (!packages || !Array.isArray(packages) || packages.length === 0) {
+        return res.status(400).json({ error: '❌ Se requiere al menos un paquete.' });
+    }
+
+    if (!driverId) {
+        return res.status(401).json({ error: '❌ Sesión no válida.' });
+    }
+
+    try {
+        const confirmed = [];
+        const errors = [];
+        const statusColumn = await getPackageStatusColumn();
+        const hasDeliveredAtColumn = await hasPackageColumn('delivered_at');
+        const hasDeliveryPhotoColumn = await hasPackageColumn('delivery_photo');
+        const hasDeliveryNotesColumn = await hasPackageColumn('delivery_notes');
+        const hasNationalTrackingColumn = await hasPackageColumn('national_tracking');
+
+        for (const pkg of packages) {
+            const { internalGuide, carrierGuide } = pkg;
+
+            if (!internalGuide) {
+                errors.push('Guía interna requerida');
+                continue;
+            }
+
+            try {
+                // Buscar paquete por guía interna
+                const pkgRes = await pool.query(`
+                    SELECT id, ${statusColumn} as status
+                    FROM packages
+                    WHERE ${TRACKING_MATCH_SQL}
+                    LIMIT 1
+                `, [internalGuide]);
+
+                if (pkgRes.rows.length === 0) {
+                    errors.push(`Paquete ${internalGuide} no encontrado`);
+                    continue;
+                }
+
+                const packageId = pkgRes.rows[0].id;
+                
+                // Construir UPDATE dinámicamente
+                const setParts: string[] = [`${statusColumn} = 'sent'`, 'updated_at = NOW()'];
+                const values: any[] = [packageId];
+
+                // Actualizar con guía del carrier si está presente
+                if (carrierGuide && hasNationalTrackingColumn) {
+                    values.push(carrierGuide);
+                    setParts.push(`national_tracking = $${values.length}`);
+                }
+
+                if (hasDeliveredAtColumn) {
+                    setParts.push('delivered_at = NOW()');
+                }
+
+                if (hasDeliveryPhotoColumn && photoBase64) {
+                    values.push(photoBase64);
+                    setParts.push(`delivery_photo = $${values.length}`);
+                }
+
+                if (hasDeliveryNotesColumn && notes) {
+                    values.push(notes);
+                    setParts.push(`delivery_notes = $${values.length}`);
+                }
+
+                // Ejecutar UPDATE
+                await pool.query(
+                    `UPDATE packages SET ${setParts.join(', ')} WHERE id = $1`,
+                    values
+                );
+
+                // Registrar en historial
+                try {
+                    await pool.query(`
+                        INSERT INTO package_history (package_id, status, notes, created_by, created_at)
+                        VALUES ($1, 'sent', $2, $3, NOW())
+                    `, [packageId, `Enviado con guía ${carrierGuide || 'desconocida'}. ${notes || ''}`, driverId]);
+                } catch (historyError) {
+                    console.warn('No se pudo registrar package_history:', historyError);
+                }
+
+                confirmed.push(internalGuide);
+            } catch (pkgError) {
+                console.error(`Error procesando ${internalGuide}:`, pkgError);
+                errors.push(`Error en ${internalGuide}: ${(pkgError as Error).message}`);
+            }
+        }
+
+        if (confirmed.length === 0) {
+            return res.status(400).json({ 
+                error: `❌ No se pudieron procesar los paquetes: ${errors.join(', ')}`,
+                details: errors
+            });
+        }
+
+        res.json({
+            success: true,
+            message: `✅ ${confirmed.length} paquete(s) entregado(s)`,
+            confirmed,
+            errors: errors.length > 0 ? errors : undefined
+        });
+
+    } catch (error) {
+        console.error('Error en confirmDeliveryBulk:', error);
+        res.status(500).json({ error: 'Error al confirmar entregas múltiples.' });
+    }
+};
+
+/**
  * Obtener historial de entregas del día
  */
 export const getDeliveriesToday = async (req: Request, res: Response): Promise<any> => {
