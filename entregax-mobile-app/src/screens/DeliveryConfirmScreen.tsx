@@ -74,6 +74,11 @@ const normalizeScanCode = (rawCode: string): string => {
     .replace(/\s+/g, '')
     .toUpperCase();
 
+  // Detectar guías de Fede (22 dígitos puros) y extraer últimos 12
+  if (/^\d{22}$/.test(code)) {
+    return code.slice(-12); // Últimos 12 dígitos
+  }
+
   // Preservar códigos que ya tienen formato XX-XXXXX... (guías internas)
   const canonicalTracking = code.match(/^[A-Z]{2,}-[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})*$/);
   if (canonicalTracking?.[0]) {
