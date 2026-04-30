@@ -33,13 +33,11 @@ import {
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import DashboardIcon from '@mui/icons-material/Dashboard';
-import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import ArchiveIcon from '@mui/icons-material/Archive';
 import CloseIcon from '@mui/icons-material/Close';
 import PeopleIcon from '@mui/icons-material/People';
 // StoreIcon, AssessmentIcon, SettingsIcon, InventoryIcon removidos - secciones eliminadas del sidebar
 import LogoutIcon from '@mui/icons-material/Logout';
-import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import LanguageIcon from '@mui/icons-material/Language';
 import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
 // VerifiedUserIcon removido - Verificaciones ahora en Paneles > Admin
@@ -82,7 +80,6 @@ import TesoreriaSucursalPage from './pages/TesoreriaSucursalPage';
 import WarehouseHubPage from './pages/WarehouseHubPage';
 import AccountingHubPage from './pages/AccountingHubPage';
 import SecurityIcon from '@mui/icons-material/Security';
-import VerifiedUserIcon from '@mui/icons-material/VerifiedUser';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import DescriptionIcon from '@mui/icons-material/Description';
 import LegalDocumentsPage from './pages/LegalDocumentsPage';
@@ -278,9 +275,6 @@ function App() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [notifModalOpen, setNotifModalOpen] = useState(false);
   const [selectedNotifIds, setSelectedNotifIds] = useState<Set<number>>(new Set());
-  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
-  const [statsLoading, setStatsLoading] = useState(true);
-  const [pendingVerifications, setPendingVerifications] = useState<number>(0);
   const [userPanelPermissions, setUserPanelPermissions] = useState<Record<string, boolean>>({});
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
 
