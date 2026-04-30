@@ -56,6 +56,7 @@ import {
     CallReceived as EntryIcon,
     CallMade as ExitIcon,
     Inventory as InventoryIcon,
+    Print as PrintIcon,
     AttachMoney as MoneyIcon,
     Calculate as CalculateIcon,
     ArrowBack as BackIcon,
@@ -297,6 +298,8 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     // Master incremental: id del master creado al definir la cantidad esperada
     const [bulkMasterId, setBulkMasterId] = useState<number | null>(null);
     const [bulkMasterTracking, setBulkMasterTracking] = useState<string>('');
+    // Acumula etiquetas de las hijas creadas para imprimir TODAS juntas en un solo PDF
+    const [sessionLabels, setSessionLabels] = useState<any[]>([]);
     const [paquetesRegistrados, setPaquetesRegistrados] = useState<PaqueteRegistrado[]>([]);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' });
     
@@ -578,10 +581,10 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         }
     };
 
-    // Agregar UNA caja al master existente (la imprime inmediatamente)
-    const addBoxToBulkMaster = async (box: BoxItem): Promise<boolean> => {
+    // Agregar UNA caja al master existente. Devuelve el label generado (o null si falla)
+    const addBoxToBulkMaster = async (box: BoxItem): Promise<any | null> => {
         const masterId = await ensureBulkMaster();
-        if (!masterId) return false;
+        if (!masterId) return null;
         try {
             const token = localStorage.getItem('token') || '';
             const r = await axios.post(
@@ -598,10 +601,6 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             const childId = r.data?.childId as number;
             const label = r.data?.label;
             if (childId) setBulkRegisteredIds(prev => [...prev, childId]);
-            if (label) {
-                // Imprimir SOLO la etiqueta de esta hija (incrementalmente)
-                await printShipmentLabels([label]);
-            }
             const tracking = r.data?.childTracking || `PKG-${Date.now()}`;
             setPaquetesRegistrados(prev => [...prev, {
                 tracking,
@@ -609,10 +608,10 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                 peso: parseFloat(box.weight) || 0,
                 medidas: `${box.length}×${box.width}×${box.height} cm`,
             }]);
-            return true;
+            return label || null;
         } catch (err: any) {
             setBulkError(err.response?.data?.error || err.message || 'Error al agregar caja');
-            return false;
+            return null;
         }
     };
 
@@ -636,14 +635,16 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         const normalizedTracking = normalizeCarrierGuide(bulkCurrentBox.trackingCourier);
         const newBox: BoxItem = { ...bulkCurrentBox, trackingCourier: normalizedTracking, id: Date.now() };
         setBulkSubmitting(true);
-        const ok = await addBoxToBulkMaster(newBox);
+        const label = await addBoxToBulkMaster(newBox);
         setBulkSubmitting(false);
-        if (!ok) return;
+        if (!label) return;
         setBulkBoxes(prev => [...prev, newBox]);
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
         setBulkBoxQuantity('1');
         setBulkError('');
-        setSnackbar({ open: true, message: `🖨️ Etiqueta impresa — ${bulkBoxes.length + 1}${expected > 0 ? `/${expected}` : ''}`, severity: 'success' });
+        // Imprimir la etiqueta de este bloque en un solo archivo
+        await printAllLabelsAtOnce([label]);
+        setSnackbar({ open: true, message: `🖨️ Etiqueta enviada a impresión — ${bulkBoxes.length + 1}${expected > 0 ? `/${expected}` : ''}`, severity: 'success' });
         setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
     };
 
@@ -655,10 +656,12 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             trackingCourier: normalizeCarrierGuide(g || ''),
         }));
         setBulkSubmitting(true);
+        const batchLabels: any[] = [];
         let allOk = true;
         for (const box of newBoxes) {
-            const ok = await addBoxToBulkMaster(box);
-            if (!ok) { allOk = false; break; }
+            const label = await addBoxToBulkMaster(box);
+            if (!label) { allOk = false; break; }
+            batchLabels.push(label);
         }
         setBulkSubmitting(false);
         if (!allOk) { setBulkMultiScanOpen(false); return; }
@@ -667,7 +670,9 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkBoxQuantity('1');
         setBulkMultiScanOpen(false);
         setBulkError('');
-        setSnackbar({ open: true, message: `🖨️ ${newBoxes.length} etiqueta(s) impresa(s)`, severity: 'success' });
+        // Imprimir TODAS las etiquetas de este bloque en un solo archivo (multi-página)
+        if (batchLabels.length > 0) await printAllLabelsAtOnce(batchLabels);
+        setSnackbar({ open: true, message: `🖨️ ${batchLabels.length} etiqueta(s) enviada(s) a impresión en un solo archivo`, severity: 'success' });
         setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
     };
 
@@ -910,6 +915,134 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         }
     };
 
+    // Imprime TODAS las etiquetas acumuladas en UN solo trabajo de impresión (multipágina)
+    // Más eficiente: el usuario presiona Imprimir UNA vez y salen todas las etiquetas seguidas.
+    const printAllLabelsAtOnce = async (labels: any[]) => {
+        if (!labels || labels.length === 0) return;
+        // Si ZPL está habilitado, enviar todas vía ZPL
+        if (isZplModeEnabled()) {
+            const ok = await printLabelsZPL(labels);
+            if (ok) {
+                setSnackbar({ open: true, message: `🖨️ ${labels.length} etiqueta(s) enviada(s) a Zebra (ZPL)`, severity: 'success' });
+                return;
+            }
+            setSnackbar({ open: true, message: '⚠️ Zebra no disponible, usando impresión por navegador', severity: 'warning' });
+        }
+
+        const formatDate = (dateStr?: string): string => {
+            if (!dateStr) return new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }).toUpperCase();
+            const date = new Date(dateStr);
+            return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }).toUpperCase();
+        };
+
+        const labelsHTML = labels.map((label: any, index: number) => {
+            const receivedDate = formatDate(label.receivedAt);
+            return `
+            <div class="label" style="page-break-after: ${index < labels.length - 1 ? 'always' : 'auto'};">
+                <div class="header">
+                    <div class="date-badge">${receivedDate}</div>
+                </div>
+                ${label.isMaster ? '<div class="master-badge">GUÍA MASTER</div>' : ''}
+                <div class="tracking-main">
+                    <div class="tracking-code">${label.tracking}</div>
+                    ${!label.isMaster
+                        ? `<div class="box-indicator">${label.boxNumber} de ${label.totalBoxes}</div>`
+                        : `<div class="box-indicator">${label.totalBoxes} bultos</div>`}
+                </div>
+                ${label.masterTracking ? `<div class="master-ref">Master: ${label.masterTracking}</div>` : ''}
+                <div class="qr-section"><div id="qr-${index}"></div></div>
+                <div class="barcode-section"><svg id="barcode-${index}"></svg></div>
+                <div class="divider"></div>
+                <div class="client-info">
+                    <div class="client-box">📦 ${label.clientBoxId || 'PENDIENTE'}</div>
+                </div>
+                <div class="details">
+                    ${label.weight ? `<span class="detail-item">⚖️ ${label.weight} kg</span>` : ''}
+                    ${label.dimensions ? `<span class="detail-item">📐 ${label.dimensions}</span>` : ''}
+                </div>
+                <div class="description">Hidalgo TX</div>
+            </div>`;
+        }).join('');
+
+        const fullHTML = `<!DOCTYPE html><html><head>
+            <title>Etiquetas (${labels.length}) - ${labels[0]?.tracking || 'Embarque'}</title>
+            <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                body { font-family: 'Arial', sans-serif; }
+                .label { width: 4in; height: 6in; padding: 0.2in; border: 2px solid #000; display: flex; flex-direction: column; margin: 0 auto; position: relative; overflow: hidden; }
+                .header { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 2px; }
+                .date-badge { background: #111; color: white; padding: 3px 8px; font-size: 11px; font-weight: bold; border-radius: 4px; }
+                .master-badge { background: #F05A28; color: white; text-align: center; padding: 4px; font-weight: bold; font-size: 13px; margin-bottom: 4px; }
+                .tracking-main { text-align: center; margin: 2px 0; }
+                .tracking-code { font-size: 20px; font-weight: bold; letter-spacing: 1px; }
+                .box-indicator { font-size: 13px; color: #333; font-weight: 600; display: inline-block; margin-top: 1px; }
+                .master-ref { text-align: center; font-size: 10px; color: #666; margin: 1px 0; }
+                .qr-section { text-align: center; margin: 3px 0; }
+                .qr-section svg, .qr-section img { width: 120px !important; height: 120px !important; }
+                .barcode-section { text-align: center; margin: 4px 0; }
+                .barcode-section svg { width: 85%; height: 85px; }
+                .divider { border-top: 2px dashed #ccc; margin: 5px 0; }
+                .client-info { text-align: center; margin: 4px 0; }
+                .client-box { font-size: 52px; color: #F05A28; font-weight: 900; letter-spacing: 3px; line-height: 1; }
+                .details { text-align: center; font-size: 15px; font-weight: 600; margin: 4px 0; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
+                .detail-item { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; }
+                .description { text-align: center; font-size: 10px; color: #666; margin-top: 2px; }
+                @page { size: 4in 6in; margin: 0; }
+                @media print { body { margin: 0; padding: 0; } .label { border: none; page-break-inside: avoid; overflow: hidden; } }
+            </style>
+            <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
+            <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"><\/script>
+        </head><body>${labelsHTML}
+        <script>
+            ${labels.map((label: any, i: number) => `try { JsBarcode("#barcode-${i}", "${label.tracking.replace(/-/g, '')}", { format: "CODE128", width: 2.2, height: 70, displayValue: false, margin: 0 }); } catch(e) {}`).join('\n')}
+            ${labels.map((label: any, i: number) => `
+                (function() {
+                    try {
+                        var qr = qrcode(0, 'M');
+                        qr.addData('https://app.entregax.com/track/${label.tracking}');
+                        qr.make();
+                        document.getElementById('qr-${i}').innerHTML = qr.createSvgTag({ cellSize: 3, margin: 0 });
+                    } catch(e) {}
+                })();
+            `).join('')}
+        <\/script></body></html>`;
+
+        // Iframe oculto con TODAS las etiquetas (multipágina)
+        const iframe = document.createElement('iframe');
+        iframe.style.position = 'fixed';
+        iframe.style.right = '0';
+        iframe.style.bottom = '0';
+        iframe.style.width = '0';
+        iframe.style.height = '0';
+        iframe.style.border = '0';
+        document.body.appendChild(iframe);
+
+        const cleanup = () => {
+            try { document.body.removeChild(iframe); } catch {}
+        };
+
+        iframe.onload = () => {
+            setTimeout(() => {
+                try {
+                    iframe.contentWindow?.focus();
+                    iframe.contentWindow?.print();
+                } catch (e) {
+                    console.error('Error al imprimir iframe:', e);
+                }
+                setTimeout(cleanup, 2000);
+            }, 1000);
+        };
+
+        const doc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (!doc) {
+            cleanup();
+            return;
+        }
+        doc.open();
+        doc.write(fullHTML);
+        doc.close();
+    };
+
     // Finalizar embarque: asocia la foto del embarque a todos los paquetes creados en esta sesión
     const handleSaveBulkPackage = async () => {
         setBulkSubmitting(true);
@@ -930,6 +1063,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             });
             // Resetear todo para el siguiente embarque
             setBulkBoxes([]);
+            setSessionLabels([]);
             setBulkBoxId('');
             setBulkExpectedBoxes('');
             setBulkRegisteredIds([]);
@@ -951,6 +1085,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkReceiveOpen(false);
         setBulkStep(0);
         setBulkBoxes([]);
+        setSessionLabels([]);
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
         setBulkBoxId('');
         setBulkExpectedBoxes('');
@@ -1666,7 +1801,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                         )}
                                     </Typography>
                                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                        Cada caja se imprime al momento de agregarse. No podrás avanzar hasta registrar todas.
+                                        Cada vez que agregues caja(s), las etiquetas de ese bloque se imprimirán juntas en un solo archivo.
                                     </Typography>
 
                                     {!bulkBoxId && (
