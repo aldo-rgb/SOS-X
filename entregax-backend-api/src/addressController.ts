@@ -391,7 +391,7 @@ export const createMyAddress = async (req: Request, res: Response): Promise<void
 
         const {
             alias, contact_name, street, exterior_number, interior_number,
-            colony, city, state, zip_code, country, phone, reference
+            colony, city, state, zip_code, country, phone, reference, reception_hours
         } = req.body;
 
         if (!contact_name || !street || !exterior_number || !colony || !city || !state || !zip_code) {
@@ -420,11 +420,11 @@ export const createMyAddress = async (req: Request, res: Response): Promise<void
         const result = await pool.query(
             `INSERT INTO addresses 
              (user_id, alias, recipient_name, street, exterior_number, interior_number, 
-              neighborhood, city, state, zip_code, phone, reference, is_default, default_for_service)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+              neighborhood, city, state, zip_code, phone, reference, reception_hours, is_default, default_for_service)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
              RETURNING *`,
             [userId, alias || 'Principal', contact_name, street, exterior_number, interior_number || null,
-             colony, city, state, zip_code, phone || null, reference || null, isFirst, default_for_service || null]
+             colony, city, state, zip_code, phone || null, reference || null, reception_hours || null, isFirst, default_for_service || null]
         );
 
         await pool.query('UPDATE users SET has_address = TRUE WHERE id = $1', [userId]);
@@ -453,7 +453,7 @@ export const updateMyAddress = async (req: Request, res: Response): Promise<void
 
         const {
             alias, contact_name, street, exterior_number, interior_number,
-            colony, city, state, zip_code, phone, reference, default_for_service
+            colony, city, state, zip_code, phone, reference, reception_hours, default_for_service
         } = req.body;
 
         // Si asigna como default para un servicio, quitar ese default de otras direcciones
@@ -478,11 +478,12 @@ export const updateMyAddress = async (req: Request, res: Response): Promise<void
                  zip_code = COALESCE($9, zip_code), 
                  phone = COALESCE($10, phone), 
                  reference = COALESCE($11, reference),
-                 default_for_service = $12
-             WHERE id = $13 AND user_id = $14
+                 reception_hours = COALESCE($12, reception_hours),
+                 default_for_service = $13
+             WHERE id = $14 AND user_id = $15
              RETURNING *`,
             [alias, contact_name, street, exterior_number, interior_number, colony, city, state, zip_code, 
-             phone, reference, default_for_service, addressId, userId]
+             phone, reference, reception_hours, default_for_service, addressId, userId]
         );
 
         if (result.rows.length === 0) {
