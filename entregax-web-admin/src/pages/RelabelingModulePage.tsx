@@ -1041,7 +1041,7 @@ ${body}
         const labels: LabelData[] = [];
         // El tracking original suele incluir el sufijo `-NN` correspondiente al boxNumber.
         // Quitamos el sufijo si existe para reconstruir cada caja del rango.
-        const baseTracking = reprintLabel.tracking.replace(/-\d{1,3}$/, '');
+        const baseTracking = reprintLabel.tracking.replace(/-\d{1,4}$/, '');
         for (let i = from; i <= to; i++) {
             const suffix = String(i).padStart(4, '0');
             labels.push({
@@ -1392,12 +1392,27 @@ ${body}
 
                     <Divider sx={{ my: 2 }} />
 
-                    <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
-                        🏷️ Etiquetas disponibles ({shipment.labels.length})
-                    </Typography>
+                    {(() => {
+                        // Si existe un master multi-caja, solo mostramos el master (con botón de rango).
+                        // Las hijas NO se muestran porque se imprimen desde el botón "Reimprimir rango" del master.
+                        const masterMulti = shipment.labels.find(l => l.isMaster && l.totalBoxes > 1);
+                        const visibleLabels = masterMulti
+                            ? shipment.labels.filter(l => l.isMaster)
+                            : shipment.labels;
+                        return (
+                            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 2 }}>
+                                🏷️ Etiquetas disponibles ({visibleLabels.length})
+                            </Typography>
+                        );
+                    })()}
 
                     <Grid container spacing={2}>
-                        {shipment.labels.map((label, idx) => (
+                        {(() => {
+                            const masterMulti = shipment.labels.find(l => l.isMaster && l.totalBoxes > 1);
+                            const visibleLabels = masterMulti
+                                ? shipment.labels.filter(l => l.isMaster)
+                                : shipment.labels;
+                            return visibleLabels.map((label, idx) => (
                             <Grid size={{ xs: 12, sm: 6, md: 4 }} key={idx}>
                                 <Paper
                                     variant="outlined"
@@ -1462,6 +1477,27 @@ ${body}
                                                 </Button>
                                             </Stack>
                                         )
+                                    ) : label.isMaster && label.totalBoxes > 1 ? (
+                                        <Stack spacing={1}>
+                                            <Button
+                                                fullWidth
+                                                variant="contained"
+                                                startIcon={<PrintIcon />}
+                                                onClick={() => openReprintModal(label)}
+                                                sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
+                                            >
+                                                Reimprimir rango (1–{label.totalBoxes})
+                                            </Button>
+                                            <Button
+                                                fullWidth
+                                                variant="outlined"
+                                                startIcon={<PrintOutlinedIcon />}
+                                                onClick={() => handlePrintLabel(label)}
+                                                sx={{ borderColor: '#F05A28', color: '#F05A28' }}
+                                            >
+                                                Imprimir solo Master
+                                            </Button>
+                                        </Stack>
                                     ) : (
                                         <Button
                                             fullWidth
@@ -1475,7 +1511,8 @@ ${body}
                                     )}
                                 </Paper>
                             </Grid>
-                        ))}
+                        ));
+                        })()}
 
                         {hasAssignedCarrier && isPaqueteExpressAssigned && pqtxGuides.length > 0 && (
                             <>
