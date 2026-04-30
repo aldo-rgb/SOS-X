@@ -1000,8 +1000,8 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
             try {
                 // Buscar paquete por guía interna
                 const pkgRes = await pool.query(`
-                    SELECT id, ${statusColumn} as status
-                    FROM packages
+                    SELECT p.id, ${statusColumn} as status
+                    FROM packages p
                     WHERE ${TRACKING_MATCH_SQL}
                     LIMIT 1
                 `, [internalGuide]);
