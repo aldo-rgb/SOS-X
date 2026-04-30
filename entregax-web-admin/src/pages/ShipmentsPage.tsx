@@ -1705,7 +1705,11 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                       <Tooltip title={t('shipments.printLabels')}><IconButton size="small" onClick={async () => {
                         try {
                           const response = await axios.get(`${API_URL}/packages/${pkg.id}/labels`, { headers: { Authorization: `Bearer ${getToken()}` } });
-                          handlePrintLabels(response.data.labels);
+                          // Filtrar la master: solo imprimimos las hijas (cajas físicas)
+                          const allLabels: PackageLabel[] = response.data.labels || [];
+                          const childOnly = allLabels.filter((l: any) => !l.isMaster);
+                          const toPrint = childOnly.length > 0 ? childOnly : allLabels;
+                          handlePrintLabels(toPrint);
                         } catch { setSnackbar({ open: true, message: t('common.error'), severity: 'error' }); }
                       }}><PrintIcon fontSize="small" /></IconButton></Tooltip>
                       {isSuperAdmin && (
@@ -3036,9 +3040,13 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                     <Divider sx={{ my: 3 }} />
 
                     <Button variant="contained" size="large" startIcon={<PrintIcon />}
-                      onClick={() => handlePrintLabels(createdShipment.labels)}
+                      onClick={() => {
+                        const all = createdShipment.labels || [];
+                        const childOnly = all.filter((l: any) => !l.isMaster);
+                        handlePrintLabels(childOnly.length > 0 ? childOnly : all);
+                      }}
                       sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)`, px: 4, py: 1.5, fontSize: 18 }}>
-                      {t('shipments.printLabels')} ({createdShipment.labels.length})
+                      {t('shipments.printLabels')} ({(createdShipment.labels || []).filter((l: any) => !l.isMaster).length || createdShipment.labels.length})
                     </Button>
 
                     <Box sx={{ mt: 3 }}>
@@ -3293,7 +3301,9 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           <Button startIcon={<PrintIcon />} onClick={async () => {
             if (selectedPackage) {
               const response = await axios.get(`${API_URL}/packages/${selectedPackage.id}/labels`, { headers: { Authorization: `Bearer ${getToken()}` } });
-              handlePrintLabels(response.data.labels);
+              const all = response.data.labels || [];
+              const childOnly = all.filter((l: any) => !l.isMaster);
+              handlePrintLabels(childOnly.length > 0 ? childOnly : all);
             }
           }}>{t('shipments.printLabels')}</Button>
           <Button onClick={() => setDetailsOpen(false)}>{t('common.close')}</Button>
