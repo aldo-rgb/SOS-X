@@ -204,7 +204,7 @@ export default function SupplierPaymentsPage() {
           <CardContent>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Box>
-                <Typography variant="h4" fontWeight="bold">${exchangeRate.toFixed(2)}</Typography>
+                <Typography variant="h4" fontWeight="bold">${Number(exchangeRate || 0).toFixed(2)}</Typography>
                 <Typography variant="body2" sx={{ opacity: 0.9 }}>Tipo de Cambio</Typography>
               </Box>
               <CurrencyExchangeIcon sx={{ fontSize: 40, opacity: 0.8 }} />
@@ -228,7 +228,7 @@ export default function SupplierPaymentsPage() {
           <CardContent>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Box>
-                <Typography variant="h4" fontWeight="bold">${stats?.total_platform_profit?.toFixed(0) || 0}</Typography>
+                <Typography variant="h4" fontWeight="bold">${Number(stats?.total_platform_profit || 0).toFixed(0)}</Typography>
                 <Typography variant="body2" sx={{ opacity: 0.9 }}>Ganancia (30d)</Typography>
               </Box>
               <TrendingUpIcon sx={{ fontSize: 40, opacity: 0.8 }} />
@@ -371,7 +371,7 @@ export default function SupplierPaymentsPage() {
           
           <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end', mb: 3 }}>
             <Box sx={{ textAlign: 'center', p: 3, bgcolor: 'grey.100', borderRadius: 2 }}>
-              <Typography variant="h3" fontWeight="bold" color={ORANGE}>${exchangeRate.toFixed(4)}</Typography>
+              <Typography variant="h3" fontWeight="bold" color={ORANGE}>${Number(exchangeRate || 0).toFixed(4)}</Typography>
               <Typography color="text.secondary">MXN por USD (Actual)</Typography>
             </Box>
             
