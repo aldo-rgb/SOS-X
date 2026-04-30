@@ -441,9 +441,20 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const [bulkBoxQuantity, setBulkBoxQuantity] = useState('1');
     const [bulkMultiScanOpen, setBulkMultiScanOpen] = useState(false);
 
+    // Normaliza la guía: si es FedEx de 34 dígitos puros, extrae últimos 12
+    const normalizeCarrierGuide = (raw: string): string => {
+        const v = (raw || '').toUpperCase().trim();
+        if (/^\d{34}$/.test(v)) return v.slice(-12);
+        return v;
+    };
+
     // Al escanear guía (Enter): leer báscula y saltar a Largo (o Peso si falla)
     const handleBulkGuideScanned = async () => {
-        if (!bulkCurrentBox.trackingCourier.trim()) return;
+        const normalized = normalizeCarrierGuide(bulkCurrentBox.trackingCourier);
+        if (!normalized) return;
+        if (normalized !== bulkCurrentBox.trackingCourier) {
+            setBulkCurrentBox(p => ({ ...p, trackingCourier: normalized }));
+        }
         const r = await readBulkScale();
         if (r.success && r.weight !== undefined) {
             const w = r.weight.toFixed(2);

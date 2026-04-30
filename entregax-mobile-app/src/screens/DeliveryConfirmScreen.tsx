@@ -76,8 +76,8 @@ const normalizeScanCode = (rawCode: string): string => {
     .replace(/\s+/g, '')
     .toUpperCase();
 
-  // Detectar guías de Fede (22 dígitos puros) y extraer últimos 12
-  if (/^\d{22}$/.test(code)) {
+  // Detectar guías FedEx de 34 dígitos puros y extraer últimos 12
+  if (/^\d{34}$/.test(code)) {
     return code.slice(-12); // Últimos 12 dígitos
   }
 
@@ -369,6 +369,16 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       });
       
       if (res.data.success && res.data.package) {
+        // Marcar paquete como cargado (out_for_delivery) en el backend
+        try {
+          await api.post(`/api/driver/scan-load`, { barcode: data }, {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          });
+        } catch (loadError: any) {
+          console.warn('⚠️ No se pudo marcar como cargado:', loadError.response?.data?.error);
+          // Continuar de todas formas, no es bloqueante
+        }
+
         Vibration.vibrate(100);
         setPackageInfo(res.data.package);
         setRecipientName(res.data.package.recipient_name || '');

@@ -172,6 +172,12 @@ export default function DashboardBranchManager() {
   // por lo que siempre debe ver los widgets de retrasos y parciales.
   const sucursalCodigo = (stats?.sucursal?.codigo || '').toUpperCase();
   const isCedis = sucursalCodigo === 'MTY' || sucursalCodigo === 'CDMX' || sucursalCodigo.includes('CEDIS');
+  const isHidalgo = sucursalCodigo.includes('HID') || (stats?.sucursal?.nombre || '').toUpperCase().includes('HIDALGO');
+  
+  // Para Hidalgo: no mostrar widgets de aéreo/marítimo en operaciones, pero mostrar en alertas
+  const showAirWidgetOps = !isHidalgo && (hasService('AIR_CHN_MX') || isCedis);
+  const showSeaWidgetOps = !isHidalgo && (hasService('SEA_CHN_MX') || hasService('FCL_CHN_MX') || isCedis);
+  
   const showAirWidget = hasService('AIR_CHN_MX') || isCedis;
   const showSeaWidget = hasService('SEA_CHN_MX') || hasService('FCL_CHN_MX') || isCedis;
   // POBox sólo aplica a sucursales con servicio POBOX_USA (ej. CEDIS MTY).
@@ -466,27 +472,46 @@ export default function DashboardBranchManager() {
           </Grid>
         )}
 
-        <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
-          <KpiCard
-            icon={<DirectionsBoatIcon sx={{ fontSize: 22 }} />}
-            label="En espera Marítimo"
-            value={stats?.paquetes.en_espera_maritimo ?? 0}
-            sub="cajas LCL en aduana"
-            tone="info"
-            accentBar="#0E7490"
-          />
-        </Grid>
+        {showSeaWidgetOps && (
+          <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+            <KpiCard
+              icon={<DirectionsBoatIcon sx={{ fontSize: 22 }} />}
+              label="En espera Marítimo"
+              value={stats?.paquetes.en_espera_maritimo ?? 0}
+              sub="cajas LCL en aduana"
+              tone="info"
+              accentBar="#0E7490"
+            />
+          </Grid>
+        )}
 
-        <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
-          <KpiCard
-            icon={<FlightTakeoffIcon sx={{ fontSize: 22 }} />}
-            label="En espera Aéreo"
-            value={stats?.paquetes.en_espera_aereo ?? 0}
-            sub="cajas aéreas"
-            tone="info"
-            accentBar="#7C3AED"
-          />
-        </Grid>
+        {showAirWidgetOps && (
+          <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+            <KpiCard
+              icon={<FlightTakeoffIcon sx={{ fontSize: 22 }} />}
+              label="En espera Aéreo"
+              value={stats?.paquetes.en_espera_aereo ?? 0}
+              sub="cajas aéreas"
+              tone="info"
+              accentBar="#7C3AED"
+            />
+          </Grid>
+        )}
+
+        {isHidalgo && (
+          <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+            <KpiCard
+              icon={<WarningIcon sx={{ fontSize: 22 }} />}
+              label="Pérdidas PO Box"
+              value={delayedCount}
+              sub={delayedCount === 0 ? 'sin pérdidas' : delayedCount === 1 ? 'paquete perdido' : 'paquetes perdidos'}
+              tone={delayedCount > 0 ? 'danger' : 'neutral'}
+              category="alert"
+              badge={delayedCount > 0 ? delayedCount : undefined}
+              onClick={() => openDelayedModal('pobox')}
+            />
+          </Grid>
+        )}
       </Grid>
 
       {/* === Sección: Alertas (retrasos / parciales) === */}

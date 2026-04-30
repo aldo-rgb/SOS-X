@@ -724,20 +724,6 @@ function App() {
     }
   };
 
-  const fetchPendingVerifications = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      if (!token) return;
-      const response = await axios.get(`${API_URL}/admin/verifications/stats`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const pending = Number(response.data?.pending ?? 0);
-      setPendingVerifications(Number.isFinite(pending) ? pending : 0);
-    } catch (error) {
-      // 403/401 para roles sin acceso -> silencioso
-    }
-  };
-
   // Roles que pueden ver la lista de usuarios
   const canFetchUsers = currentUser?.role && ['super_admin', 'Super Admin', 'branch_manager', 'Branch Manager', 'admin', 'Admin', 'director', 'Director'].includes(currentUser.role);
   
@@ -748,13 +734,6 @@ function App() {
         fetchUsers();
       } else {
         setLoading(false); // No intentar cargar, marcar como terminado
-      }
-      // Verificaciones pendientes (solo roles con acceso al endpoint)
-      const canFetchVerifications = ['super_admin', 'Super Admin', 'admin', 'Admin', 'director', 'Director'].includes(currentUser.role);
-      if (canFetchVerifications) {
-        fetchPendingVerifications();
-        const interval = setInterval(fetchPendingVerifications, 60000);
-        return () => clearInterval(interval);
       }
     }
   }, [isAuthenticated, currentUser?.role]);

@@ -193,8 +193,8 @@ const normalizeBarcode = (raw: string): string => {
 
   v = v.toUpperCase().trim();
 
-  // Detectar guías de Fede (22 dígitos puros) y extraer últimos 12
-  if (/^\d{22}$/.test(v)) {
+  // Detectar guías FedEx de 34 dígitos puros y extraer últimos 12
+  if (/^\d{34}$/.test(v)) {
     return v.slice(-12);
   }
 
