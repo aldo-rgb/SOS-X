@@ -74,6 +74,20 @@ const normalizeScanCode = (rawCode: string): string => {
     .replace(/\s+/g, '')
     .toUpperCase();
 
+  return code;
+};
+
+// Función para extraer guía master y números extra de una guía múltiple
+const extractMasterGuide = (scannedCode: string): { masterGuide: string; extraNumbers: string } => {
+  // Detecta patrones como: MTY01WE0A18289004003
+  // Donde MTY01WE0A18289 es la guía master y 004003 son números extra
+  const match = scannedCode.match(/^([A-Z0-9]+?)(\d{6})$/);
+  if (match) {
+    return { masterGuide: match[1], extraNumbers: match[2] };
+  }
+  return { masterGuide: scannedCode, extraNumbers: '' };
+};
+
   const canonicalTracking = code.match(/[A-Z]{2,}-[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})*/);
   if (canonicalTracking?.[0]) {
     return canonicalTracking[0];
@@ -252,7 +266,22 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       return;
     }
 
-    if (!expectedCodes.includes(entered)) {
+    // Verificar validez exacta o con números extra (guía múltiple)
+    let isValid = expectedCodes.includes(entered);
+    let finalGuideCode = entered;
+    let extraNumbers = '';
+
+    // Si no coincide exactamente, verificar si es una guía múltiple
+    if (!isValid) {
+      const { masterGuide, extraNumbers: extra } = extractMasterGuide(entered);
+      if (expectedCodes.includes(masterGuide)) {
+        isValid = true;
+        finalGuideCode = masterGuide;
+        extraNumbers = extra;
+      }
+    }
+
+    if (!isValid) {
       Vibration.vibrate([0, 200, 100, 200]);
       const expectedLabel = packageInfo.carrier_service_request_code
         ? `${packageInfo.national_tracking} / ${packageInfo.carrier_service_request_code}`
@@ -262,9 +291,16 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     }
 
     Vibration.vibrate(100);
-    setCarrierGuideCode(entered);
+    setCarrierGuideCode(finalGuideCode);
     setCarrierGuideVerified(true);
     setShowCarrierGuideCamera(false);
+    
+    // Si hay números extra, guardarlos en el estado o en packageInfo para luego usarlos
+    if (extraNumbers) {
+      console.log('Números extra de guía múltiple:', extraNumbers);
+      // Aquí se pueden guardar en un estado si es necesario para mostrar luego
+    }
+    
     setCurrentStep('photo');
   };
 
