@@ -74,6 +74,16 @@ const normalizeScanCode = (rawCode: string): string => {
     .replace(/\s+/g, '')
     .toUpperCase();
 
+  const canonicalTracking = code.match(/[A-Z]{2,}-[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})*/);
+  if (canonicalTracking?.[0]) {
+    return canonicalTracking[0];
+  }
+
+  const compactTrackingDigits = code.match(/^([A-Z]{2,})(\d{4,})$/);
+  if (compactTrackingDigits?.[0]) {
+    return `${compactTrackingDigits[1]}-${compactTrackingDigits[2]}`;
+  }
+
   return code;
 };
 
@@ -86,19 +96,6 @@ const extractMasterGuide = (scannedCode: string): { masterGuide: string; extraNu
     return { masterGuide: match[1], extraNumbers: match[2] };
   }
   return { masterGuide: scannedCode, extraNumbers: '' };
-};
-
-  const canonicalTracking = code.match(/[A-Z]{2,}-[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})*/);
-  if (canonicalTracking?.[0]) {
-    return canonicalTracking[0];
-  }
-
-  const compactTrackingDigits = code.match(/^([A-Z]{2,})(\d{4,})$/);
-  if (compactTrackingDigits?.[0]) {
-    return `${compactTrackingDigits[1]}-${compactTrackingDigits[2]}`;
-  }
-
-  return code;
 };
 
 export default function DeliveryConfirmScreen({ navigation, route }: any) {
