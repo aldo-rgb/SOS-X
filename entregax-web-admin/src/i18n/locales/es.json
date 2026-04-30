@@ -1,7 +1,7 @@
 {
   "entangled": {
     "title": "Pago a Proveedores Internacionales",
-    "subtitle": "Triangulación de pago y facturación a proveedores en el extranjero",
+    "subtitle": "ago y facturación a proveedores en el extranjero",
     "newRequest": "Nueva solicitud",
     "myRequests": "Mis solicitudes",
     "howItWorks": "¿Cómo funciona?",
@@ -50,6 +50,39 @@
       "empty": "Todavía no tienes solicitudes de pago a proveedores",
       "uploadingProof": "Subiendo comprobante...",
       "requiredFields": "Completa todos los campos requeridos"
+    },
+    "suppliers": {
+      "section": "Proveedor de envío (beneficiario)",
+      "manage": "Mis proveedores",
+      "manageHelp": "Guarda los datos bancarios de tus beneficiarios frecuentes para reutilizarlos en futuras solicitudes.",
+      "savedList": "Proveedores guardados",
+      "newOne": "Nuevo proveedor",
+      "editing": "Editando proveedor",
+      "new": "Nuevo proveedor (capturar datos)",
+      "pick": "Selecciona proveedor",
+      "saveForLater": "Guardar este proveedor para próximas solicitudes",
+      "alias": "Alias (referencia interna)",
+      "beneficiaryName": "Nombre del beneficiario",
+      "chineseName": "Nombre en chino (requerido para RMB)",
+      "address": "Dirección del beneficiario",
+      "country": "País",
+      "accountNumber": "Número de cuenta",
+      "iban": "IBAN",
+      "bankName": "Banco receptor",
+      "bankAddress": "Dirección del banco",
+      "bankCountry": "País del banco",
+      "swift": "SWIFT / BIC",
+      "aba": "ABA / Routing (USA)",
+      "intermediary": "Banco intermediario (opcional)",
+      "intermediaryName": "Nombre del banco intermediario",
+      "intermediarySwift": "SWIFT del banco intermediario",
+      "reason": "Motivo del pago",
+      "photo": "Foto / soporte del proveedor",
+      "uploadPhoto": "Subir foto",
+      "viewPhoto": "Ver foto",
+      "deleted": "Proveedor eliminado",
+      "saved": "Proveedor guardado",
+      "updated": "Proveedor actualizado"
     }
   },
   "common": {

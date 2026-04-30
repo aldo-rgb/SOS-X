@@ -232,6 +232,10 @@ import {
   getAllPaymentRequests as getAllEntangledRequests,
   webhookFacturaGenerada as entangledWebhookFactura,
   webhookPagoProveedor as entangledWebhookProveedor,
+  listMySuppliers as listMyEntangledSuppliers,
+  createMySupplier as createMyEntangledSupplier,
+  updateMySupplier as updateMyEntangledSupplier,
+  deleteMySupplier as deleteMyEntangledSupplier,
 } from './entangledController';
 import {
   getLogisticsServices,
@@ -3250,6 +3254,11 @@ app.get('/api/entangled/payment-requests/me', authenticateToken, getMyEntangledR
 app.get('/api/entangled/payment-requests/:id', authenticateToken, getEntangledRequestDetail);
 // Admin
 app.get('/api/admin/entangled/payment-requests', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAllEntangledRequests);
+// Proveedores de envío (beneficiarios) por cliente
+app.get('/api/entangled/suppliers', authenticateToken, listMyEntangledSuppliers);
+app.post('/api/entangled/suppliers', authenticateToken, createMyEntangledSupplier);
+app.put('/api/entangled/suppliers/:id', authenticateToken, updateMyEntangledSupplier);
+app.delete('/api/entangled/suppliers/:id', authenticateToken, deleteMyEntangledSupplier);
 // Webhooks públicos (verifican HMAC con ENTANGLED_WEBHOOK_SECRET)
 app.post('/api/webhooks/entangled-facturas', entangledWebhookFactura);
 app.post('/api/webhooks/entangled-proveedores', entangledWebhookProveedor);

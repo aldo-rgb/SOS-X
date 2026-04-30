@@ -70,6 +70,7 @@ export const createPaymentRequest = async (
     operacion: any;
     comisiones?: any;
   };
+  const proveedor = (req.body as any).proveedor_envio || null;
 
   // Resolver asesor: si el cliente tiene asesor asignado lo tomamos.
   let advisorId: number | null = null;
@@ -102,13 +103,27 @@ export const createPaymentRequest = async (
          cf_rfc, cf_razon_social, cf_regimen_fiscal, cf_cp, cf_uso_cfdi, cf_email,
          op_monto, op_divisa_destino, op_conceptos, op_comprobante_cliente_url,
          comision_asesor, comision_xox,
-         estatus_global, estatus_factura, estatus_proveedor
+         estatus_global, estatus_factura, estatus_proveedor,
+         supplier_id,
+         sup_nombre_beneficiario, sup_nombre_chino, sup_direccion,
+         sup_numero_cuenta, sup_iban,
+         sup_banco_nombre, sup_banco_direccion,
+         sup_swift_bic, sup_aba_routing,
+         sup_banco_intermediario_nombre, sup_banco_intermediario_swift,
+         sup_motivo, sup_foto_url
        ) VALUES (
          $1, $2,
          $3, $4, $5, $6, $7, $8,
          $9, $10, $11::jsonb, $12,
          $13, $14,
-         'pendiente', 'pendiente', 'pendiente'
+         'pendiente', 'pendiente', 'pendiente',
+         $15,
+         $16, $17, $18,
+         $19, $20,
+         $21, $22,
+         $23, $24,
+         $25, $26,
+         $27, $28
        ) RETURNING id`,
       [
         userId,
@@ -125,6 +140,20 @@ export const createPaymentRequest = async (
         operacion.comprobante_cliente_url,
         comisionAsesor,
         comisionXox,
+        proveedor?.supplier_id || null,
+        proveedor?.nombre_beneficiario || null,
+        proveedor?.nombre_chino || null,
+        proveedor?.direccion_beneficiario || null,
+        proveedor?.numero_cuenta || null,
+        proveedor?.iban || null,
+        proveedor?.banco_nombre || null,
+        proveedor?.banco_direccion || null,
+        proveedor?.swift_bic || null,
+        proveedor?.aba_routing || null,
+        proveedor?.banco_intermediario_nombre || null,
+        proveedor?.banco_intermediario_swift || null,
+        proveedor?.motivo || null,
+        proveedor?.foto_url || null,
       ]
     );
     requestId = insertResult.rows[0].id;
@@ -468,5 +497,147 @@ export const webhookPagoProveedor = async (req: Request, res: Response): Promise
     console.error('[ENTANGLED] webhookPagoProveedor error:', err);
     await logWebhook(transaccion_id, 'pago_proveedor_enviado', req.body, null, (err as Error).message);
     return res.status(500).json({ error: 'Error procesando webhook' });
+  }
+};
+
+// ===========================================================================
+// CRUD: Proveedores de Envío del cliente (beneficiarios)
+// ===========================================================================
+
+export const listMySuppliers = async (req: Request, res: Response): Promise<any> => {
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  try {
+    const r = await pool.query(
+      `SELECT * FROM entangled_suppliers
+       WHERE user_id = $1 AND is_active = TRUE
+       ORDER BY is_favorite DESC, created_at DESC`,
+      [userId]
+    );
+    return res.json(r.rows);
+  } catch (err) {
+    console.error('[ENTANGLED] listMySuppliers:', err);
+    return res.status(500).json({ error: 'Error al listar proveedores' });
+  }
+};
+
+export const createMySupplier = async (req: Request, res: Response): Promise<any> => {
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  const b = req.body || {};
+  if (!b.nombre_beneficiario || !b.numero_cuenta || !b.banco_nombre) {
+    return res.status(400).json({ error: 'nombre_beneficiario, numero_cuenta y banco_nombre son requeridos' });
+  }
+  try {
+    const r = await pool.query(
+      `INSERT INTO entangled_suppliers (
+        user_id, nombre_beneficiario, nombre_chino, direccion_beneficiario, pais_beneficiario,
+        numero_cuenta, iban,
+        banco_nombre, banco_direccion, banco_pais,
+        swift_bic, aba_routing,
+        banco_intermediario_nombre, banco_intermediario_swift, banco_intermediario_direccion,
+        divisa_default, motivo_default, foto_url,
+        alias, is_favorite, notes
+      ) VALUES (
+        $1, $2, $3, $4, $5,
+        $6, $7,
+        $8, $9, $10,
+        $11, $12,
+        $13, $14, $15,
+        $16, $17, $18,
+        $19, COALESCE($20, FALSE), $21
+      ) RETURNING *`,
+      [
+        userId,
+        b.nombre_beneficiario, b.nombre_chino || null, b.direccion_beneficiario || null, b.pais_beneficiario || null,
+        b.numero_cuenta, b.iban || null,
+        b.banco_nombre, b.banco_direccion || null, b.banco_pais || null,
+        b.swift_bic || null, b.aba_routing || null,
+        b.banco_intermediario_nombre || null, b.banco_intermediario_swift || null, b.banco_intermediario_direccion || null,
+        b.divisa_default || null, b.motivo_default || null, b.foto_url || null,
+        b.alias || null, b.is_favorite, b.notes || null,
+      ]
+    );
+    return res.status(201).json(r.rows[0]);
+  } catch (err) {
+    console.error('[ENTANGLED] createMySupplier:', err);
+    return res.status(500).json({ error: 'Error al crear proveedor' });
+  }
+};
+
+export const updateMySupplier = async (req: Request, res: Response): Promise<any> => {
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID inválido' });
+
+  const b = req.body || {};
+  try {
+    const owner = await pool.query(`SELECT user_id FROM entangled_suppliers WHERE id = $1`, [id]);
+    if (owner.rows.length === 0) return res.status(404).json({ error: 'No encontrado' });
+    if (owner.rows[0].user_id !== userId) return res.status(403).json({ error: 'Sin acceso' });
+
+    const r = await pool.query(
+      `UPDATE entangled_suppliers SET
+        nombre_beneficiario = COALESCE($2, nombre_beneficiario),
+        nombre_chino = $3,
+        direccion_beneficiario = $4,
+        pais_beneficiario = $5,
+        numero_cuenta = COALESCE($6, numero_cuenta),
+        iban = $7,
+        banco_nombre = COALESCE($8, banco_nombre),
+        banco_direccion = $9,
+        banco_pais = $10,
+        swift_bic = $11,
+        aba_routing = $12,
+        banco_intermediario_nombre = $13,
+        banco_intermediario_swift = $14,
+        banco_intermediario_direccion = $15,
+        divisa_default = $16,
+        motivo_default = $17,
+        foto_url = COALESCE($18, foto_url),
+        alias = $19,
+        is_favorite = COALESCE($20, is_favorite),
+        notes = $21,
+        updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [
+        id,
+        b.nombre_beneficiario, b.nombre_chino || null, b.direccion_beneficiario || null, b.pais_beneficiario || null,
+        b.numero_cuenta, b.iban || null,
+        b.banco_nombre, b.banco_direccion || null, b.banco_pais || null,
+        b.swift_bic || null, b.aba_routing || null,
+        b.banco_intermediario_nombre || null, b.banco_intermediario_swift || null, b.banco_intermediario_direccion || null,
+        b.divisa_default || null, b.motivo_default || null, b.foto_url || null,
+        b.alias || null, b.is_favorite, b.notes || null,
+      ]
+    );
+    return res.json(r.rows[0]);
+  } catch (err) {
+    console.error('[ENTANGLED] updateMySupplier:', err);
+    return res.status(500).json({ error: 'Error al actualizar' });
+  }
+};
+
+export const deleteMySupplier = async (req: Request, res: Response): Promise<any> => {
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID inválido' });
+  try {
+    const owner = await pool.query(`SELECT user_id FROM entangled_suppliers WHERE id = $1`, [id]);
+    if (owner.rows.length === 0) return res.status(404).json({ error: 'No encontrado' });
+    if (owner.rows[0].user_id !== userId) return res.status(403).json({ error: 'Sin acceso' });
+
+    // Soft delete
+    await pool.query(
+      `UPDATE entangled_suppliers SET is_active = FALSE, updated_at = NOW() WHERE id = $1`,
+      [id]
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[ENTANGLED] deleteMySupplier:', err);
+    return res.status(500).json({ error: 'Error al eliminar' });
   }
 };
