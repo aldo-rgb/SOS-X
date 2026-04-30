@@ -262,16 +262,69 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
       try {
         if (currentScanStep === 'internal') {
-          // Escanear guía interna
+          // Validar guía interna contra el servidor
+          const res = await api.get(`/api/driver/verify-package/${encodeURIComponent(data)}`, {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          });
+
+          if (!res.data.success || !res.data.package) {
+            Vibration.vibrate([0, 200, 100, 200]);
+            showFeedback({
+              type: 'error',
+              message: 'Guía interna no encontrada o no es Paquete Express',
+            });
+            return;
+          }
+
+          const pkg = res.data.package;
+          if (!pkg.has_children && (!pkg.national_carrier || !pkg.national_carrier.toLowerCase().includes('paquete'))) {
+            Vibration.vibrate([0, 200, 100, 200]);
+            showFeedback({
+              type: 'error',
+              message: `❌ Esta guía (${data}) no es Paquete Express. La guía debe ser de Paquete Express.`,
+            });
+            return;
+          }
+
+          // Verificar que no esté duplicada
+          if (scannedPackages.some(p => p.internalGuide === data)) {
+            Vibration.vibrate([0, 200, 100, 200]);
+            showFeedback({
+              type: 'error',
+              message: `❌ Esta guía (${data}) ya fue escaneada.`,
+            });
+            return;
+          }
+
           setTempInternalGuide(data);
           setCurrentScanStep('carrier');
           Vibration.vibrate(50);
           showFeedback({
             type: 'success',
-            message: 'Guía interna guardada. Escanea la guía de Paquete Express.',
+            message: `✅ Guía interna ${data} validada. Escanea guía de Paquete Express.`,
           });
           setManualCode('');
         } else {
+          // Validar que no es la misma que la interna
+          if (data === tempInternalGuide) {
+            Vibration.vibrate([0, 200, 100, 200]);
+            showFeedback({
+              type: 'error',
+              message: `❌ La guía de Paquete Express NO puede ser la misma que la guía interna (${data})`,
+            });
+            return;
+          }
+
+          // Verificar que la guía del carrier sea diferente de otras ya escaneadas
+          if (scannedPackages.some(p => p.carrierGuide === data)) {
+            Vibration.vibrate([0, 200, 100, 200]);
+            showFeedback({
+              type: 'error',
+              message: `❌ Esta guía de Paquete Express (${data}) ya fue escaneada.`,
+            });
+            return;
+          }
+
           // Escanear guía Paquete Express
           const newPackage = {
             packageId: `${scannedPackages.length + 1}`,
@@ -284,7 +337,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
           Vibration.vibrate(100);
           showFeedback({
             type: 'success',
-            message: `Caja ${scannedPackages.length + 1} registrada. Siguiente caja...`,
+            message: `✅ Caja ${scannedPackages.length + 1} registrada: ${tempInternalGuide} → ${data}. Siguiente caja...`,
           });
           setManualCode('');
         }
@@ -292,7 +345,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         Vibration.vibrate([0, 200, 100, 200]);
         showFeedback({
           type: 'error',
-          message: 'Error al escanear. Intenta nuevamente.',
+          message: error.response?.data?.error || 'Error al escanear. Intenta nuevamente.',
         });
       } finally {
         setTimeout(() => {
