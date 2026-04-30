@@ -543,7 +543,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         }
     };
 
-    // Agregar caja al listado (Y registrar en backend + imprimir)
+    // Agregar caja al listado local (la creación en backend se hace al avanzar al paso 2 con UN SOLO master)
     const handleAddBulkBox = async () => {
         if (!bulkCurrentBox.weight || !bulkCurrentBox.length || !bulkCurrentBox.width || !bulkCurrentBox.height) {
             setBulkError('Completa peso y medidas de la caja');
@@ -562,15 +562,11 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         }
         const normalizedTracking = normalizeCarrierGuide(bulkCurrentBox.trackingCourier);
         const newBox: BoxItem = { ...bulkCurrentBox, trackingCourier: normalizedTracking, id: Date.now() };
-        setBulkSubmitting(true);
-        const ok = await createBoxesPackage([newBox]);
-        setBulkSubmitting(false);
-        if (!ok) return;
         setBulkBoxes(prev => [...prev, newBox]);
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
         setBulkBoxQuantity('1');
         setBulkError('');
-        setSnackbar({ open: true, message: `🖨️ Etiqueta impresa — ${bulkBoxes.length + 1}${expected > 0 ? `/${expected}` : ''} caja(s)`, severity: 'success' });
+        setSnackbar({ open: true, message: `✅ Caja agregada — ${bulkBoxes.length + 1}${expected > 0 ? `/${expected}` : ''}`, severity: 'success' });
         setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
     };
 
@@ -581,16 +577,12 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             id: baseId + i,
             trackingCourier: normalizeCarrierGuide(g || ''),
         }));
-        setBulkSubmitting(true);
-        const ok = await createBoxesPackage(newBoxes);
-        setBulkSubmitting(false);
-        if (!ok) { setBulkMultiScanOpen(false); return; }
         setBulkBoxes(prev => [...prev, ...newBoxes]);
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
         setBulkBoxQuantity('1');
         setBulkMultiScanOpen(false);
         setBulkError('');
-        setSnackbar({ open: true, message: `🖨️ ${newBoxes.length} etiquetas impresas`, severity: 'success' });
+        setSnackbar({ open: true, message: `✅ ${newBoxes.length} caja(s) agregada(s)`, severity: 'success' });
         setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
     };
 
@@ -655,7 +647,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     };
 
     // Siguiente paso del wizard
-    const handleBulkNextStep = () => {
+    const handleBulkNextStep = async () => {
         if (bulkStep === 0) {
             // Paso Cliente + Cantidad: solo requiere cantidad esperada
             const expected = parseInt(bulkExpectedBoxes) || 0;
@@ -673,6 +665,14 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             if (bulkBoxes.length < expected) {
                 setBulkError(`Faltan ${expected - bulkBoxes.length} caja(s) por registrar antes de continuar`);
                 return;
+            }
+            // Crear UN SOLO master con todas las hijas e imprimir etiquetas (solo si aún no se creó)
+            if (bulkRegisteredIds.length === 0) {
+                setBulkSubmitting(true);
+                const ok = await createBoxesPackage(bulkBoxes);
+                setBulkSubmitting(false);
+                if (!ok) return;
+                setSnackbar({ open: true, message: `🖨️ ${bulkBoxes.length} etiqueta(s) impresa(s) — 1 master`, severity: 'success' });
             }
             setBulkError('');
             setBulkStep(2);
