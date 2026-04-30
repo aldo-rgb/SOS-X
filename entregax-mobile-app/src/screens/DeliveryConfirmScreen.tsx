@@ -1265,18 +1265,40 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       </View>
 
       {/* Progress dots */}
-      <View style={styles.progressDots}>
-        {['scan', 'signature', 'photo', 'confirm'].map((step, index) => (
-          <View 
-            key={step}
-            style={[
-              styles.dot,
-              getStepNumber() > index + 1 && styles.dotCompleted,
-              getStepNumber() === index + 1 && styles.dotActive,
-            ]}
-          />
-        ))}
-      </View>
+      {isBulkDelivery ? (
+        <View style={styles.bulkProgressContainer}>
+          <View style={styles.bulkProgressBar}>
+            <View 
+              style={[
+                styles.bulkProgressFill,
+                { 
+                  width: currentStep === 'photo' 
+                    ? '100%'
+                    : (scannedPackages.length / 5) * 100 + '%'
+                }
+              ]}
+            />
+          </View>
+          <Text style={styles.bulkProgressText}>
+            {currentStep === 'photo' 
+              ? 'Capturar Foto (Paso Final)' 
+              : `${scannedPackages.length} cajas escaneadas`}
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.progressDots}>
+          {['scan', 'signature', 'photo', 'confirm'].map((step, index) => (
+            <View 
+              key={step}
+              style={[
+                styles.dot,
+                getStepNumber() > index + 1 && styles.dotCompleted,
+                getStepNumber() === index + 1 && styles.dotActive,
+              ]}
+            />
+          ))}
+        </View>
+      )}
 
       {/* Step content */}
       {renderStep()}
@@ -1869,5 +1891,32 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
+  },
+  
+  // Bulk progress
+  bulkProgressContainer: {
+    paddingHorizontal: 15,
+    paddingVertical: 15,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  bulkProgressBar: {
+    height: 8,
+    backgroundColor: '#eee',
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  bulkProgressFill: {
+    height: '100%',
+    backgroundColor: '#F05A28',
+    borderRadius: 4,
+  },
+  bulkProgressText: {
+    marginTop: 8,
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    fontWeight: '500',
   },
 });
