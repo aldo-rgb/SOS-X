@@ -80,6 +80,7 @@ import {
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import api from '../services/api';
+import { printLabelsZPL, isZplModeEnabled, setZplMode, getDefaultZebraPrinter } from '../utils/zplPrint';
 import axios from 'axios';
 
 // Importar los componentes de cada sección
@@ -292,6 +293,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const [bulkImage, setBulkImage] = useState<string | null>(null);
     const [bulkSubmitting, setBulkSubmitting] = useState(false);
     const [bulkError, setBulkError] = useState('');
+    const [zplEnabled, setZplEnabled] = useState<boolean>(isZplModeEnabled());
     const [paquetesRegistrados, setPaquetesRegistrados] = useState<PaqueteRegistrado[]>([]);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' });
     
@@ -792,6 +794,16 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     // Imprime un arreglo de etiquetas, UNA POR UNA (cada una abre su propia ventana de impresión)
     const printShipmentLabels = async (labels: any[]) => {
         if (!labels || labels.length === 0) return;
+        // 1) Intentar impresión ZPL directa (Zebra Browser Print) si está habilitado
+        if (isZplModeEnabled()) {
+            const ok = await printLabelsZPL(labels);
+            if (ok) {
+                setSnackbar({ open: true, message: `🖨️ ${labels.length} etiqueta(s) enviada(s) a Zebra (ZPL)`, severity: 'success' });
+                return;
+            }
+            setSnackbar({ open: true, message: '⚠️ Zebra Browser Print no disponible, usando impresión por navegador', severity: 'warning' });
+        }
+        // 2) Fallback: imprimir HTML una por una
         for (let i = 0; i < labels.length; i++) {
             await printSingleLabel(labels[i], i);
         }
@@ -1403,6 +1415,30 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                 />
                             </Badge>
                         )}
+                        <Chip
+                            label={zplEnabled ? '🦓 ZPL ON' : '🖨️ HTML'}
+                            size="small"
+                            onClick={async () => {
+                                const next = !zplEnabled;
+                                if (next) {
+                                    const printer = await getDefaultZebraPrinter();
+                                    if (!printer) {
+                                        setSnackbar({ open: true, message: '⚠️ Zebra Browser Print no detectado en https://localhost:9101', severity: 'warning' });
+                                        return;
+                                    }
+                                    setSnackbar({ open: true, message: `✅ Zebra ${printer.name} conectada`, severity: 'success' });
+                                }
+                                setZplMode(next);
+                                setZplEnabled(next);
+                            }}
+                            sx={{
+                                bgcolor: zplEnabled ? '#2E7D32' : '#555',
+                                color: 'white',
+                                cursor: 'pointer',
+                                fontWeight: 700,
+                                '&:hover': { bgcolor: zplEnabled ? '#1B5E20' : '#333' }
+                            }}
+                        />
                         <IconButton onClick={handleCloseBulkReceive} sx={{ color: 'white' }}>
                             <CloseIcon />
                         </IconButton>
