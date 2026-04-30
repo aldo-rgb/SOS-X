@@ -306,7 +306,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const [inventoryModalOpen, setInventoryModalOpen] = useState(false);
     const [inventoryPackages, setInventoryPackages] = useState<InventoryPackage[]>([]);
     const [inventoryLoading, setInventoryLoading] = useState(false);
-    const [inventoryStatusFilter, setInventoryStatusFilter] = useState('all');
+    const [inventoryStatusFilter, setInventoryStatusFilter] = useState('received');
     const [inventorySearch, setInventorySearch] = useState('');
     const [inventoryPage, setInventoryPage] = useState(0);
     const [inventoryRowsPerPage, setInventoryRowsPerPage] = useState(10);
@@ -865,7 +865,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const handleCloseInventory = () => {
         setInventoryModalOpen(false);
         setInventorySearch('');
-        setInventoryStatusFilter('all');
+        setInventoryStatusFilter('received');
         setInventoryPage(0);
     };
 
