@@ -21,9 +21,6 @@ export interface SupplierFormData {
   banco_pais: string;
   swift_bic: string;
   aba_routing: string;
-  banco_intermediario_nombre: string;
-  banco_intermediario_swift: string;
-  banco_intermediario_direccion: string;
   divisa_default: string;
   motivo_default: string;
   foto_url: string;
@@ -43,9 +40,6 @@ export const EMPTY_SUPPLIER: SupplierFormData = {
   banco_pais: '',
   swift_bic: '',
   aba_routing: '',
-  banco_intermediario_nombre: '',
-  banco_intermediario_swift: '',
-  banco_intermediario_direccion: '',
   divisa_default: 'RMB',
   motivo_default: '',
   foto_url: '',
@@ -55,13 +49,28 @@ export const EMPTY_SUPPLIER: SupplierFormData = {
 
 const DIVISAS = ['RMB', 'USD', 'EUR', 'JPY', 'KRW', 'GBP'];
 
+const ORANGE = '#F05A28';
+const textFieldSx = {
+  '& .MuiOutlinedInput-root': {
+    color: '#ffffff',
+    backgroundColor: '#0a0a0a',
+    '& fieldset': { borderColor: '#333333' },
+    '&:hover fieldset': { borderColor: '#555555' },
+    '&.Mui-focused fieldset': { borderColor: ORANGE },
+  },
+  '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
+  '& .MuiInputLabel-root': { color: '#888888' },
+  '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+  '& .MuiOutlinedInput-input': { color: '#ffffff' },
+  '& .MuiSvgIcon-root': { color: ORANGE },
+  '& .MuiFormHelperText-root': { color: '#666666' },
+};
+
 interface Props {
   value: SupplierFormData;
   onChange: (next: SupplierFormData) => void;
   onUploadPhoto: (file: File) => Promise<void> | void;
   uploading?: boolean;
-  /** Si true, oculta los campos de "Datos del banco intermediario" (avanzado). */
-  compact?: boolean;
 }
 
 export default function EntangledSupplierForm({
@@ -69,7 +78,6 @@ export default function EntangledSupplierForm({
   onChange,
   onUploadPhoto,
   uploading,
-  compact,
 }: Props) {
   const { t } = useTranslation();
   const isRMB = value.divisa_default === 'RMB';
@@ -77,7 +85,7 @@ export default function EntangledSupplierForm({
 
   return (
     <Box>
-      <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+      <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, color: '#ffffff' }}>
         {t('entangled.suppliers.beneficiary', 'Datos del beneficiario')}
       </Typography>
       <Grid container spacing={2}>
@@ -88,6 +96,7 @@ export default function EntangledSupplierForm({
             value={value.alias}
             onChange={(e) => set({ alias: e.target.value })}
             placeholder="Mi proveedor de Shenzhen"
+            sx={textFieldSx}
           />
         </Grid>
         <Grid size={{ xs: 12, md: 6 }}>
@@ -97,6 +106,7 @@ export default function EntangledSupplierForm({
             label={t('entangled.fields.currency')}
             value={value.divisa_default}
             onChange={(e) => set({ divisa_default: e.target.value })}
+            sx={textFieldSx}
           >
             {DIVISAS.map((d) => (
               <MenuItem key={d} value={d}>
@@ -113,6 +123,7 @@ export default function EntangledSupplierForm({
             onChange={(e) => set({ nombre_beneficiario: e.target.value })}
             required
             helperText={t('entangled.suppliers.beneficiaryNameHelp', 'Tal como aparece en la cuenta')}
+            sx={textFieldSx}
           />
         </Grid>
         {isRMB && (
@@ -123,6 +134,7 @@ export default function EntangledSupplierForm({
               value={value.nombre_chino}
               onChange={(e) => set({ nombre_chino: e.target.value })}
               required
+              sx={textFieldSx}
             />
           </Grid>
         )}
@@ -132,6 +144,7 @@ export default function EntangledSupplierForm({
             label={t('entangled.suppliers.beneficiaryAddress', 'Dirección del beneficiario')}
             value={value.direccion_beneficiario}
             onChange={(e) => set({ direccion_beneficiario: e.target.value })}
+            sx={textFieldSx}
           />
         </Grid>
         <Grid size={{ xs: 12, md: 4 }}>
@@ -140,11 +153,12 @@ export default function EntangledSupplierForm({
             label={t('entangled.suppliers.country', 'País')}
             value={value.pais_beneficiario}
             onChange={(e) => set({ pais_beneficiario: e.target.value })}
+            sx={textFieldSx}
           />
         </Grid>
       </Grid>
 
-      <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1 }}>
+      <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1, color: '#ffffff' }}>
         {t('entangled.suppliers.account', 'Cuenta bancaria')}
       </Typography>
       <Grid container spacing={2}>
@@ -155,11 +169,12 @@ export default function EntangledSupplierForm({
             value={value.numero_cuenta}
             onChange={(e) => set({ numero_cuenta: e.target.value.trim() })}
             required
+            sx={textFieldSx}
           />
         </Grid>
       </Grid>
 
-      <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1 }}>
+      <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1, color: '#ffffff' }}>
         {t('entangled.suppliers.bank', 'Banco receptor')}
       </Typography>
       <Grid container spacing={2}>
@@ -170,6 +185,7 @@ export default function EntangledSupplierForm({
             value={value.banco_nombre}
             onChange={(e) => set({ banco_nombre: e.target.value })}
             required
+            sx={textFieldSx}
           />
         </Grid>
         <Grid size={{ xs: 12, md: 4 }}>
@@ -178,6 +194,7 @@ export default function EntangledSupplierForm({
             label={t('entangled.suppliers.bankCountry', 'País del banco')}
             value={value.banco_pais}
             onChange={(e) => set({ banco_pais: e.target.value })}
+            sx={textFieldSx}
           />
         </Grid>
         <Grid size={{ xs: 12 }}>
@@ -186,6 +203,7 @@ export default function EntangledSupplierForm({
             label={t('entangled.suppliers.bankAddress', 'Dirección del banco')}
             value={value.banco_direccion}
             onChange={(e) => set({ banco_direccion: e.target.value })}
+            sx={textFieldSx}
           />
         </Grid>
         <Grid size={{ xs: 12, md: 6 }}>
@@ -195,6 +213,7 @@ export default function EntangledSupplierForm({
             value={value.swift_bic}
             onChange={(e) => set({ swift_bic: e.target.value.trim().toUpperCase() })}
             inputProps={{ maxLength: 11 }}
+            sx={textFieldSx}
           />
         </Grid>
         <Grid size={{ xs: 12, md: 6 }}>
@@ -204,47 +223,12 @@ export default function EntangledSupplierForm({
             value={value.aba_routing}
             onChange={(e) => set({ aba_routing: e.target.value.replace(/\D/g, '') })}
             inputProps={{ maxLength: 9 }}
+            sx={textFieldSx}
           />
         </Grid>
       </Grid>
 
-      {!compact && (
-        <>
-          <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1 }}>
-            {t('entangled.suppliers.intermediary', 'Banco intermediario (opcional)')}
-          </Typography>
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <TextField
-                fullWidth
-                label={t('entangled.suppliers.intermediaryName', 'Nombre del banco intermediario')}
-                value={value.banco_intermediario_nombre}
-                onChange={(e) => set({ banco_intermediario_nombre: e.target.value })}
-              />
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <TextField
-                fullWidth
-                label={t('entangled.suppliers.intermediarySwift', 'SWIFT del intermediario')}
-                value={value.banco_intermediario_swift}
-                onChange={(e) =>
-                  set({ banco_intermediario_swift: e.target.value.trim().toUpperCase() })
-                }
-              />
-            </Grid>
-            <Grid size={{ xs: 12 }}>
-              <TextField
-                fullWidth
-                label={t('entangled.suppliers.intermediaryAddress', 'Dirección del intermediario')}
-                value={value.banco_intermediario_direccion}
-                onChange={(e) => set({ banco_intermediario_direccion: e.target.value })}
-              />
-            </Grid>
-          </Grid>
-        </>
-      )}
-
-      <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1 }}>
+      <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1, color: '#ffffff' }}>
         {t('entangled.suppliers.extra', 'Información adicional')}
       </Typography>
       <Grid container spacing={2}>
@@ -254,6 +238,7 @@ export default function EntangledSupplierForm({
             label={t('entangled.suppliers.reason', 'Motivo de la transferencia')}
             value={value.motivo_default}
             onChange={(e) => set({ motivo_default: e.target.value })}
+            sx={textFieldSx}
           />
         </Grid>
         <Grid size={{ xs: 12, md: 6 }}>
@@ -262,6 +247,7 @@ export default function EntangledSupplierForm({
             label={t('entangled.suppliers.notes', 'Notas internas')}
             value={value.notes}
             onChange={(e) => set({ notes: e.target.value })}
+            sx={textFieldSx}
           />
         </Grid>
         <Grid size={{ xs: 12 }}>
@@ -271,6 +257,7 @@ export default function EntangledSupplierForm({
               component="label"
               startIcon={<CloudUploadIcon />}
               disabled={uploading}
+              sx={{ color: ORANGE, borderColor: ORANGE, '&:hover': { bgcolor: 'rgba(240, 90, 40, 0.1)' } }}
             >
               {uploading
                 ? t('entangled.messages.uploadingProof', 'Subiendo...')
@@ -287,7 +274,7 @@ export default function EntangledSupplierForm({
               />
             </Button>
             {value.foto_url && (
-              <Button size="small" href={value.foto_url} target="_blank" rel="noopener" color="success">
+              <Button size="small" href={value.foto_url} target="_blank" rel="noopener" sx={{ color: '#4ade80' }}>
                 {t('entangled.suppliers.viewPhoto', 'Ver archivo')}
               </Button>
             )}

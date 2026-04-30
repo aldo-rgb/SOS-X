@@ -92,6 +92,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     tipo_cambio_usd: number | string;
     tipo_cambio_rmb: number | string;
     porcentaje_compra: number | string;
+    costo_operacion_usd: number | string;
     bank_accounts: Array<{ currency: string; bank: string; holder: string; account: string; clabe: string; reference: string }>;
     is_default: boolean;
   };
@@ -100,14 +101,19 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const pricing = (() => {
     const p = providers.find(x => x.id === selectedProviderId);
     if (!p) return null;
-    return {
+    const result = {
       tipo_cambio_usd: Number(p.tipo_cambio_usd),
       tipo_cambio_rmb: Number(p.tipo_cambio_rmb),
       porcentaje_compra: Number(p.porcentaje_compra),
+      costo_operacion_usd: Number(p.costo_operacion_usd || 0),
     };
+    console.log('[ENTANGLED MOBILE] Pricing object:', result, 'from provider:', p);
+    return result;
   })();
 
   const authHeaders = { Authorization: `Bearer ${token}` };
+  const [editingFiscalData, setEditingFiscalData] = useState(false);
+  const [editingSupplierData, setEditingSupplierData] = useState(false);
 
   const loadRequests = useCallback(async () => {
     try {
@@ -135,10 +141,16 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       const res = await fetch(`${API_URL}/api/entangled/providers`, { headers: authHeaders });
       const data = await res.json();
       const list: EntProviderPub[] = Array.isArray(data) ? data : [];
+      console.log('[ENTANGLED MOBILE] Providers loaded:', list);
       setProviders(list);
       const def = list.find(x => x.is_default) || list[0] || null;
-      if (def && !selectedProviderId) setSelectedProviderId(def.id);
-    } catch {}
+      if (def && !selectedProviderId) {
+        console.log('[ENTANGLED MOBILE] Default provider:', def, 'costo_operacion_usd:', def.costo_operacion_usd);
+        setSelectedProviderId(def.id);
+      }
+    } catch (err) {
+      console.error('[ENTANGLED MOBILE] loadPricing error:', err);
+    }
   }, [token, selectedProviderId]);
 
   const loadFiscalProfile = useCallback(async () => {
@@ -165,6 +177,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
   const handlePickSupplier = (id: number | 'new') => {
     setSelectedSupplierId(id);
+    setEditingSupplierData(false);
     if (id === 'new') {
       setBenefName(''); setBenefNameZh(''); setBenefAddress('');
       setBenefAccount(''); setBenefIban(''); setBenefBankName('');
@@ -195,11 +208,18 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     if (!pricing || !m || m <= 0) return null;
     const tc = divisa === 'RMB' ? pricing.tipo_cambio_rmb : pricing.tipo_cambio_usd;
     const base = m * tc;
-    const total = base * (1 + pricing.porcentaje_compra / 100);
+    const comision = base * (pricing.porcentaje_compra / 100);
+    const costoOpUsd = pricing.costo_operacion_usd || 0;
+    const costoOpMxn = costoOpUsd * tc;
+    const total = base + comision + costoOpMxn;
+    console.log('[ENTANGLED MOBILE] Quote calculation:', { pricing, costoOpUsd, costoOpMxn, total });
     return {
       tipo_cambio: tc,
       porcentaje_compra: pricing.porcentaje_compra,
+      costo_operacion_usd: costoOpUsd,
       monto_mxn_base: base,
+      monto_mxn_comision: comision,
+      monto_mxn_costo_op: costoOpMxn,
       monto_mxn_total: total,
     };
   })();
@@ -298,6 +318,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         setBenefAccount(''); setBenefIban(''); setBenefBankName('');
         setBenefBankAddress(''); setBenefSwift(''); setBenefAba(''); setBenefAlias('');
         setSelectedSupplierId('new');
+        setEditingFiscalData(false);
+        setEditingSupplierData(false);
         loadRequests();
         loadSuppliers();
       } else {
@@ -355,40 +377,67 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         {/* Datos fiscales (solo si requiere factura) */}
         {requiereFactura && (
           <>
-            <Text style={[styles.sectionTitle, { fontSize: 14, marginTop: 12 }]}>📋 Datos fiscales</Text>
-
-            <Text style={styles.label}>{t('entangled.fields.rfc')}</Text>
-            <TextInput style={styles.input} value={rfc} onChangeText={t => setRfc(t.toUpperCase())} autoCapitalize="characters" />
-
-            <Text style={styles.label}>{t('entangled.fields.razonSocial')}</Text>
-            <TextInput style={styles.input} value={razon} onChangeText={setRazon} />
-
-            <Text style={styles.label}>{t('entangled.fields.regimenFiscal')}</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-              {REGIMENES.map(r => (
-                <TouchableOpacity key={r.code} style={[styles.chip, regimen === r.code && styles.chipActive]} onPress={() => setRegimen(r.code)}>
-                  <Text style={[styles.chipText, regimen === r.code && styles.chipTextActive]}>{r.code}</Text>
+            {/* Card de datos fiscales precargados */}
+            {rfc && razon && !editingFiscalData && (
+              <View style={{ backgroundColor: '#e8f5e9', borderWidth: 1, borderColor: '#81c784', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#2e7d32', marginBottom: 8 }}>✅ Datos fiscales cargados</Text>
+                <Text style={{ fontSize: 12, color: '#1b5e20', marginBottom: 4 }}><Text style={{ fontWeight: '600' }}>Razón Social:</Text> {razon}</Text>
+                <Text style={{ fontSize: 12, color: '#1b5e20', marginBottom: 4 }}><Text style={{ fontWeight: '600' }}>RFC:</Text> {rfc}</Text>
+                <Text style={{ fontSize: 12, color: '#1b5e20', marginBottom: 8 }}><Text style={{ fontWeight: '600' }}>C.P.:</Text> {cp}</Text>
+                <TouchableOpacity onPress={() => setEditingFiscalData(true)}>
+                  <Text style={{ fontSize: 13, color: ORANGE, fontWeight: '600' }}>✏️ Editar datos</Text>
                 </TouchableOpacity>
-              ))}
-            </ScrollView>
+              </View>
+            )}
 
-            <Text style={styles.label}>{t('entangled.fields.cp')}</Text>
-            <TextInput style={styles.input} value={cp} onChangeText={setCp} keyboardType="numeric" maxLength={5} />
+            {(!rfc || !razon || editingFiscalData) && (
+              <>
+                <Text style={[styles.sectionTitle, { fontSize: 14, marginTop: 12 }]}>📋 Datos fiscales</Text>
 
-            <Text style={styles.label}>{t('entangled.fields.usoCfdi')}</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-              {USOS_CFDI.map(u => (
-                <TouchableOpacity key={u.code} style={[styles.chip, uso === u.code && styles.chipActive]} onPress={() => setUso(u.code)}>
-                  <Text style={[styles.chipText, uso === u.code && styles.chipTextActive]}>{u.code}</Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
+                <Text style={styles.label}>{t('entangled.fields.rfc')}</Text>
+                <TextInput style={styles.input} value={rfc} onChangeText={t => setRfc(t.toUpperCase())} autoCapitalize="characters" />
 
-            <Text style={styles.label}>{t('entangled.fields.email')}</Text>
-            <TextInput style={styles.input} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+                <Text style={styles.label}>{t('entangled.fields.razonSocial')}</Text>
+                <TextInput style={styles.input} value={razon} onChangeText={setRazon} />
 
-            <Text style={styles.label}>{t('entangled.fields.concepts')} (separados por coma, opcional)</Text>
-            <TextInput style={styles.input} value={conceptos} onChangeText={setConceptos} placeholder="84111506, 90121800" />
+                <Text style={styles.label}>{t('entangled.fields.regimenFiscal')}</Text>
+                <View style={{ borderWidth: 1, borderColor: '#ccc', borderRadius: 4, marginBottom: 12, backgroundColor: '#f9f9f9', paddingHorizontal: 4 }}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {REGIMENES.map(r => (
+                      <TouchableOpacity key={r.code} style={[styles.chip, regimen === r.code && styles.chipActive]} onPress={() => setRegimen(r.code)}>
+                        <View>
+                          <Text style={[styles.chipText, regimen === r.code && styles.chipTextActive, { fontWeight: '600' }]}>{r.code}</Text>
+                          <Text style={[styles.chipText, regimen === r.code && styles.chipTextActive, { fontSize: 10 }]}>{r.name.slice(0, 20)}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+
+                <Text style={styles.label}>{t('entangled.fields.cp')}</Text>
+                <TextInput style={styles.input} value={cp} onChangeText={setCp} keyboardType="numeric" maxLength={5} />
+
+                <Text style={styles.label}>{t('entangled.fields.usoCfdi')}</Text>
+                <View style={{ borderWidth: 1, borderColor: '#ccc', borderRadius: 4, marginBottom: 12, backgroundColor: '#f9f9f9', paddingHorizontal: 4 }}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                    {USOS_CFDI.map(u => (
+                      <TouchableOpacity key={u.code} style={[styles.chip, uso === u.code && styles.chipActive]} onPress={() => setUso(u.code)}>
+                        <View>
+                          <Text style={[styles.chipText, uso === u.code && styles.chipTextActive, { fontWeight: '600' }]}>{u.code}</Text>
+                          <Text style={[styles.chipText, uso === u.code && styles.chipTextActive, { fontSize: 10 }]}>{u.name.slice(0, 20)}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+
+                <Text style={styles.label}>{t('entangled.fields.email')}</Text>
+                <TextInput style={styles.input} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
+
+                <Text style={styles.label}>{t('entangled.fields.concepts')} (separados por coma, opcional)</Text>
+                <TextInput style={styles.input} value={conceptos} onChangeText={setConceptos} placeholder="84111506, 90121800" />
+              </>
+            )}
           </>
         )}
 
@@ -417,54 +466,75 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 </TouchableOpacity>
               ))}
             </ScrollView>
+
+            {/* Card de proveedor seleccionado */}
+            {selectedSupplierId !== 'new' && savedSuppliers.find(s => s.id === selectedSupplierId) && !editingSupplierData && (
+              <View style={{ backgroundColor: '#fff3e0', borderWidth: 1, borderColor: '#ffb74d', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <Text style={{ fontSize: 14, fontWeight: '700', color: '#e65100', marginBottom: 8 }}>✅ Proveedor seleccionado</Text>
+                <Text style={{ fontSize: 12, color: '#bf360c', marginBottom: 4 }}><Text style={{ fontWeight: '600' }}>Beneficiario:</Text> {savedSuppliers.find(s => s.id === selectedSupplierId)?.nombre_beneficiario}</Text>
+                {savedSuppliers.find(s => s.id === selectedSupplierId)?.banco_nombre && (
+                  <Text style={{ fontSize: 12, color: '#bf360c', marginBottom: 4 }}><Text style={{ fontWeight: '600' }}>Banco:</Text> {savedSuppliers.find(s => s.id === selectedSupplierId)?.banco_nombre}</Text>
+                )}
+                {savedSuppliers.find(s => s.id === selectedSupplierId)?.numero_cuenta && (
+                  <Text style={{ fontSize: 12, color: '#bf360c', marginBottom: 8 }}><Text style={{ fontWeight: '600' }}>Cuenta:</Text> ...{savedSuppliers.find(s => s.id === selectedSupplierId)?.numero_cuenta.slice(-4)}</Text>
+                )}
+                <TouchableOpacity onPress={() => setEditingSupplierData(true)}>
+                  <Text style={{ fontSize: 13, color: ORANGE, fontWeight: '600' }}>✏️ Editar datos</Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </>
         )}
 
-        <Text style={styles.label}>Nombre del beneficiario *</Text>
-        <TextInput style={styles.input} value={benefName} onChangeText={setBenefName} />
-
-        {divisa === 'RMB' && (
+        {(selectedSupplierId === 'new' || editingSupplierData) && (
           <>
-            <Text style={styles.label}>Nombre en chino *</Text>
-            <TextInput style={styles.input} value={benefNameZh} onChangeText={setBenefNameZh} />
+            <Text style={styles.label}>Nombre del beneficiario *</Text>
+            <TextInput style={styles.input} value={benefName} onChangeText={setBenefName} />
+
+            {divisa === 'RMB' && (
+              <>
+                <Text style={styles.label}>Nombre en chino *</Text>
+                <TextInput style={styles.input} value={benefNameZh} onChangeText={setBenefNameZh} />
+              </>
+            )}
+
+            <Text style={styles.label}>Dirección del beneficiario</Text>
+            <TextInput style={styles.input} value={benefAddress} onChangeText={setBenefAddress} />
+
+            <Text style={styles.label}>Número de cuenta *</Text>
+            <TextInput style={styles.input} value={benefAccount} onChangeText={setBenefAccount} />
+
+            <Text style={styles.label}>Banco *</Text>
+            <TextInput style={styles.input} value={benefBankName} onChangeText={setBenefBankName} />
+
+            <Text style={styles.label}>Dirección del banco</Text>
+            <TextInput style={styles.input} value={benefBankAddress} onChangeText={setBenefBankAddress} />
+
+            <Text style={styles.label}>SWIFT / BIC</Text>
+            <TextInput style={styles.input} value={benefSwift} onChangeText={setBenefSwift} autoCapitalize="characters" />
+
+            <Text style={styles.label}>ABA / Routing (USD)</Text>
+            <TextInput style={styles.input} value={benefAba} onChangeText={setBenefAba} keyboardType="numeric" />
+
+            <Text style={styles.label}>Alias (opcional, para reutilizar)</Text>
+            <TextInput style={styles.input} value={benefAlias} onChangeText={setBenefAlias} />
+
+            {selectedSupplierId === 'new' && (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}
+                onPress={() => setSaveSupplier(s => !s)}
+              >
+                <Ionicons
+                  name={saveSupplier ? 'checkbox' : 'square-outline'}
+                  size={20}
+                  color={ORANGE}
+                />
+                <Text style={{ marginLeft: 8, color: '#475569', fontSize: 13 }}>
+                  Guardar este proveedor para próximas solicitudes
+                </Text>
+              </TouchableOpacity>
+            )}
           </>
-        )}
-
-        <Text style={styles.label}>Dirección del beneficiario</Text>
-        <TextInput style={styles.input} value={benefAddress} onChangeText={setBenefAddress} />
-
-        <Text style={styles.label}>Número de cuenta *</Text>
-        <TextInput style={styles.input} value={benefAccount} onChangeText={setBenefAccount} />
-
-        <Text style={styles.label}>Banco *</Text>
-        <TextInput style={styles.input} value={benefBankName} onChangeText={setBenefBankName} />
-
-        <Text style={styles.label}>Dirección del banco</Text>
-        <TextInput style={styles.input} value={benefBankAddress} onChangeText={setBenefBankAddress} />
-
-        <Text style={styles.label}>SWIFT / BIC</Text>
-        <TextInput style={styles.input} value={benefSwift} onChangeText={setBenefSwift} autoCapitalize="characters" />
-
-        <Text style={styles.label}>ABA / Routing (USD)</Text>
-        <TextInput style={styles.input} value={benefAba} onChangeText={setBenefAba} keyboardType="numeric" />
-
-        <Text style={styles.label}>Alias (opcional, para reutilizar)</Text>
-        <TextInput style={styles.input} value={benefAlias} onChangeText={setBenefAlias} />
-
-        {selectedSupplierId === 'new' && (
-          <TouchableOpacity
-            style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}
-            onPress={() => setSaveSupplier(s => !s)}
-          >
-            <Ionicons
-              name={saveSupplier ? 'checkbox' : 'square-outline'}
-              size={20}
-              color={ORANGE}
-            />
-            <Text style={{ marginLeft: 8, color: '#475569', fontSize: 13 }}>
-              Guardar este proveedor para próximas solicitudes
-            </Text>
-          </TouchableOpacity>
         )}
 
         {/* Monto y divisa */}
@@ -492,7 +562,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         )}
 
         <Text style={styles.label}>{t('entangled.fields.amount')}</Text>
-        <TextInput style={styles.input} value={monto} onChangeText={setMonto} keyboardType="decimal-pad" placeholder="0.00" />
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+          <Text style={{ fontSize: 16, fontWeight: '600', color: ORANGE, marginRight: 4 }}>$</Text>
+          <TextInput style={[styles.input, { flex: 1, marginBottom: 0 }]} value={monto} onChangeText={setMonto} keyboardType="decimal-pad" placeholder="0.00" />
+        </View>
 
         <Text style={styles.label}>{t('entangled.fields.currency')}</Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
@@ -508,7 +581,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           <View style={styles.quoteBox}>
             <Text style={styles.quoteTitle}>Cotización</Text>
             <Text style={styles.quoteLine}>
-              Monto a enviar: <Text style={styles.quoteVal}>{Number(monto).toLocaleString()} {divisa}</Text>
+              Monto a enviar: <Text style={styles.quoteVal}>${Number(monto).toLocaleString()} {divisa}</Text>
             </Text>
             <Text style={styles.quoteLine}>
               Tipo de cambio: <Text style={styles.quoteVal}>${quote.tipo_cambio.toFixed(4)} MXN/{divisa}</Text>
@@ -518,9 +591,16 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             </Text>
             <Text style={styles.quoteLine}>
               Comisión ({quote.porcentaje_compra}%): <Text style={styles.quoteVal}>
-                ${(quote.monto_mxn_total - quote.monto_mxn_base).toFixed(2)}
+                ${quote.monto_mxn_comision.toFixed(2)}
               </Text>
             </Text>
+            {quote.monto_mxn_costo_op > 0 && (
+              <Text style={styles.quoteLine}>
+                Costo operación ({quote.costo_operacion_usd} USD × {quote.tipo_cambio.toFixed(4)}): <Text style={styles.quoteVal}>
+                  ${quote.monto_mxn_costo_op.toFixed(2)}
+                </Text>
+              </Text>
+            )}
             <View style={styles.quoteDivider} />
             <Text style={styles.quoteTotal}>
               Total a pagar: ${quote.monto_mxn_total.toFixed(2)} MXN

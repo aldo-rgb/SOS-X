@@ -73,8 +73,6 @@ export default function SupplierPaymentsPage() {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
 
   // Estado
-  const [exchangeRate, setExchangeRate] = useState<number>(20.50);
-  const [newRate, setNewRate] = useState<string>('');
   const [providers, setProviders] = useState<Provider[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -93,12 +91,15 @@ export default function SupplierPaymentsPage() {
     tipo_cambio_usd: number | string;
     tipo_cambio_rmb: number | string;
     porcentaje_compra: number | string;
+    costo_operacion_usd: number | string;
     override_tipo_cambio_usd: number | string | null;
     override_tipo_cambio_rmb: number | string | null;
     override_porcentaje_compra: number | string | null;
+    override_costo_operacion_usd: number | string | null;
     effective_tipo_cambio_usd?: number | string;
     effective_tipo_cambio_rmb?: number | string;
     effective_porcentaje_compra?: number | string;
+    effective_costo_operacion_usd?: number | string;
     bank_accounts: EntBankAccount[];
     notes: string | null;
     is_active: boolean;
@@ -125,14 +126,12 @@ export default function SupplierPaymentsPage() {
     setLoading(true);
     try {
       const headers = { Authorization: `Bearer ${getToken()}` };
-      const [rateRes, providersRes, paymentsRes, statsRes] = await Promise.all([
-        axios.get(`${API_URL}/exchange-rate`),
+      const [providersRes, paymentsRes, statsRes] = await Promise.all([
         axios.get(`${API_URL}/admin/payment-providers`, { headers }),
         axios.get(`${API_URL}/admin/supplier-payments?status=${statusFilter}`, { headers }),
         axios.get(`${API_URL}/admin/supplier-payments/stats`, { headers })
       ]);
       
-      setExchangeRate(rateRes.data.rate);
       setProviders(providersRes.data);
       setPayments(paymentsRes.data);
       setStats(statsRes.data);
@@ -163,21 +162,6 @@ export default function SupplierPaymentsPage() {
     loadData();
   }, [loadData]);
 
-  const handleUpdateRate = async () => {
-    if (!newRate || parseFloat(newRate) <= 0) return;
-    try {
-      await axios.post(`${API_URL}/admin/exchange-rate`, 
-        { rate: parseFloat(newRate) },
-        { headers: { Authorization: `Bearer ${getToken()}` } }
-      );
-      setSnackbar({ open: true, message: 'Tipo de cambio actualizado', severity: 'success' });
-      setNewRate('');
-      loadData();
-    } catch (error) {
-      setSnackbar({ open: true, message: 'Error al actualizar', severity: 'error' });
-    }
-  };
-
   // ===== ENTANGLED handlers =====
   const handleSaveEntProvider = async () => {
     if (!editingEntProvider) return;
@@ -188,6 +172,7 @@ export default function SupplierPaymentsPage() {
         override_tipo_cambio_usd: toNullable(editingEntProvider.override_tipo_cambio_usd),
         override_tipo_cambio_rmb: toNullable(editingEntProvider.override_tipo_cambio_rmb),
         override_porcentaje_compra: toNullable(editingEntProvider.override_porcentaje_compra),
+        override_costo_operacion_usd: toNullable(editingEntProvider.override_costo_operacion_usd),
         bank_accounts: editingEntProvider.bank_accounts || [],
         notes: editingEntProvider.notes || null,
         is_active: editingEntProvider.is_active,
@@ -313,19 +298,19 @@ export default function SupplierPaymentsPage() {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
+    <Box sx={{ p: 3, bgcolor: '#000000', minHeight: '100vh', color: '#ffffff' }}>
       {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, pb: 2, borderBottom: '1px solid #333333' }}>
         <Box>
-          <Typography variant="h4" fontWeight="bold">
+          <Typography variant="h4" fontWeight="bold" sx={{ color: ORANGE }}>
             💰 {i18n.language === 'es' ? 'Pagos a Proveedores' : 'Supplier Payments'}
           </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {i18n.language === 'es' ? 'Gestión de tipo de cambio, proveedores y solicitudes' : 'Manage exchange rates, providers and requests'}
+          <Typography variant="body2" sx={{ color: '#888888' }}>
+            {i18n.language === 'es' ? 'Gestión de proveedores y solicitudes' : 'Manage providers and requests'}
           </Typography>
         </Box>
         <Tooltip title="Actualizar">
-          <IconButton onClick={loadData} sx={{ bgcolor: 'grey.100' }}>
+          <IconButton onClick={loadData} sx={{ bgcolor: 'rgba(240, 90, 40, 0.1)', color: ORANGE, '&:hover': { bgcolor: 'rgba(240, 90, 40, 0.2)' } }}>
             <RefreshIcon />
           </IconButton>
         </Tooltip>
@@ -333,48 +318,36 @@ export default function SupplierPaymentsPage() {
 
       {/* Stats Cards */}
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
-        <Card sx={{ flex: '1 1 200px', background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)`, color: 'white' }}>
-          <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Box>
-                <Typography variant="h4" fontWeight="bold">${Number(exchangeRate || 0).toFixed(2)}</Typography>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>Tipo de Cambio</Typography>
-              </Box>
-              <CurrencyExchangeIcon sx={{ fontSize: 40, opacity: 0.8 }} />
-            </Box>
-          </CardContent>
-        </Card>
-
-        <Card sx={{ flex: '1 1 200px', background: 'linear-gradient(135deg, #ffc107 0%, #ffca28 100%)', color: '#333' }}>
+        <Card sx={{ flex: '1 1 200px', bgcolor: 'rgba(240, 90, 40, 0.15)', border: `1px solid ${ORANGE}`, color: ORANGE }}>
           <CardContent>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Box>
                 <Typography variant="h4" fontWeight="bold">{stats?.pending || 0}</Typography>
-                <Typography variant="body2">Pendientes</Typography>
+                <Typography variant="body2" sx={{ color: '#888888' }}>Pendientes</Typography>
               </Box>
               <PendingIcon sx={{ fontSize: 40, opacity: 0.8 }} />
             </Box>
           </CardContent>
         </Card>
 
-        <Card sx={{ flex: '1 1 200px', background: 'linear-gradient(135deg, #4caf50 0%, #81c784 100%)', color: 'white' }}>
+        <Card sx={{ flex: '1 1 200px', bgcolor: 'rgba(74, 222, 128, 0.15)', border: '1px solid #4ade80', color: '#4ade80' }}>
           <CardContent>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Box>
                 <Typography variant="h4" fontWeight="bold">${Number(stats?.total_platform_profit || 0).toFixed(0)}</Typography>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>Ganancia (30d)</Typography>
+                <Typography variant="body2" sx={{ opacity: 0.9, color: '#888888' }}>Ganancia (30d)</Typography>
               </Box>
               <TrendingUpIcon sx={{ fontSize: 40, opacity: 0.8 }} />
             </Box>
           </CardContent>
         </Card>
 
-        <Card sx={{ flex: '1 1 200px', background: 'linear-gradient(135deg, #2196f3 0%, #64b5f6 100%)', color: 'white' }}>
+        <Card sx={{ flex: '1 1 200px', bgcolor: 'rgba(59, 130, 246, 0.15)', border: '1px solid #3b82f6', color: '#3b82f6' }}>
           <CardContent>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Box>
                 <Typography variant="h4" fontWeight="bold">{stats?.completed || 0}</Typography>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>Completados (30d)</Typography>
+                <Typography variant="body2" sx={{ opacity: 0.9, color: '#888888' }}>Completados (30d)</Typography>
               </Box>
               <CheckCircleIcon sx={{ fontSize: 40, opacity: 0.8 }} />
             </Box>
@@ -383,8 +356,8 @@ export default function SupplierPaymentsPage() {
       </Box>
 
       {/* Tabs */}
-      <Paper sx={{ mb: 3, borderRadius: 2 }}>
-        <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
+      <Paper sx={{ mb: 3, borderRadius: 2, bgcolor: '#1a1a1a', border: '1px solid #333333' }}>
+        <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ borderBottom: 1, borderColor: '#333333', '& .MuiTab-root': { color: '#888888', '&.Mui-selected': { color: ORANGE } } }}>
           <Tab icon={<PaymentsIcon />} label="Solicitudes" />
           <Tab icon={<CurrencyExchangeIcon />} label="Tipo de Cambio" />
           <Tab icon={<BusinessIcon />} label="Proveedores" />
@@ -394,11 +367,20 @@ export default function SupplierPaymentsPage() {
 
       {/* Tab: Solicitudes */}
       {tabValue === 0 && (
-        <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
-          <Box sx={{ p: 2, bgcolor: 'grey.100', display: 'flex', gap: 2, alignItems: 'center' }}>
+        <Paper sx={{ borderRadius: 3, overflow: 'hidden', bgcolor: '#1a1a1a', border: '1px solid #333333' }}>
+          <Box sx={{ p: 2, bgcolor: '#0a0a0a', display: 'flex', gap: 2, alignItems: 'center', borderBottom: '1px solid #333333' }}>
             <FormControl size="small" sx={{ minWidth: 150 }}>
-              <InputLabel>Estado</InputLabel>
-              <Select value={statusFilter} label="Estado" onChange={(e) => setStatusFilter(e.target.value)}>
+              <InputLabel sx={{ color: '#888888' }}>Estado</InputLabel>
+              <Select value={statusFilter} label="Estado" onChange={(e) => setStatusFilter(e.target.value)}
+                sx={{
+                  color: '#ffffff',
+                  backgroundColor: '#0a0a0a',
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: '#333333' },
+                  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#555555' },
+                  '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: ORANGE },
+                  '& .MuiSvgIcon-root': { color: ORANGE },
+                }}
+              >
                 <MenuItem value="all">Todos</MenuItem>
                 <MenuItem value="pending">Pendientes</MenuItem>
                 <MenuItem value="processing">En Proceso</MenuItem>
@@ -411,60 +393,60 @@ export default function SupplierPaymentsPage() {
           <TableContainer>
             <Table>
               <TableHead>
-                <TableRow sx={{ bgcolor: 'grey.50' }}>
-                  <TableCell>Cliente</TableCell>
-                  <TableCell align="right">Monto USD</TableCell>
-                  <TableCell align="right">TC</TableCell>
-                  <TableCell align="right">Total MXN</TableCell>
-                  <TableCell align="right">Utilidad</TableCell>
-                  <TableCell>Proveedor</TableCell>
-                  <TableCell>Estado</TableCell>
-                  <TableCell>Acciones</TableCell>
+                <TableRow sx={{ bgcolor: '#0a0a0a', borderBottom: '1px solid #333333' }}>
+                  <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>Cliente</TableCell>
+                  <TableCell align="right" sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>Monto USD</TableCell>
+                  <TableCell align="right" sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>TC</TableCell>
+                  <TableCell align="right" sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>Total MXN</TableCell>
+                  <TableCell align="right" sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>Utilidad</TableCell>
+                  <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>Proveedor</TableCell>
+                  <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>Estado</TableCell>
+                  <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>Acciones</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {payments.map((p) => (
-                  <TableRow key={p.id} hover>
-                    <TableCell>
+                  <TableRow key={p.id} hover sx={{ bgcolor: '#1a1a1a', '&:hover': { bgcolor: '#242424' }, borderBottom: '1px solid #2a2a2a' }}>
+                    <TableCell sx={{ color: '#ffffff' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Avatar sx={{ width: 32, height: 32, bgcolor: ORANGE }}>
                           {p.client_name?.[0] || '?'}
                         </Avatar>
                         <Box>
-                          <Typography variant="body2" fontWeight="bold">{p.client_name}</Typography>
-                          <Typography variant="caption" color="text.secondary">{p.client_email}</Typography>
+                          <Typography variant="body2" fontWeight="bold" sx={{ color: '#ffffff' }}>{p.client_name}</Typography>
+                          <Typography variant="caption" sx={{ color: '#666666' }}>{p.client_email}</Typography>
                         </Box>
                       </Box>
                     </TableCell>
-                    <TableCell align="right">
-                      <Typography fontWeight="bold">${parseFloat(String(p.amount_usd)).toLocaleString()}</Typography>
+                    <TableCell align="right" sx={{ color: '#ffffff' }}>
+                      <Typography fontWeight="bold" sx={{ color: ORANGE }}>${parseFloat(String(p.amount_usd)).toLocaleString()}</Typography>
                     </TableCell>
-                    <TableCell align="right">${parseFloat(String(p.exchange_rate)).toFixed(2)}</TableCell>
-                    <TableCell align="right">
-                      <Typography fontWeight="bold" color="primary">
+                    <TableCell align="right" sx={{ color: '#888888' }}>${parseFloat(String(p.exchange_rate)).toFixed(2)}</TableCell>
+                    <TableCell align="right" sx={{ color: '#ffffff' }}>
+                      <Typography fontWeight="bold" sx={{ color: ORANGE }}>
                         ${parseFloat(String(p.total_mxn)).toLocaleString()}
                       </Typography>
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="right" sx={{ color: '#ffffff' }}>
                       <Tooltip title={`Plataforma: $${p.platform_profit} | Asesor: $${p.advisor_profit}`}>
-                        <Typography color="success.main" fontWeight="bold">
+                        <Typography sx={{ color: '#4ade80', fontWeight: 'bold' }}>
                           ${(parseFloat(String(p.platform_profit)) + parseFloat(String(p.advisor_profit))).toFixed(2)}
                         </Typography>
                       </Tooltip>
                     </TableCell>
-                    <TableCell>{p.provider_name || '-'}</TableCell>
+                    <TableCell sx={{ color: '#888888' }}>{p.provider_name || '-'}</TableCell>
                     <TableCell>{getStatusChip(p.status)}</TableCell>
                     <TableCell>
                       <Box sx={{ display: 'flex', gap: 0.5 }}>
                         {p.status === 'pending' && (
                           <>
                             <Tooltip title="Marcar En Proceso">
-                              <IconButton size="small" color="info" onClick={() => handleUpdatePaymentStatus(p.id, 'processing')}>
+                              <IconButton size="small" sx={{ color: '#3b82f6' }} onClick={() => handleUpdatePaymentStatus(p.id, 'processing')}>
                                 <CurrencyExchangeIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                             <Tooltip title="Rechazar">
-                              <IconButton size="small" color="error" onClick={() => handleUpdatePaymentStatus(p.id, 'rejected')}>
+                              <IconButton size="small" sx={{ color: '#ff6b6b' }} onClick={() => handleUpdatePaymentStatus(p.id, 'rejected')}>
                                 <CancelIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
@@ -491,46 +473,6 @@ export default function SupplierPaymentsPage() {
               </TableBody>
             </Table>
           </TableContainer>
-        </Paper>
-      )}
-
-      {/* Tab: Tipo de Cambio */}
-      {tabValue === 1 && (
-        <Paper sx={{ p: 3, borderRadius: 3 }}>
-          <Typography variant="h6" fontWeight="bold" gutterBottom>
-            💱 Actualizar Tipo de Cambio
-          </Typography>
-          <Divider sx={{ my: 2 }} />
-          
-          <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-end', mb: 3 }}>
-            <Box sx={{ textAlign: 'center', p: 3, bgcolor: 'grey.100', borderRadius: 2 }}>
-              <Typography variant="h3" fontWeight="bold" color={ORANGE}>${Number(exchangeRate || 0).toFixed(4)}</Typography>
-              <Typography color="text.secondary">MXN por USD (Actual)</Typography>
-            </Box>
-            
-            <TextField
-              label="Nuevo Tipo de Cambio"
-              type="number"
-              value={newRate}
-              onChange={(e) => setNewRate(e.target.value)}
-              slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
-              sx={{ width: 200 }}
-            />
-            
-            <Button
-              variant="contained"
-              startIcon={<SaveIcon />}
-              onClick={handleUpdateRate}
-              disabled={!newRate}
-              sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)` }}
-            >
-              Actualizar
-            </Button>
-          </Box>
-
-          <Alert severity="info">
-            Este tipo de cambio se aplica a todas las cotizaciones nuevas. Las solicitudes existentes mantienen su TC original.
-          </Alert>
         </Paper>
       )}
 
@@ -877,53 +819,92 @@ export default function SupplierPaymentsPage() {
                     sx={{ width: 160 }}
                     variant="filled"
                   />
+                  <TextField
+                    label="Costo operación del API"
+                    value={Number(editingEntProvider.costo_operacion_usd || 0).toFixed(2)}
+                    InputProps={{ readOnly: true, startAdornment: <InputAdornment position="start">$</InputAdornment>, endAdornment: <InputAdornment position="end">USD</InputAdornment> }}
+                    sx={{ width: 200 }}
+                    variant="filled"
+                  />
                 </Box>
               </Paper>
 
               {/* Overrides editables */}
               <Paper variant="outlined" sx={{ p: 2, borderColor: ORANGE }}>
                 <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5, color: ORANGE }}>
-                  Override (deja vacío para usar el valor del API)
+                  Incremento sobre el valor del API (deja vacío o 0 para no aumentar)
                 </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Si un cliente tiene su propio override por usuario, ese tiene prioridad sobre éste.
+                <Typography variant="caption" color="text.secondary" component="div">
+                  El valor se <b>suma</b> al del API. Ej: TC USD del API = ${Number(editingEntProvider.tipo_cambio_usd).toFixed(2)} + incremento 1.00 ⇒ se vende a ${(Number(editingEntProvider.tipo_cambio_usd) + 1).toFixed(2)}.
+                  Si un cliente tiene su propio override por usuario, ese tiene prioridad.
                 </Typography>
+                {(() => {
+                  const ovUsd = Number(editingEntProvider.override_tipo_cambio_usd ?? 0) || 0;
+                  const ovRmb = Number(editingEntProvider.override_tipo_cambio_rmb ?? 0) || 0;
+                  const ovPct = Number(editingEntProvider.override_porcentaje_compra ?? 0) || 0;
+                  const ovCosto = Number(editingEntProvider.override_costo_operacion_usd ?? 0) || 0;
+                  const effUsd = Number(editingEntProvider.tipo_cambio_usd) + ovUsd;
+                  const effRmb = Number(editingEntProvider.tipo_cambio_rmb) + ovRmb;
+                  const effPct = Number(editingEntProvider.porcentaje_compra) + ovPct;
+                  const effCosto = Number(editingEntProvider.costo_operacion_usd || 0) + ovCosto;
+                  return (
+                    <Typography variant="caption" sx={{ display: 'block', mt: 1, color: ORANGE, fontWeight: 600 }}>
+                      Efectivo: TC USD ${effUsd.toFixed(4)} · TC RMB ${effRmb.toFixed(4)} · % {effPct.toFixed(2)} · Costo op. ${effCosto.toFixed(2)} USD
+                    </Typography>
+                  );
+                })()}
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 2 }}>
                   <TextField
-                    label="Override TC USD"
+                    label="Incremento TC USD"
                     type="number"
                     value={editingEntProvider.override_tipo_cambio_usd ?? ''}
                     onChange={(e) => setEditingEntProvider({
                       ...editingEntProvider,
                       override_tipo_cambio_usd: e.target.value === '' ? null : e.target.value,
                     })}
-                    placeholder={Number(editingEntProvider.tipo_cambio_usd).toFixed(4)}
-                    slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
-                    sx={{ width: 200 }}
+                    placeholder="0.0000"
+                    helperText={`API: $${Number(editingEntProvider.tipo_cambio_usd).toFixed(4)}`}
+                    slotProps={{ input: { startAdornment: <InputAdornment position="start">+$</InputAdornment> } }}
+                    sx={{ width: 220 }}
                   />
                   <TextField
-                    label="Override TC RMB"
+                    label="Incremento TC RMB"
                     type="number"
                     value={editingEntProvider.override_tipo_cambio_rmb ?? ''}
                     onChange={(e) => setEditingEntProvider({
                       ...editingEntProvider,
                       override_tipo_cambio_rmb: e.target.value === '' ? null : e.target.value,
                     })}
-                    placeholder={Number(editingEntProvider.tipo_cambio_rmb).toFixed(4)}
-                    slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
-                    sx={{ width: 200 }}
+                    placeholder="0.0000"
+                    helperText={`API: $${Number(editingEntProvider.tipo_cambio_rmb).toFixed(4)}`}
+                    slotProps={{ input: { startAdornment: <InputAdornment position="start">+$</InputAdornment> } }}
+                    sx={{ width: 220 }}
                   />
                   <TextField
-                    label="Override % de compra"
+                    label="Incremento % de compra"
                     type="number"
                     value={editingEntProvider.override_porcentaje_compra ?? ''}
                     onChange={(e) => setEditingEntProvider({
                       ...editingEntProvider,
                       override_porcentaje_compra: e.target.value === '' ? null : e.target.value,
                     })}
-                    placeholder={Number(editingEntProvider.porcentaje_compra).toFixed(2)}
-                    slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
-                    sx={{ width: 200 }}
+                    placeholder="0.00"
+                    helperText={`API: ${Number(editingEntProvider.porcentaje_compra).toFixed(2)}%`}
+                    slotProps={{ input: { startAdornment: <InputAdornment position="start">+</InputAdornment>, endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+                    sx={{ width: 240 }}
+                  />
+                  <TextField
+                    label="Incremento Costo Operación"
+                    type="number"
+                    value={editingEntProvider.override_costo_operacion_usd ?? ''}
+                    onChange={(e) => setEditingEntProvider({
+                      ...editingEntProvider,
+                      override_costo_operacion_usd: e.target.value === '' ? null : e.target.value,
+                    })}
+                    placeholder="0.00"
+                    helperText={`API: $${Number(editingEntProvider.costo_operacion_usd || 0).toFixed(2)}`}
+                    slotProps={{ input: { startAdornment: <InputAdornment position="start">+$</InputAdornment>, endAdornment: <InputAdornment position="end">USD</InputAdornment> } }}
+                    sx={{ width: 260 }}
                   />
                 </Box>
               </Paper>

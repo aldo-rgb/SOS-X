@@ -31,6 +31,7 @@ import {
   TextField,
   Tooltip,
   Typography,
+  InputAdornment,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -144,7 +145,9 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   // ----- Wizard / flujo v2 -----
   const [requiereFactura, setRequiereFactura] = useState(true);
   const [saveFiscalProfile, setSaveFiscalProfile] = useState(true);
-  const [pricing, setPricing] = useState<{ tipo_cambio_usd: number; tipo_cambio_rmb: number; porcentaje_compra: number } | null>(null);
+  const [editingFiscalData, setEditingFiscalData] = useState(false);
+  const [editingSupplierData, setEditingSupplierData] = useState(false);
+  const [pricing, setPricing] = useState<{ tipo_cambio_usd: number; tipo_cambio_rmb: number; porcentaje_compra: number; costo_operacion_usd: number } | null>(null);
   type EntProviderPub = {
     id: number;
     name: string;
@@ -152,14 +155,15 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     tipo_cambio_usd: number | string;
     tipo_cambio_rmb: number | string;
     porcentaje_compra: number | string;
+    costo_operacion_usd: number | string;
     bank_accounts: Array<{ currency: string; bank: string; holder: string; account: string; clabe: string; reference: string }>;
     is_default: boolean;
     sort_order: number;
   };
   const [providers, setProviders] = useState<EntProviderPub[]>([]);
   const [selectedProviderId, setSelectedProviderId] = useState<number | ''>('');
-  const [quote, setQuote] = useState<{ tipo_cambio: number; porcentaje_compra: number; monto_mxn_base: number; monto_mxn_total: number } | null>(null);
-  const [lastCreated, setLastCreated] = useState<{ request: unknown; instrucciones_pago: unknown; quote: { tipo_cambio: number; porcentaje_compra: number; monto_mxn_base: number; monto_mxn_total: number } | null } | null>(null);
+  const [quote, setQuote] = useState<{ tipo_cambio: number; porcentaje_compra: number; costo_operacion_usd: number; monto_mxn_base: number; monto_mxn_comision: number; monto_mxn_costo_op: number; monto_mxn_total: number } | null>(null);
+  const [lastCreated, setLastCreated] = useState<{ request: unknown; instrucciones_pago: unknown; quote: { tipo_cambio: number; porcentaje_compra: number; costo_operacion_usd: number; monto_mxn_base: number; monto_mxn_comision: number; monto_mxn_costo_op: number; monto_mxn_total: number } | null } | null>(null);
   const [instructionsOpen, setInstructionsOpen] = useState(false);
 
   // ----- Proveedores de envío (beneficiarios) -----
@@ -243,15 +247,18 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         ...p,
         bank_accounts: Array.isArray(p.bank_accounts) ? p.bank_accounts : [],
       }));
+      console.log('[ENTANGLED] Providers loaded:', list);
       setProviders(list);
       // Seleccionar default o el primero
       const def = list.find((x) => x.is_default) || list[0] || null;
       if (def) {
+        console.log('[ENTANGLED] Default provider:', def, 'costo_operacion_usd:', def.costo_operacion_usd);
         setSelectedProviderId((prev) => (prev ? prev : def.id));
         setPricing({
           tipo_cambio_usd: Number(def.tipo_cambio_usd),
           tipo_cambio_rmb: Number(def.tipo_cambio_rmb),
           porcentaje_compra: Number(def.porcentaje_compra),
+          costo_operacion_usd: Number(def.costo_operacion_usd || 0),
         });
       }
     } catch (err: unknown) {
@@ -270,6 +277,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   const handlePickSupplier = (raw: string) => {
     const id: number | 'new' = raw === 'new' ? 'new' : Number(raw);
     setSelectedSupplierId(id);
+    setEditingSupplierData(false);
     if (id === 'new') {
       setSupplierForm(EMPTY_SUPPLIER);
       setSaveSupplierForLater(true);
@@ -422,6 +430,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         tipo_cambio_usd: Number(prov.tipo_cambio_usd),
         tipo_cambio_rmb: Number(prov.tipo_cambio_rmb),
         porcentaje_compra: Number(prov.porcentaje_compra),
+        costo_operacion_usd: Number(prov.costo_operacion_usd || 0),
       });
     }
   }, [selectedProviderId, providers]);
@@ -435,14 +444,22 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }
     const tc = form.divisa_destino === 'RMB' ? pricing.tipo_cambio_rmb : pricing.tipo_cambio_usd;
     const base = m * tc;
-    const total = base * (1 + pricing.porcentaje_compra / 100);
+    const comision = base * (pricing.porcentaje_compra / 100);
+    // Usar costo de operación del pricing (ya incluye override si existe)
+    const costoOpUsd = pricing.costo_operacion_usd;
+    const costoOpMxn = costoOpUsd * tc;
+    const total = base + comision + costoOpMxn;
+    console.log('[ENTANGLED] Quote calculation:', { pricing, costoOpUsd, costoOpMxn, total });
     setQuote({
       tipo_cambio: tc,
       porcentaje_compra: pricing.porcentaje_compra,
+      costo_operacion_usd: costoOpUsd,
       monto_mxn_base: Number(base.toFixed(2)),
+      monto_mxn_comision: Number(comision.toFixed(2)),
+      monto_mxn_costo_op: Number(costoOpMxn.toFixed(2)),
       monto_mxn_total: Number(total.toFixed(2)),
     });
-  }, [form.monto, form.divisa_destino, pricing]);
+  }, [form.monto, form.divisa_destino, pricing, selectedProviderId, providers]);
 
   const handleSubmit = async () => {
     const err = validateForm();
@@ -502,8 +519,6 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           banco_direccion: supplierForm.banco_direccion,
           swift_bic: supplierForm.swift_bic,
           aba_routing: supplierForm.aba_routing,
-          banco_intermediario_nombre: supplierForm.banco_intermediario_nombre,
-          banco_intermediario_swift: supplierForm.banco_intermediario_swift,
           motivo: supplierForm.motivo_default,
           foto_url: supplierForm.foto_url,
         },
@@ -537,6 +552,8 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       });
       setSupplierForm(EMPTY_SUPPLIER);
       setSelectedSupplierId('new');
+      setEditingFiscalData(false);
+      setEditingSupplierData(false);
       setSaveSupplierForLater(true);
       // Mostrar instrucciones de pago
       setLastCreated({
@@ -568,20 +585,20 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   };
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 } }}>
+    <Box sx={{ p: { xs: 2, md: 3 }, bgcolor: '#000000', minHeight: '100vh', color: '#ffffff' }}>
       {!hideHeader && (
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3, pb: 2, borderBottom: '1px solid #333333' }}>
           <Box>
-            <Typography variant="h5" fontWeight={700} sx={{ color: ORANGE }}>
-              {t('entangled.title')}
+            <Typography variant="h5" fontWeight={700} sx={{ color: ORANGE, mb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+              🔒 {t('paymentHub.title')}
             </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {t('entangled.subtitle')}
+            <Typography variant="body2" sx={{ color: '#888888', fontFamily: 'monospace', fontSize: '0.875rem' }}>
+              {t('paymentHub.subtitle')}
             </Typography>
           </Box>
           <Stack direction="row" spacing={1}>
             <Tooltip title="↻">
-              <IconButton onClick={loadRequests} disabled={loading}>
+              <IconButton onClick={loadRequests} disabled={loading} sx={{ color: ORANGE }}>
                 <RefreshIcon />
               </IconButton>
             </Tooltip>
@@ -589,7 +606,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               variant="outlined"
               startIcon={<ContactsIcon />}
               onClick={() => setSuppliersDialogOpen(true)}
-              sx={{ borderColor: ORANGE, color: ORANGE }}
+              sx={{ borderColor: ORANGE, color: ORANGE, '&:hover': { bgcolor: 'rgba(240, 90, 40, 0.1)' } }}
             >
               {t('entangled.suppliers.manage', 'Mis proveedores')}
             </Button>
@@ -597,7 +614,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               variant="contained"
               startIcon={<AddIcon />}
               onClick={() => setDialogOpen(true)}
-              sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#D94A1F' } }}
+              sx={{ bgcolor: ORANGE, color: '#ffffff', fontWeight: 600, '&:hover': { bgcolor: '#D94A1F' } }}
             >
               {t('entangled.newRequest')}
             </Button>
@@ -605,62 +622,63 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         </Stack>
       )}
 
-      <Alert severity="info" sx={{ mb: 2 }}>
-        <Typography variant="subtitle2" fontWeight={700}>
+      <Alert severity="info" sx={{ mb: 3, bgcolor: '#0a2a4a', border: '1px solid #1a5a9a', color: '#ffffff' }}>
+        <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#3b82f6' }}>
           {t('entangled.howItWorks')}
         </Typography>
-        <Typography variant="body2">{t('entangled.howItWorksDesc')}</Typography>
+        <Typography variant="body2" sx={{ color: '#aaaaaa' }}>{t('entangled.howItWorksDesc')}</Typography>
       </Alert>
 
-      <Paper variant="outlined">
+      <Paper variant="outlined" sx={{ bgcolor: '#1a1a1a', border: '1px solid #333333', borderRadius: 1, mb: 3 }}>
         <TableContainer>
           <Table size="small">
             <TableHead>
-              <TableRow>
-                <TableCell>#</TableCell>
-                <TableCell>{t('entangled.fields.razonSocial')}</TableCell>
-                <TableCell align="right">{t('entangled.fields.amount')}</TableCell>
-                <TableCell>{t('entangled.fields.currency')}</TableCell>
-                <TableCell>{t('entangled.status.global')}</TableCell>
-                <TableCell>{t('entangled.status.factura')}</TableCell>
-                <TableCell>{t('entangled.status.proveedor')}</TableCell>
-                <TableCell align="center">{t('common.actions')}</TableCell>
+              <TableRow sx={{ bgcolor: '#0a0a0a', borderBottom: '1px solid #333333' }}>
+                <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>#</TableCell>
+                <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>{t('entangled.fields.razonSocial')}</TableCell>
+                <TableCell align="right" sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>{t('entangled.fields.amount')}</TableCell>
+                <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>{t('entangled.fields.currency')}</TableCell>
+                <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>{t('entangled.status.global')}</TableCell>
+                <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>{t('entangled.status.factura')}</TableCell>
+                <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>{t('entangled.status.proveedor')}</TableCell>
+                <TableCell align="center" sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>{t('common.actions')}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {loading && requests.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
-                    <CircularProgress size={20} />
+                  <TableCell colSpan={8} align="center" sx={{ bgcolor: '#1a1a1a' }}>
+                    <CircularProgress size={20} sx={{ color: ORANGE }} />
                   </TableCell>
                 </TableRow>
               ) : requests.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={8} align="center">
-                    <Typography variant="body2" color="text.secondary">
+                  <TableCell colSpan={8} align="center" sx={{ bgcolor: '#1a1a1a', py: 3 }}>
+                    <Typography variant="body2" sx={{ color: '#666666' }}>
                       {t('entangled.messages.empty')}
                     </Typography>
                   </TableCell>
                 </TableRow>
               ) : (
                 requests.map((r) => (
-                  <TableRow key={r.id} hover>
-                    <TableCell>{r.id}</TableCell>
+                  <TableRow key={r.id} hover sx={{ bgcolor: '#1a1a1a', '&:hover': { bgcolor: '#242424' }, borderBottom: '1px solid #2a2a2a' }}>
+                    <TableCell sx={{ color: '#ffffff' }}>{r.id}</TableCell>
                     <TableCell>
-                      <Typography variant="body2" fontWeight={600}>
+                      <Typography variant="body2" fontWeight={600} sx={{ color: '#ffffff' }}>
                         {r.cf_razon_social}
                       </Typography>
-                      <Typography variant="caption" color="text.secondary">
+                      <Typography variant="caption" sx={{ color: '#888888' }}>
                         {r.cf_rfc}
                       </Typography>
                     </TableCell>
-                    <TableCell align="right">${formatMoney(r.op_monto)}</TableCell>
-                    <TableCell>{r.op_divisa_destino}</TableCell>
+                    <TableCell align="right" sx={{ color: ORANGE, fontWeight: 600 }}>${formatMoney(r.op_monto)}</TableCell>
+                    <TableCell sx={{ color: '#aaaaaa' }}>{r.op_divisa_destino}</TableCell>
                     <TableCell>
                       <Chip
                         label={t(`entangled.status.${r.estatus_global}`, r.estatus_global)}
                         color={statusColor(r.estatus_global)}
                         size="small"
+                        sx={{ fontWeight: 600 }}
                       />
                     </TableCell>
                     <TableCell>
@@ -669,6 +687,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                         color={statusColor(r.estatus_factura)}
                         size="small"
                         variant="outlined"
+                        sx={{ fontWeight: 600 }}
                       />
                     </TableCell>
                     <TableCell>
@@ -677,6 +696,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                         color={statusColor(r.estatus_proveedor)}
                         size="small"
                         variant="outlined"
+                        sx={{ fontWeight: 600 }}
                       />
                     </TableCell>
                     <TableCell align="center">
@@ -795,22 +815,80 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
 
           {/* === Datos fiscales (solo si requiere factura) === */}
           {requiereFactura && (
-            <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2 }}>
-                📋 {t('entangled.sections.fiscal')}
-              </Typography>
+            <>
+              {/* Mostrar datos precargados si existen */}
+              {form.rfc && form.razon_social && !editingFiscalData && (
+                <Card sx={{ mb: 2, bgcolor: '#1a1a1a', border: '1px solid #333333' }}>
+                  <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
+                    <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#4ade80', mb: 1 }}>
+                      ✅ Datos fiscales cargados
+                    </Typography>
+                    <Stack spacing={0.5}>
+                      <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                        <strong>Razón Social:</strong> {form.razon_social}
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                        <strong>RFC:</strong> {form.rfc}
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                        <strong>C.P. Fiscal:</strong> {form.cp}
+                      </Typography>
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => setEditingFiscalData(true)}
+                        sx={{ color: ORANGE, justifyContent: 'flex-start', mt: 1, '&:hover': { bgcolor: 'rgba(240, 90, 40, 0.1)' } }}
+                      >
+                        ✏️ Editar datos fiscales
+                      </Button>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              )}
+              
+              {(!form.rfc || !form.razon_social || editingFiscalData) && (
+              <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#1a1a1a', border: '1px solid #333333', borderRadius: 1 }}>
+                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2, color: '#ffffff' }}>
+                  📋 {t('entangled.sections.fiscal')}
+                </Typography>
               <Grid container spacing={2}>
                 <Grid size={{ xs: 12, md: 4 }}>
                   <TextField
                     fullWidth label={t('entangled.fields.rfc')} value={form.rfc}
                     onChange={(e) => setForm({ ...form, rfc: e.target.value.toUpperCase() })}
                     inputProps={{ maxLength: 13 }} required
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        color: '#ffffff',
+                        backgroundColor: '#0a0a0a',
+                        '& fieldset': { borderColor: '#333333' },
+                        '&:hover fieldset': { borderColor: '#555555' },
+                        '&.Mui-focused fieldset': { borderColor: ORANGE },
+                      },
+                      '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
+                      '& .MuiInputLabel-root': { color: '#888888' },
+                      '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                    }}
                   />
                 </Grid>
                 <Grid size={{ xs: 12, md: 8 }}>
                   <TextField
                     fullWidth label={t('entangled.fields.razonSocial')} value={form.razon_social}
                     onChange={(e) => setForm({ ...form, razon_social: e.target.value })} required
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        color: '#ffffff',
+                        backgroundColor: '#0a0a0a',
+                        '& fieldset': { borderColor: '#333333' },
+                        '&:hover fieldset': { borderColor: '#555555' },
+                        '&.Mui-focused fieldset': { borderColor: ORANGE },
+                      },
+                      '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
+                      '& .MuiInputLabel-root': { color: '#888888' },
+                      '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                    }}
                   />
                 </Grid>
                 <Grid size={{ xs: 12, md: 6 }}>
@@ -818,10 +896,31 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                     select fullWidth label={t('entangled.fields.regimenFiscal')}
                     value={form.regimen_fiscal}
                     onChange={(e) => setForm({ ...form, regimen_fiscal: e.target.value })} required
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        color: '#ffffff',
+                        backgroundColor: '#0a0a0a',
+                        '& fieldset': { borderColor: '#333333' },
+                        '&:hover fieldset': { borderColor: '#555555' },
+                        '&.Mui-focused fieldset': { borderColor: ORANGE },
+                      },
+                      '& .MuiInputLabel-root': { color: '#888888' },
+                      '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                      '& .MuiSvgIcon-root': { color: ORANGE },
+                    }}
                   >
-                    {REGIMENES_FISCALES.map((o) => (
-                      <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
-                    ))}
+                    {REGIMENES_FISCALES.map((o) => {
+                      const [code, desc] = o.label.split(' - ');
+                      return (
+                        <MenuItem key={o.value} value={o.value}>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                            <Typography variant="body2" fontWeight={600}>{code}</Typography>
+                            <Typography variant="caption" color="text.secondary">{desc}</Typography>
+                          </Box>
+                        </MenuItem>
+                      );
+                    })}
                   </TextField>
                 </Grid>
                 <Grid size={{ xs: 6, md: 3 }}>
@@ -829,6 +928,19 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                     fullWidth label={t('entangled.fields.cp')} value={form.cp}
                     onChange={(e) => setForm({ ...form, cp: e.target.value.replace(/\D/g, '') })}
                     inputProps={{ maxLength: 5 }} required
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        color: '#ffffff',
+                        backgroundColor: '#0a0a0a',
+                        '& fieldset': { borderColor: '#333333' },
+                        '&:hover fieldset': { borderColor: '#555555' },
+                        '&.Mui-focused fieldset': { borderColor: ORANGE },
+                      },
+                      '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
+                      '& .MuiInputLabel-root': { color: '#888888' },
+                      '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                    }}
                   />
                 </Grid>
                 <Grid size={{ xs: 6, md: 3 }}>
@@ -836,16 +948,50 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                     select fullWidth label={t('entangled.fields.usoCfdi')}
                     value={form.uso_cfdi}
                     onChange={(e) => setForm({ ...form, uso_cfdi: e.target.value })} required
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        color: '#ffffff',
+                        backgroundColor: '#0a0a0a',
+                        '& fieldset': { borderColor: '#333333' },
+                        '&:hover fieldset': { borderColor: '#555555' },
+                        '&.Mui-focused fieldset': { borderColor: ORANGE },
+                      },
+                      '& .MuiInputLabel-root': { color: '#888888' },
+                      '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                      '& .MuiSvgIcon-root': { color: ORANGE },
+                    }}
                   >
-                    {USOS_CFDI.map((o) => (
-                      <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
-                    ))}
+                    {USOS_CFDI.map((o) => {
+                      const [code, desc] = o.label.split(' - ');
+                      return (
+                        <MenuItem key={o.value} value={o.value}>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.25 }}>
+                            <Typography variant="body2" fontWeight={600}>{code}</Typography>
+                            <Typography variant="caption" color="text.secondary">{desc}</Typography>
+                          </Box>
+                        </MenuItem>
+                      );
+                    })}
                   </TextField>
                 </Grid>
                 <Grid size={{ xs: 12 }}>
                   <TextField
                     fullWidth type="email" label={t('entangled.fields.email')} value={form.email}
                     onChange={(e) => setForm({ ...form, email: e.target.value })} required
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        color: '#ffffff',
+                        backgroundColor: '#0a0a0a',
+                        '& fieldset': { borderColor: '#333333' },
+                        '&:hover fieldset': { borderColor: '#555555' },
+                        '&.Mui-focused fieldset': { borderColor: ORANGE },
+                      },
+                      '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
+                      '& .MuiInputLabel-root': { color: '#888888' },
+                      '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                    }}
                   />
                 </Grid>
                 <Grid size={{ xs: 12 }}>
@@ -854,6 +1000,20 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                     onChange={(e) => setForm({ ...form, conceptos: e.target.value })}
                     placeholder="84111506, 90121800"
                     helperText={t('entangled.fields.conceptsHelp', 'Códigos SAT separados por coma (opcional)')}
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        color: '#ffffff',
+                        backgroundColor: '#0a0a0a',
+                        '& fieldset': { borderColor: '#333333' },
+                        '&:hover fieldset': { borderColor: '#555555' },
+                        '&.Mui-focused fieldset': { borderColor: ORANGE },
+                      },
+                      '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
+                      '& .MuiInputLabel-root': { color: '#888888' },
+                      '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                      '& .MuiFormHelperText-root': { color: '#666666' },
+                    }}
                   />
                 </Grid>
                 <Grid size={{ xs: 12 }}>
@@ -866,15 +1026,18 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                       />
                     }
                     label={t('entangled.wizard.saveFiscal', 'Guardar estos datos para próximas solicitudes')}
+                    sx={{ color: '#ffffff' }}
                   />
                 </Grid>
               </Grid>
             </Paper>
+              )}
+            </>
           )}
 
           {/* === Proveedor de envío === */}
-          <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2 }}>
+          <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#1a1a1a', border: '1px solid #333333', borderRadius: 1 }}>
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2, color: '#ffffff' }}>
               🏦 {t('entangled.suppliers.section', 'Proveedor de envío (beneficiario)')}
             </Typography>
             <TextField
@@ -882,7 +1045,20 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               label={t('entangled.suppliers.pick', 'Selecciona proveedor')}
               value={String(selectedSupplierId)}
               onChange={(e) => handlePickSupplier(e.target.value)}
-              sx={{ mb: 2 }}
+              sx={{ 
+                mb: 2,
+                '& .MuiOutlinedInput-root': {
+                  color: '#ffffff',
+                  backgroundColor: '#0a0a0a',
+                  '& fieldset': { borderColor: '#333333' },
+                  '&:hover fieldset': { borderColor: '#555555' },
+                  '&.Mui-focused fieldset': { borderColor: ORANGE },
+                },
+                '& .MuiInputLabel-root': { color: '#888888' },
+                '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+                '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                '& .MuiSvgIcon-root': { color: ORANGE },
+              }}
             >
               <MenuItem value="new">+ {t('entangled.suppliers.new', 'Nuevo proveedor (capturar datos)')}</MenuItem>
               {suppliers.map((s) => (
@@ -893,15 +1069,52 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                 </MenuItem>
               ))}
             </TextField>
+
+            {/* Card de proveedor seleccionado */}
+            {selectedSupplierId !== 'new' && suppliers.find((s) => s.id === selectedSupplierId) && !editingSupplierData && (
+              <Card sx={{ mb: 2, bgcolor: '#1a1a1a', border: '1px solid #4ade80' }}>
+                <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#4ade80', mb: 1 }}>
+                    ✅ Proveedor seleccionado
+                  </Typography>
+                  <Stack spacing={0.5}>
+                    <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                      <strong>Beneficiario:</strong> {suppliers.find((s) => s.id === selectedSupplierId)?.nombre_beneficiario}
+                    </Typography>
+                    {suppliers.find((s) => s.id === selectedSupplierId)?.banco_nombre && (
+                      <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                        <strong>Banco:</strong> {suppliers.find((s) => s.id === selectedSupplierId)?.banco_nombre}
+                      </Typography>
+                    )}
+                    {suppliers.find((s) => s.id === selectedSupplierId)?.numero_cuenta && (
+                      <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                        <strong>Cuenta:</strong> ...{suppliers.find((s) => s.id === selectedSupplierId)?.numero_cuenta.slice(-4)}
+                      </Typography>
+                    )}
+                    <Button
+                      size="small"
+                      variant="text"
+                      onClick={() => setEditingSupplierData(true)}
+                      sx={{ color: ORANGE, justifyContent: 'flex-start', mt: 1, '&:hover': { bgcolor: 'rgba(240, 90, 40, 0.1)' } }}
+                    >
+                      ✏️ Editar datos
+                    </Button>
+                  </Stack>
+                </CardContent>
+              </Card>
+            )}
+
+            {(selectedSupplierId === 'new' || editingSupplierData) && (
             <EntangledSupplierForm
               value={supplierForm}
               onChange={setSupplierForm}
               onUploadPhoto={handleUploadSupplierPhoto}
               uploading={uploadingSupplier}
             />
+            )}
             {selectedSupplierId === 'new' && (
               <FormControlLabel
-                sx={{ mt: 1 }}
+                sx={{ mt: 1, color: '#ffffff' }}
                 control={
                   <Checkbox
                     checked={saveSupplierForLater}
@@ -915,10 +1128,33 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           </Paper>
 
           {/* === Monto y cotización === */}
-          <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2 }}>
+          <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#1a1a1a', border: '1px solid #333333', borderRadius: 1 }}>
+            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2, color: '#ffffff' }}>
               💵 {t('entangled.sections.operation')}
             </Typography>
+            
+            {/* Mostrar proveedor seleccionado como tarjeta */}
+            {selectedProviderId && providers.find((p) => p.id === selectedProviderId) && (
+              <Card sx={{ mb: 2, bgcolor: '#1a1a1a', border: '1px solid #3b82f6' }}>
+                <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#3b82f6', mb: 1 }}>
+                    ✅ Proveedor de pago seleccionado
+                  </Typography>
+                  <Stack spacing={0.5}>
+                    <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                      <strong>Proveedor:</strong> {providers.find((p) => p.id === selectedProviderId)?.name}
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                      <strong>TC USD:</strong> <span style={{ color: ORANGE, fontWeight: 600 }}>${Number(providers.find((p) => p.id === selectedProviderId)?.tipo_cambio_usd).toFixed(4)}</span> MXN
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                      <strong>Comisión:</strong> <span style={{ color: ORANGE, fontWeight: 600 }}>{Number(providers.find((p) => p.id === selectedProviderId)?.porcentaje_compra).toFixed(2)}%</span>
+                    </Typography>
+                  </Stack>
+                </CardContent>
+              </Card>
+            )}
+            
             <Grid container spacing={2}>
               <Grid size={{ xs: 12 }}>
                 <TextField
@@ -931,6 +1167,20 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                       ? 'No hay proveedores activos configurados'
                       : 'Cada proveedor tiene su propio TC y % de compra'
                   }
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      color: '#ffffff',
+                      backgroundColor: '#0a0a0a',
+                      '& fieldset': { borderColor: '#333333' },
+                      '&:hover fieldset': { borderColor: '#555555' },
+                      '&.Mui-focused fieldset': { borderColor: ORANGE },
+                    },
+                    '& .MuiInputLabel-root': { color: '#888888' },
+                    '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+                    '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                    '& .MuiSvgIcon-root': { color: ORANGE },
+                    '& .MuiFormHelperText-root': { color: '#666666' },
+                  }}
                 >
                   {providers.map((p) => (
                     <MenuItem key={p.id} value={String(p.id)}>
@@ -944,7 +1194,22 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                   fullWidth type="number" label={t('entangled.fields.amount')}
                   value={form.monto}
                   onChange={(e) => setForm({ ...form, monto: e.target.value })}
-                  inputProps={{ min: 0, step: '0.01' }} required
+                  inputProps={{ min: 0, step: '0.01' }}
+                  slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
+                  required
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      color: '#ffffff',
+                      backgroundColor: '#0a0a0a',
+                      '& fieldset': { borderColor: '#333333' },
+                      '&:hover fieldset': { borderColor: '#555555' },
+                      '&.Mui-focused fieldset': { borderColor: ORANGE },
+                    },
+                    '& .MuiInputLabel-root': { color: '#888888' },
+                    '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+                    '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                    '& .MuiInputAdornment-root': { color: '#888888' },
+                  }}
                 />
               </Grid>
               <Grid size={{ xs: 6 }}>
@@ -952,6 +1217,19 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                   select fullWidth label={t('entangled.fields.currency')}
                   value={form.divisa_destino}
                   onChange={(e) => setForm({ ...form, divisa_destino: e.target.value })}
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      color: '#ffffff',
+                      backgroundColor: '#0a0a0a',
+                      '& fieldset': { borderColor: '#333333' },
+                      '&:hover fieldset': { borderColor: '#555555' },
+                      '&.Mui-focused fieldset': { borderColor: ORANGE },
+                    },
+                    '& .MuiInputLabel-root': { color: '#888888' },
+                    '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+                    '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                    '& .MuiSvgIcon-root': { color: ORANGE },
+                  }}
                 >
                   {DIVISAS.map((d) => (
                     <MenuItem key={d} value={d}>{d}</MenuItem>
@@ -961,29 +1239,35 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
             </Grid>
 
             {quote && (
-              <Card sx={{ mt: 2, bgcolor: '#FFF4ED', border: `1px solid ${ORANGE}` }}>
+              <Card sx={{ mt: 2, bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}` }}>
                 <CardContent>
                   <Typography variant="subtitle2" fontWeight={700} sx={{ color: ORANGE, mb: 1 }}>
                     {t('entangled.wizard.quote', 'Cotización')}
                   </Typography>
                   <Stack spacing={0.5}>
-                    <Typography variant="body2">
+                    <Typography variant="body2" sx={{ color: '#ffffff' }}>
                       {t('entangled.wizard.amountSent', 'Monto a enviar al proveedor')}:&nbsp;
                       <strong>{formatMoney(form.monto)} {form.divisa_destino}</strong>
                     </Typography>
-                    <Typography variant="body2">
+                    <Typography variant="body2" sx={{ color: '#ffffff' }}>
                       {t('entangled.wizard.fxRate', 'Tipo de cambio')}:&nbsp;
                       <strong>${quote.tipo_cambio.toFixed(4)} MXN / {form.divisa_destino}</strong>
                     </Typography>
-                    <Typography variant="body2">
+                    <Typography variant="body2" sx={{ color: '#ffffff' }}>
                       {t('entangled.wizard.subtotal', 'Subtotal MXN')}:&nbsp;
                       <strong>${formatMoney(quote.monto_mxn_base)}</strong>
                     </Typography>
-                    <Typography variant="body2">
+                    <Typography variant="body2" sx={{ color: '#ffffff' }}>
                       {t('entangled.wizard.purchaseFee', 'Comisión de compra')} ({quote.porcentaje_compra}%):&nbsp;
-                      <strong>${formatMoney(quote.monto_mxn_total - quote.monto_mxn_base)}</strong>
+                      <strong>${formatMoney(quote.monto_mxn_comision)}</strong>
                     </Typography>
-                    <Divider sx={{ my: 1 }} />
+                    {quote.monto_mxn_costo_op > 0 && (
+                      <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                        Costo de operación ({quote.costo_operacion_usd} USD × {quote.tipo_cambio.toFixed(4)}):&nbsp;
+                        <strong>${formatMoney(quote.monto_mxn_costo_op)}</strong>
+                      </Typography>
+                    )}
+                    <Divider sx={{ my: 1, borderColor: '#333333' }} />
                     <Typography variant="h6" sx={{ color: ORANGE }}>
                       {t('entangled.wizard.totalToPay', 'Total a pagar a XOX')}: ${formatMoney(quote.monto_mxn_total)} MXN
                     </Typography>
@@ -992,18 +1276,20 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               </Card>
             )}
 
-            <Alert severity="info" sx={{ mt: 2 }}>
-              {t('entangled.wizard.proofLater', 'El comprobante de tu transferencia a XOX se sube después, una vez recibas las instrucciones de pago.')}
+            <Alert severity="info" sx={{ mt: 2, bgcolor: '#0a2a4a', border: '1px solid #1a5a9a', color: '#aaaaaa' }}>
+              <Typography sx={{ color: '#3b82f6' }}>ℹ️ {t('entangled.wizard.proofLater', 'El comprobante de tu transferencia a XOX se sube después, una vez recibas las instrucciones de pago.')}</Typography>
             </Alert>
           </Paper>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>{t('common.cancel')}</Button>
+        <DialogActions sx={{ bgcolor: '#0a0a0a', borderTop: '1px solid #333333', p: 2 }}>
+          <Button onClick={() => setDialogOpen(false)} sx={{ color: '#888888', '&:hover': { bgcolor: '#2a2a2a' } }}>
+            {t('common.cancel')}
+          </Button>
           <Button
             variant="contained"
             onClick={handleSubmit}
             disabled={submitting || !quote}
-            sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#D94A1F' } }}
+            sx={{ bgcolor: ORANGE, color: '#000000', fontWeight: 600, '&:hover': { bgcolor: '#E54A1F' }, '&:disabled': { bgcolor: '#663333', color: '#333333' } }}
           >
             {submitting ? t('entangled.actions.sending') : t('entangled.actions.submit')}
           </Button>
@@ -1011,8 +1297,12 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       </Dialog>
 
       {/* Dialog: instrucciones de pago tras crear */}
-      <Dialog open={instructionsOpen} onClose={() => setInstructionsOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ bgcolor: ORANGE, color: '#fff' }}>
+      <Dialog open={instructionsOpen} onClose={() => setInstructionsOpen(false)} maxWidth="md" fullWidth
+        PaperProps={{
+          sx: { bgcolor: '#000000', color: '#ffffff' }
+        }}
+      >
+        <DialogTitle sx={{ bgcolor: ORANGE, color: '#000000', fontWeight: 700 }}>
           <Stack direction="row" alignItems="center" spacing={1}>
             <CheckCircleIcon />
             <span>{t('entangled.wizard.instructionsTitle', 'Solicitud creada — Instrucciones de pago')}</span>
@@ -1020,25 +1310,25 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         </DialogTitle>
         <DialogContent sx={{ pt: 3 }}>
           {lastCreated?.quote && (
-            <Card sx={{ mb: 2, bgcolor: '#FFF4ED' }}>
+            <Card sx={{ mb: 2, bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}` }}>
               <CardContent>
                 <Typography variant="subtitle2" sx={{ color: ORANGE, fontWeight: 700 }}>
                   {t('entangled.wizard.totalToPay', 'Total a pagar a XOX')}
                 </Typography>
-                <Typography variant="h5">
+                <Typography variant="h5" sx={{ color: '#ffffff' }}>
                   ${formatMoney(lastCreated.quote.monto_mxn_total)} MXN
                 </Typography>
               </CardContent>
             </Card>
           )}
-          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, color: '#ffffff' }}>
             {t('entangled.wizard.instructionsHelp', 'Realiza la transferencia con los siguientes datos y luego sube el comprobante en "Mis solicitudes":')}
           </Typography>
           {lastCreated?.instrucciones_pago ? (
             <Box
               component="pre"
               sx={{
-                bgcolor: '#f7f7f7',
+                bgcolor: '#0a0a0a',
                 p: 2,
                 borderRadius: 1,
                 fontSize: 13,
@@ -1046,30 +1336,36 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                 wordBreak: 'break-word',
                 maxHeight: 360,
                 overflow: 'auto',
+                color: '#888888',
+                border: '1px solid #333333',
               }}
             >
               {JSON.stringify(lastCreated.instrucciones_pago, null, 2)}
             </Box>
           ) : (
-            <Alert severity="info">
-              {t('entangled.wizard.noInstructions', 'Aún no recibimos las instrucciones del motor. Te las haremos llegar pronto.')}
+            <Alert severity="info" sx={{ bgcolor: '#0a2a4a', border: '1px solid #1a5a9a', color: '#aaaaaa' }}>
+              <Typography sx={{ color: '#3b82f6' }}>ℹ️ {t('entangled.wizard.noInstructions', 'Aún no recibimos las instrucciones del motor. Te las haremos llegar pronto.')}</Typography>
             </Alert>
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setInstructionsOpen(false)} variant="contained" sx={{ bgcolor: ORANGE }}>
+        <DialogActions sx={{ bgcolor: '#0a0a0a', borderTop: '1px solid #333333', p: 2 }}>
+          <Button onClick={() => setInstructionsOpen(false)} variant="contained" sx={{ bgcolor: ORANGE, color: '#000000', fontWeight: 600, '&:hover': { bgcolor: '#E54A1F' } }}>
             {t('common.close', 'Cerrar')}
           </Button>
         </DialogActions>
       </Dialog>
 
       {/* Dialog: Mis Proveedores de envío */}
-      <Dialog open={suppliersDialogOpen} onClose={() => setSuppliersDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle sx={{ bgcolor: ORANGE, color: '#fff' }}>
+      <Dialog open={suppliersDialogOpen} onClose={() => setSuppliersDialogOpen(false)} maxWidth="md" fullWidth
+        PaperProps={{
+          sx: { bgcolor: '#000000', color: '#ffffff' }
+        }}
+      >
+        <DialogTitle sx={{ bgcolor: ORANGE, color: '#000000', fontWeight: 700 }}>
           {t('entangled.suppliers.manage', 'Mis proveedores de envío')}
         </DialogTitle>
         <DialogContent sx={{ pt: 3 }}>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" sx={{ mb: 2, color: '#888888' }}>
             {t(
               'entangled.suppliers.manageHelp',
               'Guarda los datos bancarios de tus beneficiarios frecuentes para reutilizarlos en futuras solicitudes.'
@@ -1078,52 +1374,54 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
 
           {suppliers.length > 0 && (
             <>
-              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, color: '#ffffff' }}>
                 {t('entangled.suppliers.savedList', 'Proveedores guardados')} ({suppliers.length})
               </Typography>
-              <List dense sx={{ border: '1px solid #eee', borderRadius: 1, mb: 3 }}>
+              <List dense sx={{ border: '1px solid #333333', borderRadius: 1, mb: 3, bgcolor: '#1a1a1a' }}>
                 {suppliers.map((s) => (
                   <ListItem
                     key={s.id}
                     divider
                     sx={{
-                      bgcolor: editingSupplier?.id === s.id ? '#FFF4ED' : 'transparent',
+                      bgcolor: editingSupplier?.id === s.id ? '#0a3a1a' : 'transparent',
+                      borderBottomColor: '#333333',
+                      '&:hover': { bgcolor: '#242424' },
                     }}
                   >
                     <IconButton
                       size="small"
                       onClick={() => handleToggleFavorite(s)}
-                      sx={{ mr: 1, color: s.is_favorite ? '#F5A623' : '#bbb' }}
+                      sx={{ mr: 1, color: s.is_favorite ? ORANGE : '#555555' }}
                     >
                       {s.is_favorite ? <StarIcon /> : <StarBorderIcon />}
                     </IconButton>
                     <ListItemText
                       primary={
-                        <Typography fontWeight={600}>
+                        <Typography fontWeight={600} sx={{ color: '#ffffff' }}>
                           {s.alias || s.nombre_beneficiario}
                           {s.divisa_default && (
                             <Chip
                               size="small"
                               label={s.divisa_default}
-                              sx={{ ml: 1, bgcolor: '#FFE5D6', color: ORANGE }}
+                              sx={{ ml: 1, bgcolor: 'rgba(240, 90, 40, 0.2)', color: ORANGE, fontWeight: 600 }}
                             />
                           )}
                         </Typography>
                       }
                       secondary={
-                        <>
+                        <Typography variant="body2" sx={{ color: '#888888' }}>
                           {s.nombre_beneficiario}
                           {s.banco_nombre ? ` · ${s.banco_nombre}` : ''}
                           {s.swift_bic ? ` · SWIFT ${s.swift_bic}` : ''}
                           {s.numero_cuenta ? ` · …${s.numero_cuenta.slice(-4)}` : ''}
-                        </>
+                        </Typography>
                       }
                     />
                     <ListItemSecondaryAction>
-                      <Button size="small" onClick={() => openEditSupplier(s)}>
+                      <Button size="small" onClick={() => openEditSupplier(s)} sx={{ color: ORANGE }}>
                         {t('common.edit', 'Editar')}
                       </Button>
-                      <IconButton size="small" onClick={() => handleDeleteSupplier(s.id)} color="error">
+                      <IconButton size="small" onClick={() => handleDeleteSupplier(s.id)} sx={{ color: '#ff6b6b' }}>
                         <DeleteIcon fontSize="small" />
                       </IconButton>
                     </ListItemSecondaryAction>
@@ -1133,7 +1431,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
             </>
           )}
 
-          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, color: '#ffffff' }}>
             {editingSupplier
               ? t('entangled.suppliers.editing', 'Editando proveedor')
               : t('entangled.suppliers.newOne', 'Nuevo proveedor')}
@@ -1145,23 +1443,26 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
             uploading={uploadingSupplier}
           />
         </DialogContent>
-        <DialogActions>
+        <DialogActions sx={{ bgcolor: '#0a0a0a', borderTop: '1px solid #333333', p: 2 }}>
           {editingSupplier && (
             <Button
               onClick={() => {
                 setEditingSupplier(null);
                 setSupplierForm(EMPTY_SUPPLIER);
               }}
+              sx={{ color: '#888888', '&:hover': { bgcolor: '#2a2a2a' } }}
             >
               {t('common.cancel', 'Cancelar')}
             </Button>
           )}
-          <Button onClick={() => setSuppliersDialogOpen(false)}>{t('common.close', 'Cerrar')}</Button>
+          <Button onClick={() => setSuppliersDialogOpen(false)} sx={{ color: '#888888', '&:hover': { bgcolor: '#2a2a2a' } }}>
+            {t('common.close', 'Cerrar')}
+          </Button>
           <Button
             variant="contained"
             onClick={handleSaveStandaloneSupplier}
             disabled={savingSupplier}
-            sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#D94A1F' } }}
+            sx={{ bgcolor: ORANGE, color: '#000000', fontWeight: 600, '&:hover': { bgcolor: '#E54A1F' }, '&:disabled': { bgcolor: '#663333', color: '#333333' } }}
           >
             {savingSupplier
               ? t('common.saving', 'Guardando...')

@@ -87,8 +87,10 @@ const computeQuote = async (
   provider_name: string | null;
   tipo_cambio: number;
   porcentaje_compra: number;
+  costo_operacion_usd: number;
   porcentaje_es_override: boolean;
   monto_mxn_base: number;
+  monto_mxn_comision: number;
   monto_mxn_total: number;
 }> => {
   // 1) Resolver proveedor: el indicado, o el default activo, o el primero activo
@@ -96,8 +98,8 @@ const computeQuote = async (
   if (providerId) {
     const r = await pool.query(
       `SELECT id, name,
-              tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra,
-              override_tipo_cambio_usd, override_tipo_cambio_rmb, override_porcentaje_compra
+              tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra, costo_operacion_usd,
+              override_tipo_cambio_usd, override_tipo_cambio_rmb, override_porcentaje_compra, override_costo_operacion_usd
        FROM entangled_providers WHERE id = $1 AND is_active = true`,
       [providerId]
     );
@@ -106,8 +108,8 @@ const computeQuote = async (
   if (!provider) {
     const r = await pool.query(
       `SELECT id, name,
-              tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra,
-              override_tipo_cambio_usd, override_tipo_cambio_rmb, override_porcentaje_compra
+              tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra, costo_operacion_usd,
+              override_tipo_cambio_usd, override_tipo_cambio_rmb, override_porcentaje_compra, override_costo_operacion_usd
        FROM entangled_providers
        WHERE is_active = true
        ORDER BY is_default DESC, sort_order ASC, id ASC LIMIT 1`
@@ -115,16 +117,20 @@ const computeQuote = async (
     provider = r.rows[0] || null;
   }
 
-  // 2) Aplicar override del proveedor sobre los valores del API
+  // 2) Aplicar override del proveedor SUMANDO al valor del API (delta).
+  //    NULL o 0 = sin incremento. Ej: API TC USD = 18.50, override = 1 → efectivo 19.50.
   const tcUsd = provider
-    ? Number(provider.override_tipo_cambio_usd ?? provider.tipo_cambio_usd)
+    ? Number(provider.tipo_cambio_usd) + Number(provider.override_tipo_cambio_usd ?? 0)
     : 18.5;
   const tcRmb = provider
-    ? Number(provider.override_tipo_cambio_rmb ?? provider.tipo_cambio_rmb)
+    ? Number(provider.tipo_cambio_rmb) + Number(provider.override_tipo_cambio_rmb ?? 0)
     : 2.85;
   const pctBase = provider
-    ? Number(provider.override_porcentaje_compra ?? provider.porcentaje_compra)
+    ? Number(provider.porcentaje_compra) + Number(provider.override_porcentaje_compra ?? 0)
     : 6;
+  const costoOpBase = provider
+    ? Number(provider.costo_operacion_usd || 0) + Number(provider.override_costo_operacion_usd ?? 0)
+    : 0;
   const div = String(divisa).toUpperCase();
   let tc = div === 'RMB' ? tcRmb : tcUsd;
 
@@ -156,15 +162,22 @@ const computeQuote = async (
     } catch { /* tabla puede no existir aún en envs viejos */ }
   }
 
+  // Convertir costo de operación USD a MXN usando el TC
+  const costoOpMxn = costoOpBase * tc;
+  
   const base = Number(monto) * tc;
-  const total = base * (1 + pct / 100);
+  const comision = base * (pct / 100);
+  const total = base + comision + costoOpMxn;
+  
   return {
     provider_id: provider?.id || null,
     provider_name: provider?.name || null,
     tipo_cambio: tc,
     porcentaje_compra: pct,
+    costo_operacion_usd: costoOpBase,
     porcentaje_es_override: isOverride,
     monto_mxn_base: Number(base.toFixed(2)),
+    monto_mxn_comision: Number(comision.toFixed(2)),
     monto_mxn_total: Number(total.toFixed(2)),
   };
 };
@@ -896,9 +909,10 @@ export const listProviders = async (_req: Request, res: Response): Promise<any> 
   try {
     const r = await pool.query(
       `SELECT *,
-        COALESCE(override_tipo_cambio_usd, tipo_cambio_usd)   AS effective_tipo_cambio_usd,
-        COALESCE(override_tipo_cambio_rmb, tipo_cambio_rmb)   AS effective_tipo_cambio_rmb,
-        COALESCE(override_porcentaje_compra, porcentaje_compra) AS effective_porcentaje_compra
+        (tipo_cambio_usd   + COALESCE(override_tipo_cambio_usd, 0))   AS effective_tipo_cambio_usd,
+        (tipo_cambio_rmb   + COALESCE(override_tipo_cambio_rmb, 0))   AS effective_tipo_cambio_rmb,
+        (porcentaje_compra + COALESCE(override_porcentaje_compra, 0)) AS effective_porcentaje_compra,
+        (COALESCE(costo_operacion_usd, 0) + COALESCE(override_costo_operacion_usd, 0)) AS effective_costo_operacion_usd
        FROM entangled_providers ORDER BY is_default DESC, sort_order ASC, id ASC`
     );
     return res.json(r.rows);
@@ -912,13 +926,17 @@ export const listActiveProvidersPublic = async (_req: Request, res: Response): P
   try {
     const r = await pool.query(
       `SELECT id, name, code,
-        COALESCE(override_tipo_cambio_usd, tipo_cambio_usd)   AS tipo_cambio_usd,
-        COALESCE(override_tipo_cambio_rmb, tipo_cambio_rmb)   AS tipo_cambio_rmb,
-        COALESCE(override_porcentaje_compra, porcentaje_compra) AS porcentaje_compra,
+        (tipo_cambio_usd   + COALESCE(override_tipo_cambio_usd, 0))   AS tipo_cambio_usd,
+        (tipo_cambio_rmb   + COALESCE(override_tipo_cambio_rmb, 0))   AS tipo_cambio_rmb,
+        (porcentaje_compra + COALESCE(override_porcentaje_compra, 0)) AS porcentaje_compra,
+        (COALESCE(costo_operacion_usd, 0) + COALESCE(override_costo_operacion_usd, 0)) AS costo_operacion_usd,
+        COALESCE(costo_operacion_usd, 0) as base_costo,
+        COALESCE(override_costo_operacion_usd, 0) as override_costo,
         bank_accounts, is_default, sort_order
        FROM entangled_providers WHERE is_active = true
        ORDER BY is_default DESC, sort_order ASC, id ASC`
     );
+    console.log('[ENTANGLED] listActiveProvidersPublic result:', r.rows);
     return res.json(r.rows);
   } catch (err) {
     console.error('[ENTANGLED] listActiveProvidersPublic:', err);
@@ -949,20 +967,23 @@ export const updateProvider = async (req: Request, res: Response): Promise<any> 
          override_tipo_cambio_usd = $1,
          override_tipo_cambio_rmb = $2,
          override_porcentaje_compra = $3,
-         bank_accounts = COALESCE($4::jsonb, bank_accounts),
-         notes = COALESCE($5, notes),
-         is_active = COALESCE($6, is_active),
-         is_default = COALESCE($7, is_default),
-         sort_order = COALESCE($8, sort_order),
+         override_costo_operacion_usd = $4,
+         bank_accounts = COALESCE($5::jsonb, bank_accounts),
+         notes = COALESCE($6, notes),
+         is_active = COALESCE($7, is_active),
+         is_default = COALESCE($8, is_default),
+         sort_order = COALESCE($9, sort_order),
          updated_at = NOW()
-       WHERE id = $9 RETURNING *,
-         COALESCE(override_tipo_cambio_usd, tipo_cambio_usd)   AS effective_tipo_cambio_usd,
-         COALESCE(override_tipo_cambio_rmb, tipo_cambio_rmb)   AS effective_tipo_cambio_rmb,
-         COALESCE(override_porcentaje_compra, porcentaje_compra) AS effective_porcentaje_compra`,
+       WHERE id = $10 RETURNING *,
+         (tipo_cambio_usd   + COALESCE(override_tipo_cambio_usd, 0))   AS effective_tipo_cambio_usd,
+         (tipo_cambio_rmb   + COALESCE(override_tipo_cambio_rmb, 0))   AS effective_tipo_cambio_rmb,
+         (porcentaje_compra + COALESCE(override_porcentaje_compra, 0)) AS effective_porcentaje_compra,
+         (COALESCE(costo_operacion_usd, 0) + COALESCE(override_costo_operacion_usd, 0)) AS effective_costo_operacion_usd`,
       [
         b.override_tipo_cambio_usd === '' || b.override_tipo_cambio_usd == null ? null : Number(b.override_tipo_cambio_usd),
         b.override_tipo_cambio_rmb === '' || b.override_tipo_cambio_rmb == null ? null : Number(b.override_tipo_cambio_rmb),
         b.override_porcentaje_compra === '' || b.override_porcentaje_compra == null ? null : Number(b.override_porcentaje_compra),
+        b.override_costo_operacion_usd === '' || b.override_costo_operacion_usd == null ? null : Number(b.override_costo_operacion_usd),
         b.bank_accounts !== undefined ? JSON.stringify(b.bank_accounts) : null,
         b.notes ?? null,
         b.is_active !== undefined ? !!b.is_active : null,
