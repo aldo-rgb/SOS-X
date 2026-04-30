@@ -62,7 +62,9 @@ import {
   getPackageMovementsByTracking,
   getPackageMovementsById,
   deletePackage,
-  batchAttachImage
+  batchAttachImage,
+  startBulkMaster,
+  addBulkBoxToMaster
 } from './packageController';
 import {
   createPaymentOrder,
@@ -2728,6 +2730,10 @@ app.delete('/api/packages/:id', authenticateToken, requireRole('super_admin'), d
 
 // PATCH batch image - asigna una foto a varios paquetes (recepción en serie)
 app.patch('/api/packages/batch-image', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), batchAttachImage);
+
+// Recepción incremental en serie: crea master vacío y agrega hijas una por una
+app.post('/api/packages/bulk-master/start', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), startBulkMaster);
+app.post('/api/packages/bulk-master/:masterId/box', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), addBulkBoxToMaster);
 
 // Solicitar reempaque/consolidación de paquetes (Usuario autenticado)
 app.post('/api/packages/repack', authenticateToken, requestRepack);

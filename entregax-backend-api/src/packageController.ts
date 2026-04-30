@@ -4073,3 +4073,235 @@ export const batchAttachImage = async (req: Request, res: Response): Promise<any
   }
 };
 
+
+// ============================================
+// RECEPCIÓN INCREMENTAL EN SERIE (PO Box / Bodega Hidalgo TX)
+// Permite crear un master con N cajas esperadas y luego añadir cada hija
+// individualmente, imprimiendo SU etiqueta por separado.
+// ============================================
+
+/**
+ * POST /api/packages/bulk-master/start
+ * Crea un master "vacío" (sin cajas todavía) con un total esperado de bultos.
+ * Status inicial: received, warehouse_location: usa_pobox (Hidalgo TX).
+ *
+ * Body: { boxId?: string, expectedTotalBoxes: number, notes?: string }
+ * Response: { masterId, masterTracking, totalBoxes }
+ */
+export const startBulkMaster = async (req: Request, res: Response): Promise<any> => {
+  const client = await pool.connect();
+  try {
+    const { boxId, expectedTotalBoxes, notes } = req.body as {
+      boxId?: string; expectedTotalBoxes?: number; notes?: string;
+    };
+    const total = parseInt(String(expectedTotalBoxes || 0), 10);
+    if (!total || total < 1) {
+      return res.status(400).json({ error: 'expectedTotalBoxes requerido (>=1)' });
+    }
+
+    // Buscar usuario opcional
+    let user: { id: number | null; full_name: string; box_id: string } | null = null;
+    if (boxId && boxId.trim()) {
+      const u = await client.query(
+        'SELECT id, full_name, box_id FROM users WHERE UPPER(box_id) = $1',
+        [boxId.toUpperCase()]
+      );
+      if (u.rows.length > 0) {
+        user = { id: u.rows[0].id, full_name: u.rows[0].full_name, box_id: u.rows[0].box_id };
+      } else {
+        const lg = await client.query(
+          'SELECT id, full_name, box_id FROM legacy_clients WHERE UPPER(box_id) = $1',
+          [boxId.toUpperCase()]
+        );
+        if (lg.rows.length > 0) {
+          user = { id: null, full_name: lg.rows[0].full_name, box_id: lg.rows[0].box_id };
+        }
+      }
+    }
+
+    const masterTracking = generateTracking();
+    await client.query('BEGIN');
+    const r = await client.query(
+      `INSERT INTO packages
+        (user_id, box_id, tracking_internal, description, weight, declared_value, notes,
+         status, is_master, box_number, total_boxes, carrier,
+         destination_country, destination_city, destination_address,
+         service_type, warehouse_location, has_gex,
+         assigned_cost_mxn, single_cbm, saldo_pendiente,
+         pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn,
+         registered_exchange_rate, pobox_cost_usd, national_shipping_cost, needs_instructions)
+       VALUES ($1, $2, $3, $4, 0, NULL, $5,
+               'received', true, 0, $6, 'BODEGA',
+               'México', 'En Bodega', 'Pendiente de asignar',
+               'POBOX_USA', 'usa_pobox', false,
+               0, 0, 0,
+               0, 0, 0, 0, 0,
+               0, 0, 0, true)
+       RETURNING id, tracking_internal, total_boxes`,
+      [
+        user?.id || null,
+        user?.box_id || null,
+        masterTracking,
+        'Hidalgo TX - Recepción en serie',
+        notes || 'Recepción en serie - Master',
+        total,
+      ]
+    );
+    await client.query('COMMIT');
+    return res.status(201).json({
+      success: true,
+      masterId: r.rows[0].id,
+      masterTracking: r.rows[0].tracking_internal,
+      totalBoxes: r.rows[0].total_boxes,
+      client: user ? { id: user.id, fullName: user.full_name, boxId: user.box_id } : null,
+    });
+  } catch (error: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('❌ Error startBulkMaster:', error);
+    return res.status(500).json({ error: error.message || 'Error al iniciar master' });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * POST /api/packages/bulk-master/:masterId/box
+ * Añade una caja hija al master existente y devuelve la etiqueta de SOLO esa hija.
+ *
+ * Body: { weight, length, width, height, trackingCourier? }
+ * Response: { childId, childTracking, label }
+ */
+export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<any> => {
+  const client = await pool.connect();
+  try {
+    const masterId = parseInt(String(req.params.masterId), 10);
+    if (!Number.isFinite(masterId)) return res.status(400).json({ error: 'masterId inválido' });
+
+    const { weight, length, width, height, trackingCourier } = req.body as {
+      weight?: number; length?: number; width?: number; height?: number; trackingCourier?: string;
+    };
+    const w = parseFloat(String(weight || 0));
+    const l = parseFloat(String(length || 0));
+    const wd = parseFloat(String(width || 0));
+    const h = parseFloat(String(height || 0));
+    if (!w || w <= 0) return res.status(400).json({ error: 'weight requerido' });
+    if (!l || !wd || !h) return res.status(400).json({ error: 'dimensiones requeridas' });
+
+    // Cargar master
+    const m = await client.query(
+      `SELECT id, tracking_internal, total_boxes, user_id, box_id, service_type, warehouse_location, status,
+              destination_country, destination_city, destination_address, carrier
+       FROM packages WHERE id = $1 AND is_master = true`,
+      [masterId]
+    );
+    if (m.rows.length === 0) return res.status(404).json({ error: 'Master no encontrado' });
+    const master = m.rows[0];
+
+    // Contar hijas actuales
+    const c = await client.query(
+      `SELECT COUNT(*)::int AS n FROM packages WHERE master_id = $1`,
+      [masterId]
+    );
+    const currentChildren = c.rows[0].n as number;
+    const expectedTotal = master.total_boxes as number;
+    if (currentChildren >= expectedTotal) {
+      return res.status(400).json({
+        error: `Ya se registraron las ${expectedTotal} cajas esperadas`,
+      });
+    }
+
+    const boxNumber = currentChildren + 1;
+    const childTracking = `${master.tracking_internal}-${String(boxNumber).padStart(4, '0')}`;
+
+    await client.query('BEGIN');
+    const r = await client.query(
+      `INSERT INTO packages
+        (user_id, box_id, tracking_internal, tracking_provider, description, weight,
+         pkg_length, pkg_width, pkg_height, status,
+         is_master, master_id, box_number, total_boxes, carrier,
+         destination_country, destination_city, destination_address,
+         service_type, warehouse_location)
+       VALUES ($1, $2, $3, $4, $5, $6,
+               $7, $8, $9, $10,
+               false, $11, $12, $13, $14,
+               $15, $16, $17,
+               $18, $19)
+       RETURNING id, tracking_internal, weight, pkg_length, pkg_width, pkg_height`,
+      [
+        master.user_id,
+        master.box_id,
+        childTracking,
+        trackingCourier || null,
+        'Hidalgo TX - Recepción en serie',
+        w,
+        l, wd, h,
+        master.status,
+        masterId,
+        boxNumber,
+        expectedTotal,
+        master.carrier || 'BODEGA',
+        master.destination_country || 'México',
+        master.destination_city || 'En Bodega',
+        master.destination_address || 'Pendiente de asignar',
+        master.service_type || 'POBOX_USA',
+        master.warehouse_location || 'usa_pobox',
+      ]
+    );
+
+    // Recalcular peso total del master sumando todas las hijas
+    await client.query(
+      `UPDATE packages SET weight = COALESCE((SELECT SUM(weight) FROM packages WHERE master_id = $1), 0),
+                            updated_at = NOW()
+       WHERE id = $1`,
+      [masterId]
+    );
+
+    await client.query('COMMIT');
+
+    // Cargar nombre del cliente
+    let clientName = 'SIN CLIENTE';
+    let clientBoxId = master.box_id || 'PENDIENTE';
+    if (master.user_id) {
+      const u = await pool.query('SELECT full_name FROM users WHERE id = $1', [master.user_id]);
+      if (u.rows.length > 0) clientName = u.rows[0].full_name;
+    } else if (master.box_id) {
+      const lg = await pool.query('SELECT full_name FROM legacy_clients WHERE box_id = $1', [master.box_id]);
+      if (lg.rows.length > 0) clientName = lg.rows[0].full_name;
+    }
+
+    const child = r.rows[0];
+    const label = {
+      boxNumber,
+      totalBoxes: expectedTotal,
+      tracking: child.tracking_internal,
+      labelCode: child.tracking_internal,
+      masterTracking: master.tracking_internal,
+      isMaster: false,
+      weight: parseFloat(child.weight),
+      dimensions: formatDimensions(parseFloat(child.pkg_length), parseFloat(child.pkg_width), parseFloat(child.pkg_height)),
+      clientName,
+      clientBoxId,
+      description: 'Hidalgo TX',
+      receivedAt: new Date().toISOString(),
+    };
+
+    return res.status(201).json({
+      success: true,
+      childId: child.id,
+      childTracking: child.tracking_internal,
+      boxNumber,
+      totalBoxes: expectedTotal,
+      remaining: expectedTotal - boxNumber,
+      label,
+      masterId,
+    });
+  } catch (error: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('❌ Error addBulkBoxToMaster:', error);
+    return res.status(500).json({ error: error.message || 'Error al agregar caja' });
+  } finally {
+    client.release();
+  }
+};
+
+
