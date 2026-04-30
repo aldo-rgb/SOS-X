@@ -193,6 +193,11 @@ const normalizeBarcode = (raw: string): string => {
 
   v = v.toUpperCase().trim();
 
+  // Detectar guías de Fede (22 dígitos puros) y extraer últimos 12
+  if (/^\d{22}$/.test(v)) {
+    return v.slice(-12);
+  }
+
   // Auto-insertar guion si viene pegado (US2722344044 -> US-2722344044)
   const prefixMatch = v.match(/^(US|AIR|LOG|TRK)(\d+)$/);
   if (prefixMatch) v = `${prefixMatch[1]}-${prefixMatch[2]}`;

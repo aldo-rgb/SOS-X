@@ -1203,6 +1203,24 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
             ? await getPaqueteExpressServiceRequestCode(pkg.national_tracking)
             : null;
 
+        // Verificar si este paquete tiene guías hijo (múltiples cajas)
+        let hasChildren = false;
+        let childGuides = [];
+        try {
+            const childRes = await pool.query(`
+                SELECT id, ${TRACKING_PUBLIC_SQL} as tracking_number
+                FROM packages
+                WHERE master_id = $1 AND id != $2
+                ORDER BY created_at
+            `, [pkg.id, pkg.id]);
+            if (childRes.rows && childRes.rows.length > 0) {
+                hasChildren = true;
+                childGuides = childRes.rows.map((row: any) => row.tracking_number);
+            }
+        } catch (childError) {
+            console.warn('No se pudo verificar guías hijo:', childError);
+        }
+
         return res.json({
             success: true,
             package: {
@@ -1217,7 +1235,9 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
                 national_tracking: pkg.national_tracking,
                 national_carrier: pkg.national_carrier,
                 carrier_service_request_code: carrierServiceRequestCode,
-                requires_carrier_scan: requiresCarrierGuideScan
+                requires_carrier_scan: requiresCarrierGuideScan,
+                has_children: hasChildren,
+                child_guides: childGuides
             }
         });
 
