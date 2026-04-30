@@ -84,7 +84,7 @@ export default function SupplierPaymentsPage() {
   const [providerModal, setProviderModal] = useState(false);
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
 
-  // ENTANGLED — proveedores (cada uno con TC USD, TC RMB, % compra y cuentas bancarias)
+  // ENTANGLED — proveedores (sincronizados desde el API; admin solo edita overrides)
   type EntBankAccount = { currency: string; bank: string; holder: string; account: string; clabe: string; reference: string };
   type EntProvider = {
     id: number;
@@ -93,6 +93,12 @@ export default function SupplierPaymentsPage() {
     tipo_cambio_usd: number | string;
     tipo_cambio_rmb: number | string;
     porcentaje_compra: number | string;
+    override_tipo_cambio_usd: number | string | null;
+    override_tipo_cambio_rmb: number | string | null;
+    override_porcentaje_compra: number | string | null;
+    effective_tipo_cambio_usd?: number | string;
+    effective_tipo_cambio_rmb?: number | string;
+    effective_porcentaje_compra?: number | string;
     bank_accounts: EntBankAccount[];
     notes: string | null;
     is_active: boolean;
@@ -173,33 +179,15 @@ export default function SupplierPaymentsPage() {
   };
 
   // ===== ENTANGLED handlers =====
-  const emptyEntProvider = (): EntProvider => ({
-    id: 0,
-    name: '',
-    code: '',
-    tipo_cambio_usd: 18.5,
-    tipo_cambio_rmb: 2.85,
-    porcentaje_compra: 6,
-    bank_accounts: [],
-    notes: '',
-    is_active: true,
-    is_default: false,
-    sort_order: 0,
-  });
-
   const handleSaveEntProvider = async () => {
     if (!editingEntProvider) return;
-    if (!editingEntProvider.name.trim()) {
-      setSnackbar({ open: true, message: 'Nombre requerido', severity: 'error' });
-      return;
-    }
     try {
+      const toNullable = (v: number | string | null | undefined) =>
+        v === '' || v == null ? null : Number(v);
       const payload = {
-        name: editingEntProvider.name.trim(),
-        code: editingEntProvider.code || null,
-        tipo_cambio_usd: Number(editingEntProvider.tipo_cambio_usd),
-        tipo_cambio_rmb: Number(editingEntProvider.tipo_cambio_rmb),
-        porcentaje_compra: Number(editingEntProvider.porcentaje_compra),
+        override_tipo_cambio_usd: toNullable(editingEntProvider.override_tipo_cambio_usd),
+        override_tipo_cambio_rmb: toNullable(editingEntProvider.override_tipo_cambio_rmb),
+        override_porcentaje_compra: toNullable(editingEntProvider.override_porcentaje_compra),
         bank_accounts: editingEntProvider.bank_accounts || [],
         notes: editingEntProvider.notes || null,
         is_active: editingEntProvider.is_active,
@@ -207,30 +195,13 @@ export default function SupplierPaymentsPage() {
         sort_order: Number(editingEntProvider.sort_order || 0),
       };
       const headers = { Authorization: `Bearer ${getToken()}` };
-      if (editingEntProvider.id) {
-        await axios.put(`${API_URL}/admin/entangled/providers/${editingEntProvider.id}`, payload, { headers });
-      } else {
-        await axios.post(`${API_URL}/admin/entangled/providers`, payload, { headers });
-      }
-      setSnackbar({ open: true, message: 'Proveedor ENTANGLED guardado', severity: 'success' });
+      await axios.put(`${API_URL}/admin/entangled/providers/${editingEntProvider.id}`, payload, { headers });
+      setSnackbar({ open: true, message: 'Override del proveedor guardado', severity: 'success' });
       setProviderEditOpen(false);
       setEditingEntProvider(null);
       loadData();
     } catch (e: any) {
       setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al guardar', severity: 'error' });
-    }
-  };
-
-  const handleDeleteEntProvider = async (id: number) => {
-    if (!window.confirm('¿Eliminar este proveedor ENTANGLED? Si tiene solicitudes asociadas se desactivará en su lugar.')) return;
-    try {
-      await axios.delete(`${API_URL}/admin/entangled/providers/${id}`,
-        { headers: { Authorization: `Bearer ${getToken()}` } }
-      );
-      setSnackbar({ open: true, message: 'Proveedor eliminado', severity: 'success' });
-      loadData();
-    } catch (e) {
-      setSnackbar({ open: true, message: 'Error al eliminar', severity: 'error' });
     }
   };
 
@@ -566,23 +537,13 @@ export default function SupplierPaymentsPage() {
       {/* Tab: Tipo de Cambio — Sección ENTANGLED (CRUD por proveedor) */}
       {tabValue === 1 && (
         <Paper sx={{ p: 3, borderRadius: 3, mt: 3 }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-            <Box>
-              <Typography variant="h6" fontWeight="bold">
-                🌐 Proveedores ENTANGLED (Triangulación internacional)
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Cada proveedor define su propio TC USD, TC RMB, % de compra y cuentas bancarias para recibir el depósito MXN del cliente.
-              </Typography>
-            </Box>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => { setEditingEntProvider(emptyEntProvider()); setProviderEditOpen(true); }}
-              sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)` }}
-            >
-              Nuevo proveedor
-            </Button>
+          <Box sx={{ mb: 1 }}>
+            <Typography variant="h6" fontWeight="bold">
+              🌐 Proveedores ENTANGLED (Triangulación internacional)
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Los proveedores se sincronizan desde el API. Aquí solo configuras TC USD, TC RMB, % de compra y cuentas bancarias para recibir el depósito MXN del cliente.
+            </Typography>
           </Box>
           <Divider sx={{ my: 2 }} />
 
@@ -592,9 +553,9 @@ export default function SupplierPaymentsPage() {
                 <TableRow sx={{ bgcolor: 'grey.50' }}>
                   <TableCell>Nombre</TableCell>
                   <TableCell>Código</TableCell>
-                  <TableCell align="right">TC USD</TableCell>
-                  <TableCell align="right">TC RMB</TableCell>
-                  <TableCell align="right">% compra</TableCell>
+                  <TableCell align="right">TC USD efectivo</TableCell>
+                  <TableCell align="right">TC RMB efectivo</TableCell>
+                  <TableCell align="right">% compra efectivo</TableCell>
                   <TableCell align="center">Cuentas</TableCell>
                   <TableCell align="center">Activo</TableCell>
                   <TableCell align="center">Default</TableCell>
@@ -602,13 +563,29 @@ export default function SupplierPaymentsPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {entProviders.map((p) => (
+                {entProviders.map((p) => {
+                  const effUsd = Number(p.effective_tipo_cambio_usd ?? p.tipo_cambio_usd);
+                  const effRmb = Number(p.effective_tipo_cambio_rmb ?? p.tipo_cambio_rmb);
+                  const effPct = Number(p.effective_porcentaje_compra ?? p.porcentaje_compra);
+                  const ovUsd = p.override_tipo_cambio_usd != null;
+                  const ovRmb = p.override_tipo_cambio_rmb != null;
+                  const ovPct = p.override_porcentaje_compra != null;
+                  return (
                   <TableRow key={p.id} hover>
                     <TableCell>{p.name}</TableCell>
                     <TableCell>{p.code || '—'}</TableCell>
-                    <TableCell align="right">${Number(p.tipo_cambio_usd).toFixed(4)}</TableCell>
-                    <TableCell align="right">${Number(p.tipo_cambio_rmb).toFixed(4)}</TableCell>
-                    <TableCell align="right">{Number(p.porcentaje_compra).toFixed(2)}%</TableCell>
+                    <TableCell align="right">
+                      ${effUsd.toFixed(4)}
+                      {ovUsd && <Chip size="small" sx={{ ml: 0.5 }} color="warning" label="OV" />}
+                    </TableCell>
+                    <TableCell align="right">
+                      ${effRmb.toFixed(4)}
+                      {ovRmb && <Chip size="small" sx={{ ml: 0.5 }} color="warning" label="OV" />}
+                    </TableCell>
+                    <TableCell align="right">
+                      {effPct.toFixed(2)}%
+                      {ovPct && <Chip size="small" sx={{ ml: 0.5 }} color="warning" label="OV" />}
+                    </TableCell>
                     <TableCell align="center">{p.bank_accounts?.length || 0}</TableCell>
                     <TableCell align="center">
                       {p.is_active ? <CheckCircleIcon fontSize="small" color="success" /> : <CancelIcon fontSize="small" color="error" />}
@@ -617,19 +594,15 @@ export default function SupplierPaymentsPage() {
                       {p.is_default ? <Chip size="small" color="primary" label="Default" /> : '—'}
                     </TableCell>
                     <TableCell align="center">
-                      <Tooltip title="Editar">
+                      <Tooltip title="Configurar override">
                         <IconButton size="small" onClick={() => { setEditingEntProvider({ ...p, bank_accounts: [...(p.bank_accounts || [])] }); setProviderEditOpen(true); }}>
                           <EditIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title="Eliminar">
-                        <IconButton size="small" color="error" onClick={() => handleDeleteEntProvider(p.id)}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
                 {entProviders.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
@@ -857,60 +830,105 @@ export default function SupplierPaymentsPage() {
 
       {/* Dialog: editor de proveedor ENTANGLED */}
       <Dialog open={providerEditOpen} onClose={() => setProviderEditOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>{editingEntProvider?.id ? 'Editar proveedor ENTANGLED' : 'Nuevo proveedor ENTANGLED'}</DialogTitle>
+        <DialogTitle>Configurar override · {editingEntProvider?.name}</DialogTitle>
         <DialogContent>
           {editingEntProvider && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
-              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                <TextField
-                  label="Nombre"
-                  value={editingEntProvider.name}
-                  onChange={(e) => setEditingEntProvider({ ...editingEntProvider, name: e.target.value })}
-                  sx={{ flex: 1, minWidth: 240 }}
-                  required
-                />
-                <TextField
-                  label="Código"
-                  value={editingEntProvider.code || ''}
-                  onChange={(e) => setEditingEntProvider({ ...editingEntProvider, code: e.target.value })}
-                  sx={{ width: 160 }}
-                />
-                <TextField
-                  label="Orden"
-                  type="number"
-                  value={editingEntProvider.sort_order}
-                  onChange={(e) => setEditingEntProvider({ ...editingEntProvider, sort_order: Number(e.target.value) })}
-                  sx={{ width: 120 }}
-                />
-              </Box>
-              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                <TextField
-                  label="TC USD (MXN por USD)"
-                  type="number"
-                  value={editingEntProvider.tipo_cambio_usd}
-                  onChange={(e) => setEditingEntProvider({ ...editingEntProvider, tipo_cambio_usd: e.target.value })}
-                  slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
-                  sx={{ width: 200 }}
-                />
-                <TextField
-                  label="TC RMB (MXN por RMB)"
-                  type="number"
-                  value={editingEntProvider.tipo_cambio_rmb}
-                  onChange={(e) => setEditingEntProvider({ ...editingEntProvider, tipo_cambio_rmb: e.target.value })}
-                  slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
-                  sx={{ width: 200 }}
-                />
-                <TextField
-                  label="% de compra"
-                  type="number"
-                  value={editingEntProvider.porcentaje_compra}
-                  onChange={(e) => setEditingEntProvider({ ...editingEntProvider, porcentaje_compra: e.target.value })}
-                  slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
-                  sx={{ width: 180 }}
-                />
-              </Box>
+              {/* Datos del API (read-only) */}
+              <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.50' }}>
+                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                  Datos del API ENTANGLED (no editables)
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                  <TextField
+                    label="Nombre"
+                    value={editingEntProvider.name}
+                    InputProps={{ readOnly: true }}
+                    sx={{ flex: 1, minWidth: 240 }}
+                    variant="filled"
+                  />
+                  <TextField
+                    label="Código"
+                    value={editingEntProvider.code || ''}
+                    InputProps={{ readOnly: true }}
+                    sx={{ width: 160 }}
+                    variant="filled"
+                  />
+                </Box>
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 2 }}>
+                  <TextField
+                    label="TC USD del API"
+                    value={Number(editingEntProvider.tipo_cambio_usd).toFixed(4)}
+                    InputProps={{ readOnly: true, startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                    sx={{ width: 180 }}
+                    variant="filled"
+                  />
+                  <TextField
+                    label="TC RMB del API"
+                    value={Number(editingEntProvider.tipo_cambio_rmb).toFixed(4)}
+                    InputProps={{ readOnly: true, startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                    sx={{ width: 180 }}
+                    variant="filled"
+                  />
+                  <TextField
+                    label="% compra del API"
+                    value={Number(editingEntProvider.porcentaje_compra).toFixed(2)}
+                    InputProps={{ readOnly: true, endAdornment: <InputAdornment position="end">%</InputAdornment> }}
+                    sx={{ width: 160 }}
+                    variant="filled"
+                  />
+                </Box>
+              </Paper>
 
-              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+              {/* Overrides editables */}
+              <Paper variant="outlined" sx={{ p: 2, borderColor: ORANGE }}>
+                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5, color: ORANGE }}>
+                  Override (deja vacío para usar el valor del API)
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  Si un cliente tiene su propio override por usuario, ese tiene prioridad sobre éste.
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 2 }}>
+                  <TextField
+                    label="Override TC USD"
+                    type="number"
+                    value={editingEntProvider.override_tipo_cambio_usd ?? ''}
+                    onChange={(e) => setEditingEntProvider({
+                      ...editingEntProvider,
+                      override_tipo_cambio_usd: e.target.value === '' ? null : e.target.value,
+                    })}
+                    placeholder={Number(editingEntProvider.tipo_cambio_usd).toFixed(4)}
+                    slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
+                    sx={{ width: 200 }}
+                  />
+                  <TextField
+                    label="Override TC RMB"
+                    type="number"
+                    value={editingEntProvider.override_tipo_cambio_rmb ?? ''}
+                    onChange={(e) => setEditingEntProvider({
+                      ...editingEntProvider,
+                      override_tipo_cambio_rmb: e.target.value === '' ? null : e.target.value,
+                    })}
+                    placeholder={Number(editingEntProvider.tipo_cambio_rmb).toFixed(4)}
+                    slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
+                    sx={{ width: 200 }}
+                  />
+                  <TextField
+                    label="Override % de compra"
+                    type="number"
+                    value={editingEntProvider.override_porcentaje_compra ?? ''}
+                    onChange={(e) => setEditingEntProvider({
+                      ...editingEntProvider,
+                      override_porcentaje_compra: e.target.value === '' ? null : e.target.value,
+                    })}
+                    placeholder={Number(editingEntProvider.porcentaje_compra).toFixed(2)}
+                    slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+                    sx={{ width: 200 }}
+                  />
+                </Box>
+              </Paper>
+
+              <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
                 <FormControlLabel
                   control={
                     <Switch
@@ -928,6 +946,13 @@ export default function SupplierPaymentsPage() {
                     />
                   }
                   label="Default (se selecciona automáticamente)"
+                />
+                <TextField
+                  label="Orden"
+                  type="number"
+                  value={editingEntProvider.sort_order}
+                  onChange={(e) => setEditingEntProvider({ ...editingEntProvider, sort_order: Number(e.target.value) })}
+                  sx={{ width: 120 }}
                 />
               </Box>
 

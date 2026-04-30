@@ -95,7 +95,9 @@ const computeQuote = async (
   let provider: any = null;
   if (providerId) {
     const r = await pool.query(
-      `SELECT id, name, tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra
+      `SELECT id, name,
+              tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra,
+              override_tipo_cambio_usd, override_tipo_cambio_rmb, override_porcentaje_compra
        FROM entangled_providers WHERE id = $1 AND is_active = true`,
       [providerId]
     );
@@ -103,7 +105,9 @@ const computeQuote = async (
   }
   if (!provider) {
     const r = await pool.query(
-      `SELECT id, name, tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra
+      `SELECT id, name,
+              tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra,
+              override_tipo_cambio_usd, override_tipo_cambio_rmb, override_porcentaje_compra
        FROM entangled_providers
        WHERE is_active = true
        ORDER BY is_default DESC, sort_order ASC, id ASC LIMIT 1`
@@ -111,28 +115,43 @@ const computeQuote = async (
     provider = r.rows[0] || null;
   }
 
-  // 2) Fallback duro a defaults si no hay providers (entornos antiguos)
-  const tcUsd = provider ? Number(provider.tipo_cambio_usd) : 18.5;
-  const tcRmb = provider ? Number(provider.tipo_cambio_rmb) : 2.85;
-  const pctBase = provider ? Number(provider.porcentaje_compra) : 6;
+  // 2) Aplicar override del proveedor sobre los valores del API
+  const tcUsd = provider
+    ? Number(provider.override_tipo_cambio_usd ?? provider.tipo_cambio_usd)
+    : 18.5;
+  const tcRmb = provider
+    ? Number(provider.override_tipo_cambio_rmb ?? provider.tipo_cambio_rmb)
+    : 2.85;
+  const pctBase = provider
+    ? Number(provider.override_porcentaje_compra ?? provider.porcentaje_compra)
+    : 6;
   const div = String(divisa).toUpperCase();
-  const tc = div === 'RMB' ? tcRmb : tcUsd;
+  let tc = div === 'RMB' ? tcRmb : tcUsd;
 
-  // 3) Override por usuario (global o específico al provider)
+  // 3) Override por usuario (puede sobreescribir % y/o TC). El override específico
+  //    al provider tiene prioridad sobre el override global (provider_id IS NULL).
   let pct = pctBase;
   let isOverride = false;
   if (userId) {
     try {
       const ov = await pool.query(
-        `SELECT porcentaje_compra
+        `SELECT porcentaje_compra, tipo_cambio_usd, tipo_cambio_rmb, provider_id
          FROM entangled_user_pricing
          WHERE user_id = $1 AND (provider_id = $2 OR provider_id IS NULL)
          ORDER BY provider_id NULLS LAST LIMIT 1`,
         [userId, provider?.id || null]
       );
       if (ov.rows.length > 0) {
-        pct = Number(ov.rows[0].porcentaje_compra);
-        isOverride = true;
+        const row = ov.rows[0];
+        if (row.porcentaje_compra != null) {
+          pct = Number(row.porcentaje_compra);
+          isOverride = true;
+        }
+        const ovTc = div === 'RMB' ? row.tipo_cambio_rmb : row.tipo_cambio_usd;
+        if (ovTc != null) {
+          tc = Number(ovTc);
+          isOverride = true;
+        }
       }
     } catch { /* tabla puede no existir aún en envs viejos */ }
   }
@@ -876,7 +895,11 @@ const isAdminRole = (req: Request) => {
 export const listProviders = async (_req: Request, res: Response): Promise<any> => {
   try {
     const r = await pool.query(
-      `SELECT * FROM entangled_providers ORDER BY is_default DESC, sort_order ASC, id ASC`
+      `SELECT *,
+        COALESCE(override_tipo_cambio_usd, tipo_cambio_usd)   AS effective_tipo_cambio_usd,
+        COALESCE(override_tipo_cambio_rmb, tipo_cambio_rmb)   AS effective_tipo_cambio_rmb,
+        COALESCE(override_porcentaje_compra, porcentaje_compra) AS effective_porcentaje_compra
+       FROM entangled_providers ORDER BY is_default DESC, sort_order ASC, id ASC`
     );
     return res.json(r.rows);
   } catch (err) {
@@ -888,8 +911,11 @@ export const listProviders = async (_req: Request, res: Response): Promise<any> 
 export const listActiveProvidersPublic = async (_req: Request, res: Response): Promise<any> => {
   try {
     const r = await pool.query(
-      `SELECT id, name, code, tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra,
-              bank_accounts, is_default, sort_order
+      `SELECT id, name, code,
+        COALESCE(override_tipo_cambio_usd, tipo_cambio_usd)   AS tipo_cambio_usd,
+        COALESCE(override_tipo_cambio_rmb, tipo_cambio_rmb)   AS tipo_cambio_rmb,
+        COALESCE(override_porcentaje_compra, porcentaje_compra) AS porcentaje_compra,
+        bank_accounts, is_default, sort_order
        FROM entangled_providers WHERE is_active = true
        ORDER BY is_default DESC, sort_order ASC, id ASC`
     );
@@ -901,40 +927,8 @@ export const listActiveProvidersPublic = async (_req: Request, res: Response): P
 };
 
 export const createProvider = async (req: Request, res: Response): Promise<any> => {
-  const userId = getAuthUserId(req);
-  if (!userId) return res.status(401).json({ error: 'No autenticado' });
-  if (!isAdminRole(req)) return res.status(403).json({ error: 'Sin permisos' });
-  const b = req.body || {};
-  if (!b.name || !String(b.name).trim()) return res.status(400).json({ error: 'name requerido' });
-  try {
-    if (b.is_default) {
-      await pool.query(`UPDATE entangled_providers SET is_default = false WHERE is_default = true`);
-    }
-    const r = await pool.query(
-      `INSERT INTO entangled_providers
-        (name, code, tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra,
-         bank_accounts, notes, is_active, is_default, sort_order, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11)
-       RETURNING *`,
-      [
-        String(b.name).trim(),
-        b.code ? String(b.code).trim() : null,
-        Number(b.tipo_cambio_usd ?? 18.5),
-        Number(b.tipo_cambio_rmb ?? 2.85),
-        Number(b.porcentaje_compra ?? 6),
-        JSON.stringify(Array.isArray(b.bank_accounts) ? b.bank_accounts : []),
-        b.notes || null,
-        b.is_active !== false,
-        !!b.is_default,
-        Number(b.sort_order ?? 0),
-        userId,
-      ]
-    );
-    return res.json(r.rows[0]);
-  } catch (err) {
-    console.error('[ENTANGLED] createProvider:', err);
-    return res.status(500).json({ error: 'Error al crear proveedor' });
-  }
+  // Los proveedores se sincronizan desde el API ENTANGLED. No se permite crear manual.
+  return res.status(410).json({ error: 'Los proveedores se sincronizan desde el API. No se pueden crear manualmente.' });
 };
 
 export const updateProvider = async (req: Request, res: Response): Promise<any> => {
@@ -948,26 +942,27 @@ export const updateProvider = async (req: Request, res: Response): Promise<any> 
     if (b.is_default === true) {
       await pool.query(`UPDATE entangled_providers SET is_default = false WHERE id <> $1`, [id]);
     }
+    // Solo se permiten editar overrides + cuentas bancarias + flags + notas/orden.
+    // name/code/tipo_cambio_*/porcentaje_compra son sincronizados desde el API y no se tocan aquí.
     const r = await pool.query(
       `UPDATE entangled_providers SET
-         name = COALESCE($1, name),
-         code = COALESCE($2, code),
-         tipo_cambio_usd = COALESCE($3, tipo_cambio_usd),
-         tipo_cambio_rmb = COALESCE($4, tipo_cambio_rmb),
-         porcentaje_compra = COALESCE($5, porcentaje_compra),
-         bank_accounts = COALESCE($6::jsonb, bank_accounts),
-         notes = COALESCE($7, notes),
-         is_active = COALESCE($8, is_active),
-         is_default = COALESCE($9, is_default),
-         sort_order = COALESCE($10, sort_order),
+         override_tipo_cambio_usd = $1,
+         override_tipo_cambio_rmb = $2,
+         override_porcentaje_compra = $3,
+         bank_accounts = COALESCE($4::jsonb, bank_accounts),
+         notes = COALESCE($5, notes),
+         is_active = COALESCE($6, is_active),
+         is_default = COALESCE($7, is_default),
+         sort_order = COALESCE($8, sort_order),
          updated_at = NOW()
-       WHERE id = $11 RETURNING *`,
+       WHERE id = $9 RETURNING *,
+         COALESCE(override_tipo_cambio_usd, tipo_cambio_usd)   AS effective_tipo_cambio_usd,
+         COALESCE(override_tipo_cambio_rmb, tipo_cambio_rmb)   AS effective_tipo_cambio_rmb,
+         COALESCE(override_porcentaje_compra, porcentaje_compra) AS effective_porcentaje_compra`,
       [
-        b.name ?? null,
-        b.code ?? null,
-        b.tipo_cambio_usd !== undefined ? Number(b.tipo_cambio_usd) : null,
-        b.tipo_cambio_rmb !== undefined ? Number(b.tipo_cambio_rmb) : null,
-        b.porcentaje_compra !== undefined ? Number(b.porcentaje_compra) : null,
+        b.override_tipo_cambio_usd === '' || b.override_tipo_cambio_usd == null ? null : Number(b.override_tipo_cambio_usd),
+        b.override_tipo_cambio_rmb === '' || b.override_tipo_cambio_rmb == null ? null : Number(b.override_tipo_cambio_rmb),
+        b.override_porcentaje_compra === '' || b.override_porcentaje_compra == null ? null : Number(b.override_porcentaje_compra),
         b.bank_accounts !== undefined ? JSON.stringify(b.bank_accounts) : null,
         b.notes ?? null,
         b.is_active !== undefined ? !!b.is_active : null,
