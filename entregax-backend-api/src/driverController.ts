@@ -25,10 +25,7 @@ const TRACKING_MATCH_SQL = `(
 
 const DELIVERY_STATUS_SQL = `COALESCE(
     to_jsonb(p)->>'delivery_status',
-    CASE
-        WHEN to_jsonb(p)->>'status' = 'in_transit' THEN 'out_for_delivery'
-        ELSE to_jsonb(p)->>'status'
-    END
+    to_jsonb(p)->>'status'
 )`;
 
 const ASSIGNED_DRIVER_SQL = `to_jsonb(p)->>'assigned_driver_id'`;
@@ -1193,8 +1190,10 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
         }
 
         // Verificar que esté en estado para entregar
-        // Permitir estados: out_for_delivery, received_mty, received_usa, received_china, ready_for_delivery, etc.
-        const deliverableStates = ['out_for_delivery', 'received_mty', 'received_usa', 'received_china', 'ready_for_delivery', 'in_transit', 'awaiting_delivery'];
+        // Permitir estados: out_for_delivery, received_mty, received_usa, received_china, ready_for_delivery, awaiting_delivery
+        // NOTA: 'in_transit' se excluye intencionalmente — representa paquetes en tránsito entre sucursales
+        // (consolidaciones HIDALGO→MTY, etc.) que aún no están listos para entrega final.
+        const deliverableStates = ['out_for_delivery', 'received_mty', 'received_usa', 'received_china', 'ready_for_delivery', 'awaiting_delivery'];
         if (!deliverableStates.includes(pkg.delivery_status)) {
             return res.status(400).json({ 
                 error: `⚠️ Este paquete no está listo para entregar. Estado: ${pkg.delivery_status}`,
