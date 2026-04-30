@@ -1534,6 +1534,8 @@ function App() {
             return <DashboardCustomerService />;
           case 'counter_staff':
           case 'Counter Staff':
+          case 'mostrador':
+          case 'Mostrador':
             return <DashboardCounterStaff />;
           case 'warehouse_ops':
           case 'Warehouse Ops':
@@ -1550,7 +1552,7 @@ function App() {
             return <DashboardAdvisor />;
           // super_admin, admin, director, finanzas ven el dashboard general
           default:
-            return <Dashboard />;
+            return <DashboardBranchManager />; // Mostrar DashboardOperations por defecto
         }
       case 'salesReport': return <SalesReportPage />; // CRM - Reportes de Ventas
       case 'clients': return <ClientsPage users={users} loading={loading} onRefresh={fetchUsers} currentUser={currentUser} />;
