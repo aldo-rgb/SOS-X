@@ -740,12 +740,35 @@ export const getMyFiscalProfile = async (req: Request, res: Response): Promise<a
   const userId = getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
   try {
+    // 1) Perfil ENTANGLED (si existe)
     const r = await pool.query(
       `SELECT rfc, razon_social, regimen_fiscal, cp, uso_cfdi, email, updated_at
        FROM entangled_fiscal_profiles WHERE user_id = $1`,
       [userId]
     );
-    return res.json(r.rows[0] || null);
+    if (r.rows[0]) return res.json(r.rows[0]);
+
+    // 2) Fallback: datos fiscales generales del usuario (tabla users)
+    const u = await pool.query(
+      `SELECT fiscal_rfc, fiscal_razon_social, fiscal_regimen_fiscal,
+              fiscal_codigo_postal, fiscal_uso_cfdi, email
+       FROM users WHERE id = $1`,
+      [userId]
+    );
+    const row = u.rows[0];
+    if (row && (row.fiscal_rfc || row.fiscal_razon_social)) {
+      return res.json({
+        rfc: row.fiscal_rfc || '',
+        razon_social: row.fiscal_razon_social || '',
+        regimen_fiscal: row.fiscal_regimen_fiscal || '601',
+        cp: row.fiscal_codigo_postal || '',
+        uso_cfdi: row.fiscal_uso_cfdi || 'G03',
+        email: row.email || '',
+        updated_at: null,
+        _source: 'user_profile',
+      });
+    }
+    return res.json(null);
   } catch (err) {
     console.error('[ENTANGLED] getMyFiscalProfile:', err);
     return res.status(500).json({ error: 'Error al consultar perfil fiscal' });
