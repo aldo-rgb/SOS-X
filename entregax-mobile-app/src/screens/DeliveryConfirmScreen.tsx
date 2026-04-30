@@ -494,36 +494,36 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
       setLoading(true);
       try {
-        // Confirmar cada caja
-        for (const pkg of scannedPackages) {
-          const res = await api.post('/api/driver/confirm-delivery', {
+        // Confirmar cada caja - pasar todas las guías al backend para procesamiento bulk
+        const res = await api.post('/api/driver/confirm-delivery-bulk', {
+          packages: scannedPackages.map(pkg => ({
             internalGuide: pkg.internalGuide,
             carrierGuide: pkg.carrierGuide,
-            photoBase64: photo,
-            notes: notes,
-          }, {
-            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          });
+          })),
+          photoBase64: photo,
+          notes: notes,
+        }, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
 
-          if (!res.data.success) {
-            throw new Error(`Error confirmando caja ${pkg.packageId}`);
-          }
+        if (res.data.success) {
+          Vibration.vibrate(100);
+          Alert.alert(
+            '✅ Entrega Múltiple Confirmada',
+            `${scannedPackages.length} cajas entregadas exitosamente.`,
+            [{ text: 'OK', onPress: () => {
+              // Resetear estado
+              setIsBulkDelivery(false);
+              setScannedPackages([]);
+              setCurrentScanStep('internal');
+              setPhoto('');
+              setNotes('');
+              navigation.goBack();
+            }}]
+          );
+        } else {
+          throw new Error(res.data.error || 'Error desconocido');
         }
-
-        Vibration.vibrate(100);
-        Alert.alert(
-          '✅ Entrega Múltiple Confirmada',
-          `${scannedPackages.length} cajas entregadas exitosamente.`,
-          [{ text: 'OK', onPress: () => {
-            // Resetear estado
-            setIsBulkDelivery(false);
-            setScannedPackages([]);
-            setCurrentScanStep('internal');
-            setPhoto('');
-            setNotes('');
-            navigation.goBack();
-          }}]
-        );
       } catch (error: any) {
         Alert.alert('Error', error.response?.data?.error || error.message || 'No se pudo confirmar la entrega');
       } finally {
