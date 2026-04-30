@@ -1142,6 +1142,9 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
     try {
         const packageBranchSql = await getPackageBranchSql('p');
 
+        // Log de búsqueda
+        console.log(`🔍 Buscando paquete: "${barcode}" por conductor ID: ${driverId}`);
+
         const pkgRes = await pool.query(`
             SELECT 
                 p.id, 
@@ -1161,6 +1164,7 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
         `, [barcode]);
 
         if (pkgRes.rows.length === 0) {
+            console.warn(`⚠️ Paquete NO encontrado: "${barcode}"`);
             return res.status(404).json({ 
                 error: '❌ Paquete no encontrado o no está asignado a ti.',
                 barcode 
@@ -1168,6 +1172,7 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
         }
 
         const pkg = pkgRes.rows[0];
+        console.log(`✅ Paquete encontrado: ID=${pkg.id}, Tracking=${pkg.tracking_number}, Status=${pkg.delivery_status}, Driver=${pkg.assigned_driver_id}`);
 
         if (pkg.assigned_driver_id && Number(pkg.assigned_driver_id) !== driverId) {
             return res.status(403).json({ 
@@ -1187,9 +1192,11 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
         }
 
         // Verificar que esté en estado para entregar
-        if (pkg.delivery_status !== 'out_for_delivery') {
+        // Permitir estados: out_for_delivery, received_mty, received_usa, received_china, ready_for_delivery, etc.
+        const deliverableStates = ['out_for_delivery', 'received_mty', 'received_usa', 'received_china', 'ready_for_delivery', 'in_transit', 'awaiting_delivery'];
+        if (!deliverableStates.includes(pkg.delivery_status)) {
             return res.status(400).json({ 
-                error: `⚠️ Este paquete no está en ruta. Estado: ${pkg.delivery_status}`,
+                error: `⚠️ Este paquete no está listo para entregar. Estado: ${pkg.delivery_status}`,
                 currentStatus: pkg.delivery_status,
                 barcode
             });
