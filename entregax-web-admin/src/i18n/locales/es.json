@@ -21,6 +21,7 @@
       "amount": "Monto a enviar al proveedor",
       "currency": "Divisa destino",
       "concepts": "Conceptos / SAT (separados por coma)",
+      "conceptsHelp": "Códigos SAT separados por coma (opcional)",
       "proofUrl": "Comprobante (PDF/imagen)",
       "uploadProof": "Subir comprobante"
     },
@@ -29,7 +30,30 @@
       "sending": "Enviando...",
       "viewInvoice": "Descargar factura",
       "viewProof": "Descargar comprobante de pago",
-      "viewMyProof": "Ver mi comprobante"
+      "viewMyProof": "Ver mi comprobante",
+      "uploadMyProof": "Subir mi comprobante"
+    },
+    "wizard": {
+      "invoice": "Factura",
+      "fiscal": "Datos fiscales",
+      "supplier": "Proveedor",
+      "amount": "Monto",
+      "invoiceQuestion": "¿Necesitas factura para este pago?",
+      "invoiceYes": "Sí, quiero factura (CFDI)",
+      "invoiceNo": "No, sin factura",
+      "invoiceYesHelp": "Te pediremos tus datos fiscales para emitir el CFDI.",
+      "invoiceNoHelp": "Saltaremos los datos fiscales y conceptos SAT.",
+      "saveFiscal": "Guardar estos datos para próximas solicitudes",
+      "quote": "Cotización",
+      "amountSent": "Monto a enviar al proveedor",
+      "fxRate": "Tipo de cambio",
+      "subtotal": "Subtotal MXN",
+      "purchaseFee": "Comisión de compra",
+      "totalToPay": "Total a pagar a XOX",
+      "proofLater": "El comprobante de tu transferencia a XOX se sube después, una vez recibas las instrucciones de pago.",
+      "instructionsTitle": "Solicitud creada — Instrucciones de pago",
+      "instructionsHelp": "Realiza la transferencia con los siguientes datos y luego sube el comprobante en \"Mis solicitudes\":",
+      "noInstructions": "Aún no recibimos las instrucciones del motor. Te las haremos llegar pronto."
     },
     "status": {
       "global": "Estatus",

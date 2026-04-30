@@ -28,7 +28,7 @@ const USOS_CFDI = [
   { code: 'P01', name: 'Por definir' },
 ];
 
-const DIVISAS = ['RMB', 'USD', 'EUR', 'JPY', 'KRW'];
+const DIVISAS = ['USD', 'RMB'];
 
 interface PaymentRequest {
   id: number;
@@ -62,7 +62,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [uso, setUso] = useState('G03');
   const [email, setEmail] = useState('');
   const [monto, setMonto] = useState('');
-  const [divisa, setDivisa] = useState('RMB');
+  const [divisa, setDivisa] = useState('USD');
   const [conceptos, setConceptos] = useState('');
   const [proofUrl, setProofUrl] = useState('');
   const [uploading, setUploading] = useState(false);
@@ -121,24 +121,33 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   };
 
   const submit = async () => {
-    if (!rfc || !razon || !cp || !email || !monto) {
-      Alert.alert('Faltan datos', 'Completa todos los campos fiscales y el monto');
+    if (!monto) {
+      Alert.alert('Faltan datos', 'Captura el monto');
+      return;
+    }
+    const requiereFactura = !!(rfc || razon);
+    if (requiereFactura && (!rfc || !razon || !cp || !email)) {
+      Alert.alert('Faltan datos', 'Si quieres factura completa todos los datos fiscales');
       return;
     }
     setSubmitting(true);
     try {
-      const payload = {
-        cliente_final: {
-          rfc, razon_social: razon, regimen_fiscal: regimen,
-          cp, uso_cfdi: uso, email,
-        },
+      const payload: any = {
+        requiere_factura: requiereFactura,
         operacion: {
-          monto: parseFloat(monto),
+          montos: parseFloat(monto),
           divisa_destino: divisa,
-          conceptos: conceptos.split(',').map(s => s.trim()).filter(Boolean),
-          comprobante_cliente_url: proofUrl || undefined,
+          conceptos: requiereFactura
+            ? conceptos.split(',').map(s => s.trim()).filter(Boolean)
+            : [],
         },
       };
+      if (requiereFactura) {
+        payload.cliente_final = {
+          rfc, razon_social: razon, regimen_fiscal: regimen,
+          cp, uso_cfdi: uso, email,
+        };
+      }
       const res = await fetch(`${API_URL}/api/entangled/payment-requests`, {
         method: 'POST',
         headers: { ...authHeaders, 'Content-Type': 'application/json' },

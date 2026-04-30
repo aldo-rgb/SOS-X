@@ -236,6 +236,12 @@ import {
   createMySupplier as createMyEntangledSupplier,
   updateMySupplier as updateMyEntangledSupplier,
   deleteMySupplier as deleteMyEntangledSupplier,
+  getMyFiscalProfile as getMyEntangledFiscalProfile,
+  upsertMyFiscalProfile as upsertMyEntangledFiscalProfile,
+  getPricingConfig as getEntangledPricingConfig,
+  updatePricingConfig as updateEntangledPricingConfig,
+  quotePayment as quoteEntangledPayment,
+  uploadProofToRequest as uploadEntangledProof,
 } from './entangledController';
 import {
   getLogisticsServices,
@@ -3259,6 +3265,14 @@ app.get('/api/entangled/suppliers', authenticateToken, listMyEntangledSuppliers)
 app.post('/api/entangled/suppliers', authenticateToken, createMyEntangledSupplier);
 app.put('/api/entangled/suppliers/:id', authenticateToken, updateMyEntangledSupplier);
 app.delete('/api/entangled/suppliers/:id', authenticateToken, deleteMyEntangledSupplier);
+// Perfil fiscal reutilizable, pricing y cotización
+app.get('/api/entangled/fiscal-profile', authenticateToken, getMyEntangledFiscalProfile);
+app.put('/api/entangled/fiscal-profile', authenticateToken, upsertMyEntangledFiscalProfile);
+app.get('/api/entangled/pricing', authenticateToken, getEntangledPricingConfig);
+app.put('/api/admin/entangled/pricing', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateEntangledPricingConfig);
+app.post('/api/entangled/quote', authenticateToken, quoteEntangledPayment);
+// Subida diferida de comprobante
+app.post('/api/entangled/payment-requests/:id/upload-proof', authenticateToken, uploadEntangledProof);
 // Webhooks públicos (verifican HMAC con ENTANGLED_WEBHOOK_SECRET)
 app.post('/api/webhooks/entangled-facturas', entangledWebhookFactura);
 app.post('/api/webhooks/entangled-proveedores', entangledWebhookProveedor);

@@ -34,19 +34,19 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import DescriptionIcon from '@mui/icons-material/Description';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import ContactsIcon from '@mui/icons-material/Contacts';
 import DeleteIcon from '@mui/icons-material/Delete';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import EntangledSupplierForm, { EMPTY_SUPPLIER } from './EntangledSupplierForm';
 import type { SupplierFormData } from './EntangledSupplierForm';
 
-import { Checkbox, FormControlLabel, Divider, List, ListItem, ListItemText, ListItemSecondaryAction } from '@mui/material';
+import { Checkbox, FormControlLabel, Divider, List, ListItem, ListItemText, ListItemSecondaryAction, Stepper, Step, StepLabel, RadioGroup, Radio, FormControl, Card, CardContent } from '@mui/material';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const ORANGE = '#F05A28';
@@ -92,7 +92,7 @@ const USOS_CFDI = [
   { value: 'I08', label: 'I08 - Otra maquinaria' },
 ];
 
-const DIVISAS = ['RMB', 'USD', 'EUR', 'JPY', 'KRW'];
+const DIVISAS = ['USD', 'RMB'];
 
 const statusColor = (s: string): 'default' | 'warning' | 'info' | 'success' | 'error' => {
   switch (s) {
@@ -141,6 +141,15 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // ----- Wizard / flujo v2 -----
+  const [step, setStep] = useState(0); // 0=Factura?, 1=Fiscal, 2=Proveedor, 3=Monto+Quote
+  const [requiereFactura, setRequiereFactura] = useState(true);
+  const [saveFiscalProfile, setSaveFiscalProfile] = useState(true);
+  const [pricing, setPricing] = useState<{ tipo_cambio_usd: number; tipo_cambio_rmb: number; porcentaje_compra: number } | null>(null);
+  const [quote, setQuote] = useState<{ tipo_cambio: number; porcentaje_compra: number; monto_mxn_base: number; monto_mxn_total: number } | null>(null);
+  const [lastCreated, setLastCreated] = useState<{ request: unknown; instrucciones_pago: unknown; quote: { tipo_cambio: number; porcentaje_compra: number; monto_mxn_base: number; monto_mxn_total: number } | null } | null>(null);
+  const [instructionsOpen, setInstructionsOpen] = useState(false);
+
   // ----- Proveedores de envío (beneficiarios) -----
   interface SavedSupplier extends SupplierFormData {
     id: number;
@@ -163,7 +172,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     uso_cfdi: 'G03',
     email: '',
     monto: '',
-    divisa_destino: 'RMB',
+    divisa_destino: 'USD',
     conceptos: '',
     comprobante_cliente_url: '',
   });
@@ -193,10 +202,47 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }
   }, [authHeader, token]);
 
+  const loadFiscalProfile = useCallback(async () => {
+    if (!token) return;
+    try {
+      const r = await axios.get(`${API_URL}/api/entangled/fiscal-profile`, { headers: authHeader });
+      const p = r.data;
+      if (p) {
+        setForm((prev) => ({
+          ...prev,
+          rfc: p.rfc || '',
+          razon_social: p.razon_social || '',
+          regimen_fiscal: p.regimen_fiscal || '601',
+          cp: p.cp || '',
+          uso_cfdi: p.uso_cfdi || 'G03',
+          email: p.email || '',
+        }));
+      }
+    } catch (err: unknown) {
+      console.error('[ENTANGLED] loadFiscalProfile:', err);
+    }
+  }, [authHeader, token]);
+
+  const loadPricing = useCallback(async () => {
+    if (!token) return;
+    try {
+      const r = await axios.get(`${API_URL}/api/entangled/pricing`, { headers: authHeader });
+      setPricing({
+        tipo_cambio_usd: Number(r.data.tipo_cambio_usd),
+        tipo_cambio_rmb: Number(r.data.tipo_cambio_rmb),
+        porcentaje_compra: Number(r.data.porcentaje_compra),
+      });
+    } catch (err: unknown) {
+      console.error('[ENTANGLED] loadPricing:', err);
+    }
+  }, [authHeader, token]);
+
   useEffect(() => {
     loadRequests();
     loadSuppliers();
-  }, [loadRequests, loadSuppliers]);
+    loadFiscalProfile();
+    loadPricing();
+  }, [loadRequests, loadSuppliers, loadFiscalProfile, loadPricing]);
 
   // Cuando cambia el selector de proveedor en el dialog
   const handlePickSupplier = (raw: string) => {
@@ -228,7 +274,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       setSnack({
         open: true,
         severity: 'error',
-        message: (err as any)?.response?.data?.message || t('entangled.messages.error'),
+        message: (err as { response?: { data?: { message?: string } } })?.response?.data?.message || t('entangled.messages.error'),
       });
     } finally {
       setUploadingSupplier(false);
@@ -304,21 +350,27 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }
   };
 
-  const handleUploadProof = async (file: File) => {
+  // Subida diferida del comprobante a una solicitud existente
+  const handleUploadProofToRequest = async (requestId: number, file: File) => {
     setUploading(true);
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const res = await axios.post(`${API_URL}/api/uploads/evidence`, fd, {
+      const upRes = await axios.post(`${API_URL}/api/uploads/evidence`, fd, {
         headers: { ...authHeader, 'Content-Type': 'multipart/form-data' },
       });
-      setForm((p) => ({ ...p, comprobante_cliente_url: res.data.url }));
+      await axios.post(
+        `${API_URL}/api/entangled/payment-requests/${requestId}/upload-proof`,
+        { comprobante_cliente_url: upRes.data.url },
+        { headers: authHeader }
+      );
       setSnack({ open: true, severity: 'success', message: t('entangled.actions.viewMyProof') });
+      loadRequests();
     } catch (err: unknown) {
       setSnack({
         open: true,
         severity: 'error',
-        message: (err as any)?.response?.data?.message || t('entangled.messages.error'),
+        message: (err as { response?: { data?: { error?: string } } })?.response?.data?.error || t('entangled.messages.error'),
       });
     } finally {
       setUploading(false);
@@ -326,9 +378,11 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   };
 
   const validateForm = (): string | null => {
-    if (!form.rfc || !form.razon_social || !form.cp || !form.email) return t('entangled.messages.requiredFields');
+    if (requiereFactura) {
+      if (!form.rfc || !form.razon_social || !form.cp || !form.email) return t('entangled.messages.requiredFields');
+    }
     if (!form.monto || Number(form.monto) <= 0) return t('entangled.messages.requiredFields');
-    if (!form.comprobante_cliente_url) return t('entangled.messages.requiredFields');
+    if (!['USD', 'RMB'].includes(form.divisa_destino)) return t('entangled.messages.requiredFields');
     if (!supplierForm.nombre_beneficiario || !supplierForm.numero_cuenta || !supplierForm.banco_nombre) {
       return t('entangled.suppliers.requiredFields', 'Completa beneficiario, número de cuenta y banco del proveedor de envío');
     }
@@ -338,6 +392,24 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     return null;
   };
 
+  // Recalcular quote cuando cambia monto o divisa
+  useEffect(() => {
+    const m = Number(form.monto);
+    if (!pricing || !m || m <= 0) {
+      setQuote(null);
+      return;
+    }
+    const tc = form.divisa_destino === 'RMB' ? pricing.tipo_cambio_rmb : pricing.tipo_cambio_usd;
+    const base = m * tc;
+    const total = base * (1 + pricing.porcentaje_compra / 100);
+    setQuote({
+      tipo_cambio: tc,
+      porcentaje_compra: pricing.porcentaje_compra,
+      monto_mxn_base: Number(base.toFixed(2)),
+      monto_mxn_total: Number(total.toFixed(2)),
+    });
+  }, [form.monto, form.divisa_destino, pricing]);
+
   const handleSubmit = async () => {
     const err = validateForm();
     if (err) {
@@ -346,7 +418,27 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }
     setSubmitting(true);
     try {
-      // 1. Si pidió guardar el proveedor para reuso, persistirlo primero
+      // Si pidió guardar perfil fiscal
+      if (requiereFactura && saveFiscalProfile) {
+        try {
+          await axios.put(
+            `${API_URL}/api/entangled/fiscal-profile`,
+            {
+              rfc: form.rfc.trim().toUpperCase(),
+              razon_social: form.razon_social.trim(),
+              regimen_fiscal: form.regimen_fiscal,
+              cp: form.cp.trim(),
+              uso_cfdi: form.uso_cfdi,
+              email: form.email.trim(),
+            },
+            { headers: authHeader }
+          );
+        } catch (e) {
+          console.warn('[ENTANGLED] No se pudo guardar perfil fiscal:', e);
+        }
+      }
+
+      // Si pidió guardar el proveedor para reuso
       let supplierId: number | undefined = supplierForm.id;
       if (selectedSupplierId === 'new' && saveSupplierForLater) {
         const newId = await persistSupplier({ ...supplierForm, divisa_default: form.divisa_destino });
@@ -355,24 +447,14 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         supplierId = Number(selectedSupplierId);
       }
 
-      // 2. Crear la solicitud incluyendo snapshot del proveedor
-      const payload = {
-        cliente_final: {
-          rfc: form.rfc.trim().toUpperCase(),
-          razon_social: form.razon_social.trim(),
-          regimen_fiscal: form.regimen_fiscal,
-          cp: form.cp.trim(),
-          uso_cfdi: form.uso_cfdi,
-          email: form.email.trim(),
-        },
+      const payload: Record<string, unknown> = {
+        requiere_factura: requiereFactura,
         operacion: {
           montos: Number(form.monto),
           divisa_destino: form.divisa_destino,
-          conceptos: form.conceptos
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean),
-          comprobante_cliente_url: form.comprobante_cliente_url,
+          conceptos: requiereFactura
+            ? form.conceptos.split(',').map((s) => s.trim()).filter(Boolean)
+            : [],
         },
         proveedor_envio: {
           supplier_id: supplierId || null,
@@ -391,10 +473,22 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           foto_url: supplierForm.foto_url,
         },
       };
+      if (requiereFactura) {
+        payload.cliente_final = {
+          rfc: form.rfc.trim().toUpperCase(),
+          razon_social: form.razon_social.trim(),
+          regimen_fiscal: form.regimen_fiscal,
+          cp: form.cp.trim(),
+          uso_cfdi: form.uso_cfdi,
+          email: form.email.trim(),
+        };
+      }
+
       const res = await axios.post(`${API_URL}/api/entangled/payment-requests`, payload, {
         headers: authHeader,
       });
       setDialogOpen(false);
+      setStep(0);
       setForm({
         rfc: '',
         razon_social: '',
@@ -403,13 +497,20 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         uso_cfdi: 'G03',
         email: '',
         monto: '',
-        divisa_destino: 'RMB',
+        divisa_destino: 'USD',
         conceptos: '',
         comprobante_cliente_url: '',
       });
       setSupplierForm(EMPTY_SUPPLIER);
       setSelectedSupplierId('new');
       setSaveSupplierForLater(true);
+      // Mostrar instrucciones de pago
+      setLastCreated({
+        request: res.data?.request,
+        instrucciones_pago: res.data?.instrucciones_pago,
+        quote: res.data?.quote,
+      });
+      setInstructionsOpen(true);
       setSnack({
         open: true,
         severity: 'success',
@@ -420,11 +521,12 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       });
       loadRequests();
       loadSuppliers();
+      loadFiscalProfile();
     } catch (err: unknown) {
       setSnack({
         open: true,
         severity: 'error',
-        message: (err as any)?.response?.data?.error || t('entangled.messages.error'),
+        message: (err as { response?: { data?: { error?: string } } })?.response?.data?.error || t('entangled.messages.error'),
       });
     } finally {
       setSubmitting(false);
@@ -572,6 +674,42 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                             </IconButton>
                           </Tooltip>
                         )}
+                        {!r.op_comprobante_cliente_url && (
+                          <Tooltip title={t('entangled.actions.uploadMyProof', 'Subir mi comprobante') as string}>
+                            <IconButton
+                              size="small"
+                              component="label"
+                              disabled={uploading}
+                              sx={{ color: ORANGE }}
+                            >
+                              <ReceiptLongIcon fontSize="small" />
+                              <input
+                                hidden
+                                type="file"
+                                accept="image/*,application/pdf"
+                                onChange={(e) => {
+                                  const f = e.target.files?.[0];
+                                  if (f) handleUploadProofToRequest(r.id, f);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {r.op_comprobante_cliente_url && (
+                          <Tooltip title={t('entangled.actions.viewMyProof') as string}>
+                            <IconButton
+                              size="small"
+                              component="a"
+                              href={r.op_comprobante_cliente_url}
+                              target="_blank"
+                              rel="noopener"
+                              sx={{ color: '#2e7d32' }}
+                            >
+                              <DescriptionIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                       </Stack>
                       <Typography variant="caption" color="text.secondary" display="block">
                         {formatDate(r.created_at)}
@@ -585,219 +723,329 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         </TableContainer>
       </Paper>
 
-      {/* Dialog: nueva solicitud */}
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="md" fullWidth>
+      {/* Dialog: nueva solicitud (wizard) */}
+      <Dialog
+        open={dialogOpen}
+        onClose={() => {
+          setDialogOpen(false);
+          setStep(0);
+        }}
+        maxWidth="md"
+        fullWidth
+      >
         <DialogTitle sx={{ bgcolor: ORANGE, color: 'white' }}>
           {t('entangled.newRequest')}
         </DialogTitle>
         <DialogContent sx={{ pt: 3 }}>
-          <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 1, mb: 1 }}>
-            {t('entangled.sections.fiscal')}
-          </Typography>
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 12, md: 4 }}>
-              <TextField
-                fullWidth
-                label={t('entangled.fields.rfc')}
-                value={form.rfc}
-                onChange={(e) => setForm({ ...form, rfc: e.target.value.toUpperCase() })}
-                inputProps={{ maxLength: 13 }}
-                required
-              />
-            </Grid>
-            <Grid size={{ xs: 12, md: 8 }}>
-              <TextField
-                fullWidth
-                label={t('entangled.fields.razonSocial')}
-                value={form.razon_social}
-                onChange={(e) => setForm({ ...form, razon_social: e.target.value })}
-                required
-              />
-            </Grid>
-            <Grid size={{ xs: 12, md: 6 }}>
-              <TextField
-                select
-                fullWidth
-                label={t('entangled.fields.regimenFiscal')}
-                value={form.regimen_fiscal}
-                onChange={(e) => setForm({ ...form, regimen_fiscal: e.target.value })}
-                required
-              >
-                {REGIMENES_FISCALES.map((o) => (
-                  <MenuItem key={o.value} value={o.value}>
-                    {o.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Grid>
-            <Grid size={{ xs: 6, md: 3 }}>
-              <TextField
-                fullWidth
-                label={t('entangled.fields.cp')}
-                value={form.cp}
-                onChange={(e) => setForm({ ...form, cp: e.target.value.replace(/\D/g, '') })}
-                inputProps={{ maxLength: 5 }}
-                required
-              />
-            </Grid>
-            <Grid size={{ xs: 6, md: 3 }}>
-              <TextField
-                select
-                fullWidth
-                label={t('entangled.fields.usoCfdi')}
-                value={form.uso_cfdi}
-                onChange={(e) => setForm({ ...form, uso_cfdi: e.target.value })}
-                required
-              >
-                {USOS_CFDI.map((o) => (
-                  <MenuItem key={o.value} value={o.value}>
-                    {o.label}
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Grid>
-            <Grid size={{ xs: 12 }}>
-              <TextField
-                fullWidth
-                type="email"
-                label={t('entangled.fields.email')}
-                value={form.email}
-                onChange={(e) => setForm({ ...form, email: e.target.value })}
-                required
-              />
-            </Grid>
-          </Grid>
+          <Stepper activeStep={step} alternativeLabel sx={{ mb: 3 }}>
+            <Step><StepLabel>{t('entangled.wizard.invoice', 'Factura')}</StepLabel></Step>
+            <Step><StepLabel>{t('entangled.wizard.fiscal', 'Datos fiscales')}</StepLabel></Step>
+            <Step><StepLabel>{t('entangled.wizard.supplier', 'Proveedor')}</StepLabel></Step>
+            <Step><StepLabel>{t('entangled.wizard.amount', 'Monto')}</StepLabel></Step>
+          </Stepper>
 
-          <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1 }}>
-            {t('entangled.sections.operation')}
-          </Typography>
-          <Grid container spacing={2}>
-            <Grid size={{ xs: 6, md: 4 }}>
-              <TextField
-                fullWidth
-                type="number"
-                label={t('entangled.fields.amount')}
-                value={form.monto}
-                onChange={(e) => setForm({ ...form, monto: e.target.value })}
-                inputProps={{ min: 0, step: '0.01' }}
-                required
-              />
-            </Grid>
-            <Grid size={{ xs: 6, md: 3 }}>
-              <TextField
-                select
-                fullWidth
-                label={t('entangled.fields.currency')}
-                value={form.divisa_destino}
-                onChange={(e) => setForm({ ...form, divisa_destino: e.target.value })}
-              >
-                {DIVISAS.map((d) => (
-                  <MenuItem key={d} value={d}>
-                    {d}
-                  </MenuItem>
-                ))}
-              </TextField>
-            </Grid>
-            <Grid size={{ xs: 12, md: 5 }}>
-              <TextField
-                fullWidth
-                label={t('entangled.fields.concepts')}
-                value={form.conceptos}
-                onChange={(e) => setForm({ ...form, conceptos: e.target.value })}
-                placeholder="84111506, 90121800"
-              />
-            </Grid>
-          </Grid>
-
-          <Divider sx={{ my: 3 }} />
-
-          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-            {t('entangled.suppliers.section', 'Proveedor de envío (beneficiario)')}
-          </Typography>
-          <TextField
-            select
-            fullWidth
-            label={t('entangled.suppliers.pick', 'Selecciona proveedor')}
-            value={String(selectedSupplierId)}
-            onChange={(e) => handlePickSupplier(e.target.value)}
-            sx={{ mb: 2 }}
-          >
-            <MenuItem value="new">+ {t('entangled.suppliers.new', 'Nuevo proveedor (capturar datos)')}</MenuItem>
-            {suppliers.map((s) => (
-              <MenuItem key={s.id} value={String(s.id)}>
-                {s.is_favorite ? '★ ' : ''}
-                {s.alias || s.nombre_beneficiario}
-                {s.banco_nombre ? ` — ${s.banco_nombre}` : ''}
-                {s.numero_cuenta ? ` (…${s.numero_cuenta.slice(-4)})` : ''}
-              </MenuItem>
-            ))}
-          </TextField>
-
-          <EntangledSupplierForm
-            value={supplierForm}
-            onChange={setSupplierForm}
-            onUploadPhoto={handleUploadSupplierPhoto}
-            uploading={uploadingSupplier}
-          />
-
-          {selectedSupplierId === 'new' && (
-            <FormControlLabel
-              sx={{ mt: 1 }}
-              control={
-                <Checkbox
-                  checked={saveSupplierForLater}
-                  onChange={(e) => setSaveSupplierForLater(e.target.checked)}
-                  sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }}
-                />
-              }
-              label={t('entangled.suppliers.saveForLater', 'Guardar este proveedor para próximas solicitudes')}
-            />
+          {/* Paso 0: ¿factura? */}
+          {step === 0 && (
+            <Box>
+              <Typography variant="h6" sx={{ mb: 2 }}>
+                {t('entangled.wizard.invoiceQuestion', '¿Necesitas factura para este pago?')}
+              </Typography>
+              <FormControl>
+                <RadioGroup
+                  value={requiereFactura ? 'yes' : 'no'}
+                  onChange={(e) => setRequiereFactura(e.target.value === 'yes')}
+                >
+                  <FormControlLabel
+                    value="yes"
+                    control={<Radio sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }} />}
+                    label={t('entangled.wizard.invoiceYes', 'Sí, quiero factura (CFDI)')}
+                  />
+                  <FormControlLabel
+                    value="no"
+                    control={<Radio sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }} />}
+                    label={t('entangled.wizard.invoiceNo', 'No, sin factura')}
+                  />
+                </RadioGroup>
+              </FormControl>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
+                {requiereFactura
+                  ? t('entangled.wizard.invoiceYesHelp', 'Te pediremos tus datos fiscales para emitir el CFDI.')
+                  : t('entangled.wizard.invoiceNoHelp', 'Saltaremos los datos fiscales y conceptos SAT.')}
+              </Typography>
+            </Box>
           )}
 
-          <Typography variant="subtitle2" fontWeight={700} sx={{ mt: 3, mb: 1 }}>
-            {t('entangled.sections.proof')}
-          </Typography>
-          <Stack direction="row" spacing={2} alignItems="center">
-            <Button
-              variant="outlined"
-              component="label"
-              startIcon={<CloudUploadIcon />}
-              disabled={uploading}
-            >
-              {uploading ? t('entangled.messages.uploadingProof') : t('entangled.fields.uploadProof')}
-              <input
-                hidden
-                type="file"
-                accept="image/*,application/pdf"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleUploadProof(f);
-                  e.target.value = '';
-                }}
-              />
-            </Button>
-            {form.comprobante_cliente_url && (
-              <Button
-                size="small"
-                href={form.comprobante_cliente_url}
-                target="_blank"
-                rel="noopener"
-                color="success"
+          {/* Paso 1: datos fiscales (solo si requiere factura) */}
+          {step === 1 && requiereFactura && (
+            <Box>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2 }}>
+                {t('entangled.sections.fiscal')}
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, md: 4 }}>
+                  <TextField
+                    fullWidth label={t('entangled.fields.rfc')} value={form.rfc}
+                    onChange={(e) => setForm({ ...form, rfc: e.target.value.toUpperCase() })}
+                    inputProps={{ maxLength: 13 }} required
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 8 }}>
+                  <TextField
+                    fullWidth label={t('entangled.fields.razonSocial')} value={form.razon_social}
+                    onChange={(e) => setForm({ ...form, razon_social: e.target.value })} required
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <TextField
+                    select fullWidth label={t('entangled.fields.regimenFiscal')}
+                    value={form.regimen_fiscal}
+                    onChange={(e) => setForm({ ...form, regimen_fiscal: e.target.value })} required
+                  >
+                    {REGIMENES_FISCALES.map((o) => (
+                      <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+                <Grid size={{ xs: 6, md: 3 }}>
+                  <TextField
+                    fullWidth label={t('entangled.fields.cp')} value={form.cp}
+                    onChange={(e) => setForm({ ...form, cp: e.target.value.replace(/\D/g, '') })}
+                    inputProps={{ maxLength: 5 }} required
+                  />
+                </Grid>
+                <Grid size={{ xs: 6, md: 3 }}>
+                  <TextField
+                    select fullWidth label={t('entangled.fields.usoCfdi')}
+                    value={form.uso_cfdi}
+                    onChange={(e) => setForm({ ...form, uso_cfdi: e.target.value })} required
+                  >
+                    {USOS_CFDI.map((o) => (
+                      <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                  <TextField
+                    fullWidth type="email" label={t('entangled.fields.email')} value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })} required
+                  />
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                  <TextField
+                    fullWidth label={t('entangled.fields.concepts')} value={form.conceptos}
+                    onChange={(e) => setForm({ ...form, conceptos: e.target.value })}
+                    placeholder="84111506, 90121800"
+                    helperText={t('entangled.fields.conceptsHelp', 'Códigos SAT separados por coma (opcional)')}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12 }}>
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        checked={saveFiscalProfile}
+                        onChange={(e) => setSaveFiscalProfile(e.target.checked)}
+                        sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }}
+                      />
+                    }
+                    label={t('entangled.wizard.saveFiscal', 'Guardar estos datos para próximas solicitudes')}
+                  />
+                </Grid>
+              </Grid>
+            </Box>
+          )}
+
+          {/* Paso 2: proveedor */}
+          {step === 2 && (
+            <Box>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                {t('entangled.suppliers.section', 'Proveedor de envío (beneficiario)')}
+              </Typography>
+              <TextField
+                select fullWidth
+                label={t('entangled.suppliers.pick', 'Selecciona proveedor')}
+                value={String(selectedSupplierId)}
+                onChange={(e) => handlePickSupplier(e.target.value)}
+                sx={{ mb: 2 }}
               >
-                {t('entangled.actions.viewMyProof')}
-              </Button>
-            )}
-          </Stack>
+                <MenuItem value="new">+ {t('entangled.suppliers.new', 'Nuevo proveedor (capturar datos)')}</MenuItem>
+                {suppliers.map((s) => (
+                  <MenuItem key={s.id} value={String(s.id)}>
+                    {s.is_favorite ? '★ ' : ''}{s.alias || s.nombre_beneficiario}
+                    {s.banco_nombre ? ` — ${s.banco_nombre}` : ''}
+                    {s.numero_cuenta ? ` (…${s.numero_cuenta.slice(-4)})` : ''}
+                  </MenuItem>
+                ))}
+              </TextField>
+              <EntangledSupplierForm
+                value={supplierForm}
+                onChange={setSupplierForm}
+                onUploadPhoto={handleUploadSupplierPhoto}
+                uploading={uploadingSupplier}
+              />
+              {selectedSupplierId === 'new' && (
+                <FormControlLabel
+                  sx={{ mt: 1 }}
+                  control={
+                    <Checkbox
+                      checked={saveSupplierForLater}
+                      onChange={(e) => setSaveSupplierForLater(e.target.checked)}
+                      sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }}
+                    />
+                  }
+                  label={t('entangled.suppliers.saveForLater', 'Guardar este proveedor para próximas solicitudes')}
+                />
+              )}
+            </Box>
+          )}
+
+          {/* Paso 3: monto + cotización */}
+          {step === 3 && (
+            <Box>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 2 }}>
+                {t('entangled.sections.operation')}
+              </Typography>
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 6 }}>
+                  <TextField
+                    fullWidth type="number" label={t('entangled.fields.amount')}
+                    value={form.monto}
+                    onChange={(e) => setForm({ ...form, monto: e.target.value })}
+                    inputProps={{ min: 0, step: '0.01' }} required
+                  />
+                </Grid>
+                <Grid size={{ xs: 6 }}>
+                  <TextField
+                    select fullWidth label={t('entangled.fields.currency')}
+                    value={form.divisa_destino}
+                    onChange={(e) => setForm({ ...form, divisa_destino: e.target.value })}
+                  >
+                    {DIVISAS.map((d) => (
+                      <MenuItem key={d} value={d}>{d}</MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+              </Grid>
+
+              {quote && (
+                <Card sx={{ mt: 3, bgcolor: '#FFF4ED', border: `1px solid ${ORANGE}` }}>
+                  <CardContent>
+                    <Typography variant="subtitle2" fontWeight={700} sx={{ color: ORANGE, mb: 1 }}>
+                      {t('entangled.wizard.quote', 'Cotización')}
+                    </Typography>
+                    <Stack spacing={0.5}>
+                      <Typography variant="body2">
+                        {t('entangled.wizard.amountSent', 'Monto a enviar al proveedor')}:&nbsp;
+                        <strong>{formatMoney(form.monto)} {form.divisa_destino}</strong>
+                      </Typography>
+                      <Typography variant="body2">
+                        {t('entangled.wizard.fxRate', 'Tipo de cambio')}:&nbsp;
+                        <strong>${quote.tipo_cambio.toFixed(4)} MXN / {form.divisa_destino}</strong>
+                      </Typography>
+                      <Typography variant="body2">
+                        {t('entangled.wizard.subtotal', 'Subtotal MXN')}:&nbsp;
+                        <strong>${formatMoney(quote.monto_mxn_base)}</strong>
+                      </Typography>
+                      <Typography variant="body2">
+                        {t('entangled.wizard.purchaseFee', 'Comisión de compra')} ({quote.porcentaje_compra}%):&nbsp;
+                        <strong>${formatMoney(quote.monto_mxn_total - quote.monto_mxn_base)}</strong>
+                      </Typography>
+                      <Divider sx={{ my: 1 }} />
+                      <Typography variant="h6" sx={{ color: ORANGE }}>
+                        {t('entangled.wizard.totalToPay', 'Total a pagar a XOX')}: ${formatMoney(quote.monto_mxn_total)} MXN
+                      </Typography>
+                    </Stack>
+                  </CardContent>
+                </Card>
+              )}
+
+              <Alert severity="info" sx={{ mt: 2 }}>
+                {t('entangled.wizard.proofLater', 'El comprobante de tu transferencia a XOX se sube después, una vez recibas las instrucciones de pago.')}
+              </Alert>
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setDialogOpen(false)}>{t('common.cancel')}</Button>
-          <Button
-            variant="contained"
-            onClick={handleSubmit}
-            disabled={submitting}
-            sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#D94A1F' } }}
-          >
-            {submitting ? t('entangled.actions.sending') : t('entangled.actions.submit')}
+          <Button onClick={() => { setDialogOpen(false); setStep(0); }}>{t('common.cancel')}</Button>
+          {step > 0 && (
+            <Button onClick={() => setStep((s) => Math.max(0, s - (s === 2 && !requiereFactura ? 2 : 1)))}>
+              {t('common.back', 'Atrás')}
+            </Button>
+          )}
+          {step < 3 && (
+            <Button
+              variant="contained"
+              sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#D94A1F' } }}
+              onClick={() => {
+                // Si dijo NO factura, saltar paso fiscal
+                if (step === 0 && !requiereFactura) setStep(2);
+                else setStep((s) => s + 1);
+              }}
+            >
+              {t('common.next', 'Siguiente')}
+            </Button>
+          )}
+          {step === 3 && (
+            <Button
+              variant="contained"
+              onClick={handleSubmit}
+              disabled={submitting || !quote}
+              sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#D94A1F' } }}
+            >
+              {submitting ? t('entangled.actions.sending') : t('entangled.actions.submit')}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog: instrucciones de pago tras crear */}
+      <Dialog open={instructionsOpen} onClose={() => setInstructionsOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ bgcolor: ORANGE, color: '#fff' }}>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <CheckCircleIcon />
+            <span>{t('entangled.wizard.instructionsTitle', 'Solicitud creada — Instrucciones de pago')}</span>
+          </Stack>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {lastCreated?.quote && (
+            <Card sx={{ mb: 2, bgcolor: '#FFF4ED' }}>
+              <CardContent>
+                <Typography variant="subtitle2" sx={{ color: ORANGE, fontWeight: 700 }}>
+                  {t('entangled.wizard.totalToPay', 'Total a pagar a XOX')}
+                </Typography>
+                <Typography variant="h5">
+                  ${formatMoney(lastCreated.quote.monto_mxn_total)} MXN
+                </Typography>
+              </CardContent>
+            </Card>
+          )}
+          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+            {t('entangled.wizard.instructionsHelp', 'Realiza la transferencia con los siguientes datos y luego sube el comprobante en "Mis solicitudes":')}
+          </Typography>
+          {lastCreated?.instrucciones_pago ? (
+            <Box
+              component="pre"
+              sx={{
+                bgcolor: '#f7f7f7',
+                p: 2,
+                borderRadius: 1,
+                fontSize: 13,
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                maxHeight: 360,
+                overflow: 'auto',
+              }}
+            >
+              {JSON.stringify(lastCreated.instrucciones_pago, null, 2)}
+            </Box>
+          ) : (
+            <Alert severity="info">
+              {t('entangled.wizard.noInstructions', 'Aún no recibimos las instrucciones del motor. Te las haremos llegar pronto.')}
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInstructionsOpen(false)} variant="contained" sx={{ bgcolor: ORANGE }}>
+            {t('common.close', 'Cerrar')}
           </Button>
         </DialogActions>
       </Dialog>
