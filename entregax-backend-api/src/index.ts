@@ -242,6 +242,9 @@ import {
   updatePricingConfig as updateEntangledPricingConfig,
   quotePayment as quoteEntangledPayment,
   uploadProofToRequest as uploadEntangledProof,
+  listUserPricing as listEntangledUserPricing,
+  upsertUserPricing as upsertEntangledUserPricing,
+  deleteUserPricing as deleteEntangledUserPricing,
 } from './entangledController';
 import {
   getLogisticsServices,
@@ -3271,6 +3274,10 @@ app.put('/api/entangled/fiscal-profile', authenticateToken, upsertMyEntangledFis
 app.get('/api/entangled/pricing', authenticateToken, getEntangledPricingConfig);
 app.put('/api/admin/entangled/pricing', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateEntangledPricingConfig);
 app.post('/api/entangled/quote', authenticateToken, quoteEntangledPayment);
+// Override de porcentaje_compra por usuario (admin)
+app.get('/api/admin/entangled/user-pricing', authenticateToken, requireMinLevel(ROLES.DIRECTOR), listEntangledUserPricing);
+app.put('/api/admin/entangled/user-pricing/:userId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), upsertEntangledUserPricing);
+app.delete('/api/admin/entangled/user-pricing/:userId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteEntangledUserPricing);
 // Subida diferida de comprobante
 app.post('/api/entangled/payment-requests/:id/upload-proof', authenticateToken, uploadEntangledProof);
 // Webhooks públicos (verifican HMAC con ENTANGLED_WEBHOOK_SECRET)

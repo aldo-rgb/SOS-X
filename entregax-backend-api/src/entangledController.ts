@@ -79,10 +79,12 @@ const validateClientPayload = (body: any): string | null => {
 // ---------------------------------------------------------------------------
 const computeQuote = async (
   monto: number,
-  divisa: string
+  divisa: string,
+  userId?: number
 ): Promise<{
   tipo_cambio: number;
   porcentaje_compra: number;
+  porcentaje_es_override: boolean;
   monto_mxn_base: number;
   monto_mxn_total: number;
 }> => {
@@ -93,12 +95,29 @@ const computeQuote = async (
   const row = r.rows[0] || { tipo_cambio_usd: 18.5, tipo_cambio_rmb: 2.85, porcentaje_compra: 6 };
   const div = String(divisa).toUpperCase();
   const tc = Number(div === 'RMB' ? row.tipo_cambio_rmb : row.tipo_cambio_usd);
-  const pct = Number(row.porcentaje_compra);
+
+  // Buscar override por usuario
+  let pct = Number(row.porcentaje_compra);
+  let isOverride = false;
+  if (userId) {
+    try {
+      const ov = await pool.query(
+        `SELECT porcentaje_compra FROM entangled_user_pricing WHERE user_id = $1`,
+        [userId]
+      );
+      if (ov.rows.length > 0) {
+        pct = Number(ov.rows[0].porcentaje_compra);
+        isOverride = true;
+      }
+    } catch { /* tabla puede no existir aún en envs viejos */ }
+  }
+
   const base = Number(monto) * tc;
   const total = base * (1 + pct / 100);
   return {
     tipo_cambio: tc,
     porcentaje_compra: pct,
+    porcentaje_es_override: isOverride,
     monto_mxn_base: Number(base.toFixed(2)),
     monto_mxn_total: Number(total.toFixed(2)),
   };
@@ -127,7 +146,7 @@ export const createPaymentRequest = async (
   const proveedor = (req.body as any).proveedor_envio || null;
 
   // Calcular cotización con TC + porcentaje configurados
-  const quote = await computeQuote(Number(operacion.montos), operacion.divisa_destino);
+  const quote = await computeQuote(Number(operacion.montos), operacion.divisa_destino, userId);
 
   // Resolver asesor: si el cliente tiene asesor asignado lo tomamos.
   let advisorId: number | null = null;
@@ -819,7 +838,7 @@ export const quotePayment = async (req: Request, res: Response): Promise<any> =>
   if (!monto || monto <= 0) return res.status(400).json({ error: 'monto inválido' });
   if (!['USD', 'RMB'].includes(divisa)) return res.status(400).json({ error: 'divisa debe ser USD o RMB' });
   try {
-    const q = await computeQuote(monto, divisa);
+    const q = await computeQuote(monto, divisa, userId);
     return res.json({ monto, divisa, ...q });
   } catch (err) {
     console.error('[ENTANGLED] quotePayment:', err);
@@ -853,5 +872,77 @@ export const uploadProofToRequest = async (req: Request, res: Response): Promise
   } catch (err) {
     console.error('[ENTANGLED] uploadProofToRequest:', err);
     return res.status(500).json({ error: 'Error al guardar comprobante' });
+  }
+};
+
+// ===========================================================================
+// Admin: override de porcentaje_compra por usuario (cliente)
+// ===========================================================================
+
+export const listUserPricing = async (req: Request, res: Response): Promise<any> => {
+  const role = String((req as any).user?.role || '').toLowerCase();
+  if (!['super_admin', 'admin', 'director'].includes(role)) {
+    return res.status(403).json({ error: 'Sin permisos' });
+  }
+  try {
+    const r = await pool.query(
+      `SELECT up.user_id, up.porcentaje_compra, up.notes, up.updated_at,
+              u.full_name AS client_name, u.email AS client_email
+       FROM entangled_user_pricing up
+       JOIN users u ON u.id = up.user_id
+       ORDER BY u.full_name ASC NULLS LAST, u.email ASC`
+    );
+    return res.json(r.rows);
+  } catch (err) {
+    console.error('[ENTANGLED] listUserPricing:', err);
+    return res.status(500).json({ error: 'Error al listar overrides' });
+  }
+};
+
+export const upsertUserPricing = async (req: Request, res: Response): Promise<any> => {
+  const adminId = getAuthUserId(req);
+  const role = String((req as any).user?.role || '').toLowerCase();
+  if (!adminId || !['super_admin', 'admin', 'director'].includes(role)) {
+    return res.status(403).json({ error: 'Sin permisos' });
+  }
+  const userId = Number(req.params.userId);
+  const pct = Number(req.body?.porcentaje_compra);
+  const notes = req.body?.notes || null;
+  if (!Number.isFinite(userId) || userId <= 0) return res.status(400).json({ error: 'userId inválido' });
+  if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+    return res.status(400).json({ error: 'porcentaje_compra debe estar entre 0 y 100' });
+  }
+  try {
+    const r = await pool.query(
+      `INSERT INTO entangled_user_pricing (user_id, porcentaje_compra, notes, set_by)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (user_id) DO UPDATE SET
+         porcentaje_compra = EXCLUDED.porcentaje_compra,
+         notes = EXCLUDED.notes,
+         set_by = EXCLUDED.set_by,
+         updated_at = NOW()
+       RETURNING *`,
+      [userId, pct, notes, adminId]
+    );
+    return res.json(r.rows[0]);
+  } catch (err) {
+    console.error('[ENTANGLED] upsertUserPricing:', err);
+    return res.status(500).json({ error: 'Error al guardar override' });
+  }
+};
+
+export const deleteUserPricing = async (req: Request, res: Response): Promise<any> => {
+  const role = String((req as any).user?.role || '').toLowerCase();
+  if (!['super_admin', 'admin', 'director'].includes(role)) {
+    return res.status(403).json({ error: 'Sin permisos' });
+  }
+  const userId = Number(req.params.userId);
+  if (!Number.isFinite(userId)) return res.status(400).json({ error: 'userId inválido' });
+  try {
+    await pool.query(`DELETE FROM entangled_user_pricing WHERE user_id = $1`, [userId]);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error('[ENTANGLED] deleteUserPricing:', err);
+    return res.status(500).json({ error: 'Error al borrar override' });
   }
 };

@@ -6,8 +6,10 @@ import {
   TableContainer, TableHead, TableRow, Chip, Avatar, CircularProgress,
   Alert, Snackbar, IconButton, Tooltip, Dialog, DialogTitle, DialogContent,
   DialogActions, FormControl, InputLabel, Select, MenuItem, InputAdornment,
-  Tabs, Tab, Card, CardContent, Divider, Switch, FormControlLabel
+  Tabs, Tab, Card, CardContent, Divider, Switch, FormControlLabel, Autocomplete
 } from '@mui/material';
+import DeleteIcon from '@mui/icons-material/Delete';
+import PercentIcon from '@mui/icons-material/Percent';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CurrencyExchangeIcon from '@mui/icons-material/CurrencyExchange';
 import PaymentsIcon from '@mui/icons-material/Payments';
@@ -82,6 +84,21 @@ export default function SupplierPaymentsPage() {
   const [providerModal, setProviderModal] = useState(false);
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
 
+  // ENTANGLED pricing config (global)
+  const [entPricing, setEntPricing] = useState<{ tipo_cambio_usd: string; tipo_cambio_rmb: string; porcentaje_compra: string }>({
+    tipo_cambio_usd: '', tipo_cambio_rmb: '', porcentaje_compra: ''
+  });
+  // Overrides por usuario
+  type UserPricing = { user_id: number; client_name: string; client_email: string; porcentaje_compra: string; notes: string | null; updated_at: string };
+  const [userPricing, setUserPricing] = useState<UserPricing[]>([]);
+  type UserOption = { id: number; full_name: string; email: string; box_id?: string };
+  const [userQuery, setUserQuery] = useState('');
+  const [userOptions, setUserOptions] = useState<UserOption[]>([]);
+  const [selectedUser, setSelectedUser] = useState<UserOption | null>(null);
+  const [overridePct, setOverridePct] = useState<string>('');
+  const [overrideNotes, setOverrideNotes] = useState<string>('');
+  const [savingOverride, setSavingOverride] = useState(false);
+
   const getToken = () => localStorage.getItem('token');
 
   const loadData = useCallback(async () => {
@@ -99,6 +116,23 @@ export default function SupplierPaymentsPage() {
       setProviders(providersRes.data);
       setPayments(paymentsRes.data);
       setStats(statsRes.data);
+
+      // ENTANGLED: pricing global + overrides por usuario (no fatal si falla)
+      try {
+        const [pricingRes, upRes] = await Promise.all([
+          axios.get(`${API_URL}/entangled/pricing`, { headers }),
+          axios.get(`${API_URL}/admin/entangled/user-pricing`, { headers })
+        ]);
+        const p = pricingRes.data || {};
+        setEntPricing({
+          tipo_cambio_usd: p.tipo_cambio_usd != null ? String(p.tipo_cambio_usd) : '',
+          tipo_cambio_rmb: p.tipo_cambio_rmb != null ? String(p.tipo_cambio_rmb) : '',
+          porcentaje_compra: p.porcentaje_compra != null ? String(p.porcentaje_compra) : ''
+        });
+        setUserPricing(upRes.data || []);
+      } catch (e) {
+        console.warn('ENTANGLED pricing endpoints no disponibles:', e);
+      }
     } catch (error) {
       console.error('Error loading data:', error);
     } finally {
@@ -122,6 +156,76 @@ export default function SupplierPaymentsPage() {
       loadData();
     } catch (error) {
       setSnackbar({ open: true, message: 'Error al actualizar', severity: 'error' });
+    }
+  };
+
+  // ===== ENTANGLED handlers =====
+  const handleSaveEntPricing = async () => {
+    try {
+      const payload: any = {};
+      if (entPricing.tipo_cambio_usd !== '') payload.tipo_cambio_usd = Number(entPricing.tipo_cambio_usd);
+      if (entPricing.tipo_cambio_rmb !== '') payload.tipo_cambio_rmb = Number(entPricing.tipo_cambio_rmb);
+      if (entPricing.porcentaje_compra !== '') payload.porcentaje_compra = Number(entPricing.porcentaje_compra);
+      await axios.put(`${API_URL}/admin/entangled/pricing`, payload,
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setSnackbar({ open: true, message: 'Configuración ENTANGLED actualizada', severity: 'success' });
+      loadData();
+    } catch (error) {
+      setSnackbar({ open: true, message: 'Error al guardar configuración ENTANGLED', severity: 'error' });
+    }
+  };
+
+  const handleSearchUsers = async (q: string) => {
+    setUserQuery(q);
+    if (!q || q.trim().length < 2) { setUserOptions([]); return; }
+    try {
+      const res = await axios.get(`${API_URL}/admin/users/search?q=${encodeURIComponent(q.trim())}`,
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setUserOptions(res.data || []);
+    } catch (e) {
+      setUserOptions([]);
+    }
+  };
+
+  const handleSaveOverride = async () => {
+    if (!selectedUser) return;
+    const pct = Number(overridePct);
+    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
+      setSnackbar({ open: true, message: 'Porcentaje inválido (0–100)', severity: 'error' });
+      return;
+    }
+    setSavingOverride(true);
+    try {
+      await axios.put(`${API_URL}/admin/entangled/user-pricing/${selectedUser.id}`,
+        { porcentaje_compra: pct, notes: overrideNotes || null },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setSnackbar({ open: true, message: 'Porcentaje guardado para el cliente', severity: 'success' });
+      setSelectedUser(null);
+      setOverridePct('');
+      setOverrideNotes('');
+      setUserQuery('');
+      setUserOptions([]);
+      loadData();
+    } catch (e) {
+      setSnackbar({ open: true, message: 'Error al guardar porcentaje', severity: 'error' });
+    } finally {
+      setSavingOverride(false);
+    }
+  };
+
+  const handleDeleteOverride = async (userId: number) => {
+    if (!window.confirm('¿Eliminar el porcentaje personalizado de este cliente? Volverá a usar el valor global.')) return;
+    try {
+      await axios.delete(`${API_URL}/admin/entangled/user-pricing/${userId}`,
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setSnackbar({ open: true, message: 'Override eliminado', severity: 'success' });
+      loadData();
+    } catch (e) {
+      setSnackbar({ open: true, message: 'Error al eliminar', severity: 'error' });
     }
   };
 
@@ -398,6 +502,149 @@ export default function SupplierPaymentsPage() {
           <Alert severity="info">
             Este tipo de cambio se aplica a todas las cotizaciones nuevas. Las solicitudes existentes mantienen su TC original.
           </Alert>
+        </Paper>
+      )}
+
+      {/* Tab: Tipo de Cambio — Sección ENTANGLED */}
+      {tabValue === 1 && (
+        <Paper sx={{ p: 3, borderRadius: 3, mt: 3 }}>
+          <Typography variant="h6" fontWeight="bold" gutterBottom>
+            🌐 Configuración ENTANGLED (Triangulación internacional)
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Tipos de cambio MXN→USD / MXN→RMB y porcentaje de compra global aplicado en cotizaciones ENTANGLED.
+          </Typography>
+          <Divider sx={{ my: 2 }} />
+
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 2 }}>
+            <TextField
+              label="TC USD (MXN por USD)"
+              type="number"
+              value={entPricing.tipo_cambio_usd}
+              onChange={(e) => setEntPricing({ ...entPricing, tipo_cambio_usd: e.target.value })}
+              slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
+              sx={{ width: 220 }}
+            />
+            <TextField
+              label="TC RMB (MXN por RMB)"
+              type="number"
+              value={entPricing.tipo_cambio_rmb}
+              onChange={(e) => setEntPricing({ ...entPricing, tipo_cambio_rmb: e.target.value })}
+              slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
+              sx={{ width: 220 }}
+            />
+            <TextField
+              label="% de compra (global)"
+              type="number"
+              value={entPricing.porcentaje_compra}
+              onChange={(e) => setEntPricing({ ...entPricing, porcentaje_compra: e.target.value })}
+              slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+              sx={{ width: 200 }}
+            />
+            <Button
+              variant="contained"
+              startIcon={<SaveIcon />}
+              onClick={handleSaveEntPricing}
+              sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)` }}
+            >
+              Guardar configuración global
+            </Button>
+          </Box>
+
+          <Divider sx={{ my: 3 }} />
+
+          <Typography variant="h6" fontWeight="bold" gutterBottom>
+            <PercentIcon sx={{ verticalAlign: 'middle', mr: 1, color: ORANGE }} />
+            Porcentaje de compra por cliente (override)
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Asigna un porcentaje personalizado a clientes específicos. Si un cliente tiene override, se aplica en lugar del % global.
+          </Typography>
+
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-end', mb: 2 }}>
+            <Autocomplete
+              sx={{ minWidth: 320, flex: 1 }}
+              options={userOptions}
+              value={selectedUser}
+              onChange={(_, v) => setSelectedUser(v)}
+              inputValue={userQuery}
+              onInputChange={(_, v) => handleSearchUsers(v)}
+              getOptionLabel={(o) => o ? `${o.full_name || o.email} (${o.email}${o.box_id ? ` · ${o.box_id}` : ''})` : ''}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              filterOptions={(x) => x}
+              renderInput={(params) => (
+                <TextField {...params} label="Buscar cliente (nombre, email, box, teléfono)" placeholder="Escribe al menos 2 caracteres" />
+              )}
+              noOptionsText={userQuery.length < 2 ? 'Escribe al menos 2 caracteres' : 'Sin resultados'}
+            />
+            <TextField
+              label="% personalizado"
+              type="number"
+              value={overridePct}
+              onChange={(e) => setOverridePct(e.target.value)}
+              slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+              sx={{ width: 180 }}
+            />
+            <TextField
+              label="Notas (opcional)"
+              value={overrideNotes}
+              onChange={(e) => setOverrideNotes(e.target.value)}
+              sx={{ minWidth: 220, flex: 1 }}
+            />
+            <Button
+              variant="contained"
+              startIcon={<SaveIcon />}
+              onClick={handleSaveOverride}
+              disabled={!selectedUser || overridePct === '' || savingOverride}
+              sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)` }}
+            >
+              {savingOverride ? 'Guardando…' : 'Guardar override'}
+            </Button>
+          </Box>
+
+          <TableContainer sx={{ mt: 2 }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ bgcolor: 'grey.50' }}>
+                  <TableCell>Cliente</TableCell>
+                  <TableCell>Email</TableCell>
+                  <TableCell align="right">% personalizado</TableCell>
+                  <TableCell>Notas</TableCell>
+                  <TableCell>Actualizado</TableCell>
+                  <TableCell align="center">Acciones</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {userPricing.map((up) => (
+                  <TableRow key={up.user_id} hover>
+                    <TableCell>{up.client_name || '—'}</TableCell>
+                    <TableCell>{up.client_email}</TableCell>
+                    <TableCell align="right">
+                      <Chip size="small" color="primary" label={`${Number(up.porcentaje_compra).toFixed(2)}%`} />
+                    </TableCell>
+                    <TableCell sx={{ maxWidth: 240, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {up.notes || '—'}
+                    </TableCell>
+                    <TableCell>{up.updated_at ? new Date(up.updated_at).toLocaleDateString() : '—'}</TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="Eliminar override (volver al global)">
+                        <IconButton size="small" color="error" onClick={() => handleDeleteOverride(up.user_id)}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {userPricing.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
+                      <Typography color="text.secondary">No hay clientes con porcentaje personalizado</Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
         </Paper>
       )}
 
