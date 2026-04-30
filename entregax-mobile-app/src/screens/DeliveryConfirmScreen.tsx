@@ -578,19 +578,13 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
         if (res.data.success) {
           Vibration.vibrate(100);
-          Alert.alert(
-            '✅ Entrega Múltiple Confirmada',
-            `${scannedPackages.length} cajas entregadas exitosamente.`,
-            [{ text: 'OK', onPress: () => {
-              // Resetear estado
-              setIsBulkDelivery(false);
-              setScannedPackages([]);
-              setCurrentScanStep('internal');
-              setPhoto('');
-              setNotes('');
-              navigation.goBack();
-            }}]
-          );
+          // Resetear estado y volver al menú anterior inmediatamente
+          setIsBulkDelivery(false);
+          setScannedPackages([]);
+          setCurrentScanStep('internal');
+          setPhoto('');
+          setNotes('');
+          navigation.goBack();
         } else {
           throw new Error(res.data.error || 'Error desconocido');
         }
@@ -634,11 +628,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
       if (res.data.success) {
         Vibration.vibrate(100);
-        Alert.alert(
-          '✅ Entrega Confirmada',
-          `Paquete ${packageInfo.tracking_number} entregado exitosamente.`,
-          [{ text: 'OK', onPress: () => navigation.goBack() }]
-        );
+        navigation.goBack();
       }
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.error || 'No se pudo confirmar la entrega');
