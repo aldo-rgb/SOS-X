@@ -244,7 +244,9 @@ export default function FleetManagementPage() {
     color: '',
     fuel_type: 'Gasolina',
     current_mileage: 0,
-    branch_id: '' as number | ''
+    branch_id: '' as number | '',
+    photo_1_url: '',
+    photo_2_url: ''
   });
   
   const [newDocument, setNewDocument] = useState({
@@ -257,6 +259,8 @@ export default function FleetManagementPage() {
     file_url: ''
   });
   const [uploadingDocFile, setUploadingDocFile] = useState(false);
+  const [uploadingVehiclePhoto, setUploadingVehiclePhoto] = useState<number>(0); // 1 or 2 for which photo
+  const [uploadingMaintenancePhoto, setUploadingMaintenancePhoto] = useState(false);
   const [editingDocId, setEditingDocId] = useState<number | null>(null);
   
   const [newMaintenance, setNewMaintenance] = useState({
@@ -266,7 +270,8 @@ export default function FleetManagementPage() {
     mileage_at_service: 0,
     cost: 0,
     workshop_name: '',
-    next_service_mileage: 0
+    next_service_mileage: 0,
+    invoice_photo_url: ''
   });
 
   const [selectedDriverId, setSelectedDriverId] = useState<number | null>(null);
@@ -412,7 +417,9 @@ export default function FleetManagementPage() {
         color: '',
         fuel_type: 'Gasolina',
         current_mileage: 0,
-        branch_id: ''
+        branch_id: '',
+        photo_1_url: '',
+        photo_2_url: ''
       });
       loadVehicles();
       loadDashboard();
@@ -483,7 +490,8 @@ export default function FleetManagementPage() {
         mileage_at_service: 0,
         cost: 0,
         workshop_name: '',
-        next_service_mileage: 0
+        next_service_mileage: 0,
+        invoice_photo_url: ''
       });
       loadVehicleDetail(selectedVehicle.id);
       loadVehicles();
@@ -1465,6 +1473,102 @@ export default function FleetManagementPage() {
                 </Select>
               </FormControl>
             </Grid>
+            {/* Foto 1 */}
+            <Grid size={{ xs: 12 }}>
+              <Button
+                variant="contained"
+                component="label"
+                size="small"
+                disabled={uploadingVehiclePhoto === 1}
+                startIcon={<DocumentIcon />}
+              >
+                {uploadingVehiclePhoto === 1 ? 'Subiendo Foto 1...' : newVehicle.photo_1_url ? 'Reemplazar Foto 1' : 'Foto Unidad (Frente)'}
+                <input
+                  type="file"
+                  hidden
+                  accept="image/*"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      setUploadingVehiclePhoto(1);
+                      const formData = new FormData();
+                      formData.append('file', file);
+                      const res = await axios.post(`${API_URL}/api/uploads/evidence`, formData, {
+                        headers: {
+                          Authorization: `Bearer ${getToken()}`,
+                          'Content-Type': 'multipart/form-data'
+                        }
+                      });
+                      setNewVehicle((prev) => ({ ...prev, photo_1_url: res.data.url }));
+                    } catch (err: any) {
+                      alert(err.response?.data?.message || 'Error al subir foto');
+                    } finally {
+                      setUploadingVehiclePhoto(0);
+                      e.target.value = '';
+                    }
+                  }}
+                />
+              </Button>
+              {newVehicle.photo_1_url && (
+                <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Chip
+                    label="✓ Foto 1 subida"
+                    color="success"
+                    size="small"
+                    onDelete={() => setNewVehicle({ ...newVehicle, photo_1_url: '' })}
+                  />
+                </Box>
+              )}
+            </Grid>
+            {/* Foto 2 */}
+            <Grid size={{ xs: 12 }}>
+              <Button
+                variant="contained"
+                component="label"
+                size="small"
+                disabled={uploadingVehiclePhoto === 2}
+                startIcon={<DocumentIcon />}
+              >
+                {uploadingVehiclePhoto === 2 ? 'Subiendo Foto 2...' : newVehicle.photo_2_url ? 'Reemplazar Foto 2' : 'Foto Unidad (Lateral/Placa)'}
+                <input
+                  type="file"
+                  hidden
+                  accept="image/*"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      setUploadingVehiclePhoto(2);
+                      const formData = new FormData();
+                      formData.append('file', file);
+                      const res = await axios.post(`${API_URL}/api/uploads/evidence`, formData, {
+                        headers: {
+                          Authorization: `Bearer ${getToken()}`,
+                          'Content-Type': 'multipart/form-data'
+                        }
+                      });
+                      setNewVehicle((prev) => ({ ...prev, photo_2_url: res.data.url }));
+                    } catch (err: any) {
+                      alert(err.response?.data?.message || 'Error al subir foto');
+                    } finally {
+                      setUploadingVehiclePhoto(0);
+                      e.target.value = '';
+                    }
+                  }}
+                />
+              </Button>
+              {newVehicle.photo_2_url && (
+                <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Chip
+                    label="✓ Foto 2 subida"
+                    color="success"
+                    size="small"
+                    onDelete={() => setNewVehicle({ ...newVehicle, photo_2_url: '' })}
+                  />
+                </Box>
+              )}
+            </Grid>
           </Grid>
         </DialogContent>
         <DialogActions>
@@ -1711,6 +1815,54 @@ export default function FleetManagementPage() {
                 onChange={(e) => setNewMaintenance({ ...newMaintenance, next_service_mileage: parseInt(e.target.value) })}
                 placeholder="Ej: 50000"
               />
+            </Grid>
+            {/* Invoice Photo */}
+            <Grid size={{ xs: 12 }}>
+              <Button
+                variant="contained"
+                component="label"
+                size="small"
+                disabled={uploadingMaintenancePhoto}
+                startIcon={<DocumentIcon />}
+              >
+                {uploadingMaintenancePhoto ? 'Subiendo Foto...' : newMaintenance.invoice_photo_url ? 'Reemplazar Foto' : 'Foto Nota/Factura'}
+                <input
+                  type="file"
+                  hidden
+                  accept="image/*,application/pdf"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    try {
+                      setUploadingMaintenancePhoto(true);
+                      const formData = new FormData();
+                      formData.append('file', file);
+                      const res = await axios.post(`${API_URL}/api/uploads/evidence`, formData, {
+                        headers: {
+                          Authorization: `Bearer ${getToken()}`,
+                          'Content-Type': 'multipart/form-data'
+                        }
+                      });
+                      setNewMaintenance((prev) => ({ ...prev, invoice_photo_url: res.data.url }));
+                    } catch (err: any) {
+                      alert(err.response?.data?.message || 'Error al subir foto');
+                    } finally {
+                      setUploadingMaintenancePhoto(false);
+                      e.target.value = '';
+                    }
+                  }}
+                />
+              </Button>
+              {newMaintenance.invoice_photo_url && (
+                <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Chip
+                    label="✓ Foto subida"
+                    color="success"
+                    size="small"
+                    onDelete={() => setNewMaintenance({ ...newMaintenance, invoice_photo_url: '' })}
+                  />
+                </Box>
+              )}
             </Grid>
           </Grid>
         </DialogContent>
