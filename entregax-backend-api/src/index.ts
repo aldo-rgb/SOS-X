@@ -313,6 +313,7 @@ import {
   scanPackageReturn,
   getPackagesToReturn,
   confirmDelivery,
+  confirmDeliveryBulk,
   getDeliveriesToday,
   verifyPackageForDelivery
 } from './driverController';
@@ -6787,6 +6788,7 @@ app.post('/api/driver/scan-return', authenticateToken, requireMinLevel(ROLES.REP
 
 // Confirmación de entrega
 app.post('/api/driver/confirm-delivery', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), confirmDelivery);
+app.post('/api/driver/confirm-delivery-bulk', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), confirmDeliveryBulk);
 app.get('/api/driver/deliveries-today', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), getDeliveriesToday);
 
 // Verificar paquete antes de entregar
