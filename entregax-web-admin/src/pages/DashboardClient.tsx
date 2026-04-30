@@ -271,6 +271,7 @@ interface DeliveryAddress {
   country: string;
   phone?: string;
   reference?: string;
+  reception_hours?: string;
   is_default: boolean;
   default_for_service?: string;
   carrier_config?: Record<string, string>;
@@ -1056,6 +1057,7 @@ export default function DashboardClient() {
     country_code: '+52',
     phone: '',
     reference: '',
+    reception_hours: '',
     service_types: [] as string[],
     carrier_config: {} as Record<string, string>,
   });
@@ -3414,6 +3416,7 @@ export default function DashboardClient() {
         country: addressForm.country,
         phone,
         reference: addressForm.reference,
+        reception_hours: addressForm.reception_hours,
         default_for_service: addressForm.service_types.length > 0 ? addressForm.service_types.join(',') : null,
       };
       
@@ -3479,6 +3482,7 @@ export default function DashboardClient() {
         country_code: '+52',
         phone: '',
         reference: '',
+        reception_hours: '',
         service_types: [],
         carrier_config: {},
       });
@@ -3574,6 +3578,7 @@ export default function DashboardClient() {
       country_code: countryCode,
       phone: phone,
       reference: address.reference || '',
+      reception_hours: address.reception_hours || '',
       service_types: serviceTypes,
       carrier_config: address.carrier_config || {},
     });
@@ -6415,6 +6420,7 @@ export default function DashboardClient() {
                             country_code: '+52',
                             phone: '',
                             reference: '',
+                            reception_hours: '',
                             service_types: [],
                             carrier_config: {} as Record<string, string>,
                           });
@@ -8645,6 +8651,20 @@ export default function DashboardClient() {
                 value={addressForm.reference}
                 onChange={(e) => setAddressForm({ ...addressForm, reference: e.target.value })}
                 placeholder={t('cd.addressModal.referencePlaceholder')}
+              />
+            </Grid>
+
+            {/* Horario de Recepción */}
+            <Grid size={12}>
+              <TextField
+                fullWidth
+                size="small"
+                label="Horario de Recepción"
+                multiline
+                rows={2}
+                value={addressForm.reception_hours}
+                onChange={(e) => setAddressForm({ ...addressForm, reception_hours: e.target.value })}
+                placeholder="Ej: Lunes a Viernes 9:00 AM - 6:00 PM, Sábado 10:00 AM - 2:00 PM"
               />
             </Grid>
 
