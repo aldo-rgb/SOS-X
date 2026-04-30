@@ -270,7 +270,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             text: `📍 Con Dirección (${counts.withInstructions})`,
             onPress: () => {
               setInstructionFilter(true);
-              // Seleccionar paquetes con instrucciones
+              // Seleccionar paquetes con instrucciones Y NO pagados
               const withInstr = packages.filter(pkg => {
                 if (serviceFilter !== null) {
                   if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
@@ -278,7 +278,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
                   if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
                 }
-                return !!(pkg as any).delivery_address_id || !!(pkg as any).assigned_address_id;
+                const hasInstructions = !!(pkg as any).delivery_address_id || !!(pkg as any).assigned_address_id;
+                const isPaid = (pkg as any).client_paid === true;
+                return hasInstructions && !isPaid;
               });
               setSelectedIds([...new Set([...selectedIds, ...withInstr.map(p => p.id)])]);
             }
@@ -304,9 +306,11 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         ]
       );
     } else if (counts.withInstructions > 0) {
-      // Solo hay paquetes con instrucciones
+      // Solo hay paquetes con instrucciones — filtrar por NO pagados
       setInstructionFilter(true);
-      const ids = filteredPackages.map(p => p.id);
+      const ids = filteredPackages
+        .filter(p => (p as any).client_paid !== true)
+        .map(p => p.id);
       setSelectedIds([...new Set([...selectedIds, ...ids])]);
     } else if (counts.withoutInstructions > 0) {
       // Solo hay paquetes sin instrucciones
@@ -1651,7 +1655,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
                   if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
                   if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
-                  return !!((pkg as any).delivery_address_id || (pkg as any).assigned_address_id);
+                  // Solo paquetes con instrucciones Y NO pagados
+                  const hasInstructions = !!((pkg as any).delivery_address_id || (pkg as any).assigned_address_id);
+                  const isPaid = (pkg as any).client_paid === true;
+                  return hasInstructions && !isPaid;
                 });
                 setSelectedIds(withInstr.map(p => p.id));
               }
@@ -1943,33 +1950,32 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         
         // 💰 Paquetes en bodega con instrucciones pueden pagar
         const canPayFromWarehouse = isWarehouseSelection && allSelectedHaveInstructions;
-        
+
+        // 🚫 "Solicitar Envío" está desactivado: solo se muestra el FAB cuando hay
+        // una acción real (asignar instrucciones o pagar). En cualquier otro caso, ocultamos el botón.
+        const showFab = needsInstructions || isProcessingSelection || canPayFromWarehouse;
+        if (!showFab) return null;
+
         return (
           <FAB
             icon={needsInstructions 
               ? (isMaritimeSelection ? "ferry" : isChinaAirSelection ? "airplane" : isDHLSelection ? "truck-delivery" : "package-variant") 
-              : (isProcessingSelection || canPayFromWarehouse)
-                ? "credit-card" 
-                : "airplane-takeoff"}
+              : "credit-card"}
             label={needsInstructions 
               ? `📋 Asignar Instrucciones (${selectedIds.length})`
-              : (isProcessingSelection || canPayFromWarehouse)
-                ? `💳 Pagar $${totalToPay.toFixed(2)} (${selectedIds.length})`
-                : `${t('home.requestConsolidation')} (${selectedIds.length})`}
+              : `💳 Pagar $${totalToPay.toFixed(2)} (${selectedIds.length})`}
             style={[styles.fabSend, (isProcessingSelection || canPayFromWarehouse) && { backgroundColor: '#4CAF50' }]}
             color="white"
             onPress={() => {
               if (needsInstructions) {
                 handleMaritimeInstructions();
-              } else if (isProcessingSelection || canPayFromWarehouse) {
-                // Navegar a pantalla de pago con resumen
+              } else {
+                // Pagar (procesando o bodega con instrucciones)
                 navigation.navigate('PaymentSummary', {
                   packages: selectedPackages,
                   user,
                   token,
                 });
-              } else {
-                handleConsolidate();
               }
             }}
           />

@@ -263,6 +263,10 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [shipment, setShipment] = useState<ShipmentData | null>(null);
+
+    // 🔄 Auto-print al re-escanear la misma guía
+    const lastScannedRef = useRef<string | null>(null);
+    const autoPrintPendingRef = useRef(false);
     const [generatingPqtx, setGeneratingPqtx] = useState(false);
     const [pqtxMsg, setPqtxMsg] = useState<string | null>(null);
     const [selectedPqtx, setSelectedPqtx] = useState<Set<string>>(new Set());
@@ -775,12 +779,16 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
             setError('Ingresa un tracking válido');
             return;
         }
+        // Si es la misma guía escaneada anteriormente, marcar para auto-impresión
+        const isRescan = lastScannedRef.current === normalized;
         setLoading(true);
         setError(null);
         setShipment(null);
         try {
             const res = await api.get(`/packages/track/${encodeURIComponent(normalized)}`);
             if (res.data?.success && res.data.shipment) {
+                if (isRescan) autoPrintPendingRef.current = true;
+                lastScannedRef.current = normalized;
                 setShipment(res.data.shipment);
                 setTracking(normalized);
             } else {
@@ -797,6 +805,8 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         setTracking('');
         setShipment(null);
         setError(null);
+        lastScannedRef.current = null;
+        autoPrintPendingRef.current = false;
     };
 
     const buildLabelHTML = (label: LabelData): string => {
@@ -1122,6 +1132,30 @@ ${body}
             setTimeout(() => window.open(url, '_blank'), idx * 250);
         });
     };
+
+    // 🔄 Auto-impresión cuando se re-escanea la misma guía
+    useEffect(() => {
+        if (!shipment || !autoPrintPendingRef.current) return;
+        autoPrintPendingRef.current = false;
+        const ac = getAssignedCarrier(shipment);
+        const isLocal = !!(ac && isEntregaxLocalCarrier(ac.normalized));
+        const isPqtx = !!(ac && isPaqueteExpressCarrier(ac.normalized));
+        const hasAddress = !!shipment.master.assignedAddress;
+        // pequeño delay para que React termine de renderizar
+        const t = setTimeout(() => {
+            if (isPqtx && shipment.master.nationalTracking) {
+                window.open(buildPqtxLabelUrl(shipment.master.nationalTracking, { format4x6: true }), '_blank');
+                setPqtxMsg('🖨️ Auto-impresión: Etiqueta Paquete Express');
+            } else if ((isLocal || !ac) && hasAddress) {
+                handlePrintLocalDelivery();
+                setPqtxMsg('🖨️ Auto-impresión: Etiqueta Local');
+            } else {
+                setPqtxMsg(null);
+            }
+        }, 200);
+        return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [shipment]);
 
     return (
         <Box sx={{ p: 3 }}>

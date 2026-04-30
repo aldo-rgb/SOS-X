@@ -336,6 +336,29 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   const [manualStatus, setManualStatus] = useState<PackageStatus>('received_mty');
   const [savingStatus, setSavingStatus] = useState(false);
 
+  // 🔧 SUPER ADMIN: eliminar guía
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [packageToDelete, setPackageToDelete] = useState<any>(null);
+  const [deletingPackage, setDeletingPackage] = useState(false);
+
+  const handleDeletePackage = async () => {
+    if (!packageToDelete) return;
+    setDeletingPackage(true);
+    try {
+      const resp = await axios.delete(`${API_URL}/packages/${packageToDelete.id}`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      setPackages(prev => prev.filter(p => p.id !== packageToDelete.id));
+      setDeleteDialogOpen(false);
+      setPackageToDelete(null);
+      setSnackbar({ open: true, message: resp.data.message || 'Paquete eliminado', severity: 'success' });
+    } catch (err: any) {
+      setSnackbar({ open: true, message: err.response?.data?.error || 'Error al eliminar paquete', severity: 'error' });
+    } finally {
+      setDeletingPackage(false);
+    }
+  };
+
   const handleManualStatusUpdate = async () => {
     if (!selectedPackage) return;
     setSavingStatus(true);
@@ -1685,6 +1708,17 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                           handlePrintLabels(response.data.labels);
                         } catch { setSnackbar({ open: true, message: t('common.error'), severity: 'error' }); }
                       }}><PrintIcon fontSize="small" /></IconButton></Tooltip>
+                      {isSuperAdmin && (
+                        <Tooltip title="Eliminar guía (Super Admin)">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => { setPackageToDelete(pkg); setDeleteDialogOpen(true); }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}
@@ -3263,6 +3297,48 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
             }
           }}>{t('shipments.printLabels')}</Button>
           <Button onClick={() => setDetailsOpen(false)}>{t('common.close')}</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ============ DIALOG: ELIMINAR GUÍA (SUPER ADMIN) ============ */}
+      <Dialog open={deleteDialogOpen} onClose={() => !deletingPackage && setDeleteDialogOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#d32f2f', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <WarningIcon /> Eliminar Guía
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            Esta acción es <strong>irreversible</strong>. Se eliminará el paquete y todo su historial.
+          </Alert>
+          {packageToDelete && (
+            <Box sx={{ p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
+              <Typography variant="body2" color="text.secondary">Tracking:</Typography>
+              <Typography fontFamily="monospace" fontWeight="bold">{packageToDelete.tracking}</Typography>
+              {packageToDelete.trackingProvider && (
+                <>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Guía Courier:</Typography>
+                  <Typography fontFamily="monospace">{packageToDelete.trackingProvider}</Typography>
+                </>
+              )}
+              {packageToDelete.client?.name && (
+                <>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Cliente:</Typography>
+                  <Typography>{packageToDelete.client.name} ({packageToDelete.client.boxId})</Typography>
+                </>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialogOpen(false)} disabled={deletingPackage}>Cancelar</Button>
+          <Button
+            variant="contained"
+            color="error"
+            startIcon={deletingPackage ? <CircularProgress size={14} color="inherit" /> : <DeleteIcon />}
+            onClick={handleDeletePackage}
+            disabled={deletingPackage}
+          >
+            {deletingPackage ? 'Eliminando...' : 'Eliminar Definitivamente'}
+          </Button>
         </DialogActions>
       </Dialog>
 

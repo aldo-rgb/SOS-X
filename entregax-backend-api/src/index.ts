@@ -60,7 +60,9 @@ import {
   getRepackInstructions,
   updatePackageClient,
   getPackageMovementsByTracking,
-  getPackageMovementsById
+  getPackageMovementsById,
+  deletePackage,
+  batchAttachImage
 } from './packageController';
 import {
   createPaymentOrder,
@@ -2720,6 +2722,12 @@ app.patch('/api/packages/:id/status', authenticateToken, requireMinLevel(ROLES.W
 
 // Actualizar cliente de un paquete (Bodega o superior)
 app.patch('/api/packages/:id/client', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updatePackageClient);
+
+// DELETE package - SOLO super_admin
+app.delete('/api/packages/:id', authenticateToken, requireRole('super_admin'), deletePackage);
+
+// PATCH batch image - asigna una foto a varios paquetes (recepción en serie)
+app.patch('/api/packages/batch-image', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), batchAttachImage);
 
 // Solicitar reempaque/consolidación de paquetes (Usuario autenticado)
 app.post('/api/packages/repack', authenticateToken, requestRepack);

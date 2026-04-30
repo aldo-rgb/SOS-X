@@ -283,10 +283,12 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             setTimeout(() => bulkGuideInputRef.current?.focus(), 300);
         }
     }, [bulkReceiveOpen]);
-    const [bulkStep, setBulkStep] = useState(0); // 0 = Cajas, 1 = Foto & Cliente
+    const [bulkStep, setBulkStep] = useState(0); // 0 = Cliente y Cantidad, 1 = Cajas, 2 = Foto Final
     const [bulkBoxes, setBulkBoxes] = useState<BoxItem[]>([]);
     const [bulkCurrentBox, setBulkCurrentBox] = useState({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
     const [bulkBoxId, setBulkBoxId] = useState(''); // Número de casillero del cliente
+    const [bulkExpectedBoxes, setBulkExpectedBoxes] = useState<string>(''); // Total esperado de cajas
+    const [bulkRegisteredIds, setBulkRegisteredIds] = useState<number[]>([]); // IDs de paquetes ya creados en esta sesión
     const [bulkImage, setBulkImage] = useState<string | null>(null);
     const [bulkSubmitting, setBulkSubmitting] = useState(false);
     const [bulkError, setBulkError] = useState('');
@@ -496,38 +498,99 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkCurrentBox(p => (p.weight === w ? p : { ...p, weight: w }));
     }, [bulkLiveWeight, bulkScaleLive]);
     
-    // Agregar caja al listado
-    const handleAddBulkBox = () => {
+    // Crear paquete(s) en backend, imprimir etiquetas y agregar a la lista local
+    const createBoxesPackage = async (boxesToCreate: BoxItem[]): Promise<boolean> => {
+        if (boxesToCreate.length === 0) return false;
+        try {
+            const payload = {
+                boxId: bulkBoxId || undefined,
+                description: `Hidalgo TX`,
+                boxes: boxesToCreate.map(b => ({
+                    weight: parseFloat(b.weight),
+                    length: parseFloat(b.length),
+                    width: parseFloat(b.width),
+                    height: parseFloat(b.height),
+                    trackingCourier: b.trackingCourier || undefined
+                })),
+                warehouseLocation: 'usa_pobox',
+                leaveInWarehouse: true,
+                notes: bulkBoxId ? 'Recibido en bodega Hidalgo TX - Recepción en serie' : 'Paquete sin cliente asignado - Recibido en bodega Hidalgo TX'
+            };
+            const token = localStorage.getItem('token') || '';
+            const response = await axios.post(`${API_URL}/api/packages`, payload, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const labels = response.data.shipment?.labels;
+            if (labels && labels.length > 0) {
+                printShipmentLabels(labels);
+            }
+            const masterId = response.data.shipment?.master?.id;
+            const childIds: number[] = (response.data.shipment?.children || []).map((c: any) => c.id).filter(Boolean);
+            const newIds = [masterId, ...childIds].filter((x): x is number => Number.isFinite(x));
+            if (newIds.length > 0) setBulkRegisteredIds(prev => [...prev, ...newIds]);
+            const tracking = labels?.[0]?.tracking || `PKG-${Date.now()}`;
+            const totalWeight = boxesToCreate.reduce((s, b) => s + (parseFloat(b.weight) || 0), 0);
+            setPaquetesRegistrados(prev => [...prev, {
+                tracking,
+                boxId: bulkBoxId || 'SIN CLIENTE',
+                peso: totalWeight,
+                medidas: `${boxesToCreate.length} caja(s)`
+            }]);
+            return true;
+        } catch (err: any) {
+            setBulkError(err.response?.data?.error || err.response?.data?.message || 'Error al registrar paquete');
+            return false;
+        }
+    };
+
+    // Agregar caja al listado (Y registrar en backend + imprimir)
+    const handleAddBulkBox = async () => {
         if (!bulkCurrentBox.weight || !bulkCurrentBox.length || !bulkCurrentBox.width || !bulkCurrentBox.height) {
             setBulkError('Completa peso y medidas de la caja');
             return;
         }
+        const expected = Math.max(0, parseInt(bulkExpectedBoxes) || 0);
+        const remaining = expected > 0 ? Math.max(0, expected - bulkBoxes.length) : Infinity;
         const qty = Math.max(1, parseInt(bulkBoxQuantity) || 1);
+        if (qty > remaining) {
+            setBulkError(`Solo faltan ${remaining} caja(s) por registrar`);
+            return;
+        }
         if (qty > 1) {
             setBulkMultiScanOpen(true);
             return;
         }
         const normalizedTracking = normalizeCarrierGuide(bulkCurrentBox.trackingCourier);
-        setBulkBoxes(prev => [...prev, { ...bulkCurrentBox, trackingCourier: normalizedTracking, id: Date.now() }]);
+        const newBox: BoxItem = { ...bulkCurrentBox, trackingCourier: normalizedTracking, id: Date.now() };
+        setBulkSubmitting(true);
+        const ok = await createBoxesPackage([newBox]);
+        setBulkSubmitting(false);
+        if (!ok) return;
+        setBulkBoxes(prev => [...prev, newBox]);
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
         setBulkBoxQuantity('1');
         setBulkError('');
+        setSnackbar({ open: true, message: `🖨️ Etiqueta impresa — ${bulkBoxes.length + 1}${expected > 0 ? `/${expected}` : ''} caja(s)`, severity: 'success' });
         setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
     };
 
-    const handleBulkMultiScanComplete = (guides: string[]) => {
+    const handleBulkMultiScanComplete = async (guides: string[]) => {
         const baseId = Date.now();
-        const newBoxes = guides.map((g, i) => ({
+        const newBoxes: BoxItem[] = guides.map((g, i) => ({
             ...bulkCurrentBox,
             id: baseId + i,
             trackingCourier: normalizeCarrierGuide(g || ''),
         }));
+        setBulkSubmitting(true);
+        const ok = await createBoxesPackage(newBoxes);
+        setBulkSubmitting(false);
+        if (!ok) { setBulkMultiScanOpen(false); return; }
         setBulkBoxes(prev => [...prev, ...newBoxes]);
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
         setBulkBoxQuantity('1');
         setBulkMultiScanOpen(false);
         setBulkError('');
-        setSnackbar({ open: true, message: `📦 ${newBoxes.length} cajas agregadas`, severity: 'success' });
+        setSnackbar({ open: true, message: `🖨️ ${newBoxes.length} etiquetas impresas`, severity: 'success' });
         setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
     };
 
@@ -594,12 +657,26 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     // Siguiente paso del wizard
     const handleBulkNextStep = () => {
         if (bulkStep === 0) {
-            if (bulkBoxes.length === 0) {
-                setBulkError('Agrega al menos una caja');
+            // Paso Cliente + Cantidad: solo requiere cantidad esperada
+            const expected = parseInt(bulkExpectedBoxes) || 0;
+            if (expected < 1) {
+                setBulkError('Indica cuántas cajas esperas recibir (mínimo 1)');
                 return;
             }
             setBulkError('');
             setBulkStep(1);
+            return;
+        }
+        if (bulkStep === 1) {
+            // Paso Cajas: no avanzar hasta completar todas
+            const expected = parseInt(bulkExpectedBoxes) || 0;
+            if (bulkBoxes.length < expected) {
+                setBulkError(`Faltan ${expected - bulkBoxes.length} caja(s) por registrar antes de continuar`);
+                return;
+            }
+            setBulkError('');
+            setBulkStep(2);
+            return;
         }
     };
 
@@ -710,65 +787,34 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         }
     };
 
-    // Guardar paquete y continuar con el siguiente
+    // Finalizar embarque: asocia la foto del embarque a todos los paquetes creados en esta sesión
     const handleSaveBulkPackage = async () => {
-        // boxId ya no es obligatorio - se puede crear sin cliente
         setBulkSubmitting(true);
         setBulkError('');
-
         try {
-            const payload = {
-                boxId: bulkBoxId || undefined, // Opcional - puede ser sin cliente
-                description: `Hidalgo TX`,
-                boxes: bulkBoxes.map(b => ({
-                    weight: parseFloat(b.weight),
-                    length: parseFloat(b.length),
-                    width: parseFloat(b.width),
-                    height: parseFloat(b.height),
-                    trackingCourier: b.trackingCourier || undefined
-                })),
-                imageUrl: bulkImage || undefined,
-                warehouseLocation: 'usa_pobox',
-                leaveInWarehouse: true, // Siempre en bodega Hidalgo TX
-                notes: bulkBoxId ? 'Recibido en bodega Hidalgo TX - Recepción en serie' : 'Paquete sin cliente asignado - Recibido en bodega Hidalgo TX'
-            };
-
-            const token = localStorage.getItem('token') || '';
-            const response = await axios.post(`${API_URL}/api/packages`, payload, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-
-            // Agregar a la lista de paquetes registrados
-            const tracking = response.data.shipment?.labels?.[0]?.tracking || `PKG-${Date.now()}`;
-            setPaquetesRegistrados(prev => [...prev, {
-                tracking,
-                boxId: bulkBoxId || 'SIN CLIENTE',
-                peso: bulkTotalWeight,
-                medidas: `${bulkBoxes.length} caja(s)`
-            }]);
-
-            // 🖨️ Imprimir etiquetas automáticamente
-            const labels = response.data.shipment?.labels;
-            if (labels && labels.length > 0) {
-                printShipmentLabels(labels);
+            if (bulkImage && bulkRegisteredIds.length > 0) {
+                const token = localStorage.getItem('token') || '';
+                await axios.patch(
+                    `${API_URL}/api/packages/batch-image`,
+                    { packageIds: bulkRegisteredIds, imageUrl: bulkImage },
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
             }
-
-            setSnackbar({ 
-                open: true, 
-                message: bulkBoxId 
-                    ? `✅ Paquete registrado para casillero ${bulkBoxId}` 
-                    : `✅ Paquete registrado sin cliente asignado`, 
-                severity: 'success' 
+            setSnackbar({
+                open: true,
+                message: `✅ Embarque cerrado: ${bulkBoxes.length} caja(s) registrada(s)${bulkImage ? ' con foto' : ''}`,
+                severity: 'success'
             });
-
-            // Resetear para siguiente paquete
+            // Resetear todo para el siguiente embarque
             setBulkBoxes([]);
             setBulkBoxId('');
+            setBulkExpectedBoxes('');
+            setBulkRegisteredIds([]);
             setBulkImage(null);
             setBulkStep(0);
             setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
         } catch (err: any) {
-            setBulkError(err.response?.data?.error || err.response?.data?.message || 'Error al registrar paquete');
+            setBulkError(err.response?.data?.error || err.response?.data?.message || 'Error al finalizar embarque');
         } finally {
             setBulkSubmitting(false);
         }
@@ -782,6 +828,8 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkBoxes([]);
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
         setBulkBoxId('');
+        setBulkExpectedBoxes('');
+        setBulkRegisteredIds([]);
         setBulkImage(null);
         setBulkError('');
     };
@@ -1352,21 +1400,28 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                 </DialogTitle>
 
                 <DialogContent sx={{ pt: 3 }}>
-                    {/* Stepper de 2 pasos */}
+                    {/* Stepper de 3 pasos */}
                     <Stepper activeStep={bulkStep} alternativeLabel sx={{ mb: 4 }}>
                         <Step completed={bulkStep > 0}>
                             <StepLabel StepIconComponent={() => (
                                 <Avatar sx={{ bgcolor: bulkStep >= 0 ? ORANGE : 'grey.300', width: 40, height: 40 }}>
-                                    {bulkStep > 0 ? <CheckCircleIcon /> : <InventoryIcon />}
+                                    {bulkStep > 0 ? <CheckCircleIcon /> : <PersonIcon />}
                                 </Avatar>
-                            )}>Agregar Cajas</StepLabel>
+                            )}>Cliente y Cantidad</StepLabel>
                         </Step>
                         <Step completed={bulkStep > 1}>
                             <StepLabel StepIconComponent={() => (
                                 <Avatar sx={{ bgcolor: bulkStep >= 1 ? ORANGE : 'grey.300', width: 40, height: 40 }}>
-                                    {bulkStep > 1 ? <CheckCircleIcon /> : <CameraAltIcon />}
+                                    {bulkStep > 1 ? <CheckCircleIcon /> : <InventoryIcon />}
                                 </Avatar>
-                            )}>Foto & Cliente</StepLabel>
+                            )}>Capturar Cajas</StepLabel>
+                        </Step>
+                        <Step completed={bulkStep > 2}>
+                            <StepLabel StepIconComponent={() => (
+                                <Avatar sx={{ bgcolor: bulkStep >= 2 ? ORANGE : 'grey.300', width: 40, height: 40 }}>
+                                    {bulkStep > 2 ? <CheckCircleIcon /> : <CameraAltIcon />}
+                                </Avatar>
+                            )}>Foto Final</StepLabel>
                         </Step>
                     </Stepper>
 
@@ -1374,15 +1429,105 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
 
                     <Fade in={true} key={bulkStep}>
                         <Box>
-                            {/* PASO 0: AGREGAR CAJAS */}
+                            {/* PASO 0: CLIENTE Y CANTIDAD */}
                             {bulkStep === 0 && (
                                 <Box>
                                     <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                        <PersonIcon sx={{ color: ORANGE }} /> Cliente y Cantidad de Cajas
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                                        Indica el cliente (opcional) y cuántas cajas conforman este embarque.
+                                    </Typography>
+
+                                    <Grid container spacing={3}>
+                                        <Grid size={{ xs: 12, md: 6 }}>
+                                            <Card sx={{ p: 2, height: '100%' }}>
+                                                <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    <PersonIcon /> Casillero del Cliente <Chip size="small" label="Opcional" />
+                                                </Typography>
+                                                <TextField
+                                                    fullWidth
+                                                    autoFocus
+                                                    placeholder="Ej: S-001 (dejar vacío si no se conoce)"
+                                                    value={bulkBoxId}
+                                                    onChange={(e) => setBulkBoxId(e.target.value.toUpperCase())}
+                                                    InputProps={{
+                                                        startAdornment: <InputAdornment position="start"><QrCodeScannerIcon /></InputAdornment>,
+                                                    }}
+                                                    sx={{ mb: 2 }}
+                                                />
+                                                {!bulkBoxId ? (
+                                                    <Alert severity="warning">
+                                                        <Typography variant="caption">
+                                                            ⚠️ Sin cliente: los paquetes se guardarán como "Sin Cliente" y podrán asignarse después.
+                                                        </Typography>
+                                                    </Alert>
+                                                ) : (
+                                                    <Alert severity="success">
+                                                        <Typography variant="caption">
+                                                            ✅ Cliente {bulkBoxId} se asignará a todas las cajas del embarque.
+                                                        </Typography>
+                                                    </Alert>
+                                                )}
+                                            </Card>
+                                        </Grid>
+
+                                        <Grid size={{ xs: 12, md: 6 }}>
+                                            <Card sx={{ p: 2, height: '100%' }}>
+                                                <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                    <InventoryIcon /> Total de Cajas Esperadas <Chip size="small" color="error" label="Requerido" />
+                                                </Typography>
+                                                <TextField
+                                                    fullWidth
+                                                    type="number"
+                                                    placeholder="Ej: 10"
+                                                    value={bulkExpectedBoxes}
+                                                    onChange={(e) => setBulkExpectedBoxes(e.target.value)}
+                                                    inputProps={{ min: 1, max: 999, step: 1 }}
+                                                    InputProps={{
+                                                        startAdornment: <InputAdornment position="start">📦</InputAdornment>,
+                                                    }}
+                                                    sx={{ mb: 2 }}
+                                                />
+                                                <Alert severity="info">
+                                                    <Typography variant="caption">
+                                                        El sistema NO te dejará avanzar al paso de foto hasta que registres TODAS las cajas indicadas aquí.
+                                                    </Typography>
+                                                </Alert>
+                                            </Card>
+                                        </Grid>
+                                    </Grid>
+                                </Box>
+                            )}
+
+                            {/* PASO 1: CAPTURAR CAJAS */}
+                            {bulkStep === 1 && (
+                                <Box>
+                                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                         <InventoryIcon sx={{ color: ORANGE }} /> Agregar Cajas
+                                        {(parseInt(bulkExpectedBoxes) || 0) > 0 && (
+                                            <Chip
+                                                size="small"
+                                                color={bulkBoxes.length >= (parseInt(bulkExpectedBoxes) || 0) ? 'success' : 'warning'}
+                                                label={`${bulkBoxes.length} / ${bulkExpectedBoxes} cajas`}
+                                                sx={{ ml: 1 }}
+                                            />
+                                        )}
                                     </Typography>
                                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                        Pesa y mide cada caja. Puedes agregar las que necesites.
+                                        Cada caja se imprime al momento de agregarse. No podrás avanzar hasta registrar todas.
                                     </Typography>
+
+                                    {!bulkBoxId && (
+                                        <Alert severity="warning" sx={{ mb: 2 }} icon={<WarningIcon />}>
+                                            <Typography variant="body2" fontWeight={700}>
+                                                ⚠️ NO SE SELECCIONÓ CLIENTE
+                                            </Typography>
+                                            <Typography variant="caption">
+                                                Las etiquetas se imprimirán como "SIN CLIENTE". Podrás asignar el casillero después desde la lista de paquetes.
+                                            </Typography>
+                                        </Alert>
+                                    )}
 
                                     {/* Formulario de caja */}
                                     <Card
@@ -1621,39 +1766,40 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                 </Box>
                             )}
 
-                            {/* PASO 1: FOTO & CLIENTE */}
-                            {bulkStep === 1 && (
+                            {/* PASO 2: FOTO FINAL DEL EMBARQUE */}
+                            {bulkStep === 2 && (
                                 <Box>
                                     <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                        <CameraAltIcon sx={{ color: ORANGE }} /> Foto y Número de Cliente
+                                        <CameraAltIcon sx={{ color: ORANGE }} /> Foto Final del Embarque
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+                                        Toma una sola foto del embarque completo. Se asociará a todas las cajas registradas.
                                     </Typography>
 
                                     <Grid container spacing={3}>
-                                        {/* Sección de Foto */}
-                                        <Grid size={{ xs: 12, md: 6 }}>
+                                        <Grid size={{ xs: 12, md: 7 }}>
                                             <Card sx={{ p: 2, height: '100%' }}>
-                                                <Typography variant="subtitle2" gutterBottom>📸 Foto del Paquete (Opcional)</Typography>
-                                                
+                                                <Typography variant="subtitle2" gutterBottom>📸 Foto del embarque (Opcional)</Typography>
                                                 {bulkImage ? (
                                                     <Box sx={{ position: 'relative', textAlign: 'center' }}>
-                                                        <img 
-                                                            src={bulkImage} 
-                                                            alt="Paquete" 
-                                                            style={{ 
-                                                                maxWidth: '100%', 
-                                                                maxHeight: 200, 
+                                                        <img
+                                                            src={bulkImage}
+                                                            alt="Embarque"
+                                                            style={{
+                                                                maxWidth: '100%',
+                                                                maxHeight: 320,
                                                                 borderRadius: 12,
                                                                 border: `3px solid ${ORANGE}`,
                                                                 objectFit: 'cover'
-                                                            }} 
+                                                            }}
                                                         />
-                                                        <IconButton 
+                                                        <IconButton
                                                             size="small"
                                                             onClick={() => setBulkImage(null)}
-                                                            sx={{ 
-                                                                position: 'absolute', 
-                                                                top: -10, 
-                                                                right: -10, 
+                                                            sx={{
+                                                                position: 'absolute',
+                                                                top: -10,
+                                                                right: -10,
                                                                 bgcolor: 'error.main',
                                                                 color: 'white',
                                                                 '&:hover': { bgcolor: 'error.dark' }
@@ -1664,24 +1810,20 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                                     </Box>
                                                 ) : cameraOpen ? (
                                                     <Box sx={{ position: 'relative', textAlign: 'center' }}>
-                                                        <video 
-                                                            ref={videoRef} 
-                                                            autoPlay 
-                                                            playsInline 
-                                                            style={{ 
-                                                                width: '100%', 
-                                                                maxHeight: 200, 
+                                                        <video
+                                                            ref={videoRef}
+                                                            autoPlay
+                                                            playsInline
+                                                            style={{
+                                                                width: '100%',
+                                                                maxHeight: 320,
                                                                 borderRadius: 12,
                                                                 border: `3px solid ${ORANGE}`
-                                                            }} 
+                                                            }}
                                                         />
                                                         <canvas ref={canvasRef} style={{ display: 'none' }} />
                                                         <Box sx={{ mt: 2, display: 'flex', gap: 1, justifyContent: 'center' }}>
-                                                            <Button 
-                                                                variant="contained" 
-                                                                onClick={captureBulkPhoto}
-                                                                sx={{ bgcolor: ORANGE }}
-                                                            >
+                                                            <Button variant="contained" onClick={captureBulkPhoto} sx={{ bgcolor: ORANGE }}>
                                                                 📷 Capturar
                                                             </Button>
                                                             <Button variant="outlined" onClick={closeBulkCamera}>
@@ -1691,19 +1833,10 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                                     </Box>
                                                 ) : (
                                                     <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center' }}>
-                                                        <Button
-                                                            variant="contained"
-                                                            startIcon={<VideocamIcon />}
-                                                            onClick={openBulkCamera}
-                                                            sx={{ bgcolor: ORANGE }}
-                                                        >
+                                                        <Button variant="contained" startIcon={<VideocamIcon />} onClick={openBulkCamera} sx={{ bgcolor: ORANGE }}>
                                                             Abrir Cámara
                                                         </Button>
-                                                        <Button
-                                                            variant="outlined"
-                                                            component="label"
-                                                            startIcon={<CameraAltIcon />}
-                                                        >
+                                                        <Button variant="outlined" component="label" startIcon={<CameraAltIcon />}>
                                                             Subir Foto
                                                             <input
                                                                 type="file"
@@ -1713,9 +1846,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                                                     const file = e.target.files?.[0];
                                                                     if (file) {
                                                                         const reader = new FileReader();
-                                                                        reader.onload = (ev) => {
-                                                                            setBulkImage(ev.target?.result as string);
-                                                                        };
+                                                                        reader.onload = (ev) => { setBulkImage(ev.target?.result as string); };
                                                                         reader.readAsDataURL(file);
                                                                     }
                                                                 }}
@@ -1726,45 +1857,24 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                             </Card>
                                         </Grid>
 
-                                        {/* Sección de Cliente */}
-                                        <Grid size={{ xs: 12, md: 6 }}>
+                                        <Grid size={{ xs: 12, md: 5 }}>
                                             <Card sx={{ p: 2, height: '100%' }}>
-                                                <Typography variant="subtitle2" gutterBottom>
-                                                    <PersonIcon sx={{ verticalAlign: 'middle', mr: 1 }} />
-                                                    Número de Casillero del Cliente (Opcional)
-                                                </Typography>
-                                                <TextField
-                                                    fullWidth
-                                                    placeholder="Ej: S-001 (dejar vacío si no se conoce)"
-                                                    value={bulkBoxId}
-                                                    onChange={(e) => setBulkBoxId(e.target.value.toUpperCase())}
-                                                    InputProps={{
-                                                        startAdornment: <InputAdornment position="start"><QrCodeScannerIcon /></InputAdornment>,
-                                                    }}
-                                                    sx={{ mb: 2 }}
-                                                />
-                                                
-                                                {!bulkBoxId && (
-                                                    <Alert severity="warning" sx={{ mb: 2 }}>
-                                                        <Typography variant="caption">
-                                                            ⚠️ Sin casillero: El paquete se guardará como "Sin Cliente" y podrá asignarse después
-                                                        </Typography>
-                                                    </Alert>
-                                                )}
-                                                
-                                                <Alert severity="info" sx={{ mb: 2 }}>
+                                                <Typography variant="subtitle2" gutterBottom>📦 Resumen del Embarque</Typography>
+                                                <Typography variant="body2">• Cliente: {bulkBoxId || <Chip size="small" label="SIN CLIENTE" color="warning" />}</Typography>
+                                                <Typography variant="body2">• Cajas registradas: {bulkBoxes.length}</Typography>
+                                                <Typography variant="body2">• Peso total: {bulkTotalWeight.toFixed(2)} kg</Typography>
+                                                <Typography variant="body2">• Volumen total: {bulkTotalVolume.toFixed(4)} CBM</Typography>
+                                                <Divider sx={{ my: 1.5 }} />
+                                                <Alert severity="success" sx={{ mb: 1 }}>
                                                     <Typography variant="caption">
-                                                        📍 Este paquete se registrará en <strong>Bodega Hidalgo, TX</strong> con estado "En Bodega"
+                                                        ✅ Las {bulkRegisteredIds.length} etiquetas ya están impresas. Al finalizar se asociará la foto al embarque.
                                                     </Typography>
                                                 </Alert>
-
-                                                {/* Resumen del paquete */}
-                                                <Paper sx={{ p: 2, bgcolor: '#f5f5f5' }}>
-                                                    <Typography variant="subtitle2" gutterBottom>📦 Resumen:</Typography>
-                                                    <Typography variant="body2">• Cajas: {bulkBoxes.length}</Typography>
-                                                    <Typography variant="body2">• Peso total: {bulkTotalWeight.toFixed(2)} kg</Typography>
-                                                    <Typography variant="body2">• Volumen total: {bulkTotalVolume.toFixed(4)} CBM</Typography>
-                                                </Paper>
+                                                <Alert severity="info">
+                                                    <Typography variant="caption">
+                                                        📍 Bodega Hidalgo, TX
+                                                    </Typography>
+                                                </Alert>
                                             </Card>
                                         </Grid>
                                     </Grid>
@@ -1777,7 +1887,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                 <DialogActions sx={{ p: 2, justifyContent: 'space-between' }}>
                     <Box>
                         {bulkStep > 0 && (
-                            <Button onClick={handleBulkPrevStep} startIcon={<BackIcon />}>
+                            <Button onClick={handleBulkPrevStep} startIcon={<BackIcon />} disabled={bulkStep === 1 && bulkBoxes.length > 0}>
                                 Atrás
                             </Button>
                         )}
@@ -1786,15 +1896,20 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                         <Button onClick={handleCloseBulkReceive} color="inherit">
                             Cerrar
                         </Button>
-                        {bulkStep === 0 ? (
+                        {bulkStep < 2 ? (
                             <Button
                                 variant="contained"
                                 onClick={handleBulkNextStep}
-                                disabled={bulkBoxes.length === 0}
+                                disabled={
+                                    (bulkStep === 0 && (parseInt(bulkExpectedBoxes) || 0) < 1) ||
+                                    (bulkStep === 1 && bulkBoxes.length < (parseInt(bulkExpectedBoxes) || 0))
+                                }
                                 endIcon={<ArrowForwardIcon />}
                                 sx={{ bgcolor: ORANGE }}
                             >
-                                Siguiente
+                                {bulkStep === 1 && bulkBoxes.length < (parseInt(bulkExpectedBoxes) || 0)
+                                    ? `Faltan ${(parseInt(bulkExpectedBoxes) || 0) - bulkBoxes.length} caja(s)`
+                                    : 'Siguiente'}
                             </Button>
                         ) : (
                             <Button
@@ -1804,7 +1919,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                 startIcon={bulkSubmitting ? <CircularProgress size={20} color="inherit" /> : <CheckCircleIcon />}
                                 sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' } }}
                             >
-                                {bulkSubmitting ? 'Guardando...' : 'Guardar y Siguiente Paquete'}
+                                {bulkSubmitting ? 'Finalizando...' : 'Finalizar Embarque'}
                             </Button>
                         )}
                     </Box>

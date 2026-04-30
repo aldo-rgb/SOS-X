@@ -3986,3 +3986,90 @@ export const getSavedConstancia = async (req: Request, res: Response): Promise<a
     return res.status(500).json({ success: false, error: error.message });
   }
 };
+
+// ============================================
+// ENDPOINT: ELIMINAR PAQUETE (SUPER ADMIN ONLY)
+// ============================================
+// Borra un paquete y todas sus relaciones en cascada manual.
+export const deletePackage = async (req: Request, res: Response): Promise<any> => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    const packageId = parseInt(String(id), 10);
+    if (!packageId || Number.isNaN(packageId)) {
+      return res.status(400).json({ error: 'ID inválido' });
+    }
+
+    await client.query('BEGIN');
+
+    const exists = await client.query(
+      'SELECT id, tracking_internal FROM packages WHERE id = $1',
+      [packageId]
+    );
+    if (exists.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Paquete no encontrado' });
+    }
+
+    // 1) Borrar relaciones en otras tablas
+    const relatedTables = [
+      'caja_chica_aplicacion_pagos',
+      'delivery_documents',
+      'china_status_history',
+      'package_history',
+    ];
+    for (const t of relatedTables) {
+      try {
+        await client.query(`DELETE FROM ${t} WHERE package_id = $1`, [packageId]);
+      } catch {
+        // Si la tabla no existe en algún ambiente, continuar
+      }
+    }
+
+    // 2) Limpiar referencias master/child donde este paquete sea master
+    await client.query('UPDATE packages SET master_id = NULL WHERE master_id = $1', [packageId]);
+
+    // 3) Borrar el paquete
+    await client.query('DELETE FROM packages WHERE id = $1', [packageId]);
+
+    await client.query('COMMIT');
+    return res.json({
+      success: true,
+      message: `Paquete ${exists.rows[0].tracking_internal || packageId} eliminado correctamente`,
+    });
+  } catch (error: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('❌ Error deletePackage:', error);
+    return res.status(500).json({ error: error.message || 'Error al eliminar paquete' });
+  } finally {
+    client.release();
+  }
+};
+
+// ============================================
+// ENDPOINT: ASIGNAR FOTO A VARIOS PAQUETES (BATCH)
+// ============================================
+// Útil para recepción en serie: una sola foto del embarque para N paquetes.
+export const batchAttachImage = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { packageIds, imageUrl } = req.body as { packageIds?: number[]; imageUrl?: string };
+    if (!Array.isArray(packageIds) || packageIds.length === 0) {
+      return res.status(400).json({ error: 'packageIds requerido (array)' });
+    }
+    if (!imageUrl || typeof imageUrl !== 'string') {
+      return res.status(400).json({ error: 'imageUrl requerido' });
+    }
+    const ids = packageIds.map(n => parseInt(String(n), 10)).filter(n => !Number.isNaN(n));
+    if (ids.length === 0) return res.status(400).json({ error: 'packageIds inválidos' });
+
+    const r = await pool.query(
+      `UPDATE packages SET image_url = $1, updated_at = NOW() WHERE id = ANY($2::int[]) RETURNING id`,
+      [imageUrl, ids]
+    );
+    return res.json({ success: true, updated: r.rowCount, ids: r.rows.map(x => x.id) });
+  } catch (error: any) {
+    console.error('❌ Error batchAttachImage:', error);
+    return res.status(500).json({ error: error.message || 'Error al adjuntar foto' });
+  }
+};
+
