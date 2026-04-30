@@ -984,6 +984,7 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
         const confirmed = [];
         const errors = [];
         const statusColumn = await getPackageStatusColumn();
+        const finalStatus = await getSentWriteStatus();
         const hasDeliveredAtColumn = await hasPackageColumn('delivered_at');
         const hasDeliveryPhotoColumn = await hasPackageColumn('delivery_photo');
         const hasDeliveryNotesColumn = await hasPackageColumn('delivery_notes');
@@ -1014,7 +1015,7 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                 const packageId = pkgRes.rows[0].id;
                 
                 // Construir UPDATE dinámicamente
-                const setParts: string[] = [`${statusColumn} = 'sent'`, 'updated_at = NOW()'];
+                const setParts: string[] = [`${statusColumn} = '${finalStatus}'`, 'updated_at = NOW()'];
                 const values: any[] = [packageId];
 
                 // Actualizar con guía del carrier si está presente
@@ -1047,8 +1048,8 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                 try {
                     await pool.query(`
                         INSERT INTO package_history (package_id, status, notes, created_by, created_at)
-                        VALUES ($1, 'sent', $2, $3, NOW())
-                    `, [packageId, `Enviado con guía ${carrierGuide || 'desconocida'}. ${notes || ''}`, driverId]);
+                        VALUES ($1, $2, $3, $4, NOW())
+                    `, [packageId, finalStatus, `Enviado con guía ${carrierGuide || 'desconocida'}. ${notes || ''}`, driverId]);
                 } catch (historyError) {
                     console.warn('No se pudo registrar package_history:', historyError);
                 }

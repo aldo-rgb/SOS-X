@@ -507,7 +507,8 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             setBulkMultiScanOpen(true);
             return;
         }
-        setBulkBoxes(prev => [...prev, { ...bulkCurrentBox, id: Date.now() }]);
+        const normalizedTracking = normalizeCarrierGuide(bulkCurrentBox.trackingCourier);
+        setBulkBoxes(prev => [...prev, { ...bulkCurrentBox, trackingCourier: normalizedTracking, id: Date.now() }]);
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
         setBulkBoxQuantity('1');
         setBulkError('');
@@ -519,7 +520,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         const newBoxes = guides.map((g, i) => ({
             ...bulkCurrentBox,
             id: baseId + i,
-            trackingCourier: g || '',
+            trackingCourier: normalizeCarrierGuide(g || ''),
         }));
         setBulkBoxes(prev => [...prev, ...newBoxes]);
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
