@@ -39,6 +39,7 @@ import WarehouseScannerScreen from './src/screens/WarehouseScannerScreen';
 import FirmaAbandonoScreen from './src/screens/FirmaAbandonoScreen';
 import ServicesGuideScreen from './src/screens/ServicesGuideScreen';
 import SaldoFavorScreen from './src/screens/SaldoFavorScreen';
+import SupplierPaymentScreen from './src/screens/SupplierPaymentScreen';
 import ReferidosScreen from './src/screens/ReferidosScreen';
 // PO Box Screens
 import POBoxReceiveScreen from './src/screens/POBoxReceiveScreen';
@@ -114,6 +115,7 @@ export type RootStackParamList = {
   ServicesGuide: { user: any; token: string };
   // Saldo a Favor y Referidos
   SaldoFavor: { user: any; token: string };
+  SupplierPayment: { user: any; token: string };
   Referidos: { user: any; token: string };
   // PO Box Screens
   POBoxReceive: { user: any; token: string };
@@ -291,6 +293,11 @@ export default function App() {
               headerTitle: 'Saldo a Favor',
               headerTintColor: '#0097A7',
             }}
+          />
+          {/* Pago a Proveedores (ENTANGLED) */}
+          <Stack.Screen
+            name="SupplierPayment"
+            component={SupplierPaymentScreen}
           />
           {/* Sistema de Referidos */}
           <Stack.Screen 

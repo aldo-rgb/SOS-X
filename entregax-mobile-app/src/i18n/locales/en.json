@@ -1,4 +1,38 @@
 {
+  "entangled": {
+    "title": "Supplier Payments",
+    "subtitle": "Triangulated payments to foreign suppliers",
+    "newRequest": "New request",
+    "myRequests": "My requests",
+    "fields": {
+      "rfc": "Tax ID (RFC)",
+      "razonSocial": "Legal name",
+      "regimenFiscal": "Tax regime",
+      "cp": "Postal code",
+      "usoCfdi": "CFDI usage",
+      "email": "Billing email",
+      "amount": "Amount",
+      "currency": "Currency",
+      "concepts": "Concepts",
+      "uploadProof": "Upload proof"
+    },
+    "actions": {
+      "submit": "Submit request",
+      "sending": "Sending...",
+      "viewInvoice": "View invoice",
+      "viewProof": "View proof"
+    },
+    "status": {
+      "pendiente": "Pending",
+      "en_proceso": "Processing",
+      "completado": "Completed",
+      "rechazado": "Rejected"
+    },
+    "messages": {
+      "created": "Request created successfully",
+      "empty": "You have no requests yet"
+    }
+  },
   "common": {
     "loading": "Loading...",
     "save": "Save",

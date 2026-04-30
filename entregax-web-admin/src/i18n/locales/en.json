@@ -1,4 +1,57 @@
 {
+  "entangled": {
+    "title": "International Supplier Payments",
+    "subtitle": "Triangulated payment & invoicing for overseas suppliers",
+    "newRequest": "New request",
+    "myRequests": "My requests",
+    "howItWorks": "How it works",
+    "howItWorksDesc": "Fill in your tax info and upload the proof of your transfer. We pay your overseas supplier and deliver back your invoice and the international payment receipt to forward to them.",
+    "sections": {
+      "fiscal": "Customer tax data",
+      "operation": "Payment details",
+      "proof": "Proof of your transfer to XOX"
+    },
+    "fields": {
+      "rfc": "Tax ID (RFC)",
+      "razonSocial": "Legal name",
+      "regimenFiscal": "Tax regime",
+      "cp": "Postal code",
+      "usoCfdi": "CFDI use",
+      "email": "Billing email",
+      "amount": "Amount to send to supplier",
+      "currency": "Destination currency",
+      "concepts": "Concepts / SAT (comma separated)",
+      "proofUrl": "Proof file (PDF/Image)",
+      "uploadProof": "Upload proof"
+    },
+    "actions": {
+      "submit": "Send request",
+      "sending": "Sending...",
+      "viewInvoice": "Download invoice",
+      "viewProof": "Download payment receipt",
+      "viewMyProof": "View my proof"
+    },
+    "status": {
+      "global": "Status",
+      "factura": "Invoice",
+      "proveedor": "Supplier payment",
+      "pendiente": "Pending",
+      "en_proceso": "In process",
+      "completado": "Completed",
+      "rechazado": "Rejected",
+      "error_envio": "Send error",
+      "emitida": "Issued",
+      "enviado": "Sent"
+    },
+    "messages": {
+      "success": "Request submitted",
+      "successPending": "Request saved. You’ll receive your invoice and proof here once ready.",
+      "error": "Could not submit request",
+      "empty": "You don’t have any supplier payment requests yet",
+      "uploadingProof": "Uploading proof...",
+      "requiredFields": "Please complete all required fields"
+    }
+  },
   "common": {
     "loading": "Loading...",
     "save": "Save",

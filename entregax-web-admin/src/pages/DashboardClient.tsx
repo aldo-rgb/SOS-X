@@ -113,6 +113,7 @@ import {
 import { Collapse } from '@mui/material';
 import api from '../services/api';
 import ClientTicketsPage from './ClientTicketsPage';
+import EntangledPaymentRequest from '../components/EntangledPaymentRequest';
 import OpenpaySavedCards from '../components/OpenpaySavedCards';
 import type { OpenpaySelection } from '../components/OpenpaySavedCards';
 
@@ -4539,13 +4540,14 @@ export default function DashboardClient() {
                 3: 4,  // Facturas → Facturas
                 4: 5,  // Direcciones → Direcciones
                 7: 6,  // Mis Tickets → Tickets
+                8: 1,  // Pago a Proveedores → Pagos
               };
               return reverseMapping[activeTab] ?? 0;
             })()}
             onChange={(_, v) => {
-              // Tab 1 es "Pago a Proveedores" - mostrar en construcción
+              // Tab 1 es "Pago a Proveedores"
               if (v === 1) {
-                setSnackbar({ open: true, message: '🚧 Pago a Proveedores: Próximamente disponible', severity: 'info' });
+                setActiveTab(8);
                 return;
               }
               // Tab 7 es "Mis Cuentas por Pagar" - abrir modal sin cambiar tab activa
@@ -6786,6 +6788,13 @@ export default function DashboardClient() {
           {activeTab === 7 && (
             <Box>
               <ClientTicketsPage onBack={() => setActiveTab(0)} />
+            </Box>
+          )}
+
+          {/* Tab: Pago a Proveedores (ENTANGLED) */}
+          {activeTab === 8 && (
+            <Box>
+              <EntangledPaymentRequest />
             </Box>
           )}
 
@@ -12845,13 +12854,14 @@ export default function DashboardClient() {
                 3: 4,  // Facturas → Facturas
                 4: 3,  // Direcciones → Direcciones
                 7: 6,  // Mis Tickets → Tickets
+                8: 1,  // Pago a Proveedores → Pagos
               };
               return reverseMapping[activeTab] ?? 0;
             })()}
             onChange={(_, newValue) => {
-              // newValue 1 es "Pago a proveedores" - mostrar en construcción
+              // newValue 1 es "Pago a proveedores"
               if (newValue === 1) {
-                setSnackbar({ open: true, message: '🚧 Pago a Proveedores: Próximamente disponible', severity: 'info' });
+                setActiveTab(8);
                 return;
               }
               // Mapear índices: 0=envíos, 2=cotizador, 3=direcciones, 4=facturas, 5=cuenta

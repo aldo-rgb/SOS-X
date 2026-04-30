@@ -19,6 +19,8 @@ import CancelIcon from '@mui/icons-material/Cancel';
 import EditIcon from '@mui/icons-material/Edit';
 import AddIcon from '@mui/icons-material/Add';
 import SaveIcon from '@mui/icons-material/Save';
+import HubIcon from '@mui/icons-material/Hub';
+import EntangledAdminTab from '../components/EntangledAdminTab';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const ORANGE = '#F05A28';
@@ -253,6 +255,7 @@ export default function SupplierPaymentsPage() {
           <Tab icon={<PaymentsIcon />} label="Solicitudes" />
           <Tab icon={<CurrencyExchangeIcon />} label="Tipo de Cambio" />
           <Tab icon={<BusinessIcon />} label="Proveedores" />
+          <Tab icon={<HubIcon />} label="ENTANGLED" />
         </Tabs>
       </Paper>
 
@@ -458,6 +461,9 @@ export default function SupplierPaymentsPage() {
           </TableContainer>
         </Paper>
       )}
+
+      {/* Tab: ENTANGLED */}
+      {tabValue === 3 && <EntangledAdminTab />}
 
       {/* Modal Proveedor */}
       <Dialog open={providerModal} onClose={() => setProviderModal(false)} maxWidth="sm" fullWidth>

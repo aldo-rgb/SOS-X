@@ -1509,11 +1509,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             <TouchableOpacity
               style={styles.supplierPaymentButton}
               onPress={() => {
-                Alert.alert(
-                  '🚧 En desarrollo',
-                  'Pago a Proveedor estará disponible muy pronto.',
-                  [{ text: 'Entendido' }]
-                );
+                navigation.navigate('SupplierPayment' as any, { user, token });
               }}
             >
               <Ionicons name="cash-outline" size={16} color="white" />

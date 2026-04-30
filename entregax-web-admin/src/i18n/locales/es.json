@@ -1,4 +1,57 @@
 {
+  "entangled": {
+    "title": "Pago a Proveedores Internacionales",
+    "subtitle": "Triangulación de pago y facturación a proveedores en el extranjero",
+    "newRequest": "Nueva solicitud",
+    "myRequests": "Mis solicitudes",
+    "howItWorks": "¿Cómo funciona?",
+    "howItWorksDesc": "Llenas tus datos fiscales y subes el comprobante de tu transferencia. Nosotros pagamos a tu proveedor en el extranjero y te entregamos la factura y el comprobante de pago internacional para que se lo envíes al proveedor.",
+    "sections": {
+      "fiscal": "Datos fiscales del cliente",
+      "operation": "Detalle del pago",
+      "proof": "Comprobante de tu transferencia a XOX"
+    },
+    "fields": {
+      "rfc": "RFC",
+      "razonSocial": "Razón social",
+      "regimenFiscal": "Régimen fiscal",
+      "cp": "Código postal",
+      "usoCfdi": "Uso de CFDI",
+      "email": "Correo de facturación",
+      "amount": "Monto a enviar al proveedor",
+      "currency": "Divisa destino",
+      "concepts": "Conceptos / SAT (separados por coma)",
+      "proofUrl": "Comprobante (PDF/imagen)",
+      "uploadProof": "Subir comprobante"
+    },
+    "actions": {
+      "submit": "Enviar solicitud",
+      "sending": "Enviando...",
+      "viewInvoice": "Descargar factura",
+      "viewProof": "Descargar comprobante de pago",
+      "viewMyProof": "Ver mi comprobante"
+    },
+    "status": {
+      "global": "Estatus",
+      "factura": "Factura",
+      "proveedor": "Pago a proveedor",
+      "pendiente": "Pendiente",
+      "en_proceso": "En proceso",
+      "completado": "Completado",
+      "rechazado": "Rechazado",
+      "error_envio": "Error de envío",
+      "emitida": "Emitida",
+      "enviado": "Enviado"
+    },
+    "messages": {
+      "success": "Solicitud enviada correctamente",
+      "successPending": "Solicitud guardada. Recibirás la factura y el comprobante por aquí mismo cuando estén listos.",
+      "error": "No se pudo enviar la solicitud",
+      "empty": "Todavía no tienes solicitudes de pago a proveedores",
+      "uploadingProof": "Subiendo comprobante...",
+      "requiredFields": "Completa todos los campos requeridos"
+    }
+  },
   "common": {
     "loading": "Cargando...",
     "save": "Guardar",

@@ -1,4 +1,57 @@
 {
+  "entangled": {
+    "title": "国际供应商付款",
+    "subtitle": "向海外供应商三角付款并开票",
+    "newRequest": "新建申请",
+    "myRequests": "我的申请",
+    "howItWorks": "如何使用？",
+    "howItWorksDesc": "填写税务资料并上传付款凭证。我们代为向海外供应商付款，并返回发票与国际付款凭证供您转发给供应商。",
+    "sections": {
+      "fiscal": "客户税务信息",
+      "operation": "付款详情",
+      "proof": "您向 XOX 转账的凭证"
+    },
+    "fields": {
+      "rfc": "RFC 税号",
+      "razonSocial": "公司名称",
+      "regimenFiscal": "税收制度",
+      "cp": "邮政编码",
+      "usoCfdi": "CFDI 用途",
+      "email": "发票邮箱",
+      "amount": "要发送给供应商的金额",
+      "currency": "目标货币",
+      "concepts": "项目 / SAT（以逗号分隔）",
+      "proofUrl": "凭证文件 (PDF/图片)",
+      "uploadProof": "上传凭证"
+    },
+    "actions": {
+      "submit": "提交申请",
+      "sending": "提交中...",
+      "viewInvoice": "下载发票",
+      "viewProof": "下载付款凭证",
+      "viewMyProof": "查看我的凭证"
+    },
+    "status": {
+      "global": "状态",
+      "factura": "发票",
+      "proveedor": "供应商付款",
+      "pendiente": "待处理",
+      "en_proceso": "处理中",
+      "completado": "完成",
+      "rechazado": "被拒",
+      "error_envio": "发送错误",
+      "emitida": "已开票",
+      "enviado": "已发送"
+    },
+    "messages": {
+      "success": "申请已提交",
+      "successPending": "申请已保存。发票和凭证准备好后会在这里提供。",
+      "error": "提交失败",
+      "empty": "您还没有供应商付款申请",
+      "uploadingProof": "上传凭证中...",
+      "requiredFields": "请填写所有必填字段"
+    }
+  },
   "common": {
     "loading": "加载中...",
     "save": "保存",

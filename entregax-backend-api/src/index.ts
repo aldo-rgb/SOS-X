@@ -226,6 +226,14 @@ import {
   getSupplierPaymentStats
 } from './supplierPaymentController';
 import {
+  createPaymentRequest as createEntangledRequest,
+  getMyPaymentRequests as getMyEntangledRequests,
+  getPaymentRequestDetail as getEntangledRequestDetail,
+  getAllPaymentRequests as getAllEntangledRequests,
+  webhookFacturaGenerada as entangledWebhookFactura,
+  webhookPagoProveedor as entangledWebhookProveedor,
+} from './entangledController';
+import {
   getLogisticsServices,
   calculateQuoteEndpoint,
   getPriceLists,
@@ -3234,6 +3242,17 @@ app.get('/api/admin/supplier-payments/stats', authenticateToken, requireMinLevel
 app.post('/api/supplier-payments/quote', authenticateToken, quotePayment);
 app.post('/api/supplier-payments', authenticateToken, createSupplierPayment);
 app.get('/api/supplier-payments', authenticateToken, getMySupplierPayments);
+
+// ========== ENTANGLED (Triangulación internacional) ==========
+// Cliente final
+app.post('/api/entangled/payment-requests', authenticateToken, createEntangledRequest);
+app.get('/api/entangled/payment-requests/me', authenticateToken, getMyEntangledRequests);
+app.get('/api/entangled/payment-requests/:id', authenticateToken, getEntangledRequestDetail);
+// Admin
+app.get('/api/admin/entangled/payment-requests', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAllEntangledRequests);
+// Webhooks públicos (verifican HMAC con ENTANGLED_WEBHOOK_SECRET)
+app.post('/api/webhooks/entangled-facturas', entangledWebhookFactura);
+app.post('/api/webhooks/entangled-proveedores', entangledWebhookProveedor);
 
 // ========== MOTOR DE PRECIOS (PRICING ENGINE) ==========
 

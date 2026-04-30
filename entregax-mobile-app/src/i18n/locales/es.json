@@ -1,4 +1,38 @@
 {
+  "entangled": {
+    "title": "Pago a Proveedores",
+    "subtitle": "Triangulación de pagos a proveedores extranjeros",
+    "newRequest": "Nueva solicitud",
+    "myRequests": "Mis solicitudes",
+    "fields": {
+      "rfc": "RFC",
+      "razonSocial": "Razón social",
+      "regimenFiscal": "Régimen fiscal",
+      "cp": "Código postal",
+      "usoCfdi": "Uso CFDI",
+      "email": "Email fiscal",
+      "amount": "Monto",
+      "currency": "Divisa",
+      "concepts": "Conceptos",
+      "uploadProof": "Subir comprobante"
+    },
+    "actions": {
+      "submit": "Enviar solicitud",
+      "sending": "Enviando...",
+      "viewInvoice": "Ver factura",
+      "viewProof": "Ver comprobante"
+    },
+    "status": {
+      "pendiente": "Pendiente",
+      "en_proceso": "En proceso",
+      "completado": "Completado",
+      "rechazado": "Rechazado"
+    },
+    "messages": {
+      "created": "Solicitud creada exitosamente",
+      "empty": "Aún no tienes solicitudes"
+    }
+  },
   "common": {
     "loading": "Cargando...",
     "save": "Guardar",
