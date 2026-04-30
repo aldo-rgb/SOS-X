@@ -182,14 +182,15 @@ export default function DhlOperationsScreen({ route, navigation }: any) {
     const legacyMap: Record<string, string> = {
       'Accesorios/Mixto': 'General',
       'Accesorios / Mixto': 'General',
-      'Sensible': 'Específica',
+      'Sensible': 'Específico',
+      'Específica': 'Específico',
       'Low': 'General',
-      'High': 'Específica',
+      'High': 'Específico',
     };
     const typeLabel = item.product_type === 'standard'
       ? 'General'
       : item.product_type === 'high_value'
-        ? 'Específica'
+        ? 'Específico'
         : (legacyMap[item.description] || item.description);
     return (
       <TouchableOpacity style={styles.card} onPress={() => setDetailItem(item)}>

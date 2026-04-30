@@ -380,7 +380,7 @@ export default function DhlReceptionWizardScreen({ navigation, route }: Props) {
           length_cm: dimensions.length || 30,
           width_cm: dimensions.width || 20,
           height_cm: dimensions.height || 15,
-          description: productType === 'standard' ? 'General' : 'Específica',
+          description: productType === 'standard' ? 'General' : 'Específico',
         })
       });
 
@@ -706,7 +706,7 @@ export default function DhlReceptionWizardScreen({ navigation, route }: Props) {
           onPress={() => handleSelectType('high_value')}
         >
           <Ionicons name="shield-checkmark-outline" size={60} color="#ff9800" />
-          <Text style={styles.classifyButtonTitle}>Específica</Text>
+          <Text style={styles.classifyButtonTitle}>Específico</Text>
           <Text style={styles.classifyButtonSubtitle}>Carga Específica</Text>
         </TouchableOpacity>
       </View>

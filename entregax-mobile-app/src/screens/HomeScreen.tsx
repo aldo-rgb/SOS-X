@@ -768,7 +768,24 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     {/* Solo mostrar descripción si existe */}
                     {item.description ? (
                       <Text style={styles.description} numberOfLines={1}>
-                        {item.description}
+                        {(() => {
+                          // Remapeo de descripciones MTY/DHL legacy → nuevos nombres
+                          if (isDHL) {
+                            const pt = (item as any).product_type;
+                            if (pt === 'standard') return 'General';
+                            if (pt === 'high_value') return 'Específico';
+                            const legacy: Record<string, string> = {
+                              'Accesorios/Mixto': 'General',
+                              'Accesorios / Mixto': 'General',
+                              'Sensible': 'Específico',
+                              'Específica': 'Específico',
+                              'Low': 'General',
+                              'High': 'Específico',
+                            };
+                            return legacy[item.description] || item.description;
+                          }
+                          return item.description;
+                        })()}
                       </Text>
                     ) : null}
                     <View style={styles.trackingRow}>
