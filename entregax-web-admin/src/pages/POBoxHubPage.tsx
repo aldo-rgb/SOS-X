@@ -521,8 +521,10 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                 headers: { Authorization: `Bearer ${token}` }
             });
             const labels = response.data.shipment?.labels;
-            if (labels && labels.length > 0) {
-                printShipmentLabels(labels);
+            // Solo imprimir etiquetas hijas (cajas físicas), no la master
+            const childLabels = (labels || []).filter((l: any) => !l.isMaster);
+            if (childLabels.length > 0) {
+                printShipmentLabels(childLabels);
             }
             const masterId = response.data.shipment?.master?.id;
             const childIds: number[] = (response.data.shipment?.children || []).map((c: any) => c.id).filter(Boolean);
