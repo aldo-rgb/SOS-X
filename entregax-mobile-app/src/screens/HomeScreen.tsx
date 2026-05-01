@@ -1530,7 +1530,12 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             <TouchableOpacity
               style={styles.supplierPaymentButton}
               onPress={() => {
-                navigation.navigate('SupplierPayment' as any, { user, token });
+                navigation.navigate('ExternalProviderTransition' as any, {
+                  user,
+                  token,
+                  target: 'SupplierPayment',
+                  label: 'Pago a Proveedor',
+                });
               }}
             >
               <Ionicons name="cash-outline" size={16} color="white" />

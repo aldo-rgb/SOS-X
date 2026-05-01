@@ -40,6 +40,7 @@ import FirmaAbandonoScreen from './src/screens/FirmaAbandonoScreen';
 import ServicesGuideScreen from './src/screens/ServicesGuideScreen';
 import SaldoFavorScreen from './src/screens/SaldoFavorScreen';
 import SupplierPaymentScreen from './src/screens/SupplierPaymentScreen';
+import ExternalProviderTransitionScreen from './src/screens/ExternalProviderTransitionScreen';
 import ReferidosScreen from './src/screens/ReferidosScreen';
 // PO Box Screens
 import POBoxReceiveScreen from './src/screens/POBoxReceiveScreen';
@@ -116,6 +117,7 @@ export type RootStackParamList = {
   // Saldo a Favor y Referidos
   SaldoFavor: { user: any; token: string };
   SupplierPayment: { user: any; token: string };
+  ExternalProviderTransition: { user: any; token: string; target?: string; label?: string };
   Referidos: { user: any; token: string };
   // PO Box Screens
   POBoxReceive: { user: any; token: string };
@@ -298,6 +300,16 @@ export default function App() {
           <Stack.Screen
             name="SupplierPayment"
             component={SupplierPaymentScreen}
+          />
+          {/* Transición animada a proveedor externo */}
+          <Stack.Screen
+            name="ExternalProviderTransition"
+            component={ExternalProviderTransitionScreen}
+            options={{
+              headerShown: false,
+              animation: 'fade',
+              gestureEnabled: false,
+            }}
           />
           {/* Sistema de Referidos */}
           <Stack.Screen 
