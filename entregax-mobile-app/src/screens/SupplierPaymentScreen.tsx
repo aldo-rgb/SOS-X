@@ -172,6 +172,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         setCp(p.cp || '');
         setUso(p.uso_cfdi || 'G03');
         setEmail(p.email || '');
+        // Si el cliente ya tiene datos fiscales precargados, asumimos que quiere factura por defecto
+        setRequiereFactura(true);
       }
     } catch {}
   }, [token]);
@@ -340,7 +342,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   };
 
   const statusColor = (s: string) => {
-    if (['completado', 'emitida', 'enviado', 'pagado'].includes(s)) return '#16a34a';
+    if (['completado', 'emitida', 'enviado', 'pagado'].includes(s)) return ORANGE;
     if (['en_proceso', 'pendiente'].includes(s)) return '#f59e0b';
     if (['rechazado', 'error_envio', 'error'].includes(s)) return '#dc2626';
     return '#64748b';
@@ -356,8 +358,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           <Ionicons name="arrow-back" size={22} color="#FFF" />
         </TouchableOpacity>
         <View style={{ flex: 1, marginLeft: 12 }}>
-          <Text style={styles.headerEyebrow}>ACCEDIENDO A</Text>
-          <Text style={styles.headerTitle}>PROVEEDOR EXTERNO</Text>
+          <Text style={styles.headerEyebrow}>Portal Seguro</Text>
+          <Text style={styles.headerTitle}>X-Pay</Text>
           <View style={styles.headerDividerRow}>
             <View style={styles.headerDividerOrange} />
             <View style={styles.headerDividerRed} />
@@ -370,22 +372,22 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
       {/* Form */}
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>📄 {t('entangled.newRequest')}</Text>
+        <Text style={styles.sectionTitle}>📄 {t('xpay.newRequest', t('entangled.newRequest') as string)}</Text>
 
         {/* ¿Requiere factura? */}
-        <Text style={styles.label}>🧾 ¿Necesitas factura para este pago?</Text>
+        <Text style={styles.label}>🧾 {t('xpay.invoiceQuestion')}</Text>
         <View style={{ flexDirection: 'row', marginBottom: 8 }}>
           <TouchableOpacity
             style={[styles.chip, !requiereFactura && styles.chipActive]}
             onPress={() => setRequiereFactura(false)}
           >
-            <Text style={[styles.chipText, !requiereFactura && styles.chipTextActive]}>No, sin factura</Text>
+            <Text style={[styles.chipText, !requiereFactura && styles.chipTextActive]}>{t('xpay.invoiceNo')}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.chip, requiereFactura && styles.chipActive]}
             onPress={() => setRequiereFactura(true)}
           >
-            <Text style={[styles.chipText, requiereFactura && styles.chipTextActive]}>Sí, quiero factura (CFDI)</Text>
+            <Text style={[styles.chipText, requiereFactura && styles.chipTextActive]}>{t('xpay.invoiceYes')}</Text>
           </TouchableOpacity>
         </View>
 
@@ -395,19 +397,19 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             {/* Card de datos fiscales precargados */}
             {rfc && razon && !editingFiscalData && (
               <View style={styles.infoCardSuccess}>
-                <Text style={styles.infoCardTitleSuccess}>✅ Datos fiscales cargados</Text>
-                <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>Razón Social:</Text> {razon}</Text>
-                <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>RFC:</Text> {rfc}</Text>
-                <Text style={[styles.infoCardLine, { marginBottom: 8 }]}><Text style={styles.infoCardLineLabel}>C.P.:</Text> {cp}</Text>
+                <Text style={styles.infoCardTitleSuccess}>✅ {t('xpay.fiscalLoaded')}</Text>
+                <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>{t('xpay.razonSocialLabel')}:</Text> {razon}</Text>
+                <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>{t('xpay.rfcLabel')}:</Text> {rfc}</Text>
+                <Text style={[styles.infoCardLine, { marginBottom: 8 }]}><Text style={styles.infoCardLineLabel}>{t('xpay.cpLabel')}:</Text> {cp}</Text>
                 <TouchableOpacity onPress={() => setEditingFiscalData(true)}>
-                  <Text style={styles.editLink}>✏️ Editar datos</Text>
+                  <Text style={styles.editLink}>✏️ {t('xpay.editData')}</Text>
                 </TouchableOpacity>
               </View>
             )}
 
             {(!rfc || !razon || editingFiscalData) && (
               <>
-                <Text style={[styles.sectionTitle, { fontSize: 14, marginTop: 12 }]}>📋 Datos fiscales</Text>
+                <Text style={[styles.sectionTitle, { fontSize: 14, marginTop: 12 }]}>📋 {t('xpay.fiscalDataSection')}</Text>
 
                 <Text style={styles.label}>{t('entangled.fields.rfc')}</Text>
                 <TextInput style={styles.input} value={rfc} onChangeText={t => setRfc(t.toUpperCase())} autoCapitalize="characters" />
@@ -449,7 +451,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 <Text style={styles.label}>{t('entangled.fields.email')}</Text>
                 <TextInput style={styles.input} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
 
-                <Text style={styles.label}>{t('entangled.fields.concepts')} (separados por coma, opcional)</Text>
+                <Text style={styles.label}>{t('entangled.fields.concepts')} {t('xpay.conceptsHelp')}</Text>
                 <TextInput style={styles.input} value={conceptos} onChangeText={setConceptos} placeholder="84111506, 90121800" />
               </>
             )}
@@ -457,17 +459,17 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         )}
 
         {/* Proveedor de envío (beneficiario) */}
-        <Text style={[styles.sectionTitle, { fontSize: 14, marginTop: 16 }]}>🏦 Proveedor de envío (beneficiario)</Text>
+        <Text style={[styles.sectionTitle, { fontSize: 14, marginTop: 16 }]}>🏦 {t('xpay.supplierSection')}</Text>
 
         {savedSuppliers.length > 0 && (
           <>
-            <Text style={styles.label}>Proveedor</Text>
+            <Text style={styles.label}>{t('xpay.supplierLabel')}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
               <TouchableOpacity
                 style={[styles.chip, selectedSupplierId === 'new' && styles.chipActive]}
                 onPress={() => handlePickSupplier('new')}
               >
-                <Text style={[styles.chipText, selectedSupplierId === 'new' && styles.chipTextActive]}>+ Nuevo</Text>
+                <Text style={[styles.chipText, selectedSupplierId === 'new' && styles.chipTextActive]}>{t('xpay.newSupplier')}</Text>
               </TouchableOpacity>
               {savedSuppliers.map(s => (
                 <TouchableOpacity
@@ -485,16 +487,16 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             {/* Card de proveedor seleccionado */}
             {selectedSupplierId !== 'new' && savedSuppliers.find(s => s.id === selectedSupplierId) && !editingSupplierData && (
               <View style={styles.infoCardOrange}>
-                <Text style={styles.infoCardTitleOrange}>✅ Proveedor seleccionado</Text>
-                <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>Beneficiario:</Text> {savedSuppliers.find(s => s.id === selectedSupplierId)?.nombre_beneficiario}</Text>
+                <Text style={styles.infoCardTitleOrange}>✅ {t('xpay.supplierSelected')}</Text>
+                <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>{t('xpay.beneficiary')}:</Text> {savedSuppliers.find(s => s.id === selectedSupplierId)?.nombre_beneficiario}</Text>
                 {savedSuppliers.find(s => s.id === selectedSupplierId)?.banco_nombre && (
-                  <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>Banco:</Text> {savedSuppliers.find(s => s.id === selectedSupplierId)?.banco_nombre}</Text>
+                  <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>{t('xpay.bank')}:</Text> {savedSuppliers.find(s => s.id === selectedSupplierId)?.banco_nombre}</Text>
                 )}
                 {savedSuppliers.find(s => s.id === selectedSupplierId)?.numero_cuenta && (
-                  <Text style={[styles.infoCardLine, { marginBottom: 8 }]}><Text style={styles.infoCardLineLabel}>Cuenta:</Text> ...{savedSuppliers.find(s => s.id === selectedSupplierId)?.numero_cuenta.slice(-4)}</Text>
+                  <Text style={[styles.infoCardLine, { marginBottom: 8 }]}><Text style={styles.infoCardLineLabel}>{t('xpay.account')}:</Text> ...{savedSuppliers.find(s => s.id === selectedSupplierId)?.numero_cuenta.slice(-4)}</Text>
                 )}
                 <TouchableOpacity onPress={() => setEditingSupplierData(true)}>
-                  <Text style={styles.editLink}>✏️ Editar datos</Text>
+                  <Text style={styles.editLink}>✏️ {t('xpay.editData')}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -503,35 +505,35 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
         {(selectedSupplierId === 'new' || editingSupplierData) && (
           <>
-            <Text style={styles.label}>Nombre del beneficiario *</Text>
+            <Text style={styles.label}>{t('xpay.beneficiaryName')}</Text>
             <TextInput style={styles.input} value={benefName} onChangeText={setBenefName} />
 
             {divisa === 'RMB' && (
               <>
-                <Text style={styles.label}>Nombre en chino *</Text>
+                <Text style={styles.label}>{t('xpay.chineseName')}</Text>
                 <TextInput style={styles.input} value={benefNameZh} onChangeText={setBenefNameZh} />
               </>
             )}
 
-            <Text style={styles.label}>Dirección del beneficiario</Text>
+            <Text style={styles.label}>{t('xpay.beneficiaryAddress')}</Text>
             <TextInput style={styles.input} value={benefAddress} onChangeText={setBenefAddress} />
 
-            <Text style={styles.label}>Número de cuenta *</Text>
+            <Text style={styles.label}>{t('xpay.accountNumber')}</Text>
             <TextInput style={styles.input} value={benefAccount} onChangeText={setBenefAccount} />
 
-            <Text style={styles.label}>Banco *</Text>
+            <Text style={styles.label}>{t('xpay.bankName')}</Text>
             <TextInput style={styles.input} value={benefBankName} onChangeText={setBenefBankName} />
 
-            <Text style={styles.label}>Dirección del banco</Text>
+            <Text style={styles.label}>{t('xpay.bankAddress')}</Text>
             <TextInput style={styles.input} value={benefBankAddress} onChangeText={setBenefBankAddress} />
 
-            <Text style={styles.label}>SWIFT / BIC</Text>
+            <Text style={styles.label}>{t('xpay.swift')}</Text>
             <TextInput style={styles.input} value={benefSwift} onChangeText={setBenefSwift} autoCapitalize="characters" />
 
-            <Text style={styles.label}>ABA / Routing (USD)</Text>
+            <Text style={styles.label}>{t('xpay.aba')}</Text>
             <TextInput style={styles.input} value={benefAba} onChangeText={setBenefAba} keyboardType="numeric" />
 
-            <Text style={styles.label}>Alias (opcional, para reutilizar)</Text>
+            <Text style={styles.label}>{t('xpay.aliasOptional')}</Text>
             <TextInput style={styles.input} value={benefAlias} onChangeText={setBenefAlias} />
 
             {selectedSupplierId === 'new' && (
@@ -545,7 +547,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   color={ORANGE}
                 />
                 <Text style={{ marginLeft: 8, color: TEXT_DIM, fontSize: 13 }}>
-                  Guardar este proveedor para próximas solicitudes
+                  {t('xpay.saveSupplierFuture')}
                 </Text>
               </TouchableOpacity>
             )}
@@ -553,12 +555,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         )}
 
         {/* Monto y divisa */}
-        <Text style={[styles.sectionTitle, { fontSize: 14, marginTop: 16 }]}>💵 Monto a enviar</Text>
+        <Text style={[styles.sectionTitle, { fontSize: 14, marginTop: 16 }]}>💵 {t('xpay.amountSection')}</Text>
 
-        <Text style={styles.label}>Proveedor ENTANGLED</Text>
+        <Text style={styles.label}>{t('xpay.entangledProvider')}</Text>
         {providers.length === 0 ? (
           <Text style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 8 }}>
-            No hay proveedores activos configurados.
+            {t('xpay.noProviders')}
           </Text>
         ) : (
           <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
@@ -594,38 +596,38 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         {/* Cotización */}
         {quote && (
           <View style={styles.quoteBox}>
-            <Text style={styles.quoteTitle}>Cotización</Text>
+            <Text style={styles.quoteTitle}>{t('xpay.quoteTitle')}</Text>
             <Text style={styles.quoteLine}>
-              Monto a enviar: <Text style={styles.quoteVal}>${Number(monto).toLocaleString()} {divisa}</Text>
+              {t('xpay.quoteAmountToSend')}: <Text style={styles.quoteVal}>${Number(monto).toLocaleString()} {divisa}</Text>
             </Text>
             <Text style={styles.quoteLine}>
-              Tipo de cambio: <Text style={styles.quoteVal}>${quote.tipo_cambio.toFixed(4)} MXN/{divisa}</Text>
+              {t('xpay.quoteFxRate')}: <Text style={styles.quoteVal}>${quote.tipo_cambio.toFixed(4)} MXN/{divisa}</Text>
             </Text>
             <Text style={styles.quoteLine}>
-              Subtotal MXN: <Text style={styles.quoteVal}>${quote.monto_mxn_base.toFixed(2)}</Text>
+              {t('xpay.quoteSubtotalMxn')}: <Text style={styles.quoteVal}>${quote.monto_mxn_base.toFixed(2)}</Text>
             </Text>
             <Text style={styles.quoteLine}>
-              Comisión ({quote.porcentaje_compra}%): <Text style={styles.quoteVal}>
+              {t('xpay.quoteCommission')} ({quote.porcentaje_compra}%): <Text style={styles.quoteVal}>
                 ${quote.monto_mxn_comision.toFixed(2)}
               </Text>
             </Text>
             {quote.monto_mxn_costo_op > 0 && (
               <Text style={styles.quoteLine}>
-                Costo operación ({quote.costo_operacion_usd} USD × {quote.tipo_cambio.toFixed(4)}): <Text style={styles.quoteVal}>
+                {t('xpay.quoteOpCost')} ({quote.costo_operacion_usd} USD × {quote.tipo_cambio.toFixed(4)}): <Text style={styles.quoteVal}>
                   ${quote.monto_mxn_costo_op.toFixed(2)}
                 </Text>
               </Text>
             )}
             <View style={styles.quoteDivider} />
             <Text style={styles.quoteTotal}>
-              Total a pagar: ${quote.monto_mxn_total.toFixed(2)} MXN
+              {t('xpay.quoteTotalToPay')}: ${quote.monto_mxn_total.toFixed(2)} MXN
             </Text>
           </View>
         )}
 
         <View style={styles.infoBanner}>
           <Text style={styles.infoBannerText}>
-            ℹ️ El comprobante de tu transferencia se sube después, una vez recibas las instrucciones de pago.
+            {t('xpay.proofLater')}
           </Text>
         </View>
 
@@ -659,12 +661,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             <View style={styles.statusRow}>
               <View style={[styles.statusPill, { borderColor: statusColor(r.estatus_factura) }]}>
                 <Text style={[styles.statusPillText, { color: statusColor(r.estatus_factura) }]}>
-                  Factura: {r.estatus_factura || '-'}
+                  {t('xpay.facturaLabel')}: {r.estatus_factura || '-'}
                 </Text>
               </View>
               <View style={[styles.statusPill, { borderColor: statusColor(r.estatus_proveedor) }]}>
                 <Text style={[styles.statusPillText, { color: statusColor(r.estatus_proveedor) }]}>
-                  Proveedor: {r.estatus_proveedor || '-'}
+                  {t('xpay.providerLabel')}: {r.estatus_proveedor || '-'}
                 </Text>
               </View>
             </View>
@@ -677,8 +679,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               )}
               {r.comprobante_proveedor_url && (
                 <TouchableOpacity style={styles.linkBtn} onPress={() => Linking.openURL(r.comprobante_proveedor_url!)}>
-                  <Ionicons name="checkmark-done-outline" size={14} color="#16a34a" />
-                  <Text style={[styles.linkText, { color: '#16a34a' }]}>{t('entangled.actions.viewProof')}</Text>
+                  <Ionicons name="checkmark-done-outline" size={14} color={ORANGE} />
+                  <Text style={[styles.linkText, { color: ORANGE }]}>{t('entangled.actions.viewProof')}</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -770,11 +772,11 @@ const styles = StyleSheet.create({
   quoteTotal: { color: ORANGE, fontWeight: '800', fontSize: 15 },
   // Info cards
   infoCardSuccess: {
-    backgroundColor: 'rgba(16,185,129,0.1)',
-    borderWidth: 1, borderColor: 'rgba(16,185,129,0.4)',
+    backgroundColor: 'rgba(240,90,40,0.1)',
+    borderWidth: 1, borderColor: 'rgba(240,90,40,0.4)',
     borderRadius: 10, padding: 12, marginBottom: 12,
   },
-  infoCardTitleSuccess: { fontSize: 14, fontWeight: '700', color: '#34D399', marginBottom: 8 },
+  infoCardTitleSuccess: { fontSize: 14, fontWeight: '700', color: ORANGE, marginBottom: 8 },
   infoCardOrange: {
     backgroundColor: 'rgba(240,90,40,0.1)',
     borderWidth: 1, borderColor: 'rgba(240,90,40,0.4)',

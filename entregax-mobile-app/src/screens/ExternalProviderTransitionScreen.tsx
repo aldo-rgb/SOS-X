@@ -9,6 +9,7 @@ import {
   StatusBar,
 } from 'react-native';
 import { Icon } from 'react-native-paper';
+import { useTranslation } from 'react-i18next';
 
 const { width, height } = Dimensions.get('window');
 
@@ -23,12 +24,13 @@ interface Props {
 }
 
 /**
- * Pantalla de transición "Accediendo a Proveedor Externo".
+ * Pantalla de transición "Accediendo a X-Pay".
  * Diseño corporativo oscuro con acentos naranjas/rojos.
  * Después de ~1.8s navega (replace) al destino real.
  */
 export default function ExternalProviderTransitionScreen({ navigation, route }: Props) {
-  const { user, token, target = 'SupplierPayment', label = 'Proveedor Externo' } = route.params || {};
+  const { t } = useTranslation();
+  const { user, token, target = 'SupplierPayment', label = 'X-Pay' } = route.params || {};
 
   // Animations
   const fadeIn = useRef(new Animated.Value(0)).current;
@@ -161,7 +163,7 @@ export default function ExternalProviderTransitionScreen({ navigation, route }: 
 
         {/* Branding */}
         <Animated.Text style={[styles.title, { opacity: fadeIn }]}>
-          ACCEDIENDO A
+          {(t('xpay.accessing') as string).toUpperCase()}
         </Animated.Text>
         <Animated.Text style={[styles.brand, { opacity: fadeIn }]}>
           {label.toUpperCase()}
@@ -175,7 +177,7 @@ export default function ExternalProviderTransitionScreen({ navigation, route }: 
 
         {/* Subtítulo */}
         <Animated.Text style={[styles.subtitle, { opacity: subtitleFade }]}>
-          Conexión segura cifrada
+          {t('xpay.transitionSubtitle')}
         </Animated.Text>
 
         {/* Dots animados */}
@@ -194,7 +196,7 @@ export default function ExternalProviderTransitionScreen({ navigation, route }: 
         {/* Sello inferior */}
         <Animated.View style={[styles.poweredBy, { opacity: subtitleFade }]}>
           <View style={styles.shieldDot} />
-          <Text style={styles.poweredByText}>SECURE GATEWAY · ENTREGAX</Text>
+          <Text style={styles.poweredByText}>{t('xpay.secureGateway')}</Text>
           <View style={styles.shieldDot} />
         </Animated.View>
       </Animated.View>

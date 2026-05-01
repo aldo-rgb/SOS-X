@@ -1534,7 +1534,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   user,
                   token,
                   target: 'SupplierPayment',
-                  label: 'Proveedor Externo',
+                  label: 'X-Pay',
                 });
               }}
             >

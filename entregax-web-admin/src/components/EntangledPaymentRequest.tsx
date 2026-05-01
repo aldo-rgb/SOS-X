@@ -42,6 +42,11 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
+import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
+import ShieldOutlinedIcon from '@mui/icons-material/ShieldOutlined';
+import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import EntangledSupplierForm, { EMPTY_SUPPLIER } from './EntangledSupplierForm';
@@ -95,27 +100,47 @@ const USOS_CFDI = [
 
 const DIVISAS = ['USD', 'RMB'];
 
-const statusColor = (s: string): 'default' | 'warning' | 'info' | 'success' | 'error' => {
-  switch (s) {
-    case 'completado':
-    case 'emitida':
-      return 'success';
-    case 'en_proceso':
-    case 'enviado':
-      return 'info';
-    case 'pendiente':
-      return 'warning';
-    case 'rechazado':
-    case 'error_envio':
-      return 'error';
-    default:
-      return 'default';
-  }
-};
-
 const formatDate = (s: string | null) => (s ? new Date(s).toLocaleString() : '—');
 const formatMoney = (v: number | string) =>
   Number(v).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+// Soft fintech-style status badge — translucent fill + thin border
+const STATUS_PALETTE: Record<string, { bg: string; bd: string; fg: string }> = {
+  completado: { bg: 'rgba(16,185,129,0.12)', bd: 'rgba(16,185,129,0.45)', fg: '#34d399' },
+  emitida:    { bg: 'rgba(16,185,129,0.12)', bd: 'rgba(16,185,129,0.45)', fg: '#34d399' },
+  enviado:    { bg: 'rgba(59,130,246,0.12)', bd: 'rgba(59,130,246,0.45)', fg: '#60a5fa' },
+  en_proceso: { bg: 'rgba(59,130,246,0.12)', bd: 'rgba(59,130,246,0.45)', fg: '#60a5fa' },
+  pendiente:  { bg: 'rgba(156,163,175,0.10)', bd: 'rgba(156,163,175,0.35)', fg: '#d1d5db' },
+  rechazado:  { bg: 'rgba(248,113,113,0.12)', bd: 'rgba(248,113,113,0.45)', fg: '#fca5a5' },
+  error_envio:{ bg: 'rgba(248,113,113,0.14)', bd: 'rgba(248,113,113,0.5)',  fg: '#fca5a5' },
+};
+const StatusBadge: React.FC<{ status: string; label: string; variant?: 'solid' | 'outline' }> = ({ status, label, variant = 'solid' }) => {
+  const palette = STATUS_PALETTE[status] || { bg: 'rgba(156,163,175,0.08)', bd: 'rgba(156,163,175,0.3)', fg: '#9ca3af' };
+  return (
+    <Box
+      component="span"
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 0.7,
+        bgcolor: variant === 'solid' ? palette.bg : 'transparent',
+        border: `1px solid ${palette.bd}`,
+        color: palette.fg,
+        fontSize: '0.72rem',
+        fontWeight: 600,
+        letterSpacing: '0.02em',
+        px: 1.2,
+        py: 0.4,
+        borderRadius: '999px',
+        textTransform: 'capitalize',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: palette.fg }} />
+      {label.replace(/_/g, ' ')}
+    </Box>
+  );
+};
 
 interface Props {
   /** Cuando true, oculta el header del componente (útil si se mete dentro de otra página). */
@@ -585,28 +610,80 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   };
 
   return (
-    <Box sx={{ p: { xs: 2, md: 3 }, bgcolor: '#000000', minHeight: '100vh', color: '#ffffff' }}>
+    <Box sx={{ p: { xs: 2, md: 4 }, bgcolor: '#0a0a0c', minHeight: '100vh', color: '#ffffff', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
       {!hideHeader && (
-        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 3, pb: 2, borderBottom: '1px solid #333333' }}>
-          <Box>
-            <Typography variant="h5" fontWeight={700} sx={{ color: ORANGE, mb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-              🔒 {t('paymentHub.title')}
-            </Typography>
-            <Typography variant="body2" sx={{ color: '#888888', fontFamily: 'monospace', fontSize: '0.875rem' }}>
-              {t('paymentHub.subtitle')}
-            </Typography>
-          </Box>
-          <Stack direction="row" spacing={1}>
-            <Tooltip title="↻">
-              <IconButton onClick={loadRequests} disabled={loading} sx={{ color: ORANGE }}>
-                <RefreshIcon />
+        <Stack
+          direction={{ xs: 'column', md: 'row' }}
+          justifyContent="space-between"
+          alignItems={{ xs: 'flex-start', md: 'center' }}
+          spacing={2}
+          sx={{ mb: 4, pb: 3, borderBottom: '1px solid rgba(255,255,255,0.06)' }}
+        >
+          <Stack direction="row" spacing={2} alignItems="center">
+            <Box
+              sx={{
+                width: 44,
+                height: 44,
+                borderRadius: '12px',
+                background: 'linear-gradient(135deg, rgba(255,107,0,0.18), rgba(193,39,45,0.12))',
+                border: '1px solid rgba(255,107,0,0.35)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <AccountBalanceWalletOutlinedIcon sx={{ color: '#ff6b00', fontSize: 24 }} />
+            </Box>
+            <Box>
+              <Typography
+                sx={{
+                  color: '#ffffff',
+                  fontSize: { xs: '1.05rem', md: '1.25rem' },
+                  fontWeight: 800,
+                  letterSpacing: '0.02em',
+                  lineHeight: 1.2,
+                }}
+              >
+                {t('xpay.portalTitle')}
+              </Typography>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#10b981', boxShadow: '0 0 8px rgba(16,185,129,0.6)' }} />
+                <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem', letterSpacing: '0.04em' }}>
+                  {t('xpay.gatewayActive')}
+                </Typography>
+              </Stack>
+            </Box>
+          </Stack>
+          <Stack direction="row" spacing={1.2}>
+            <Tooltip title={t('xpay.refresh') as string}>
+              <IconButton
+                onClick={loadRequests}
+                disabled={loading}
+                sx={{
+                  color: '#ff6b00',
+                  border: '1px solid rgba(255,107,0,0.3)',
+                  borderRadius: '10px',
+                  width: 40, height: 40,
+                  '&:hover': { bgcolor: 'rgba(255,107,0,0.08)', borderColor: '#ff6b00' },
+                }}
+              >
+                <RefreshIcon fontSize="small" />
               </IconButton>
             </Tooltip>
             <Button
               variant="outlined"
               startIcon={<ContactsIcon />}
               onClick={() => setSuppliersDialogOpen(true)}
-              sx={{ borderColor: ORANGE, color: ORANGE, '&:hover': { bgcolor: 'rgba(240, 90, 40, 0.1)' } }}
+              sx={{
+                borderColor: 'rgba(255,107,0,0.5)',
+                color: '#ff6b00',
+                fontWeight: 600,
+                textTransform: 'none',
+                borderRadius: '10px',
+                px: 2.2,
+                letterSpacing: '0.01em',
+                '&:hover': { bgcolor: 'rgba(255,107,0,0.08)', borderColor: '#ff6b00' },
+              }}
             >
               {t('entangled.suppliers.manage', 'Mis proveedores')}
             </Button>
@@ -614,7 +691,16 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               variant="contained"
               startIcon={<AddIcon />}
               onClick={() => setDialogOpen(true)}
-              sx={{ bgcolor: ORANGE, color: '#ffffff', fontWeight: 600, '&:hover': { bgcolor: '#D94A1F' } }}
+              sx={{
+                bgcolor: '#ff6b00',
+                color: '#ffffff',
+                fontWeight: 700,
+                textTransform: 'none',
+                borderRadius: '10px',
+                px: 2.5,
+                boxShadow: '0 8px 24px rgba(255,107,0,0.35)',
+                '&:hover': { bgcolor: '#e85d00', boxShadow: '0 10px 28px rgba(255,107,0,0.5)' },
+              }}
             >
               {t('entangled.newRequest')}
             </Button>
@@ -622,26 +708,57 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         </Stack>
       )}
 
-      <Alert severity="info" sx={{ mb: 3, bgcolor: '#0a2a4a', border: '1px solid #1a5a9a', color: '#ffffff' }}>
-        <Typography variant="subtitle2" fontWeight={700} sx={{ color: '#3b82f6' }}>
-          {t('entangled.howItWorks')}
-        </Typography>
-        <Typography variant="body2" sx={{ color: '#aaaaaa' }}>{t('entangled.howItWorksDesc')}</Typography>
-      </Alert>
+      {/* Info box - estilo fintech: negro con borde naranja fino */}
+      <Box
+        sx={{
+          mb: 3,
+          p: 2.5,
+          borderRadius: '12px',
+          bgcolor: 'rgba(255,255,255,0.02)',
+          border: '1px solid rgba(255,107,0,0.25)',
+          display: 'flex',
+          gap: 2,
+          alignItems: 'flex-start',
+        }}
+      >
+        <Box
+          sx={{
+            width: 32, height: 32, borderRadius: '50%',
+            border: '1.5px solid #ff6b00',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            flexShrink: 0,
+          }}
+        >
+          <InfoOutlinedIcon sx={{ color: '#ff6b00', fontSize: 18 }} />
+        </Box>
+        <Box sx={{ flex: 1 }}>
+          <Typography
+            sx={{
+              color: '#ffffff', fontWeight: 700, fontSize: '0.92rem',
+              letterSpacing: '0.02em', mb: 0.4,
+            }}
+          >
+            {t('entangled.howItWorks', '¿Cómo funciona?')}
+          </Typography>
+          <Typography sx={{ color: '#9ca3af', fontSize: '0.85rem', lineHeight: 1.55 }}>
+            {t('xpay.howItWorksDesc')}
+          </Typography>
+        </Box>
+      </Box>
 
-      <Paper variant="outlined" sx={{ bgcolor: '#1a1a1a', border: '1px solid #333333', borderRadius: 1, mb: 3 }}>
+      <Paper variant="outlined" sx={{ bgcolor: '#0f0f12', border: '1px solid rgba(255,255,255,0.06)', borderRadius: '12px', mb: 3, overflow: 'hidden' }}>
         <TableContainer>
           <Table size="small">
             <TableHead>
-              <TableRow sx={{ bgcolor: '#0a0a0a', borderBottom: '1px solid #333333' }}>
-                <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>#</TableCell>
-                <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>{t('entangled.fields.razonSocial')}</TableCell>
-                <TableCell align="right" sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>{t('entangled.fields.amount')}</TableCell>
-                <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>{t('entangled.fields.currency')}</TableCell>
-                <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>{t('entangled.status.global')}</TableCell>
-                <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>{t('entangled.status.factura')}</TableCell>
-                <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>{t('entangled.status.proveedor')}</TableCell>
-                <TableCell align="center" sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>{t('common.actions')}</TableCell>
+              <TableRow sx={{ bgcolor: '#08080a', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                <TableCell sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>#</TableCell>
+                <TableCell sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>{t('entangled.fields.razonSocial')}</TableCell>
+                <TableCell align="right" sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>{t('entangled.fields.amount')}</TableCell>
+                <TableCell sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>{t('entangled.fields.currency')}</TableCell>
+                <TableCell sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>{t('entangled.status.global')}</TableCell>
+                <TableCell sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>{t('entangled.status.factura')}</TableCell>
+                <TableCell sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>{t('entangled.status.proveedor')}</TableCell>
+                <TableCell align="center" sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>{t('common.actions')}</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -661,7 +778,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                 </TableRow>
               ) : (
                 requests.map((r) => (
-                  <TableRow key={r.id} hover sx={{ bgcolor: '#1a1a1a', '&:hover': { bgcolor: '#242424' }, borderBottom: '1px solid #2a2a2a' }}>
+                  <TableRow key={r.id} hover sx={{ bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.025)' }, borderBottom: '1px solid rgba(255,255,255,0.04)', '& td': { borderBottom: '1px solid rgba(255,255,255,0.04)' } }}>
                     <TableCell sx={{ color: '#ffffff' }}>{r.id}</TableCell>
                     <TableCell>
                       <Typography variant="body2" fontWeight={600} sx={{ color: '#ffffff' }}>
@@ -674,30 +791,13 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                     <TableCell align="right" sx={{ color: ORANGE, fontWeight: 600 }}>${formatMoney(r.op_monto)}</TableCell>
                     <TableCell sx={{ color: '#aaaaaa' }}>{r.op_divisa_destino}</TableCell>
                     <TableCell>
-                      <Chip
-                        label={t(`entangled.status.${r.estatus_global}`, r.estatus_global)}
-                        color={statusColor(r.estatus_global)}
-                        size="small"
-                        sx={{ fontWeight: 600 }}
-                      />
+                      <StatusBadge status={r.estatus_global} label={t(`entangled.status.${r.estatus_global}`, r.estatus_global)} />
                     </TableCell>
                     <TableCell>
-                      <Chip
-                        label={t(`entangled.status.${r.estatus_factura}`, r.estatus_factura)}
-                        color={statusColor(r.estatus_factura)}
-                        size="small"
-                        variant="outlined"
-                        sx={{ fontWeight: 600 }}
-                      />
+                      <StatusBadge status={r.estatus_factura} label={t(`entangled.status.${r.estatus_factura}`, r.estatus_factura)} variant="outline" />
                     </TableCell>
                     <TableCell>
-                      <Chip
-                        label={t(`entangled.status.${r.estatus_proveedor}`, r.estatus_proveedor)}
-                        color={statusColor(r.estatus_proveedor)}
-                        size="small"
-                        variant="outlined"
-                        sx={{ fontWeight: 600 }}
-                      />
+                      <StatusBadge status={r.estatus_proveedor} label={t(`entangled.status.${r.estatus_proveedor}`, r.estatus_proveedor)} variant="outline" />
                     </TableCell>
                     <TableCell align="center">
                       <Stack direction="row" spacing={0.5} justifyContent="center">
@@ -776,6 +876,42 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           </Table>
         </TableContainer>
       </Paper>
+
+      {/* Footer de seguridad: certificaciones financieras */}
+      <Box
+        sx={{
+          mt: 4,
+          pt: 3,
+          borderTop: '1px solid rgba(255,255,255,0.05)',
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: { xs: 2, md: 4 },
+        }}
+      >
+        {[
+          { Icon: ShieldOutlinedIcon, label: 'ISO 27001', sub: t('xpay.certIsoSub', 'Certified') as string },
+          { Icon: VerifiedUserOutlinedIcon, label: 'PCI-DSS', sub: t('xpay.certPciSub', 'Compliant') as string },
+          { Icon: LockOutlinedIcon, label: 'AES-256', sub: t('xpay.certAesSub', 'Bank-level Encryption') as string },
+          { Icon: AccountBalanceWalletOutlinedIcon, label: 'SWIFT/BIC', sub: t('xpay.certSwiftSub', 'Network Verified') as string },
+        ].map(({ Icon, label, sub }) => (
+          <Stack key={label} direction="row" spacing={1.2} alignItems="center" sx={{ opacity: 0.55, transition: 'opacity 0.2s', '&:hover': { opacity: 1 } }}>
+            <Icon sx={{ color: '#9ca3af', fontSize: 22 }} />
+            <Box>
+              <Typography sx={{ color: '#e5e7eb', fontSize: '0.78rem', fontWeight: 700, letterSpacing: '0.05em', lineHeight: 1.1 }}>
+                {label}
+              </Typography>
+              <Typography sx={{ color: '#6b7280', fontSize: '0.68rem', letterSpacing: '0.04em', lineHeight: 1.1 }}>
+                {sub}
+              </Typography>
+            </Box>
+          </Stack>
+        ))}
+      </Box>
+      <Typography sx={{ mt: 2, color: '#4b5563', fontSize: '0.7rem', textAlign: 'center', letterSpacing: '0.04em' }}>
+        {t('xpay.footerCopyright', { year: new Date().getFullYear() })}
+      </Typography>
 
       {/* Dialog: nueva solicitud — formulario completo en una sola pantalla */}
       <Dialog

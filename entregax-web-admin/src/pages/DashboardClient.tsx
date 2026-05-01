@@ -4590,7 +4590,7 @@ export default function DashboardClient() {
             }}
           >
             <Tab icon={<ShippingIcon />} label={t('cd.tabs.shipments')} iconPosition="start" />
-            <Tab icon={<PaymentsIcon />} label="Pago Proveedores" iconPosition="start" />
+            <Tab icon={<PaymentsIcon />} label={t('xpay.tabLabel', 'X-Pay')} iconPosition="start" />
             <Tab icon={<CalculateIcon />} label={t('cd.tabs.quoter')} iconPosition="start" />
             <Tab icon={<WalletIcon />} label="Mi Cuenta" iconPosition="start" />
             <Tab icon={<ReceiptIcon />} label={t('cd.tabs.invoices')} iconPosition="start" />

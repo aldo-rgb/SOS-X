@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Box, IconButton, Tooltip } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
+import { useTranslation } from 'react-i18next';
 import EntangledPaymentRequest from '../components/EntangledPaymentRequest';
 
 const DARK = '#0A0A0A';
@@ -19,6 +20,7 @@ interface ExternalProviderPageProps {
  * y luego renderiza el módulo EntangledPaymentRequest a página completa.
  */
 const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack }) => {
+  const { t } = useTranslation();
   const [showContent, setShowContent] = useState(false);
 
   useEffect(() => {
@@ -55,7 +57,7 @@ const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack }) =
             borderBottom: `2px solid ${ORANGE}`,
           }}
         >
-          <Tooltip title="Volver">
+          <Tooltip title={t('common.back', 'Volver') as string}>
             <IconButton onClick={onBack} sx={{ color: '#FFF' }}>
               <ArrowBackIcon />
             </IconButton>
@@ -63,9 +65,9 @@ const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack }) =
           <AccountBalanceIcon sx={{ color: ORANGE }} />
           <Box sx={{ display: 'flex', flexDirection: 'column' }}>
             <Box sx={{ fontSize: 11, color: '#999', letterSpacing: 2, textTransform: 'uppercase' }}>
-              Accediendo a
+              {t('xpay.accessing')}
             </Box>
-            <Box sx={{ fontSize: 16, fontWeight: 800, letterSpacing: 1 }}>PROVEEDOR EXTERNO</Box>
+            <Box sx={{ fontSize: 16, fontWeight: 800, letterSpacing: 1 }}>{t('xpay.title')}</Box>
           </Box>
           <Box sx={{ flex: 1 }} />
           <Box
@@ -76,7 +78,7 @@ const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack }) =
               display: { xs: 'none', md: 'block' },
             }}
           >
-            🔒 SECURE GATEWAY · ENTREGAX
+            🔒 {t('xpay.secureGateway')}
           </Box>
         </Box>
 
@@ -253,7 +255,7 @@ const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack }) =
           animation: 'fadeIn 0.8s ease-out',
         }}
       >
-        ACCEDIENDO A
+        {(t('xpay.accessing') as string).toUpperCase()}
       </Box>
       <Box
         sx={{
@@ -265,7 +267,7 @@ const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack }) =
           animation: 'fadeIn 1s ease-out',
         }}
       >
-        PROVEEDOR EXTERNO
+        X-PAY
       </Box>
 
       {/* Línea decorativa */}
@@ -282,7 +284,7 @@ const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack }) =
           animation: 'fadeIn 1.2s ease-out',
         }}
       >
-        Conexión segura cifrada
+        {t('xpay.transitionSubtitle')}
       </Box>
 
       {/* Dots */}
@@ -316,7 +318,7 @@ const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack }) =
         }}
       >
         <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: ORANGE }} />
-        SECURE GATEWAY · ENTREGAX
+        {t('xpay.secureGateway')}
         <Box sx={{ width: 4, height: 4, borderRadius: '50%', bgcolor: ORANGE }} />
       </Box>
     </Box>
