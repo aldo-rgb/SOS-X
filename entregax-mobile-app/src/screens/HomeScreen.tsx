@@ -1915,7 +1915,13 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         // 📦 PO Box USA: Detectar si son paquetes en bodega o procesando
         const isPOBoxUSA = !shipmentType || shipmentType === 'air';
         const isProcessingSelection = isPOBoxUSA && firstSelectedPkg?.status === 'processing';
-        const isWarehouseSelection = isPOBoxUSA && firstSelectedPkg?.status === 'received';
+        // Bodega = recibido en USA, en tránsito a MTY, o ya recibido en CEDIS MTY.
+        // En todos esos casos el cliente aún puede asignar instrucciones de entrega.
+        const isWarehouseSelection = isPOBoxUSA && (
+          firstSelectedPkg?.status === 'received' ||
+          firstSelectedPkg?.status === 'in_transit' ||
+          firstSelectedPkg?.status === 'received_mty'
+        );
         
         // 🔍 Verificar si TODOS los paquetes seleccionados ya tienen instrucciones
         const allSelectedHaveInstructions = packages
