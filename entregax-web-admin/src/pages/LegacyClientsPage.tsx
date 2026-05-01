@@ -493,12 +493,13 @@ export default function LegacyClientsPage() {
               Formato esperado (con o sin encabezado):
             </Typography>
             <Paper sx={{ p: 1.5, bgcolor: 'grey.100', fontFamily: 'monospace', fontSize: 12 }}>
-              A: Casillero  &nbsp; B: Nombre  &nbsp; C: Correo  &nbsp; D: Teléfono<br/>
-              S3349 &nbsp; Francisco Javier Oliva Rivera &nbsp; digitalsalesbjx@gmail.com &nbsp; 4776419004<br/>
-              S3348 &nbsp; Ernesto Gabriel Briseño Tovar &nbsp; gargolos@gmail.com &nbsp; 3339017060
+              A: Casillero  &nbsp; B: Nombre  &nbsp; C: Correo<br/>
+              S3349 &nbsp; Francisco Javier Oliva Rivera &nbsp; digitalsalesbjx@gmail.com<br/>
+              S3348 &nbsp; Ernesto Gabriel Briseño Tovar &nbsp; gargolos@gmail.com
             </Paper>
             <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-              Columnas: <strong>A</strong>=casillero (S####), <strong>B</strong>=nombre, <strong>C</strong>=correo, <strong>D</strong>=teléfono.
+              Columnas: <strong>A</strong>=casillero (S####), <strong>B</strong>=nombre, <strong>C</strong>=correo.
+              Cualquier columna adicional (ej. teléfono) se ignora.
               Los duplicados (mismo casillero) se actualizan si aún no han sido reclamados.
             </Typography>
           </Box>

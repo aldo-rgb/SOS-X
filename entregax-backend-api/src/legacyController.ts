@@ -75,13 +75,6 @@ export const importLegacyClients = async (req: Request, res: Response): Promise<
         const fileName = (file.originalname || '').toLowerCase();
         const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.xlsm');
 
-        // Asegurar que la columna phone existe en legacy_clients (idempotente)
-        try {
-            await pool.query(`ALTER TABLE legacy_clients ADD COLUMN IF NOT EXISTS phone VARCHAR(50)`);
-        } catch (e) {
-            console.warn('[legacy/import] no se pudo asegurar columna phone:', (e as any)?.message);
-        }
-
         let lineas: string[] = [];
         let excelRows: string[][] = [];
 
@@ -131,7 +124,6 @@ export const importLegacyClients = async (req: Request, res: Response): Promise<
         let boxIdIndex = 0;
         let fullNameIndex = 1;
         let emailIndex = 2;
-        let phoneIndex = 3;
         let dateIndex = -1;
 
         if (hasHeader) {
@@ -141,27 +133,23 @@ export const importLegacyClients = async (req: Request, res: Response): Promise<
             const nameIdx = headerLower.findIndex(h => h.includes('nombre') || h.includes('name'));
             const emailIdx = headerLower.findIndex(h => h.includes('correo') || h.includes('email') || h.includes('mail'));
             const dateIdx = headerLower.findIndex(h => h.includes('fecha') || h.includes('date') || h.includes('alta'));
-            const phoneIdx = headerLower.findIndex(h => h.includes('tel') || h.includes('phone') || h.includes('celular') || h.includes('movil'));
 
             if (boxIdx !== -1) boxIdIndex = boxIdx;
             if (nameIdx !== -1) fullNameIndex = nameIdx;
             if (emailIdx !== -1) emailIndex = emailIdx;
             if (dateIdx !== -1) dateIndex = dateIdx;
-            if (phoneIdx !== -1) phoneIndex = phoneIdx;
         } else if (!isExcel && firstRow.length > 10) {
             // Formato legacy antiguo con muchas columnas (TSV del sistema viejo)
             boxIdIndex = 14;
             fullNameIndex = 3;
             emailIndex = 7;
-            phoneIndex = -1;
             dateIndex = -1;
         } else {
-            // Formato Excel del nuevo Acta de Clientes:
-            // A=Casillero, B=Nombre, C=Correo, D=Teléfono (sin header)
+            // Formato Excel del nuevo Acta de Clientes (sin header):
+            // A=Casillero, B=Nombre, C=Correo (col D = teléfono se ignora)
             boxIdIndex = 0;
             fullNameIndex = 1;
             emailIndex = 2;
-            phoneIndex = 3;
             dateIndex = -1;
         }
 
@@ -180,7 +168,6 @@ export const importLegacyClients = async (req: Request, res: Response): Promise<
                 const boxId = campos[boxIdIndex] || '';
                 const fullName = campos[fullNameIndex] || '';
                 const email = campos[emailIndex] || '';
-                const phone = phoneIndex >= 0 ? (campos[phoneIndex] || '') : '';
 
                 // Buscar fecha - primero en índice detectado, luego en última columna
                 let registrationDate: string | null = null;
@@ -213,23 +200,21 @@ export const importLegacyClients = async (req: Request, res: Response): Promise<
                     continue;
                 }
 
-                // Limpiar email, nombre y teléfono
+                // Limpiar email y nombre
                 const cleanEmail = email && email !== '\\N' && email !== '' ? email.toLowerCase().trim() : null;
                 const cleanName = fullName && fullName !== '\\N' && fullName !== '' ? fullName.trim() : null;
-                const cleanPhone = phone && phone !== '\\N' && phone !== '' ? String(phone).replace(/\s+/g, ' ').trim() : null;
                 const cleanBoxId = boxId.trim().toUpperCase();
 
-                // Insertar en la BD
+                // Insertar en la BD (sin teléfono - solo box_id, nombre, email, fecha)
                 const result = await pool.query(`
-                    INSERT INTO legacy_clients (box_id, full_name, email, phone, registration_date)
-                    VALUES ($1, $2, $3, $4, $5)
+                    INSERT INTO legacy_clients (box_id, full_name, email, registration_date)
+                    VALUES ($1, $2, $3, $4)
                     ON CONFLICT (box_id) DO UPDATE SET
                         full_name = COALESCE(EXCLUDED.full_name, legacy_clients.full_name),
-                        email = COALESCE(EXCLUDED.email, legacy_clients.email),
-                        phone = COALESCE(EXCLUDED.phone, legacy_clients.phone)
+                        email = COALESCE(EXCLUDED.email, legacy_clients.email)
                     WHERE legacy_clients.is_claimed = FALSE
                     RETURNING (xmax = 0) AS inserted
-                `, [cleanBoxId, cleanName, cleanEmail, cleanPhone, registrationDate]);
+                `, [cleanBoxId, cleanName, cleanEmail, registrationDate]);
 
                 if (result.rowCount && result.rowCount > 0) {
                     if ((result.rows[0] as any)?.inserted) {
@@ -247,7 +232,7 @@ export const importLegacyClients = async (req: Request, res: Response): Promise<
                     const sample = isExcel
                         ? (excelRows[i] || []).join(' | ')
                         : (lineas[i] || '').substring(0, 100);
-                    errorList.push(`Fila con error: ${sample}...`);
+                    errorList.push(`Fila con error: ${sample}... (${error?.message || 'error desconocido'})`);
                 }
             }
         }

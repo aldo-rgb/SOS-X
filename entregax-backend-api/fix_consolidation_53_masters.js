@@ -9,14 +9,19 @@ require('dotenv').config();
 const { Pool } = require('pg');
 
 const consolidationId = parseInt(process.argv[2] || '53', 10);
+const useRailway = process.argv.includes('--prod') || process.argv.includes('--railway');
 
-const pool = new Pool({
-    user: process.env.DB_USER,
-    host: process.env.DB_HOST,
-    database: process.env.DB_NAME,
-    password: process.env.DB_PASSWORD,
-    port: parseInt(process.env.DB_PORT || '5432', 10),
-});
+const pool = useRailway && process.env.DATABASE_URL
+    ? new Pool({ connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false } })
+    : new Pool({
+        user: process.env.DB_USER,
+        host: process.env.DB_HOST,
+        database: process.env.DB_NAME,
+        password: process.env.DB_PASSWORD,
+        port: parseInt(process.env.DB_PORT || '5432', 10),
+    });
+
+console.log(`🌐 Conexión: ${useRailway ? 'RAILWAY (producción)' : 'LOCAL (' + process.env.DB_NAME + ')'}`);
 
 (async () => {
     try {
