@@ -282,6 +282,14 @@ export default function LegacyClientsPage() {
         </Typography>
         <Box sx={{ display: 'flex', gap: 2 }}>
           <Button
+            variant="contained"
+            color="primary"
+            startIcon={<UploadIcon />}
+            onClick={() => { setUploadResult(null); setSelectedFile(null); setFilePreview(null); setUploadDialogOpen(true); }}
+          >
+            Importar Excel
+          </Button>
+          <Button
             variant="outlined"
             startIcon={<RefreshIcon />}
             onClick={() => { fetchStats(); fetchClients(); }}
