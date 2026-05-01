@@ -3584,10 +3584,11 @@ export const getOutboundReadyPackages = async (_req: Request, res: Response): Pr
                 p.pkg_length,
                 p.pkg_width,
                 p.pkg_height,
-                u.box_id,
-                u.full_name as client_name
+                COALESCE(u.box_id, lc.box_id, p.box_id) as box_id,
+                COALESCE(u.full_name, lc.full_name) as client_name
             FROM packages p
-            JOIN users u ON p.user_id = u.id
+            LEFT JOIN users u ON p.user_id = u.id
+            LEFT JOIN legacy_clients lc ON lc.box_id = p.box_id
             LEFT JOIN packages master ON p.master_id = master.id
             WHERE p.tracking_internal LIKE 'US-%'
               AND p.status IN ('received', 'reempacado')
