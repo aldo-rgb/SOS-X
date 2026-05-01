@@ -267,7 +267,7 @@ const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack }) =
           animation: 'fadeIn 1s ease-out',
         }}
       >
-        X-PAY
+        {t('xpay.title')}
       </Box>
 
       {/* Línea decorativa */}

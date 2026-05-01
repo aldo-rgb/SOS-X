@@ -37,6 +37,15 @@ const USOS_CFDI = [
 
 const DIVISAS = ['USD', 'RMB'];
 
+const formatMoney = (value: number | string, decimals = 2) => {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return decimals > 0 ? `0.${'0'.repeat(decimals)}` : '0';
+  return n.toLocaleString('en-US', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
+};
+
 interface PaymentRequest {
   id: number;
   cf_rfc: string;
@@ -598,29 +607,29 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           <View style={styles.quoteBox}>
             <Text style={styles.quoteTitle}>{t('xpay.quoteTitle')}</Text>
             <Text style={styles.quoteLine}>
-              {t('xpay.quoteAmountToSend')}: <Text style={styles.quoteVal}>${Number(monto).toLocaleString()} {divisa}</Text>
+              {t('xpay.quoteAmountToSend')}: <Text style={styles.quoteVal}>${formatMoney(monto, 0)} {divisa}</Text>
             </Text>
             <Text style={styles.quoteLine}>
-              {t('xpay.quoteFxRate')}: <Text style={styles.quoteVal}>${quote.tipo_cambio.toFixed(4)} MXN/{divisa}</Text>
+              {t('xpay.quoteFxRate')}: <Text style={styles.quoteVal}>${formatMoney(quote.tipo_cambio, 4)} MXN/{divisa}</Text>
             </Text>
             <Text style={styles.quoteLine}>
-              {t('xpay.quoteSubtotalMxn')}: <Text style={styles.quoteVal}>${quote.monto_mxn_base.toFixed(2)}</Text>
+              {t('xpay.quoteSubtotalMxn')}: <Text style={styles.quoteVal}>${formatMoney(quote.monto_mxn_base, 2)}</Text>
             </Text>
             <Text style={styles.quoteLine}>
               {t('xpay.quoteCommission')} ({quote.porcentaje_compra}%): <Text style={styles.quoteVal}>
-                ${quote.monto_mxn_comision.toFixed(2)}
+                ${formatMoney(quote.monto_mxn_comision, 2)}
               </Text>
             </Text>
             {quote.monto_mxn_costo_op > 0 && (
               <Text style={styles.quoteLine}>
-                {t('xpay.quoteOpCost')} ({quote.costo_operacion_usd} USD × {quote.tipo_cambio.toFixed(4)}): <Text style={styles.quoteVal}>
-                  ${quote.monto_mxn_costo_op.toFixed(2)}
+                {t('xpay.quoteOpCost')} ({formatMoney(quote.costo_operacion_usd, 0)} USD × {formatMoney(quote.tipo_cambio, 4)}): <Text style={styles.quoteVal}>
+                  ${formatMoney(quote.monto_mxn_costo_op, 2)}
                 </Text>
               </Text>
             )}
             <View style={styles.quoteDivider} />
             <Text style={styles.quoteTotal}>
-              {t('xpay.quoteTotalToPay')}: ${quote.monto_mxn_total.toFixed(2)} MXN
+              {t('xpay.quoteTotalToPay')}: ${formatMoney(quote.monto_mxn_total, 2)} MXN
             </Text>
           </View>
         )}

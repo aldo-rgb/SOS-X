@@ -168,6 +168,22 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
     let costoPoboxMxn = ventaMxnBackend;
     let costoPoboxUsd = ventaUsdBackend;
 
+    // Si el master no trae costo pero sí hay hijas con costo, sumar hijas.
+    const childrenCostMxn = childPackages.reduce(
+      (sum, child: any) =>
+        sum +
+        (Number(child?.pobox_venta_mxn) ||
+          Number(child?.assigned_cost_mxn) ||
+          Number(child?.saldo_pendiente) ||
+          0),
+      0
+    );
+
+    if (costoPoboxMxn <= 0 && !isRepackPackage() && childrenCostMxn > 0) {
+      costoPoboxMxn = childrenCostMxn;
+      costoPoboxUsd = tc > 0 ? costoPoboxMxn / tc : 0;
+    }
+
     // Fallback solo si el backend no devolvió el dato (paquetes legacy)
     if (costoPoboxMxn <= 0) {
       const precioUnitarioFallback = TARIFAS_POBOX_USD[nivel] || 39;
@@ -383,6 +399,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
 
   const cbm = getCBM();
   const total = calculateTotal();
+  const costSummary = calcularCostoPOBox();
 
   return (
     <View style={styles.container}>
@@ -689,19 +706,19 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
             ) : (
               <>
                 {/* Precio de Venta del servicio PO Box con desglose USD y TC (solo si NO es Pick Up) */}
-                {(details.pobox_venta_usd ?? details.assigned_cost_mxn ?? 0) > 0 && (
+                {costSummary.costoMxn > 0 && (
                   <>
                     <View style={styles.costRow}>
                       <Text style={styles.costLabel}>📦 Servicio PO Box</Text>
                       <Text style={styles.costValue}>
-                        ${calcularCostoPOBox().costoMxn.toFixed(2)} MXN
+                        ${costSummary.costoMxn.toFixed(2)} MXN
                       </Text>
                     </View>
                     {/* 🎯 DESGLOSE POR CAJA para multi-guía */}
                     <View style={[styles.costRow, { paddingLeft: 16, marginTop: -4 }]}>
                       <Text style={[styles.costLabel, { fontSize: 12, color: '#666' }]}>
                         {(() => {
-                          const { totalBoxes, precioUnitarioUsd, tc, nivel } = calcularCostoPOBox();
+                          const { totalBoxes, precioUnitarioUsd, tc, nivel } = costSummary;
                           if (totalBoxes > 1) {
                             return `💵 ${totalBoxes} cajas × $${precioUnitarioUsd.toFixed(2)} USD × TC $${tc.toFixed(2)} (Nivel ${nivel})`;
                           }
@@ -749,7 +766,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
             )}
 
             {/* Si no hay costos aún (y no es Pick Up pagado) */}
-            {(details.assigned_cost_mxn ?? 0) === 0 && !isPaid() && (
+            {costSummary.costoTotal <= 0 && !isPaid() && (
               <View style={styles.noCostsContainer}>
                 <MaterialCommunityIcons name="information-outline" size={24} color="#666" />
                 <Text style={styles.noCostsText}>
@@ -759,7 +776,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
             )}
 
             {/* Saldo Pendiente / Total a Pagar */}
-            {((details.assigned_cost_mxn ?? 0) > 0 || isPaid()) && (
+            {(costSummary.costoTotal > 0 || isPaid()) && (
               <>
                 <Divider style={styles.divider} />
                 <View style={styles.totalRow}>
@@ -772,7 +789,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                     </Text>
                   ) : (
                     <Text style={[styles.totalValue, { color: ORANGE }]}>
-                      ${(details.saldo_pendiente ?? details.assigned_cost_mxn ?? 0).toFixed(2)} MXN
+                      ${(details.saldo_pendiente ?? costSummary.saldo ?? costSummary.costoTotal).toFixed(2)} MXN
                     </Text>
                   )}
                 </View>

@@ -1,6 +1,6 @@
 {
   "entangled": {
-    "title": "供应商付款",
+    "title": "X-Pay",
     "subtitle": "向国外供应商的三角付款",
     "newRequest": "新申请",
     "myRequests": "我的申请",
@@ -35,7 +35,7 @@
   },
   "xpay": {
     "accessing": "正在访问",
-    "title": "X-PAY",
+    "title": "X-Pay",
     "transitionSubtitle": "安全加密连接",
     "secureGateway": "SECURE GATEWAY · ENTREGAX",
     "newRequest": "新申请",

@@ -1526,7 +1526,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             <Text style={styles.boxId}>🏠 {t('home.mailbox')}: {user.boxId}</Text>
           </View>
           <View style={styles.headerButtonsRow}>
-            {/* 💰 Botón Pago a Proveedor */}
+            {/* 💰 Botón X-Pay */}
             <TouchableOpacity
               style={styles.supplierPaymentButton}
               onPress={() => {
@@ -1538,8 +1538,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 });
               }}
             >
-              <Ionicons name="cash-outline" size={16} color="white" />
-              <Text style={styles.supplierPaymentText}>Pago a Proveedor</Text>
+              <Ionicons name="wallet-outline" size={16} color="#F05A28" />
+              <Text style={styles.supplierPaymentText}>{t('xpay.title')}</Text>
             </TouchableOpacity>
             {/* 🚀 Botón ¿Cómo enviar? o Cambiar Método */}
             <TouchableOpacity
@@ -2651,7 +2651,9 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   supplierPaymentButton: {
-    backgroundColor: ORANGE,
+    backgroundColor: '#111111',
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
@@ -2665,7 +2667,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   supplierPaymentText: {
-    color: 'white',
+    color: '#FFFFFF',
     fontWeight: 'bold',
     fontSize: 12,
   },

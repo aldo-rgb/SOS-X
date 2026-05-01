@@ -164,6 +164,9 @@ interface PackageTracking {
   fecha_estimada: string;
   monto: number;
   client_paid?: boolean;
+  payment_status?: string;
+  saldo_pendiente?: number;
+  monto_pagado?: number;
   assigned_address_id?: number;
   delivery_address_id?: number;
   has_delivery_instructions?: boolean;
@@ -224,6 +227,11 @@ interface IncludedGuide {
   declared_value?: number;
   box_number?: number;
   status?: string;
+  monto?: number;
+  monto_currency?: string;
+  assigned_cost_mxn?: number;
+  national_shipping_cost?: number;
+  gex_total_cost?: number;
 }
 
 interface Invoice {
@@ -746,9 +754,36 @@ export default function DashboardClient() {
       envioMXN = monto * (Number(pkg.exchange_rate) || 18.5);
     }
 
-    const gex = Number(pkg.gex_total_cost) || 0;
-    const paq = Number(pkg.national_shipping_cost) || 0;
+    const included = pkg.included_guides || [];
+    if (envioMXN === 0 && pkg.is_master && included.length > 0) {
+      const envioFromChildren = included.reduce((sum, g) => {
+        const childMontoMXN = Number(g.assigned_cost_mxn ?? g.monto ?? 0) || 0;
+        return sum + childMontoMXN;
+      }, 0);
+      if (envioFromChildren > 0) envioMXN = envioFromChildren;
+    }
+
+    const gexFromChildren = included.reduce((sum, g) => sum + (Number(g.gex_total_cost) || 0), 0);
+    const paqFromChildren = included.reduce((sum, g) => sum + (Number(g.national_shipping_cost) || 0), 0);
+
+    const gex = (Number(pkg.gex_total_cost) || 0) > 0 ? (Number(pkg.gex_total_cost) || 0) : gexFromChildren;
+    const paq = (Number(pkg.national_shipping_cost) || 0) > 0 ? (Number(pkg.national_shipping_cost) || 0) : paqFromChildren;
     return envioMXN + gex + paq;
+  };
+
+  const isPaidPackage = (pkg: PackageTracking): boolean => {
+    const status = (pkg.payment_status || '').toLowerCase();
+    const montoPagado = Number(pkg.monto_pagado || 0);
+    const saldoPendiente = Number(pkg.saldo_pendiente ?? getPackageTotalMXN(pkg));
+
+    if (pkg.client_paid) return true;
+    if (['paid', 'authorized', 'approved', 'completed', 'settled'].includes(status)) return true;
+    if (saldoPendiente <= 0 && (montoPagado > 0 || status === 'authorized' || status === 'approved')) return true;
+    return false;
+  };
+
+  const isPackagePayable = (pkg: PackageTracking): boolean => {
+    return !isPaidPackage(pkg) && pkg.status !== 'delivered' && getPackageTotalMXN(pkg) > 0;
   };
 
   const selectedServiceType = useMemo(() => {
@@ -2783,7 +2818,7 @@ export default function DashboardClient() {
   // Toggle selección de paquete
   const togglePackageSelection = (id: number, pkg: PackageTracking) => {
     // Solo permitir seleccionar paquetes elegibles (no pagados, no entregados)
-    if (pkg.client_paid || pkg.status === 'delivered') {
+    if (!isPackagePayable(pkg)) {
       setSnackbar({ open: true, message: t('cd.snackbar.alreadyPaid'), severity: 'info' });
       return;
     }
@@ -2811,7 +2846,7 @@ export default function DashboardClient() {
     }
     
     const filtered = getFilteredPackages();
-    const selectablePackages = filtered.filter(pkg => !pkg.client_paid && pkg.status !== 'delivered');
+    const selectablePackages = filtered.filter(isPackagePayable);
     const selectableIds = selectablePackages.map(p => p.id);
     
     const allSelected = selectableIds.every(id => selectedPackageIds.includes(id));
@@ -2827,6 +2862,20 @@ export default function DashboardClient() {
   const getSelectedPackages = useCallback(() => {
     return packages.filter(p => selectedPackageIds.includes(p.id));
   }, [packages, selectedPackageIds]);
+
+  const getSelectedPayablePackages = useCallback(() => {
+    return getSelectedPackages().filter(isPackagePayable);
+  }, [getSelectedPackages]);
+
+  useEffect(() => {
+    setSelectedPackageIds(prev => {
+      const next = prev.filter(id => {
+        const pkg = packages.find(p => p.id === id);
+        return pkg ? isPackagePayable(pkg) : false;
+      });
+      return next.length === prev.length ? prev : next;
+    });
+  }, [packages]);
 
   // Cotizar GEX dinámicamente al cambiar valor de factura
   const fetchGexQuote = async (valorUSD: number) => {
@@ -3062,9 +3111,9 @@ export default function DashboardClient() {
 
   // Procesar pago
   const handleProcessPayment = async () => {
-    const selected = getSelectedPackages();
+    const selected = getSelectedPayablePackages();
     if (selected.length === 0) {
-      setSnackbar({ open: true, message: t('cd.snackbar.selectPackage'), severity: 'warning' });
+      setSnackbar({ open: true, message: 'Esta guía ya está pagada o autorizada con crédito.', severity: 'info' });
       return;
     }
 
@@ -3090,6 +3139,12 @@ export default function DashboardClient() {
     setPaymentLoading(true);
     try {
       const total = selected.reduce((sum, p) => sum + getPackageTotalMXN(p), 0);
+      if (total <= 0) {
+        setSnackbar({ open: true, message: 'No hay saldo pendiente por pagar en la guía seleccionada.', severity: 'info' });
+        setPaymentLoading(false);
+        return;
+      }
+      const selectedIds = selected.map(p => p.id);
       
       // Determinar la empresa emisora según el tipo de servicio predominante
       const serviceTypes = selected.map(p => p.servicio || 'china_air');
@@ -3106,7 +3161,7 @@ export default function DashboardClient() {
       };
       
       const paymentData = {
-        packageIds: selectedPackageIds,
+        packageIds: selectedIds,
         paymentMethod: selectedPaymentMethod,
         total: total,
         currency: 'MXN',
@@ -3146,7 +3201,7 @@ export default function DashboardClient() {
           }
 
           const chargeRes = await api.post('/payments/openpay/charge-saved-card', {
-            packageIds: selectedPackageIds,
+            packageIds: selectedIds,
             total,
             currency: 'MXN',
             cardId: cardIdToCharge,
@@ -3244,7 +3299,7 @@ export default function DashboardClient() {
       } else if (selectedPaymentMethod === 'branch') {
         // Pago en Sucursal - usar endpoint real de pobox
         const cashData = {
-          packageIds: selectedPackageIds,
+          packageIds: selectedIds,
           userId: JSON.parse(localStorage.getItem('user') || '{}').id,
           totalAmount: total,
           currency: 'MXN'
@@ -4540,68 +4595,86 @@ export default function DashboardClient() {
       {/* Tabs de navegación - Desktop only */}
       {!isMobile && (
         <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
-          <Tabs 
-            value={(() => {
-              // Mapear activeTab a índice de Tab visual
-              // activeTab: 0=Envíos, 1=Cotizador, 2=MiCuenta, 3=Facturas, 4=Direcciones, 7=Tickets
-              // Tabs: 0=Envíos, 1=Pagos, 2=Cotizador, 3=MiCuenta, 4=Facturas, 5=Direcciones, 6=Tickets, 7=Cuentas por Pagar
-              const reverseMapping: {[key: number]: number} = {
-                0: 0,  // Envíos → Envíos
-                1: 2,  // Cotizador → Cotizador
-                2: 3,  // Mi Cuenta → Mi Cuenta
-                3: 4,  // Facturas → Facturas
-                4: 5,  // Direcciones → Direcciones
-                7: 6,  // Mis Tickets → Tickets
-                8: 1,  // Pago a Proveedores → Pagos
-              };
-              return reverseMapping[activeTab] ?? 0;
-            })()}
-            onChange={(_, v) => {
-              // Tab 1 es "Pago a Proveedores" - abrir como página dedicada
-              if (v === 1) {
-                setShowExternalProviderPage(true);
-                return;
-              }
-              // Tab 7 es "Mis Cuentas por Pagar" - abrir modal sin cambiar tab activa
-              if (v === 7) {
-                setShowPendingPayments(true);
-                loadPaymentOrders();
-                return;
-              }
-              // Ajustar índice para los demás tabs
-              const tabMapping: {[key: number]: number} = {
-                0: 0,  // Mis Envíos
-                2: 1,  // Cotizador
-                3: 2,  // Mi Cuenta
-                4: 3,  // Facturas
-                5: 4,  // Direcciones
-                6: 7,  // Mis Tickets
-              };
-              setActiveTab(tabMapping[v] ?? 0);
-            }}
-            variant="scrollable"
-            scrollButtons="auto"
-            sx={{ 
-              borderBottom: 1, 
-              borderColor: 'divider',
-              '& .MuiTab-root': { fontWeight: 600 },
-              '& .Mui-selected': { color: ORANGE },
-              '& .MuiTabs-indicator': { bgcolor: ORANGE },
-            }}
-          >
-            <Tab icon={<ShippingIcon />} label={t('cd.tabs.shipments')} iconPosition="start" />
-            <Tab icon={<PaymentsIcon />} label={t('xpay.tabLabel', 'X-Pay')} iconPosition="start" />
-            <Tab icon={<CalculateIcon />} label={t('cd.tabs.quoter')} iconPosition="start" />
-            <Tab icon={<WalletIcon />} label="Mi Cuenta" iconPosition="start" />
-            <Tab icon={<ReceiptIcon />} label={t('cd.tabs.invoices')} iconPosition="start" />
-            <Tab icon={<HomeIcon />} label="Direcciones de Envío" iconPosition="start" />
-            <Tab icon={<TicketIcon />} label="Mis Tickets" iconPosition="start" />
-            <Tab
-              icon={<WalletIcon />}
-              label="Mis Cuentas por Pagar"
-              iconPosition="start"
-            />
-          </Tabs>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 1, borderBottom: 1, borderColor: 'divider' }}>
+            <Tabs 
+              value={(() => {
+                // Mapear activeTab a índice de Tab visual
+                // activeTab: 0=Envíos, 1=Cotizador, 2=MiCuenta, 3=Facturas, 4=Direcciones, 7=Tickets
+                // Tabs: 0=Envíos, 1=Cotizador, 2=MiCuenta, 3=Facturas, 4=Direcciones, 5=Tickets, 6=Cuentas por Pagar
+                const reverseMapping: {[key: number]: number} = {
+                  0: 0,  // Envíos → Envíos
+                  1: 1,  // Cotizador → Cotizador
+                  2: 2,  // Mi Cuenta → Mi Cuenta
+                  3: 3,  // Facturas → Facturas
+                  4: 4,  // Direcciones → Direcciones
+                  7: 5,  // Mis Tickets → Tickets
+                };
+                return reverseMapping[activeTab] ?? 0;
+              })()}
+              onChange={(_, v) => {
+                // Tab 6 es "Mis Cuentas por Pagar" - abrir modal sin cambiar tab activa
+                if (v === 6) {
+                  setShowPendingPayments(true);
+                  loadPaymentOrders();
+                  return;
+                }
+                // Ajustar índice para los demás tabs
+                const tabMapping: {[key: number]: number} = {
+                  0: 0,  // Mis Envíos
+                  1: 1,  // Cotizador
+                  2: 2,  // Mi Cuenta
+                  3: 3,  // Facturas
+                  4: 4,  // Direcciones
+                  5: 7,  // Mis Tickets
+                };
+                setActiveTab(tabMapping[v] ?? 0);
+              }}
+              variant="scrollable"
+              scrollButtons="auto"
+              sx={{ 
+                flex: 1,
+                minWidth: 0,
+                '& .MuiTab-root': { fontWeight: 600 },
+                '& .Mui-selected': { color: ORANGE },
+                '& .MuiTabs-indicator': { bgcolor: ORANGE },
+              }}
+            >
+              <Tab icon={<ShippingIcon />} label={t('cd.tabs.shipments')} iconPosition="start" />
+              <Tab icon={<CalculateIcon />} label={t('cd.tabs.quoter')} iconPosition="start" />
+              <Tab icon={<WalletIcon />} label="Mi Cuenta" iconPosition="start" />
+              <Tab icon={<ReceiptIcon />} label={t('cd.tabs.invoices')} iconPosition="start" />
+              <Tab icon={<HomeIcon />} label="Direcciones de Envío" iconPosition="start" />
+              <Tab icon={<TicketIcon />} label="Mis Tickets" iconPosition="start" />
+              <Tab
+                icon={<WalletIcon />}
+                label="Mis Cuentas por Pagar"
+                iconPosition="start"
+              />
+            </Tabs>
+
+            <Button
+              variant="contained"
+              startIcon={<PaymentsIcon />}
+              onClick={() => setShowExternalProviderPage(true)}
+              sx={{
+                bgcolor: '#111111',
+                color: 'white',
+                fontWeight: 700,
+                borderRadius: 2,
+                px: 2,
+                py: 0.9,
+                textTransform: 'none',
+                boxShadow: 'none',
+                whiteSpace: 'nowrap',
+                '&:hover': {
+                  bgcolor: '#000000',
+                  boxShadow: 'none',
+                }
+              }}
+            >
+              {t('xpay.tabLabel', 'X-Pay')}
+            </Button>
+          </Box>
         </Paper>
       )}
 
@@ -4711,7 +4784,7 @@ export default function DashboardClient() {
                         else if (serviceFilter === 'usa_pobox') matchesService = type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type;
                         else if (serviceFilter === 'dhl') matchesService = type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL' || type === 'AA_DHL' || type === 'DHL_MTY';
                         return matchesService && !pkg.has_delivery_instructions && !pkg.delivery_address_id;
-                      }).filter(pkg => !pkg.client_paid && pkg.status !== 'delivered');
+                      }).filter(isPackagePayable);
                       setSelectedPackageIds(filtered.map(p => p.id));
                     } else {
                       setSelectedPackageIds([]);
@@ -4744,7 +4817,7 @@ export default function DashboardClient() {
                         else if (serviceFilter === 'usa_pobox') matchesService = type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type;
                         else if (serviceFilter === 'dhl') matchesService = type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL' || type === 'AA_DHL' || type === 'DHL_MTY';
                         return matchesService && (pkg.has_delivery_instructions || pkg.delivery_address_id);
-                      }).filter(pkg => !pkg.client_paid && pkg.status !== 'delivered');
+                      }).filter(isPackagePayable);
                       setSelectedPackageIds(filtered.map(p => p.id));
                     } else {
                       setSelectedPackageIds([]);
@@ -4998,7 +5071,7 @@ export default function DashboardClient() {
               </Box>
 
               {/* Barra de acciones cuando hay paquetes seleccionados */}
-              {selectedPackageIds.length > 0 && (
+              {getSelectedPayablePackages().length > 0 && (
                 <Alert 
                   severity="info" 
                   sx={{ mb: 2, borderRadius: 2 }}
@@ -5010,12 +5083,12 @@ export default function DashboardClient() {
                     </Box>
                   }
                 >
-                  <strong>{t('cd.packages.selectedCount', { count: selectedPackageIds.length })}</strong>
+                  <strong>{t('cd.packages.selectedCount', { count: getSelectedPayablePackages().length })}</strong>
                 </Alert>
               )}
 
               {/* Botones de acción flotantes para paquetes seleccionados */}
-              {selectedPackageIds.length > 0 && (
+              {getSelectedPayablePackages().length > 0 && (
                 <>
                   <Button
                     variant="contained"
@@ -5032,6 +5105,13 @@ export default function DashboardClient() {
                     }}
                     startIcon={<MoneyIcon sx={{ fontSize: isMobile ? 16 : 20 }} />}
                     onClick={() => {
+                      const selectedPayable = getSelectedPayablePackages();
+                      if (selectedPayable.length === 0) {
+                        setSnackbar({ open: true, message: 'Esta guía ya está pagada o autorizada con crédito.', severity: 'info' });
+                        return;
+                      }
+                      const selectedPayableIds = selectedPayable.map(p => p.id);
+
                       // 🔒 Validar que ningún paquete esté ya en una orden de pago activa
                       const activeStatuses = ['pending_payment', 'pending', 'vouchers_submitted', 'vouchers_partial'];
                       const pkgsInOrders = new Set<number>();
@@ -5044,9 +5124,9 @@ export default function DashboardClient() {
                             : [];
                         ids.forEach((id: number) => pkgsInOrders.add(id));
                       });
-                      const conflict = selectedPackageIds.filter(id => pkgsInOrders.has(Number(id)));
+                      const conflict = selectedPayableIds.filter(id => pkgsInOrders.has(Number(id)));
                       if (conflict.length > 0) {
-                        const conflictTrackings = getSelectedPackages()
+                        const conflictTrackings = selectedPayable
                           .filter(p => conflict.includes(Number(p.id)))
                           .map(p => (p as any).tracking_internal || (p as any).tracking || p.id)
                           .slice(0, 3)
@@ -5061,8 +5141,16 @@ export default function DashboardClient() {
                         return;
                       }
 
+                      const totalPayable = selectedPayable.reduce((sum, pkg) => sum + getPackageTotalMXN(pkg), 0);
+                      if (totalPayable <= 0) {
+                        setSnackbar({ open: true, message: 'Esta guía ya está pagada o autorizada con crédito.', severity: 'info' });
+                        return;
+                      }
+
+                      setSelectedPackageIds(selectedPayableIds);
+
                       // Multi-paquete: forzar Pago en Sucursal (solo opción disponible)
-                      if (getSelectedPackages().length > 1) {
+                      if (selectedPayable.length > 1) {
                         setSelectedPaymentMethod('branch');
                         setRequiresInvoice(false);
                       }
@@ -5125,15 +5213,15 @@ export default function DashboardClient() {
               )}
 
               {/* Checkbox para seleccionar todos */}
-              {getFilteredPackages().filter(p => !p.client_paid && p.status !== 'delivered').length > 0 && (
+              {getFilteredPackages().filter(isPackagePayable).length > 0 && (
                 <Box sx={{ mb: 2 }}>
                   <FormControlLabel
                     control={
                       <Checkbox
-                        checked={getFilteredPackages().filter(p => !p.client_paid && p.status !== 'delivered').every(p => selectedPackageIds.includes(p.id))}
+                        checked={getFilteredPackages().filter(isPackagePayable).every(p => selectedPackageIds.includes(p.id))}
                         indeterminate={
                           selectedPackageIds.length > 0 && 
-                          !getFilteredPackages().filter(p => !p.client_paid && p.status !== 'delivered').every(p => selectedPackageIds.includes(p.id))
+                          !getFilteredPackages().filter(isPackagePayable).every(p => selectedPackageIds.includes(p.id))
                         }
                         onChange={toggleSelectAll}
                         sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }}
@@ -5146,7 +5234,8 @@ export default function DashboardClient() {
 
               {/* Lista de paquetes paginados */}
               {paginatedPackages.map((pkg) => {
-                const isSelectable = !pkg.client_paid && pkg.status !== 'delivered';
+                const isSelectable = isPackagePayable(pkg);
+                const isPaid = isPaidPackage(pkg);
                 const isSelected = selectedPackageIds.includes(pkg.id);
                 const hasDeliveryInstructions = pkg.has_delivery_instructions || !!(
                   pkg.delivery_address_id || 
@@ -5155,6 +5244,15 @@ export default function DashboardClient() {
                    pkg.destination_address !== 'Pendiente de asignar' && 
                    pkg.destination_contact)
                 );
+                const normalizedNationalCarrier = (pkg.national_carrier || '').toLowerCase();
+                const isEntregaXLocalCarrier =
+                  normalizedNationalCarrier === 'local' ||
+                  normalizedNationalCarrier.startsWith('entregax_local') ||
+                  normalizedNationalCarrier.includes('entregax local') ||
+                  normalizedNationalCarrier.includes('local');
+                const isMultiPackage =
+                  (Number(pkg.total_boxes) || 0) > 1 ||
+                  (!!pkg.is_master && (pkg.included_guides?.length || 0) > 1);
                 
                 // Verificar si la búsqueda coincide con una guía hija
                 const matchedChildGuide = searchTerm 
@@ -5168,11 +5266,17 @@ export default function DashboardClient() {
                   key={pkg.id} 
                   sx={{ 
                     mb: isMobile ? 1 : 1.5, 
-                    border: isSelected ? `2px solid ${ORANGE}` : pkg.status === 'ready_pickup' ? `2px solid ${ORANGE}` : '1px solid #e0e0e0', 
+                    border: isSelected
+                      ? `2px solid ${ORANGE}`
+                      : pkg.status === 'ready_pickup'
+                        ? `2px solid ${ORANGE}`
+                        : isMultiPackage
+                          ? `2px solid #FFB366`
+                          : '1px solid #e0e0e0', 
                     borderRadius: 2,
                     cursor: isSelectable ? 'pointer' : 'default',
                     transition: 'all 0.2s',
-                    '&:hover': isSelectable ? { boxShadow: 3 } : {},
+                    '&:hover': isSelectable ? { boxShadow: isMultiPackage ? 4 : 3 } : {},
                   }}
                   onClick={() => isSelectable && togglePackageSelection(pkg.id, pkg)}
                 >
@@ -5212,7 +5316,21 @@ export default function DashboardClient() {
                             <Typography variant={isMobile ? 'caption' : 'body2'} fontWeight="bold" fontFamily="monospace" noWrap>{pkg.tracking}</Typography>
                             {pkg.status === 'delivered' && <Chip label={t('cd.packages.deliveredChip')} size="small" color="success" sx={{ height: 16, fontSize: '0.55rem' }} />}
                             {pkg.is_master && <Chip label="📦" size="small" sx={{ height: 16, fontSize: '0.55rem', bgcolor: '#e3f2fd', color: BLUE, minWidth: 'auto' }} />}
-                            {pkg.client_paid && pkg.status !== 'delivered' && <Chip label="✓" size="small" color="success" sx={{ height: 16, fontSize: '0.55rem', minWidth: 'auto' }} />}
+                            {isMultiPackage && (
+                              <Chip
+                                label={`MULTI • ${Number(pkg.total_boxes) || pkg.included_guides?.length || 2} cajas`}
+                                size="small"
+                                sx={{
+                                  height: 18,
+                                  fontSize: '0.58rem',
+                                  bgcolor: ORANGE,
+                                  color: 'white',
+                                  fontWeight: 800,
+                                  '& .MuiChip-label': { px: 0.75 }
+                                }}
+                              />
+                            )}
+                            {isPaid && pkg.status !== 'delivered' && <Chip label="✓" size="small" color="success" sx={{ height: 16, fontSize: '0.55rem', minWidth: 'auto' }} />}
                           </Box>
                           {/* Guía del proveedor (origen) */}
                           {(pkg.tracking_provider ||
@@ -5252,16 +5370,22 @@ export default function DashboardClient() {
                         </Box>
                       </Box>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-                        {pkg.client_paid && (
+                        {isPaid && (
                           <Typography variant="body2" color="success.main" fontWeight="bold" sx={{ fontSize: isMobile ? '0.65rem' : '0.75rem' }}>
                             ✅ {isMobile ? '' : 'Pagado'}
                           </Typography>
                         )}
                         <Chip 
                           label={isMobile ? (pkg.status === 'ready_pickup' ? '🟠' : pkg.status === 'in_transit' ? '🔵' : pkg.status === 'delivered' ? '✅' : '⚪') : getStatusDisplayLabel(pkg.status, pkg.status_label, pkg)} 
-                          color={pkg.status === 'ready_pickup' ? 'warning' : pkg.status === 'in_transit' ? 'info' : 'default'}
                           size="small"
-                          sx={{ height: isMobile ? 20 : 24, fontSize: isMobile ? '0.65rem' : '0.8rem', ...(pkg.status === 'ready_pickup' && { bgcolor: ORANGE, color: 'white' }) }}
+                              sx={{
+                                height: isMobile ? 20 : 24,
+                                fontSize: isMobile ? '0.65rem' : '0.8rem',
+                                bgcolor: '#FFEAD6',
+                                color: '#E65100',
+                                fontWeight: 700,
+                                border: '1px solid #FFD0A8'
+                              }}
                         />
                       </Box>
                     </Box>
@@ -5317,7 +5441,7 @@ export default function DashboardClient() {
                             <Chip
                               label={`📦 Enviado vía ${getCarrierDisplayName(pkg.national_carrier)}`}
                               size="small"
-                              sx={{ bgcolor: '#1565C0', color: 'white', fontSize: '0.65rem', fontWeight: 'bold', height: 22, '& .MuiChip-label': { px: 0.5 } }}
+                              sx={{ bgcolor: isEntregaXLocalCarrier ? ORANGE : '#1565C0', color: 'white', fontSize: '0.65rem', fontWeight: 'bold', height: 22, '& .MuiChip-label': { px: 0.5 } }}
                             />
                           ) : pkg.delivery_recipient_name ? (
                             <Chip
@@ -5332,7 +5456,9 @@ export default function DashboardClient() {
                             label={pkg.national_carrier ? `🚚 ${getCarrierDisplayName(pkg.national_carrier)}` : 'Con Instrucciones'}
                             size="small"
                             sx={{ 
-                              bgcolor: pkg.national_carrier ? '#1565C0' : ORANGE, 
+                              bgcolor: pkg.national_carrier
+                                ? (isEntregaXLocalCarrier ? ORANGE : '#1565C0')
+                                : ORANGE, 
                               color: 'white',
                               fontSize: '0.65rem',
                               fontWeight: 'bold',
@@ -5436,11 +5562,11 @@ export default function DashboardClient() {
                           sx={{
                             py: 0.5,
                             fontSize: '0.75rem',
-                            borderColor: '#1976d2',
-                            color: '#1976d2',
+                            borderColor: ORANGE,
+                            color: ORANGE,
                             '&:hover': {
-                              borderColor: '#0d47a1',
-                              bgcolor: 'rgba(25,118,210,0.08)'
+                              borderColor: '#d65f00',
+                              bgcolor: 'rgba(255,119,0,0.1)'
                             }
                           }}
                         >
@@ -6928,9 +7054,10 @@ export default function DashboardClient() {
                               label={getStatusDisplayLabel(pkg.status, pkg.status_label, pkg)} 
                               size="small" 
                               sx={{ 
-                                bgcolor: pkg.status === 'ready_pickup' ? ORANGE : pkg.status === 'in_transit' ? BLUE : ORANGE,
-                                color: 'white',
+                                bgcolor: '#FFEAD6',
+                                color: '#E65100',
                                 fontWeight: 600,
+                                border: '1px solid #FFD0A8'
                               }} 
                             />
                           </Box>
@@ -7164,9 +7291,10 @@ export default function DashboardClient() {
                               label={getStatusDisplayLabel(pkg.status, pkg.status_label, pkg)} 
                               size="small" 
                               sx={{ 
-                                bgcolor: pkg.status === 'ready_pickup' ? ORANGE : pkg.status === 'in_transit' ? BLUE : ORANGE,
-                                color: 'white',
+                                bgcolor: '#FFEAD6',
+                                color: '#E65100',
                                 fontWeight: 600,
+                                border: '1px solid #FFD0A8'
                               }} 
                             />
                           </Box>
@@ -8421,7 +8549,16 @@ export default function DashboardClient() {
                       </TableCell>
                       <TableCell>{pkg.descripcion}</TableCell>
                       <TableCell>
-                        <Chip label={getStatusDisplayLabel(pkg.status, pkg.status_label, pkg)} size="small" color="success" />
+                        <Chip
+                          label={getStatusDisplayLabel(pkg.status, pkg.status_label, pkg)}
+                          size="small"
+                          sx={{
+                            bgcolor: '#FFEAD6',
+                            color: '#E65100',
+                            fontWeight: 700,
+                            border: '1px solid #FFD0A8'
+                          }}
+                        />
                       </TableCell>
                       <TableCell align="center">
                         <Button
@@ -8847,11 +8984,11 @@ export default function DashboardClient() {
                 )}
                 {/* Guía nacional (última milla MX) */}
                 {selectedPackage.national_tracking && (
-                  <Box sx={{ mt: 1, p: 1, bgcolor: '#E3F2FD', borderRadius: 1, border: '1px solid #1976d2' }}>
-                    <Typography variant="body2" sx={{ color: '#0d47a1', fontWeight: 700 }}>
+                  <Box sx={{ mt: 1, p: 1, bgcolor: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? '#fff3e0' : '#E3F2FD'), borderRadius: 1, border: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? `1px solid ${ORANGE}` : '1px solid #1976d2') }}>
+                    <Typography variant="body2" sx={{ color: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? '#bf360c' : '#0d47a1'), fontWeight: 700 }}>
                       🇲🇽 {selectedPackage.national_carrier || 'Guía Nacional'}
                     </Typography>
-                    <Typography variant="body1" sx={{ fontFamily: 'monospace', fontWeight: 700, color: '#1976d2' }}>
+                    <Typography variant="body1" sx={{ fontFamily: 'monospace', fontWeight: 700, color: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? ORANGE : '#1976d2') }}>
                       {selectedPackage.national_tracking}
                     </Typography>
                     {selectedPackage.carrier_service_request_code && (
@@ -8880,7 +9017,7 @@ export default function DashboardClient() {
                           variant="contained"
                           size="small"
                           onClick={() => window.open(url!, '_blank', 'noopener')}
-                          sx={{ mt: 1, bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' }, textTransform: 'none', fontWeight: 700 }}
+                          sx={{ mt: 1, bgcolor: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? ORANGE : '#1976d2'), '&:hover': { bgcolor: ((selectedPackage.national_carrier || '').toLowerCase().includes('local') ? '#d65f00' : '#0d47a1') }, textTransform: 'none', fontWeight: 700 }}
                         >
                           🔎 Rastrear en {selectedPackage.national_carrier}
                         </Button>
@@ -9339,7 +9476,7 @@ export default function DashboardClient() {
                       <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
                         🚚 Servicio de Envío
                       </Typography>
-                      <Paper sx={{ p: 2, bgcolor: '#e3f2fd' }}>
+                      <Paper sx={{ p: 2, bgcolor: ((selectedPackage.national_carrier || selectedPackage.carrier || '').toLowerCase().includes('local') ? '#fff3e0' : '#e3f2fd') }}>
                         {/* Tipo de servicio */}
                         {serviceLabel && (
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: (hasNationalCarrier || hasCarrier) ? 1.5 : 0 }}>
@@ -9369,7 +9506,7 @@ export default function DashboardClient() {
                                 return <Box sx={{ fontSize: '1.5rem' }}>{iconSrc || '🚚'}</Box>;
                               })()}
                               <Box>
-                                <Typography variant="body1" fontWeight="bold">
+                                <Typography variant="body1" fontWeight="bold" sx={{ color: ((selectedPackage.national_carrier || selectedPackage.carrier || '').toLowerCase().includes('local') ? ORANGE : 'inherit') }}>
                                   {carrierServices.find(s => s.id === (selectedPackage.national_carrier || selectedPackage.carrier))?.name || selectedPackage.national_carrier || selectedPackage.carrier}
                                 </Typography>
                                 {selectedPackage.national_tracking && (
@@ -9388,17 +9525,25 @@ export default function DashboardClient() {
                         )}
 
                         {/* Costo de envío nacional */}
-                        {selectedPackage.national_shipping_cost && Number(selectedPackage.national_shipping_cost) > 0 && (
+                        {(() => {
+                          const included = selectedPackage.included_guides || [];
+                          const shippingFromChildren = included.reduce((sum, g) => sum + (Number(g.national_shipping_cost) || 0), 0);
+                          const shippingCostToShow = (Number(selectedPackage.national_shipping_cost) || 0) > 0
+                            ? (Number(selectedPackage.national_shipping_cost) || 0)
+                            : shippingFromChildren;
+                          if (!(shippingCostToShow > 0)) return null;
+                          return (
                           <>
                             <Divider sx={{ my: 1 }} />
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                               <Typography variant="body2" color="text.secondary">Costo de envío nacional:</Typography>
-                              <Typography variant="body1" fontWeight="bold" color="primary.main">
-                                ${Number(selectedPackage.national_shipping_cost).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                              <Typography variant="body1" fontWeight="bold" color={(selectedPackage.national_carrier || selectedPackage.carrier || '').toLowerCase().includes('local') ? ORANGE : 'primary.main'}>
+                                ${Number(shippingCostToShow).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
                               </Typography>
                             </Box>
                           </>
-                        )}
+                          );
+                        })()}
                       </Paper>
                     </Box>
                   );
@@ -9520,7 +9665,20 @@ export default function DashboardClient() {
                       tcToShow = tcConfig;
                     }
 
-                    const isPaid = selectedPackage.client_paid;
+                    if (montoMXN === 0 && selectedPackage.is_master && selectedPackage.included_guides && selectedPackage.included_guides.length > 0) {
+                      const childrenMontoMXN = selectedPackage.included_guides.reduce((sum, g) => {
+                        const childMonto = Number(g.assigned_cost_mxn ?? g.monto ?? 0) || 0;
+                        return sum + childMonto;
+                      }, 0);
+                      if (childrenMontoMXN > 0) {
+                        montoMXN = childrenMontoMXN;
+                        costoUSD = tcConfig > 0 ? montoMXN / tcConfig : 0;
+                        tcToShow = tcConfig;
+                        detailLine = `Suma de ${selectedPackage.included_guides.length} cajas`;
+                      }
+                    }
+
+                    const isPaid = isPaidPackage(selectedPackage);
                     const accentColor = isPaid ? 'success.main' : 'warning.main';
 
                     return (
@@ -9552,8 +9710,15 @@ export default function DashboardClient() {
 
                         {/* Desglose de costos */}
                         {(() => {
-                          const gexMXN = Number(selectedPackage.gex_total_cost) || 0;
-                          const paqMXN = Number(selectedPackage.national_shipping_cost) || 0;
+                          const included = selectedPackage.included_guides || [];
+                          const gexFromChildren = included.reduce((sum, g) => sum + (Number(g.gex_total_cost) || 0), 0);
+                          const paqFromChildren = included.reduce((sum, g) => sum + (Number(g.national_shipping_cost) || 0), 0);
+                          const gexMXN = (Number(selectedPackage.gex_total_cost) || 0) > 0
+                            ? (Number(selectedPackage.gex_total_cost) || 0)
+                            : gexFromChildren;
+                          const paqMXN = (Number(selectedPackage.national_shipping_cost) || 0) > 0
+                            ? (Number(selectedPackage.national_shipping_cost) || 0)
+                            : paqFromChildren;
                           const hasDesglose = gexMXN > 0 || paqMXN > 0;
                           const envioMXN = montoMXN;
                           const totalMXN = hasDesglose ? envioMXN + gexMXN + paqMXN : montoMXN;
@@ -9657,9 +9822,11 @@ export default function DashboardClient() {
                     sx={{ 
                       fontSize: '1rem', 
                       py: 2.5,
-                      ...(selectedPackage.status === 'ready_pickup' && { bgcolor: ORANGE, color: 'white' }) 
+                      bgcolor: '#FFEAD6',
+                      color: '#E65100',
+                      fontWeight: 700,
+                      border: '1px solid #FFD0A8'
                     }}
-                    color={selectedPackage.status === 'ready_pickup' ? 'warning' : selectedPackage.status === 'in_transit' ? 'info' : 'default'}
                   />
                 </Box>
               </Box>
@@ -11829,9 +11996,9 @@ export default function DashboardClient() {
               fontSize: '1.1rem'
             }}
           >
-            {paymentLoading ? t('common.processing') : (getSelectedPackages().length > 1
+            {paymentLoading ? t('common.processing') : (getSelectedPayablePackages().length > 1
               ? `🧾 ${t('cd.payment.generateButton')}`
-              : `💳 ${t('cd.payment.payButton', { amount: formatCurrency(getSelectedPackages().reduce((sum, p) => sum + getPackageTotalMXN(p), 0)) })}`)}
+              : `💳 ${t('cd.payment.payButton', { amount: formatCurrency(getSelectedPayablePackages().reduce((sum, p) => sum + getPackageTotalMXN(p), 0)) })}`)}
           </Button>
         </DialogActions>
       </Dialog>
@@ -12928,7 +13095,7 @@ export default function DashboardClient() {
             }}
           >
             <BottomNavigationAction label="Envíos" icon={<ShippingIcon sx={{ fontSize: 22 }} />} />
-            <BottomNavigationAction label="Pagos" icon={<PaymentsIcon sx={{ fontSize: 22 }} />} />
+            <BottomNavigationAction label="X-Pay" icon={<PaymentsIcon sx={{ fontSize: 22 }} />} />
             <BottomNavigationAction label="Cotizar" icon={<CalculateIcon sx={{ fontSize: 22 }} />} />
             <BottomNavigationAction label="Direcciones" icon={<HomeIcon sx={{ fontSize: 22 }} />} />
             <BottomNavigationAction label="Facturas" icon={<ReceiptIcon sx={{ fontSize: 22 }} />} />

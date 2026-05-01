@@ -1708,13 +1708,9 @@ const dedupeMovements = (rows: any[]): any[] => {
 };
 
 const buildPackageMovementsResponse = async (pkg: any) => {
-    const idRows = await pool.query(
-        `SELECT id FROM packages WHERE id = $1
-         UNION
-         SELECT id FROM packages WHERE master_id = $1`,
-        [pkg.id]
-    );
-    const packageIds = idRows.rows.map((r: any) => Number(r.id));
+    // Para guías master, mostrar SOLO su historial (evita duplicados por cada caja hija).
+    // Para guías individuales/hijas, mantener su historial propio.
+    const packageIds = [Number(pkg.id)];
 
     let movementRows: any[] = [];
     try {

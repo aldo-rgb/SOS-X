@@ -1,6 +1,6 @@
 {
   "entangled": {
-    "title": "Pago a Proveedores",
+    "title": "X-Pay",
     "subtitle": "Pagos a proveedores extranjeros",
     "newRequest": "Nueva solicitud",
     "myRequests": "Mis solicitudes",
@@ -35,7 +35,7 @@
   },
   "xpay": {
     "accessing": "Accediendo a",
-    "title": "X-PAY",
+    "title": "X-Pay",
     "transitionSubtitle": "Conexión segura cifrada",
     "secureGateway": "SECURE GATEWAY · ENTREGAX",
     "newRequest": "Nueva solicitud",

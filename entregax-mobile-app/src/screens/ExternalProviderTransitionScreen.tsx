@@ -30,7 +30,7 @@ interface Props {
  */
 export default function ExternalProviderTransitionScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
-  const { user, token, target = 'SupplierPayment', label = 'X-Pay' } = route.params || {};
+  const { user, token, target = 'SupplierPayment' } = route.params || {};
 
   // Animations
   const fadeIn = useRef(new Animated.Value(0)).current;
@@ -166,7 +166,7 @@ export default function ExternalProviderTransitionScreen({ navigation, route }: 
           {(t('xpay.accessing') as string).toUpperCase()}
         </Animated.Text>
         <Animated.Text style={[styles.brand, { opacity: fadeIn }]}>
-          {label.toUpperCase()}
+          {t('xpay.title')}
         </Animated.Text>
 
         {/* Línea decorativa */}
