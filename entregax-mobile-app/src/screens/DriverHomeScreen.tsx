@@ -343,7 +343,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
             onPress={() => navigation.navigate('MyProfile', { user, token })}
           >
             <Image
-              source={require('../../assets/x-logo-entregax.png')}
+              source={require('../../assets/logo-completo-xpay.png')}
               style={styles.profileLogo}
               resizeMode="contain"
             />
@@ -570,8 +570,8 @@ const styles = StyleSheet.create({
     padding: 5,
   },
   profileLogo: {
-    width: 40,
-    height: 40,
+    width: 68,
+    height: 28,
   },
   
   // Status Badge

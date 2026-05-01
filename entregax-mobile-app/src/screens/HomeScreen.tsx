@@ -6,9 +6,9 @@ import {
   RefreshControl,
   StatusBar,
   Pressable,
+  TouchableOpacity,
   Alert,
   Modal,
-  TouchableOpacity,
   Image,
   TextInput,
 } from 'react-native';
@@ -1538,8 +1538,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 });
               }}
             >
-              <Ionicons name="wallet-outline" size={16} color="#F05A28" />
-              <Text style={styles.supplierPaymentText}>{t('xpay.title')}</Text>
+              <Image source={require('../../assets/logo-completo-xpay.png')} style={styles.supplierPaymentLogo} />
             </TouchableOpacity>
             {/* 🚀 Botón ¿Cómo enviar? o Cambiar Método */}
             <TouchableOpacity
@@ -2651,25 +2650,25 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   supplierPaymentButton: {
-    backgroundColor: '#111111',
+    backgroundColor: '#000000',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: '#000000',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    justifyContent: 'center',
+    paddingHorizontal: 14,
     paddingVertical: 8,
     borderRadius: 25,
-    gap: 5,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 3,
     elevation: 3,
   },
-  supplierPaymentText: {
-    color: '#FFFFFF',
-    fontWeight: 'bold',
-    fontSize: 12,
+  supplierPaymentLogo: {
+    width: 82,
+    height: 26,
+    resizeMode: 'contain',
   },
   requestShipmentButton: {
     backgroundColor: ORANGE,

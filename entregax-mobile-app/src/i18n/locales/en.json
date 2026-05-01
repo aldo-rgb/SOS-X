@@ -2,7 +2,7 @@
   "entangled": {
     "title": "X-Pay",
     "subtitle": "Triangulated payments to foreign suppliers",
-    "newRequest": "New request",
+    "newRequest": "New send",
     "myRequests": "My requests",
     "fields": {
       "rfc": "Tax ID (RFC)",
@@ -38,7 +38,7 @@
     "title": "X-Pay",
     "transitionSubtitle": "Secure encrypted connection",
     "secureGateway": "SECURE GATEWAY · ENTREGAX",
-    "newRequest": "New request",
+    "newRequest": "New send",
     "invoiceQuestion": "Do you need an invoice for this payment?",
     "invoiceYes": "Yes, I need an invoice (CFDI)",
     "invoiceNo": "No, no invoice",
@@ -79,6 +79,8 @@
     "quoteOpCost": "Operation cost",
     "quoteTotalToPay": "Total to pay",
     "proofLater": "ℹ️ Upload your transfer receipt after you receive the payment instructions.",
+    "requestCreatedTitle": "X-Pay request received",
+    "requestCreatedMessage": "Your request was successfully registered and is now under validation. We will notify you as soon as its status changes.",
     "facturaLabel": "Invoice",
     "providerLabel": "Supplier",
     "myRequests": "My requests"

@@ -38,6 +38,9 @@ export interface EntangledComisiones {
   asesor_nombre: string;
   comision_asesor: number;
   comision_xox: number;
+  comision_entregax?: number;
+  comision_over_asesor?: number;
+  comision_over_entregax?: number;
 }
 
 export interface EntangledSolicitudPayload {

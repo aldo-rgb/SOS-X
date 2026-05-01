@@ -4654,25 +4654,43 @@ export default function DashboardClient() {
 
             <Button
               variant="contained"
-              startIcon={<PaymentsIcon />}
-              onClick={() => setShowExternalProviderPage(true)}
+              onClick={() => {
+                const token = localStorage.getItem('token');
+                const url = new URL('https://x-pay.direct');
+                if (token) url.searchParams.set('token', token);
+                window.location.href = url.toString();
+              }}
               sx={{
-                bgcolor: '#111111',
+                bgcolor: '#000000',
+                background: '#000000 !important',
+                backgroundImage: 'none !important',
                 color: 'white',
                 fontWeight: 700,
-                borderRadius: 2,
-                px: 2,
-                py: 0.9,
+                borderRadius: 999,
+                border: '1px solid #000000',
+                  px: 1.25,
+                py: 0.45,
+                  minWidth: 164,
+                  height: 44,
                 textTransform: 'none',
                 boxShadow: 'none',
                 whiteSpace: 'nowrap',
                 '&:hover': {
-                  bgcolor: '#000000',
+                  bgcolor: '#050505',
+                  background: '#050505 !important',
+                  backgroundImage: 'none !important',
+                  border: '1px solid #050505',
                   boxShadow: 'none',
                 }
               }}
             >
-              {t('xpay.tabLabel', 'X-Pay')}
+              <Box
+                component="img"
+                src="/logo-completo-xpay-v2.png"
+                alt="X-Pay"
+                sx={{ width: 132, height: 32, objectFit: 'contain', filter: 'drop-shadow(0 0 6px rgba(255,255,255,0.15))' }}
+                onError={(e: React.SyntheticEvent<HTMLImageElement>) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+              />
             </Button>
           </Box>
         </Paper>

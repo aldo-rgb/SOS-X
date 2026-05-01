@@ -79,6 +79,8 @@
     "quoteOpCost": "操作费用",
     "quoteTotalToPay": "应付总额",
     "proofLater": "ℹ️ 收到付款指示后上传您的转账凭证。",
+    "requestCreatedTitle": "X-Pay 申请已接收",
+    "requestCreatedMessage": "您的申请已成功登记，当前正在审核中。状态更新后我们将及时通知您。",
     "facturaLabel": "发票",
     "providerLabel": "供应商",
     "myRequests": "我的申请"

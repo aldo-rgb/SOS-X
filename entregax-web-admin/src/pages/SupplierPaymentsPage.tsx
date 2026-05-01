@@ -133,6 +133,7 @@ export default function SupplierPaymentsPage() {
     asesor_pct: number | string | null;
     over_pct: number | string | null;
     over_split_asesor: number | string | null;
+    cancellation_fee_usd: number | string | null;
     effective_tipo_cambio_usd?: number | string;
     effective_tipo_cambio_rmb?: number | string;
     effective_porcentaje_compra?: number | string;
@@ -213,6 +214,7 @@ export default function SupplierPaymentsPage() {
         asesor_pct: toNullable(editingEntProvider.asesor_pct),
         over_pct: toNullable(editingEntProvider.over_pct),
         over_split_asesor: toNullable(editingEntProvider.over_split_asesor),
+        cancellation_fee_usd: toNullable(editingEntProvider.cancellation_fee_usd),
         bank_accounts: editingEntProvider.bank_accounts || [],
         notes: editingEntProvider.notes || null,
         is_active: editingEntProvider.is_active,
@@ -373,19 +375,18 @@ export default function SupplierPaymentsPage() {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <Box
               component="img"
-              src="/logo-xpay.png"
+              src="/logo-completo-xpay-v2.png"
               alt="X-Pay"
               sx={{
-                height: 38,
-                filter: 'drop-shadow(0 0 8px rgba(255,102,0,0.6))',
+                width: 142,
+                height: 40,
+                objectFit: 'contain',
+                filter: 'drop-shadow(0 0 8px rgba(255,102,0,0.35))',
                 animation: 'xpay-breathe 3s ease-in-out infinite',
               }}
-              onError={(e: any) => { e.currentTarget.style.display = 'none'; }}
+              onError={(e: React.SyntheticEvent<HTMLImageElement>) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
             />
             <Box>
-              <Typography variant="h5" fontWeight={800} sx={{ color: '#fff', letterSpacing: '-0.5px', lineHeight: 1 }}>
-                X-<span style={{ color: ORANGE }}>Pay</span>
-              </Typography>
               <Typography variant="caption" sx={{ color: '#888', letterSpacing: '0.12em', textTransform: 'uppercase', fontSize: '0.6rem' }}>
                 International Payment Gateway
               </Typography>
@@ -1141,9 +1142,10 @@ export default function SupplierPaymentsPage() {
                   const effRmb = Number(editingEntProvider.tipo_cambio_rmb) + ovRmb;
                   const effPct = Number(editingEntProvider.porcentaje_compra) + ovPct;
                   const effCosto = Number(editingEntProvider.costo_operacion_usd || 0) + ovCosto;
+                  const cancelFee = Number(editingEntProvider.cancellation_fee_usd ?? 1) || 1;
                   return (
                     <Typography variant="caption" sx={{ display: 'block', mt: 1, color: ORANGE, fontWeight: 600 }}>
-                      Efectivo: TC USD ${effUsd.toFixed(4)} · TC RMB ${effRmb.toFixed(4)} · % {effPct.toFixed(2)} · Costo op. ${effCosto.toFixed(2)} USD
+                      Efectivo: TC USD ${effUsd.toFixed(4)} · TC RMB ${effRmb.toFixed(4)} · % {effPct.toFixed(2)} · Costo op. ${effCosto.toFixed(2)} USD · Cancelación ${cancelFee.toFixed(2)} USD
                     </Typography>
                   );
                 })()}
@@ -1257,6 +1259,19 @@ export default function SupplierPaymentsPage() {
                     placeholder="0.00"
                     helperText={`API: $${Number(editingEntProvider.costo_operacion_usd || 0).toFixed(2)}`}
                     slotProps={{ input: { startAdornment: <InputAdornment position="start">+$</InputAdornment>, endAdornment: <InputAdornment position="end">USD</InputAdornment> } }}
+                    sx={{ width: 260 }}
+                  />
+                  <TextField
+                    label="Comisión cancelación"
+                    type="number"
+                    value={editingEntProvider.cancellation_fee_usd ?? 1}
+                    onChange={(e) => setEditingEntProvider({
+                      ...editingEntProvider,
+                      cancellation_fee_usd: e.target.value === '' ? null : e.target.value,
+                    })}
+                    inputProps={{ min: 0, step: '0.01' }}
+                    helperText="Cargo en USD cuando la solicitud vence a las 24 horas"
+                    slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment>, endAdornment: <InputAdornment position="end">USD</InputAdornment> } }}
                     sx={{ width: 260 }}
                   />
                 </Box>

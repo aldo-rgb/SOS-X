@@ -40,6 +40,7 @@
       "completado": "完成",
       "rechazado": "被拒",
       "error_envio": "发送错误",
+      "cancelado": "已取消",
       "emitida": "已开票",
       "enviado": "已发送"
     },
@@ -96,7 +97,7 @@
     "howItWorksDesc": "请填写您的税务信息并上传银行凭证。我们将处理国际付款并为您的会计记录生成正式发票及 SWIFT/BIC 确认书。",
     "tabLabel": "X-Pay",
     "refresh": "刷新",
-    "footerCopyright": "© {{year}} EntregaX · 受监管的国际处理 · 由 ENTANGLED Gateway 提供支持",
+    "footerCopyright": "© {{year}} X-Pay · 受监管的国际处理 · 由 ENTANGLED Gateway 提供支持",
     "certIsoSub": "已认证",
     "certPciSub": "合规",
     "certAesSub": "银行级加密",

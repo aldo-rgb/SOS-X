@@ -201,20 +201,23 @@ export async function generateCommissionForShipment(
     // 5. Calcular comisiones
     let commissionAmount: number;
     let gexCommission = 0;
+    let leaderOverrideAmount = 0;
+    let appliedLeaderOverridePct = 0;
 
     if (isGex) {
-      // GEX: comisión fija
+      // GEX: fee fijo completo al subasesor, líder recibe $0
       commissionAmount = fixedFee;
       gexCommission = fixedFee;
     } else {
-      // Porcentual
-      commissionAmount = (shipmentData.paymentAmount * percentage) / 100;
-    }
-
-    // Override del líder
-    let leaderOverrideAmount = 0;
-    if (leaderId && leaderOverridePct > 0) {
-      leaderOverrideAmount = (shipmentData.paymentAmount * leaderOverridePct) / 100;
+      // Split 50/50 entre subasesor y asesor líder
+      const totalCommission = (shipmentData.paymentAmount * percentage) / 100;
+      if (leaderId) {
+        commissionAmount = totalCommission * 0.5;
+        leaderOverrideAmount = totalCommission * 0.5;
+        appliedLeaderOverridePct = 50;
+      } else {
+        commissionAmount = totalCommission;
+      }
     }
 
     // 6. Insertar registro de comisión (ON CONFLICT DO NOTHING para evitar duplicados)
@@ -233,7 +236,7 @@ export async function generateCommissionForShipment(
       shipmentType, shipmentId, commissionServiceType, shipmentData.tracking,
       clientId, clientName,
       shipmentData.paymentAmount, percentage, commissionAmount,
-      leaderOverridePct, leaderOverrideAmount,
+      appliedLeaderOverridePct, leaderOverrideAmount,
       gexCommission
     ]);
 

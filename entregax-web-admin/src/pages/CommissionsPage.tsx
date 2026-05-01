@@ -238,7 +238,7 @@ export default function CommissionsPage() {
         <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tab icon={<PaymentIcon />} label={i18n.language === 'es' ? 'Comisiones Generadas' : 'Commissions Ledger'} />
           <Tab icon={<MonetizationOnIcon />} label={i18n.language === 'es' ? 'Tarifas' : 'Rates'} />
-          <Tab icon={<AccountTreeIcon />} label={i18n.language === 'es' ? 'Jerarquía' : 'Hierarchy'} />
+          <Tab icon={<AccountTreeIcon />} label={i18n.language === 'es' ? 'Asesores' : 'Hierarchy'} />
         </Tabs>
       </Paper>
 
@@ -356,9 +356,9 @@ export default function CommissionsPage() {
                       {i18n.language === 'es' ? 'Comisión (%)' : 'Commission (%)'}
                     </TableCell>
                     <TableCell align="center" sx={{ fontWeight: 'bold' }}>
-                      <Tooltip title={i18n.language === 'es' ? 'Comisión adicional para el líder cuando su subasesor genera una venta' : 'Additional commission for leader when their sub-advisor makes a sale'}>
+                      <Tooltip title={i18n.language === 'es' ? 'La comisión se divide 50% para el asesor líder y 50% para el subasesor. GEX es pago completo al subasesor.' : 'Commission is split 50% to lead advisor and 50% to sub-advisor. GEX pays full amount to sub-advisor.'}>
                         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
-                          {i18n.language === 'es' ? 'Override (%)' : 'Override (%)'}
+                          {i18n.language === 'es' ? 'Split Asesor / Sub' : 'Split Advisor / Sub'}
                           <SupervisorAccountIcon fontSize="small" />
                         </Box>
                       </Tooltip>
@@ -437,9 +437,9 @@ export default function CommissionsPage() {
               {i18n.language === 'es' ? '¿Cómo funciona?' : 'How does it work?'}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {i18n.language === 'es' 
-                ? '1. Cada asesor tiene un código único • 2. El cliente se registra con ese código • 3. Cada pago genera comisión automática • 4. Override: El líder gana % adicional por ventas de sus subasesores'
-                : '1. Each advisor has a unique code • 2. Client registers with that code • 3. Each payment generates automatic commission • 4. Override: Leader earns % on sub-advisor sales'}
+              {i18n.language === 'es'
+                ? '1. Cada asesor tiene un código único • 2. El cliente se registra con ese código • 3. Cada pago genera comisión automática • 4. Split 50/50: el asesor líder y el subasesor dividen la comisión en partes iguales • 5. GEX: el subasesor recibe el 100% de la comisión fija'
+                : '1. Each advisor has a unique code • 2. Client registers with that code • 3. Each payment generates automatic commission • 4. 50/50 split: lead advisor and sub-advisor share the commission equally • 5. GEX: sub-advisor receives 100% of the fixed commission'}
             </Typography>
           </Box>
         </Box>
@@ -447,22 +447,22 @@ export default function CommissionsPage() {
       </>
       )}
 
-      {/* Tab Jerarquía */}
+      {/* Tab Asesores */}
       {tabValue === 2 && (
         <Box>
           <Paper elevation={3} sx={{ borderRadius: 3, overflow: 'hidden' }}>
             <Box sx={{ bgcolor: BLACK, px: 3, py: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
-                👥 {i18n.language === 'es' ? 'Jerarquía de Asesores' : 'Advisor Hierarchy'}
+                👥 {i18n.language === 'es' ? 'Asesores / Subasesores' : 'Advisor Hierarchy'}
               </Typography>
               <Chip label={`${advisors.length} ${i18n.language === 'es' ? 'asesores' : 'advisors'}`} sx={{ bgcolor: ORANGE, color: 'white' }} />
             </Box>
             
             <Alert severity="info" sx={{ m: 2 }}>
               <Typography variant="body2">
-                {i18n.language === 'es' 
-                  ? 'Los asesores principales (líderes) reciben un % Override por cada venta de sus subasesores.'
-                  : 'Lead advisors receive an Override % for each sale made by their sub-advisors.'}
+                {i18n.language === 'es'
+                  ? 'Cuando un subasesor genera una venta, la comisión se divide 50% para el asesor líder y 50% para el subasesor. Las pólizas GEX se pagan completas al subasesor.'
+                  : 'When a sub-advisor generates a sale, the commission is split 50% to the lead advisor and 50% to the sub-advisor. GEX policies are paid in full to the sub-advisor.'}
               </Typography>
             </Alert>
 
@@ -636,20 +636,18 @@ interface CommissionRowProps {
 
 function CommissionRow({ rate, onSave, language }: CommissionRowProps) {
   const [val, setVal] = useState<string>(rate.percentage.toString());
-  const [overrideVal, setOverrideVal] = useState<string>((rate.leader_override || 0).toString());
   const [fixedFeeVal, setFixedFeeVal] = useState<string>((rate.fixed_fee || 0).toString());
   const [saving, setSaving] = useState(false);
-  
-  const hasChanged = parseFloat(val) !== rate.percentage || 
-    parseFloat(overrideVal) !== (rate.leader_override || 0) ||
+
+  const hasChanged = parseFloat(val) !== rate.percentage ||
     (rate.is_gex && parseFloat(fixedFeeVal) !== (rate.fixed_fee || 0));
 
   const handleSave = async () => {
     setSaving(true);
     await onSave(
-      rate.id, 
-      parseFloat(val), 
-      parseFloat(overrideVal), 
+      rate.id,
+      parseFloat(val),
+      0,
       null,
       rate.is_gex ? parseFloat(fixedFeeVal) : undefined
     );
@@ -694,22 +692,31 @@ function CommissionRow({ rate, onSave, language }: CommissionRowProps) {
       </TableCell>
       {rate.is_gex ? (
         <TableCell align="center">
-          <TextField 
-            type="number" size="small" value={fixedFeeVal}
-            onChange={(e) => setFixedFeeVal(e.target.value)}
-            slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
-            sx={{ width: 120, '& .MuiOutlinedInput-root': { bgcolor: '#e1bee7' } }}
-            helperText={language === 'es' ? 'Comisión fija' : 'Fixed commission'}
-          />
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+            <TextField
+              type="number" size="small" value={fixedFeeVal}
+              onChange={(e) => setFixedFeeVal(e.target.value)}
+              slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
+              sx={{ width: 120, '& .MuiOutlinedInput-root': { bgcolor: '#e1bee7' } }}
+              helperText={language === 'es' ? 'Comisión fija' : 'Fixed commission'}
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+              {language === 'es' ? 'Pago completo al subasesor' : 'Full payment to sub-advisor'}
+            </Typography>
+          </Box>
         </TableCell>
       ) : (
         <TableCell align="center">
-          <TextField 
-            type="number" size="small" value={overrideVal}
-            onChange={(e) => setOverrideVal(e.target.value)}
-            slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
-            sx={{ width: 100, '& .MuiOutlinedInput-root': { bgcolor: '#fff8e1' } }}
-          />
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+            <Chip
+              label="50% / 50%"
+              size="small"
+              sx={{ bgcolor: '#fff8e1', border: '1px solid #ffc107', fontWeight: 'bold', fontSize: '0.85rem', px: 1 }}
+            />
+            <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+              {language === 'es' ? 'Asesor / Subasesor' : 'Advisor / Sub-advisor'}
+            </Typography>
+          </Box>
         </TableCell>
       )}
       <TableCell align="center">

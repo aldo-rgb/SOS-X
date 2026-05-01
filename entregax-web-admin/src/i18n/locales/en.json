@@ -2,7 +2,7 @@
   "entangled": {
     "title": "International Supplier Payments",
     "subtitle": "Triangulated payment & invoicing for overseas suppliers",
-    "newRequest": "New request",
+    "newRequest": "New send",
     "myRequests": "My requests",
     "howItWorks": "How it works",
     "howItWorksDesc": "Fill in your tax info and upload the proof of your transfer. We pay your overseas supplier and deliver back your invoice and the international payment receipt to forward to them.",
@@ -40,6 +40,7 @@
       "completado": "Completed",
       "rechazado": "Rejected",
       "error_envio": "Send error",
+      "cancelado": "Cancelled",
       "emitida": "Issued",
       "enviado": "Sent"
     },
@@ -96,7 +97,7 @@
     "howItWorksDesc": "Complete your tax details and upload your bank receipt. We process the international payment and generate your official invoice along with the SWIFT/BIC confirmation for your accounting records.",
     "tabLabel": "X-Pay",
     "refresh": "Refresh",
-    "footerCopyright": "© {{year}} EntregaX · Regulated international processing · Powered by ENTANGLED Gateway",
+    "footerCopyright": "© {{year}} X-Pay · Regulated international processing · Powered by ENTANGLED Gateway",
     "certIsoSub": "Certified",
     "certPciSub": "Compliant",
     "certAesSub": "Bank-level Encryption",

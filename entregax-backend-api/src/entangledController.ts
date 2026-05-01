@@ -92,6 +92,11 @@ const computeQuote = async (
   monto_mxn_base: number;
   monto_mxn_comision: number;
   monto_mxn_total: number;
+  comision_xox: number;
+  comision_entregax: number;
+  comision_asesor: number;
+  comision_over_asesor: number;
+  comision_over_entregax: number;
 }> => {
   // 1) Resolver proveedor: el indicado, o el default activo, o el primero activo
   let provider: any = null;
@@ -99,7 +104,8 @@ const computeQuote = async (
     const r = await pool.query(
       `SELECT id, name,
               tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra, costo_operacion_usd,
-              override_tipo_cambio_usd, override_tipo_cambio_rmb, override_porcentaje_compra, override_costo_operacion_usd
+              override_tipo_cambio_usd, override_tipo_cambio_rmb, override_porcentaje_compra, override_costo_operacion_usd,
+              COALESCE(asesor_pct, 0) AS asesor_pct, COALESCE(over_pct, 0) AS over_pct, COALESCE(over_split_asesor, 90) AS over_split_asesor
        FROM entangled_providers WHERE id = $1 AND is_active = true`,
       [providerId]
     );
@@ -109,7 +115,8 @@ const computeQuote = async (
     const r = await pool.query(
       `SELECT id, name,
               tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra, costo_operacion_usd,
-              override_tipo_cambio_usd, override_tipo_cambio_rmb, override_porcentaje_compra, override_costo_operacion_usd
+              override_tipo_cambio_usd, override_tipo_cambio_rmb, override_porcentaje_compra, override_costo_operacion_usd,
+              COALESCE(asesor_pct, 0) AS asesor_pct, COALESCE(over_pct, 0) AS over_pct, COALESCE(over_split_asesor, 90) AS over_split_asesor
        FROM entangled_providers
        WHERE is_active = true
        ORDER BY is_default DESC, sort_order ASC, id ASC LIMIT 1`
@@ -134,9 +141,11 @@ const computeQuote = async (
   const div = String(divisa).toUpperCase();
   let tc = div === 'RMB' ? tcRmb : tcUsd;
 
-  // 3) Override por usuario (puede sobreescribir % y/o TC). El override específico
-  //    al provider tiene prioridad sobre el override global (provider_id IS NULL).
+  // 3) Override por usuario — el porcentaje_compra del usuario es ADICIONAL al base
+  //    (se suma, no reemplaza). Ese extra se reparte según over_split_asesor.
+  //    El TC por usuario sí puede sobreescribir.
   let pct = pctBase;
+  let userOverridePct = 0;  // extra % asignado específicamente a este usuario
   let isOverride = false;
   if (userId) {
     try {
@@ -150,7 +159,8 @@ const computeQuote = async (
       if (ov.rows.length > 0) {
         const row = ov.rows[0];
         if (row.porcentaje_compra != null) {
-          pct = Number(row.porcentaje_compra);
+          userOverridePct = Number(row.porcentaje_compra);
+          pct = pctBase + userOverridePct;   // SUMATIVO: base + extra del usuario
           isOverride = true;
         }
         const ovTc = div === 'RMB' ? row.tipo_cambio_rmb : row.tipo_cambio_usd;
@@ -164,21 +174,47 @@ const computeQuote = async (
 
   // Convertir costo de operación USD a MXN usando el TC
   const costoOpMxn = costoOpBase * tc;
-  
+
   const base = Number(monto) * tc;
-  const comision = base * (pct / 100);
+
+  // Desglose de comisiones
+  const xoxPct        = provider ? Number(provider.porcentaje_compra) : 6;
+  const entregaxPct   = provider ? Number(provider.override_porcentaje_compra ?? 0) : 0;
+  const asesorPct     = provider ? Number(provider.asesor_pct ?? 0) : 0;
+  const overPct       = provider ? Number(provider.over_pct ?? 0) : 0;
+  const overSplitAsesor   = provider ? Number(provider.over_split_asesor ?? 90) : 90;
+  const overSplitEntregax = 100 - overSplitAsesor;
+
+  const comisionXox      = Number((base * xoxPct / 100).toFixed(2));
+  const comisionEntregax = Number((base * entregaxPct / 100).toFixed(2));
+  const comisionAsesorBase = Number((base * asesorPct / 100).toFixed(2));
+
+  // Override global del proveedor + override personal del usuario — ambos se dividen igual
+  const totalOverPct    = overPct + userOverridePct;
+  const comisionOverTotal   = Number((base * totalOverPct / 100).toFixed(2));
+  const comisionOverAsesor  = Number((comisionOverTotal * overSplitAsesor / 100).toFixed(2));
+  const comisionOverEntregax = Number((comisionOverTotal * overSplitEntregax / 100).toFixed(2));
+
+  // El % total cobrado al cliente incluye todos los componentes
+  const totalPct = pct + asesorPct + overPct;  // pct ya = xoxPct + entregaxPct (con override usuario)
+  const comision = base * (asesorPct + overPct) / 100 + base * (pct / 100);
   const total = base + comision + costoOpMxn;
-  
+
   return {
     provider_id: provider?.id || null,
     provider_name: provider?.name || null,
     tipo_cambio: tc,
-    porcentaje_compra: pct,
+    porcentaje_compra: totalPct,
     costo_operacion_usd: costoOpBase,
     porcentaje_es_override: isOverride,
     monto_mxn_base: Number(base.toFixed(2)),
     monto_mxn_comision: Number(comision.toFixed(2)),
     monto_mxn_total: Number(total.toFixed(2)),
+    comision_xox: comisionXox,
+    comision_entregax: comisionEntregax,
+    comision_asesor: Number((comisionAsesorBase + comisionOverAsesor).toFixed(2)),
+    comision_over_asesor: comisionOverAsesor,
+    comision_over_entregax: comisionOverEntregax,
   };
 };
 
@@ -231,8 +267,12 @@ export const createPaymentRequest = async (
     // assigned_advisor_id puede no existir en algunas instalaciones; lo ignoramos.
   }
 
-  const comisionAsesor = Number(comisiones?.comision_asesor ?? 0) || 0;
-  const comisionXox = Number(comisiones?.comision_xox ?? 0) || 0;
+  // Comisiones calculadas automáticamente desde la configuración del proveedor
+  const comisionAsesor      = quote.comision_asesor;
+  const comisionXox         = quote.comision_xox;
+  const comisionEntregax    = quote.comision_entregax;
+  const comisionOverAsesor  = quote.comision_over_asesor;
+  const comisionOverEntregax = quote.comision_over_entregax;
 
   // 1. Crear el registro local primero (estado pendiente, sin transaccion_id)
   let requestId: number;
@@ -245,7 +285,7 @@ export const createPaymentRequest = async (
          cf_rfc, cf_razon_social, cf_regimen_fiscal, cf_cp, cf_uso_cfdi, cf_email,
          op_monto, op_divisa_destino, op_conceptos, op_comprobante_cliente_url,
          tipo_cambio_aplicado, porcentaje_compra_aplicado, monto_mxn_base, monto_mxn_total,
-         comision_asesor, comision_xox,
+         comision_asesor, comision_xox, comision_entregax, comision_over_asesor, comision_over_entregax,
          estatus_global, estatus_factura, estatus_proveedor,
          supplier_id,
          sup_nombre_beneficiario, sup_nombre_chino, sup_direccion,
@@ -261,15 +301,15 @@ export const createPaymentRequest = async (
          $5, $6, $7, $8, $9, $10,
          $11, $12, $13::jsonb, NULL,
          $14, $15, $16, $17,
-         $18, $19,
-         'pendiente', $20, 'pendiente',
-         $21,
-         $22, $23, $24,
-         $25, $26,
-         $27, $28,
-         $29, $30,
-         $31, $32,
-         $33, $34
+         $18, $19, $20, $21, $22,
+         'pendiente', $23, 'pendiente',
+         $24,
+         $25, $26, $27,
+         $28, $29,
+         $30, $31,
+         $32, $33,
+         $34, $35,
+         $36, $37
        ) RETURNING id`,
       [
         userId,
@@ -291,6 +331,9 @@ export const createPaymentRequest = async (
         quote.monto_mxn_total,
         comisionAsesor,
         comisionXox,
+        comisionEntregax,
+        comisionOverAsesor,
+        comisionOverEntregax,
         requiereFactura ? 'pendiente' : 'no_aplica',
         proveedor?.supplier_id || null,
         proveedor?.nombre_beneficiario || null,
@@ -337,6 +380,9 @@ export const createPaymentRequest = async (
       asesor_nombre: advisorName,
       comision_asesor: comisionAsesor,
       comision_xox: comisionXox,
+      comision_entregax: comisionEntregax,
+      comision_over_asesor: comisionOverAsesor,
+      comision_over_entregax: comisionOverEntregax,
     },
   };
 
@@ -409,6 +455,28 @@ export const getMyPaymentRequests = async (req: Request, res: Response): Promise
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
   try {
+    // Auto-cancelación: solicitudes sin completar en 24h
+    // Se marca cargo de cancelación configurable por proveedor (fallback 1 USD) en raw_response.
+    await pool.query(
+      `UPDATE entangled_payment_requests epr
+       SET estatus_global = 'cancelado',
+           estatus_factura = CASE WHEN estatus_factura IN ('completado', 'emitida', 'enviado') THEN estatus_factura ELSE 'cancelado' END,
+           estatus_proveedor = CASE WHEN estatus_proveedor IN ('completado', 'emitida', 'enviado') THEN estatus_proveedor ELSE 'cancelado' END,
+           raw_response = jsonb_set(
+             jsonb_set(COALESCE(raw_response, '{}'::jsonb), '{auto_cancelled}', 'true'::jsonb),
+             '{cancellation_fee_usd}',
+             to_jsonb(COALESCE(
+               (SELECT ep.cancellation_fee_usd FROM entangled_providers ep WHERE ep.id = epr.provider_id),
+               1
+             )::numeric)
+           ),
+           updated_at = NOW()
+       WHERE user_id = $1
+         AND estatus_global IN ('pendiente', 'en_proceso', 'error_envio')
+         AND created_at <= (NOW() - INTERVAL '24 hours')`,
+      [userId]
+    );
+
     const r = await pool.query(
       `SELECT id, entangled_transaccion_id,
               cf_rfc, cf_razon_social, cf_email,
@@ -416,7 +484,16 @@ export const getMyPaymentRequests = async (req: Request, res: Response): Promise
               estatus_global, estatus_factura, estatus_proveedor,
               factura_url, factura_emitida_at,
               comprobante_proveedor_url, proveedor_pagado_at,
-              created_at, updated_at
+              created_at, updated_at,
+              (created_at + INTERVAL '24 hours') AS payment_deadline_at,
+              CASE
+                WHEN estatus_global = 'cancelado' THEN COALESCE(
+                  (raw_response->>'cancellation_fee_usd')::numeric,
+                  (SELECT ep.cancellation_fee_usd FROM entangled_providers ep WHERE ep.id = entangled_payment_requests.provider_id),
+                  1
+                )
+                ELSE 0
+              END AS cancellation_fee_usd
        FROM entangled_payment_requests
        WHERE user_id = $1
        ORDER BY created_at DESC
@@ -459,6 +536,25 @@ export const getPaymentRequestDetail = async (req: Request, res: Response): Prom
 export const getAllPaymentRequests = async (req: Request, res: Response): Promise<any> => {
   const status = (req.query.status as string) || 'all';
   try {
+    // Auto-cancelación global de solicitudes vencidas
+    await pool.query(
+      `UPDATE entangled_payment_requests epr
+       SET estatus_global = 'cancelado',
+           estatus_factura = CASE WHEN estatus_factura IN ('completado', 'emitida', 'enviado') THEN estatus_factura ELSE 'cancelado' END,
+           estatus_proveedor = CASE WHEN estatus_proveedor IN ('completado', 'emitida', 'enviado') THEN estatus_proveedor ELSE 'cancelado' END,
+           raw_response = jsonb_set(
+             jsonb_set(COALESCE(raw_response, '{}'::jsonb), '{auto_cancelled}', 'true'::jsonb),
+             '{cancellation_fee_usd}',
+             to_jsonb(COALESCE(
+               (SELECT ep.cancellation_fee_usd FROM entangled_providers ep WHERE ep.id = epr.provider_id),
+               1
+             )::numeric)
+           ),
+           updated_at = NOW()
+       WHERE estatus_global IN ('pendiente', 'en_proceso', 'error_envio')
+         AND created_at <= (NOW() - INTERVAL '24 hours')`
+    );
+
     const params: any[] = [];
     let where = '';
     if (status && status !== 'all') {
@@ -467,6 +563,15 @@ export const getAllPaymentRequests = async (req: Request, res: Response): Promis
     }
     const q = `
       SELECT r.*,
+              (r.created_at + INTERVAL '24 hours') AS payment_deadline_at,
+              CASE
+           WHEN r.estatus_global = 'cancelado' THEN COALESCE(
+             (r.raw_response->>'cancellation_fee_usd')::numeric,
+             (SELECT ep.cancellation_fee_usd FROM entangled_providers ep WHERE ep.id = r.provider_id),
+             1
+           )
+           ELSE 0
+              END AS cancellation_fee_usd,
              u.full_name AS client_name, u.email AS client_email,
              a.full_name AS advisor_name
       FROM entangled_payment_requests r
@@ -930,6 +1035,7 @@ export const listActiveProvidersPublic = async (_req: Request, res: Response): P
         (tipo_cambio_rmb   + COALESCE(override_tipo_cambio_rmb, 0))   AS tipo_cambio_rmb,
         (porcentaje_compra + COALESCE(override_porcentaje_compra, 0)) AS porcentaje_compra,
         (COALESCE(costo_operacion_usd, 0) + COALESCE(override_costo_operacion_usd, 0)) AS costo_operacion_usd,
+        COALESCE(cancellation_fee_usd, 1) AS cancellation_fee_usd,
         COALESCE(costo_operacion_usd, 0) as base_costo,
         COALESCE(override_costo_operacion_usd, 0) as override_costo,
         bank_accounts, is_default, sort_order
@@ -960,7 +1066,7 @@ export const updateProvider = async (req: Request, res: Response): Promise<any> 
     if (b.is_default === true) {
       await pool.query(`UPDATE entangled_providers SET is_default = false WHERE id <> $1`, [id]);
     }
-    // Solo se permiten editar overrides + cuentas bancarias + flags + notas/orden.
+    // Solo se permiten editar overrides + cuentas bancarias + flags + notas/orden + comisiones de asesor.
     // name/code/tipo_cambio_*/porcentaje_compra son sincronizados desde el API y no se tocan aquí.
     const r = await pool.query(
       `UPDATE entangled_providers SET
@@ -973,8 +1079,12 @@ export const updateProvider = async (req: Request, res: Response): Promise<any> 
          is_active = COALESCE($7, is_active),
          is_default = COALESCE($8, is_default),
          sort_order = COALESCE($9, sort_order),
+         asesor_pct = COALESCE($10, asesor_pct),
+         over_pct = COALESCE($11, over_pct),
+         over_split_asesor = COALESCE($12, over_split_asesor),
+         cancellation_fee_usd = COALESCE($13, cancellation_fee_usd),
          updated_at = NOW()
-       WHERE id = $10 RETURNING *,
+       WHERE id = $14 RETURNING *,
          (tipo_cambio_usd   + COALESCE(override_tipo_cambio_usd, 0))   AS effective_tipo_cambio_usd,
          (tipo_cambio_rmb   + COALESCE(override_tipo_cambio_rmb, 0))   AS effective_tipo_cambio_rmb,
          (porcentaje_compra + COALESCE(override_porcentaje_compra, 0)) AS effective_porcentaje_compra,
@@ -989,6 +1099,10 @@ export const updateProvider = async (req: Request, res: Response): Promise<any> 
         b.is_active !== undefined ? !!b.is_active : null,
         b.is_default !== undefined ? !!b.is_default : null,
         b.sort_order !== undefined ? Number(b.sort_order) : null,
+        b.asesor_pct !== undefined && b.asesor_pct !== '' ? Number(b.asesor_pct) : null,
+        b.over_pct !== undefined && b.over_pct !== '' ? Number(b.over_pct) : null,
+        b.over_split_asesor !== undefined && b.over_split_asesor !== '' ? Number(b.over_split_asesor) : null,
+        b.cancellation_fee_usd !== undefined && b.cancellation_fee_usd !== '' ? Number(b.cancellation_fee_usd) : null,
         id,
       ]
     );

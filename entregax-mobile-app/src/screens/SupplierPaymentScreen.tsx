@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity, Alert,
-  StyleSheet, ActivityIndicator, RefreshControl, Linking, Platform
+  StyleSheet, ActivityIndicator, RefreshControl, Linking, Platform, Modal
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
@@ -46,6 +46,35 @@ const formatMoney = (value: number | string, decimals = 2) => {
   });
 };
 
+const parseApiDate = (s?: string | null): Date | null => {
+  if (!s) return null;
+  const trimmed = String(s).trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
+  const hasTimezone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(normalized);
+  const d = new Date(hasTimezone ? normalized : `${normalized}Z`);
+  return Number.isNaN(d.getTime()) ? null : d;
+};
+
+const formatDateTime = (d: Date | null) => {
+  if (!d) return '—';
+  return d.toLocaleString('es-MX', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: true,
+  });
+};
+
+const getPaymentDeadline = (createdAt?: string | null) => {
+  const created = parseApiDate(createdAt);
+  if (!created) return null;
+  return new Date(created.getTime() + 24 * 60 * 60 * 1000);
+};
+
 interface PaymentRequest {
   id: number;
   cf_rfc: string;
@@ -58,6 +87,7 @@ interface PaymentRequest {
   factura_url?: string;
   comprobante_proveedor_url?: string;
   comprobante_cliente_url?: string;
+  payment_deadline_at?: string | null;
   created_at: string;
 }
 
@@ -131,6 +161,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const authHeaders = { Authorization: `Bearer ${token}` };
   const [editingFiscalData, setEditingFiscalData] = useState(false);
   const [editingSupplierData, setEditingSupplierData] = useState(false);
+  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
+  const [successModalVisible, setSuccessModalVisible] = useState(false);
+  const [lastRequestId, setLastRequestId] = useState<number | null>(null);
 
   const loadRequests = useCallback(async () => {
     try {
@@ -330,7 +363,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       });
       const data = await res.json();
       if (res.ok) {
-        Alert.alert('✓', t('entangled.messages.created'));
+        const createdId = Number(data?.id || data?.data?.id || 0) || null;
+        setLastRequestId(createdId);
+        setSuccessModalVisible(true);
         // reset
         setMonto(''); setConceptos('');
         setBenefName(''); setBenefNameZh(''); setBenefAddress('');
@@ -339,6 +374,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         setSelectedSupplierId('new');
         setEditingFiscalData(false);
         setEditingSupplierData(false);
+        setWizardStep(1);
         loadRequests();
         loadSuppliers();
       } else {
@@ -350,6 +386,37 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     setSubmitting(false);
   };
 
+  const validateWizardStep = (step: 1 | 2 | 3 | 4): string | null => {
+    if (step === 1) {
+      if (!selectedProviderId) return 'Selecciona un proveedor ENTANGLED';
+      if (!monto || parseFloat(monto) <= 0) return 'Captura un monto válido';
+      if (!quote) return 'No se pudo calcular la cotización';
+      return null;
+    }
+    if (step === 2) {
+      if (!benefName || !benefAccount || !benefBankName) {
+        return 'Completa beneficiario, número de cuenta y banco';
+      }
+      if (divisa === 'RMB' && !benefNameZh) {
+        return 'Para RMB se requiere nombre en chino';
+      }
+      return null;
+    }
+    if (step === 3 && requiereFactura && (!rfc || !razon || !cp || !email)) {
+      return 'Completa todos los datos fiscales para generar factura';
+    }
+    return null;
+  };
+
+  const goNextStep = () => {
+    const err = validateWizardStep(wizardStep);
+    if (err) {
+      Alert.alert('Faltan datos', err);
+      return;
+    }
+    setWizardStep((s) => (s === 1 ? 2 : s === 2 ? 3 : s === 3 ? 4 : 4));
+  };
+
   const statusColor = (s: string) => {
     if (['completado', 'emitida', 'enviado', 'pagado'].includes(s)) return ORANGE;
     if (['en_proceso', 'pendiente'].includes(s)) return '#f59e0b';
@@ -358,6 +425,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   };
 
   return (
+    <View style={{ flex: 1, backgroundColor: DARK }}>
     <ScrollView
       style={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadRequests(); }} tintColor={ORANGE} colors={[ORANGE]} progressBackgroundColor={SURFACE} />}
@@ -381,9 +449,27 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
       {/* Form */}
       <View style={styles.card}>
-        <Text style={styles.sectionTitle}>📄 {t('xpay.newRequest', t('entangled.newRequest') as string)}</Text>
+        <View style={styles.sectionTitleRow}>
+          <Ionicons name="paper-plane" size={17} color={ORANGE} />
+          <Text style={styles.sectionTitle}>{t('xpay.newRequest', t('entangled.newRequest') as string)}</Text>
+        </View>
+
+        <View style={styles.stepRow}>
+          {[
+            { id: 1 as const, label: '1. Monto' },
+            { id: 2 as const, label: '2. Beneficiario' },
+            { id: 3 as const, label: '3. Factura' },
+            { id: 4 as const, label: '4. Resumen' },
+          ].map((s) => (
+            <TouchableOpacity key={s.id} style={[styles.stepPill, wizardStep === s.id && styles.stepPillActive]} onPress={() => setWizardStep(s.id)}>
+              <Text style={[styles.stepPillText, wizardStep === s.id && styles.stepPillTextActive]}>{s.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
 
         {/* ¿Requiere factura? */}
+        {wizardStep === 3 && (
+        <>
         <Text style={styles.label}>🧾 {t('xpay.invoiceQuestion')}</Text>
         <View style={{ flexDirection: 'row', marginBottom: 8 }}>
           <TouchableOpacity
@@ -399,9 +485,11 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             <Text style={[styles.chipText, requiereFactura && styles.chipTextActive]}>{t('xpay.invoiceYes')}</Text>
           </TouchableOpacity>
         </View>
+        </>
+        )}
 
         {/* Datos fiscales (solo si requiere factura) */}
-        {requiereFactura && (
+        {wizardStep === 3 && requiereFactura && (
           <>
             {/* Card de datos fiscales precargados */}
             {rfc && razon && !editingFiscalData && (
@@ -468,6 +556,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         )}
 
         {/* Proveedor de envío (beneficiario) */}
+        {wizardStep === 2 && (
+        <>
         <Text style={[styles.sectionTitle, { fontSize: 14, marginTop: 16 }]}>🏦 {t('xpay.supplierSection')}</Text>
 
         {savedSuppliers.length > 0 && (
@@ -562,8 +652,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             )}
           </>
         )}
+        </>
+        )}
 
         {/* Monto y divisa */}
+        {wizardStep === 1 && (
+        <>
         <Text style={[styles.sectionTitle, { fontSize: 14, marginTop: 16 }]}>💵 {t('xpay.amountSection')}</Text>
 
         <Text style={styles.label}>{t('xpay.entangledProvider')}</Text>
@@ -634,17 +728,55 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           </View>
         )}
 
+        </>
+        )}
+
+        {wizardStep === 4 && (
+          <View style={styles.quoteBox}>
+            <Text style={styles.quoteTitle}>✅ Resumen total</Text>
+            <Text style={styles.quoteLine}>Divisa: <Text style={styles.quoteVal}>{divisa}</Text></Text>
+            <Text style={styles.quoteLine}>Monto al proveedor: <Text style={styles.quoteVal}>${formatMoney(monto || 0, 2)} {divisa}</Text></Text>
+            <Text style={styles.quoteLine}>Proveedor ENTANGLED: <Text style={styles.quoteVal}>{providers.find((x) => x.id === selectedProviderId)?.name || '-'}</Text></Text>
+            <Text style={styles.quoteLine}>Beneficiario: <Text style={styles.quoteVal}>{benefName || '-'}</Text></Text>
+            <Text style={styles.quoteLine}>Factura: <Text style={styles.quoteVal}>{requiereFactura ? 'Sí' : 'No'}</Text></Text>
+            {requiereFactura && (
+              <Text style={styles.quoteLine}>RFC: <Text style={styles.quoteVal}>{rfc || '-'}</Text></Text>
+            )}
+            {quote && (
+              <>
+                <View style={styles.quoteDivider} />
+                <Text style={styles.quoteLine}>Tipo de cambio: <Text style={styles.quoteVal}>${formatMoney(quote.tipo_cambio, 4)} MXN/{divisa}</Text></Text>
+                <Text style={styles.quoteLine}>Comisión: <Text style={styles.quoteVal}>${formatMoney(quote.monto_mxn_comision, 2)} MXN</Text></Text>
+                <Text style={styles.quoteTotal}>Total: ${formatMoney(quote.monto_mxn_total, 2)} MXN</Text>
+              </>
+            )}
+          </View>
+        )}
+
         <View style={styles.infoBanner}>
           <Text style={styles.infoBannerText}>
             {t('xpay.proofLater')}
           </Text>
         </View>
 
-        <TouchableOpacity style={[styles.submitBtn, (!quote || submitting) && { opacity: 0.5 }]} onPress={submit} disabled={submitting || !quote}>
-          {submitting ? <ActivityIndicator color="white" /> : (
-            <Text style={styles.submitText}>{t('entangled.actions.submit')}</Text>
+        <View style={styles.wizardActionsRow}>
+          {wizardStep > 1 && (
+            <TouchableOpacity style={[styles.navBtn, styles.navBtnGhost]} onPress={() => setWizardStep((s) => (s === 4 ? 3 : s === 3 ? 2 : s === 2 ? 1 : 1))}>
+              <Text style={styles.navBtnGhostText}>{t('common.back')}</Text>
+            </TouchableOpacity>
           )}
-        </TouchableOpacity>
+          {wizardStep < 4 ? (
+            <TouchableOpacity style={[styles.navBtn, styles.navBtnNext]} onPress={goNextStep}>
+              <Text style={styles.navBtnNextText}>{t('common.next')}</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={[styles.submitBtn, (!quote || submitting) && { opacity: 0.5 }]} onPress={submit} disabled={submitting || !quote}>
+              {submitting ? <ActivityIndicator color="white" /> : (
+                <Text style={styles.submitText}>{t('entangled.actions.submit')}</Text>
+              )}
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Requests List */}
@@ -655,7 +787,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           <ActivityIndicator color={ORANGE} style={{ marginTop: 20 }} />
         ) : requests.length === 0 ? (
           <Text style={styles.empty}>{t('entangled.messages.empty')}</Text>
-        ) : requests.map(r => (
+        ) : requests.map(r => {
+          const deadline = parseApiDate(r.payment_deadline_at) || getPaymentDeadline(r.created_at);
+          const isActiveForPayment = ['pendiente', 'en_proceso', 'error_envio'].includes(String(r.estatus_global || '').toLowerCase());
+          return (
           <View key={r.id} style={styles.requestItem}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <Text style={styles.requestTitle}>#{r.id} · {r.cf_rfc}</Text>
@@ -667,6 +802,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             <Text style={styles.requestAmount}>
               {Number(r.op_monto).toLocaleString()} {r.op_divisa_destino}
             </Text>
+            {isActiveForPayment && (
+              <View style={styles.cancelTimeRow}>
+                <Ionicons name="time-outline" size={12} color="#FBBF24" />
+                <Text style={styles.cancelTimeText}>Se cancela: {formatDateTime(deadline)}</Text>
+              </View>
+            )}
             <View style={styles.statusRow}>
               <View style={[styles.statusPill, { borderColor: statusColor(r.estatus_factura) }]}>
                 <Text style={[styles.statusPillText, { color: statusColor(r.estatus_factura) }]}>
@@ -694,11 +835,45 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               )}
             </View>
           </View>
-        ))}
+        )})}
       </View>
 
       <View style={{ height: 40 }} />
     </ScrollView>
+
+    <Modal
+      visible={successModalVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setSuccessModalVisible(false)}
+    >
+      <View style={styles.successOverlay}>
+        <View style={styles.successCard}>
+          <View style={styles.successIconWrap}>
+            <Ionicons name="checkmark" size={18} color="#fff" />
+          </View>
+
+          <Text style={styles.successTitle}>{t('xpay.requestCreatedTitle')}</Text>
+          <Text style={styles.successMessage}>
+            {t('xpay.requestCreatedMessage')}
+          </Text>
+
+          {!!lastRequestId && (
+            <View style={styles.successRefPill}>
+              <Text style={styles.successRefText}>#{lastRequestId}</Text>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={styles.successBtn}
+            onPress={() => setSuccessModalVisible(false)}
+          >
+            <Text style={styles.successBtnText}>{t('common.ok')}</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+    </View>
   );
 }
 
@@ -739,7 +914,20 @@ const styles = StyleSheet.create({
     backgroundColor: SURFACE, margin: 12, padding: 16, borderRadius: 14,
     borderWidth: 1, borderColor: BORDER,
   },
-  sectionTitle: { fontSize: 16, fontWeight: '800', marginBottom: 12, color: TEXT, letterSpacing: 0.3 },
+  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  sectionTitle: { fontSize: 16, fontWeight: '800', color: TEXT, letterSpacing: 0.3 },
+  stepRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
+  stepPill: {
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: SURFACE_2,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 999,
+  },
+  stepPillActive: { borderColor: ORANGE, backgroundColor: 'rgba(240,90,40,0.16)' },
+  stepPillText: { color: TEXT_MUTED, fontSize: 11, fontWeight: '700' },
+  stepPillTextActive: { color: ORANGE },
   label: { fontSize: 12, color: TEXT_DIM, marginBottom: 6, marginTop: 10, letterSpacing: 0.5 },
   input: {
     borderWidth: 1, borderColor: BORDER, borderRadius: 10, padding: 12,
@@ -767,8 +955,15 @@ const styles = StyleSheet.create({
     backgroundColor: ORANGE, padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 16,
     shadowColor: ORANGE, shadowOpacity: 0.5, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
     elevation: 6,
+    flex: 1,
   },
   submitText: { color: '#FFF', fontWeight: '800', fontSize: 15, letterSpacing: 0.5 },
+  wizardActionsRow: { flexDirection: 'row', gap: 10, marginTop: 12, alignItems: 'center' },
+  navBtn: { borderRadius: 10, paddingVertical: 12, paddingHorizontal: 16, alignItems: 'center', justifyContent: 'center' },
+  navBtnGhost: { borderWidth: 1, borderColor: '#4B5563', backgroundColor: 'transparent', minWidth: 100 },
+  navBtnGhostText: { color: '#D1D5DB', fontWeight: '700' },
+  navBtnNext: { backgroundColor: ORANGE, minWidth: 120 },
+  navBtnNextText: { color: '#fff', fontWeight: '800' },
   // Cotización (oscura con acento naranja)
   quoteBox: {
     backgroundColor: 'rgba(240,90,40,0.08)',
@@ -808,6 +1003,8 @@ const styles = StyleSheet.create({
   requestStatus: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
   requestSub: { color: TEXT_DIM, fontSize: 12, marginTop: 2 },
   requestAmount: { fontSize: 16, fontWeight: '800', color: ORANGE, marginTop: 4 },
+  cancelTimeRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
+  cancelTimeText: { color: '#FBBF24', fontSize: 11, fontWeight: '700' },
   statusRow: { flexDirection: 'row', gap: 6, marginTop: 6, flexWrap: 'wrap' },
   statusPill: { borderWidth: 1, paddingVertical: 2, paddingHorizontal: 8, borderRadius: 10 },
   statusPillText: { fontSize: 10, fontWeight: '600' },
@@ -818,4 +1015,80 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: BORDER,
   },
   linkText: { fontSize: 12, color: '#60A5FA', fontWeight: '600' },
+
+  // Notificación éxito X-Pay
+  successOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 22,
+  },
+  successCard: {
+    width: '100%',
+    backgroundColor: '#111111',
+    borderWidth: 1,
+    borderColor: ORANGE,
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
+    alignItems: 'center',
+    shadowColor: ORANGE,
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  successIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: ORANGE,
+    marginBottom: 10,
+  },
+  successTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '800',
+    letterSpacing: 0.4,
+    textAlign: 'center',
+  },
+  successMessage: {
+    color: TEXT_DIM,
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  successRefPill: {
+    marginTop: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(240,90,40,0.45)',
+    backgroundColor: 'rgba(240,90,40,0.10)',
+  },
+  successRefText: {
+    color: ORANGE,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  successBtn: {
+    marginTop: 14,
+    minWidth: 140,
+    borderRadius: 22,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+    alignItems: 'center',
+    backgroundColor: ORANGE,
+  },
+  successBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
 });

@@ -90,6 +90,7 @@ import DashboardCounterStaff from './pages/DashboardCounterStaff';
 import DashboardOperations from './pages/DashboardOperations';
 import DashboardClient from './pages/DashboardClient';
 import DashboardAdvisor from './pages/DashboardAdvisor';
+import ExternalProviderPage from './pages/ExternalProviderPage';
 import ProfileClient from './pages/ProfileClient';
 import ClientTicketsPage from './pages/ClientTicketsPage';
 import MyProfilePage from './pages/MyProfilePage';
@@ -236,9 +237,11 @@ interface AuthUser {
 }
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
+const XPAY_HOSTS = new Set(['x-pay.direct', 'www.x-pay.direct']);
 
 function App() {
   const { t, i18n } = useTranslation();
+  const isXPayHost = typeof window !== 'undefined' && XPAY_HOSTS.has(window.location.hostname);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -259,6 +262,7 @@ function App() {
   const [selectedNotifIds, setSelectedNotifIds] = useState<Set<number>>(new Set());
   const [userPanelPermissions, setUserPanelPermissions] = useState<Record<string, boolean>>({});
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
+  const [authResolved, setAuthResolved] = useState(false);
 
   const isSuperAdmin = currentUser?.role === 'super_admin';
 
@@ -687,12 +691,72 @@ function App() {
 
   // Verificar autenticación al cargar
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const savedUser = localStorage.getItem('user');
-    if (token && savedUser) {
-      setCurrentUser(JSON.parse(savedUser));
-      setIsAuthenticated(true);
-    }
+    let cancelled = false;
+
+    const bootstrapAuth = async () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const tokenFromUrl = params.get('token');
+
+        if (tokenFromUrl) {
+          localStorage.setItem('token', tokenFromUrl);
+          params.delete('token');
+          const nextUrl = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ''}${window.location.hash}`;
+          window.history.replaceState({}, '', nextUrl);
+        }
+
+        const token = localStorage.getItem('token');
+        const savedUser = localStorage.getItem('user');
+
+        if (token && savedUser) {
+          if (!cancelled) {
+            setCurrentUser(JSON.parse(savedUser));
+            setIsAuthenticated(true);
+          }
+          return;
+        }
+
+        if (token) {
+          const response = await fetch(`${API_URL}/auth/profile`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (response.ok) {
+            const user = await response.json();
+            localStorage.setItem('user', JSON.stringify(user));
+            if (!cancelled) {
+              setCurrentUser(user);
+              setIsAuthenticated(true);
+            }
+            return;
+          }
+
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+        }
+
+        if (!cancelled) {
+          setCurrentUser(null);
+          setIsAuthenticated(false);
+        }
+      } catch (error) {
+        console.error('Error resolving auth session:', error);
+        if (!cancelled) {
+          setCurrentUser(null);
+          setIsAuthenticated(false);
+        }
+      } finally {
+        if (!cancelled) {
+          setAuthResolved(true);
+        }
+      }
+    };
+
+    bootstrapAuth();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleLoginSuccess = (data: { user: AuthUser; access: any }) => {
@@ -738,6 +802,28 @@ function App() {
     }
   }, [isAuthenticated, currentUser?.role]);
 
+  if (!authResolved) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <Box sx={{ minHeight: '100vh', bgcolor: '#050505', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Typography sx={{ color: '#fff', fontWeight: 700, letterSpacing: '0.08em' }}>
+            Cargando X-Pay...
+          </Typography>
+        </Box>
+      </ThemeProvider>
+    );
+  }
+
+  if (isXPayHost) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <ExternalProviderPage onBack={() => window.location.href = 'https://entregax.app'} />
+      </ThemeProvider>
+    );
+  }
+
   // Si no está autenticado, mostrar página de login
   if (!isAuthenticated) {
     return (
@@ -747,6 +833,7 @@ function App() {
       </ThemeProvider>
     );
   }
+
 
   // Función para obtener las iniciales del nombre
   const getInitials = (name: string) => {
