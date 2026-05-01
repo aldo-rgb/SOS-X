@@ -39,6 +39,7 @@ import {
   HowToReg as ClaimedIcon
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
+import * as XLSX from 'xlsx';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -137,56 +138,75 @@ export default function LegacyClientsPage() {
     fetchClients();
   }, [fetchStats, fetchClients]);
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-    if (event.target.files && event.target.files[0]) {
-      const file = event.target.files[0];
-      setSelectedFile(file);
-      setUploadResult(null);
-      setFilePreview(null);
-      
-      // Leer el archivo para previsualización
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const text = e.target?.result as string;
-        const lines = text.split('\n').filter(l => l.trim());
-        const delimiter = lines[0]?.includes('\t') ? '\t' : ',';
-        
-        // Detectar si tiene header
-        const firstLine = lines[0] || '';
-        const hasHeader = firstLine.toLowerCase().includes('casillero') || 
-                          firstLine.toLowerCase().includes('box_id') ||
-                          firstLine.toLowerCase().includes('nombre');
-        
-        // Contar líneas válidas (que tengan un box_id tipo S...)
-        let validCount = 0;
-        const samples: string[] = [];
-        const startIdx = hasHeader ? 1 : 0;
-        
-        for (let i = startIdx; i < lines.length; i++) {
-          const line = lines[i];
-          const campos = line.split(delimiter);
-          // Buscar campo que empiece con S (box_id)
-          const hasBoxId = campos.some(c => {
-            const clean = c.replace(/"/g, '').trim();
-            return /^(S|RT)\d+/i.test(clean);
-          });
-          if (hasBoxId) {
-            validCount++;
-            if (samples.length < 3) {
-              // Extraer box_id y nombre para muestra
-              const boxId = campos.find(c => /^"?(S|RT)\d+/i.test(c.replace(/"/g, '').trim()));
-              const nombre = campos[3]?.replace(/"/g, '').trim() || campos[1]?.replace(/"/g, '').trim();
-              if (boxId) samples.push(`${boxId.replace(/"/g, '')} - ${nombre || 'Sin nombre'}`);
-            }
-          }
+  const previewFromRows = (rows: string[][]) => {
+    // Detectar header
+    const firstRow = rows[0] || [];
+    const firstRowJoined = firstRow.join(' ').toLowerCase();
+    const hasHeader = firstRowJoined.includes('casillero') ||
+                      firstRowJoined.includes('box_id') ||
+                      firstRowJoined.includes('nombre') ||
+                      firstRowJoined.includes('correo') ||
+                      firstRowJoined.includes('email');
+    const startIdx = hasHeader ? 1 : 0;
+    let validCount = 0;
+    const samples: string[] = [];
+    for (let i = startIdx; i < rows.length; i++) {
+      const campos = rows[i] || [];
+      const boxIdField = campos.find(c => /^(S|RT)\d+/i.test((c || '').trim()));
+      if (boxIdField) {
+        validCount++;
+        if (samples.length < 3) {
+          const nombre = campos[1] || campos[3] || 'Sin nombre';
+          samples.push(`${boxIdField.trim()} - ${(nombre || '').trim()}`);
         }
-        
-        setFilePreview({
-          totalLines: lines.length - (hasHeader ? 1 : 0),
-          validLines: validCount,
-          sampleData: samples
-        });
-      };
+      }
+    }
+    setFilePreview({
+      totalLines: rows.length - (hasHeader ? 1 : 0),
+      validLines: validCount,
+      sampleData: samples
+    });
+  };
+
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (!event.target.files || !event.target.files[0]) return;
+    const file = event.target.files[0];
+    setSelectedFile(file);
+    setUploadResult(null);
+    setFilePreview(null);
+
+    const fileName = file.name.toLowerCase();
+    const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.xlsm');
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        if (isExcel) {
+          const buf = e.target?.result as ArrayBuffer;
+          const wb = XLSX.read(buf, { type: 'array' });
+          const sheetName = wb.SheetNames[0];
+          const sheet = sheetName ? wb.Sheets[sheetName] : null;
+          if (!sheet) { setFilePreview({ totalLines: 0, validLines: 0, sampleData: [] }); return; }
+          const raw = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '', raw: false }) as unknown[][];
+          const rows = raw
+            .map(r => r.map(c => (c === null || c === undefined ? '' : String(c).trim())))
+            .filter(r => r.some(c => c && c.length > 0));
+          previewFromRows(rows);
+        } else {
+          const text = e.target?.result as string;
+          const lines = text.split('\n').filter(l => l.trim());
+          const delimiter = lines[0]?.includes('\t') ? '\t' : ',';
+          const rows = lines.map(l => l.split(delimiter).map(c => c.replace(/"/g, '').trim()));
+          previewFromRows(rows);
+        }
+      } catch (err) {
+        console.error('Preview error:', err);
+        setFilePreview({ totalLines: 0, validLines: 0, sampleData: [] });
+      }
+    };
+    if (isExcel) {
+      reader.readAsArrayBuffer(file);
+    } else {
       reader.readAsText(file);
     }
   };
@@ -456,20 +476,22 @@ export default function LegacyClientsPage() {
         <DialogTitle>Importar Clientes Legacy</DialogTitle>
         <DialogContent>
           <Alert severity="info" sx={{ mb: 2 }}>
-            Sube un archivo CSV con los datos de clientes a migrar. El sistema detectará automáticamente las columnas.
+            Sube un archivo <strong>Excel (.xlsx)</strong> o <strong>CSV</strong> con los datos de clientes a migrar.
+            El sistema detectará automáticamente las columnas.
           </Alert>
 
           <Box sx={{ mb: 2 }}>
             <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-              Formato CSV esperado (con o sin header):
+              Formato esperado (con o sin encabezado):
             </Typography>
             <Paper sx={{ p: 1.5, bgcolor: 'grey.100', fontFamily: 'monospace', fontSize: 12 }}>
-              casillero,nombre,correo,fecha_alta<br/>
-              S1,"Juan Pérez",juan@email.com,2018-11-28<br/>
-              S2,"María García",maria@email.com,2019-03-15
+              A: Casillero  &nbsp; B: Nombre  &nbsp; C: Correo  &nbsp; D: Teléfono<br/>
+              S3349 &nbsp; Francisco Javier Oliva Rivera &nbsp; digitalsalesbjx@gmail.com &nbsp; 4776419004<br/>
+              S3348 &nbsp; Ernesto Gabriel Briseño Tovar &nbsp; gargolos@gmail.com &nbsp; 3339017060
             </Paper>
             <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-              Columnas: casillero (box_id), nombre completo, correo electrónico, fecha de alta
+              Columnas: <strong>A</strong>=casillero (S####), <strong>B</strong>=nombre, <strong>C</strong>=correo, <strong>D</strong>=teléfono.
+              Los duplicados (mismo casillero) se actualizan si aún no han sido reclamados.
             </Typography>
           </Box>
 
@@ -480,11 +502,11 @@ export default function LegacyClientsPage() {
             startIcon={<UploadIcon />}
             sx={{ mb: 2 }}
           >
-            {selectedFile ? selectedFile.name : 'Seleccionar archivo .csv'}
+            {selectedFile ? selectedFile.name : 'Seleccionar archivo (.xlsx, .xls o .csv)'}
             <input
               type="file"
               hidden
-              accept=".csv"
+              accept=".xlsx,.xls,.xlsm,.csv,.tsv,.txt"
               onChange={handleFileSelect}
             />
           </Button>

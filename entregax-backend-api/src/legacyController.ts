@@ -4,6 +4,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import fs from 'fs';
+import * as XLSX from 'xlsx';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'EntregaX_SuperSecretKey_2026';
 
@@ -71,82 +72,126 @@ export const importLegacyClients = async (req: Request, res: Response): Promise<
         }
 
         const filePath = file.path;
-        const data = fs.readFileSync(filePath, 'utf8');
-        const lineas = data.split('\n').filter(l => l.trim());
+        const fileName = (file.originalname || '').toLowerCase();
+        const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xls') || fileName.endsWith('.xlsm');
+
+        // Asegurar que la columna phone existe en legacy_clients (idempotente)
+        try {
+            await pool.query(`ALTER TABLE legacy_clients ADD COLUMN IF NOT EXISTS phone VARCHAR(50)`);
+        } catch (e) {
+            console.warn('[legacy/import] no se pudo asegurar columna phone:', (e as any)?.message);
+        }
+
+        let lineas: string[] = [];
+        let excelRows: string[][] = [];
+
+        if (isExcel) {
+            // Parsear Excel: array de arrays (cada fila es un array de strings)
+            const workbook = XLSX.readFile(filePath);
+            const sheetName = workbook.SheetNames[0];
+            if (!sheetName) {
+                fs.unlinkSync(filePath);
+                return res.status(400).json({ error: 'El archivo Excel no contiene hojas' });
+            }
+            const sheet = workbook.Sheets[sheetName];
+            if (!sheet) {
+                fs.unlinkSync(filePath);
+                return res.status(400).json({ error: 'No se pudo leer la hoja del Excel' });
+            }
+            const raw = XLSX.utils.sheet_to_json<any[]>(sheet, { header: 1, defval: '', raw: false });
+            excelRows = (raw as any[][])
+                .map((row) => row.map((c) => (c === null || c === undefined ? '' : String(c).trim())))
+                .filter((row) => row.some((c) => c && c.length > 0));
+        } else {
+            const data = fs.readFileSync(filePath, 'utf8');
+            lineas = data.split('\n').filter(l => l.trim());
+        }
 
         let importados = 0;
         let errores = 0;
         let duplicados = 0;
         const errorList: string[] = [];
 
-        // Detectar delimitador (tab o coma)
+        // Detectar delimitador (tab o coma) — solo aplica a TXT/CSV
         const firstLine = lineas[0] || '';
         const delimiter = firstLine.includes('\t') ? '\t' : ',';
-        
+
         // Detectar si tiene header y el formato del archivo
-        const firstCampos = parseLine(firstLine, delimiter);
-        const hasHeader = firstLine.toLowerCase().includes('casillero') || 
-                          firstLine.toLowerCase().includes('box_id') ||
-                          firstLine.toLowerCase().includes('nombre') ||
-                          firstLine.toLowerCase().includes('email');
-        
+        const firstRow: string[] = isExcel
+            ? (excelRows[0] || [])
+            : parseLine(firstLine, delimiter);
+        const firstRowJoined = firstRow.join(' ').toLowerCase();
+        const hasHeader = firstRowJoined.includes('casillero') ||
+                          firstRowJoined.includes('box_id') ||
+                          firstRowJoined.includes('nombre') ||
+                          firstRowJoined.includes('email') ||
+                          firstRowJoined.includes('correo');
+
         // Detectar índices automáticamente basándose en header o formato
         let boxIdIndex = 0;
         let fullNameIndex = 1;
         let emailIndex = 2;
-        let dateIndex = 3;
-        
+        let phoneIndex = 3;
+        let dateIndex = -1;
+
         if (hasHeader) {
             // Buscar índices por nombre de columna
-            const headerLower = firstCampos.map(h => h.toLowerCase().trim());
+            const headerLower = firstRow.map(h => h.toLowerCase().trim());
             const boxIdx = headerLower.findIndex(h => h.includes('casillero') || h.includes('box_id') || h === 'box');
             const nameIdx = headerLower.findIndex(h => h.includes('nombre') || h.includes('name'));
             const emailIdx = headerLower.findIndex(h => h.includes('correo') || h.includes('email') || h.includes('mail'));
             const dateIdx = headerLower.findIndex(h => h.includes('fecha') || h.includes('date') || h.includes('alta'));
-            
+            const phoneIdx = headerLower.findIndex(h => h.includes('tel') || h.includes('phone') || h.includes('celular') || h.includes('movil'));
+
             if (boxIdx !== -1) boxIdIndex = boxIdx;
             if (nameIdx !== -1) fullNameIndex = nameIdx;
             if (emailIdx !== -1) emailIndex = emailIdx;
             if (dateIdx !== -1) dateIndex = dateIdx;
-        } else if (firstCampos.length > 10) {
+            if (phoneIdx !== -1) phoneIndex = phoneIdx;
+        } else if (!isExcel && firstRow.length > 10) {
             // Formato legacy antiguo con muchas columnas (TSV del sistema viejo)
-            // Columna 4 (índice 3): Nombre completo
-            // Columna 8 (índice 7): Email  
-            // Columna 15 (índice 14): Box ID (S1, S2, etc.)
-            // Última columna: Fecha
             boxIdIndex = 14;
             fullNameIndex = 3;
             emailIndex = 7;
-            dateIndex = -1; // Buscar en última columna
+            phoneIndex = -1;
+            dateIndex = -1;
+        } else {
+            // Formato Excel del nuevo Acta de Clientes:
+            // A=Casillero, B=Nombre, C=Correo, D=Teléfono (sin header)
+            boxIdIndex = 0;
+            fullNameIndex = 1;
+            emailIndex = 2;
+            phoneIndex = 3;
+            dateIndex = -1;
         }
-        
+
         // Índice de inicio (saltar header si existe)
         const startIndex = hasHeader ? 1 : 0;
+        const totalRows = isExcel ? excelRows.length : lineas.length;
 
-        for (let i = startIndex; i < lineas.length; i++) {
-            const linea = lineas[i];
-            if (!linea || !linea.trim()) continue;
-
-            const campos = parseLine(linea, delimiter);
+        for (let i = startIndex; i < totalRows; i++) {
+            const campos: string[] = isExcel
+                ? (excelRows[i] || [])
+                : parseLine(lineas[i] || '', delimiter);
+            if (!campos || campos.length === 0) continue;
 
             try {
                 // Extraer campos según índices detectados
                 const boxId = campos[boxIdIndex] || '';
                 const fullName = campos[fullNameIndex] || '';
                 const email = campos[emailIndex] || '';
-                
+                const phone = phoneIndex >= 0 ? (campos[phoneIndex] || '') : '';
+
                 // Buscar fecha - primero en índice detectado, luego en última columna
                 let registrationDate: string | null = null;
-                
-                // Si tenemos índice de fecha detectado, usarlo primero
+
                 if (dateIndex >= 0) {
                     const fechaCampo = campos[dateIndex] as string | undefined;
                     if (fechaCampo && fechaCampo.match(/^\d{4}-\d{2}-\d{2}/)) {
                         registrationDate = fechaCampo.split(' ')[0] || null;
                     }
                 }
-                
-                // Si no encontró, buscar en cualquier columna (formato legacy)
+
                 if (!registrationDate) {
                     for (let j = campos.length - 1; j >= 0; j--) {
                         const campo = campos[j];
@@ -162,22 +207,36 @@ export const importLegacyClients = async (req: Request, res: Response): Promise<
                     errores++;
                     continue;
                 }
+                if (!/^(S|RT)\d+/i.test(boxId.trim())) {
+                    // saltar filas que no son clientes (ej. encabezados, separadores)
+                    errores++;
+                    continue;
+                }
 
-                // Limpiar email y nombre
+                // Limpiar email, nombre y teléfono
                 const cleanEmail = email && email !== '\\N' && email !== '' ? email.toLowerCase().trim() : null;
                 const cleanName = fullName && fullName !== '\\N' && fullName !== '' ? fullName.trim() : null;
+                const cleanPhone = phone && phone !== '\\N' && phone !== '' ? String(phone).replace(/\s+/g, ' ').trim() : null;
                 const cleanBoxId = boxId.trim().toUpperCase();
 
                 // Insertar en la BD
                 const result = await pool.query(`
-                    INSERT INTO legacy_clients (box_id, full_name, email, registration_date)
-                    VALUES ($1, $2, $3, $4)
-                    ON CONFLICT (box_id) DO NOTHING
-                    RETURNING id
-                `, [cleanBoxId, cleanName, cleanEmail, registrationDate]);
+                    INSERT INTO legacy_clients (box_id, full_name, email, phone, registration_date)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (box_id) DO UPDATE SET
+                        full_name = COALESCE(EXCLUDED.full_name, legacy_clients.full_name),
+                        email = COALESCE(EXCLUDED.email, legacy_clients.email),
+                        phone = COALESCE(EXCLUDED.phone, legacy_clients.phone)
+                    WHERE legacy_clients.is_claimed = FALSE
+                    RETURNING (xmax = 0) AS inserted
+                `, [cleanBoxId, cleanName, cleanEmail, cleanPhone, registrationDate]);
 
                 if (result.rowCount && result.rowCount > 0) {
-                    importados++;
+                    if ((result.rows[0] as any)?.inserted) {
+                        importados++;
+                    } else {
+                        duplicados++;
+                    }
                 } else {
                     duplicados++;
                 }
@@ -185,13 +244,16 @@ export const importLegacyClients = async (req: Request, res: Response): Promise<
             } catch (error: any) {
                 errores++;
                 if (errorList.length < 10) {
-                    errorList.push(`Línea con error: ${linea?.substring(0, 100) || 'desconocida'}...`);
+                    const sample = isExcel
+                        ? (excelRows[i] || []).join(' | ')
+                        : (lineas[i] || '').substring(0, 100);
+                    errorList.push(`Fila con error: ${sample}...`);
                 }
             }
         }
 
         // Eliminar archivo temporal
-        fs.unlinkSync(filePath);
+        try { fs.unlinkSync(filePath); } catch {}
 
         res.json({
             success: true,
@@ -200,7 +262,7 @@ export const importLegacyClients = async (req: Request, res: Response): Promise<
                 importados,
                 duplicados,
                 errores,
-                total: lineas.filter(l => l.trim()).length
+                total: totalRows - startIndex
             },
             erroresEjemplo: errorList
         });
