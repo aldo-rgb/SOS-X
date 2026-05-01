@@ -22,10 +22,44 @@ import EditIcon from '@mui/icons-material/Edit';
 import AddIcon from '@mui/icons-material/Add';
 import SaveIcon from '@mui/icons-material/Save';
 import HubIcon from '@mui/icons-material/Hub';
+import SecurityIcon from '@mui/icons-material/Security';
+import BoltIcon from '@mui/icons-material/Bolt';
+import PublicIcon from '@mui/icons-material/Public';
 import EntangledAdminTab from '../components/EntangledAdminTab';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
-const ORANGE = '#F05A28';
+const ORANGE = '#FF6600';
+const ORANGE_DARK = '#E05500';
+const CHARCOAL = '#0D0D0D';
+const SURFACE = '#141414';
+const SURFACE2 = '#1C1C1C';
+const BORDER = '#2A2A2A';
+
+/* ── X-Pay CSS keyframes injected once ── */
+const xpayStyles = `
+  @keyframes xpay-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,102,0,0); }
+    50% { box-shadow: 0 0 28px 6px rgba(255,102,0,0.45); }
+  }
+  @keyframes xpay-breathe {
+    0%, 100% { opacity: 0.7; }
+    50% { opacity: 1; }
+  }
+  @keyframes xpay-ticker {
+    0% { transform: translateX(0); }
+    100% { transform: translateX(-50%); }
+  }
+  @keyframes xpay-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+`;
+if (typeof document !== 'undefined' && !document.getElementById('xpay-style')) {
+  const s = document.createElement('style');
+  s.id = 'xpay-style';
+  s.textContent = xpayStyles;
+  document.head.appendChild(s);
+}
 
 interface Provider {
   id: number;
@@ -67,7 +101,7 @@ interface Stats {
 }
 
 export default function SupplierPaymentsPage() {
-  const { i18n } = useTranslation();
+  useTranslation();
   const [tabValue, setTabValue] = useState(0);
   const [loading, setLoading] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
@@ -96,6 +130,9 @@ export default function SupplierPaymentsPage() {
     override_tipo_cambio_rmb: number | string | null;
     override_porcentaje_compra: number | string | null;
     override_costo_operacion_usd: number | string | null;
+    asesor_pct: number | string | null;
+    over_pct: number | string | null;
+    over_split_asesor: number | string | null;
     effective_tipo_cambio_usd?: number | string;
     effective_tipo_cambio_rmb?: number | string;
     effective_porcentaje_compra?: number | string;
@@ -173,6 +210,9 @@ export default function SupplierPaymentsPage() {
         override_tipo_cambio_rmb: toNullable(editingEntProvider.override_tipo_cambio_rmb),
         override_porcentaje_compra: toNullable(editingEntProvider.override_porcentaje_compra),
         override_costo_operacion_usd: toNullable(editingEntProvider.override_costo_operacion_usd),
+        asesor_pct: toNullable(editingEntProvider.asesor_pct),
+        over_pct: toNullable(editingEntProvider.over_pct),
+        over_split_asesor: toNullable(editingEntProvider.over_split_asesor),
         bank_accounts: editingEntProvider.bank_accounts || [],
         notes: editingEntProvider.notes || null,
         is_active: editingEntProvider.is_active,
@@ -231,7 +271,7 @@ export default function SupplierPaymentsPage() {
   };
 
   const handleDeleteOverride = async (userId: number) => {
-    if (!window.confirm('¿Eliminar el porcentaje personalizado de este cliente? Volverá a usar el valor global.')) return;
+    if (!window.confirm('¿Eliminar el override de este cliente? Dejará de tener comisión adicional.')) return;
     try {
       await axios.delete(`${API_URL}/admin/entangled/user-pricing/${userId}`,
         { headers: { Authorization: `Bearer ${getToken()}` } }
@@ -291,92 +331,332 @@ export default function SupplierPaymentsPage() {
 
   if (loading && payments.length === 0) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh', bgcolor: CHARCOAL }}>
         <CircularProgress sx={{ color: ORANGE }} />
       </Box>
     );
   }
 
+  /* Live rates from first active entProvider */
+  const activeProvider = entProviders.find(p => p.is_active) || entProviders[0];
+  const liveUsdCny = activeProvider ? Number(activeProvider.effective_tipo_cambio_rmb ?? activeProvider.tipo_cambio_rmb) : 7.2631;
+  const liveUsdMxn = activeProvider ? Number(activeProvider.effective_tipo_cambio_usd ?? activeProvider.tipo_cambio_usd) : 17.42;
+
   return (
-    <Box sx={{ p: 3, bgcolor: '#000000', minHeight: '100vh', color: '#ffffff' }}>
-      {/* Header */}
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3, pb: 2, borderBottom: '1px solid #333333' }}>
-        <Box>
-          <Typography variant="h4" fontWeight="bold" sx={{ color: ORANGE }}>
-            💰 {i18n.language === 'es' ? 'Pagos a Proveedores' : 'Supplier Payments'}
-          </Typography>
-          <Typography variant="body2" sx={{ color: '#888888' }}>
-            {i18n.language === 'es' ? 'Gestión de proveedores y solicitudes' : 'Manage providers and requests'}
-          </Typography>
+    <Box sx={{ bgcolor: CHARCOAL, minHeight: '100vh', color: '#ffffff', fontFamily: '"Inter", "Roboto", sans-serif' }}>
+
+      {/* ══════════════════════════════════════════════════
+          HERO BANNER — X-Pay premium fintech header
+          ══════════════════════════════════════════════════ */}
+      <Box sx={{
+        position: 'relative',
+        overflow: 'hidden',
+        background: `linear-gradient(135deg, #050505 0%, #0D0D0D 40%, #1a0800 100%)`,
+        borderBottom: `1px solid ${BORDER}`,
+        pb: 0,
+      }}>
+        {/* Background radial glow */}
+        <Box sx={{
+          position: 'absolute', inset: 0, pointerEvents: 'none',
+          background: `radial-gradient(ellipse 60% 80% at 70% 50%, rgba(255,102,0,0.08) 0%, transparent 70%)`,
+        }} />
+        {/* Subtle grid texture */}
+        <Box sx={{
+          position: 'absolute', inset: 0, pointerEvents: 'none', opacity: 0.04,
+          backgroundImage: `repeating-linear-gradient(0deg, #fff 0px, #fff 1px, transparent 1px, transparent 40px),
+            repeating-linear-gradient(90deg, #fff 0px, #fff 1px, transparent 1px, transparent 40px)`,
+        }} />
+
+        {/* Top nav bar */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 4, pt: 2.5, pb: 2, position: 'relative', zIndex: 2 }}>
+          {/* Logo + brand */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Box
+              component="img"
+              src="/logo-xpay.png"
+              alt="X-Pay"
+              sx={{
+                height: 38,
+                filter: 'drop-shadow(0 0 8px rgba(255,102,0,0.6))',
+                animation: 'xpay-breathe 3s ease-in-out infinite',
+              }}
+              onError={(e: any) => { e.currentTarget.style.display = 'none'; }}
+            />
+            <Box>
+              <Typography variant="h5" fontWeight={800} sx={{ color: '#fff', letterSpacing: '-0.5px', lineHeight: 1 }}>
+                X-<span style={{ color: ORANGE }}>PAy</span>
+              </Typography>
+              <Typography variant="caption" sx={{ color: '#888', letterSpacing: '0.12em', textTransform: 'uppercase', fontSize: '0.6rem' }}>
+                International Payment Gateway
+              </Typography>
+            </Box>
+          </Box>
+
+          {/* Status pill + refresh */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, px: 1.5, py: 0.5, bgcolor: 'rgba(74,222,128,0.1)', borderRadius: 10, border: '1px solid rgba(74,222,128,0.3)' }}>
+              <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: '#4ade80', animation: 'xpay-dot 1.5s ease-in-out infinite' }} />
+              <Typography variant="caption" sx={{ color: '#4ade80', fontWeight: 600, fontSize: '0.7rem' }}>Gateway activo · SWIFT/BIC</Typography>
+            </Box>
+            <Tooltip title="Actualizar datos">
+              <IconButton onClick={loadData} size="small"
+                sx={{ color: ORANGE, bgcolor: 'rgba(255,102,0,0.1)', border: `1px solid rgba(255,102,0,0.25)`,
+                  '&:hover': { bgcolor: 'rgba(255,102,0,0.2)', animation: 'xpay-pulse 1s ease-in-out' } }}>
+                <RefreshIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
         </Box>
-        <Tooltip title="Actualizar">
-          <IconButton onClick={loadData} sx={{ bgcolor: 'rgba(240, 90, 40, 0.1)', color: ORANGE, '&:hover': { bgcolor: 'rgba(240, 90, 40, 0.2)' } }}>
-            <RefreshIcon />
-          </IconButton>
-        </Tooltip>
+
+        {/* Main hero content */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 4, py: 3, position: 'relative', zIndex: 2, gap: 3, flexWrap: 'wrap' }}>
+          {/* Left: headline */}
+          <Box sx={{ flex: '0 0 auto', maxWidth: 520 }}>
+            <Typography variant="h3" fontWeight={800} sx={{
+              color: '#fff', lineHeight: 1.1, letterSpacing: '-1px',
+              textShadow: `0 0 40px rgba(255,102,0,0.25)`,
+              mb: 1,
+            }}>
+              ENVÍOS DE DINERO{' '}
+              <Box component="span" sx={{ color: ORANGE }}>SEGUROS</Box>
+              {' '}A CHINA Y ESTADOS UNIDOS.
+            </Typography>
+            <Typography variant="body2" sx={{ color: '#888', mb: 2.5, lineHeight: 1.6 }}>
+              Procesamos pagos internacionales con confirmación SWIFT/BIC.
+              Generamos factura oficial y tipo de cambio competitivo en tiempo real.
+            </Typography>
+            {/* Feature pills */}
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+              {[
+                { icon: <SecurityIcon sx={{ fontSize: 14 }} />, label: 'SWIFT / BIC' },
+                { icon: <BoltIcon sx={{ fontSize: 14 }} />, label: 'Tiempo Real' },
+                { icon: <PublicIcon sx={{ fontSize: 14 }} />, label: 'USD · CNY · MXN' },
+              ].map((feat) => (
+                <Box key={feat.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1.5, py: 0.5,
+                  bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10 }}>
+                  <Box sx={{ color: ORANGE }}>{feat.icon}</Box>
+                  <Typography variant="caption" sx={{ color: '#ccc', fontWeight: 600, fontSize: '0.68rem', letterSpacing: '0.05em' }}>{feat.label}</Typography>
+                </Box>
+              ))}
+            </Box>
+          </Box>
+
+          {/* Right: Live rates card */}
+          <Box sx={{
+            flex: '0 0 auto', minWidth: 320,
+            bgcolor: 'rgba(255,255,255,0.03)', border: `1px solid ${BORDER}`,
+            borderRadius: 3, p: 2.5, backdropFilter: 'blur(8px)',
+            boxShadow: `0 0 40px rgba(255,102,0,0.06)`,
+          }}>
+            <Typography variant="caption" sx={{ color: '#666', letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 700, fontSize: '0.65rem' }}>
+              Tipos de Cambio · En Vivo
+            </Typography>
+
+            {/* USD → CNY */}
+            <Box sx={{ mt: 1.5, mb: 1.5 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                <Box>
+                  <Typography variant="caption" sx={{ color: '#555', fontSize: '0.65rem' }}>Par</Typography>
+                  <Typography variant="body2" fontWeight={700} sx={{ color: '#aaa', letterSpacing: '0.05em' }}>USD → CNY</Typography>
+                </Box>
+                <Box sx={{ textAlign: 'right' }}>
+                  <Typography variant="h5" fontWeight={800} sx={{ color: '#fff', letterSpacing: '-0.5px', lineHeight: 1 }}>
+                    {liveUsdCny.toFixed(4)}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: '#4ade80', fontWeight: 600, fontSize: '0.65rem' }}>▲ En vivo</Typography>
+                </Box>
+              </Box>
+              {/* Simulated sparkline bar */}
+              <Box sx={{ mt: 1, height: 3, borderRadius: 10, bgcolor: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+                <Box sx={{ height: '100%', width: '72%', bgcolor: ORANGE, borderRadius: 10, boxShadow: `0 0 8px ${ORANGE}` }} />
+              </Box>
+            </Box>
+
+            <Divider sx={{ borderColor: BORDER, my: 1.5 }} />
+
+            {/* USD → MXN */}
+            <Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+                <Box>
+                  <Typography variant="caption" sx={{ color: '#555', fontSize: '0.65rem' }}>Par</Typography>
+                  <Typography variant="body2" fontWeight={700} sx={{ color: '#aaa', letterSpacing: '0.05em' }}>USD → MXN</Typography>
+                </Box>
+                <Box sx={{ textAlign: 'right' }}>
+                  <Typography variant="h5" fontWeight={800} sx={{ color: '#fff', letterSpacing: '-0.5px', lineHeight: 1 }}>
+                    {liveUsdMxn.toFixed(4)}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: '#4ade80', fontWeight: 600, fontSize: '0.65rem' }}>▲ En vivo</Typography>
+                </Box>
+              </Box>
+              <Box sx={{ mt: 1, height: 3, borderRadius: 10, bgcolor: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
+                <Box sx={{ height: '100%', width: '58%', bgcolor: '#3b82f6', borderRadius: 10, boxShadow: `0 0 8px #3b82f6` }} />
+              </Box>
+            </Box>
+
+            {/* CTA */}
+            <Button
+              fullWidth
+              variant="contained"
+              startIcon={<AddIcon />}
+              sx={{
+                mt: 2.5,
+                background: `linear-gradient(135deg, ${ORANGE} 0%, ${ORANGE_DARK} 100%)`,
+                color: '#fff',
+                fontWeight: 700,
+                fontSize: '0.85rem',
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                py: 1.2,
+                borderRadius: 2,
+                boxShadow: `0 4px 20px rgba(255,102,0,0.4)`,
+                animation: 'xpay-pulse 2.5s ease-in-out infinite',
+                '&:hover': {
+                  background: `linear-gradient(135deg, #FF7700 0%, ${ORANGE} 100%)`,
+                  boxShadow: `0 6px 28px rgba(255,102,0,0.6)`,
+                },
+              }}
+              onClick={() => setTabValue(0)}
+            >
+              Crear Nuevo Envío
+            </Button>
+          </Box>
+        </Box>
+
+        {/* Bottom ticker bar */}
+        <Box sx={{ borderTop: `1px solid ${BORDER}`, bgcolor: 'rgba(0,0,0,0.5)', px: 2, py: 0.8, display: 'flex', gap: 4, overflow: 'hidden' }}>
+          {[
+            { label: 'USD/CNY', val: liveUsdCny.toFixed(4), up: true },
+            { label: 'USD/MXN', val: liveUsdMxn.toFixed(4), up: true },
+            { label: 'Completados 30d', val: stats?.completed || 0, up: true },
+            { label: 'Pendientes', val: stats?.pending || 0, up: false },
+            { label: 'Ganancia 30d', val: `$${Number(stats?.total_platform_profit || 0).toFixed(0)}`, up: true },
+            { label: 'Procesando', val: stats?.processing || 0, up: true },
+          ].map((item) => (
+            <Box key={item.label} sx={{ display: 'flex', alignItems: 'center', gap: 1, whiteSpace: 'nowrap' }}>
+              <Typography variant="caption" sx={{ color: '#555', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{item.label}</Typography>
+              <Typography variant="caption" sx={{ color: item.up ? '#4ade80' : ORANGE, fontWeight: 700, fontSize: '0.75rem' }}>
+                {item.up ? '▲' : '▼'} {item.val}
+              </Typography>
+            </Box>
+          ))}
+        </Box>
       </Box>
 
-      {/* Stats Cards */}
+      <Box sx={{ p: 3 }}>
+      {/* ─── Stats Cards (premium fintech style) ─── */}
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
-        <Card sx={{ flex: '1 1 200px', bgcolor: 'rgba(240, 90, 40, 0.15)', border: `1px solid ${ORANGE}`, color: ORANGE }}>
-          <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Box>
-                <Typography variant="h4" fontWeight="bold">{stats?.pending || 0}</Typography>
-                <Typography variant="body2" sx={{ color: '#888888' }}>Pendientes</Typography>
-              </Box>
-              <PendingIcon sx={{ fontSize: 40, opacity: 0.8 }} />
+        {/* Pending */}
+        <Box sx={{
+          flex: '1 1 200px', bgcolor: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 3, p: 2.5,
+          position: 'relative', overflow: 'hidden',
+          '&::before': { content: '""', position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, ${ORANGE}, transparent)` },
+        }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <Box>
+              <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.65rem', fontWeight: 700 }}>Pendientes</Typography>
+              <Typography variant="h3" fontWeight={800} sx={{ color: '#fff', lineHeight: 1.1, mt: 0.5 }}>{stats?.pending || 0}</Typography>
             </Box>
-          </CardContent>
-        </Card>
+            <Box sx={{ p: 1.2, bgcolor: `rgba(255,102,0,0.12)`, borderRadius: 2, border: `1px solid rgba(255,102,0,0.2)` }}>
+              <PendingIcon sx={{ color: ORANGE, fontSize: 22 }} />
+            </Box>
+          </Box>
+          <Box sx={{ mt: 1.5, height: 2, bgcolor: 'rgba(255,255,255,0.04)', borderRadius: 10, overflow: 'hidden' }}>
+            <Box sx={{ width: `${Math.min(100, (stats?.pending || 0) * 20)}%`, height: '100%', bgcolor: ORANGE, borderRadius: 10 }} />
+          </Box>
+        </Box>
 
-        <Card sx={{ flex: '1 1 200px', bgcolor: 'rgba(74, 222, 128, 0.15)', border: '1px solid #4ade80', color: '#4ade80' }}>
-          <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Box>
-                <Typography variant="h4" fontWeight="bold">${Number(stats?.total_platform_profit || 0).toFixed(0)}</Typography>
-                <Typography variant="body2" sx={{ opacity: 0.9, color: '#888888' }}>Ganancia (30d)</Typography>
-              </Box>
-              <TrendingUpIcon sx={{ fontSize: 40, opacity: 0.8 }} />
+        {/* Procesando */}
+        <Box sx={{
+          flex: '1 1 200px', bgcolor: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 3, p: 2.5,
+          position: 'relative', overflow: 'hidden',
+          '&::before': { content: '""', position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, #3b82f6, transparent)` },
+        }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <Box>
+              <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.65rem', fontWeight: 700 }}>Procesando</Typography>
+              <Typography variant="h3" fontWeight={800} sx={{ color: '#fff', lineHeight: 1.1, mt: 0.5 }}>{stats?.processing || 0}</Typography>
             </Box>
-          </CardContent>
-        </Card>
+            <Box sx={{ p: 1.2, bgcolor: `rgba(59,130,246,0.12)`, borderRadius: 2, border: `1px solid rgba(59,130,246,0.2)` }}>
+              <CurrencyExchangeIcon sx={{ color: '#3b82f6', fontSize: 22 }} />
+            </Box>
+          </Box>
+          <Box sx={{ mt: 1.5, height: 2, bgcolor: 'rgba(255,255,255,0.04)', borderRadius: 10 }}>
+            <Box sx={{ width: `${Math.min(100, (stats?.processing || 0) * 20)}%`, height: '100%', bgcolor: '#3b82f6', borderRadius: 10 }} />
+          </Box>
+        </Box>
 
-        <Card sx={{ flex: '1 1 200px', bgcolor: 'rgba(59, 130, 246, 0.15)', border: '1px solid #3b82f6', color: '#3b82f6' }}>
-          <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Box>
-                <Typography variant="h4" fontWeight="bold">{stats?.completed || 0}</Typography>
-                <Typography variant="body2" sx={{ opacity: 0.9, color: '#888888' }}>Completados (30d)</Typography>
-              </Box>
-              <CheckCircleIcon sx={{ fontSize: 40, opacity: 0.8 }} />
+        {/* Completados */}
+        <Box sx={{
+          flex: '1 1 200px', bgcolor: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 3, p: 2.5,
+          position: 'relative', overflow: 'hidden',
+          '&::before': { content: '""', position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, #4ade80, transparent)` },
+        }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <Box>
+              <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.65rem', fontWeight: 700 }}>Completados 30d</Typography>
+              <Typography variant="h3" fontWeight={800} sx={{ color: '#fff', lineHeight: 1.1, mt: 0.5 }}>{stats?.completed || 0}</Typography>
             </Box>
-          </CardContent>
-        </Card>
+            <Box sx={{ p: 1.2, bgcolor: `rgba(74,222,128,0.12)`, borderRadius: 2, border: `1px solid rgba(74,222,128,0.2)` }}>
+              <CheckCircleIcon sx={{ color: '#4ade80', fontSize: 22 }} />
+            </Box>
+          </Box>
+          <Box sx={{ mt: 1.5, height: 2, bgcolor: 'rgba(255,255,255,0.04)', borderRadius: 10 }}>
+            <Box sx={{ width: `${Math.min(100, (stats?.completed || 0) * 5)}%`, height: '100%', bgcolor: '#4ade80', borderRadius: 10 }} />
+          </Box>
+        </Box>
+
+        {/* Ganancia */}
+        <Box sx={{
+          flex: '1 1 200px', bgcolor: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 3, p: 2.5,
+          position: 'relative', overflow: 'hidden',
+          '&::before': { content: '""', position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: `linear-gradient(90deg, transparent, #a78bfa, transparent)` },
+        }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <Box>
+              <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.65rem', fontWeight: 700 }}>Ganancia 30d</Typography>
+              <Typography variant="h3" fontWeight={800} sx={{ color: '#fff', lineHeight: 1.1, mt: 0.5, fontSize: '1.8rem' }}>
+                ${Number(stats?.total_platform_profit || 0).toFixed(0)}
+              </Typography>
+            </Box>
+            <Box sx={{ p: 1.2, bgcolor: `rgba(167,139,250,0.12)`, borderRadius: 2, border: `1px solid rgba(167,139,250,0.2)` }}>
+              <TrendingUpIcon sx={{ color: '#a78bfa', fontSize: 22 }} />
+            </Box>
+          </Box>
+          <Box sx={{ mt: 1.5, height: 2, bgcolor: 'rgba(255,255,255,0.04)', borderRadius: 10 }}>
+            <Box sx={{ width: '65%', height: '100%', bgcolor: '#a78bfa', borderRadius: 10 }} />
+          </Box>
+        </Box>
       </Box>
 
-      {/* Tabs */}
-      <Paper sx={{ mb: 3, borderRadius: 2, bgcolor: '#1a1a1a', border: '1px solid #333333' }}>
-        <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ borderBottom: 1, borderColor: '#333333', '& .MuiTab-root': { color: '#888888', '&.Mui-selected': { color: ORANGE } } }}>
-          <Tab icon={<PaymentsIcon />} label="Solicitudes" />
-          <Tab icon={<CurrencyExchangeIcon />} label="Tipo de Cambio" />
-          <Tab icon={<BusinessIcon />} label="Proveedores" />
-          <Tab icon={<HubIcon />} label="ENTANGLED" />
+      {/* ─── Tabs ─── */}
+      <Paper sx={{ mb: 3, borderRadius: 2, bgcolor: SURFACE, border: `1px solid ${BORDER}` }}>
+        <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{
+          borderBottom: 1, borderColor: BORDER,
+          '& .MuiTab-root': { color: '#666', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', fontSize: '0.75rem', minHeight: 52 },
+          '& .Mui-selected': { color: `${ORANGE} !important` },
+          '& .MuiTabs-indicator': { backgroundColor: ORANGE, height: 2, boxShadow: `0 0 8px ${ORANGE}` },
+        }}>
+          <Tab icon={<PaymentsIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Solicitudes" />
+          <Tab icon={<CurrencyExchangeIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Tipo de Cambio" />
+          <Tab icon={<BusinessIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Proveedores" />
+          <Tab icon={<HubIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="ENTANGLED" />
         </Tabs>
       </Paper>
 
       {/* Tab: Solicitudes */}
       {tabValue === 0 && (
-        <Paper sx={{ borderRadius: 3, overflow: 'hidden', bgcolor: '#1a1a1a', border: '1px solid #333333' }}>
-          <Box sx={{ p: 2, bgcolor: '#0a0a0a', display: 'flex', gap: 2, alignItems: 'center', borderBottom: '1px solid #333333' }}>
+        <Paper sx={{ borderRadius: 3, overflow: 'hidden', bgcolor: SURFACE, border: `1px solid ${BORDER}` }}>
+          <Box sx={{ p: 2, bgcolor: '#0a0a0a', display: 'flex', gap: 2, alignItems: 'center', borderBottom: `1px solid ${BORDER}` }}>
+            <Typography variant="caption" sx={{ color: '#888', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 700, fontSize: '0.7rem', flex: 1 }}>
+              Últimos Envíos Realizados
+            </Typography>
             <FormControl size="small" sx={{ minWidth: 150 }}>
-              <InputLabel sx={{ color: '#888888' }}>Estado</InputLabel>
+              <InputLabel sx={{ color: '#555', fontSize: '0.8rem' }}>Estado</InputLabel>
               <Select value={statusFilter} label="Estado" onChange={(e) => setStatusFilter(e.target.value)}
                 sx={{
-                  color: '#ffffff',
-                  backgroundColor: '#0a0a0a',
-                  '& .MuiOutlinedInput-notchedOutline': { borderColor: '#333333' },
-                  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#555555' },
+                  color: '#ffffff', backgroundColor: '#0a0a0a', fontSize: '0.8rem',
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: BORDER },
+                  '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#555' },
                   '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: ORANGE },
                   '& .MuiSvgIcon-root': { color: ORANGE },
                 }}
@@ -393,60 +673,52 @@ export default function SupplierPaymentsPage() {
           <TableContainer>
             <Table>
               <TableHead>
-                <TableRow sx={{ bgcolor: '#0a0a0a', borderBottom: '1px solid #333333' }}>
-                  <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>Cliente</TableCell>
-                  <TableCell align="right" sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>Monto USD</TableCell>
-                  <TableCell align="right" sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>TC</TableCell>
-                  <TableCell align="right" sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>Total MXN</TableCell>
-                  <TableCell align="right" sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>Utilidad</TableCell>
-                  <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>Proveedor</TableCell>
-                  <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>Estado</TableCell>
-                  <TableCell sx={{ color: '#888888', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.75rem' }}>Acciones</TableCell>
+                <TableRow sx={{ bgcolor: '#0a0a0a', borderBottom: `1px solid ${BORDER}` }}>
+                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Cliente</TableCell>
+                  <TableCell align="right" sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Monto a Enviar al Proveedor</TableCell>
+                  <TableCell align="right" sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Divisa Destino</TableCell>
+                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Estatus</TableCell>
+                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Factura</TableCell>
+                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Pago a Proveedor</TableCell>
+                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Acciones</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {payments.map((p) => (
-                  <TableRow key={p.id} hover sx={{ bgcolor: '#1a1a1a', '&:hover': { bgcolor: '#242424' }, borderBottom: '1px solid #2a2a2a' }}>
-                    <TableCell sx={{ color: '#ffffff' }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Avatar sx={{ width: 32, height: 32, bgcolor: ORANGE }}>
+                  <TableRow key={p.id} hover sx={{ bgcolor: SURFACE, '&:hover': { bgcolor: SURFACE2 }, borderBottom: `1px solid ${BORDER}` }}>
+                    <TableCell sx={{ color: '#ffffff', borderBottom: `1px solid ${BORDER}` }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <Avatar sx={{ width: 34, height: 34, bgcolor: `rgba(255,102,0,0.15)`, border: `1px solid rgba(255,102,0,0.3)`, color: ORANGE, fontWeight: 700 }}>
                           {p.client_name?.[0] || '?'}
                         </Avatar>
                         <Box>
-                          <Typography variant="body2" fontWeight="bold" sx={{ color: '#ffffff' }}>{p.client_name}</Typography>
-                          <Typography variant="caption" sx={{ color: '#666666' }}>{p.client_email}</Typography>
+                          <Typography variant="body2" fontWeight={700} sx={{ color: '#ffffff' }}>{p.client_name}</Typography>
+                          <Typography variant="caption" sx={{ color: '#555' }}>{p.client_email}</Typography>
                         </Box>
                       </Box>
                     </TableCell>
-                    <TableCell align="right" sx={{ color: '#ffffff' }}>
-                      <Typography fontWeight="bold" sx={{ color: ORANGE }}>${parseFloat(String(p.amount_usd)).toLocaleString()}</Typography>
+                    <TableCell align="right" sx={{ borderBottom: `1px solid ${BORDER}` }}>
+                      <Typography fontWeight={800} sx={{ color: ORANGE, fontSize: '1rem' }}>${parseFloat(String(p.amount_usd)).toLocaleString()}</Typography>
                     </TableCell>
-                    <TableCell align="right" sx={{ color: '#888888' }}>${parseFloat(String(p.exchange_rate)).toFixed(2)}</TableCell>
-                    <TableCell align="right" sx={{ color: '#ffffff' }}>
-                      <Typography fontWeight="bold" sx={{ color: ORANGE }}>
-                        ${parseFloat(String(p.total_mxn)).toLocaleString()}
-                      </Typography>
+                    <TableCell sx={{ color: '#aaa', borderBottom: `1px solid ${BORDER}` }}>USD</TableCell>
+                    <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>{getStatusChip(p.status)}</TableCell>
+                    <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
+                      <Chip size="small" label="Pendiente" sx={{ bgcolor: 'transparent', border: `1px solid ${BORDER}`, color: '#888', fontSize: '0.65rem' }} />
                     </TableCell>
-                    <TableCell align="right" sx={{ color: '#ffffff' }}>
-                      <Tooltip title={`Plataforma: $${p.platform_profit} | Asesor: $${p.advisor_profit}`}>
-                        <Typography sx={{ color: '#4ade80', fontWeight: 'bold' }}>
-                          ${(parseFloat(String(p.platform_profit)) + parseFloat(String(p.advisor_profit))).toFixed(2)}
-                        </Typography>
-                      </Tooltip>
+                    <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
+                      <Chip size="small" label="Pendiente" sx={{ bgcolor: 'transparent', border: `1px solid ${BORDER}`, color: '#888', fontSize: '0.65rem' }} />
                     </TableCell>
-                    <TableCell sx={{ color: '#888888' }}>{p.provider_name || '-'}</TableCell>
-                    <TableCell>{getStatusChip(p.status)}</TableCell>
-                    <TableCell>
+                    <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       <Box sx={{ display: 'flex', gap: 0.5 }}>
                         {p.status === 'pending' && (
                           <>
                             <Tooltip title="Marcar En Proceso">
-                              <IconButton size="small" sx={{ color: '#3b82f6' }} onClick={() => handleUpdatePaymentStatus(p.id, 'processing')}>
+                              <IconButton size="small" sx={{ color: '#3b82f6', '&:hover': { bgcolor: 'rgba(59,130,246,0.1)' } }} onClick={() => handleUpdatePaymentStatus(p.id, 'processing')}>
                                 <CurrencyExchangeIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
                             <Tooltip title="Rechazar">
-                              <IconButton size="small" sx={{ color: '#ff6b6b' }} onClick={() => handleUpdatePaymentStatus(p.id, 'rejected')}>
+                              <IconButton size="small" sx={{ color: '#ff6b6b', '&:hover': { bgcolor: 'rgba(255,107,107,0.1)' } }} onClick={() => handleUpdatePaymentStatus(p.id, 'rejected')}>
                                 <CancelIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
@@ -454,19 +726,27 @@ export default function SupplierPaymentsPage() {
                         )}
                         {p.status === 'processing' && (
                           <Tooltip title="Marcar Completado">
-                            <IconButton size="small" color="success" onClick={() => handleUpdatePaymentStatus(p.id, 'completed')}>
+                            <IconButton size="small" sx={{ color: '#4ade80', '&:hover': { bgcolor: 'rgba(74,222,128,0.1)' } }} onClick={() => handleUpdatePaymentStatus(p.id, 'completed')}>
                               <CheckCircleIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
                         )}
+                        <Tooltip title={new Date(p.created_at).toLocaleString()}>
+                          <Typography variant="caption" sx={{ color: '#555', fontSize: '0.65rem', ml: 0.5, alignSelf: 'center', whiteSpace: 'nowrap' }}>
+                            {new Date(p.created_at).toLocaleDateString()}
+                          </Typography>
+                        </Tooltip>
                       </Box>
                     </TableCell>
                   </TableRow>
                 ))}
                 {payments.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
-                      <Typography color="text.secondary">No hay solicitudes</Typography>
+                    <TableCell colSpan={7} align="center" sx={{ py: 6, borderBottom: 'none' }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5, opacity: 0.5 }}>
+                        <PaymentsIcon sx={{ fontSize: 40, color: '#555' }} />
+                        <Typography sx={{ color: '#555' }}>No hay solicitudes</Typography>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 )}
@@ -478,7 +758,7 @@ export default function SupplierPaymentsPage() {
 
       {/* Tab: Tipo de Cambio — Sección ENTANGLED (CRUD por proveedor) */}
       {tabValue === 1 && (
-        <Paper sx={{ p: 3, borderRadius: 3, mt: 3 }}>
+        <Paper sx={{ p: 3, borderRadius: 3, mt: 3, bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: '#fff' }}>
           <Box sx={{ mb: 1 }}>
             <Typography variant="h6" fontWeight="bold">
               🌐 Proveedores ENTANGLED (Triangulación internacional)
@@ -560,10 +840,10 @@ export default function SupplierPaymentsPage() {
 
           <Typography variant="h6" fontWeight="bold" gutterBottom>
             <PercentIcon sx={{ verticalAlign: 'middle', mr: 1, color: ORANGE }} />
-            Porcentaje de compra por cliente (override)
+            Override por cliente (comisión adicional)
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Asigna un porcentaje personalizado a clientes específicos. Si un cliente tiene override, se aplica en lugar del % global.
+            El % que configures aquí se <strong>suma</strong> al % global del proveedor y se reparte automáticamente usando el split configurado (Asesor / EntregaX).
           </Typography>
 
           <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'flex-end', mb: 2 }}>
@@ -583,12 +863,13 @@ export default function SupplierPaymentsPage() {
               noOptionsText={userQuery.length < 2 ? 'Escribe al menos 2 caracteres' : 'Sin resultados'}
             />
             <TextField
-              label="% personalizado"
+              label="Override % adicional"
               type="number"
               value={overridePct}
               onChange={(e) => setOverridePct(e.target.value)}
               slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
               sx={{ width: 180 }}
+              helperText="Se suma al % base del proveedor"
             />
             <TextField
               label="Notas (opcional)"
@@ -655,14 +936,15 @@ export default function SupplierPaymentsPage() {
 
       {/* Tab: Proveedores */}
       {tabValue === 2 && (
-        <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
-          <Box sx={{ p: 2, bgcolor: 'grey.100', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography fontWeight="bold">Proveedores de Pago</Typography>
+        <Paper sx={{ borderRadius: 3, overflow: 'hidden', bgcolor: SURFACE, border: `1px solid ${BORDER}` }}>
+          <Box sx={{ p: 2, bgcolor: '#0a0a0a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${BORDER}` }}>
+            <Typography fontWeight={700} sx={{ color: '#fff', letterSpacing: '0.05em' }}>Proveedores de Pago</Typography>
             <Button
               variant="contained"
               startIcon={<AddIcon />}
               onClick={() => { setEditingProvider({ id: 0, name: '', base_cost_percent: 2, fixed_fee: 0, is_active: true }); setProviderModal(true); }}
-              sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)` }}
+              sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, ${ORANGE_DARK} 100%)`, fontWeight: 700, fontSize: '0.78rem',
+                boxShadow: `0 4px 14px rgba(255,102,0,0.3)`, '&:hover': { boxShadow: `0 6px 20px rgba(255,102,0,0.5)` } }}
             >
               Nuevo Proveedor
             </Button>
@@ -671,37 +953,42 @@ export default function SupplierPaymentsPage() {
           <TableContainer>
             <Table>
               <TableHead>
-                <TableRow sx={{ bgcolor: 'grey.50' }}>
-                  <TableCell>Nombre</TableCell>
-                  <TableCell align="right">Costo (%)</TableCell>
-                  <TableCell align="right">Cargo Fijo</TableCell>
-                  <TableCell>Estado</TableCell>
-                  <TableCell>Acciones</TableCell>
+                <TableRow sx={{ bgcolor: '#0a0a0a' }}>
+                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Nombre</TableCell>
+                  <TableCell align="right" sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Costo (%)</TableCell>
+                  <TableCell align="right" sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Cargo Fijo</TableCell>
+                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Estado</TableCell>
+                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Acciones</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {providers.map((p) => (
-                  <TableRow key={p.id} hover>
-                    <TableCell>
+                  <TableRow key={p.id} hover sx={{ bgcolor: SURFACE, '&:hover': { bgcolor: SURFACE2 } }}>
+                    <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Avatar sx={{ bgcolor: p.is_active ? ORANGE : 'grey.400' }}>
-                          <BusinessIcon />
+                        <Avatar sx={{ bgcolor: p.is_active ? `rgba(255,102,0,0.15)` : 'rgba(255,255,255,0.05)', border: `1px solid ${p.is_active ? 'rgba(255,102,0,0.3)' : BORDER}`, color: p.is_active ? ORANGE : '#666', width: 34, height: 34 }}>
+                          <BusinessIcon sx={{ fontSize: 18 }} />
                         </Avatar>
-                        <Typography fontWeight="bold">{p.name}</Typography>
+                        <Typography fontWeight={700} sx={{ color: '#fff' }}>{p.name}</Typography>
                       </Box>
                     </TableCell>
-                    <TableCell align="right">{p.base_cost_percent}%</TableCell>
-                    <TableCell align="right">${p.fixed_fee}</TableCell>
-                    <TableCell>
+                    <TableCell align="right" sx={{ color: ORANGE, fontWeight: 700, borderBottom: `1px solid ${BORDER}` }}>{p.base_cost_percent}%</TableCell>
+                    <TableCell align="right" sx={{ color: '#aaa', borderBottom: `1px solid ${BORDER}` }}>${p.fixed_fee}</TableCell>
+                    <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       <Chip
                         size="small"
-                        color={p.is_active ? 'success' : 'default'}
                         label={p.is_active ? 'Activo' : 'Inactivo'}
+                        sx={{
+                          bgcolor: p.is_active ? 'rgba(74,222,128,0.1)' : 'rgba(255,255,255,0.04)',
+                          border: `1px solid ${p.is_active ? 'rgba(74,222,128,0.3)' : BORDER}`,
+                          color: p.is_active ? '#4ade80' : '#666',
+                          fontSize: '0.65rem', fontWeight: 700,
+                        }}
                       />
                     </TableCell>
-                    <TableCell>
+                    <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       <Tooltip title="Editar">
-                        <IconButton size="small" onClick={() => { setEditingProvider(p); setProviderModal(true); }}>
+                        <IconButton size="small" sx={{ color: '#888', '&:hover': { color: ORANGE } }} onClick={() => { setEditingProvider(p); setProviderModal(true); }}>
                           <EditIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -717,53 +1004,63 @@ export default function SupplierPaymentsPage() {
       {/* Tab: ENTANGLED */}
       {tabValue === 3 && <EntangledAdminTab />}
 
+      </Box>{/* end p:3 */}
+
       {/* Modal Proveedor */}
-      <Dialog open={providerModal} onClose={() => setProviderModal(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ bgcolor: ORANGE, color: 'white' }}>
-          {editingProvider?.id ? 'Editar Proveedor' : 'Nuevo Proveedor'}
+      <Dialog open={providerModal} onClose={() => setProviderModal(false)} maxWidth="sm" fullWidth
+        PaperProps={{ sx: { bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: '#fff' } }}>
+        <DialogTitle sx={{ bgcolor: '#0a0a0a', borderBottom: `1px solid ${BORDER}`, color: '#fff', fontWeight: 700 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ width: 4, height: 20, bgcolor: ORANGE, borderRadius: 2 }} />
+            {editingProvider?.id ? 'Editar Proveedor' : 'Nuevo Proveedor'}
+          </Box>
         </DialogTitle>
-        <DialogContent sx={{ pt: 3 }}>
+        <DialogContent sx={{ pt: 3, bgcolor: SURFACE }}>
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
             <TextField
               label="Nombre del Proveedor"
               value={editingProvider?.name || ''}
               onChange={(e) => setEditingProvider(prev => prev ? { ...prev, name: e.target.value } : null)}
               fullWidth
+              sx={{ '& .MuiOutlinedInput-root': { color: '#fff', '& fieldset': { borderColor: BORDER }, '&:hover fieldset': { borderColor: '#555' }, '&.Mui-focused fieldset': { borderColor: ORANGE } }, '& .MuiInputLabel-root': { color: '#666' } }}
             />
             <TextField
               label="Costo Base (%)"
               type="number"
               value={editingProvider?.base_cost_percent || 0}
               onChange={(e) => setEditingProvider(prev => prev ? { ...prev, base_cost_percent: parseFloat(e.target.value) } : null)}
-              slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+              slotProps={{ input: { endAdornment: <InputAdornment position="end"><span style={{ color: '#666' }}>%</span></InputAdornment> } }}
               helperText="Lo que te cobra el proveedor por cada operación"
+              sx={{ '& .MuiOutlinedInput-root': { color: '#fff', '& fieldset': { borderColor: BORDER }, '&.Mui-focused fieldset': { borderColor: ORANGE } }, '& .MuiInputLabel-root': { color: '#666' }, '& .MuiFormHelperText-root': { color: '#555' } }}
             />
             <TextField
               label="Cargo Fijo"
               type="number"
               value={editingProvider?.fixed_fee || 0}
               onChange={(e) => setEditingProvider(prev => prev ? { ...prev, fixed_fee: parseFloat(e.target.value) } : null)}
-              slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> } }}
+              slotProps={{ input: { startAdornment: <InputAdornment position="start"><span style={{ color: '#666' }}>$</span></InputAdornment> } }}
               helperText="Cargo fijo por operación (USD)"
+              sx={{ '& .MuiOutlinedInput-root': { color: '#fff', '& fieldset': { borderColor: BORDER }, '&.Mui-focused fieldset': { borderColor: ORANGE } }, '& .MuiInputLabel-root': { color: '#666' }, '& .MuiFormHelperText-root': { color: '#555' } }}
             />
             <FormControlLabel
               control={
                 <Switch
                   checked={editingProvider?.is_active || false}
                   onChange={(e) => setEditingProvider(prev => prev ? { ...prev, is_active: e.target.checked } : null)}
+                  sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: ORANGE }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ORANGE } }}
                 />
               }
-              label="Proveedor Activo"
+              label={<Typography sx={{ color: '#ccc' }}>Proveedor Activo</Typography>}
             />
           </Box>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setProviderModal(false)}>Cancelar</Button>
+        <DialogActions sx={{ px: 3, pb: 2, bgcolor: '#0a0a0a', borderTop: `1px solid ${BORDER}` }}>
+          <Button onClick={() => setProviderModal(false)} sx={{ color: '#888' }}>Cancelar</Button>
           <Button
             variant="contained"
             startIcon={<SaveIcon />}
             onClick={handleSaveProvider}
-            sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)` }}
+            sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, ${ORANGE_DARK} 100%)`, fontWeight: 700, boxShadow: `0 4px 14px rgba(255,102,0,0.3)` }}
           >
             Guardar
           </Button>
@@ -771,8 +1068,14 @@ export default function SupplierPaymentsPage() {
       </Dialog>
 
       {/* Dialog: editor de proveedor ENTANGLED */}
-      <Dialog open={providerEditOpen} onClose={() => setProviderEditOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>Configurar override · {editingEntProvider?.name}</DialogTitle>
+      <Dialog open={providerEditOpen} onClose={() => setProviderEditOpen(false)} maxWidth="md" fullWidth
+        PaperProps={{ sx: { bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: '#fff' } }}>
+        <DialogTitle sx={{ bgcolor: '#0a0a0a', borderBottom: `1px solid ${BORDER}`, color: '#fff', fontWeight: 700 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ width: 4, height: 20, bgcolor: ORANGE, borderRadius: 2 }} />
+            Configurar override · {editingEntProvider?.name}
+          </Box>
+        </DialogTitle>
         <DialogContent>
           {editingEntProvider && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
@@ -881,7 +1184,7 @@ export default function SupplierPaymentsPage() {
                     sx={{ width: 220 }}
                   />
                   <TextField
-                    label="Incremento % de compra"
+                    label="Incremento % de compra (Comisión EntregaX)"
                     type="number"
                     value={editingEntProvider.override_porcentaje_compra ?? ''}
                     onChange={(e) => setEditingEntProvider({
@@ -889,10 +1192,69 @@ export default function SupplierPaymentsPage() {
                       override_porcentaje_compra: e.target.value === '' ? null : e.target.value,
                     })}
                     placeholder="0.00"
-                    helperText={`API: ${Number(editingEntProvider.porcentaje_compra).toFixed(2)}%`}
+                    helperText={`API: ${Number(editingEntProvider.porcentaje_compra).toFixed(2)}% · Lo que cobra EntregaX`}
                     slotProps={{ input: { startAdornment: <InputAdornment position="start">+</InputAdornment>, endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
-                    sx={{ width: 240 }}
+                    sx={{ width: 280 }}
                   />
+                  <TextField
+                    label="Comisión Asesor %"
+                    type="number"
+                    value={editingEntProvider.asesor_pct ?? ''}
+                    onChange={(e) => setEditingEntProvider({
+                      ...editingEntProvider,
+                      asesor_pct: e.target.value === '' ? null : e.target.value,
+                    })}
+                    placeholder="0.00"
+                    helperText="% que recibe el asesor referidor"
+                    slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+                    sx={{ width: 200 }}
+                  />
+                  <TextField
+                    label="Override % total"
+                    type="number"
+                    value={editingEntProvider.over_pct ?? ''}
+                    onChange={(e) => setEditingEntProvider({
+                      ...editingEntProvider,
+                      over_pct: e.target.value === '' ? null : e.target.value,
+                    })}
+                    placeholder="0.00"
+                    helperText="% del monto que se reparte entre asesor y EntregaX"
+                    slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+                    sx={{ width: 200 }}
+                  />
+                  {/* División del override */}
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, width: 280, p: 1.5, border: '1px dashed #ccc', borderRadius: 1 }}>
+                    <Typography variant="caption" fontWeight={700} color="text.secondary">
+                      División del override
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                      <TextField
+                        label="Asesor %"
+                        type="number"
+                        size="small"
+                        value={editingEntProvider.over_split_asesor ?? 90}
+                        onChange={(e) => {
+                          const v = Math.min(100, Math.max(0, Number(e.target.value)));
+                          setEditingEntProvider({ ...editingEntProvider, over_split_asesor: v });
+                        }}
+                        slotProps={{ input: { endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+                        sx={{ width: 110 }}
+                        inputProps={{ min: 0, max: 100, step: 1 }}
+                      />
+                      <Typography variant="body2" color="text.secondary">+</Typography>
+                      <TextField
+                        label="EntregaX %"
+                        size="small"
+                        value={100 - Number(editingEntProvider.over_split_asesor ?? 90)}
+                        InputProps={{ readOnly: true, endAdornment: <InputAdornment position="end">%</InputAdornment> }}
+                        sx={{ width: 110, '& .MuiInputBase-input': { color: 'text.secondary' } }}
+                        variant="filled"
+                      />
+                    </Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Solo edita el % del asesor — EntregaX recibe el resto
+                    </Typography>
+                  </Box>
                   <TextField
                     label="Incremento Costo Operación"
                     type="number"
@@ -1059,13 +1421,13 @@ export default function SupplierPaymentsPage() {
             </Box>
           )}
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setProviderEditOpen(false)}>Cancelar</Button>
+        <DialogActions sx={{ bgcolor: '#0a0a0a', borderTop: `1px solid ${BORDER}` }}>
+          <Button onClick={() => setProviderEditOpen(false)} sx={{ color: '#888' }}>Cancelar</Button>
           <Button
             variant="contained"
             startIcon={<SaveIcon />}
             onClick={handleSaveEntProvider}
-            sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)` }}
+            sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, ${ORANGE_DARK} 100%)`, fontWeight: 700, boxShadow: `0 4px 14px rgba(255,102,0,0.3)` }}
           >
             Guardar
           </Button>
@@ -1078,7 +1440,7 @@ export default function SupplierPaymentsPage() {
         onClose={() => setSnackbar({ ...snackbar, open: false })}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       >
-        <Alert severity={snackbar.severity}>{snackbar.message}</Alert>
+        <Alert severity={snackbar.severity} sx={{ bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: '#fff', '& .MuiAlert-icon': { color: ORANGE } }}>{snackbar.message}</Alert>
       </Snackbar>
     </Box>
   );
