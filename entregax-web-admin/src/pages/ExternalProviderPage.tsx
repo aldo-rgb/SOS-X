@@ -32,7 +32,7 @@ const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack }) =
         sx={{
           position: 'fixed',
           inset: 0,
-          zIndex: 2000, // por encima del AppBar de MUI (default 1100)
+          zIndex: 1200, // Cubre AppBar (1100) pero por debajo de Dialogs/Modals (1300+)
           bgcolor: '#000000',
           display: 'flex',
           flexDirection: 'column',
