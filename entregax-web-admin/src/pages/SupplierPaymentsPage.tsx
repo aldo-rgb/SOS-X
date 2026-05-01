@@ -384,7 +384,7 @@ export default function SupplierPaymentsPage() {
             />
             <Box>
               <Typography variant="h5" fontWeight={800} sx={{ color: '#fff', letterSpacing: '-0.5px', lineHeight: 1 }}>
-                X-<span style={{ color: ORANGE }}>PAy</span>
+                X-<span style={{ color: ORANGE }}>Pay</span>
               </Typography>
               <Typography variant="caption" sx={{ color: '#888', letterSpacing: '0.12em', textTransform: 'uppercase', fontSize: '0.6rem' }}>
                 International Payment Gateway
@@ -763,7 +763,7 @@ export default function SupplierPaymentsPage() {
             <Typography variant="h6" fontWeight="bold">
               🌐 Proveedores ENTANGLED (Triangulación internacional)
             </Typography>
-            <Typography variant="body2" color="text.secondary">
+            <Typography variant="body2" sx={{ color: '#888' }}>
               Los proveedores se sincronizan desde el API. Aquí solo configuras TC USD, TC RMB, % de compra y cuentas bancarias para recibir el depósito MXN del cliente.
             </Typography>
           </Box>
@@ -772,16 +772,10 @@ export default function SupplierPaymentsPage() {
           <TableContainer>
             <Table size="small">
               <TableHead>
-                <TableRow sx={{ bgcolor: 'grey.50' }}>
-                  <TableCell>Nombre</TableCell>
-                  <TableCell>Código</TableCell>
-                  <TableCell align="right">TC USD efectivo</TableCell>
-                  <TableCell align="right">TC RMB efectivo</TableCell>
-                  <TableCell align="right">% compra efectivo</TableCell>
-                  <TableCell align="center">Cuentas</TableCell>
-                  <TableCell align="center">Activo</TableCell>
-                  <TableCell align="center">Default</TableCell>
-                  <TableCell align="center">Acciones</TableCell>
+                <TableRow sx={{ bgcolor: '#0a0a0a' }}>
+                  {['Nombre','Código','TC USD efectivo','TC RMB efectivo','% compra efectivo','Cuentas','Activo','Default','Acciones'].map((h) => (
+                    <TableCell key={h} sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>{h}</TableCell>
+                  ))}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -793,31 +787,31 @@ export default function SupplierPaymentsPage() {
                   const ovRmb = p.override_tipo_cambio_rmb != null;
                   const ovPct = p.override_porcentaje_compra != null;
                   return (
-                  <TableRow key={p.id} hover>
-                    <TableCell>{p.name}</TableCell>
-                    <TableCell>{p.code || '—'}</TableCell>
-                    <TableCell align="right">
+                  <TableRow key={p.id} hover sx={{ bgcolor: SURFACE, '&:hover': { bgcolor: SURFACE2 } }}>
+                    <TableCell sx={{ color: '#fff', fontWeight: 600, borderBottom: `1px solid ${BORDER}` }}>{p.name}</TableCell>
+                    <TableCell sx={{ color: '#888', borderBottom: `1px solid ${BORDER}` }}>{p.code || '—'}</TableCell>
+                    <TableCell align="center" sx={{ color: '#ccc', borderBottom: `1px solid ${BORDER}` }}>
                       ${effUsd.toFixed(4)}
-                      {ovUsd && <Chip size="small" sx={{ ml: 0.5 }} color="warning" label="OV" />}
+                      {ovUsd && <Chip size="small" sx={{ ml: 0.5, bgcolor: 'rgba(255,102,0,0.15)', color: ORANGE, border: `1px solid rgba(255,102,0,0.3)` }} label="OV" />}
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="center" sx={{ color: '#ccc', borderBottom: `1px solid ${BORDER}` }}>
                       ${effRmb.toFixed(4)}
-                      {ovRmb && <Chip size="small" sx={{ ml: 0.5 }} color="warning" label="OV" />}
+                      {ovRmb && <Chip size="small" sx={{ ml: 0.5, bgcolor: 'rgba(255,102,0,0.15)', color: ORANGE, border: `1px solid rgba(255,102,0,0.3)` }} label="OV" />}
                     </TableCell>
-                    <TableCell align="right">
+                    <TableCell align="center" sx={{ color: '#ccc', borderBottom: `1px solid ${BORDER}` }}>
                       {effPct.toFixed(2)}%
-                      {ovPct && <Chip size="small" sx={{ ml: 0.5 }} color="warning" label="OV" />}
+                      {ovPct && <Chip size="small" sx={{ ml: 0.5, bgcolor: 'rgba(255,102,0,0.15)', color: ORANGE, border: `1px solid rgba(255,102,0,0.3)` }} label="OV" />}
                     </TableCell>
-                    <TableCell align="center">{p.bank_accounts?.length || 0}</TableCell>
-                    <TableCell align="center">
-                      {p.is_active ? <CheckCircleIcon fontSize="small" color="success" /> : <CancelIcon fontSize="small" color="error" />}
+                    <TableCell align="center" sx={{ color: '#888', borderBottom: `1px solid ${BORDER}` }}>{p.bank_accounts?.length || 0}</TableCell>
+                    <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}` }}>
+                      {p.is_active ? <CheckCircleIcon fontSize="small" sx={{ color: '#4ade80' }} /> : <CancelIcon fontSize="small" sx={{ color: '#ff6b6b' }} />}
                     </TableCell>
-                    <TableCell align="center">
-                      {p.is_default ? <Chip size="small" color="primary" label="Default" /> : '—'}
+                    <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}` }}>
+                      {p.is_default ? <Chip size="small" label="Default" sx={{ bgcolor: 'rgba(255,102,0,0.15)', color: ORANGE, border: `1px solid rgba(255,102,0,0.3)`, fontWeight: 700 }} /> : <span style={{ color: '#555' }}>—</span>}
                     </TableCell>
-                    <TableCell align="center">
+                    <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       <Tooltip title="Configurar override">
-                        <IconButton size="small" onClick={() => { setEditingEntProvider({ ...p, bank_accounts: [...(p.bank_accounts || [])] }); setProviderEditOpen(true); }}>
+                        <IconButton size="small" sx={{ color: '#888', '&:hover': { color: ORANGE } }} onClick={() => { setEditingEntProvider({ ...p, bank_accounts: [...(p.bank_accounts || [])] }); setProviderEditOpen(true); }}>
                           <EditIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -827,8 +821,8 @@ export default function SupplierPaymentsPage() {
                 })}
                 {entProviders.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={9} align="center" sx={{ py: 3 }}>
-                      <Typography color="text.secondary">No hay proveedores configurados.</Typography>
+                    <TableCell colSpan={9} align="center" sx={{ py: 3, borderBottom: 'none' }}>
+                      <Typography sx={{ color: '#555' }}>No hay proveedores configurados.</Typography>
                     </TableCell>
                   </TableRow>
                 )}
@@ -842,7 +836,7 @@ export default function SupplierPaymentsPage() {
             <PercentIcon sx={{ verticalAlign: 'middle', mr: 1, color: ORANGE }} />
             Override por cliente (comisión adicional)
           </Typography>
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          <Typography variant="body2" sx={{ color: '#888', mb: 2 }}>
             El % que configures aquí se <strong>suma</strong> al % global del proveedor y se reparte automáticamente usando el split configurado (Asesor / EntregaX).
           </Typography>
 
@@ -891,30 +885,27 @@ export default function SupplierPaymentsPage() {
           <TableContainer sx={{ mt: 2 }}>
             <Table size="small">
               <TableHead>
-                <TableRow sx={{ bgcolor: 'grey.50' }}>
-                  <TableCell>Cliente</TableCell>
-                  <TableCell>Email</TableCell>
-                  <TableCell align="right">% personalizado</TableCell>
-                  <TableCell>Notas</TableCell>
-                  <TableCell>Actualizado</TableCell>
-                  <TableCell align="center">Acciones</TableCell>
+                <TableRow sx={{ bgcolor: '#0a0a0a' }}>
+                  {['Cliente','Email','% Personalizado','Notas','Actualizado','Acciones'].map((h) => (
+                    <TableCell key={h} sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>{h}</TableCell>
+                  ))}
                 </TableRow>
               </TableHead>
               <TableBody>
                 {userPricing.map((up) => (
-                  <TableRow key={up.user_id} hover>
-                    <TableCell>{up.client_name || '—'}</TableCell>
-                    <TableCell>{up.client_email}</TableCell>
-                    <TableCell align="right">
-                      <Chip size="small" color="primary" label={`${Number(up.porcentaje_compra).toFixed(2)}%`} />
+                  <TableRow key={up.user_id} hover sx={{ bgcolor: SURFACE, '&:hover': { bgcolor: SURFACE2 } }}>
+                    <TableCell sx={{ color: '#fff', fontWeight: 600, borderBottom: `1px solid ${BORDER}` }}>{up.client_name || '—'}</TableCell>
+                    <TableCell sx={{ color: '#888', borderBottom: `1px solid ${BORDER}` }}>{up.client_email}</TableCell>
+                    <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}` }}>
+                      <Chip size="small" label={`${Number(up.porcentaje_compra).toFixed(2)}%`} sx={{ bgcolor: 'rgba(255,102,0,0.15)', color: ORANGE, border: `1px solid rgba(255,102,0,0.3)`, fontWeight: 700 }} />
                     </TableCell>
-                    <TableCell sx={{ maxWidth: 240, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <TableCell sx={{ maxWidth: 240, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#888', borderBottom: `1px solid ${BORDER}` }}>
                       {up.notes || '—'}
                     </TableCell>
-                    <TableCell>{up.updated_at ? new Date(up.updated_at).toLocaleDateString() : '—'}</TableCell>
-                    <TableCell align="center">
+                    <TableCell sx={{ color: '#666', fontSize: '0.8rem', borderBottom: `1px solid ${BORDER}` }}>{up.updated_at ? new Date(up.updated_at).toLocaleDateString() : '—'}</TableCell>
+                    <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       <Tooltip title="Eliminar override (volver al global)">
-                        <IconButton size="small" color="error" onClick={() => handleDeleteOverride(up.user_id)}>
+                        <IconButton size="small" sx={{ color: '#ff6b6b', '&:hover': { bgcolor: 'rgba(255,107,107,0.1)' } }} onClick={() => handleDeleteOverride(up.user_id)}>
                           <DeleteIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -923,8 +914,8 @@ export default function SupplierPaymentsPage() {
                 ))}
                 {userPricing.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
-                      <Typography color="text.secondary">No hay clientes con porcentaje personalizado</Typography>
+                    <TableCell colSpan={6} align="center" sx={{ py: 3, borderBottom: 'none' }}>
+                      <Typography sx={{ color: '#555' }}>No hay clientes con porcentaje personalizado</Typography>
                     </TableCell>
                   </TableRow>
                 )}
@@ -1080,7 +1071,7 @@ export default function SupplierPaymentsPage() {
           {editingEntProvider && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
               {/* Datos del API (read-only) */}
-              <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.50' }}>
+              <Paper variant="outlined" sx={{ p: 2, bgcolor: '#1a1a1a', border: '1px solid #2A2A2A' }}>
                 <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
                   Datos del API ENTANGLED (no editables)
                 </Typography>
@@ -1137,7 +1128,7 @@ export default function SupplierPaymentsPage() {
                 <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5, color: ORANGE }}>
                   Incremento sobre el valor del API (deja vacío o 0 para no aumentar)
                 </Typography>
-                <Typography variant="caption" color="text.secondary" component="div">
+                <Typography variant="caption" sx={{ color: '#888' }} component="div">
                   El valor se <b>suma</b> al del API. Ej: TC USD del API = ${Number(editingEntProvider.tipo_cambio_usd).toFixed(2)} + incremento 1.00 ⇒ se vende a ${(Number(editingEntProvider.tipo_cambio_usd) + 1).toFixed(2)}.
                   Si un cliente tiene su propio override por usuario, ese tiene prioridad.
                 </Typography>
@@ -1224,7 +1215,7 @@ export default function SupplierPaymentsPage() {
                   />
                   {/* División del override */}
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, width: 280, p: 1.5, border: '1px dashed #ccc', borderRadius: 1 }}>
-                    <Typography variant="caption" fontWeight={700} color="text.secondary">
+                    <Typography variant="caption" fontWeight={700} sx={{ color: '#888' }}>
                       División del override
                     </Typography>
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
@@ -1241,17 +1232,17 @@ export default function SupplierPaymentsPage() {
                         sx={{ width: 110 }}
                         inputProps={{ min: 0, max: 100, step: 1 }}
                       />
-                      <Typography variant="body2" color="text.secondary">+</Typography>
+                      <Typography variant="body2" sx={{ color: '#888' }}>+</Typography>
                       <TextField
                         label="EntregaX %"
                         size="small"
                         value={100 - Number(editingEntProvider.over_split_asesor ?? 90)}
                         InputProps={{ readOnly: true, endAdornment: <InputAdornment position="end">%</InputAdornment> }}
-                        sx={{ width: 110, '& .MuiInputBase-input': { color: 'text.secondary' } }}
+                        sx={{ width: 110, '& .MuiInputBase-input': { color: '#888' } }}
                         variant="filled"
                       />
                     </Box>
-                    <Typography variant="caption" color="text.secondary">
+                    <Typography variant="caption" sx={{ color: '#888' }}>
                       Solo edita el % del asesor — EntregaX recibe el resto
                     </Typography>
                   </Box>
@@ -1414,7 +1405,7 @@ export default function SupplierPaymentsPage() {
                 </Card>
               ))}
               {(editingEntProvider.bank_accounts || []).length === 0 && (
-                <Typography variant="body2" color="text.secondary">
+                <Typography variant="body2" sx={{ color: '#888' }}>
                   Sin cuentas bancarias. Agrega al menos una para que los clientes vean a dónde depositar.
                 </Typography>
               )}
