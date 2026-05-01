@@ -3668,6 +3668,43 @@ export const createOutboundConsolidation = async (req: Request, res: Response): 
                 updated_at = NOW()
             WHERE id = ANY($3)
         `, [consolidationId, supplierId, packageIds]);
+
+        // Propagar a los MASTERS de los paquetes escaneados:
+        // Si una hija fue puesta en in_transit, su master debe quedar también in_transit
+        // (porque la lista de Operaciones muestra masters; si no, se ven como "Recibido CEDIS HIDALGO TX").
+        // Solo subimos el master cuando TODAS sus hijas están en in_transit (o ya despachadas).
+        try {
+            const masterRes = await pool.query(
+                `SELECT DISTINCT m.id
+                   FROM packages c
+                   JOIN packages m ON m.id = c.master_id
+                  WHERE c.id = ANY($1::int[])
+                    AND c.master_id IS NOT NULL
+                    AND m.is_master = TRUE`,
+                [packageIds]
+            );
+            const masterIds: number[] = masterRes.rows.map((r: any) => r.id);
+            if (masterIds.length > 0) {
+                await pool.query(
+                    `UPDATE packages m
+                        SET status = 'in_transit',
+                            consolidation_id = COALESCE(m.consolidation_id, $2::int),
+                            supplier_id = COALESCE(m.supplier_id, $3::int),
+                            dispatched_at = COALESCE(m.dispatched_at, NOW()),
+                            updated_at = NOW()
+                      WHERE m.id = ANY($1::int[])
+                        AND NOT EXISTS (
+                            SELECT 1 FROM packages c2
+                             WHERE c2.master_id = m.id
+                               AND c2.status::text NOT IN ('in_transit', 'received_mty')
+                        )`,
+                    [masterIds, consolidationId, supplierId]
+                );
+                console.log(`✅ [OUTBOUND] Propagado a ${masterIds.length} master(s) → in_transit`);
+            }
+        } catch (e: any) {
+            console.warn('[OUTBOUND] propagación a master falló (no bloqueante):', e?.message);
+        }
         
         // Obtener los trackings actualizados
         const packagesResult = await pool.query(`

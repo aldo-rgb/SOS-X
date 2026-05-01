@@ -236,6 +236,13 @@ export default function OutboundControlPage() {
       raw = raw.replace(/-(track|t)-/i, '/$1/');
     }
 
+    // Normalizar SIEMPRE las apostrophes/comillas a guiones (algunos lectores con layout US
+    // mapean el guion '-' como apóstrofe ' o comilla " incluso cuando NO viene una URL).
+    // Ejemplo real: el QR codifica "US-3696036018-0003" pero el escáner inyecta "US'3696036018'0003"
+    if (/['`´"]/.test(raw)) {
+      raw = raw.replace(/[’‘'`´"]/g, '-');
+    }
+
     // Si contiene una URL con /track/ o /t/, extraer el último segmento
     const urlMatch = raw.match(/(?:\/track\/|\/t\/)([A-Za-z0-9-]+)/i);
     if (urlMatch && urlMatch[1]) {
