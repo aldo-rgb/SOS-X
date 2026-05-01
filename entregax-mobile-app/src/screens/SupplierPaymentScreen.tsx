@@ -8,6 +8,14 @@ import { useTranslation } from 'react-i18next';
 import { API_URL } from '../services/api';
 
 const ORANGE = '#F05A28';
+const RED = '#C1272D';
+const DARK = '#0A0A0A';
+const SURFACE = '#161616';
+const SURFACE_2 = '#1F1F1F';
+const BORDER = '#2A2A2A';
+const TEXT = '#FFFFFF';
+const TEXT_DIM = '#9CA3AF';
+const TEXT_MUTED = '#6B7280';
 
 const REGIMENES = [
   { code: '601', name: 'General Personas Morales' },
@@ -341,15 +349,22 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   return (
     <ScrollView
       style={styles.container}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadRequests(); }} />}
+      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadRequests(); }} tintColor={ORANGE} colors={[ORANGE]} progressBackgroundColor={SURFACE} />}
     >
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="white" />
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <Ionicons name="arrow-back" size={22} color="#FFF" />
         </TouchableOpacity>
-        <View style={{ marginLeft: 12 }}>
-          <Text style={styles.headerTitle}>💰 {t('entangled.title')}</Text>
-          <Text style={styles.headerSubtitle}>{t('entangled.subtitle')}</Text>
+        <View style={{ flex: 1, marginLeft: 12 }}>
+          <Text style={styles.headerEyebrow}>ACCEDIENDO A</Text>
+          <Text style={styles.headerTitle}>PROVEEDOR EXTERNO</Text>
+          <View style={styles.headerDividerRow}>
+            <View style={styles.headerDividerOrange} />
+            <View style={styles.headerDividerRed} />
+          </View>
+        </View>
+        <View style={styles.headerLockBadge}>
+          <Ionicons name="lock-closed" size={12} color={ORANGE} />
         </View>
       </View>
 
@@ -379,13 +394,13 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           <>
             {/* Card de datos fiscales precargados */}
             {rfc && razon && !editingFiscalData && (
-              <View style={{ backgroundColor: '#e8f5e9', borderWidth: 1, borderColor: '#81c784', borderRadius: 8, padding: 12, marginBottom: 12 }}>
-                <Text style={{ fontSize: 14, fontWeight: '700', color: '#2e7d32', marginBottom: 8 }}>✅ Datos fiscales cargados</Text>
-                <Text style={{ fontSize: 12, color: '#1b5e20', marginBottom: 4 }}><Text style={{ fontWeight: '600' }}>Razón Social:</Text> {razon}</Text>
-                <Text style={{ fontSize: 12, color: '#1b5e20', marginBottom: 4 }}><Text style={{ fontWeight: '600' }}>RFC:</Text> {rfc}</Text>
-                <Text style={{ fontSize: 12, color: '#1b5e20', marginBottom: 8 }}><Text style={{ fontWeight: '600' }}>C.P.:</Text> {cp}</Text>
+              <View style={styles.infoCardSuccess}>
+                <Text style={styles.infoCardTitleSuccess}>✅ Datos fiscales cargados</Text>
+                <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>Razón Social:</Text> {razon}</Text>
+                <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>RFC:</Text> {rfc}</Text>
+                <Text style={[styles.infoCardLine, { marginBottom: 8 }]}><Text style={styles.infoCardLineLabel}>C.P.:</Text> {cp}</Text>
                 <TouchableOpacity onPress={() => setEditingFiscalData(true)}>
-                  <Text style={{ fontSize: 13, color: ORANGE, fontWeight: '600' }}>✏️ Editar datos</Text>
+                  <Text style={styles.editLink}>✏️ Editar datos</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -401,7 +416,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 <TextInput style={styles.input} value={razon} onChangeText={setRazon} />
 
                 <Text style={styles.label}>{t('entangled.fields.regimenFiscal')}</Text>
-                <View style={{ borderWidth: 1, borderColor: '#ccc', borderRadius: 4, marginBottom: 12, backgroundColor: '#f9f9f9', paddingHorizontal: 4 }}>
+                <View style={styles.chipScroll}>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                     {REGIMENES.map(r => (
                       <TouchableOpacity key={r.code} style={[styles.chip, regimen === r.code && styles.chipActive]} onPress={() => setRegimen(r.code)}>
@@ -418,7 +433,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 <TextInput style={styles.input} value={cp} onChangeText={setCp} keyboardType="numeric" maxLength={5} />
 
                 <Text style={styles.label}>{t('entangled.fields.usoCfdi')}</Text>
-                <View style={{ borderWidth: 1, borderColor: '#ccc', borderRadius: 4, marginBottom: 12, backgroundColor: '#f9f9f9', paddingHorizontal: 4 }}>
+                <View style={styles.chipScroll}>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                     {USOS_CFDI.map(u => (
                       <TouchableOpacity key={u.code} style={[styles.chip, uso === u.code && styles.chipActive]} onPress={() => setUso(u.code)}>
@@ -469,17 +484,17 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
             {/* Card de proveedor seleccionado */}
             {selectedSupplierId !== 'new' && savedSuppliers.find(s => s.id === selectedSupplierId) && !editingSupplierData && (
-              <View style={{ backgroundColor: '#fff3e0', borderWidth: 1, borderColor: '#ffb74d', borderRadius: 8, padding: 12, marginBottom: 12 }}>
-                <Text style={{ fontSize: 14, fontWeight: '700', color: '#e65100', marginBottom: 8 }}>✅ Proveedor seleccionado</Text>
-                <Text style={{ fontSize: 12, color: '#bf360c', marginBottom: 4 }}><Text style={{ fontWeight: '600' }}>Beneficiario:</Text> {savedSuppliers.find(s => s.id === selectedSupplierId)?.nombre_beneficiario}</Text>
+              <View style={styles.infoCardOrange}>
+                <Text style={styles.infoCardTitleOrange}>✅ Proveedor seleccionado</Text>
+                <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>Beneficiario:</Text> {savedSuppliers.find(s => s.id === selectedSupplierId)?.nombre_beneficiario}</Text>
                 {savedSuppliers.find(s => s.id === selectedSupplierId)?.banco_nombre && (
-                  <Text style={{ fontSize: 12, color: '#bf360c', marginBottom: 4 }}><Text style={{ fontWeight: '600' }}>Banco:</Text> {savedSuppliers.find(s => s.id === selectedSupplierId)?.banco_nombre}</Text>
+                  <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>Banco:</Text> {savedSuppliers.find(s => s.id === selectedSupplierId)?.banco_nombre}</Text>
                 )}
                 {savedSuppliers.find(s => s.id === selectedSupplierId)?.numero_cuenta && (
-                  <Text style={{ fontSize: 12, color: '#bf360c', marginBottom: 8 }}><Text style={{ fontWeight: '600' }}>Cuenta:</Text> ...{savedSuppliers.find(s => s.id === selectedSupplierId)?.numero_cuenta.slice(-4)}</Text>
+                  <Text style={[styles.infoCardLine, { marginBottom: 8 }]}><Text style={styles.infoCardLineLabel}>Cuenta:</Text> ...{savedSuppliers.find(s => s.id === selectedSupplierId)?.numero_cuenta.slice(-4)}</Text>
                 )}
                 <TouchableOpacity onPress={() => setEditingSupplierData(true)}>
-                  <Text style={{ fontSize: 13, color: ORANGE, fontWeight: '600' }}>✏️ Editar datos</Text>
+                  <Text style={styles.editLink}>✏️ Editar datos</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -529,7 +544,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   size={20}
                   color={ORANGE}
                 />
-                <Text style={{ marginLeft: 8, color: '#475569', fontSize: 13 }}>
+                <Text style={{ marginLeft: 8, color: TEXT_DIM, fontSize: 13 }}>
                   Guardar este proveedor para próximas solicitudes
                 </Text>
               </TouchableOpacity>
@@ -542,7 +557,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
         <Text style={styles.label}>Proveedor ENTANGLED</Text>
         {providers.length === 0 ? (
-          <Text style={{ color: '#b91c1c', fontSize: 12, marginBottom: 8 }}>
+          <Text style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 8 }}>
             No hay proveedores activos configurados.
           </Text>
         ) : (
@@ -608,8 +623,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           </View>
         )}
 
-        <View style={{ backgroundColor: '#eff6ff', padding: 10, borderRadius: 8, marginTop: 8 }}>
-          <Text style={{ color: '#1e40af', fontSize: 12 }}>
+        <View style={styles.infoBanner}>
+          <Text style={styles.infoBannerText}>
             ℹ️ El comprobante de tu transferencia se sube después, una vez recibas las instrucciones de pago.
           </Text>
         </View>
@@ -677,37 +692,119 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f8fafc' },
-  header: { flexDirection: 'row', alignItems: 'center', backgroundColor: ORANGE, padding: 16, paddingTop: Platform.OS === 'ios' ? 50 : 24 },
-  headerTitle: { color: 'white', fontSize: 18, fontWeight: 'bold' },
-  headerSubtitle: { color: 'white', fontSize: 12, opacity: 0.9 },
-  card: { backgroundColor: 'white', margin: 12, padding: 16, borderRadius: 12, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', marginBottom: 12, color: '#0f172a' },
-  label: { fontSize: 12, color: '#64748b', marginBottom: 4, marginTop: 8 },
-  input: { borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 8, padding: 10, fontSize: 14, backgroundColor: '#f8fafc' },
-  chip: { borderWidth: 1, borderColor: '#e2e8f0', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 16, marginRight: 6, backgroundColor: 'white' },
+  container: { flex: 1, backgroundColor: DARK },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#000',
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    paddingTop: Platform.OS === 'ios' ? 50 : 24,
+    borderBottomWidth: 2,
+    borderBottomColor: ORANGE,
+  },
+  backBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    borderWidth: 1, borderColor: BORDER,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: '#0F0F0F',
+  },
+  headerEyebrow: {
+    color: TEXT_MUTED, fontSize: 10, letterSpacing: 3, fontWeight: '600',
+  },
+  headerTitle: {
+    color: TEXT, fontSize: 16, fontWeight: '900', letterSpacing: 1.5, marginTop: 1,
+  },
+  headerDividerRow: { flexDirection: 'row', gap: 4, marginTop: 4 },
+  headerDividerOrange: { width: 24, height: 3, backgroundColor: ORANGE, borderRadius: 2 },
+  headerDividerRed: { width: 12, height: 3, backgroundColor: RED, borderRadius: 2 },
+  headerLockBadge: {
+    width: 30, height: 30, borderRadius: 15,
+    borderWidth: 1, borderColor: ORANGE,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(240,90,40,0.1)',
+  },
+  card: {
+    backgroundColor: SURFACE, margin: 12, padding: 16, borderRadius: 14,
+    borderWidth: 1, borderColor: BORDER,
+  },
+  sectionTitle: { fontSize: 16, fontWeight: '800', marginBottom: 12, color: TEXT, letterSpacing: 0.3 },
+  label: { fontSize: 12, color: TEXT_DIM, marginBottom: 6, marginTop: 10, letterSpacing: 0.5 },
+  input: {
+    borderWidth: 1, borderColor: BORDER, borderRadius: 10, padding: 12,
+    fontSize: 14, backgroundColor: SURFACE_2, color: TEXT,
+  },
+  chip: {
+    borderWidth: 1, borderColor: BORDER, paddingVertical: 7, paddingHorizontal: 14,
+    borderRadius: 18, marginRight: 6, backgroundColor: SURFACE_2,
+  },
   chipActive: { backgroundColor: ORANGE, borderColor: ORANGE },
-  chipText: { fontSize: 12, color: '#475569' },
-  chipTextActive: { color: 'white', fontWeight: 'bold' },
-  uploadBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderStyle: 'dashed', borderColor: ORANGE, padding: 12, borderRadius: 8, marginTop: 12, gap: 6 },
+  chipText: { fontSize: 12, color: TEXT_DIM, fontWeight: '500' },
+  chipTextActive: { color: '#FFF', fontWeight: '700' },
+  chipScroll: {
+    borderWidth: 1, borderColor: BORDER, borderRadius: 8,
+    marginBottom: 12, backgroundColor: SURFACE_2, paddingHorizontal: 4, paddingVertical: 4,
+  },
+  uploadBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderStyle: 'dashed', borderColor: ORANGE,
+    padding: 12, borderRadius: 10, marginTop: 12, gap: 6,
+    backgroundColor: 'rgba(240,90,40,0.06)',
+  },
   uploadText: { color: ORANGE, fontWeight: '600' },
-  submitBtn: { backgroundColor: ORANGE, padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 16 },
-  submitText: { color: 'white', fontWeight: 'bold', fontSize: 15 },
-  quoteBox: { backgroundColor: '#FFF4ED', borderWidth: 1, borderColor: ORANGE, borderRadius: 8, padding: 12, marginTop: 12 },
-  quoteTitle: { color: ORANGE, fontWeight: 'bold', fontSize: 13, marginBottom: 6 },
-  quoteLine: { fontSize: 13, color: '#475569', marginBottom: 2 },
-  quoteVal: { fontWeight: 'bold', color: '#0f172a' },
-  quoteDivider: { height: 1, backgroundColor: '#fbd5b5', marginVertical: 6 },
-  quoteTotal: { color: ORANGE, fontWeight: 'bold', fontSize: 15 },
-  empty: { textAlign: 'center', color: '#94a3b8', padding: 16 },
-  requestItem: { borderBottomWidth: 1, borderBottomColor: '#f1f5f9', paddingVertical: 12 },
-  requestTitle: { fontWeight: 'bold', color: '#0f172a' },
-  requestStatus: { fontSize: 12, fontWeight: 'bold', textTransform: 'uppercase' },
-  requestSub: { color: '#64748b', fontSize: 12, marginTop: 2 },
-  requestAmount: { fontSize: 16, fontWeight: 'bold', color: ORANGE, marginTop: 4 },
+  submitBtn: {
+    backgroundColor: ORANGE, padding: 15, borderRadius: 10, alignItems: 'center', marginTop: 16,
+    shadowColor: ORANGE, shadowOpacity: 0.5, shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  submitText: { color: '#FFF', fontWeight: '800', fontSize: 15, letterSpacing: 0.5 },
+  // Cotización (oscura con acento naranja)
+  quoteBox: {
+    backgroundColor: 'rgba(240,90,40,0.08)',
+    borderWidth: 1, borderColor: ORANGE, borderRadius: 10, padding: 14, marginTop: 14,
+  },
+  quoteTitle: { color: ORANGE, fontWeight: '800', fontSize: 13, marginBottom: 8, letterSpacing: 1 },
+  quoteLine: { fontSize: 13, color: TEXT_DIM, marginBottom: 4 },
+  quoteVal: { fontWeight: '700', color: TEXT },
+  quoteDivider: { height: 1, backgroundColor: 'rgba(240,90,40,0.4)', marginVertical: 8 },
+  quoteTotal: { color: ORANGE, fontWeight: '800', fontSize: 15 },
+  // Info cards
+  infoCardSuccess: {
+    backgroundColor: 'rgba(16,185,129,0.1)',
+    borderWidth: 1, borderColor: 'rgba(16,185,129,0.4)',
+    borderRadius: 10, padding: 12, marginBottom: 12,
+  },
+  infoCardTitleSuccess: { fontSize: 14, fontWeight: '700', color: '#34D399', marginBottom: 8 },
+  infoCardOrange: {
+    backgroundColor: 'rgba(240,90,40,0.1)',
+    borderWidth: 1, borderColor: 'rgba(240,90,40,0.4)',
+    borderRadius: 10, padding: 12, marginBottom: 12,
+  },
+  infoCardTitleOrange: { fontSize: 14, fontWeight: '700', color: ORANGE, marginBottom: 8 },
+  infoCardLine: { fontSize: 12, color: TEXT_DIM, marginBottom: 4 },
+  infoCardLineLabel: { fontWeight: '700', color: TEXT },
+  editLink: { fontSize: 13, color: ORANGE, fontWeight: '700' },
+  infoBanner: {
+    backgroundColor: 'rgba(59,130,246,0.1)',
+    borderWidth: 1, borderColor: 'rgba(59,130,246,0.3)',
+    padding: 10, borderRadius: 8, marginTop: 10,
+  },
+  infoBannerText: { color: '#93C5FD', fontSize: 12 },
+  // Listado de solicitudes
+  empty: { textAlign: 'center', color: TEXT_MUTED, padding: 16 },
+  requestItem: { borderBottomWidth: 1, borderBottomColor: BORDER, paddingVertical: 12 },
+  requestTitle: { fontWeight: '700', color: TEXT },
+  requestStatus: { fontSize: 12, fontWeight: '700', textTransform: 'uppercase' },
+  requestSub: { color: TEXT_DIM, fontSize: 12, marginTop: 2 },
+  requestAmount: { fontSize: 16, fontWeight: '800', color: ORANGE, marginTop: 4 },
   statusRow: { flexDirection: 'row', gap: 6, marginTop: 6, flexWrap: 'wrap' },
   statusPill: { borderWidth: 1, paddingVertical: 2, paddingHorizontal: 8, borderRadius: 10 },
   statusPillText: { fontSize: 10, fontWeight: '600' },
-  linkBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8, backgroundColor: '#f1f5f9', borderRadius: 6 },
-  linkText: { fontSize: 12, color: '#0369a1', fontWeight: '600' },
+  linkBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingVertical: 5, paddingHorizontal: 10,
+    backgroundColor: SURFACE_2, borderRadius: 6,
+    borderWidth: 1, borderColor: BORDER,
+  },
+  linkText: { fontSize: 12, color: '#60A5FA', fontWeight: '600' },
 });
