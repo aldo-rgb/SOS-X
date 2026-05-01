@@ -28,13 +28,23 @@ const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack }) =
 
   if (showContent) {
     return (
-      <Box sx={{ minHeight: '100vh', bgcolor: '#F4F6F8' }}>
+      <Box
+        sx={{
+          position: 'fixed',
+          inset: 0,
+          zIndex: 2000, // por encima del AppBar de MUI (default 1100)
+          bgcolor: '#000000',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'auto',
+        }}
+      >
         {/* Header con back */}
         <Box
           sx={{
             position: 'sticky',
             top: 0,
-            zIndex: 100,
+            zIndex: 10,
             bgcolor: DARK,
             color: '#FFF',
             display: 'flex',
@@ -70,8 +80,8 @@ const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack }) =
           </Box>
         </Box>
 
-        {/* Contenido */}
-        <Box sx={{ p: { xs: 1, md: 3 } }}>
+        {/* Contenido (sin marco/padding extra para que el negro fluya hasta los bordes) */}
+        <Box sx={{ flex: 1, bgcolor: '#000000' }}>
           <EntangledPaymentRequest />
         </Box>
       </Box>
@@ -89,7 +99,7 @@ const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack }) =
         flexDirection: 'column',
         alignItems: 'center',
         justifyContent: 'center',
-        zIndex: 9999,
+        zIndex: 2001,
         overflow: 'hidden',
         '@keyframes fadeIn': {
           from: { opacity: 0 },
