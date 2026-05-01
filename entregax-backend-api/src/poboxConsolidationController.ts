@@ -69,13 +69,17 @@ export const getConsolidationPackages = async (req: AuthRequest, res: Response):
       return res.status(404).json({ success: false, error: 'Consolidación no encontrada' });
     }
 
+    // Excluir guías master con hijas (son contenedores; solo se escanean las hijas).
+    // Se mantienen masters sin hijas (total_boxes <= 1) y todas las hijas.
     const packages = await pool.query(
       `SELECT 
          id, tracking_internal, status, received_at, dispatched_at,
          missing_on_arrival, missing_reported_at,
-         description, weight, declared_value, service_type
+         description, weight, declared_value, service_type,
+         is_master, master_id, total_boxes
        FROM packages
        WHERE consolidation_id = $1
+         AND NOT (is_master = TRUE AND COALESCE(total_boxes, 1) > 1)
        ORDER BY tracking_internal ASC`,
       [id]
     );
@@ -113,9 +117,13 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
 
     await client.query('BEGIN');
 
-    // Traer paquetes de la consolidación
+    // Traer paquetes de la consolidación (excluyendo masters con hijas; solo se
+    // escanean las hijas y el master se propaga automáticamente).
     const pkgRes = await client.query(
-      `SELECT id, tracking_internal, status FROM packages WHERE consolidation_id = $1::int FOR UPDATE`,
+      `SELECT id, tracking_internal, status FROM packages
+        WHERE consolidation_id = $1::int
+          AND NOT (is_master = TRUE AND COALESCE(total_boxes, 1) > 1)
+        FOR UPDATE`,
       [Number(id)]
     );
     if (pkgRes.rows.length === 0) {
