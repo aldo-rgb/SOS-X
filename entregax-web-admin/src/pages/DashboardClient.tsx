@@ -114,6 +114,7 @@ import { Collapse } from '@mui/material';
 import api from '../services/api';
 import ClientTicketsPage from './ClientTicketsPage';
 import EntangledPaymentRequest from '../components/EntangledPaymentRequest';
+import ExternalProviderPage from './ExternalProviderPage';
 import OpenpaySavedCards from '../components/OpenpaySavedCards';
 import type { OpenpaySelection } from '../components/OpenpaySavedCards';
 
@@ -415,6 +416,7 @@ export default function DashboardClient() {
   const [boxId, setBoxId] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState(0);
+  const [showExternalProviderPage, setShowExternalProviderPage] = useState(false);
 
   // Estado de verificación del cliente - los paquetes solo se muestran si está verificado
   const isClientVerified = useMemo(() => {
@@ -4033,6 +4035,11 @@ export default function DashboardClient() {
     );
   }
 
+  // 🔐 Pago a Proveedor Externo - página dedicada con transición
+  if (showExternalProviderPage) {
+    return <ExternalProviderPage onBack={() => setShowExternalProviderPage(false)} />;
+  }
+
   return (
     <Box sx={{ 
       p: { xs: 1.5, md: 4 }, 
@@ -4550,9 +4557,9 @@ export default function DashboardClient() {
               return reverseMapping[activeTab] ?? 0;
             })()}
             onChange={(_, v) => {
-              // Tab 1 es "Pago a Proveedores"
+              // Tab 1 es "Pago a Proveedores" - abrir como página dedicada
               if (v === 1) {
-                setActiveTab(8);
+                setShowExternalProviderPage(true);
                 return;
               }
               // Tab 7 es "Mis Cuentas por Pagar" - abrir modal sin cambiar tab activa
@@ -12884,9 +12891,9 @@ export default function DashboardClient() {
               return reverseMapping[activeTab] ?? 0;
             })()}
             onChange={(_, newValue) => {
-              // newValue 1 es "Pago a proveedores"
+              // newValue 1 es "Pago a proveedores" - abrir como página dedicada
               if (newValue === 1) {
-                setActiveTab(8);
+                setShowExternalProviderPage(true);
                 return;
               }
               // Mapear índices: 0=envíos, 2=cotizador, 3=direcciones, 4=facturas, 5=cuenta
