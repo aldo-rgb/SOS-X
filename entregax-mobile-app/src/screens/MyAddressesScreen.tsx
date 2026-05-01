@@ -50,6 +50,7 @@ interface Address {
   country?: string;
   phone?: string;
   reference?: string;
+  reception_hours?: string | null;
   is_default: boolean;
   default_for_service?: string | null; // Ahora es string separado por comas: "maritime,air"
   // 📦 Configuración de paquetería por servicio
@@ -60,7 +61,67 @@ interface Address {
   };
 }
 
-// 🚚 Paqueterías disponibles por tipo de servicio
+// � Días de la semana para horario de entrega
+const WEEK_DAYS: { id: string; label: string }[] = [
+  { id: 'lun', label: 'Lun' },
+  { id: 'mar', label: 'Mar' },
+  { id: 'mie', label: 'Mié' },
+  { id: 'jue', label: 'Jue' },
+  { id: 'vie', label: 'Vie' },
+  { id: 'sab', label: 'Sáb' },
+  { id: 'dom', label: 'Dom' },
+];
+
+// 🔄 Serializa el horario a JSON string para guardar en BD
+const serializeReceptionHours = (
+  days: string[],
+  start: string,
+  end: string,
+  notes: string
+): string | null => {
+  const hasData = days.length > 0 || start.trim() || end.trim() || notes.trim();
+  if (!hasData) return null;
+  return JSON.stringify({
+    days,
+    start: start.trim(),
+    end: end.trim(),
+    notes: notes.trim(),
+  });
+};
+
+// 🔄 Parsea el JSON guardado de vuelta a campos del form
+const parseReceptionHours = (raw?: string | null) => {
+  if (!raw) return { days: [] as string[], start: '', end: '', notes: '' };
+  try {
+    const obj = JSON.parse(raw);
+    return {
+      days: Array.isArray(obj.days) ? obj.days : [],
+      start: obj.start || '',
+      end: obj.end || '',
+      notes: obj.notes || '',
+    };
+  } catch {
+    // Legacy: era texto libre
+    return { days: [] as string[], start: '', end: '', notes: raw };
+  }
+};
+
+// 📺 Formato legible para mostrar en la tarjeta
+const formatReceptionHoursDisplay = (raw?: string | null): string => {
+  if (!raw) return '';
+  const parsed = parseReceptionHours(raw);
+  const dayLabels = parsed.days
+    .map((d) => WEEK_DAYS.find((w) => w.id === d)?.label)
+    .filter(Boolean)
+    .join(', ');
+  const range = parsed.start && parsed.end
+    ? `${parsed.start} - ${parsed.end}`
+    : parsed.start || parsed.end || '';
+  const parts = [dayLabels, range, parsed.notes].filter(Boolean);
+  return parts.join(' · ');
+};
+
+// �🚚 Paqueterías disponibles por tipo de servicio
 const CARRIERS_BY_SERVICE: Record<string, { id: string; name: string; icon: string; cost: number; dynamic?: boolean }[]> = {
   usa: [
     { id: 'entregax_local', name: 'Entregax Local', icon: '🚛', cost: 0 },
@@ -105,6 +166,10 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
     country: 'México',
     phone: '',
     reference: '',
+    reception_days: [] as string[],
+    reception_start: '',
+    reception_end: '',
+    reception_notes: '',
   });
 
   const fetchAddresses = useCallback(async () => {
@@ -141,6 +206,10 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
       country: 'México',
       phone: '',
       reference: '',
+      reception_days: [],
+      reception_start: '',
+      reception_end: '',
+      reception_notes: '',
     });
     setEditingAddress(null);
   };
@@ -152,6 +221,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
 
   const openEditModal = (address: Address) => {
     setEditingAddress(address);
+    const rh = parseReceptionHours(address.reception_hours);
     setForm({
       alias: address.alias || '',
       contact_name: address.recipient_name || address.contact_name || '',
@@ -165,6 +235,10 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
       country: address.country || 'México',
       phone: address.phone || '',
       reference: address.reference || '',
+      reception_days: rh.days,
+      reception_start: rh.start,
+      reception_end: rh.end,
+      reception_notes: rh.notes,
     });
     setShowModal(true);
   };
@@ -181,13 +255,35 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
         ? `${API_URL}/api/addresses/${editingAddress.id}`
         : `${API_URL}/api/addresses`;
       
+      const reception_hours = serializeReceptionHours(
+        form.reception_days,
+        form.reception_start,
+        form.reception_end,
+        form.reception_notes
+      );
+      const payload = {
+        alias: form.alias,
+        contact_name: form.contact_name,
+        street: form.street,
+        exterior_number: form.exterior_number,
+        interior_number: form.interior_number,
+        colony: form.colony,
+        city: form.city,
+        state: form.state,
+        zip_code: form.zip_code,
+        country: form.country,
+        phone: form.phone,
+        reference: form.reference,
+        reception_hours,
+      };
+
       const response = await fetch(url, {
         method: editingAddress ? 'PUT' : 'POST',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
@@ -432,6 +528,11 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                 {address.phone && (
                   <Text style={styles.phoneText}>📞 {address.phone}</Text>
                 )}
+                {address.reception_hours && formatReceptionHoursDisplay(address.reception_hours) ? (
+                  <Text style={styles.scheduleBadge}>
+                    🕐 {formatReceptionHoursDisplay(address.reception_hours)}
+                  </Text>
+                ) : null}
                 <View style={styles.addressButtonsRow}>
                   {!address.is_default && (
                     <TouchableOpacity 
@@ -592,6 +693,73 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                 value={form.reference}
                 onChangeText={(text) => setForm({ ...form, reference: text })}
               />
+
+              {/* 🕐 Horario de Entrega */}
+              <View style={styles.scheduleSection}>
+                <View style={styles.scheduleHeader}>
+                  <Ionicons name="time-outline" size={20} color={ORANGE} />
+                  <Text style={styles.scheduleTitle}>Horario de entrega</Text>
+                </View>
+                <Text style={styles.scheduleHint}>
+                  Indica los días y horas en que pueden entregar en esta dirección
+                </Text>
+
+                <Text style={styles.inputLabel}>Días disponibles</Text>
+                <View style={styles.daysRow}>
+                  {WEEK_DAYS.map((day) => {
+                    const active = form.reception_days.includes(day.id);
+                    return (
+                      <TouchableOpacity
+                        key={day.id}
+                        style={[styles.dayChip, active && styles.dayChipActive]}
+                        onPress={() =>
+                          setForm((prev) => ({
+                            ...prev,
+                            reception_days: active
+                              ? prev.reception_days.filter((d) => d !== day.id)
+                              : [...prev.reception_days, day.id],
+                          }))
+                        }
+                      >
+                        <Text style={[styles.dayChipText, active && styles.dayChipTextActive]}>
+                          {day.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <View style={styles.row}>
+                  <View style={styles.halfInput}>
+                    <Text style={styles.inputLabel}>Desde</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="09:00"
+                      value={form.reception_start}
+                      onChangeText={(text) => setForm({ ...form, reception_start: text })}
+                      maxLength={5}
+                    />
+                  </View>
+                  <View style={styles.halfInput}>
+                    <Text style={styles.inputLabel}>Hasta</Text>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="18:00"
+                      value={form.reception_end}
+                      onChangeText={(text) => setForm({ ...form, reception_end: text })}
+                      maxLength={5}
+                    />
+                  </View>
+                </View>
+
+                <Text style={styles.inputLabel}>Notas adicionales (opcional)</Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Ej: Tocar timbre 2 veces, preguntar por recepción..."
+                  value={form.reception_notes}
+                  onChangeText={(text) => setForm({ ...form, reception_notes: text })}
+                />
+              </View>
             </ScrollView>
 
             <TouchableOpacity
@@ -884,6 +1052,67 @@ const styles = StyleSheet.create({
   phoneText: {
     color: '#666',
     marginTop: 8,
+  },
+  scheduleBadge: {
+    color: '#444',
+    marginTop: 6,
+    fontSize: 13,
+    fontWeight: '500',
+    backgroundColor: '#FFF4E5',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    alignSelf: 'flex-start',
+  },
+  scheduleSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: '#EEE',
+  },
+  scheduleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  scheduleTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#222',
+  },
+  scheduleHint: {
+    fontSize: 12,
+    color: '#888',
+    marginBottom: 12,
+  },
+  daysRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  dayChip: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    borderColor: '#DDD',
+    backgroundColor: '#FFF',
+    minWidth: 52,
+    alignItems: 'center',
+  },
+  dayChipActive: {
+    borderColor: ORANGE,
+    backgroundColor: ORANGE,
+  },
+  dayChipText: {
+    color: '#666',
+    fontWeight: '600',
+    fontSize: 13,
+  },
+  dayChipTextActive: {
+    color: '#FFF',
   },
   setDefaultButton: {
     paddingVertical: 8,
