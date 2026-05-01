@@ -674,7 +674,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // 📍 Paquetes en Pick Up pueden ser seleccionados para cambiar método de envío
     const isPickupPackage = isPOBoxUSA && item.status === 'ready_pickup';
     const isSelectable = isUserVerified && !isPaid && (
-      (isPOBoxUSA && ['received', 'processing', 'ready_pickup'].includes(item.status)) || 
+      (isPOBoxUSA && ['received', 'in_transit', 'received_mty', 'processing', 'ready_pickup'].includes(item.status)) || 
       (isMaritime && ['received_china', 'in_transit', 'at_port'].includes(item.status) && !hasDeliveryInstructions) ||
       (isChinaAir && ['received_origin', 'in_transit', 'at_customs'].includes(item.status) && !hasDeliveryInstructions) ||
       (isDHL && ['received_mty'].includes(item.status) && !hasDeliveryInstructions)
