@@ -56,7 +56,7 @@ import {
     CallReceived as EntryIcon,
     CallMade as ExitIcon,
     Inventory as InventoryIcon,
-    Print as PrintIcon,
+    Warning as WarningIcon,
     AttachMoney as MoneyIcon,
     Calculate as CalculateIcon,
     ArrowBack as BackIcon,
@@ -297,11 +297,11 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const [zplEnabled, setZplEnabled] = useState<boolean>(isZplModeEnabled());
     // Master incremental: id del master creado al definir la cantidad esperada
     const [bulkMasterId, setBulkMasterId] = useState<number | null>(null);
-    const [bulkMasterTracking, setBulkMasterTracking] = useState<string>('');
-    // Acumula etiquetas de las hijas creadas para imprimir TODAS juntas en un solo PDF
-    const [sessionLabels, setSessionLabels] = useState<any[]>([]);
+    const [, setBulkMasterTracking] = useState<string>('');
+    // Acumula etiquetas de las hijas creadas (para futura impresión masiva)
+    const [, setSessionLabels] = useState<any[]>([]);
     const [paquetesRegistrados, setPaquetesRegistrados] = useState<PaqueteRegistrado[]>([]);
-    const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' });
+    const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
     
     // Refs para cámara
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -506,53 +506,6 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkCurrentBox(p => (p.weight === w ? p : { ...p, weight: w }));
     }, [bulkLiveWeight, bulkScaleLive]);
     
-    // Crear paquete(s) en backend, imprimir etiquetas y agregar a la lista local
-    const createBoxesPackage = async (boxesToCreate: BoxItem[]): Promise<boolean> => {
-        if (boxesToCreate.length === 0) return false;
-        try {
-            const payload = {
-                boxId: bulkBoxId || undefined,
-                description: `Hidalgo TX`,
-                boxes: boxesToCreate.map(b => ({
-                    weight: parseFloat(b.weight),
-                    length: parseFloat(b.length),
-                    width: parseFloat(b.width),
-                    height: parseFloat(b.height),
-                    trackingCourier: b.trackingCourier || undefined
-                })),
-                warehouseLocation: 'usa_pobox',
-                leaveInWarehouse: true,
-                notes: bulkBoxId ? 'Recibido en bodega Hidalgo TX - Recepción en serie' : 'Paquete sin cliente asignado - Recibido en bodega Hidalgo TX'
-            };
-            const token = localStorage.getItem('token') || '';
-            const response = await axios.post(`${API_URL}/api/packages`, payload, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            const labels = response.data.shipment?.labels;
-            // Solo imprimir etiquetas hijas (cajas físicas), no la master
-            const childLabels = (labels || []).filter((l: any) => !l.isMaster);
-            if (childLabels.length > 0) {
-                printShipmentLabels(childLabels);
-            }
-            const masterId = response.data.shipment?.master?.id;
-            const childIds: number[] = (response.data.shipment?.children || []).map((c: any) => c.id).filter(Boolean);
-            const newIds = [masterId, ...childIds].filter((x): x is number => Number.isFinite(x));
-            if (newIds.length > 0) setBulkRegisteredIds(prev => [...prev, ...newIds]);
-            const tracking = labels?.[0]?.tracking || `PKG-${Date.now()}`;
-            const totalWeight = boxesToCreate.reduce((s, b) => s + (parseFloat(b.weight) || 0), 0);
-            setPaquetesRegistrados(prev => [...prev, {
-                tracking,
-                boxId: bulkBoxId || 'SIN CLIENTE',
-                peso: totalWeight,
-                medidas: `${boxesToCreate.length} caja(s)`
-            }]);
-            return true;
-        } catch (err: any) {
-            setBulkError(err.response?.data?.error || err.response?.data?.message || 'Error al registrar paquete');
-            return false;
-        }
-    };
-
     // Asegura que exista un master incremental abierto (lo crea si aún no existe)
     const ensureBulkMaster = async (): Promise<number | null> => {
         if (bulkMasterId) return bulkMasterId;
@@ -771,148 +724,6 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const handleBulkPrevStep = () => {
         setBulkError('');
         setBulkStep(prev => Math.max(0, prev - 1));
-    };
-
-    // =========== S ===========
-    // Imprime UNA sola etiqueta dentro de un iframe oculto (sin popups, sin bloqueos del navegador)
-    const printSingleLabel = (label: any, indexHint = 0): Promise<void> => {
-        return new Promise((resolve) => {
-            const formatDate = (dateStr?: string): string => {
-                if (!dateStr) return new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }).toUpperCase();
-                const date = new Date(dateStr);
-                return date.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' }).toUpperCase();
-            };
-
-            const receivedDate = formatDate(label.receivedAt);
-            const i = indexHint;
-            const labelHTML = `
-                <div class="label">
-                    <div class="header">
-                        <div class="date-badge">${receivedDate}</div>
-                    </div>
-                    ${label.isMaster ? '<div class="master-badge">GUÍA MASTER</div>' : ''}
-                    <div class="tracking-main">
-                        <div class="tracking-code">${label.tracking}</div>
-                        ${!label.isMaster
-                            ? `<div class="box-indicator">${label.boxNumber} de ${label.totalBoxes}</div>`
-                            : `<div class="box-indicator">${label.totalBoxes} bultos</div>`}
-                    </div>
-                    ${label.masterTracking ? `<div class="master-ref">Master: ${label.masterTracking}</div>` : ''}
-                    <div class="qr-section"><div id="qr-${i}"></div></div>
-                    <div class="barcode-section"><svg id="barcode-${i}"></svg></div>
-                    <div class="divider"></div>
-                    <div class="client-info">
-                        <div class="client-box">📦 ${label.clientBoxId || 'PENDIENTE'}</div>
-                    </div>
-                    <div class="details">
-                        ${label.weight ? `<span class="detail-item">⚖️ ${label.weight} kg</span>` : ''}
-                        ${label.dimensions ? `<span class="detail-item">📐 ${label.dimensions}</span>` : ''}
-                        ${label.totalBoxes > 1 && label.isMaster ? `<span class="detail-item">📦 ${label.totalBoxes} bultos</span>` : ''}
-                    </div>
-                    <div class="description">Hidalgo TX</div>
-                </div>`;
-
-            const fullHTML = `<!DOCTYPE html><html><head>
-                <title>Etiqueta - ${label.tracking || 'Paquete'}</title>
-                <style>
-                    * { margin: 0; padding: 0; box-sizing: border-box; }
-                    body { font-family: 'Arial', sans-serif; }
-                    .label {
-                        width: 4in; height: 6in; padding: 0.2in;
-                        border: 2px solid #000; display: flex; flex-direction: column;
-                        margin: 0 auto; position: relative; overflow: hidden;
-                    }
-                    .header { display: flex; justify-content: flex-end; align-items: center; margin-bottom: 2px; }
-                    .date-badge { background: #111; color: white; padding: 3px 8px; font-size: 11px; font-weight: bold; border-radius: 4px; }
-                    .master-badge { background: #F05A28; color: white; text-align: center; padding: 4px; font-weight: bold; font-size: 13px; margin-bottom: 4px; }
-                    .tracking-main { text-align: center; margin: 2px 0; }
-                    .tracking-code { font-size: 20px; font-weight: bold; letter-spacing: 1px; }
-                    .box-indicator { font-size: 13px; color: #333; font-weight: 600; display: inline-block; margin-top: 1px; }
-                    .master-ref { text-align: center; font-size: 10px; color: #666; margin: 1px 0; }
-                    .qr-section { text-align: center; margin: 3px 0; }
-                    .qr-section svg, .qr-section img { width: 120px !important; height: 120px !important; }
-                    .barcode-section { text-align: center; margin: 4px 0; }
-                    .barcode-section svg { width: 85%; height: 85px; }
-                    .divider { border-top: 2px dashed #ccc; margin: 5px 0; }
-                    .client-info { text-align: center; margin: 4px 0; }
-                    .client-box { font-size: 52px; color: #F05A28; font-weight: 900; letter-spacing: 3px; line-height: 1; }
-                    .details { text-align: center; font-size: 15px; font-weight: 600; margin: 4px 0; display: flex; justify-content: center; gap: 12px; flex-wrap: wrap; }
-                    .detail-item { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; }
-                    .description { text-align: center; font-size: 10px; color: #666; margin-top: 2px; }
-                    @page { size: 4in 6in; margin: 0; }
-                    @media print { body { margin: 0; padding: 0; } .label { border: none; page-break-inside: avoid; overflow: hidden; } }
-                </style>
-                <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
-                <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"><\/script>
-            </head><body>${labelHTML}
-            <script>
-                try { JsBarcode("#barcode-${i}", "${label.tracking.replace(/-/g, '')}", { format: "CODE128", width: 2.2, height: 70, displayValue: false, margin: 0 }); } catch(e) {}
-                (function() {
-                    try {
-                        var qr = qrcode(0, 'M');
-                        qr.addData('https://app.entregax.com/track/${label.tracking}');
-                        qr.make();
-                        document.getElementById('qr-${i}').innerHTML = qr.createSvgTag({ cellSize: 3, margin: 0 });
-                    } catch(e) {}
-                })();
-            <\/script></body></html>`;
-
-            // Crear iframe oculto para imprimir sin popup
-            const iframe = document.createElement('iframe');
-            iframe.style.position = 'fixed';
-            iframe.style.right = '0';
-            iframe.style.bottom = '0';
-            iframe.style.width = '0';
-            iframe.style.height = '0';
-            iframe.style.border = '0';
-            document.body.appendChild(iframe);
-
-            const cleanup = () => {
-                try { document.body.removeChild(iframe); } catch {}
-                resolve();
-            };
-
-            iframe.onload = () => {
-                // Esperar a que JsBarcode/QRCode terminen (los <script> tardan)
-                setTimeout(() => {
-                    try {
-                        iframe.contentWindow?.focus();
-                        iframe.contentWindow?.print();
-                    } catch (e) {
-                        console.error('Error al imprimir iframe:', e);
-                    }
-                    // Esperar a que el diálogo de impresión se procese antes de remover
-                    setTimeout(cleanup, 1500);
-                }, 800);
-            };
-
-            const doc = iframe.contentDocument || iframe.contentWindow?.document;
-            if (!doc) {
-                cleanup();
-                return;
-            }
-            doc.open();
-            doc.write(fullHTML);
-            doc.close();
-        });
-    };
-
-    // Imprime un arreglo de etiquetas, UNA POR UNA (cada una abre su propia ventana de impresión)
-    const printShipmentLabels = async (labels: any[]) => {
-        if (!labels || labels.length === 0) return;
-        // 1) Intentar impresión ZPL directa (Zebra Browser Print) si está habilitado
-        if (isZplModeEnabled()) {
-            const ok = await printLabelsZPL(labels);
-            if (ok) {
-                setSnackbar({ open: true, message: `🖨️ ${labels.length} etiqueta(s) enviada(s) a Zebra (ZPL)`, severity: 'success' });
-                return;
-            }
-            setSnackbar({ open: true, message: '⚠️ Zebra Browser Print no disponible, usando impresión por navegador', severity: 'warning' });
-        }
-        // 2) Fallback: imprimir HTML una por una
-        for (let i = 0; i < labels.length; i++) {
-            await printSingleLabel(labels[i], i);
-        }
     };
 
     // Imprime TODAS las etiquetas acumuladas en UN solo trabajo de impresión (multipágina)
