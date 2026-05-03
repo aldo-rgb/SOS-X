@@ -491,9 +491,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         <Text style={styles.label}>País de Destino</Text>
         <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
           {[
-            { code: 'CN', label: '🇨🇳 China', sub: 'RMB' },
-            { code: 'US', label: '🇺🇸 USA', sub: 'USD' },
-          ].map(({ code, label, sub }) => (
+            { code: 'CN', label: '🇨🇳 China' },
+            { code: 'US', label: '🇺🇸 USA' },
+          ].map(({ code, label }) => (
             <TouchableOpacity
               key={code}
               style={[styles.destChip, calcDestino === code && styles.destChipActive, { flex: 1 }]}
@@ -501,9 +501,6 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             >
               <Text style={[styles.destChipText, calcDestino === code && styles.destChipTextActive]}>
                 {label}
-              </Text>
-              <Text style={[styles.destChipSub, calcDestino === code && { color: 'rgba(255,255,255,0.7)' }]}>
-                {sub}
               </Text>
             </TouchableOpacity>
           ))}
