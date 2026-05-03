@@ -77,22 +77,7 @@ const RATE_HISTORY_KEY = 'xpay_rate_history';
 const RATE_HISTORY_MAX = 288; // ~24h si se guarda cada 5 minutos
 const PRICING_REFRESH_MS = 60 * 1000; // refresco de API para detectar movimiento
 const XPAY_TIMEZONE = 'America/Monterrey';
-const WORLD_MAP_BG = `data:image/svg+xml;utf8,${encodeURIComponent(
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600">
-    <g fill="#AAB4C0" fill-opacity="0.34">
-      <ellipse cx="155" cy="190" rx="95" ry="55"/>
-      <ellipse cx="260" cy="180" rx="85" ry="48"/>
-      <ellipse cx="318" cy="255" rx="52" ry="82"/>
-      <ellipse cx="500" cy="175" rx="75" ry="45"/>
-      <ellipse cx="580" cy="190" rx="105" ry="58"/>
-      <ellipse cx="690" cy="180" rx="70" ry="44"/>
-      <ellipse cx="770" cy="220" rx="135" ry="68"/>
-      <ellipse cx="885" cy="245" rx="95" ry="62"/>
-      <ellipse cx="965" cy="300" rx="60" ry="45"/>
-      <ellipse cx="1010" cy="360" rx="78" ry="52"/>
-    </g>
-  </svg>`
-)}`;
+const WORLD_MAP_BG = '/mapamundi2.png';
 
 const buildSparklinePath = (values: number[], width = 240, height = 44, pad = 4) => {
   if (!values.length) return '';
@@ -152,6 +137,52 @@ const USOS_CFDI = [
 ];
 
 const DIVISAS = ['USD', 'RMB'];
+const DESTINATION_COUNTRIES = [
+  { code: 'CN', label: 'China', flag: '🇨🇳' },
+  { code: 'US', label: 'Estados Unidos', flag: '🇺🇸' },
+  { code: 'KR', label: 'Corea del Sur', flag: '🇰🇷' },
+  { code: 'JP', label: 'Japón', flag: '🇯🇵' },
+];
+const COUNTRY_META: Record<string, { label: string; flag: string }> = {
+  MX: { label: 'México', flag: '🇲🇽' },
+  CN: { label: 'China', flag: '🇨🇳' },
+  US: { label: 'Estados Unidos', flag: '🇺🇸' },
+  KR: { label: 'Corea del Sur', flag: '🇰🇷' },
+  JP: { label: 'Japón', flag: '🇯🇵' },
+};
+
+const normalizeCountryCode = (raw: unknown): string | null => {
+  if (typeof raw !== 'string') return null;
+  const v = raw.trim().toUpperCase();
+  if (!v) return null;
+  if (COUNTRY_META[v]) return v;
+  if (v === 'CHINA') return 'CN';
+  if (v === 'ESTADOS UNIDOS' || v === 'USA' || v === 'UNITED STATES') return 'US';
+  if (v === 'COREA' || v === 'COREA DEL SUR' || v === 'SOUTH KOREA') return 'KR';
+  if (v === 'JAPON' || v === 'JAPÓN' || v === 'JAPAN') return 'JP';
+  if (v === 'MEXICO' || v === 'MÉXICO') return 'MX';
+  return null;
+};
+
+const resolveDestinationCountryCode = (
+  request: EntangledRequest & Record<string, unknown>,
+  fallbackCode: string,
+): string => {
+  const candidates = [
+    request.pais_destino,
+    request.destino_pais,
+    request.supplier_country,
+    request.beneficiary_country,
+    request.country_destino,
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeCountryCode(candidate);
+    if (normalized) return normalized;
+  }
+  if (String(request.op_divisa_destino || '').toUpperCase() === 'RMB') return 'CN';
+  if (String(request.op_divisa_destino || '').toUpperCase() === 'USD') return normalizeCountryCode(fallbackCode) || 'US';
+  return 'US';
+};
 
 const parseApiDate = (s: string | null | undefined): Date | null => {
   if (!s) return null;
@@ -191,6 +222,16 @@ const formatDateObj = (d: Date | null | undefined) => {
     hour12: true,
     timeZone: XPAY_TIMEZONE,
   }).format(d);
+};
+
+const formatTimeLabel = (ts: number | null | undefined) => {
+  if (!ts) return '—';
+  return new Intl.DateTimeFormat('es-MX', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: XPAY_TIMEZONE,
+  }).format(new Date(ts));
 };
 
 const getPaymentDeadline = (createdAt: string | null | undefined): Date | null => {
@@ -302,10 +343,20 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     try {
       const raw = localStorage.getItem(RATE_HISTORY_KEY);
       const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed.slice(-RATE_HISTORY_MAX) : [];
-    } catch {
-      return [];
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed.slice(-RATE_HISTORY_MAX);
+    } catch { /* noop */ }
+    // Semilla simulada de 30 días para presentación inicial
+    const now = Date.now();
+    const DAY = 86_400_000;
+    const seed: RateSnapshot[] = [];
+    let usd = 17.85;
+    let rmb = 2.53;
+    for (let i = 29; i >= 0; i--) {
+      usd = Math.max(16.5, Math.min(19.5, usd + (Math.random() - 0.48) * 0.18));
+      rmb = Math.max(2.2, Math.min(2.9,  rmb + (Math.random() - 0.48) * 0.025));
+      seed.push({ t: now - i * DAY, usd_mxn: usd, rmb_mxn: rmb });
     }
+    return seed;
   });
   const [selectedProviderId, setSelectedProviderId] = useState<number | ''>('');
   const [quote, setQuote] = useState<{ tipo_cambio: number; porcentaje_compra: number; costo_operacion_usd: number; monto_mxn_base: number; monto_mxn_comision: number; monto_mxn_costo_op: number; monto_mxn_total: number } | null>(null);
@@ -338,6 +389,47 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     conceptos: '',
     comprobante_cliente_url: '',
   });
+  const [widgetOriginCountry, setWidgetOriginCountry] = useState('MX');
+  const [widgetDestinationCountry, setWidgetDestinationCountry] = useState('CN');
+  const [widgetAmountUsd, setWidgetAmountUsd] = useState('');
+  const [showHelp, setShowHelp] = useState(false);
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [rateWidgetCurrency, setRateWidgetCurrency] = useState<'USD' | 'RMB'>('RMB');
+
+  const widgetEstimate = useMemo(() => {
+    const amount = Number(widgetAmountUsd);
+    const fx = defaultProvider ? Number(defaultProvider.tipo_cambio_usd) : NaN;
+    const pct = defaultProvider ? Number(defaultProvider.porcentaje_compra || 0) : 0;
+    const opUsd = defaultProvider ? Number(defaultProvider.costo_operacion_usd || 0) : 0;
+
+    if (!Number.isFinite(amount) || amount <= 0 || !Number.isFinite(fx) || fx <= 0) {
+      return null;
+    }
+
+    const base = amount * fx;
+    const commission = base * (pct / 100);
+    const operationalCost = opUsd * fx;
+    const total = base + commission + operationalCost;
+
+    return { fx, base, commission, operationalCost, total, pct, opUsd };
+  }, [widgetAmountUsd, defaultProvider]);
+
+  const widgetReceivedAmount = useMemo(() => {
+    const amount = Number(widgetAmountUsd);
+    if (!Number.isFinite(amount) || amount <= 0 || !defaultProvider) return null;
+    const usd = Number(defaultProvider.tipo_cambio_usd);
+    const rmb = Number(defaultProvider.tipo_cambio_rmb);
+    if (widgetDestinationCountry === 'CN' && usd > 0 && rmb > 0) {
+      return { value: amount * (usd / rmb), currency: 'CNY' };
+    }
+    return { value: amount, currency: 'USD' };
+  }, [widgetAmountUsd, widgetDestinationCountry, defaultProvider]);
+
+  const widgetSuppliersPreview = useMemo(() => {
+    const favorites = suppliers.filter((s) => s.is_favorite);
+    const rest = suppliers.filter((s) => !s.is_favorite);
+    return [...favorites, ...rest].slice(0, 4);
+  }, [suppliers]);
 
   useEffect(() => {
     try {
@@ -346,6 +438,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       // noop (storage may fail on private mode)
     }
   }, [rateHistory]);
+
 
   const usdMxnSeries = useMemo(() => {
     const series = rateHistory.map((x) => Number(x.usd_mxn)).filter((x) => Number.isFinite(x));
@@ -365,6 +458,41 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
 
   const usdMxnPath = useMemo(() => buildSparklinePath(usdMxnSeries), [usdMxnSeries]);
   const rmbMxnPath = useMemo(() => buildSparklinePath(rmbMxnSeries), [rmbMxnSeries]);
+
+  const rateWidgetTimeline = useMemo(() => {
+    const metric = rateWidgetCurrency === 'USD' ? 'usd_mxn' : 'rmb_mxn';
+    const timeline = rateHistory
+      .map((x) => ({ t: x.t, v: Number(x[metric]) }))
+      .filter((x) => Number.isFinite(x.v) && x.v > 0);
+
+    if (timeline.length >= 2) return timeline;
+
+    const fallback = rateWidgetCurrency === 'USD'
+      ? Number(defaultProvider?.tipo_cambio_usd)
+      : Number(defaultProvider?.tipo_cambio_rmb);
+    if (Number.isFinite(fallback)) {
+      const now = Date.now();
+      return [
+        { t: now - 5 * 60 * 1000, v: fallback },
+        { t: now, v: fallback },
+      ];
+    }
+    return [] as Array<{ t: number; v: number }>;
+  }, [defaultProvider, rateHistory, rateWidgetCurrency]);
+
+  const rateWidgetPath = useMemo(
+    () => buildSparklinePath(rateWidgetTimeline.map((x) => x.v), 620, 170, 12),
+    [rateWidgetTimeline],
+  );
+
+  const rateWidgetCurrent = rateWidgetTimeline.length ? rateWidgetTimeline[rateWidgetTimeline.length - 1].v : null;
+  const rateWidgetPrevious = rateWidgetTimeline.length > 1 ? rateWidgetTimeline[rateWidgetTimeline.length - 2].v : null;
+  const rateWidgetDelta =
+    rateWidgetCurrent != null && rateWidgetPrevious != null && rateWidgetPrevious !== 0
+      ? ((rateWidgetCurrent - rateWidgetPrevious) / rateWidgetPrevious) * 100
+      : null;
+  const rateWidgetStartTs = rateWidgetTimeline.length ? rateWidgetTimeline[0].t : null;
+  const rateWidgetEndTs = rateWidgetTimeline.length ? rateWidgetTimeline[rateWidgetTimeline.length - 1].t : null;
 
   const loadRequests = useCallback(async () => {
     if (!token) return;
@@ -811,6 +939,17 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     setWizardStep((s) => (s === 1 ? 2 : s === 2 ? 3 : s === 3 ? 4 : 4));
   };
 
+  const handleStartWizardFromWidget = () => {
+    const amount = Number(widgetAmountUsd);
+    setForm((prev) => ({
+      ...prev,
+      monto: Number.isFinite(amount) && amount > 0 ? String(amount) : prev.monto,
+      divisa_destino: 'USD',
+    }));
+    setWizardStep(1);
+    setDialogOpen(true);
+  };
+
   return (
     <Box sx={{ bgcolor: CHARCOAL, minHeight: '100vh', color: '#ffffff', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
 
@@ -843,355 +982,482 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
             filter: 'contrast(1.2) brightness(1.08)',
           }} />
 
-          {/* Top nav */}
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: { xs: 2, md: 4 }, pt: 2.5, pb: 2, position: 'relative', zIndex: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-              <Box component="img" src="/logo-completo-xpay-v2.png" alt="X-Pay"
-                sx={{ width: { xs: 116, md: 142 }, height: { xs: 34, md: 40 }, objectFit: 'contain', filter: 'drop-shadow(0 0 8px rgba(255,102,0,0.35))', animation: 'xpay-breathe 3s ease-in-out infinite' }}
-                onError={(e: React.SyntheticEvent<HTMLImageElement>) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
-              <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <Typography variant="caption" sx={{ color: '#666', letterSpacing: '0.12em', textTransform: 'uppercase', fontSize: '0.58rem' }}>
-                  International Payment Gateway
-                </Typography>
-              </Box>
-            </Box>
-
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8, px: 1.5, py: 0.5,
-                bgcolor: 'rgba(74,222,128,0.1)', borderRadius: 10, border: '1px solid rgba(74,222,128,0.3)' }}>
-                <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: '#4ade80', animation: 'xpay-dot 1.5s ease-in-out infinite' }} />
-                <Typography variant="caption" sx={{ color: '#4ade80', fontWeight: 600, fontSize: '0.68rem' }}>
-                  {t('xpay.gatewayActive', 'Gateway activo · SWIFT/BIC')}
-                </Typography>
-              </Box>
-              <Tooltip title={t('xpay.refresh', 'Actualizar') as string}>
-                <IconButton onClick={loadRequests} disabled={loading} size="small"
-                  sx={{ color: ORANGE, bgcolor: 'rgba(255,102,0,0.1)', border: `1px solid rgba(255,102,0,0.25)`,
-                    '&:hover': { bgcolor: 'rgba(255,102,0,0.2)' } }}>
-                  <RefreshIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            </Box>
-          </Box>
-
-          {/* Main hero content */}
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: { xs: 2, md: 4 }, py: 3,
-            position: 'relative', zIndex: 2, gap: 3, flexWrap: 'wrap' }}>
-            {/* Left: headline + actions */}
-            <Box sx={{ flex: '0 0 auto', maxWidth: 520 }}>
-              <Typography variant="h3" fontWeight={800} sx={{
-                color: '#fff', lineHeight: 1.1, letterSpacing: '-1px',
-                textShadow: `0 0 40px rgba(255,102,0,0.25)`, mb: 1,
-                fontSize: { xs: '1.6rem', md: '2.4rem' },
-              }}>
-                ENVÍOS DE DINERO{' '}
-                <Box component="span" sx={{ color: ORANGE }}>SEGUROS</Box>
-                {' '}A CHINA Y ESTADOS UNIDOS.
-              </Typography>
-              <Typography variant="body2" sx={{ color: '#888', mb: 2.5, lineHeight: 1.6 }}>
-                {t('xpay.howItWorksDesc', 'Complete sus datos fiscales y suba su comprobante bancario. Procesamos el pago internacional y generamos su factura oficial junto con la confirmación SWIFT/BIC para su registro contable.')}
-              </Typography>
-              {/* Feature pills */}
-              <Box sx={{ display: 'flex', gap: 1.2, flexWrap: 'wrap', mb: 2.5 }}>
-                {[
-                  { icon: <SecurityIcon sx={{ fontSize: 13 }} />, label: 'SWIFT / BIC' },
-                  { icon: <BoltIcon sx={{ fontSize: 13 }} />, label: 'Tiempo Real' },
-                  { icon: <PublicIcon sx={{ fontSize: 13 }} />, label: 'USD · RMB · MXN' },
-                  { icon: <ShieldOutlinedIcon sx={{ fontSize: 13 }} />, label: 'ISO 27001' },
-                ].map((feat) => (
-                  <Box key={feat.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1.4, py: 0.4,
-                    bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10 }}>
-                    <Box sx={{ color: ORANGE }}>{feat.icon}</Box>
-                    <Typography variant="caption" sx={{ color: '#ccc', fontWeight: 600, fontSize: '0.67rem', letterSpacing: '0.05em' }}>{feat.label}</Typography>
-                  </Box>
-                ))}
-              </Box>
-              {/* CTA buttons */}
-              <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-                <Button variant="outlined" startIcon={<ContactsIcon />} onClick={() => setSuppliersDialogOpen(true)}
-                  sx={{ borderColor: 'rgba(255,102,0,0.5)', color: ORANGE, fontWeight: 600, textTransform: 'none',
-                    borderRadius: '10px', px: 2.5, '&:hover': { bgcolor: 'rgba(255,102,0,0.08)', borderColor: ORANGE } }}>
-                  {t('entangled.suppliers.manage', 'Mis proveedores')}
-                </Button>
-                <Button
-                  variant="contained"
-                  startIcon={
-                    <Box
-                      component="img"
-                      src="/logo-completo-xpay-v2.png"
-                      alt="X-Pay"
-                      sx={{ width: 92, height: 30, objectFit: 'contain', filter: 'drop-shadow(0 0 8px rgba(255,255,255,0.25))' }}
-                      onError={(e: React.SyntheticEvent<HTMLImageElement>) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-                    />
-                  }
-                  onClick={() => setDialogOpen(true)}
-                  sx={{
-                    bgcolor: '#000',
-                    background: '#000000 !important',
-                    backgroundImage: 'none !important',
-                    color: '#fff',
-                    border: '1px solid #000000',
-                    fontWeight: 700,
-                    textTransform: 'none',
-                    borderRadius: '999px',
-                    px: 2,
-                    minHeight: 46,
-                    boxShadow: 'none',
-                    animation: 'xpay-pulse 2.5s ease-in-out infinite',
-                    '& .MuiButton-startIcon': { mr: 1 },
-                    '&:hover': {
-                      bgcolor: '#0f0f0f',
-                      background: '#0f0f0f !important',
-                      backgroundImage: 'none !important',
-                      borderColor: '#050505',
-                      boxShadow: 'none'
-                    }
-                  }}>
-                  {t('entangled.newRequest', 'Nuevo envío')}
-                </Button>
-              </Box>
-            </Box>
-
-            {/* Right: Live rates card */}
-            <Box sx={{ flex: '0 0 auto', minWidth: { xs: '100%', md: 300 },
-              bgcolor: 'rgba(255,255,255,0.03)', border: `1px solid ${BORDER}`,
-              borderRadius: 3, p: 2.5, backdropFilter: 'blur(8px)',
-              boxShadow: `0 0 40px rgba(255,102,0,0.06)` }}>
-              <Typography variant="caption" sx={{ color: '#555', letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 700, fontSize: '0.62rem' }}>
-                Tipos de Cambio · En Vivo
-              </Typography>
-              {/* RMB → MXN */}
-              <Box sx={{ mt: 1.5, mb: 1.5 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                  <Typography variant="body2" fontWeight={700} sx={{ color: '#aaa', letterSpacing: '0.05em' }}>RMB → MXN</Typography>
-                  <Box sx={{ textAlign: 'right' }}>
-                    <Typography variant="h6" fontWeight={800} sx={{ color: '#fff', lineHeight: 1 }}>
-                      {defaultProvider ? Number(defaultProvider.tipo_cambio_rmb).toFixed(4) : '—'}
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: '#4ade80', fontWeight: 600, fontSize: '0.62rem' }}>▲ En vivo</Typography>
-                  </Box>
-                </Box>
-                <Box sx={{ mt: 0.7, height: 44, borderRadius: 1.5, bgcolor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', px: 0.5 }}>
-                  <svg width="100%" height="100%" viewBox="0 0 240 44" preserveAspectRatio="none">
-                    <path d={rmbMxnPath} fill="none" stroke={ORANGE} strokeWidth="2.2" strokeLinecap="round" />
-                  </svg>
-                </Box>
-              </Box>
-              <Box sx={{ borderTop: `1px solid ${BORDER}`, pt: 1.5 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                  <Typography variant="body2" fontWeight={700} sx={{ color: '#aaa', letterSpacing: '0.05em' }}>USD → MXN</Typography>
-                  <Box sx={{ textAlign: 'right' }}>
-                    <Typography variant="h6" fontWeight={800} sx={{ color: '#fff', lineHeight: 1 }}>
-                      {defaultProvider ? Number(defaultProvider.tipo_cambio_usd).toFixed(4) : '—'}
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: '#4ade80', fontWeight: 600, fontSize: '0.62rem' }}>▲ En vivo</Typography>
-                  </Box>
-                </Box>
-                <Box sx={{ mt: 0.7, height: 44, borderRadius: 1.5, bgcolor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', px: 0.5 }}>
-                  <svg width="100%" height="100%" viewBox="0 0 240 44" preserveAspectRatio="none">
-                    <path d={usdMxnPath} fill="none" stroke="#3b82f6" strokeWidth="2.2" strokeLinecap="round" />
-                  </svg>
-                </Box>
-              </Box>
-              {/* Security badges */}
-              <Box sx={{ display: 'flex', gap: 1.5, mt: 2, pt: 1.5, borderTop: `1px solid ${BORDER}`, flexWrap: 'wrap' }}>
-                {[
-                  { Icon: ShieldOutlinedIcon, label: 'ISO 27001' },
-                  { Icon: VerifiedUserOutlinedIcon, label: 'PCI-DSS' },
-                  { Icon: LockOutlinedIcon, label: 'AES-256' },
-                ].map(({ Icon, label }) => (
-                  <Box key={label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Icon sx={{ fontSize: 12, color: '#555' }} />
-                    <Typography variant="caption" sx={{ color: '#555', fontSize: '0.6rem', fontWeight: 600 }}>{label}</Typography>
-                  </Box>
-                ))}
-              </Box>
-            </Box>
-          </Box>
-
-          {/* Ticker bar */}
-          <Box sx={{ borderTop: `1px solid ${BORDER}`, bgcolor: 'rgba(0,0,0,0.5)', px: { xs: 2, md: 4 }, py: 0.8, display: 'flex', gap: 4, overflowX: 'auto', flexWrap: 'nowrap' }}>
-            {[
-              { label: 'RMB/MXN', val: defaultProvider ? Number(defaultProvider.tipo_cambio_rmb).toFixed(4) : '—' },
-              { label: 'USD/MXN', val: defaultProvider ? Number(defaultProvider.tipo_cambio_usd).toFixed(4) : '—' },
-              { label: 'Solicitudes', val: requests.length },
-              { label: 'Gateway', val: 'ENTANGLED' },
-              { label: 'Red', val: 'SWIFT/BIC' },
-            ].map((item) => (
-              <Box key={item.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.8, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                <Typography variant="caption" sx={{ color: '#555', fontSize: '0.62rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{item.label}</Typography>
-                <Typography variant="caption" sx={{ color: '#4ade80', fontWeight: 700, fontSize: '0.73rem' }}>▲ {item.val}</Typography>
-              </Box>
-            ))}
+          <Box
+            sx={{
+              minHeight: { xs: 180, md: 240 },
+              px: { xs: 2, md: 4 },
+              py: { xs: 2, md: 2.5 },
+              position: 'relative',
+              zIndex: 2,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textAlign: 'center',
+            }}
+          >
+            <Box
+              component="img"
+              src="/logo-xpay-square.png"
+              alt="X-Pay"
+              sx={{
+                width: { xs: 135, md: 195 },
+                height: 'auto',
+                objectFit: 'contain',
+                filter: 'drop-shadow(0 12px 30px rgba(0,0,0,0.6)) drop-shadow(0 0 22px rgba(255,102,0,0.22))',
+                animation: 'xpay-breathe 3s ease-in-out infinite',
+                mb: 0.8,
+              }}
+              onError={(e: React.SyntheticEvent<HTMLImageElement>) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+            />
+            <Typography
+              sx={{
+                color: '#d1d5db',
+                fontWeight: 800,
+                letterSpacing: '0.03em',
+                textTransform: 'uppercase',
+                fontSize: { xs: '0.95rem', md: '1.35rem' },
+                textShadow: '0 2px 12px rgba(0,0,0,0.55)',
+              }}
+            >
+              {t('xpay.heroSimpleText', 'ENVIOS DE DINERO SEGUROS A CHINA Y ESTADOS UNIDOS.')}
+            </Typography>
           </Box>
         </Box>
       )}
 
       <Box sx={{ p: { xs: 2, md: 4 } }}>
-      {/* Info box */}
-      <Box sx={{ mb: 3, p: 2.5, borderRadius: '12px', bgcolor: 'rgba(255,255,255,0.02)',
-        border: `1px solid rgba(255,102,0,0.25)`, display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-        <Box sx={{ width: 32, height: 32, borderRadius: '50%', border: `1.5px solid ${ORANGE}`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-          <InfoOutlinedIcon sx={{ color: ORANGE, fontSize: 18 }} />
+      <Box sx={{ display: 'flex', gap: 1.5, mb: 2, alignItems: 'stretch', flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
+        <Box sx={{ flex: '1 1 0', minWidth: { xs: '100%', sm: 0 } }}>
+          <Paper
+            variant="outlined"
+            sx={{
+              p: { xs: 1.6, md: 2 },
+              bgcolor: 'rgba(255,255,255,0.02)',
+              border: '1px solid rgba(255,255,255,0.12)',
+              borderRadius: '12px',
+              boxShadow: '0 10px 26px rgba(0,0,0,0.25)',
+              height: '100%',
+            }}
+          >
+            <Stack spacing={1.2}>
+              <TextField
+                select
+                size="small"
+                fullWidth
+                label="País de Destino"
+                value={widgetDestinationCountry}
+                onChange={(e) => setWidgetDestinationCountry(e.target.value)}
+                sx={{
+                  '& .MuiInputBase-root': { bgcolor: '#171a20', color: '#fff', borderRadius: '10px' },
+                  '& .MuiInputLabel-root': { color: '#9ca3af' },
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.16)' },
+                }}
+              >
+                {DESTINATION_COUNTRIES.map((c) => (
+                  <MenuItem key={c.code} value={c.code}>{c.flag} {c.label}</MenuItem>
+                ))}
+              </TextField>
+              <TextField
+                size="small"
+                fullWidth
+                type="number"
+                label="Monto a Enviar (USD)"
+                value={widgetAmountUsd}
+                onChange={(e) => setWidgetAmountUsd(e.target.value)}
+                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                sx={{
+                  '& .MuiInputBase-root': { bgcolor: '#171a20', color: '#fff', borderRadius: '10px' },
+                  '& .MuiInputLabel-root': { color: '#9ca3af' },
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.16)' },
+                }}
+              />
+              <Box sx={{ px: 1.4, py: 1, borderRadius: '10px', border: '1px solid rgba(240,90,40,0.35)', bgcolor: 'rgba(240,90,40,0.08)' }}>
+                <Typography sx={{ color: '#9ca3af', fontSize: '0.68rem' }}>Total estimado en MXN</Typography>
+                <Typography sx={{ color: '#fff', fontWeight: 900, fontSize: '1.1rem', lineHeight: 1.2 }}>
+                  {widgetEstimate ? `$${formatMoney(widgetEstimate.total)} MXN` : '—'}
+                </Typography>
+                <Typography sx={{ color: '#6b7280', fontSize: '0.64rem', mt: 0.2 }}>
+                  TC: {widgetEstimate ? `${widgetEstimate.fx.toFixed(4)} MXN/USD` : '—'}
+                </Typography>
+              </Box>
+            </Stack>
+          </Paper>
         </Box>
-        <Box sx={{ flex: 1 }}>
-          <Typography sx={{ color: '#ffffff', fontWeight: 700, fontSize: '0.92rem', letterSpacing: '0.02em', mb: 0.4 }}>
-            {t('entangled.howItWorks', '¿Cómo funciona?')}
-          </Typography>
-          <Typography sx={{ color: '#9ca3af', fontSize: '0.85rem', lineHeight: 1.55 }}>
-            {t('xpay.howItWorksDesc', 'Complete sus datos fiscales y suba su comprobante bancario. Procesamos el pago internacional y generamos su factura oficial junto con la confirmación SWIFT/BIC para su registro contable.')}
-          </Typography>
+        <Box sx={{ flex: '1 1 0', minWidth: { xs: '100%', sm: 0 } }}>
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 1.5,
+              height: '100%',
+              borderRadius: '12px',
+              border: '1px solid rgba(255,255,255,0.16)',
+              background: 'linear-gradient(165deg, rgba(255,255,255,0.06) 0%, rgba(20,22,28,0.9) 100%)',
+              boxShadow: '0 10px 26px rgba(0,0,0,0.35)',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.1 }}>
+              <Typography sx={{ color: '#f3f4f6', fontWeight: 800, fontSize: '0.95rem' }}>
+                Proceso de envío
+              </Typography>
+              <Typography
+                onClick={() => setShowHowItWorks(p => !p)}
+                sx={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.7rem', cursor: 'pointer', userSelect: 'none',
+                  '&:hover': { color: 'rgba(255,255,255,0.6)' } }}
+              >
+                ¿Cómo funciona?
+              </Typography>
+            </Box>
+
+            {showHowItWorks && (
+              <Typography sx={{ color: '#9ca3af', fontSize: '0.75rem', lineHeight: 1.55, mb: 1.2,
+                p: 1.2, borderRadius: '8px', bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                Complete los datos de su proveedor y suba su comprobante de pago. Procesamos el pago internacional y generamos su comprobante de pago junto con la confirmación de pago.
+              </Typography>
+            )}
+
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 0.6, mb: 1.4 }}>
+              {[
+                { icon: <ContactsIcon sx={{ fontSize: 16 }} />, label: 'Registro' },
+                { icon: <ShieldOutlinedIcon sx={{ fontSize: 16 }} />, label: 'Verificación' },
+                { icon: <AccountBalanceWalletOutlinedIcon sx={{ fontSize: 16 }} />, label: 'Transferencia' },
+                { icon: <ReceiptLongIcon sx={{ fontSize: 16 }} />, label: 'Recepción' },
+              ].map((step, idx) => (
+                <Box key={step.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.45, flex: 1, minWidth: 0 }}>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.45, flex: 1, minWidth: 0 }}>
+                    <Box sx={{ width: 24, height: 24, borderRadius: '50%', border: '1px solid rgba(255,255,255,0.35)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', flexShrink: 0 }}>
+                      {step.icon}
+                    </Box>
+                    <Typography sx={{ color: '#d1d5db', fontSize: '0.6rem', fontWeight: 700, lineHeight: 1.05, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      {step.label}
+                    </Typography>
+                  </Box>
+                  {idx < 3 && <Typography sx={{ color: '#9ca3af', fontSize: '0.8rem', mt: -1.2 }}>→</Typography>}
+                </Box>
+              ))}
+            </Box>
+
+            <Button
+              fullWidth
+              onClick={handleStartWizardFromWidget}
+              sx={{
+                mt: 'auto',
+                py: 1,
+                borderRadius: 2,
+                color: '#fff',
+                fontWeight: 900,
+                letterSpacing: '0.03em',
+                bgcolor: ORANGE,
+                background: 'linear-gradient(90deg, #F05A28 0%, #FF6600 100%)',
+                border: '1px solid rgba(255,255,255,0.2)',
+                '&:hover': {
+                  background: 'linear-gradient(90deg, #e55523 0%, #f76000 100%)',
+                },
+              }}
+            >
+              CREAR NUEVO ENVÍO →
+            </Button>
+          </Paper>
+        </Box>
+
+        <Box sx={{ flex: '1 1 0', minWidth: { xs: '100%', sm: 0 } }}>
+          <Paper
+            variant="outlined"
+            sx={{
+              p: 1.5,
+              height: '100%',
+              borderRadius: '12px',
+              border: '1px solid rgba(255,255,255,0.16)',
+              background: 'linear-gradient(165deg, rgba(255,255,255,0.05) 0%, rgba(15,16,20,0.9) 100%)',
+              boxShadow: '0 10px 26px rgba(0,0,0,0.35)',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <Typography sx={{ color: '#f3f4f6', fontWeight: 800, fontSize: '0.95rem', mb: 1.1 }}>
+              Mis proveedores
+            </Typography>
+
+            {widgetSuppliersPreview.length === 0 ? (
+              <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem', lineHeight: 1.4, mb: 1.2 }}>
+                Aún no tienes proveedores guardados. Crea tu primer beneficiario para reutilizarlo.
+              </Typography>
+            ) : (
+              <Box sx={{ mb: 1.2 }}>
+                {widgetSuppliersPreview.map((s) => (
+                  <Box
+                    key={s.id}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 1,
+                      py: 0.55,
+                      borderBottom: '1px solid rgba(255,255,255,0.08)',
+                    }}
+                  >
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography sx={{ color: '#fff', fontSize: '0.76rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {s.alias || s.nombre_beneficiario}
+                      </Typography>
+                      <Typography sx={{ color: '#9ca3af', fontSize: '0.68rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {s.banco_nombre || 'Banco no definido'}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, flexShrink: 0 }}>
+                      {s.is_favorite && <StarIcon sx={{ fontSize: 14, color: ORANGE }} />}
+                      <Chip
+                        size="small"
+                        label={s.divisa_default || 'USD'}
+                        sx={{
+                          height: 20,
+                          bgcolor: 'rgba(240,90,40,0.16)',
+                          color: ORANGE,
+                          fontSize: '0.62rem',
+                          fontWeight: 700,
+                        }}
+                      />
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            )}
+
+            <Box sx={{ mt: 'auto', display: 'flex', justifyContent: 'center' }}>
+              <Button
+                variant="outlined"
+                startIcon={<ContactsIcon />}
+                onClick={() => setSuppliersDialogOpen(true)}
+                sx={{
+                  borderColor: 'rgba(255,102,0,0.5)',
+                  color: ORANGE,
+                  fontWeight: 800,
+                  textTransform: 'none',
+                  borderRadius: '10px',
+                  px: 3,
+                  '&:hover': {
+                    bgcolor: 'rgba(255,102,0,0.08)',
+                    borderColor: ORANGE,
+                  },
+                }}
+              >
+                Gestionar proveedores
+              </Button>
+            </Box>
+          </Paper>
         </Box>
       </Box>
 
-      <Paper variant="outlined" sx={{ bgcolor: '#0f0f12', border: `1px solid ${BORDER}`, borderRadius: '12px', mb: 3, overflow: 'hidden' }}>
-        <TableContainer>
-          <Table size="small">
-            <TableHead>
-              <TableRow sx={{ bgcolor: '#08080a', borderBottom: `1px solid ${BORDER}` }}>
-                <TableCell sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>#</TableCell>
-                <TableCell sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>{t('entangled.fields.razonSocial')}</TableCell>
-                <TableCell align="right" sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>{t('entangled.fields.amount')}</TableCell>
-                <TableCell sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>{t('entangled.fields.currency')}</TableCell>
-                <TableCell sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>{t('entangled.status.global')}</TableCell>
-                <TableCell sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>{t('entangled.status.factura')}</TableCell>
-                <TableCell sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>{t('entangled.status.proveedor')}</TableCell>
-                <TableCell align="center" sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem', letterSpacing: '0.08em', borderBottom: 'none' }}>{t('common.actions')}</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {loading && requests.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ bgcolor: '#1a1a1a' }}>
-                    <CircularProgress size={20} sx={{ color: ORANGE }} />
-                  </TableCell>
-                </TableRow>
-              ) : requests.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ bgcolor: '#1a1a1a', py: 3 }}>
-                    <Typography variant="body2" sx={{ color: '#666666' }}>
-                      {t('entangled.messages.empty')}
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                requests.map((r) => {
-                  const deadline = parseApiDate(r.payment_deadline_at) || getPaymentDeadline(r.created_at);
-                  const isActiveForPayment = ['pendiente', 'en_proceso', 'error_envio'].includes(String(r.estatus_global || '').toLowerCase());
-                  const cancellationFee = Number(r.cancellation_fee_usd || 0);
-                  return (
-                  <TableRow key={r.id} hover sx={{ bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.025)' }, borderBottom: `1px solid ${BORDER}`, '& td': { borderBottom: `1px solid ${BORDER}` } }}>
-                    <TableCell sx={{ color: '#ffffff' }}>{r.id}</TableCell>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight={600} sx={{ color: '#ffffff' }}>
-                        {r.cf_razon_social}
-                      </Typography>
-                      <Typography variant="caption" sx={{ color: '#888888' }}>
-                        {r.cf_rfc}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="right" sx={{ color: ORANGE, fontWeight: 600 }}>${formatMoney(r.op_monto)}</TableCell>
-                    <TableCell sx={{ color: '#aaaaaa' }}>{r.op_divisa_destino}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={r.estatus_global} label={t(`entangled.status.${r.estatus_global}`, r.estatus_global)} />
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={r.estatus_factura} label={t(`entangled.status.${r.estatus_factura}`, r.estatus_factura)} variant="outline" />
-                    </TableCell>
-                    <TableCell>
-                      <StatusBadge status={r.estatus_proveedor} label={t(`entangled.status.${r.estatus_proveedor}`, r.estatus_proveedor)} variant="outline" />
-                    </TableCell>
-                    <TableCell align="center">
-                      <Stack direction="row" spacing={0.5} justifyContent="center">
-                        {r.factura_url && (
-                          <Tooltip title={t('entangled.actions.viewInvoice') as string}>
-                            <IconButton
-                              size="small"
-                              component="a"
-                              href={r.factura_url}
-                              target="_blank"
-                              rel="noopener"
-                            >
-                              <DescriptionIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {r.comprobante_proveedor_url && (
-                          <Tooltip title={t('entangled.actions.viewProof') as string}>
-                            <IconButton
-                              size="small"
-                              color="success"
-                              component="a"
-                              href={r.comprobante_proveedor_url}
-                              target="_blank"
-                              rel="noopener"
-                            >
-                              <ReceiptLongIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {!r.op_comprobante_cliente_url && (
-                          <Tooltip title={t('entangled.actions.uploadMyProof', 'Subir mi comprobante') as string}>
-                            <IconButton
-                              size="small"
-                              component="label"
-                              disabled={uploading}
-                              sx={{ color: ORANGE }}
-                            >
-                              <ReceiptLongIcon fontSize="small" />
-                              <input
-                                hidden
-                                type="file"
-                                accept="image/*,application/pdf"
-                                onChange={(e) => {
-                                  const f = e.target.files?.[0];
-                                  if (f) handleUploadProofToRequest(r.id, f);
-                                  e.target.value = '';
-                                }}
-                              />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                        {r.op_comprobante_cliente_url && (
-                          <Tooltip title={t('entangled.actions.viewMyProof') as string}>
-                            <IconButton
-                              size="small"
-                              component="a"
-                              href={r.op_comprobante_cliente_url}
-                              target="_blank"
-                              rel="noopener"
-                              sx={{ color: '#2e7d32' }}
-                            >
-                              <DescriptionIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                      </Stack>
-                      {isActiveForPayment && (
-                        <Stack direction="row" spacing={0.6} alignItems="center" justifyContent="center" sx={{ mt: 0.5 }}>
-                          <AccessTimeIcon sx={{ fontSize: 13, color: '#fbbf24' }} />
-                          <Typography variant="caption" sx={{ color: '#fbbf24', fontWeight: 700, fontSize: '0.68rem' }}>
-                            {`Se cancela: ${formatDateObj(deadline)}`}
-                          </Typography>
-                        </Stack>
-                      )}
-                      {String(r.estatus_global || '').toLowerCase() === 'cancelado' && cancellationFee > 0 && (
-                        <Typography variant="caption" sx={{ color: '#fdba74', fontWeight: 700, display: 'block', mt: 0.4 }}>
-                          Cancelación: ${formatMoney(cancellationFee)} USD
-                        </Typography>
-                      )}
-                      <Typography variant="caption" sx={{ color: '#6b7280' }} display="block">
-                        {formatDate(r.created_at)}
-                      </Typography>
-                    </TableCell>
+      {/* Info box (solo cuando se abre Ayuda) */}
+      {showHelp && (
+        <Box sx={{ mb: 2, p: 2.5, borderRadius: '12px', bgcolor: 'rgba(255,255,255,0.02)',
+          border: `1px solid rgba(255,102,0,0.25)`, display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+          <Box sx={{ width: 32, height: 32, borderRadius: '50%', border: `1.5px solid ${ORANGE}`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <InfoOutlinedIcon sx={{ color: ORANGE, fontSize: 18 }} />
+          </Box>
+          <Box sx={{ flex: 1 }}>
+            <Typography sx={{ color: '#ffffff', fontWeight: 700, fontSize: '0.92rem', letterSpacing: '0.02em', mb: 0.4 }}>
+              {t('entangled.howItWorks', '¿Cómo funciona?')}
+            </Typography>
+            <Typography sx={{ color: '#9ca3af', fontSize: '0.85rem', lineHeight: 1.55 }}>
+              {t('xpay.howItWorksDesc', 'Complete sus datos fiscales y suba su comprobante bancario. Procesamos el pago internacional y generamos su factura oficial junto con la confirmación SWIFT/BIC para su registro contable.')}
+            </Typography>
+          </Box>
+        </Box>
+      )}
+
+      <Box sx={{ display: 'flex', gap: 1.5, mb: 3, alignItems: 'stretch', flexWrap: { xs: 'wrap', md: 'nowrap' } }}>
+        {/* Tabla: 2/3 del ancho */}
+        <Box sx={{ flex: '2 2 0', minWidth: { xs: '100%', md: 0 } }}>
+          <Paper variant="outlined" sx={{ bgcolor: '#0f0f12', border: `1px solid ${BORDER}`, borderRadius: '12px', overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.5, borderBottom: `1px solid ${BORDER}` }}>
+              <Typography sx={{ color: '#f3f4f6', fontWeight: 800, fontSize: '0.96rem' }}>
+                Últimos Envíos Realizados
+              </Typography>
+            </Box>
+            <TableContainer sx={{ flex: 1 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: '#08080a' }}>
+                    {['#', 'Razón Social', 'Monto a Enviar', 'Divisa Destino', 'Estatus', 'Factura', 'Pago a Proveedor', 'Acciones'].map((col, i) => (
+                      <TableCell key={col} align={i === 7 ? 'center' : i === 2 ? 'right' : 'left'}
+                        sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.68rem', letterSpacing: '0.07em', borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap' }}>
+                        {col}
+                      </TableCell>
+                    ))}
                   </TableRow>
-                )})
+                </TableHead>
+                <TableBody>
+                  {loading && requests.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} align="center" sx={{ bgcolor: '#1a1a1a' }}>
+                        <CircularProgress size={20} sx={{ color: ORANGE }} />
+                      </TableCell>
+                    </TableRow>
+                  ) : requests.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} align="center" sx={{ bgcolor: '#1a1a1a', py: 3 }}>
+                        <Typography variant="body2" sx={{ color: '#666666' }}>
+                          {t('entangled.messages.empty')}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    requests.map((r) => {
+                      const cancellationFee = Number(r.cancellation_fee_usd || 0);
+                      const destinationCode = resolveDestinationCountryCode(r as EntangledRequest & Record<string, unknown>, widgetDestinationCountry);
+                      const destination = COUNTRY_META[destinationCode] || COUNTRY_META.US;
+                      return (
+                      <TableRow key={r.id} hover sx={{ bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.025)' }, '& td': { borderBottom: `1px solid ${BORDER}` } }}>
+                        {/* # */}
+                        <TableCell sx={{ color: '#6b7280', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                          {r.id}
+                        </TableCell>
+                        {/* Razón Social */}
+                        <TableCell sx={{ minWidth: 160 }}>
+                          <Typography sx={{ color: '#e5e7eb', fontWeight: 700, fontSize: '0.8rem', lineHeight: 1.2 }}>
+                            {r.cf_razon_social}
+                          </Typography>
+                          {r.entangled_transaccion_id && (
+                            <Typography sx={{ color: '#6b7280', fontSize: '0.68rem', fontFamily: 'monospace' }}>
+                              {r.entangled_transaccion_id}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        {/* Monto */}
+                        <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
+                          <Typography sx={{ color: ORANGE, fontWeight: 700, fontSize: '0.85rem' }}>
+                            ${formatMoney(r.op_monto)}
+                          </Typography>
+                          {String(r.estatus_global || '').toLowerCase() === 'cancelado' && cancellationFee > 0 && (
+                            <Typography sx={{ color: '#fdba74', fontSize: '0.68rem' }}>Fee: ${formatMoney(cancellationFee)} USD</Typography>
+                          )}
+                        </TableCell>
+                        {/* Divisa Destino */}
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography sx={{ fontSize: '0.9rem' }}>{destination.flag}</Typography>
+                            <Typography sx={{ color: '#e5e7eb', fontWeight: 700, fontSize: '0.8rem' }}>{r.op_divisa_destino || '—'}</Typography>
+                          </Box>
+                        </TableCell>
+                        {/* Estatus */}
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                          <StatusBadge status={r.estatus_global} label={t(`entangled.status.${r.estatus_global}`, r.estatus_global)} />
+                        </TableCell>
+                        {/* Factura */}
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                          <StatusBadge status={r.estatus_factura} label={t(`entangled.status.${r.estatus_factura}`, r.estatus_factura)} variant="outline" />
+                          {r.factura_url && (
+                            <IconButton size="small" component="a" href={r.factura_url} target="_blank" rel="noopener" sx={{ ml: 0.4, p: 0.2 }}>
+                              <DescriptionIcon sx={{ fontSize: 14, color: '#9ca3af' }} />
+                            </IconButton>
+                          )}
+                        </TableCell>
+                        {/* Pago a Proveedor */}
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                          <StatusBadge status={r.estatus_proveedor} label={t(`entangled.status.${r.estatus_proveedor}`, r.estatus_proveedor)} variant="outline" />
+                          {r.comprobante_proveedor_url && (
+                            <IconButton size="small" component="a" href={r.comprobante_proveedor_url} target="_blank" rel="noopener" sx={{ ml: 0.4, p: 0.2 }}>
+                              <ReceiptLongIcon sx={{ fontSize: 14, color: '#4ade80' }} />
+                            </IconButton>
+                          )}
+                        </TableCell>
+                        {/* Acciones */}
+                        <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+                          <Stack direction="row" spacing={0.4} justifyContent="center" alignItems="center">
+                            {!r.op_comprobante_cliente_url ? (
+                              <Tooltip title={t('entangled.actions.uploadMyProof', 'Subir mi comprobante') as string}>
+                                <IconButton size="small" component="label" disabled={uploading} sx={{ color: ORANGE }}>
+                                  <ReceiptLongIcon fontSize="small" />
+                                  <input hidden type="file" accept="image/*,application/pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadProofToRequest(r.id, f); e.target.value = ''; }} />
+                                </IconButton>
+                              </Tooltip>
+                            ) : (
+                              <Tooltip title={t('entangled.actions.viewMyProof') as string}>
+                                <IconButton size="small" component="a" href={r.op_comprobante_cliente_url} target="_blank" rel="noopener" sx={{ color: '#2e7d32' }}>
+                                  <DescriptionIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </Stack>
+                          <Typography sx={{ color: '#6b7280', fontSize: '0.65rem', mt: 0.3 }}>
+                            {new Date(r.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    )})
+                  )}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        </Box>
+        {/* Chart: 1/3 del ancho — alineado bajo Mis Proveedores */}
+        <Box sx={{ flex: '1 1 0', minWidth: { xs: '100%', md: 0 } }}>
+          <Paper
+            variant="outlined"
+            sx={{
+              p: { xs: 1.4, md: 1.8 },
+              borderRadius: '12px',
+              border: '1px solid rgba(255,255,255,0.14)',
+              background: 'linear-gradient(165deg, rgba(255,255,255,0.04) 0%, rgba(17,20,28,0.92) 100%)',
+              boxShadow: '0 10px 26px rgba(0,0,0,0.35)',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1.1, flexWrap: 'nowrap', overflow: 'hidden' }}>
+              <Typography sx={{ color: '#f3f4f6', fontWeight: 800, fontSize: '0.96rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                Tasa de Cambio Promedio
+              </Typography>
+              <TextField
+                select
+                size="small"
+                value={rateWidgetCurrency}
+                onChange={(e) => setRateWidgetCurrency((e.target.value as 'USD' | 'RMB') || 'RMB')}
+                sx={{
+                  minWidth: 110, flexShrink: 0,
+                  '& .MuiInputBase-root': { bgcolor: '#171a20', color: '#fff', borderRadius: '9px', fontWeight: 700 },
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.16)' },
+                }}
+              >
+                <MenuItem value="RMB">🇨🇳 CNY</MenuItem>
+                <MenuItem value="USD">🇺🇸 USD</MenuItem>
+              </TextField>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.2, mb: 0.8 }}>
+              <Typography sx={{ color: '#fff', fontSize: '1.35rem', fontWeight: 900, lineHeight: 1 }}>
+                {rateWidgetCurrent != null ? rateWidgetCurrent.toFixed(4) : '—'}
+              </Typography>
+              <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem', fontWeight: 700 }}>
+                MXN/{rateWidgetCurrency === 'RMB' ? 'CNY' : 'USD'}
+              </Typography>
+              {rateWidgetDelta != null && (
+                <Typography sx={{ color: rateWidgetDelta >= 0 ? '#4ade80' : '#f87171', fontSize: '0.76rem', fontWeight: 800 }}>
+                  {rateWidgetDelta >= 0 ? '▲' : '▼'} {Math.abs(rateWidgetDelta).toFixed(3)}%
+                </Typography>
               )}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Paper>
+            </Box>
+            <Box sx={{ flex: 1, minHeight: 120, borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', bgcolor: 'rgba(7,9,13,0.7)', px: 0.8, py: 0.7 }}>
+              <svg width="100%" height="100%" viewBox="0 0 620 170" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="xpay-rate-line" x1="0" x2="1" y1="0" y2="0">
+                    <stop offset="0%" stopColor="#f97316" />
+                    <stop offset="100%" stopColor="#fb923c" />
+                  </linearGradient>
+                </defs>
+                <path d={rateWidgetPath} fill="none" stroke="url(#xpay-rate-line)" strokeWidth="2.6" strokeLinecap="round" />
+              </svg>
+            </Box>
+            <Box sx={{ mt: 0.8, display: 'flex', justifyContent: 'space-between', color: '#9ca3af', fontSize: '0.7rem' }}>
+              <Typography sx={{ fontSize: '0.7rem' }}>Inicio: {formatTimeLabel(rateWidgetStartTs)}</Typography>
+              <Typography sx={{ fontSize: '0.7rem' }}>Actual: {formatTimeLabel(rateWidgetEndTs)}</Typography>
+            </Box>
+          </Paper>
+        </Box>
+      </Box>
 
       {/* Footer de seguridad: certificaciones financieras */}
       <Box
@@ -1207,7 +1473,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         }}
       >
         {[
-          { Icon: ShieldOutlinedIcon, label: 'ISO 27001', sub: t('xpay.certIsoSub', 'Certified') as string },
+          { Icon: ShieldOutlinedIcon, label: '2FA', sub: t('xpay.certIsoSub', 'Certified') as string },
           { Icon: VerifiedUserOutlinedIcon, label: 'PCI-DSS', sub: t('xpay.certPciSub', 'Compliant') as string },
           { Icon: LockOutlinedIcon, label: 'AES-256', sub: t('xpay.certAesSub', 'Bank-level Encryption') as string },
           { Icon: AccountBalanceWalletOutlinedIcon, label: 'SWIFT/BIC', sub: t('xpay.certSwiftSub', 'Network Verified') as string },
