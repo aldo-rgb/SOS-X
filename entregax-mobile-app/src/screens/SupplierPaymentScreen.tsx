@@ -406,7 +406,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       return null;
     }
     if (step === 2) {
-      if (!benefName || !benefAccount || !benefBankName) return 'Completa beneficiario, número de cuenta y banco';
+      if (!benefName || !benefAccount || !benefBankName || !benefBankAddress) return 'Completa beneficiario, cuenta, banco y dirección del banco';
       if (divisa === 'RMB' && !benefNameZh) return 'Para RMB se requiere nombre en chino';
       return null;
     }
@@ -911,7 +911,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 <Text style={styles.label}>{t('xpay.bankName', 'Nombre del banco')}</Text>
                 <TextInput style={styles.input} value={benefBankName} onChangeText={setBenefBankName} />
 
-                <Text style={styles.label}>{t('xpay.bankAddress', 'Dirección del banco')}</Text>
+                <Text style={styles.label}>{t('xpay.bankAddress', 'Dirección del banco')} *</Text>
                 <TextInput style={styles.input} value={benefBankAddress} onChangeText={setBenefBankAddress} />
 
                 <Text style={styles.label}>{t('xpay.swift', 'SWIFT/BIC')}</Text>
