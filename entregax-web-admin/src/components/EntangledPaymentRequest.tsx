@@ -343,7 +343,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   const [widgetDestinationCountry, setWidgetDestinationCountry] = useState('CN');
   const [widgetAmountUsd, setWidgetAmountUsd] = useState('');
   const [showHowItWorks, setShowHowItWorks] = useState(false);
-  const [rateWidgetCurrency, setRateWidgetCurrency] = useState<'USD' | 'RMB'>('RMB');
+  const [rateWidgetCurrency, setRateWidgetCurrency] = useState<'USD' | 'RMB'>('USD');
 
   const widgetEstimate = useMemo(() => {
     const amount = Number(widgetAmountUsd);
