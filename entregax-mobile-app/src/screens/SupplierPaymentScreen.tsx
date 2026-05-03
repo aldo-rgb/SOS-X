@@ -179,6 +179,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [viewMode, setViewMode] = useState<'dashboard' | 'wizard'>('dashboard');
   const [calcMonto, setCalcMonto] = useState('');
   const [calcDestino, setCalcDestino] = useState<'CN' | 'US'>('CN');
+  const [calcDivisa, setCalcDivisa] = useState<'USD' | 'RMB'>('USD');
   const [chartTab, setChartTab] = useState<'usd' | 'rmb'>('usd');
   const [rateHistory] = useState<Array<{ t: number; usd: number; rmb: number }>>(seedRateHistory);
 
@@ -296,14 +297,14 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const calcQuote = (() => {
     const m = parseFloat(calcMonto);
     if (!defaultProvider || !m || m <= 0) return null;
-    const tc = calcDestino === 'CN'
+    const tc = calcDivisa === 'RMB'
       ? Number(defaultProvider.tipo_cambio_rmb)
       : Number(defaultProvider.tipo_cambio_usd);
     const pct = Number(defaultProvider.porcentaje_compra);
     const costoOpMxn = Number(defaultProvider.costo_operacion_usd || 0) * tc;
     const base = m * tc;
     const comision = base * (pct / 100);
-    return { tc, total: base + comision + costoOpMxn, divisa: calcDestino === 'CN' ? 'RMB' : 'USD' };
+    return { tc, total: base + comision + costoOpMxn, divisa: calcDivisa };
   })();
 
   // Chart data
@@ -506,7 +507,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           ))}
         </View>
 
-        <Text style={styles.label}>Monto a Enviar (USD)</Text>
+        <Text style={styles.label}>Monto a Enviar</Text>
         <View style={styles.amountRow}>
           <Text style={styles.amountDollar}>$</Text>
           <TextInput
@@ -517,8 +518,16 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             placeholder="0.00"
             placeholderTextColor={TEXT_MUTED}
           />
-          <View style={styles.amountSuffixBadge}>
-            <Text style={styles.amountSuffixText}>{calcDestino === 'CN' ? 'RMB' : 'USD'}</Text>
+          <View style={{ flexDirection: 'row', gap: 4, marginLeft: 6 }}>
+            {(['USD', 'RMB'] as const).map(d => (
+              <TouchableOpacity
+                key={d}
+                style={[styles.amountSuffixBadge, calcDivisa === d && { backgroundColor: ORANGE, borderColor: ORANGE }]}
+                onPress={() => setCalcDivisa(d)}
+              >
+                <Text style={[styles.amountSuffixText, calcDivisa === d && { color: '#fff' }]}>{d}</Text>
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
 
@@ -541,7 +550,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             style={styles.ctaBtn}
             onPress={() => {
               setMonto(calcMonto);
-              setDivisa(calcDestino === 'CN' ? 'RMB' : 'USD');
+              setDivisa(calcDivisa);
               if (defaultProvider) setSelectedProviderId(defaultProvider.id);
               setWizardStep(1);
               setViewMode('wizard');
