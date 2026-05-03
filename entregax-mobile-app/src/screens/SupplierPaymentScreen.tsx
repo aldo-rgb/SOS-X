@@ -742,23 +742,42 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           <Text style={styles.sectionTitle}>{t('xpay.newRequest', 'Nueva solicitud')}</Text>
         </View>
 
-        <View style={styles.stepRow}>
+        {/* Stepper */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
           {([
-            { id: 1 as const, label: '1. Monto' },
-            { id: 2 as const, label: '2. Beneficiario' },
-            { id: 3 as const, label: '3. Factura' },
-            { id: 4 as const, label: '4. Resumen' },
-          ] as const).map((s) => (
-            <TouchableOpacity
-              key={s.id}
-              style={[styles.stepPill, wizardStep === s.id && styles.stepPillActive]}
-              onPress={() => setWizardStep(s.id)}
-            >
-              <Text style={[styles.stepPillText, wizardStep === s.id && styles.stepPillTextActive]}>
-                {s.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
+            { id: 1 as const, label: 'Monto' },
+            { id: 2 as const, label: 'Beneficiario' },
+            { id: 3 as const, label: 'Factura' },
+            { id: 4 as const, label: 'Resumen' },
+          ] as const).map((s, idx) => {
+            const isActive = wizardStep === s.id;
+            const isDone = wizardStep > s.id;
+            return (
+              <React.Fragment key={s.id}>
+                <TouchableOpacity
+                  style={{ alignItems: 'center', gap: 5 }}
+                  onPress={() => setWizardStep(s.id)}
+                >
+                  <View style={[
+                    styles.stepCircle,
+                    isActive && styles.stepCircleActive,
+                    isDone && styles.stepCircleDone,
+                  ]}>
+                    {isDone
+                      ? <Ionicons name="checkmark" size={11} color="#fff" />
+                      : <Text style={[styles.stepCircleText, isActive && { color: '#fff' }]}>{s.id}</Text>
+                    }
+                  </View>
+                  <Text style={[styles.stepLabel, isActive && { color: ORANGE }, isDone && { color: ORANGE, opacity: 0.7 }]}>
+                    {s.label}
+                  </Text>
+                </TouchableOpacity>
+                {idx < 3 && (
+                  <View style={[styles.stepLine, (isDone || isActive) && { backgroundColor: ORANGE }]} />
+                )}
+              </React.Fragment>
+            );
+          })}
         </View>
 
         {/* Step 1: Monto */}
@@ -1293,6 +1312,20 @@ const styles = StyleSheet.create({
   stepPillActive: { borderColor: ORANGE, backgroundColor: 'rgba(240,90,40,0.16)' },
   stepPillText: { color: TEXT_MUTED, fontSize: 11, fontWeight: '700' },
   stepPillTextActive: { color: ORANGE },
+  stepCircle: {
+    width: 28, height: 28, borderRadius: 14,
+    borderWidth: 1.5, borderColor: BORDER,
+    backgroundColor: SURFACE_2,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  stepCircleActive: {
+    backgroundColor: ORANGE, borderColor: ORANGE,
+    shadowColor: ORANGE, shadowOpacity: 0.5, shadowRadius: 8, shadowOffset: { width: 0, height: 0 },
+  },
+  stepCircleDone: { backgroundColor: 'rgba(240,90,40,0.3)', borderColor: ORANGE },
+  stepCircleText: { color: TEXT_MUTED, fontSize: 11, fontWeight: '800' },
+  stepLabel: { color: TEXT_MUTED, fontSize: 9, fontWeight: '600', letterSpacing: 0.3 },
+  stepLine: { flex: 1, height: 1.5, backgroundColor: BORDER, marginBottom: 14 },
   quoteBox: {
     backgroundColor: 'rgba(240,90,40,0.07)',
     borderWidth: 1, borderColor: `${ORANGE}50`,
