@@ -462,10 +462,6 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           <View style={{ width: 32, height: 3, backgroundColor: ORANGE, borderRadius: 2 }} />
           <View style={{ width: 16, height: 3, backgroundColor: RED, borderRadius: 2 }} />
         </View>
-        <View style={{ flexDirection: 'row', gap: 8, marginTop: 14 }}>
-          <View style={styles.heroBadge}><Text style={styles.heroBadgeText}>🇨🇳 China</Text></View>
-          <View style={styles.heroBadge}><Text style={styles.heroBadgeText}>🇺🇸 USA</Text></View>
-        </View>
       </LinearGradient>
 
       {/* ── Calculator ───────────────────────────────────────────── */}
