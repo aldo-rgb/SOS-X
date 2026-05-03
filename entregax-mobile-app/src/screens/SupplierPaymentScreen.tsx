@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity, Alert,
-  StyleSheet, ActivityIndicator, RefreshControl, Linking, Platform, Modal, Image, Dimensions,
+  StyleSheet, ActivityIndicator, RefreshControl, Linking, Platform, Modal, Image, ImageBackground, Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
@@ -443,10 +443,15 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       }
     >
       {/* ── Hero ─────────────────────────────────────────────────── */}
-      <LinearGradient
-        colors={['#13131A', '#0A0A0F', '#100808']}
+      <ImageBackground
+        source={require('../../assets/mapamundi2.png')}
         style={styles.hero}
+        imageStyle={{ opacity: 0.18, resizeMode: 'cover' }}
       >
+        <LinearGradient
+          colors={['rgba(19,19,26,0.55)', 'rgba(10,10,15,0.82)', 'rgba(16,8,8,0.92)']}
+          style={StyleSheet.absoluteFillObject}
+        />
         <View style={[styles.hudCorner, { top: 12, left: 12, borderTopWidth: 1.5, borderLeftWidth: 1.5, borderColor: ORANGE }]} />
         <View style={[styles.hudCorner, { top: 12, right: 12, borderTopWidth: 1.5, borderRightWidth: 1.5, borderColor: ORANGE }]} />
         <View style={[styles.hudCorner, { bottom: 12, left: 12, borderBottomWidth: 1.5, borderLeftWidth: 1.5, borderColor: RED }]} />
@@ -462,7 +467,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           <View style={{ width: 32, height: 3, backgroundColor: ORANGE, borderRadius: 2 }} />
           <View style={{ width: 16, height: 3, backgroundColor: RED, borderRadius: 2 }} />
         </View>
-      </LinearGradient>
+      </ImageBackground>
 
       {/* ── Calculator ───────────────────────────────────────────── */}
       <View style={styles.card}>
