@@ -518,7 +518,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             placeholderTextColor={TEXT_MUTED}
           />
           <View style={styles.amountSuffixBadge}>
-            <Text style={styles.amountSuffixText}>USD</Text>
+            <Text style={styles.amountSuffixText}>{calcDestino === 'CN' ? 'RMB' : 'USD'}</Text>
           </View>
         </View>
 
