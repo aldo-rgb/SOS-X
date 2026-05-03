@@ -33,7 +33,6 @@ import {
   Typography,
   InputAdornment,
 } from '@mui/material';
-import RefreshIcon from '@mui/icons-material/Refresh';
 import DescriptionIcon from '@mui/icons-material/Description';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import ContactsIcon from '@mui/icons-material/Contacts';
@@ -46,10 +45,6 @@ import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalance
 import ShieldOutlinedIcon from '@mui/icons-material/ShieldOutlined';
 import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
-import SecurityIcon from '@mui/icons-material/Security';
-import BoltIcon from '@mui/icons-material/Bolt';
-import PublicIcon from '@mui/icons-material/Public';
-import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import { useTranslation } from 'react-i18next';
 
 /* ── X-Pay CSS keyframes injected once ── */
@@ -195,34 +190,6 @@ const parseApiDate = (s: string | null | undefined): Date | null => {
   return d;
 };
 
-const formatDate = (s: string | null | undefined) => {
-  const d = parseApiDate(s);
-  if (!d) return '—';
-  return new Intl.DateTimeFormat('es-MX', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true,
-    timeZone: XPAY_TIMEZONE,
-  }).format(d);
-};
-
-const formatDateObj = (d: Date | null | undefined) => {
-  if (!d) return '—';
-  return new Intl.DateTimeFormat('es-MX', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-    hour12: true,
-    timeZone: XPAY_TIMEZONE,
-  }).format(d);
-};
 
 const formatTimeLabel = (ts: number | null | undefined) => {
   if (!ts) return '—';
@@ -234,11 +201,6 @@ const formatTimeLabel = (ts: number | null | undefined) => {
   }).format(new Date(ts));
 };
 
-const getPaymentDeadline = (createdAt: string | null | undefined): Date | null => {
-  const created = parseApiDate(createdAt);
-  if (!created) return null;
-  return new Date(created.getTime() + 24 * 60 * 60 * 1000);
-};
 const formatMoney = (v: number | string) =>
   Number(v).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -389,10 +351,8 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     conceptos: '',
     comprobante_cliente_url: '',
   });
-  const [widgetOriginCountry, setWidgetOriginCountry] = useState('MX');
   const [widgetDestinationCountry, setWidgetDestinationCountry] = useState('CN');
   const [widgetAmountUsd, setWidgetAmountUsd] = useState('');
-  const [showHelp, setShowHelp] = useState(false);
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [rateWidgetCurrency, setRateWidgetCurrency] = useState<'USD' | 'RMB'>('RMB');
 
@@ -414,16 +374,6 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     return { fx, base, commission, operationalCost, total, pct, opUsd };
   }, [widgetAmountUsd, defaultProvider]);
 
-  const widgetReceivedAmount = useMemo(() => {
-    const amount = Number(widgetAmountUsd);
-    if (!Number.isFinite(amount) || amount <= 0 || !defaultProvider) return null;
-    const usd = Number(defaultProvider.tipo_cambio_usd);
-    const rmb = Number(defaultProvider.tipo_cambio_rmb);
-    if (widgetDestinationCountry === 'CN' && usd > 0 && rmb > 0) {
-      return { value: amount * (usd / rmb), currency: 'CNY' };
-    }
-    return { value: amount, currency: 'USD' };
-  }, [widgetAmountUsd, widgetDestinationCountry, defaultProvider]);
 
   const widgetSuppliersPreview = useMemo(() => {
     const favorites = suppliers.filter((s) => s.is_favorite);
@@ -456,8 +406,6 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     return [0, 0];
   }, [rateHistory, defaultProvider]);
 
-  const usdMxnPath = useMemo(() => buildSparklinePath(usdMxnSeries), [usdMxnSeries]);
-  const rmbMxnPath = useMemo(() => buildSparklinePath(rmbMxnSeries), [rmbMxnSeries]);
 
   const rateWidgetTimeline = useMemo(() => {
     const metric = rateWidgetCurrency === 'USD' ? 'usd_mxn' : 'rmb_mxn';
@@ -1248,24 +1196,6 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         </Box>
       </Box>
 
-      {/* Info box (solo cuando se abre Ayuda) */}
-      {showHelp && (
-        <Box sx={{ mb: 2, p: 2.5, borderRadius: '12px', bgcolor: 'rgba(255,255,255,0.02)',
-          border: `1px solid rgba(255,102,0,0.25)`, display: 'flex', gap: 2, alignItems: 'flex-start' }}>
-          <Box sx={{ width: 32, height: 32, borderRadius: '50%', border: `1.5px solid ${ORANGE}`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <InfoOutlinedIcon sx={{ color: ORANGE, fontSize: 18 }} />
-          </Box>
-          <Box sx={{ flex: 1 }}>
-            <Typography sx={{ color: '#ffffff', fontWeight: 700, fontSize: '0.92rem', letterSpacing: '0.02em', mb: 0.4 }}>
-              {t('entangled.howItWorks', '¿Cómo funciona?')}
-            </Typography>
-            <Typography sx={{ color: '#9ca3af', fontSize: '0.85rem', lineHeight: 1.55 }}>
-              {t('xpay.howItWorksDesc', 'Complete sus datos fiscales y suba su comprobante bancario. Procesamos el pago internacional y generamos su factura oficial junto con la confirmación SWIFT/BIC para su registro contable.')}
-            </Typography>
-          </Box>
-        </Box>
-      )}
 
       <Box sx={{ display: 'flex', gap: 1.5, mb: 3, alignItems: 'stretch', flexWrap: { xs: 'wrap', md: 'nowrap' } }}>
         {/* Tabla: 2/3 del ancho */}
