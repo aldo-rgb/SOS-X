@@ -144,8 +144,8 @@ export default function ExternalProviderTransitionScreen({ navigation, route }: 
         <View style={styles.logoWrapper}>
           <VideoView
             player={videoPlayer}
-            style={{ width: 200, height: 200 }}
-            contentFit="contain"
+            style={{ width: 220, height: 220 }}
+            contentFit="cover"
             nativeControls={false}
           />
         </View>
@@ -261,9 +261,18 @@ const styles = StyleSheet.create({
   logoWrapper: {
     width: 180,
     height: 180,
+    borderRadius: 90,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 36,
+    overflow: 'hidden',
+    backgroundColor: DARK,
+    borderWidth: 2,
+    borderColor: ORANGE,
+    shadowColor: ORANGE,
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 0 },
   },
   ring: {
     position: 'absolute',
