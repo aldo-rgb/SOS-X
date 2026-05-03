@@ -759,26 +759,6 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               💵 {t('xpay.amountSection', 'Monto a enviar')}
             </Text>
 
-            <Text style={styles.label}>{t('xpay.entangledProvider', 'Proveedor ENTANGLED')}</Text>
-            {providers.length === 0 ? (
-              <Text style={{ color: '#FCA5A5', fontSize: 12, marginBottom: 8 }}>
-                {t('xpay.noProviders', 'No hay proveedores disponibles')}
-              </Text>
-            ) : (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 8 }}>
-                {providers.map(p => (
-                  <TouchableOpacity
-                    key={p.id}
-                    style={[styles.chip, selectedProviderId === p.id && styles.chipActive]}
-                    onPress={() => setSelectedProviderId(p.id)}
-                  >
-                    <Text style={[styles.chipText, selectedProviderId === p.id && styles.chipTextActive]}>
-                      {p.name}{p.is_default ? ' ★' : ''} · {Number(p.porcentaje_compra).toFixed(2)}%
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
 
             <Text style={styles.label}>{t('entangled.fields.amount', 'Monto')}</Text>
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
