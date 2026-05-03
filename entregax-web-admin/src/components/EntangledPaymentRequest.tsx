@@ -40,7 +40,6 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import StarIcon from '@mui/icons-material/Star';
 import StarBorderIcon from '@mui/icons-material/StarBorder';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import AccountBalanceWalletOutlinedIcon from '@mui/icons-material/AccountBalanceWalletOutlined';
 import ShieldOutlinedIcon from '@mui/icons-material/ShieldOutlined';
 import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined';
@@ -179,16 +178,6 @@ const resolveDestinationCountryCode = (
   return 'US';
 };
 
-const parseApiDate = (s: string | null | undefined): Date | null => {
-  if (!s) return null;
-  const trimmed = String(s).trim();
-  if (!trimmed) return null;
-  const normalized = trimmed.includes('T') ? trimmed : trimmed.replace(' ', 'T');
-  const hasTimezone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(normalized);
-  const d = new Date(hasTimezone ? normalized : `${normalized}Z`);
-  if (Number.isNaN(d.getTime())) return null;
-  return d;
-};
 
 
 const formatTimeLabel = (ts: number | null | undefined) => {
@@ -390,21 +379,6 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   }, [rateHistory]);
 
 
-  const usdMxnSeries = useMemo(() => {
-    const series = rateHistory.map((x) => Number(x.usd_mxn)).filter((x) => Number.isFinite(x));
-    const fallback = defaultProvider ? Number(defaultProvider.tipo_cambio_usd) : NaN;
-    if (series.length >= 2) return series.slice(-48);
-    if (Number.isFinite(fallback)) return [fallback, fallback];
-    return [0, 0];
-  }, [rateHistory, defaultProvider]);
-
-  const rmbMxnSeries = useMemo(() => {
-    const series = rateHistory.map((x) => Number(x.rmb_mxn)).filter((x) => Number.isFinite(x));
-    const fallback = defaultProvider ? Number(defaultProvider.tipo_cambio_rmb) : NaN;
-    if (series.length >= 2) return series.slice(-48);
-    if (Number.isFinite(fallback)) return [fallback, fallback];
-    return [0, 0];
-  }, [rateHistory, defaultProvider]);
 
 
   const rateWidgetTimeline = useMemo(() => {
