@@ -74,7 +74,8 @@
           "locationAlwaysAndWhenInUsePermission": "EntregaX usa tu ubicación para mostrar la sucursal más cercana."
         }
       ],
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-video"
     ],
     "extra": {
       "eas": {

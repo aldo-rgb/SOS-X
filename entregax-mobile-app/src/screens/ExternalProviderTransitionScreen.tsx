@@ -8,7 +8,7 @@ import {
   Dimensions,
   StatusBar,
 } from 'react-native';
-import { Icon } from 'react-native-paper';
+import { useVideoPlayer, VideoView } from 'expo-video';
 import { useTranslation } from 'react-i18next';
 
 const { width, height } = Dimensions.get('window');
@@ -31,6 +31,13 @@ interface Props {
 export default function ExternalProviderTransitionScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
   const { user, token, target = 'SupplierPayment' } = route.params || {};
+
+  // Video logo
+  const videoPlayer = useVideoPlayer(require('../../assets/logo-xpay-move.mp4'), (player) => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  });
 
   // Animations
   const fadeIn = useRef(new Animated.Value(0)).current;
@@ -133,32 +140,14 @@ export default function ExternalProviderTransitionScreen({ navigation, route }: 
       />
 
       <Animated.View style={[styles.content, { opacity: fadeIn }]}>
-        {/* Logo central con anillo giratorio */}
+        {/* Video logo */}
         <View style={styles.logoWrapper}>
-          {/* Anillo exterior animado */}
-          <Animated.View
-            style={[
-              styles.ring,
-              { transform: [{ rotate: ringInterpolate }] },
-            ]}
-          >
-            <View style={styles.ringDotTop} />
-            <View style={styles.ringDotRight} />
-            <View style={styles.ringDotBottom} />
-          </Animated.View>
-
-          {/* Anillo interior estático */}
-          <View style={styles.innerRing} />
-
-          {/* Núcleo con icono */}
-          <Animated.View
-            style={[
-              styles.core,
-              { transform: [{ scale: logoScale }] },
-            ]}
-          >
-            <Icon source="bank-transfer" size={56} color="#fff" />
-          </Animated.View>
+          <VideoView
+            player={videoPlayer}
+            style={{ width: 200, height: 200 }}
+            contentFit="contain"
+            nativeControls={false}
+          />
         </View>
 
         {/* Branding */}

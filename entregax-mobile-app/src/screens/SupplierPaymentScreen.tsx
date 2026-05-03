@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity, Alert,
-  StyleSheet, ActivityIndicator, RefreshControl, Linking, Platform, Modal
+  StyleSheet, ActivityIndicator, RefreshControl, Linking, Platform, Modal, Image
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
@@ -436,7 +436,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         </TouchableOpacity>
         <View style={{ flex: 1, marginLeft: 12 }}>
           <Text style={styles.headerEyebrow}>Portal Seguro</Text>
-          <Text style={styles.headerTitle}>X-Pay</Text>
+          <Image source={require('../../assets/logo-completo-xpay.png')} style={{ width: 80, height: 28, resizeMode: 'contain' }} />
           <View style={styles.headerDividerRow}>
             <View style={styles.headerDividerOrange} />
             <View style={styles.headerDividerRed} />
