@@ -242,6 +242,10 @@ const XPAY_HOSTS = new Set(['x-pay.direct', 'www.x-pay.direct']);
 function App() {
   const { t, i18n } = useTranslation();
   const isXPayHost = typeof window !== 'undefined' && XPAY_HOSTS.has(window.location.hostname);
+  const isLocalXPayPreview = typeof window !== 'undefined'
+    && ['localhost', '127.0.0.1'].includes(window.location.hostname)
+    && new URLSearchParams(window.location.search).get('xpay') === '1';
+  const isXPayContext = isXPayHost || isLocalXPayPreview;
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -263,6 +267,13 @@ function App() {
   const [userPanelPermissions, setUserPanelPermissions] = useState<Record<string, boolean>>({});
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [authResolved, setAuthResolved] = useState(false);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (isXPayContext) {
+      document.title = 'X-Pay';
+    }
+  }, [isXPayContext]);
 
   const isSuperAdmin = currentUser?.role === 'super_admin';
 
@@ -708,6 +719,18 @@ function App() {
         const token = localStorage.getItem('token');
         const savedUser = localStorage.getItem('user');
 
+        // En dominio X-Pay no dependemos del profile bootstrap para renderizar;
+        // conservamos token para que EntangledPaymentRequest cargue datos.
+        if (isXPayContext) {
+          if (savedUser && !cancelled) {
+            setCurrentUser(JSON.parse(savedUser));
+          }
+          if (!cancelled) {
+            setIsAuthenticated(Boolean(token));
+          }
+          return;
+        }
+
         if (token && savedUser) {
           if (!cancelled) {
             setCurrentUser(JSON.parse(savedUser));
@@ -757,7 +780,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isXPayContext]);
 
   const handleLoginSuccess = (data: { user: AuthUser; access: any }) => {
     setCurrentUser(data.user);
@@ -815,11 +838,16 @@ function App() {
     );
   }
 
-  if (isXPayHost) {
+  if (isXPayContext) {
     return (
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <ExternalProviderPage onBack={() => window.location.href = 'https://entregax.app'} />
+        <ExternalProviderPage
+          onBack={() => window.location.href = 'https://entregax.app'}
+          userName={currentUser?.name || currentUser?.email || ''}
+          isAuthenticated={isAuthenticated}
+          forcePreview={isLocalXPayPreview}
+        />
       </ThemeProvider>
     );
   }

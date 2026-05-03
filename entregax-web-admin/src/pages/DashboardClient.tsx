@@ -4092,7 +4092,7 @@ export default function DashboardClient() {
 
   // 🔐 Pago a Proveedor Externo - página dedicada con transición
   if (showExternalProviderPage) {
-    return <ExternalProviderPage onBack={() => setShowExternalProviderPage(false)} />;
+    return <ExternalProviderPage onBack={() => setShowExternalProviderPage(false)} isAuthenticated={true} />;
   }
 
   return (
@@ -4686,7 +4686,7 @@ export default function DashboardClient() {
             >
               <Box
                 component="img"
-                src="/logo-completo-xpay-v2.png"
+                src="/logo-completo-xpay-t.png"
                 alt="X-Pay"
                 sx={{ width: 132, height: 32, objectFit: 'contain', filter: 'drop-shadow(0 0 6px rgba(255,255,255,0.15))' }}
                 onError={(e: React.SyntheticEvent<HTMLImageElement>) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}

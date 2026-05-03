@@ -34,6 +34,7 @@ const CHARCOAL = '#0D0D0D';
 const SURFACE = '#141414';
 const SURFACE2 = '#1C1C1C';
 const BORDER = '#2A2A2A';
+const WORLD_MAP_BG = '/mapamundi2.png';
 
 /* ── X-Pay CSS keyframes injected once ── */
 const xpayStyles = `
@@ -343,6 +344,7 @@ export default function SupplierPaymentsPage() {
   const activeProvider = entProviders.find(p => p.is_active) || entProviders[0];
   const liveUsdCny = activeProvider ? Number(activeProvider.effective_tipo_cambio_rmb ?? activeProvider.tipo_cambio_rmb) : 7.2631;
   const liveUsdMxn = activeProvider ? Number(activeProvider.effective_tipo_cambio_usd ?? activeProvider.tipo_cambio_usd) : 17.42;
+  const recentPayments = payments.slice(0, 4);
 
   return (
     <Box sx={{ bgcolor: CHARCOAL, minHeight: '100vh', color: '#ffffff', fontFamily: '"Inter", "Roboto", sans-serif' }}>
@@ -353,14 +355,26 @@ export default function SupplierPaymentsPage() {
       <Box sx={{
         position: 'relative',
         overflow: 'hidden',
-        background: `linear-gradient(135deg, #050505 0%, #0D0D0D 40%, #1a0800 100%)`,
+        background: `linear-gradient(180deg, #121316 0%, #191715 40%, #17110d 100%)`,
         borderBottom: `1px solid ${BORDER}`,
         pb: 0,
       }}>
+        {/* Background map */}
+        <Box sx={{
+          position: 'absolute',
+          inset: 0,
+          pointerEvents: 'none',
+          opacity: 0.16,
+          backgroundImage: `url(${WORLD_MAP_BG})`,
+          backgroundRepeat: 'no-repeat',
+          backgroundPosition: 'center 18px',
+          backgroundSize: { xs: '160% auto', md: '112% auto' },
+          filter: 'grayscale(1) contrast(1.15) brightness(0.92)',
+        }} />
         {/* Background radial glow */}
         <Box sx={{
           position: 'absolute', inset: 0, pointerEvents: 'none',
-          background: `radial-gradient(ellipse 60% 80% at 70% 50%, rgba(255,102,0,0.08) 0%, transparent 70%)`,
+          background: `radial-gradient(ellipse 60% 80% at 68% 42%, rgba(255,102,0,0.14) 0%, transparent 70%)`,
         }} />
         {/* Subtle grid texture */}
         <Box sx={{
@@ -375,7 +389,7 @@ export default function SupplierPaymentsPage() {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <Box
               component="img"
-              src="/logo-completo-xpay-v2.png"
+              src="/logo-completo-xpay-t.png"
               alt="X-Pay"
               sx={{
                 width: 142,
@@ -410,136 +424,219 @@ export default function SupplierPaymentsPage() {
         </Box>
 
         {/* Main hero content */}
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 4, py: 3, position: 'relative', zIndex: 2, gap: 3, flexWrap: 'wrap' }}>
-          {/* Left: headline */}
-          <Box sx={{ flex: '0 0 auto', maxWidth: 520 }}>
-            <Typography variant="h3" fontWeight={800} sx={{
-              color: '#fff', lineHeight: 1.1, letterSpacing: '-1px',
-              textShadow: `0 0 40px rgba(255,102,0,0.25)`,
-              mb: 1,
-            }}>
-              ENVÍOS DE DINERO{' '}
-              <Box component="span" sx={{ color: ORANGE }}>SEGUROS</Box>
-              {' '}A CHINA Y ESTADOS UNIDOS.
-            </Typography>
-            <Typography variant="body2" sx={{ color: '#888', mb: 2.5, lineHeight: 1.6 }}>
-              Procesamos pagos internacionales con confirmación SWIFT/BIC.
-              Generamos factura oficial y tipo de cambio competitivo en tiempo real.
-            </Typography>
-            {/* Feature pills */}
-            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-              {[
-                { icon: <SecurityIcon sx={{ fontSize: 14 }} />, label: 'SWIFT / BIC' },
-                { icon: <BoltIcon sx={{ fontSize: 14 }} />, label: 'Tiempo Real' },
-                { icon: <PublicIcon sx={{ fontSize: 14 }} />, label: 'USD · CNY · MXN' },
-              ].map((feat) => (
-                <Box key={feat.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1.5, py: 0.5,
-                  bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 10 }}>
-                  <Box sx={{ color: ORANGE }}>{feat.icon}</Box>
-                  <Typography variant="caption" sx={{ color: '#ccc', fontWeight: 600, fontSize: '0.68rem', letterSpacing: '0.05em' }}>{feat.label}</Typography>
-                </Box>
-              ))}
-            </Box>
-          </Box>
-
-          {/* Right: Live rates card */}
-          <Box sx={{
-            flex: '0 0 auto', minWidth: 320,
-            bgcolor: 'rgba(255,255,255,0.03)', border: `1px solid ${BORDER}`,
-            borderRadius: 3, p: 2.5, backdropFilter: 'blur(8px)',
-            boxShadow: `0 0 40px rgba(255,102,0,0.06)`,
-          }}>
-            <Typography variant="caption" sx={{ color: '#666', letterSpacing: '0.1em', textTransform: 'uppercase', fontWeight: 700, fontSize: '0.65rem' }}>
-              Tipos de Cambio · En Vivo
-            </Typography>
-
-            {/* USD → CNY */}
-            <Box sx={{ mt: 1.5, mb: 1.5 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                <Box>
-                  <Typography variant="caption" sx={{ color: '#555', fontSize: '0.65rem' }}>Par</Typography>
-                  <Typography variant="body2" fontWeight={700} sx={{ color: '#aaa', letterSpacing: '0.05em' }}>USD → CNY</Typography>
-                </Box>
-                <Box sx={{ textAlign: 'right' }}>
-                  <Typography variant="h5" fontWeight={800} sx={{ color: '#fff', letterSpacing: '-0.5px', lineHeight: 1 }}>
-                    {liveUsdCny.toFixed(4)}
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: '#4ade80', fontWeight: 600, fontSize: '0.65rem' }}>▲ En vivo</Typography>
-                </Box>
-              </Box>
-              {/* Simulated sparkline bar */}
-              <Box sx={{ mt: 1, height: 3, borderRadius: 10, bgcolor: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
-                <Box sx={{ height: '100%', width: '72%', bgcolor: ORANGE, borderRadius: 10, boxShadow: `0 0 8px ${ORANGE}` }} />
-              </Box>
-            </Box>
-
-            <Divider sx={{ borderColor: BORDER, my: 1.5 }} />
-
-            {/* USD → MXN */}
+        <Box sx={{ px: { xs: 2, md: 4 }, pb: 3.5, position: 'relative', zIndex: 2 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1.25fr 0.9fr' }, gap: 2.5, alignItems: 'start' }}>
             <Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                <Box>
-                  <Typography variant="caption" sx={{ color: '#555', fontSize: '0.65rem' }}>Par</Typography>
-                  <Typography variant="body2" fontWeight={700} sx={{ color: '#aaa', letterSpacing: '0.05em' }}>USD → MXN</Typography>
-                </Box>
-                <Box sx={{ textAlign: 'right' }}>
-                  <Typography variant="h5" fontWeight={800} sx={{ color: '#fff', letterSpacing: '-0.5px', lineHeight: 1 }}>
-                    {liveUsdMxn.toFixed(4)}
-                  </Typography>
-                  <Typography variant="caption" sx={{ color: '#4ade80', fontWeight: 600, fontSize: '0.65rem' }}>▲ En vivo</Typography>
-                </Box>
-              </Box>
-              <Box sx={{ mt: 1, height: 3, borderRadius: 10, bgcolor: 'rgba(255,255,255,0.05)', overflow: 'hidden' }}>
-                <Box sx={{ height: '100%', width: '58%', bgcolor: '#3b82f6', borderRadius: 10, boxShadow: `0 0 8px #3b82f6` }} />
-              </Box>
-            </Box>
+              <Box
+                component="img"
+                src="/logo-completo-xpay-t.png"
+                alt="X-Pay"
+                sx={{
+                  width: { xs: 170, md: 210 },
+                  height: 'auto',
+                  mb: 1.5,
+                  filter: 'drop-shadow(0 12px 18px rgba(0,0,0,0.45))',
+                }}
+                onError={(e: React.SyntheticEvent<HTMLImageElement>) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+              />
 
-            {/* CTA */}
-            <Button
-              fullWidth
-              variant="contained"
-              startIcon={<AddIcon />}
-              sx={{
-                mt: 2.5,
-                background: `linear-gradient(135deg, ${ORANGE} 0%, ${ORANGE_DARK} 100%)`,
-                color: '#fff',
-                fontWeight: 700,
-                fontSize: '0.85rem',
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                py: 1.2,
-                borderRadius: 2,
-                boxShadow: `0 4px 20px rgba(255,102,0,0.4)`,
-                animation: 'xpay-pulse 2.5s ease-in-out infinite',
-                '&:hover': {
-                  background: `linear-gradient(135deg, #FF7700 0%, ${ORANGE} 100%)`,
-                  boxShadow: `0 6px 28px rgba(255,102,0,0.6)`,
-                },
-              }}
-              onClick={() => setTabValue(0)}
-            >
-              Crear Nuevo Envío
-            </Button>
-          </Box>
-        </Box>
-
-        {/* Bottom ticker bar */}
-        <Box sx={{ borderTop: `1px solid ${BORDER}`, bgcolor: 'rgba(0,0,0,0.5)', px: 2, py: 0.8, display: 'flex', gap: 4, overflow: 'hidden' }}>
-          {[
-            { label: 'USD/CNY', val: liveUsdCny.toFixed(4), up: true },
-            { label: 'USD/MXN', val: liveUsdMxn.toFixed(4), up: true },
-            { label: 'Completados 30d', val: stats?.completed || 0, up: true },
-            { label: 'Pendientes', val: stats?.pending || 0, up: false },
-            { label: 'Ganancia 30d', val: `$${Number(stats?.total_platform_profit || 0).toFixed(0)}`, up: true },
-            { label: 'Procesando', val: stats?.processing || 0, up: true },
-          ].map((item) => (
-            <Box key={item.label} sx={{ display: 'flex', alignItems: 'center', gap: 1, whiteSpace: 'nowrap' }}>
-              <Typography variant="caption" sx={{ color: '#555', fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{item.label}</Typography>
-              <Typography variant="caption" sx={{ color: item.up ? '#4ade80' : ORANGE, fontWeight: 700, fontSize: '0.75rem' }}>
-                {item.up ? '▲' : '▼'} {item.val}
+              <Typography sx={{ color: '#8a8a8a', letterSpacing: '0.18em', textTransform: 'uppercase', fontSize: '0.68rem', mb: 1.5 }}>
+                International Payment Gateway
               </Typography>
+
+              <Typography variant="h2" fontWeight={900} sx={{
+                color: '#fff',
+                lineHeight: 1.02,
+                letterSpacing: '-0.04em',
+                textShadow: '0 10px 30px rgba(0,0,0,0.45)',
+                fontSize: { xs: '2.3rem', md: '4.35rem' },
+                maxWidth: 760,
+                mb: 1.5,
+              }}>
+                ENVÍOS DE DINERO
+                <br />
+                <Box component="span" sx={{ color: ORANGE }}>SEGUROS</Box> A CHINA Y
+                <br />
+                ESTADOS UNIDOS.
+              </Typography>
+
+              <Typography sx={{ color: '#B8B8B8', maxWidth: 720, lineHeight: 1.65, fontSize: { xs: '0.98rem', md: '1.18rem' }, mb: 3 }}>
+                Complete los datos de su proveedor y suba su comprobante de pago.
+                Procesamos el pago internacional y generamos su comprobante junto con la confirmación de pago.
+              </Typography>
+
+              <Box sx={{ display: 'flex', gap: 1.2, flexWrap: 'wrap', mb: 2.2 }}>
+                {[
+                  { icon: <SecurityIcon sx={{ fontSize: 14 }} />, label: 'SWIFT / BIC' },
+                  { icon: <BoltIcon sx={{ fontSize: 14 }} />, label: 'Live con coeherter' },
+                  { icon: <PublicIcon sx={{ fontSize: 14 }} />, label: 'USD · CNY · MXN' },
+                  { icon: <HubIcon sx={{ fontSize: 14 }} />, label: 'Proceso de Envío' },
+                ].map((feat) => (
+                  <Box key={feat.label} sx={{ display: 'flex', alignItems: 'center', gap: 0.6, px: 1.5, py: 0.7,
+                    bgcolor: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 99, backdropFilter: 'blur(8px)' }}>
+                    <Box sx={{ color: ORANGE, display: 'flex', alignItems: 'center' }}>{feat.icon}</Box>
+                    <Typography variant="caption" sx={{ color: '#ddd', fontWeight: 700, fontSize: '0.72rem', letterSpacing: '0.05em' }}>{feat.label}</Typography>
+                  </Box>
+                ))}
+              </Box>
+
+              <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                <Button
+                  variant="outlined"
+                  startIcon={<BusinessIcon />}
+                  onClick={() => setTabValue(2)}
+                  sx={{
+                    borderColor: 'rgba(255,102,0,0.45)',
+                    color: ORANGE,
+                    fontWeight: 800,
+                    textTransform: 'none',
+                    borderRadius: 3,
+                    px: 2.6,
+                    py: 1.1,
+                    bgcolor: 'rgba(0,0,0,0.28)',
+                    '&:hover': { bgcolor: 'rgba(255,102,0,0.08)', borderColor: ORANGE },
+                  }}
+                >
+                  Mis proveedores
+                </Button>
+                <Button
+                  variant="contained"
+                  startIcon={
+                    <Box
+                      component="img"
+                      src="/logo-completo-xpay-t.png"
+                      alt="X-Pay"
+                      sx={{ width: 72, height: 22, objectFit: 'contain' }}
+                      onError={(e: React.SyntheticEvent<HTMLImageElement>) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                    />
+                  }
+                  onClick={() => setTabValue(0)}
+                  sx={{
+                    textTransform: 'none',
+                    fontWeight: 800,
+                    borderRadius: 99,
+                    px: 2.5,
+                    py: 1.05,
+                    minHeight: 52,
+                    bgcolor: '#111111',
+                    border: '1px solid rgba(255,102,0,0.35)',
+                    color: '#fff',
+                    boxShadow: '0 10px 26px rgba(255,102,0,0.22)',
+                    animation: 'xpay-pulse 2.5s ease-in-out infinite',
+                    '& .MuiButton-startIcon': { mr: 1 },
+                    '&:hover': { bgcolor: '#171717', borderColor: ORANGE },
+                  }}
+                >
+                  Envío Nuevo
+                </Button>
+              </Box>
             </Box>
-          ))}
+
+            <Box sx={{ display: 'grid', gap: 2 }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+                {[
+                  { title: 'País de Origen', flag: '🇺🇸', value: 'Us' },
+                  { title: 'País de Destino', flag: '🇨🇳', value: 'China' },
+                ].map((item) => (
+                  <Paper key={item.title} sx={{ p: 1.7, borderRadius: 2.5, bgcolor: 'rgba(255,255,255,0.06)', border: `1px solid rgba(255,255,255,0.12)`, backdropFilter: 'blur(10px)' }}>
+                    <Typography sx={{ color: '#A0A0A0', fontSize: '0.72rem', mb: 1 }}>{item.title}</Typography>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1.2, py: 1, borderRadius: 1.8, bgcolor: 'rgba(0,0,0,0.26)', border: `1px solid ${BORDER}` }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
+                        <Typography sx={{ fontSize: '1.1rem' }}>{item.flag}</Typography>
+                        <Typography sx={{ color: '#fff', fontWeight: 700 }}>{item.value}</Typography>
+                      </Box>
+                      <Typography sx={{ color: '#888' }}>⌄</Typography>
+                    </Box>
+                  </Paper>
+                ))}
+              </Box>
+
+              <Paper sx={{ p: 2, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.06)', border: `1px solid rgba(255,255,255,0.12)`, backdropFilter: 'blur(10px)' }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+                  <Box>
+                    <Typography sx={{ color: '#BDBDBD', fontWeight: 800, fontSize: '0.86rem', mb: 1 }}>USD-CNY</Typography>
+                    <Typography sx={{ color: '#fff', fontWeight: 900, fontSize: '1.9rem', lineHeight: 1 }}>{liveUsdCny.toFixed(6)}</Typography>
+                    <Typography sx={{ color: '#4ade80', fontWeight: 700, fontSize: '0.72rem', mt: 0.5 }}>● LIVE</Typography>
+                  </Box>
+                  <Box>
+                    <Typography sx={{ color: '#BDBDBD', fontWeight: 800, fontSize: '0.86rem', mb: 1 }}>USD-USD</Typography>
+                    <Typography sx={{ color: '#fff', fontWeight: 900, fontSize: '1.9rem', lineHeight: 1 }}>{liveUsdMxn.toFixed(6)}</Typography>
+                    <Typography sx={{ color: '#CFCFCF', fontSize: '0.72rem', mt: 0.5 }}>USD-USD</Typography>
+                  </Box>
+                </Box>
+              </Paper>
+
+              <Paper sx={{ p: 2, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.06)', border: `1px solid rgba(255,255,255,0.12)`, backdropFilter: 'blur(10px)' }}>
+                <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '0.95rem', mb: 1.5 }}>Proceso de Envío</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 0.5, mb: 2 }}>
+                  {['Registro', 'Verificación', 'Transferencia', 'Recepción'].map((step, index) => (
+                    <Box key={step} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1 }}>
+                      <Box sx={{ width: 34, height: 34, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.08)', border: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.85rem', fontWeight: 800 }}>
+                        {index + 1}
+                      </Box>
+                      {index < 3 && <Box sx={{ flex: 1, height: 1, bgcolor: 'rgba(255,255,255,0.15)' }} />}
+                    </Box>
+                  ))}
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 1, mb: 2 }}>
+                  {['Registro', 'Verificación', 'Transferencia', 'Recepción'].map((step) => (
+                    <Typography key={step} sx={{ color: '#B8B8B8', fontSize: '0.66rem', textAlign: 'center', flex: 1 }}>{step}</Typography>
+                  ))}
+                </Box>
+                <Button
+                  fullWidth
+                  variant="contained"
+                  onClick={() => setTabValue(0)}
+                  sx={{
+                    background: `linear-gradient(135deg, ${ORANGE} 0%, ${ORANGE_DARK} 100%)`,
+                    color: '#fff',
+                    fontWeight: 800,
+                    fontSize: '0.86rem',
+                    textTransform: 'uppercase',
+                    py: 1.15,
+                    borderRadius: 2.2,
+                    boxShadow: `0 8px 24px rgba(255,102,0,0.35)`,
+                    '&:hover': { background: `linear-gradient(135deg, #FF7700 0%, ${ORANGE} 100%)` },
+                  }}
+                >
+                  Crear nuevo envío
+                </Button>
+              </Paper>
+            </Box>
+          </Box>
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1.3fr 0.7fr' }, gap: 2, mt: 2.3 }}>
+            <Paper sx={{ p: 2, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.06)', border: `1px solid rgba(255,255,255,0.12)`, backdropFilter: 'blur(10px)' }}>
+              <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '1rem', mb: 1.5 }}>Últimos Envíos Realizados</Typography>
+              <Box sx={{ display: 'grid', gap: 1.1 }}>
+                {(recentPayments.length ? recentPayments : [
+                  { id: 1, client_name: 'China', provider_name: 'USD', created_at: new Date().toISOString(), status: 'completed', amount_usd: 2500, total_mxn: 132000 },
+                  { id: 2, client_name: 'China', provider_name: 'USD', created_at: new Date().toISOString(), status: 'completed', amount_usd: 2500, total_mxn: 132000 },
+                ]).map((payment) => (
+                  <Box key={payment.id} sx={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr', gap: 1, alignItems: 'center', py: 0.8, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                    <Typography sx={{ color: '#D5D5D5', fontSize: '0.78rem' }}>{payment.client_name || 'Cliente'}</Typography>
+                    <Typography sx={{ color: '#B5B5B5', fontSize: '0.78rem' }}>{new Date(payment.created_at).toLocaleDateString()}</Typography>
+                    <Chip size="small" label={String(payment.status || 'completed').toUpperCase()} sx={{ justifySelf: 'start', bgcolor: 'rgba(255,102,0,0.18)', color: '#fff', border: '1px solid rgba(255,102,0,0.3)', fontWeight: 700 }} />
+                    <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '0.8rem', textAlign: 'right' }}>${Number(payment.total_mxn || 0).toLocaleString()}</Typography>
+                  </Box>
+                ))}
+              </Box>
+            </Paper>
+
+            <Paper sx={{ p: 2, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.06)', border: `1px solid rgba(255,255,255,0.12)`, backdropFilter: 'blur(10px)' }}>
+              <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '1rem', mb: 1.5 }}>Tasa de Cambio Promedio</Typography>
+              <Box sx={{ height: 130, borderRadius: 2, bgcolor: 'rgba(0,0,0,0.22)', border: `1px solid rgba(255,255,255,0.08)`, p: 1.5, display: 'flex', alignItems: 'end', gap: 0.8 }}>
+                {[28, 42, 35, 56, 48, 62, 58, 75, 70, 84, 78, 92].map((v, index) => (
+                  <Box key={index} sx={{ flex: 1, height: `${v}%`, borderRadius: '8px 8px 2px 2px', background: index > 8 ? `linear-gradient(180deg, ${ORANGE} 0%, rgba(255,102,0,0.25) 100%)` : 'linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.08) 100%)' }} />
+                ))}
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1.2 }}>
+                {['Jan', 'Feb', 'Mar', 'Abr', 'May', 'Jun'].map((m) => (
+                  <Typography key={m} sx={{ color: '#8F8F8F', fontSize: '0.68rem' }}>{m}</Typography>
+                ))}
+              </Box>
+            </Paper>
+          </Box>
         </Box>
       </Box>
 

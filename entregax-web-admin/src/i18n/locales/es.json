@@ -2,7 +2,7 @@
   "entangled": {
     "title": "Pago a Proveedores Internacionales",
     "subtitle": "ago y facturación a proveedores en el extranjero",
-    "newRequest": "Nuevo envío",
+    "newRequest": "💸 ",
     "myRequests": "Mis solicitudes",
     "howItWorks": "¿Cómo funciona?",
     "howItWorksDesc": "Llenas tus datos fiscales y subes el comprobante de tu transferencia. Nosotros pagamos a tu proveedor en el extranjero y te entregamos la factura y el comprobante de pago internacional para que se lo envíes al proveedor.",
@@ -111,14 +111,14 @@
     }
   },
   "xpay": {
-    "accessing": "Accediendo a",
+    "accessing": "Se encuentra en un sitio de",
     "title": "X-Pay",
     "transitionSubtitle": "Conexión segura cifrada",
-    "secureGateway": "SECURE GATEWAY · ENTREGAX",
+    "secureGateway": "SECURE GATEWAY · X-Pay Direct",
     "portalTitle": "Portal de Pago X-Pay",
     "gatewayActive": "Gateway activo · Procesamiento internacional SWIFT/BIC",
     "howItWorks": "¿Cómo funciona?",
-    "howItWorksDesc": "Complete sus datos fiscales y suba su comprobante de pago. Procesamos el pago a su proveedor internacional y generamos su factura oficial junto con la confirmación SWIFT/BIC para su registro contable.",
+    "howItWorksDesc": "Complete los datos de su proveedor y suba su comprobante de pago. Procesamos el pago internacional y generamos su comprobante de pago junto con la confirmación de pago.",
     "tabLabel": "X-Pay",
     "refresh": "Actualizar",
     "footerCopyright": "© {{year}} X-Pay · Procesamiento de Pagos · Powered by ENTANGLED Gateway",
