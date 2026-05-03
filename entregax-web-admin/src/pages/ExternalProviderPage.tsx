@@ -406,12 +406,14 @@ const ExternalProviderPage: React.FC<ExternalProviderPageProps> = ({ onBack, use
             width: 180,
             height: 180,
             borderRadius: '50%',
-            background: 'transparent',
+            border: `2.5px solid ${ORANGE}`,
+            boxShadow: `0 0 28px ${ORANGE}80, 0 0 6px ${ORANGE}50 inset`,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 2,
             overflow: 'hidden',
+            background: '#0A0A0A',
           }}
         >
           <Box
