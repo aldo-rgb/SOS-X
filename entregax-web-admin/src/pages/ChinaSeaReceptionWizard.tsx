@@ -487,7 +487,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 const filteredContainers = q
                     ? containers.filter((c) =>
                         (c.reference_code || '').toLowerCase().includes(q) ||
-                        (c.bl_number || '').toLowerCase().includes(q) ||
+                        (c.week_number || '').toLowerCase().includes(q) ||
                         (c.container_number || '').toLowerCase().includes(q) ||
                         (c.vessel_name || '').toLowerCase().includes(q) ||
                         (c.voyage_number || '').toLowerCase().includes(q)
@@ -498,7 +498,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                     <TextField
                         fullWidth
                         size="small"
-                        placeholder="Buscar por referencia, BL, contenedor, buque o viaje…"
+                        placeholder="Buscar por referencia, week, contenedor, buque o viaje…"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         InputProps={{ startAdornment: <SearchIcon sx={{ color: TEAL, mr: 1 }} /> }}
@@ -590,7 +590,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                                     <Chip
                                                         size="small"
                                                         variant="outlined"
-                                                        label={`📄 BL: ${c.bl_number || '—'}`}
+                                                        label={`� ${c.week_number || 'Sin week'}`}
                                                         sx={{ fontFamily: 'monospace', fontWeight: 600 }}
                                                     />
                                                     <Chip
