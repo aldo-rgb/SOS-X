@@ -343,7 +343,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
             onPress={() => navigation.navigate('MyProfile', { user, token })}
           >
             <Image
-              source={require('../../assets/logo-completo-xpay.png')}
+              source={require('../../assets/logo-completo-xpay-t.png')}
               style={styles.profileLogo}
               resizeMode="contain"
             />

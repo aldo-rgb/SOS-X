@@ -5,3 +5,5 @@ build/
 .DS_Store
 coverage/
 .vscode/
+.vercel
+.env*.local

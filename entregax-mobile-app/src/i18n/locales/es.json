@@ -1,8 +1,8 @@
 {
   "entangled": {
-    "title": "X-Pay",
+    "title": "Pago a Proveedores",
     "subtitle": "Pagos a proveedores extranjeros",
-    "newRequest": "Nuevo envío",
+    "newRequest": "Nueva solicitud",
     "myRequests": "Mis solicitudes",
     "fields": {
       "rfc": "RFC",
@@ -34,11 +34,11 @@
     }
   },
   "xpay": {
-    "accessing": "Accediendo a",
-    "title": "X-Pay",
+    "accessing": "Se ecuentra en un sitio de",
+    "title": "X-PAY",
     "transitionSubtitle": "Conexión segura cifrada",
-    "secureGateway": "SECURE GATEWAY · ENTREGAX",
-    "newRequest": "Nuevo envío",
+    "secureGateway": "SECURE GATEWAY - X-Pay Direct",
+    "newRequest": "Nueva solicitud",
     "invoiceQuestion": "¿Necesitas factura para este pago?",
     "invoiceYes": "Sí, quiero factura (CFDI)",
     "invoiceNo": "No, sin factura",
@@ -79,8 +79,6 @@
     "quoteOpCost": "Costo operación",
     "quoteTotalToPay": "Total a pagar",
     "proofLater": "ℹ️ El comprobante de tu transferencia se sube después, una vez recibas las instrucciones de pago.",
-    "requestCreatedTitle": "Solicitud X-Pay recibida",
-    "requestCreatedMessage": "Tu solicitud fue registrada correctamente y está en proceso de validación. Te notificaremos cuando cambie de estado.",
     "facturaLabel": "Factura",
     "providerLabel": "Proveedor",
     "myRequests": "Mis solicitudes"

@@ -1538,7 +1538,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 });
               }}
             >
-              <Image source={require('../../assets/logo-completo-xpay.png')} style={styles.supplierPaymentLogo} />
+              <Image source={require('../../assets/logo-completo-xpay-t.png')} style={styles.supplierPaymentLogo} />
             </TouchableOpacity>
             {/* 🚀 Botón ¿Cómo enviar? o Cambiar Método */}
             <TouchableOpacity
