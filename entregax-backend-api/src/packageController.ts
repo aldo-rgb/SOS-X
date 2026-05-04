@@ -1925,6 +1925,75 @@ const buildMaritimeMovementsResponse = async (order: any) => {
     };
 };
 
+const getChinaReceiptBaseByTracking = async (tracking: string) => {
+    const result = await pool.query(
+        `SELECT cr.id, cr.user_id, cr.fno, cr.status, cr.created_at, cr.updated_at
+         FROM china_receipts cr
+         WHERE UPPER(cr.fno) = UPPER($1)
+         LIMIT 1`,
+        [tracking]
+    );
+    return result.rows[0] || null;
+};
+
+const buildChinaAirMovementsResponse = async (receipt: any) => {
+    let movementRows: any[] = [];
+    try {
+        const r = await pool.query(
+            `SELECT h.id, h.tracking_internal, h.child_no, h.fno,
+                    h.old_status, h.new_status, h.trajectory_name,
+                    h.source, h.notes, h.created_at
+             FROM china_status_history h
+             WHERE h.china_receipt_id = $1
+                OR UPPER(COALESCE(h.fno, '')) = UPPER($2)
+             ORDER BY h.created_at DESC, h.id DESC`,
+            [receipt.id, receipt.fno]
+        );
+        movementRows = r.rows;
+    } catch {
+        movementRows = [];
+    }
+
+    const movements = movementRows.map((row) => ({
+        id: row.id,
+        package_id: null,
+        tracking: row.tracking_internal || row.fno,
+        status: row.new_status,
+        status_label: getChinaAirStatusLabel(row.new_status),
+        notes: row.trajectory_name || row.notes || null,
+        created_at: row.created_at,
+        created_by: null,
+        created_by_name: null,
+        source: row.source || 'china'
+    }));
+
+    if (movements.length === 0) {
+        movements.push({
+            id: -1,
+            package_id: null,
+            tracking: receipt.fno,
+            status: receipt.status,
+            status_label: getChinaAirStatusLabel(receipt.status),
+            notes: 'Embarque registrado en sistema',
+            created_at: receipt.updated_at || receipt.created_at,
+            created_by: null,
+            created_by_name: null,
+            source: 'system'
+        });
+    }
+
+    return {
+        success: true,
+        tracking: receipt.fno,
+        current: {
+            status: receipt.status,
+            status_label: getChinaAirStatusLabel(receipt.status),
+            updated_at: receipt.updated_at
+        },
+        movements
+    };
+};
+
 export const getPackageMovementsByTracking = async (req: Request, res: Response): Promise<any> => {
     try {
         const tracking = String(req.params.tracking || '').trim();
@@ -1933,18 +2002,32 @@ export const getPackageMovementsByTracking = async (req: Request, res: Response)
         const pkg = await getPackageMovementsBaseByTracking(tracking);
         if (!pkg) {
             const maritimeOrder = await getMaritimeOrderBaseByTracking(tracking);
-            if (!maritimeOrder) return res.status(404).json({ success: false, error: 'Paquete no encontrado' });
+            if (maritimeOrder) {
+                const user = (req as any).user;
+                const requesterId = Number(user?.userId || 0);
+                const requesterRole = String(user?.role || '').toLowerCase();
+                const isClientRole = ['client', 'customer', 'usuario', 'user'].includes(requesterRole);
+                if (isClientRole && requesterId !== Number(maritimeOrder.user_id)) {
+                    return res.status(403).json({ success: false, error: 'No tienes permiso para ver estos movimientos' });
+                }
+                const maritimeResponse = await buildMaritimeMovementsResponse(maritimeOrder);
+                return res.json(maritimeResponse);
+            }
+
+            // Fallback: china_receipts (Aéreo China — fno)
+            const chinaReceipt = await getChinaReceiptBaseByTracking(tracking);
+            if (!chinaReceipt) return res.status(404).json({ success: false, error: 'Paquete no encontrado' });
 
             const user = (req as any).user;
             const requesterId = Number(user?.userId || 0);
             const requesterRole = String(user?.role || '').toLowerCase();
             const isClientRole = ['client', 'customer', 'usuario', 'user'].includes(requesterRole);
-            if (isClientRole && requesterId !== Number(maritimeOrder.user_id)) {
+            if (isClientRole && requesterId !== Number(chinaReceipt.user_id)) {
                 return res.status(403).json({ success: false, error: 'No tienes permiso para ver estos movimientos' });
             }
 
-            const maritimeResponse = await buildMaritimeMovementsResponse(maritimeOrder);
-            return res.json(maritimeResponse);
+            const chinaResponse = await buildChinaAirMovementsResponse(chinaReceipt);
+            return res.json(chinaResponse);
         }
 
         const user = (req as any).user;
@@ -2313,11 +2396,17 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             // 🛡️ GEX - Garantía Extendida
             has_gex: pkg.has_gex || false,
             gex_folio: pkg.gex_folio || null,
+            // Instrucciones de entrega (china_receipts)
+            delivery_address_id: pkg.delivery_address_id || null,
+            delivery_instructions: pkg.delivery_instructions || null,
             // Paquetería asignada y costos
             national_shipping_cost: pkg.national_shipping_cost ? parseFloat(pkg.national_shipping_cost) : 0,
             assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
             saldo_pendiente: pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0,
-            monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0
+            monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
+            // Estado de pago del cliente
+            client_paid: pkg.payment_status === 'paid' || (pkg.saldo_pendiente !== null && parseFloat(pkg.saldo_pendiente) === 0 && parseFloat(pkg.assigned_cost_mxn || 0) > 0),
+            payment_status: pkg.payment_status || null
         }));
 
         // 4. Paquetes DHL (dhl_shipments)
@@ -2914,9 +3003,59 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                 `, [deliveryAddressId, deliveryInstructions, packageId, carrierName || carrier || null, parseFloat(carrierCost) || 0]);
                 break;
 
-            case 'china_air':
+            case 'china_air': {
+                // 🛬 Aéreo China: la app muestra IDs con offset +200000 (china_receipts.id + 200000)
+                //    Si llega un ID >= 200000, lo tratamos como china_receipts.id
+                //    Si llega un ID < 200000, asumimos que es packages.id (compatibilidad)
+                const numericId = Number(packageId);
+                const isOffsetId = numericId >= 200000;
+                const realId = isOffsetId ? numericId - 200000 : numericId;
+                const shippingCostMxn = parseFloat(carrierCost) || 0;
+
+                if (isOffsetId) {
+                    // Actualizar china_receipts
+                    result = await pool.query(`
+                        UPDATE china_receipts
+                        SET delivery_address_id = $1,
+                            delivery_instructions = COALESCE($2, delivery_instructions),
+                            national_carrier = $4,
+                            national_shipping_cost = COALESCE($5, 0),
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = $3${ownerCondition}
+                        RETURNING id, fno as tracking_internal
+                    `, [deliveryAddressId, deliveryInstructions, realId, carrierName || carrier || null, shippingCostMxn]);
+
+                    // Propagar a packages hijos vinculados a este china_receipt
+                    if (result.rowCount && result.rowCount > 0) {
+                        await pool.query(`
+                            UPDATE packages
+                            SET assigned_address_id = $1,
+                                notes = COALESCE($2, notes),
+                                national_carrier = $4,
+                                national_shipping_cost = COALESCE($5, national_shipping_cost),
+                                needs_instructions = false,
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE china_receipt_id = $3
+                        `, [deliveryAddressId, deliveryInstructions, realId, carrierName || carrier || null, shippingCostMxn]);
+                    }
+                } else {
+                    // Compatibilidad: actualizar package directo
+                    result = await pool.query(`
+                        UPDATE packages
+                        SET assigned_address_id = $1,
+                            notes = COALESCE($2, notes),
+                            national_carrier = $4,
+                            national_shipping_cost = COALESCE($5, national_shipping_cost),
+                            needs_instructions = false,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = $3${ownerCondition}
+                        RETURNING id, tracking_internal
+                    `, [deliveryAddressId, deliveryInstructions, realId, carrierName || carrier || null, shippingCostMxn]);
+                }
+                break;
+            }
             case 'dhl':
-                // Paquetes de China (china_receipts) o DHL vienen de packages
+                // Paquetes DHL vienen de packages
                 result = await pool.query(`
                     UPDATE packages 
                     SET assigned_address_id = $1, 
@@ -2940,6 +3079,9 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
             let existsQuery;
             if (packageType === 'maritime') {
                 existsQuery = await pool.query('SELECT id, user_id FROM maritime_orders WHERE id = $1', [packageId]);
+            } else if (packageType === 'china_air' && Number(packageId) >= 200000) {
+                const realId = Number(packageId) - 200000;
+                existsQuery = await pool.query('SELECT id, user_id FROM china_receipts WHERE id = $1', [realId]);
             } else {
                 existsQuery = await pool.query('SELECT id, user_id FROM packages WHERE id = $1', [packageId]);
             }

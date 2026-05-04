@@ -26,6 +26,7 @@ interface EntangledRow {
   estatus_factura: string;
   estatus_proveedor: string;
   entangled_transaccion_id?: string;
+  referencia_pago?: string;
   factura_url?: string;
   comprobante_proveedor_url?: string;
   comprobante_cliente_url?: string;
@@ -84,6 +85,7 @@ export default function EntangledAdminTab() {
             <TableHead>
               <TableRow sx={{ bgcolor: 'grey.50' }}>
                 <TableCell>ID</TableCell>
+                <TableCell>Referencia</TableCell>
                 <TableCell>Cliente</TableCell>
                 <TableCell>RFC / Razón social</TableCell>
                 <TableCell align="right">Monto</TableCell>
@@ -99,6 +101,14 @@ export default function EntangledAdminTab() {
               {rows.map((r) => (
                 <TableRow key={r.id} hover>
                   <TableCell>{r.id}</TableCell>
+                  <TableCell>
+                    <Typography
+                      variant="body2"
+                      sx={{ fontFamily: 'monospace', fontWeight: 800, color: '#FF6600', letterSpacing: '0.04em' }}
+                    >
+                      {r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`}
+                    </Typography>
+                  </TableCell>
                   <TableCell>
                     <Typography variant="body2" fontWeight="bold">{r.user_name || r.user_email || `#${r.user_id}`}</Typography>
                     <Typography variant="caption" color="text.secondary">{r.cf_email}</Typography>

@@ -13,6 +13,10 @@ import {
   ActivityIndicator,
   Modal,
   TouchableOpacity,
+  Clipboard,
+  ToastAndroid,
+  Platform,
+  Alert,
 } from 'react-native';
 import {
   Appbar,
@@ -68,10 +72,30 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
   const refreshDetail = useCallback(async () => {
     setLoading(true);
     try {
-      const maritimeId = normalizeMaritimeId((pkg as any).id || 0);
+      const pkgId = (pkg as any).id || 0;
+      const shipmentType = (pkg as any).shipment_type;
       let mergedPkg: any = { ...(pkg as any) };
 
-      if (maritimeId > 0) {
+      // 🔄 Para china_air y DHL: refetch desde el listado del cliente (no hay endpoint individual)
+      if (shipmentType === 'china_air' || shipmentType === 'dhl') {
+        try {
+          const listRes = await fetch(`${API_URL}/api/client/packages/${user.id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (listRes.ok) {
+            const listData = await listRes.json();
+            const allPkgs: any[] = listData.packages || [];
+            const fresh = allPkgs.find(p => p.id === pkgId);
+            if (fresh) mergedPkg = { ...mergedPkg, ...fresh };
+          }
+        } catch (e) {
+          console.warn('No se pudo refrescar listado china_air/dhl:', e);
+        }
+      }
+
+      const maritimeId = normalizeMaritimeId(pkgId);
+
+      if (shipmentType !== 'china_air' && shipmentType !== 'dhl' && maritimeId > 0) {
         const detailRes = await fetch(`${API_URL}/api/maritime-api/my-orders/${maritimeId}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -94,6 +118,8 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
               delivery_address_id: order.delivery_address_id || null,
               delivery_instructions: order.delivery_instructions || null,
               national_carrier: order.national_carrier || null,
+              national_tracking: order.national_tracking || null,
+              national_label_url: order.national_label_url || null,
               national_shipping_cost: order.national_shipping_cost != null ? parseFloat(order.national_shipping_cost) : (pkg as any).national_shipping_cost,
               assigned_cost_mxn: order.assigned_cost_mxn != null ? parseFloat(order.assigned_cost_mxn) : (pkg as any).assigned_cost_mxn,
               saldo_pendiente: order.saldo_pendiente != null ? parseFloat(order.saldo_pendiente) : (pkg as any).saldo_pendiente,
@@ -126,7 +152,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [pkg, token]);
+  }, [pkg, token, user?.id]);
 
   useFocusEffect(
     useCallback(() => {
@@ -156,8 +182,10 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
   const rawCarrierId = String(currentPkg?.national_carrier || '').trim();
   const CARRIER_NAMES: Record<string, string> = {
     'paquete_express': 'Paquete Express',
+    'paquete_express_pc': 'Paquete Express (Por Cobrar)',
     'entregax_local': 'Entregax Local',
     'entregax_local_cdmx': 'Entregax Local CDMX',
+    'entregax_local_mty': 'Entregax Local MTY',
     'fedex': 'FedEx',
     'estafeta': 'Estafeta',
     'dhl': 'DHL',
@@ -254,10 +282,32 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
             <Text style={styles.trackingNumber}>TRN: {currentPkg.tracking_internal}</Text>
 
             {assignedCarrier ? (
-              <View style={styles.assignedCarrierBadge}>
+              <TouchableOpacity
+                activeOpacity={currentPkg?.national_tracking ? 0.6 : 1}
+                onPress={() => {
+                  const tn = currentPkg?.national_tracking;
+                  if (tn) {
+                    Clipboard.setString(String(tn));
+                    if (Platform.OS === 'android') {
+                      ToastAndroid.show('Guía copiada al portapapeles', ToastAndroid.SHORT);
+                    } else {
+                      Alert.alert('Copiado', `Guía ${tn} copiada al portapapeles`);
+                    }
+                  }
+                }}
+                style={styles.assignedCarrierBadge}
+              >
                 <MaterialCommunityIcons name="truck-fast" size={14} color={ORANGE} />
                 <Text style={styles.assignedCarrierText}>{assignedCarrier}</Text>
-              </View>
+                {!!currentPkg?.national_tracking && (
+                  <>
+                    <Text style={[styles.assignedCarrierText, { fontWeight: '700', marginLeft: 6 }]}>
+                      · {currentPkg.national_tracking}
+                    </Text>
+                    <MaterialCommunityIcons name="content-copy" size={12} color={ORANGE} style={{ marginLeft: 4 }} />
+                  </>
+                )}
+              </TouchableOpacity>
             ) : null}
 
             <View style={styles.headerButtonsRow}>
@@ -367,11 +417,30 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
               style={styles.editButton}
               buttonColor={SEA_COLOR}
               icon="pencil"
+              disabled={!!(currentPkg?.national_tracking || currentPkg?.national_label_url)}
             >
               {address ? 'Modificar Instrucciones' : 'Asignar Dirección'}
             </Button>
+            {!!(currentPkg?.national_tracking || currentPkg?.national_label_url) && (
+              <Text style={{ marginTop: 8, fontSize: 12, color: '#888', textAlign: 'center' }}>
+                🔒 La guía de última milla ya fue generada. Las instrucciones de entrega no se pueden modificar.
+              </Text>
+            )}
           </Card.Content>
         </Card>
+
+        {/* Garantía extendida (visible arriba del desglose) */}
+        {currentPkg.has_gex && (
+          <Card style={styles.gexCard}>
+            <Card.Content style={styles.gexContent}>
+              <MaterialCommunityIcons name="shield-check" size={24} color="#10B981" />
+              <View style={styles.gexInfo}>
+                <Text style={styles.gexTitle}>Garantía Extendida Activa</Text>
+                {currentPkg.gex_folio && <Text style={styles.gexFolio}>Folio: {currentPkg.gex_folio}</Text>}
+              </View>
+            </Card.Content>
+          </Card>
+        )}
 
         {/* Desglose de Costos */}
         <Card style={styles.costsCard}>
@@ -383,11 +452,29 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
             <Divider style={styles.divider} />
 
             {/* Costo del servicio marítimo */}
-            {(assignedCost > 0 || estimatedCost > 0 || shippingCost > 0 || paidAmount > 0 || pendingAmount > 0) ? (
+            {(assignedCost > 0 || estimatedCost > 0 || shippingCost > 0 || paidAmount > 0 || pendingAmount > 0) ? (() => {
+              // El costo del servicio marítimo es:
+              //   - Si ya hay cost asignado: assignedCost - shippingCost
+              //   - Si solo hay estimado:    estimatedCost
+              const maritimeBase = assignedCost > 0
+                ? Math.max(0, assignedCost - shippingCost)
+                : estimatedCost;
+              const isEstimated = assignedCost <= 0 && estimatedCost > 0;
+              const grandTotal = maritimeBase + shippingCost;
+              const isChinaAir = (currentPkg as any).shipment_type === 'china_air';
+              const isDHL = (currentPkg as any).shipment_type === 'dhl';
+              const serviceLabel = isChinaAir
+                ? '✈️ Servicio Aéreo China'
+                : isDHL
+                  ? '📦 Servicio DHL'
+                  : '🚢 Servicio Marítimo';
+              return (
               <>
                 <View style={styles.costRow}>
-                  <Text style={styles.costLabel}>🚢 Servicio Marítimo</Text>
-                  <Text style={styles.costValue}>${Math.max(0, assignedCost - shippingCost).toFixed(2)} MXN</Text>
+                  <Text style={styles.costLabel}>
+                    {serviceLabel}{isEstimated ? ' (estimado)' : ''}
+                  </Text>
+                  <Text style={styles.costValue}>${maritimeBase.toFixed(2)} MXN</Text>
                 </View>
 
                 {shippingCost > 0 && (
@@ -397,15 +484,8 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                   </View>
                 )}
 
-                {estimatedCost > 0 && assignedCost <= 0 && (
-                  <View style={styles.costRow}>
-                    <Text style={styles.costLabel}>💡 Costo estimado</Text>
-                    <Text style={styles.costValue}>${estimatedCost.toFixed(2)} MXN</Text>
-                  </View>
-                )}
-
                 {/* Costo GEX si está contratado - desglosado */}
-                {currentPkg.has_gex && currentPkg.declared_value && (
+                {currentPkg.has_gex && currentPkg.declared_value ? (
                   <>
                     <View style={styles.costRow}>
                       <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• 5% Valor Asegurado</Text>
@@ -420,7 +500,23 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                       <Text style={[styles.costValue, { color: ORANGE }]}>${((currentPkg.declared_value * 0.05 * 18.15) + 625).toFixed(2)} MXN</Text>
                     </View>
                   </>
-                )}
+                ) : currentPkg.has_gex ? (
+                  <View style={styles.costRow}>
+                    <Text style={[styles.costLabel, { fontWeight: '600' }]}>🛡️ Garantía Extendida</Text>
+                    <Text style={[styles.costValue, { color: '#10B981', fontWeight: '600' }]}>Incluida</Text>
+                  </View>
+                ) : null}
+
+                {/* Total general (marítimo + envío nacional) */}
+                <Divider style={styles.divider} />
+                <View style={styles.costRow}>
+                  <Text style={[styles.costLabel, { fontWeight: '700' }]}>
+                    💰 Total {isEstimated ? 'estimado' : ''}
+                  </Text>
+                  <Text style={[styles.costValue, { fontWeight: '700' }]}>
+                    ${grandTotal.toFixed(2)} MXN
+                  </Text>
+                </View>
 
                 {/* Monto ya pagado */}
                 {paidAmount > 0 && (
@@ -436,14 +532,18 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                     {pendingAmount > 0 ? 'SALDO PENDIENTE' : 'PAGADO'}
                   </Text>
                   <Text style={[
-                    styles.totalValue, 
+                    styles.totalValue,
                     { color: pendingAmount > 0 ? ORANGE : '#4CAF50' }
                   ]}>
-                    ${(pendingAmount > 0 ? pendingAmount : assignedCost).toFixed(2)} MXN
+                    ${(pendingAmount > 0
+                        ? pendingAmount
+                        : (paidAmount > 0 ? paidAmount : grandTotal)
+                      ).toFixed(2)} MXN
                   </Text>
                 </View>
               </>
-            ) : (
+              );
+            })() : (
               <View style={styles.noCostsContainer}>
                 <MaterialCommunityIcons name="information-outline" size={24} color="#666" />
                 <Text style={styles.noCostsText}>
@@ -454,18 +554,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
           </Card.Content>
         </Card>
 
-        {/* Garantía extendida */}
-        {currentPkg.has_gex && (
-          <Card style={styles.gexCard}>
-            <Card.Content style={styles.gexContent}>
-              <MaterialCommunityIcons name="shield-check" size={24} color="#10B981" />
-              <View style={styles.gexInfo}>
-                <Text style={styles.gexTitle}>Garantía Extendida Activa</Text>
-                {currentPkg.gex_folio && <Text style={styles.gexFolio}>Folio: {currentPkg.gex_folio}</Text>}
-              </View>
-            </Card.Content>
-          </Card>
-        )}
+        {/* Garantía extendida (también renderizada arriba del desglose) */}
 
         <Modal
           visible={movementsOpen}

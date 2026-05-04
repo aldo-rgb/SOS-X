@@ -2,9 +2,24 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="/entregax-logo.png" />
+    <link rel="icon" type="image/png" href="/entregax-logo.png" id="app-favicon" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>EntregaX</title>
+    <script>
+      (function () {
+        try {
+          var host = window.location.hostname;
+          var qs = new URLSearchParams(window.location.search);
+          var isXPay = host === 'x-pay.direct' || host === 'www.x-pay.direct'
+            || ((host === 'localhost' || host === '127.0.0.1') && qs.get('xpay') === '1');
+          if (isXPay) {
+            document.title = 'X-Pay';
+            var link = document.getElementById('app-favicon');
+            if (link) link.setAttribute('href', '/favicon-xpay.png');
+          }
+        } catch (e) {}
+      })();
+    </script>
     <!-- Openpay JS SDK (tokenización PCI + antifraude) -->
     <script type="text/javascript" src="https://js.openpay.mx/openpay.v1.min.js"></script>
     <script type="text/javascript" src="https://js.openpay.mx/openpay-data.v1.min.js"></script>

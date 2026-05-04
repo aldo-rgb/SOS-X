@@ -152,7 +152,11 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   const { package: pkg, packages: multiplePackages, user, token, isChangingFromPickup } = route.params as any;
   
   // Usar múltiples paquetes si vienen, si no usar el paquete único
-  const allPackages = multiplePackages && multiplePackages.length > 0 ? multiplePackages : [pkg];
+  // ⚠️ Memoizado para evitar nueva referencia en cada render (causaba loop de fetches y AbortError)
+  const allPackages = useMemo(
+    () => (multiplePackages && multiplePackages.length > 0 ? multiplePackages : [pkg]),
+    [multiplePackages, pkg]
+  );
   const isMultiple = allPackages.length > 1;
   
   // Función helper para detectar si un paquete es REPACK (consolidación)
@@ -222,14 +226,90 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   // Pickup en Sucursal Hidalgo TX solo aplica a guías de PO Box USA
   const isPOBoxUS = !shipmentType || shipmentType === 'air' || shipmentType === 'usa' || shipmentType === 'pobox';
 
-  const CARRIER_OPTIONS: CarrierOption[] = [
-    {
-      id: 'entregax_local',
-      name: 'EntregaX Local',
+  // 🗺️ Helpers de zona por código postal
+  // - MTY metro (AMM): C.P. que empiezan en 64, 65, 66, 67
+  // - CDMX + Zona Metropolitana del Valle de México: 01-16 (CDMX) y 50-57 (Edomex metro)
+  const isMtyMetroZip = (zip?: string | null): boolean => {
+    const z = String(zip || '').trim();
+    if (!/^\d{4,5}$/.test(z)) return false;
+    const padded = z.padStart(5, '0');
+    return ['64', '65', '66', '67'].includes(padded.substring(0, 2));
+  };
+  const isCdmxMetroZip = (zip?: string | null): boolean => {
+    const z = String(zip || '').trim();
+    if (!/^\d{4,5}$/.test(z)) return false;
+    const padded = z.padStart(5, '0');
+    const p2 = padded.substring(0, 2);
+    // CDMX: 01-16 + Edomex zona conurbada 50-57
+    return [
+      '01','02','03','04','05','06','07','08','09',
+      '10','11','12','13','14','15','16',
+      '50','51','52','53','54','55','56','57'
+    ].includes(p2);
+  };
+
+  // 📍 Obtener ZIP de la dirección seleccionada (se calcula después de cargar addresses)
+  const selectedZip = (() => {
+    if (!selectedAddressId) return null;
+    const a = addresses.find(addr => addr.id === selectedAddressId);
+    return a?.zip_code || null;
+  })();
+  const inMtyMetro = isMtyMetroZip(selectedZip);
+  const inCdmxMetro = isCdmxMetroZip(selectedZip);
+
+  // Reglas de paquetería local Entregax por tipo de envío + ZIP destino:
+  //  - MTY metro      → solo Entregax Local MTY
+  //  - CDMX metro     → solo Entregax Local CDMX
+  //  - Fuera de ambas → ninguna local (solo Paquete Express)
+  // Además se respeta la disponibilidad por shipment_type:
+  //  - Marítimo: solo CDMX disponible
+  //  - Aéreo China: CDMX y MTY disponibles
+  //  - USA / PO Box / DHL / otros: solo MTY disponible
+  const localEntregaxOptions: CarrierOption[] = (() => {
+    const cdmx: CarrierOption = {
+      id: 'entregax_local_cdmx',
+      name: 'EntregaX Local CDMX',
       price: 0,
       estimatedDays: '1-3 días hábiles',
       isExternal: false,
-    },
+    };
+    const mty: CarrierOption = {
+      id: 'entregax_local_mty',
+      name: 'EntregaX Local MTY',
+      price: 0,
+      estimatedDays: '1-3 días hábiles',
+      isExternal: false,
+    };
+
+    // Disponibilidad por tipo de envío
+    let available: CarrierOption[];
+    if (shipmentType === 'maritime') available = [cdmx];
+    else if (shipmentType === 'china_air') available = [cdmx, mty];
+    else available = [mty];
+
+    // Si aún no hay ZIP seleccionado, mostramos todas las disponibles del tipo
+    if (!selectedZip) return available;
+
+    // Filtro por zona del ZIP destino
+    return available.filter(opt => {
+      if (opt.id === 'entregax_local_cdmx') return inCdmxMetro;
+      if (opt.id === 'entregax_local_mty') return inMtyMetro;
+      return true;
+    });
+  })();
+
+  const CARRIER_OPTIONS: CarrierOption[] = [
+    ...localEntregaxOptions,
+    // 💰 Paquete Express POR COBRAR — el destinatario paga al recibir
+    //    NO aplica para paquetes aéreos (china_air)
+    ...(shipmentType !== 'china_air' ? [{
+      id: 'paquete_express_pc',
+      name: 'Paquete Express (Por Cobrar)',
+      price: 0,
+      currency: 'MXN' as const,
+      estimatedDays: 'Pagas al recibir · 2-4 días hábiles',
+      isExternal: false,
+    }] : []),
     ...(isPOBoxUS ? [{
       id: 'pickup_hidalgo',
       name: 'Pick Up: Sucursal Hidalgo TX',
@@ -241,9 +321,24 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     // paquete_express se carga dinámicamente desde la API con cotización PQTX
   ];
 
-  const [selectedCarrier, setSelectedCarrier] = useState<string>('entregax_local');
+  const [selectedCarrier, setSelectedCarrier] = useState<string>(localEntregaxOptions[0]?.id || 'entregax_local');
   const [loadingCarrierRates, setLoadingCarrierRates] = useState(false);
   const [carrierRates, setCarrierRates] = useState<CarrierOption[]>(CARRIER_OPTIONS);
+
+  // 🔁 Si el carrier seleccionado deja de estar disponible (p.ej. al cambiar el ZIP), elegir el primero válido
+  useEffect(() => {
+    const inMetro = inMtyMetro || inCdmxMetro;
+    const validIds = new Set(
+      CARRIER_OPTIONS
+        .filter(c => !(inMetro && (c.id === 'paquete_express' || c.id === 'paquete_express_pc')))
+        .map(c => c.id)
+    );
+    if (!validIds.has(selectedCarrier)) {
+      const fallback = [...validIds][0];
+      if (fallback) setSelectedCarrier(fallback);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedZip, shipmentType, inMtyMetro, inCdmxMetro]);
 
   // Estado para expandir paquetes master y ver sus hijos
   const [expandedPackages, setExpandedPackages] = useState<Set<number>>(new Set());
@@ -276,11 +371,23 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   };
 
   // Obtener el costo del carrier seleccionado (multiplicado por número de cajas)
+  // ⚠️ En TDI Aéreo China, "Paquete Express" está INCLUIDO en el flete aéreo,
+  //    por lo que el costo se descuenta a 0 en el total a pagar.
   const getSelectedCarrierCost = (): number => {
+    const carrier = carrierRates.find(c => c.id === selectedCarrier);
+    if (shipmentType === 'china_air' && selectedCarrier === 'paquete_express') return 0;
+    const pricePerBox = carrier?.price || 0;
+    return pricePerBox * getTotalBoxes();
+  };
+
+  // Costo bruto antes de descuento por inclusión (para mostrar el descuento en el resumen)
+  const getSelectedCarrierGrossCost = (): number => {
     const carrier = carrierRates.find(c => c.id === selectedCarrier);
     const pricePerBox = carrier?.price || 0;
     return pricePerBox * getTotalBoxes();
   };
+  const isCarrierIncludedInFreight = (): boolean =>
+    shipmentType === 'china_air' && selectedCarrier === 'paquete_express';
 
   // Obtener la moneda del carrier seleccionado
   const getSelectedCarrierCurrency = (): string => {
@@ -510,8 +617,11 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
           setPackageCosts(costs);
         }
       }
-    } catch (error) {
-      console.error('Error calculating cost:', error);
+    } catch (error: any) {
+      // AbortError es esperado cuando el usuario navega o se re-renderiza el componente
+      if (error?.name !== 'AbortError') {
+        console.error('Error calculating cost:', error);
+      }
     }
   }, [allPackages, token, shipmentType, pkg]);
 
@@ -847,7 +957,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                 // Información de paquetería seleccionada
                 carrier: selectedCarrier,
                 carrierCost: getSelectedCarrierCost(),
-                carrierName: carrierRates.find(c => c.id === selectedCarrier)?.name || 'EntregaX Local',
+                carrierName: carrierRates.find(c => c.id === selectedCarrier)?.name || localEntregaxOptions[0]?.name || 'EntregaX Local',
               }),
               signal: controller.signal,
             });
@@ -1266,6 +1376,11 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                   if (isChangingFromPickup && carrier.id === 'pickup_hidalgo') {
                     return false;
                   }
+                  // 🗺️ Si el CP destino es MTY metro o CDMX metro, ocultar Paquete Express
+                  //    (la entrega local cubre la zona, no se requiere paquetería externa)
+                  if ((inMtyMetro || inCdmxMetro) && (carrier.id === 'paquete_express' || carrier.id === 'paquete_express_pc')) {
+                    return false;
+                  }
                   return true;
                 })
                 .map((carrier) => {
@@ -1294,8 +1409,19 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                     </Text>
                   </View>
                   <View style={styles.carrierPriceContainer}>
-                    {carrier.price === 0 ? (
+                    {carrier.id === 'paquete_express_pc' ? (
+                      <Text style={[styles.carrierPriceFree, { color: '#E65100' }]}>POR COBRAR</Text>
+                    ) : carrier.price === 0 ? (
                       <Text style={styles.carrierPriceFree}>GRATIS</Text>
+                    ) : shipmentType === 'china_air' && carrier.id === 'paquete_express' ? (
+                      <>
+                        <Text style={[styles.carrierPrice, { textDecorationLine: 'line-through', color: '#999' }]}>
+                          ${(carrier.price * getTotalBoxes()).toFixed(2)} {carrier.currency || 'MXN'}
+                        </Text>
+                        <Text style={[styles.carrierPriceFree, { color: '#10B981', fontSize: 13 }]}>
+                          ✓ INCLUIDO
+                        </Text>
+                      </>
                     ) : (
                       <>
                         <Text style={styles.carrierPrice}>
@@ -1329,10 +1455,12 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                   </View>
                   <View style={styles.carrierSummaryRow}>
                     <Text style={styles.carrierSummaryLabel}>Envío Nacional:</Text>
-                    <Text style={[styles.carrierSummaryValue, { color: '#666' }]}>
-                      {getSelectedCarrierCost() === 0 
-                        ? 'GRATIS' 
-                        : `$${getSelectedCarrierCost().toFixed(2)} ${getSelectedCarrierCurrency()}`}
+                    <Text style={[styles.carrierSummaryValue, { color: selectedCarrier === 'paquete_express_pc' ? '#E65100' : '#666', fontWeight: selectedCarrier === 'paquete_express_pc' ? '700' : 'normal' }]}>
+                      {selectedCarrier === 'paquete_express_pc'
+                        ? 'POR COBRAR'
+                        : getSelectedCarrierCost() === 0 
+                          ? 'GRATIS' 
+                          : `$${getSelectedCarrierCost().toFixed(2)} ${getSelectedCarrierCurrency()}`}
                     </Text>
                   </View>
                   <View style={[styles.carrierSummaryRow, { borderTopWidth: 1, borderTopColor: '#eee', paddingTop: 8, marginTop: 4 }]}>
@@ -1349,14 +1477,40 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                 </>
               )}
               {!isChangingFromPickup && (
-                <View style={styles.carrierSummaryRow}>
-                  <Text style={styles.carrierSummaryLabel}>Total:</Text>
-                  <Text style={styles.carrierSummaryValue}>
-                    {getSelectedCarrierCost() === 0 
-                      ? 'GRATIS' 
-                      : `$${getSelectedCarrierCost().toFixed(2)} ${getSelectedCarrierCurrency()}`}
-                  </Text>
-                </View>
+                <>
+                  {isCarrierIncludedInFreight() && getSelectedCarrierGrossCost() > 0 && (
+                    <>
+                      <View style={styles.carrierSummaryRow}>
+                        <Text style={styles.carrierSummaryLabel}>Paquete Express:</Text>
+                        <Text style={[styles.carrierSummaryValue, { color: '#666' }]}>
+                          ${getSelectedCarrierGrossCost().toFixed(2)} MXN
+                        </Text>
+                      </View>
+                      <View style={styles.carrierSummaryRow}>
+                        <Text style={[styles.carrierSummaryLabel, { color: '#10B981' }]}>Descuento (incluido en flete aéreo):</Text>
+                        <Text style={[styles.carrierSummaryValue, { color: '#10B981', fontWeight: '700' }]}>
+                          -${getSelectedCarrierGrossCost().toFixed(2)} MXN
+                        </Text>
+                      </View>
+                    </>
+                  )}
+                  <View style={styles.carrierSummaryRow}>
+                    <Text style={styles.carrierSummaryLabel}>Total:</Text>
+                    <Text style={[
+                      styles.carrierSummaryValue,
+                      selectedCarrier === 'paquete_express_pc' && { color: '#E65100', fontWeight: '700' },
+                      isCarrierIncludedInFreight() && { color: '#10B981', fontWeight: '700' },
+                    ]}>
+                      {selectedCarrier === 'paquete_express_pc'
+                        ? 'POR COBRAR'
+                        : isCarrierIncludedInFreight()
+                          ? 'INCLUIDO'
+                          : getSelectedCarrierCost() === 0
+                            ? 'GRATIS'
+                            : `$${getSelectedCarrierCost().toFixed(2)} ${getSelectedCarrierCurrency()}`}
+                    </Text>
+                  </View>
+                </>
               )}
             </View>
           </Card.Content>

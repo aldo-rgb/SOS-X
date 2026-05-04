@@ -588,8 +588,18 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         headers: authHeader,
       });
       return r.data?.id ?? null;
-    } catch (err) {
+    } catch (err: any) {
       console.error('[ENTANGLED] persistSupplier:', err);
+      // 409 → cuenta ya registrada con otro nombre: pedir contactar al asesor
+      const status = err?.response?.status;
+      const code = err?.response?.data?.error;
+      if (status === 409 && code === 'CUENTA_REGISTRADA_NOMBRE_DISTINTO') {
+        const message = err?.response?.data?.message
+          || 'Esta cuenta bancaria ya está registrada con otro beneficiario. Por favor contacta a tu asesor para validar el alta.';
+        setSnack({ open: true, severity: 'error', message });
+      } else {
+        setSnack({ open: true, severity: 'error', message: t('entangled.messages.error') });
+      }
       return null;
     }
   };

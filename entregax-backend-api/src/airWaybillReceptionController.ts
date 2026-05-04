@@ -544,7 +544,13 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
           u.email AS user_email
         ${baseFrom}
         ${where}
-        ORDER BY p.updated_at DESC NULLS LAST, p.created_at DESC
+        ORDER BY
+          ${search && String(search).trim() !== ''
+            ? `NULLIF(regexp_replace(COALESCE(u.box_id, ''), '\\D', '', 'g'), '')::bigint ASC NULLS LAST,
+               u.box_id ASC NULLS LAST,
+               p.updated_at DESC NULLS LAST,`
+            : ''}
+          p.updated_at DESC NULLS LAST, p.created_at DESC
         LIMIT $${params.length - 1} OFFSET $${params.length}
       `,
       params

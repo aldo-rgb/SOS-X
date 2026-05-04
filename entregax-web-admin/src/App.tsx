@@ -272,6 +272,14 @@ function App() {
     if (typeof document === 'undefined') return;
     if (isXPayContext) {
       document.title = 'X-Pay';
+      let link = document.querySelector<HTMLLinkElement>("link[rel='icon']");
+      if (!link) {
+        link = document.createElement('link');
+        link.rel = 'icon';
+        link.type = 'image/png';
+        document.head.appendChild(link);
+      }
+      link.href = '/favicon-xpay.png';
     }
   }, [isXPayContext]);
 

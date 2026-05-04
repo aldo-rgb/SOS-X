@@ -11,6 +11,9 @@ import {
   Modal,
   Image,
   TextInput,
+  Clipboard,
+  ToastAndroid,
+  Platform,
 } from 'react-native';
 import {
   Text,
@@ -487,6 +490,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     
     // 🔍 Verificar si el paquete actual tiene instrucciones
     const currentHasInstructions = !!((currentPkg as any)?.delivery_address_id || (currentPkg as any)?.assigned_address_id);
+
+    // 🔍 Verificar si el paquete actual está pagado (para no mezclar pagados con no pagados)
+    const currentIsPaid = (currentPkg as any)?.client_paid === true ||
+      parseFloat(String((currentPkg as any)?.saldo_pendiente ?? '0')) === 0;
     
     // Si ya hay paquetes seleccionados, verificar que sean del mismo tipo de envío
     if (selectedIds.length > 0) {
@@ -496,6 +503,22 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       
       // 🔍 Verificar si los paquetes seleccionados tienen instrucciones
       const firstHasInstructions = !!((firstSelectedPkg as any)?.delivery_address_id || (firstSelectedPkg as any)?.assigned_address_id);
+
+      // 🔍 Verificar si los paquetes ya seleccionados están pagados
+      const firstIsPaid = (firstSelectedPkg as any)?.client_paid === true ||
+        parseFloat(String((firstSelectedPkg as any)?.saldo_pendiente ?? '0')) === 0;
+
+      // ❌ No permitir mezclar paquetes pagados y no pagados
+      if (firstIsPaid !== currentIsPaid) {
+        Alert.alert(
+          '⚠️ No puedes mezclar',
+          firstIsPaid
+            ? 'Ya tienes paquetes PAGADOS seleccionados. No puedes agregar paquetes pendientes de pago.'
+            : 'Ya tienes paquetes PENDIENTES de pago seleccionados. No puedes agregar paquetes ya pagados.',
+          [{ text: 'Entendido', style: 'default' }]
+        );
+        return;
+      }
       
       // ❌ No permitir mezclar paquetes con y sin instrucciones
       if (firstHasInstructions !== currentHasInstructions) {
@@ -616,8 +639,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const getCarrierName = (carrierID: string): string => {
     const carrierMap: Record<string, string> = {
       'paquete_express': 'Paquete Express',
+      'paquete_express_pc': 'Paquete Express (Por Cobrar)',
       'entregax_local': 'Entregax Local',
       'entregax_local_cdmx': 'Entregax Local CDMX',
+      'entregax_local_mty': 'Entregax Local MTY',
       'fedex': 'FedEx',
       'estafeta': 'Estafeta',
       'dhl': 'DHL',
@@ -667,17 +692,17 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     const assignedCarrierName = getAssignedCarrierName(item);
     
     // Solo permitimos seleccionar paquetes en bodega (USA) o recibidos en China (marítimo/china_air) o DHL en Cedis Y usuario verificado
-    // Para marítimos/china_air/dhl: NO seleccionable si ya tiene instrucciones asignadas
     // 📦 PO Box USA: seleccionable si está en bodega (received) O procesando (processing)
-    // ❌ Paquetes ya pagados NO son seleccionables
+    // ❌ Paquetes ya pagados NO son seleccionables (al tap → ir a detalle)
+    // ✅ Para marítimo/china_air/dhl: seleccionable SIN instrucciones (para asignar) O CON instrucciones pero NO pagado (para pagar)
     const isPOBoxUSA = !isMaritime && !isChinaAir && !isDHL;
     // 📍 Paquetes en Pick Up pueden ser seleccionados para cambiar método de envío
     const isPickupPackage = isPOBoxUSA && item.status === 'ready_pickup';
     const isSelectable = isUserVerified && !isPaid && (
       (isPOBoxUSA && ['received', 'in_transit', 'received_mty', 'processing', 'ready_pickup'].includes(item.status)) || 
-      (isMaritime && ['received_china', 'in_transit', 'at_port'].includes(item.status) && !hasDeliveryInstructions) ||
-      (isChinaAir && ['received_origin', 'in_transit', 'at_customs'].includes(item.status) && !hasDeliveryInstructions) ||
-      (isDHL && ['received_mty'].includes(item.status) && !hasDeliveryInstructions)
+      (isMaritime && ['received_china', 'in_transit', 'at_port'].includes(item.status)) ||
+      (isChinaAir && ['received_origin', 'in_transit', 'at_customs', 'in_transit_transfer', 'arrived_mx'].includes(item.status)) ||
+      (isDHL && ['received_mty'].includes(item.status))
     );
     const isSelected = selectedIds.includes(item.id);
     
@@ -698,8 +723,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
            item.consolidation_status !== 'shipped'));
 
     const handlePress = () => {
-      // Si es marítimo, china_air o DHL con instrucciones asignadas, navegar a detalle del embarque
-      if ((isMaritime || isChinaAir || isDHL) && hasDeliveryInstructions) {
+      // 🚢/✈️/🚚 Marítimo, China Air o DHL → navegar al detalle del embarque
+      if (isMaritime || isChinaAir || isDHL) {
         navigation.navigate('MaritimeDetail', {
           package: item,
           user,
@@ -708,17 +733,11 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         return;
       }
       // Para paquetes PO Box USA, navegar al detalle
-      if (!isMaritime && !isChinaAir && !isDHL) {
-        navigation.navigate('PackageDetail', {
-          package: item,
-          user,
-          token,
-        });
-        return;
-      }
-      if (isSelectable) {
-        toggleSelection(item.id, item.shipment_type);
-      }
+      navigation.navigate('PackageDetail', {
+        package: item,
+        user,
+        token,
+      });
     };
     
     // 🛡️ Navegar a contratar GEX
@@ -811,7 +830,11 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                         styles.packageCheckbox,
                         isSelected && styles.packageCheckboxSelected
                       ]}
-                      onPress={() => toggleSelection(item.id, isMaritime)}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        toggleSelection(item.id, item.shipment_type);
+                      }}
+                      hitSlop={10}
                     >
                       <Icon 
                         source={isSelected ? "checkbox-marked" : "checkbox-blank-outline"} 
@@ -922,10 +945,31 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 </View>
 
                 {assignedCarrierName && (
-                  <View style={styles.assignedCarrierBadge}>
+                  <Pressable
+                    onPress={() => {
+                      const tn = (item as any).national_tracking;
+                      if (tn) {
+                        Clipboard.setString(String(tn));
+                        if (Platform.OS === 'android') {
+                          ToastAndroid.show('Guía copiada al portapapeles', ToastAndroid.SHORT);
+                        } else {
+                          Alert.alert('Copiado', `Guía ${tn} copiada al portapapeles`);
+                        }
+                      }
+                    }}
+                    style={({ pressed }) => [styles.assignedCarrierBadge, pressed && (item as any).national_tracking && { opacity: 0.6 }]}
+                  >
                     <Icon source="truck-fast" size={12} color={ORANGE} />
                     <Text style={styles.assignedCarrierText}>{assignedCarrierName}</Text>
-                  </View>
+                    {!!(item as any).national_tracking && (
+                      <>
+                        <Text style={[styles.assignedCarrierText, { fontWeight: '700', marginLeft: 6 }]}>
+                          · {(item as any).national_tracking}
+                        </Text>
+                        <Icon source="content-copy" size={11} color={ORANGE} />
+                      </>
+                    )}
+                  </Pressable>
                 )}
 
                 {/* Información adicional - diseño simétrico */}
@@ -1961,9 +2005,20 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         // 💰 Paquetes en bodega con instrucciones pueden pagar
         const canPayFromWarehouse = isWarehouseSelection && allSelectedHaveInstructions;
 
+        // � China Air / Marítimo / DHL con instrucciones asignadas y saldo pendiente → pueden pagar
+        const selectedHasPendingBalance = packages
+          .filter(p => selectedIds.includes(p.id))
+          .some(p => {
+            const saldo = parseFloat(String((p as any).saldo_pendiente || p.assigned_cost_mxn || 0));
+            return saldo > 0 && (p as any).client_paid !== true;
+          });
+        const canPayChinaMaritimeDHL = (isMaritimeSelection || isChinaAirSelection || isDHLSelection)
+          && allSelectedHaveInstructions
+          && selectedHasPendingBalance;
+
         // 🚫 "Solicitar Envío" está desactivado: solo se muestra el FAB cuando hay
         // una acción real (asignar instrucciones o pagar). En cualquier otro caso, ocultamos el botón.
-        const showFab = needsInstructions || isProcessingSelection || canPayFromWarehouse;
+        const showFab = needsInstructions || isProcessingSelection || canPayFromWarehouse || canPayChinaMaritimeDHL;
         if (!showFab) return null;
 
         return (
@@ -1974,7 +2029,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             label={needsInstructions 
               ? `📋 Asignar Instrucciones (${selectedIds.length})`
               : `💳 Pagar $${totalToPay.toFixed(2)} (${selectedIds.length})`}
-            style={[styles.fabSend, (isProcessingSelection || canPayFromWarehouse) && { backgroundColor: '#4CAF50' }]}
+            style={[styles.fabSend, (isProcessingSelection || canPayFromWarehouse || canPayChinaMaritimeDHL) && { backgroundColor: '#4CAF50' }]}
             color="white"
             onPress={() => {
               if (needsInstructions) {

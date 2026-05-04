@@ -49,6 +49,22 @@ const SERVICE_ICONS: Record<string, string> = {
   po_box: 'mail',
 };
 
+/**
+ * Mapea cualquier alias de service_type al nombre canónico que usa
+ * la tabla user_service_credits (aereo / maritimo / dhl_liberacion / po_box).
+ */
+function normalizeServiceForCredit(raw: any): string {
+  if (!raw) return 'po_box';
+  const s = String(raw).trim().toLowerCase();
+  const map: Record<string, string> = {
+    'china_air': 'aereo', 'air_chn_mx': 'aereo', 'aereo': 'aereo', 'air': 'aereo',
+    'maritime': 'maritimo', 'china_sea': 'maritimo', 'sea_chn_mx': 'maritimo', 'fcl': 'maritimo', 'maritimo': 'maritimo',
+    'dhl': 'dhl_liberacion', 'aa_dhl': 'dhl_liberacion', 'mx_cedis': 'dhl_liberacion', 'dhl_liberacion': 'dhl_liberacion',
+    'pobox_usa': 'po_box', 'po_box': 'po_box', 'pobox': 'po_box', 'usa': 'po_box', 'usa_pobox': 'po_box',
+  };
+  return map[s] || s;
+}
+
 const SERVICE_COLORS: Record<string, string> = {
   aereo: '#3498DB',
   maritimo: '#1ABC9C',
@@ -965,7 +981,7 @@ const MyPaymentsScreen = () => {
         if (r.completed) { setOnlinePayLoading(null); return; }
       }
       const pkgs: any[] = Array.isArray((order as any)?.packages) ? (order as any).packages : [];
-      const orderService = (pkgs[0]?.service_type || (order as any)?.service_type || 'po_box') as string;
+      const orderService = normalizeServiceForCredit(pkgs[0]?.service_type || (order as any)?.service_type || 'po_box');
       const res = await fetch(`${API_URL}/api/pobox/payment/order/${order.id}/pay-internal`, {
         method: 'POST', headers: authHeaders,
         body: JSON.stringify({

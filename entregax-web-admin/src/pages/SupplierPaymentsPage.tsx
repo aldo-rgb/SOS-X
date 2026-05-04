@@ -30,10 +30,13 @@ import EntangledAdminTab from '../components/EntangledAdminTab';
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const ORANGE = '#FF6600';
 const ORANGE_DARK = '#E05500';
-const CHARCOAL = '#0D0D0D';
-const SURFACE = '#141414';
-const SURFACE2 = '#1C1C1C';
-const BORDER = '#2A2A2A';
+// Tokens base — se sobre-escriben dentro del componente cuando adminMode = true
+// para presentar la vista de administrador en modo blanco/claro mientras
+// la vista de cliente conserva el tema oscuro premium.
+const CHARCOAL_DARK = '#0D0D0D';
+const SURFACE_DARK = '#141414';
+const SURFACE2_DARK = '#1C1C1C';
+const BORDER_DARK = '#2A2A2A';
 const WORLD_MAP_BG = '/mapamundi2.png';
 
 /* ── X-Pay CSS keyframes injected once ── */
@@ -103,16 +106,34 @@ interface Stats {
 
 export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?: boolean }) {
   useTranslation();
+
+  // ─── Tokens de tema ──────────────────────────────────────────────
+  // En modo admin la vista debe ser blanca/clara; en modo cliente
+  // conservamos el tema oscuro premium fintech.
+  const CHARCOAL = adminMode ? '#F5F6F8' : CHARCOAL_DARK;
+  const SURFACE = adminMode ? '#FFFFFF' : SURFACE_DARK;
+  const SURFACE2 = adminMode ? '#F8F9FB' : SURFACE2_DARK;
+  const BORDER = adminMode ? '#E5E7EB' : BORDER_DARK;
+  const HEADER_BG = adminMode ? '#F9FAFB' : '#0a0a0a';
+  const INNER_BG = adminMode ? '#F3F4F6' : '#1a1a1a';
+  const TEXT_PRIMARY = adminMode ? '#111827' : '#ffffff';
+  const TEXT_SECONDARY = adminMode ? '#374151' : '#cccccc';
+  const TEXT_MUTED = adminMode ? '#6B7280' : '#888888';
+  const TEXT_DIM = adminMode ? '#9CA3AF' : '#666666';
+  const TEXT_DIMMER = adminMode ? '#B0B6BF' : '#555555';
+
   const [tabValue, setTabValue] = useState(0);
   const [loading, setLoading] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
 
   // Estado
   const [providers, setProviders] = useState<Provider[]>([]);
+  void providers; // legacy: payment_providers (con costo/cargo) ya no se muestra; se conserva la carga para no romper integraciones
   const [payments, setPayments] = useState<Payment[]>([]);
   const [entangledRequests, setEntangledRequests] = useState<any[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [requestSearch, setRequestSearch] = useState('');
 
   // Modal Proveedor
   const [providerModal, setProviderModal] = useState(false);
@@ -160,6 +181,31 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
   const [overrideNotes, setOverrideNotes] = useState<string>('');
   const [savingOverride, setSavingOverride] = useState(false);
 
+  // Base de datos global de proveedores (beneficiarios) — agregada por número de cuenta
+  type SupplierDb = {
+    cuenta_norm: string;
+    id_principal: number;
+    nombre_beneficiario: string;
+    nombre_chino: string | null;
+    numero_cuenta: string;
+    banco_nombre: string;
+    banco_pais: string | null;
+    swift_bic: string | null;
+    divisa_default: string | null;
+    clientes_count: number;
+    is_active: boolean;
+    first_registered_at: string;
+    aliases: string[] | null;
+    ops_completadas: number;
+    ops_total: number;
+    total_enviado: number | string;
+    ultima_operacion_at: string | null;
+  };
+  const [suppliersDb, setSuppliersDb] = useState<SupplierDb[]>([]);
+  const [supplierSearch, setSupplierSearch] = useState('');
+  const [supplierDetailOpen, setSupplierDetailOpen] = useState(false);
+  const [supplierDetail, setSupplierDetail] = useState<any>(null);
+
   const getToken = () => localStorage.getItem('token');
 
   const loadData = useCallback(async () => {
@@ -204,6 +250,34 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Carga la base de datos de proveedores (beneficiarios) cuando se entra al tab Proveedores
+  const loadSuppliersDb = useCallback(async (q?: string) => {
+    try {
+      const headers = { Authorization: `Bearer ${getToken()}` };
+      const params = q && q.trim() ? `?q=${encodeURIComponent(q.trim())}` : '';
+      const r = await axios.get(`${API_URL}/admin/entangled/suppliers-db${params}`, { headers });
+      setSuppliersDb(r.data || []);
+    } catch (e) {
+      console.warn('[admin/suppliers-db] error:', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tabValue === 2) loadSuppliersDb(supplierSearch);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabValue]);
+
+  const openSupplierDetail = async (cuentaNorm: string) => {
+    try {
+      const headers = { Authorization: `Bearer ${getToken()}` };
+      const r = await axios.get(`${API_URL}/admin/entangled/suppliers-db/${encodeURIComponent(cuentaNorm)}`, { headers });
+      setSupplierDetail(r.data);
+      setSupplierDetailOpen(true);
+    } catch (e) {
+      setSnackbar({ open: true, message: 'No se pudo cargar el detalle del proveedor', severity: 'error' });
+    }
+  };
 
   // ===== ENTANGLED handlers =====
   const handleSaveEntProvider = async () => {
@@ -311,6 +385,29 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
     }
   };
 
+  // Formatea segundos a "Xd Yh Zm" / "Yh Zm" / "Zm Ws" / "Ws"
+  const formatDuration = (totalSeconds: number | null | undefined): string => {
+    if (totalSeconds == null || !Number.isFinite(Number(totalSeconds))) return '—';
+    let s = Math.max(0, Math.floor(Number(totalSeconds)));
+    const d = Math.floor(s / 86400); s -= d * 86400;
+    const h = Math.floor(s / 3600);  s -= h * 3600;
+    const m = Math.floor(s / 60);    s -= m * 60;
+    if (d > 0) return `${d}d ${h}h ${m}m`;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  };
+
+  // Color del chip de tiempo según rangos (SLA visual)
+  const getTimeChipStyles = (seconds: number | null | undefined) => {
+    if (seconds == null) return { bg: 'rgba(148,163,184,0.12)', border: 'rgba(148,163,184,0.3)', color: '#94a3b8' };
+    const s = Number(seconds);
+    if (s <= 3600)  return { bg: 'rgba(74,222,128,0.15)', border: 'rgba(74,222,128,0.4)', color: '#16a34a' }; // ≤ 1h
+    if (s <= 14400) return { bg: 'rgba(59,130,246,0.15)', border: 'rgba(59,130,246,0.4)', color: '#2563eb' }; // ≤ 4h
+    if (s <= 86400) return { bg: 'rgba(255,102,0,0.15)',  border: 'rgba(255,102,0,0.4)',  color: ORANGE };    // ≤ 24h
+    return { bg: 'rgba(239,68,68,0.15)', border: 'rgba(239,68,68,0.4)', color: '#dc2626' };                   // > 24h
+  };
+
   const getStatusChip = (status: string) => {
     const config: Record<string, { color: 'warning' | 'info' | 'success' | 'error' | 'default'; icon: React.ReactElement | undefined }> = {
       pending: { color: 'warning', icon: <PendingIcon fontSize="small" /> },
@@ -346,7 +443,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
   const recentPayments = payments.slice(0, 4);
 
   return (
-    <Box sx={{ bgcolor: CHARCOAL, minHeight: '100vh', color: '#ffffff', fontFamily: '"Inter", "Roboto", sans-serif' }}>
+    <Box sx={{ bgcolor: CHARCOAL, minHeight: '100vh', color: TEXT_PRIMARY, fontFamily: '"Inter", "Roboto", sans-serif' }}>
 
       {/* ══════════════════════════════════════════════════
           HERO BANNER — X-Pay premium fintech header
@@ -402,7 +499,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
               onError={(e: React.SyntheticEvent<HTMLImageElement>) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
             />
             <Box>
-              <Typography variant="caption" sx={{ color: '#888', letterSpacing: '0.12em', textTransform: 'uppercase', fontSize: '0.6rem' }}>
+              <Typography variant="caption" sx={{ color: TEXT_MUTED, letterSpacing: '0.12em', textTransform: 'uppercase', fontSize: '0.6rem' }}>
                 International Payment Gateway
               </Typography>
             </Box>
@@ -446,7 +543,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
               </Typography>
 
               <Typography variant="h2" fontWeight={900} sx={{
-                color: '#fff',
+                color: TEXT_PRIMARY,
                 lineHeight: 1.02,
                 letterSpacing: '-0.04em',
                 textShadow: '0 10px 30px rgba(0,0,0,0.45)',
@@ -521,7 +618,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                     minHeight: 52,
                     bgcolor: '#111111',
                     border: '1px solid rgba(255,102,0,0.35)',
-                    color: '#fff',
+                    color: TEXT_PRIMARY,
                     boxShadow: '0 10px 26px rgba(255,102,0,0.22)',
                     animation: 'xpay-pulse 2.5s ease-in-out infinite',
                     '& .MuiButton-startIcon': { mr: 1 },
@@ -544,9 +641,9 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 1.2, py: 1, borderRadius: 1.8, bgcolor: 'rgba(0,0,0,0.26)', border: `1px solid ${BORDER}` }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
                         <Typography sx={{ fontSize: '1.1rem' }}>{item.flag}</Typography>
-                        <Typography sx={{ color: '#fff', fontWeight: 700 }}>{item.value}</Typography>
+                        <Typography sx={{ color: TEXT_PRIMARY, fontWeight: 700 }}>{item.value}</Typography>
                       </Box>
-                      <Typography sx={{ color: '#888' }}>⌄</Typography>
+                      <Typography sx={{ color: TEXT_MUTED }}>⌄</Typography>
                     </Box>
                   </Paper>
                 ))}
@@ -556,23 +653,23 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                 <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
                   <Box>
                     <Typography sx={{ color: '#BDBDBD', fontWeight: 800, fontSize: '0.86rem', mb: 1 }}>USD-CNY</Typography>
-                    <Typography sx={{ color: '#fff', fontWeight: 900, fontSize: '1.9rem', lineHeight: 1 }}>{liveUsdCny.toFixed(6)}</Typography>
+                    <Typography sx={{ color: TEXT_PRIMARY, fontWeight: 900, fontSize: '1.9rem', lineHeight: 1 }}>{liveUsdCny.toFixed(6)}</Typography>
                     <Typography sx={{ color: '#4ade80', fontWeight: 700, fontSize: '0.72rem', mt: 0.5 }}>● LIVE</Typography>
                   </Box>
                   <Box>
                     <Typography sx={{ color: '#BDBDBD', fontWeight: 800, fontSize: '0.86rem', mb: 1 }}>USD-USD</Typography>
-                    <Typography sx={{ color: '#fff', fontWeight: 900, fontSize: '1.9rem', lineHeight: 1 }}>{liveUsdMxn.toFixed(6)}</Typography>
+                    <Typography sx={{ color: TEXT_PRIMARY, fontWeight: 900, fontSize: '1.9rem', lineHeight: 1 }}>{liveUsdMxn.toFixed(6)}</Typography>
                     <Typography sx={{ color: '#CFCFCF', fontSize: '0.72rem', mt: 0.5 }}>USD-USD</Typography>
                   </Box>
                 </Box>
               </Paper>
 
               <Paper sx={{ p: 2, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.06)', border: `1px solid rgba(255,255,255,0.12)`, backdropFilter: 'blur(10px)' }}>
-                <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '0.95rem', mb: 1.5 }}>Proceso de Envío</Typography>
+                <Typography sx={{ color: TEXT_PRIMARY, fontWeight: 800, fontSize: '0.95rem', mb: 1.5 }}>Proceso de Envío</Typography>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 0.5, mb: 2 }}>
                   {['Registro', 'Verificación', 'Transferencia', 'Recepción'].map((step, index) => (
                     <Box key={step} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1 }}>
-                      <Box sx={{ width: 34, height: 34, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.08)', border: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.85rem', fontWeight: 800 }}>
+                      <Box sx={{ width: 34, height: 34, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.08)', border: `1px solid ${BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: TEXT_PRIMARY, fontSize: '0.85rem', fontWeight: 800 }}>
                         {index + 1}
                       </Box>
                       {index < 3 && <Box sx={{ flex: 1, height: 1, bgcolor: 'rgba(255,255,255,0.15)' }} />}
@@ -590,7 +687,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                   onClick={() => setTabValue(0)}
                   sx={{
                     background: `linear-gradient(135deg, ${ORANGE} 0%, ${ORANGE_DARK} 100%)`,
-                    color: '#fff',
+                    color: TEXT_PRIMARY,
                     fontWeight: 800,
                     fontSize: '0.86rem',
                     textTransform: 'uppercase',
@@ -608,7 +705,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
 
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1.3fr 0.7fr' }, gap: 2, mt: 2.3 }}>
             <Paper sx={{ p: 2, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.06)', border: `1px solid rgba(255,255,255,0.12)`, backdropFilter: 'blur(10px)' }}>
-              <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '1rem', mb: 1.5 }}>Últimos Envíos Realizados</Typography>
+              <Typography sx={{ color: TEXT_PRIMARY, fontWeight: 800, fontSize: '1rem', mb: 1.5 }}>Últimos Envíos Realizados</Typography>
               <Box sx={{ display: 'grid', gap: 1.1 }}>
                 {(recentPayments.length ? recentPayments : [
                   { id: 1, client_name: 'China', provider_name: 'USD', created_at: new Date().toISOString(), status: 'completed', amount_usd: 2500, total_mxn: 132000 },
@@ -617,15 +714,15 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                   <Box key={payment.id} sx={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr', gap: 1, alignItems: 'center', py: 0.8, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                     <Typography sx={{ color: '#D5D5D5', fontSize: '0.78rem' }}>{payment.client_name || 'Cliente'}</Typography>
                     <Typography sx={{ color: '#B5B5B5', fontSize: '0.78rem' }}>{new Date(payment.created_at).toLocaleDateString()}</Typography>
-                    <Chip size="small" label={String(payment.status || 'completed').toUpperCase()} sx={{ justifySelf: 'start', bgcolor: 'rgba(255,102,0,0.18)', color: '#fff', border: '1px solid rgba(255,102,0,0.3)', fontWeight: 700 }} />
-                    <Typography sx={{ color: '#fff', fontWeight: 700, fontSize: '0.8rem', textAlign: 'right' }}>${Number(payment.total_mxn || 0).toLocaleString()}</Typography>
+                    <Chip size="small" label={String(payment.status || 'completed').toUpperCase()} sx={{ justifySelf: 'start', bgcolor: 'rgba(255,102,0,0.18)', color: TEXT_PRIMARY, border: '1px solid rgba(255,102,0,0.3)', fontWeight: 700 }} />
+                    <Typography sx={{ color: TEXT_PRIMARY, fontWeight: 700, fontSize: '0.8rem', textAlign: 'right' }}>${Number(payment.total_mxn || 0).toLocaleString()}</Typography>
                   </Box>
                 ))}
               </Box>
             </Paper>
 
             <Paper sx={{ p: 2, borderRadius: 3, bgcolor: 'rgba(255,255,255,0.06)', border: `1px solid rgba(255,255,255,0.12)`, backdropFilter: 'blur(10px)' }}>
-              <Typography sx={{ color: '#fff', fontWeight: 800, fontSize: '1rem', mb: 1.5 }}>Tasa de Cambio Promedio</Typography>
+              <Typography sx={{ color: TEXT_PRIMARY, fontWeight: 800, fontSize: '1rem', mb: 1.5 }}>Tasa de Cambio Promedio</Typography>
               <Box sx={{ height: 130, borderRadius: 2, bgcolor: 'rgba(0,0,0,0.22)', border: `1px solid rgba(255,255,255,0.08)`, p: 1.5, display: 'flex', alignItems: 'end', gap: 0.8 }}>
                 {[28, 42, 35, 56, 48, 62, 58, 75, 70, 84, 78, 92].map((v, index) => (
                   <Box key={index} sx={{ flex: 1, height: `${v}%`, borderRadius: '8px 8px 2px 2px', background: index > 8 ? `linear-gradient(180deg, ${ORANGE} 0%, rgba(255,102,0,0.25) 100%)` : 'linear-gradient(180deg, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.08) 100%)' }} />
@@ -652,8 +749,8 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
         }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <Box>
-              <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.65rem', fontWeight: 700 }}>Pendientes</Typography>
-              <Typography variant="h3" fontWeight={800} sx={{ color: '#fff', lineHeight: 1.1, mt: 0.5 }}>{stats?.pending || 0}</Typography>
+              <Typography variant="caption" sx={{ color: TEXT_DIM, textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.65rem', fontWeight: 700 }}>Pendientes</Typography>
+              <Typography variant="h3" fontWeight={800} sx={{ color: TEXT_PRIMARY, lineHeight: 1.1, mt: 0.5 }}>{stats?.pending || 0}</Typography>
             </Box>
             <Box sx={{ p: 1.2, bgcolor: `rgba(255,102,0,0.12)`, borderRadius: 2, border: `1px solid rgba(255,102,0,0.2)` }}>
               <PendingIcon sx={{ color: ORANGE, fontSize: 22 }} />
@@ -672,8 +769,8 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
         }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <Box>
-              <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.65rem', fontWeight: 700 }}>Procesando</Typography>
-              <Typography variant="h3" fontWeight={800} sx={{ color: '#fff', lineHeight: 1.1, mt: 0.5 }}>{stats?.processing || 0}</Typography>
+              <Typography variant="caption" sx={{ color: TEXT_DIM, textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.65rem', fontWeight: 700 }}>Procesando</Typography>
+              <Typography variant="h3" fontWeight={800} sx={{ color: TEXT_PRIMARY, lineHeight: 1.1, mt: 0.5 }}>{stats?.processing || 0}</Typography>
             </Box>
             <Box sx={{ p: 1.2, bgcolor: `rgba(59,130,246,0.12)`, borderRadius: 2, border: `1px solid rgba(59,130,246,0.2)` }}>
               <CurrencyExchangeIcon sx={{ color: '#3b82f6', fontSize: 22 }} />
@@ -692,8 +789,8 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
         }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <Box>
-              <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.65rem', fontWeight: 700 }}>Completados 30d</Typography>
-              <Typography variant="h3" fontWeight={800} sx={{ color: '#fff', lineHeight: 1.1, mt: 0.5 }}>{stats?.completed || 0}</Typography>
+              <Typography variant="caption" sx={{ color: TEXT_DIM, textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.65rem', fontWeight: 700 }}>Completados 30d</Typography>
+              <Typography variant="h3" fontWeight={800} sx={{ color: TEXT_PRIMARY, lineHeight: 1.1, mt: 0.5 }}>{stats?.completed || 0}</Typography>
             </Box>
             <Box sx={{ p: 1.2, bgcolor: `rgba(74,222,128,0.12)`, borderRadius: 2, border: `1px solid rgba(74,222,128,0.2)` }}>
               <CheckCircleIcon sx={{ color: '#4ade80', fontSize: 22 }} />
@@ -712,8 +809,8 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
         }}>
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <Box>
-              <Typography variant="caption" sx={{ color: '#666', textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.65rem', fontWeight: 700 }}>Ganancia 30d</Typography>
-              <Typography variant="h3" fontWeight={800} sx={{ color: '#fff', lineHeight: 1.1, mt: 0.5, fontSize: '1.8rem' }}>
+              <Typography variant="caption" sx={{ color: TEXT_DIM, textTransform: 'uppercase', letterSpacing: '0.1em', fontSize: '0.65rem', fontWeight: 700 }}>Ganancia 30d</Typography>
+              <Typography variant="h3" fontWeight={800} sx={{ color: TEXT_PRIMARY, lineHeight: 1.1, mt: 0.5, fontSize: '1.8rem' }}>
                 ${Number(stats?.total_platform_profit || 0).toFixed(0)}
               </Typography>
             </Box>
@@ -733,7 +830,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
       <Paper sx={{ mb: 3, borderRadius: 2, bgcolor: SURFACE, border: `1px solid ${BORDER}` }}>
         <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{
           borderBottom: 1, borderColor: BORDER,
-          '& .MuiTab-root': { color: '#666', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', fontSize: '0.75rem', minHeight: 52 },
+          '& .MuiTab-root': { color: TEXT_DIM, fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase', fontSize: '0.75rem', minHeight: 52 },
           '& .Mui-selected': { color: `${ORANGE} !important` },
           '& .MuiTabs-indicator': { backgroundColor: ORANGE, height: 2, boxShadow: `0 0 8px ${ORANGE}` },
         }}>
@@ -747,15 +844,33 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
       {/* Tab: Solicitudes */}
       {tabValue === 0 && (
         <Paper sx={{ borderRadius: 3, overflow: 'hidden', bgcolor: SURFACE, border: `1px solid ${BORDER}` }}>
-          <Box sx={{ p: 2, bgcolor: '#0a0a0a', display: 'flex', gap: 2, alignItems: 'center', borderBottom: `1px solid ${BORDER}` }}>
-            <Typography variant="caption" sx={{ color: '#888', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 700, fontSize: '0.7rem', flex: 1 }}>
+          <Box sx={{ p: 2, bgcolor: HEADER_BG, display: 'flex', gap: 2, alignItems: 'center', borderBottom: `1px solid ${BORDER}`, flexWrap: 'wrap' }}>
+            <Typography variant="caption" sx={{ color: TEXT_MUTED, textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 700, fontSize: '0.7rem' }}>
               Últimos Envíos Realizados
             </Typography>
+            <TextField
+              size="small"
+              placeholder="Buscar por referencia, cliente, email, RFC…"
+              value={requestSearch}
+              onChange={(e) => setRequestSearch(e.target.value)}
+              sx={{
+                flex: 1,
+                minWidth: 280,
+                '& .MuiOutlinedInput-root': {
+                  backgroundColor: HEADER_BG,
+                  fontSize: '0.85rem',
+                  '& fieldset': { borderColor: BORDER },
+                  '&:hover fieldset': { borderColor: ORANGE },
+                  '&.Mui-focused fieldset': { borderColor: ORANGE },
+                },
+                '& input': { color: TEXT_PRIMARY },
+              }}
+            />
             <FormControl size="small" sx={{ minWidth: 150 }}>
-              <InputLabel sx={{ color: '#555', fontSize: '0.8rem' }}>Estado</InputLabel>
+              <InputLabel sx={{ color: TEXT_DIMMER, fontSize: '0.8rem' }}>Estado</InputLabel>
               <Select value={statusFilter} label="Estado" onChange={(e) => setStatusFilter(e.target.value)}
                 sx={{
-                  color: '#ffffff', backgroundColor: '#0a0a0a', fontSize: '0.8rem',
+                  color: TEXT_PRIMARY, backgroundColor: HEADER_BG, fontSize: '0.8rem',
                   '& .MuiOutlinedInput-notchedOutline': { borderColor: BORDER },
                   '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: '#555' },
                   '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: ORANGE },
@@ -774,40 +889,126 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
           <TableContainer>
             <Table>
               <TableHead>
-                <TableRow sx={{ bgcolor: '#0a0a0a', borderBottom: `1px solid ${BORDER}` }}>
-                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Cliente</TableCell>
-                  <TableCell align="right" sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Monto a Enviar al Proveedor</TableCell>
-                  <TableCell align="right" sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Divisa Destino</TableCell>
-                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Estatus</TableCell>
-                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Factura</TableCell>
-                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Pago a Proveedor</TableCell>
-                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Acciones</TableCell>
+                <TableRow sx={{ bgcolor: HEADER_BG, borderBottom: `1px solid ${BORDER}` }}>
+                  <TableCell sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Referencia</TableCell>
+                  <TableCell sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Cliente</TableCell>
+                  <TableCell align="right" sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Monto a Enviar al Proveedor</TableCell>
+                  <TableCell align="right" sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Divisa Destino</TableCell>
+                  <TableCell sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Estatus</TableCell>
+                  <TableCell sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Factura</TableCell>
+                  <TableCell sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Pago a Proveedor</TableCell>
+                  <TableCell align="center" sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Tiempo Op.</TableCell>
+                  <TableCell sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Acciones</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
-                {entangledRequests.map((p) => (
+                {(() => {
+                  const term = requestSearch.trim().toLowerCase();
+                  const filtered = !term ? entangledRequests : entangledRequests.filter((p: any) => {
+                    const ref = String(p.referencia_pago || `XP${String(p.id).padStart(6, '0')}`).toLowerCase();
+                    return (
+                      ref.includes(term) ||
+                      String(p.client_name || '').toLowerCase().includes(term) ||
+                      String(p.client_email || '').toLowerCase().includes(term) ||
+                      String(p.cf_rfc || '').toLowerCase().includes(term) ||
+                      String(p.cf_razon_social || '').toLowerCase().includes(term) ||
+                      String(p.entangled_transaccion_id || '').toLowerCase().includes(term)
+                    );
+                  });
+                  return <>
+                {filtered.map((p) => (
                   <TableRow key={p.id} hover sx={{ bgcolor: SURFACE, '&:hover': { bgcolor: SURFACE2 }, borderBottom: `1px solid ${BORDER}` }}>
-                    <TableCell sx={{ color: '#ffffff', borderBottom: `1px solid ${BORDER}` }}>
+                    <TableCell sx={{ borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap' }}>
+                      <Tooltip title={p.entangled_transaccion_id ? `Tx ENTANGLED: ${p.entangled_transaccion_id}` : 'Sin Tx ENTANGLED'}>
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            fontFamily: 'monospace',
+                            fontWeight: 800,
+                            color: ORANGE,
+                            letterSpacing: '0.04em',
+                            fontSize: '0.85rem',
+                          }}
+                        >
+                          {p.referencia_pago || `XP${String(p.id).padStart(6, '0')}`}
+                        </Typography>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell sx={{ color: TEXT_PRIMARY, borderBottom: `1px solid ${BORDER}` }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
                         <Avatar sx={{ width: 34, height: 34, bgcolor: `rgba(255,102,0,0.15)`, border: `1px solid rgba(255,102,0,0.3)`, color: ORANGE, fontWeight: 700 }}>
                           {p.client_name?.[0] || '?'}
                         </Avatar>
                         <Box>
-                          <Typography variant="body2" fontWeight={700} sx={{ color: '#ffffff' }}>{p.client_name}</Typography>
-                          <Typography variant="caption" sx={{ color: '#555' }}>{p.client_email}</Typography>
+                          <Typography variant="body2" fontWeight={700} sx={{ color: TEXT_PRIMARY }}>{p.client_name}</Typography>
+                          <Typography variant="caption" sx={{ color: TEXT_DIMMER }}>{p.client_email}</Typography>
                         </Box>
                       </Box>
                     </TableCell>
                     <TableCell align="right" sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       <Typography fontWeight={800} sx={{ color: ORANGE, fontSize: '1rem' }}>${parseFloat(String(p.op_monto || 0)).toLocaleString()}</Typography>
                     </TableCell>
-                    <TableCell sx={{ color: '#aaa', borderBottom: `1px solid ${BORDER}` }}>{p.op_divisa_destino || 'USD'}</TableCell>
+                    <TableCell sx={{ color: TEXT_SECONDARY, borderBottom: `1px solid ${BORDER}` }}>{p.op_divisa_destino || 'USD'}</TableCell>
                     <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>{getStatusChip(p.estatus_global)}</TableCell>
                     <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       {getStatusChip(p.estatus_factura)}
                     </TableCell>
                     <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       {getStatusChip(p.estatus_proveedor)}
+                    </TableCell>
+                    <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap' }}>
+                      {(() => {
+                        const isCompleted = String(p.estatus_global || '').toLowerCase() === 'completado';
+                        const hasProof = !!p.comprobante_subido_at;
+                        const secs = p.time_to_complete_seconds != null ? Number(p.time_to_complete_seconds) : null;
+                        if (!hasProof) {
+                          return (
+                            <Tooltip title="Aún no se ha subido el comprobante de pago">
+                              <Typography variant="caption" sx={{ color: TEXT_DIMMER, fontStyle: 'italic' }}>Sin comprobante</Typography>
+                            </Tooltip>
+                          );
+                        }
+                        if (!isCompleted || secs == null) {
+                          // Operación aún no finalizada → mostramos tiempo transcurrido en vivo
+                          const liveSecs = Math.max(0, Math.floor((Date.now() - new Date(p.comprobante_subido_at).getTime()) / 1000));
+                          const styles = getTimeChipStyles(liveSecs);
+                          return (
+                            <Tooltip title={`Comprobante subido: ${new Date(p.comprobante_subido_at).toLocaleString()} · En curso`}>
+                              <Chip
+                                size="small"
+                                label={`${formatDuration(liveSecs)} · en curso`}
+                                sx={{
+                                  bgcolor: styles.bg,
+                                  color: styles.color,
+                                  border: `1px solid ${styles.border}`,
+                                  fontWeight: 700,
+                                  fontSize: '0.7rem',
+                                  fontFamily: 'monospace',
+                                }}
+                              />
+                            </Tooltip>
+                          );
+                        }
+                        const styles = getTimeChipStyles(secs);
+                        return (
+                          <Tooltip title={`Comprobante: ${new Date(p.comprobante_subido_at).toLocaleString()}\nFinalizada: ${p.completed_at ? new Date(p.completed_at).toLocaleString() : '—'}`}>
+                            <Chip
+                              size="small"
+                              icon={<CheckCircleIcon sx={{ fontSize: 14, color: `${styles.color} !important` }} />}
+                              label={formatDuration(secs)}
+                              sx={{
+                                bgcolor: styles.bg,
+                                color: styles.color,
+                                border: `1px solid ${styles.border}`,
+                                fontWeight: 800,
+                                fontSize: '0.72rem',
+                                fontFamily: 'monospace',
+                                '& .MuiChip-icon': { ml: 0.5 },
+                              }}
+                            />
+                          </Tooltip>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
@@ -817,7 +1018,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                           </Typography>
                         )}
                         <Tooltip title={new Date(p.created_at).toLocaleString()}>
-                          <Typography variant="caption" sx={{ color: '#555', fontSize: '0.65rem', whiteSpace: 'nowrap' }}>
+                          <Typography variant="caption" sx={{ color: TEXT_DIMMER, fontSize: '0.65rem', whiteSpace: 'nowrap' }}>
                             {new Date(p.created_at).toLocaleDateString()}
                           </Typography>
                         </Tooltip>
@@ -825,16 +1026,20 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                     </TableCell>
                   </TableRow>
                 ))}
-                {entangledRequests.length === 0 && (
+                {filtered.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 6, borderBottom: 'none' }}>
+                    <TableCell colSpan={9} align="center" sx={{ py: 6, borderBottom: 'none' }}>
                       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5, opacity: 0.5 }}>
-                        <PaymentsIcon sx={{ fontSize: 40, color: '#555' }} />
-                        <Typography sx={{ color: '#555' }}>No hay solicitudes</Typography>
+                        <PaymentsIcon sx={{ fontSize: 40, color: TEXT_DIMMER }} />
+                        <Typography sx={{ color: TEXT_DIMMER }}>
+                          {term ? 'Sin resultados para tu búsqueda' : 'No hay solicitudes'}
+                        </Typography>
                       </Box>
                     </TableCell>
                   </TableRow>
                 )}
+                  </>;
+                })()}
               </TableBody>
             </Table>
           </TableContainer>
@@ -843,12 +1048,12 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
 
       {/* Tab: Tipo de Cambio — Sección ENTANGLED (CRUD por proveedor) */}
       {tabValue === 1 && (
-        <Paper sx={{ p: 3, borderRadius: 3, mt: 3, bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: '#fff' }}>
+        <Paper sx={{ p: 3, borderRadius: 3, mt: 3, bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: TEXT_PRIMARY }}>
           <Box sx={{ mb: 1 }}>
             <Typography variant="h6" fontWeight="bold">
               🌐 Proveedores ENTANGLED (Triangulación internacional)
             </Typography>
-            <Typography variant="body2" sx={{ color: '#888' }}>
+            <Typography variant="body2" sx={{ color: TEXT_MUTED }}>
               Los proveedores se sincronizan desde el API. Aquí solo configuras TC USD, TC RMB, % de compra y cuentas bancarias para recibir el depósito MXN del cliente.
             </Typography>
           </Box>
@@ -857,9 +1062,9 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
           <TableContainer>
             <Table size="small">
               <TableHead>
-                <TableRow sx={{ bgcolor: '#0a0a0a' }}>
+                <TableRow sx={{ bgcolor: HEADER_BG }}>
                   {['Nombre','Código','TC USD efectivo','TC RMB efectivo','% compra efectivo','Cuentas','Activo','Default','Acciones'].map((h) => (
-                    <TableCell key={h} sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>{h}</TableCell>
+                    <TableCell key={h} sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>{h}</TableCell>
                   ))}
                 </TableRow>
               </TableHead>
@@ -873,30 +1078,30 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                   const ovPct = p.override_porcentaje_compra != null;
                   return (
                   <TableRow key={p.id} hover sx={{ bgcolor: SURFACE, '&:hover': { bgcolor: SURFACE2 } }}>
-                    <TableCell sx={{ color: '#fff', fontWeight: 600, borderBottom: `1px solid ${BORDER}` }}>{p.name}</TableCell>
-                    <TableCell sx={{ color: '#888', borderBottom: `1px solid ${BORDER}` }}>{p.code || '—'}</TableCell>
-                    <TableCell align="center" sx={{ color: '#ccc', borderBottom: `1px solid ${BORDER}` }}>
+                    <TableCell sx={{ color: TEXT_PRIMARY, fontWeight: 600, borderBottom: `1px solid ${BORDER}` }}>{p.name}</TableCell>
+                    <TableCell sx={{ color: TEXT_MUTED, borderBottom: `1px solid ${BORDER}` }}>{p.code || '—'}</TableCell>
+                    <TableCell align="center" sx={{ color: TEXT_SECONDARY, borderBottom: `1px solid ${BORDER}` }}>
                       ${effUsd.toFixed(4)}
                       {ovUsd && <Chip size="small" sx={{ ml: 0.5, bgcolor: 'rgba(255,102,0,0.15)', color: ORANGE, border: `1px solid rgba(255,102,0,0.3)` }} label="OV" />}
                     </TableCell>
-                    <TableCell align="center" sx={{ color: '#ccc', borderBottom: `1px solid ${BORDER}` }}>
+                    <TableCell align="center" sx={{ color: TEXT_SECONDARY, borderBottom: `1px solid ${BORDER}` }}>
                       ${effRmb.toFixed(4)}
                       {ovRmb && <Chip size="small" sx={{ ml: 0.5, bgcolor: 'rgba(255,102,0,0.15)', color: ORANGE, border: `1px solid rgba(255,102,0,0.3)` }} label="OV" />}
                     </TableCell>
-                    <TableCell align="center" sx={{ color: '#ccc', borderBottom: `1px solid ${BORDER}` }}>
+                    <TableCell align="center" sx={{ color: TEXT_SECONDARY, borderBottom: `1px solid ${BORDER}` }}>
                       {effPct.toFixed(2)}%
                       {ovPct && <Chip size="small" sx={{ ml: 0.5, bgcolor: 'rgba(255,102,0,0.15)', color: ORANGE, border: `1px solid rgba(255,102,0,0.3)` }} label="OV" />}
                     </TableCell>
-                    <TableCell align="center" sx={{ color: '#888', borderBottom: `1px solid ${BORDER}` }}>{p.bank_accounts?.length || 0}</TableCell>
+                    <TableCell align="center" sx={{ color: TEXT_MUTED, borderBottom: `1px solid ${BORDER}` }}>{p.bank_accounts?.length || 0}</TableCell>
                     <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       {p.is_active ? <CheckCircleIcon fontSize="small" sx={{ color: '#4ade80' }} /> : <CancelIcon fontSize="small" sx={{ color: '#ff6b6b' }} />}
                     </TableCell>
                     <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}` }}>
-                      {p.is_default ? <Chip size="small" label="Default" sx={{ bgcolor: 'rgba(255,102,0,0.15)', color: ORANGE, border: `1px solid rgba(255,102,0,0.3)`, fontWeight: 700 }} /> : <span style={{ color: '#555' }}>—</span>}
+                      {p.is_default ? <Chip size="small" label="Default" sx={{ bgcolor: 'rgba(255,102,0,0.15)', color: ORANGE, border: `1px solid rgba(255,102,0,0.3)`, fontWeight: 700 }} /> : <span style={{ color: TEXT_DIMMER }}>—</span>}
                     </TableCell>
                     <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       <Tooltip title="Configurar override">
-                        <IconButton size="small" sx={{ color: '#888', '&:hover': { color: ORANGE } }} onClick={() => { setEditingEntProvider({ ...p, bank_accounts: [...(p.bank_accounts || [])] }); setProviderEditOpen(true); }}>
+                        <IconButton size="small" sx={{ color: TEXT_MUTED, '&:hover': { color: ORANGE } }} onClick={() => { setEditingEntProvider({ ...p, bank_accounts: [...(p.bank_accounts || [])] }); setProviderEditOpen(true); }}>
                           <EditIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
@@ -907,7 +1112,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                 {entProviders.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={9} align="center" sx={{ py: 3, borderBottom: 'none' }}>
-                      <Typography sx={{ color: '#555' }}>No hay proveedores configurados.</Typography>
+                      <Typography sx={{ color: TEXT_DIMMER }}>No hay proveedores configurados.</Typography>
                     </TableCell>
                   </TableRow>
                 )}
@@ -921,7 +1126,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
             <PercentIcon sx={{ verticalAlign: 'middle', mr: 1, color: ORANGE }} />
             Override por cliente (comisión adicional)
           </Typography>
-          <Typography variant="body2" sx={{ color: '#888', mb: 2 }}>
+          <Typography variant="body2" sx={{ color: TEXT_MUTED, mb: 2 }}>
             El % que configures aquí se <strong>suma</strong> al % global del proveedor y se reparte automáticamente usando el split configurado (Asesor / EntregaX).
           </Typography>
 
@@ -970,24 +1175,24 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
           <TableContainer sx={{ mt: 2 }}>
             <Table size="small">
               <TableHead>
-                <TableRow sx={{ bgcolor: '#0a0a0a' }}>
+                <TableRow sx={{ bgcolor: HEADER_BG }}>
                   {['Cliente','Email','% Personalizado','Notas','Actualizado','Acciones'].map((h) => (
-                    <TableCell key={h} sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>{h}</TableCell>
+                    <TableCell key={h} sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>{h}</TableCell>
                   ))}
                 </TableRow>
               </TableHead>
               <TableBody>
                 {userPricing.map((up) => (
                   <TableRow key={up.user_id} hover sx={{ bgcolor: SURFACE, '&:hover': { bgcolor: SURFACE2 } }}>
-                    <TableCell sx={{ color: '#fff', fontWeight: 600, borderBottom: `1px solid ${BORDER}` }}>{up.client_name || '—'}</TableCell>
-                    <TableCell sx={{ color: '#888', borderBottom: `1px solid ${BORDER}` }}>{up.client_email}</TableCell>
+                    <TableCell sx={{ color: TEXT_PRIMARY, fontWeight: 600, borderBottom: `1px solid ${BORDER}` }}>{up.client_name || '—'}</TableCell>
+                    <TableCell sx={{ color: TEXT_MUTED, borderBottom: `1px solid ${BORDER}` }}>{up.client_email}</TableCell>
                     <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       <Chip size="small" label={`${Number(up.porcentaje_compra).toFixed(2)}%`} sx={{ bgcolor: 'rgba(255,102,0,0.15)', color: ORANGE, border: `1px solid rgba(255,102,0,0.3)`, fontWeight: 700 }} />
                     </TableCell>
-                    <TableCell sx={{ maxWidth: 240, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: '#888', borderBottom: `1px solid ${BORDER}` }}>
+                    <TableCell sx={{ maxWidth: 240, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: TEXT_MUTED, borderBottom: `1px solid ${BORDER}` }}>
                       {up.notes || '—'}
                     </TableCell>
-                    <TableCell sx={{ color: '#666', fontSize: '0.8rem', borderBottom: `1px solid ${BORDER}` }}>{up.updated_at ? new Date(up.updated_at).toLocaleDateString() : '—'}</TableCell>
+                    <TableCell sx={{ color: TEXT_DIM, fontSize: '0.8rem', borderBottom: `1px solid ${BORDER}` }}>{up.updated_at ? new Date(up.updated_at).toLocaleDateString() : '—'}</TableCell>
                     <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       <Tooltip title="Eliminar override (volver al global)">
                         <IconButton size="small" sx={{ color: '#ff6b6b', '&:hover': { bgcolor: 'rgba(255,107,107,0.1)' } }} onClick={() => handleDeleteOverride(up.user_id)}>
@@ -1000,7 +1205,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                 {userPricing.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={6} align="center" sx={{ py: 3, borderBottom: 'none' }}>
-                      <Typography sx={{ color: '#555' }}>No hay clientes con porcentaje personalizado</Typography>
+                      <Typography sx={{ color: TEXT_DIMMER }}>No hay clientes con porcentaje personalizado</Typography>
                     </TableCell>
                   </TableRow>
                 )}
@@ -1010,80 +1215,270 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
         </Paper>
       )}
 
-      {/* Tab: Proveedores */}
+      {/* Tab: Proveedores — Base de datos global (beneficiarios reales registrados por clientes) */}
       {tabValue === 2 && (
         <Paper sx={{ borderRadius: 3, overflow: 'hidden', bgcolor: SURFACE, border: `1px solid ${BORDER}` }}>
-          <Box sx={{ p: 2, bgcolor: '#0a0a0a', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${BORDER}` }}>
-            <Typography fontWeight={700} sx={{ color: '#fff', letterSpacing: '0.05em' }}>Proveedores de Pago</Typography>
-            <Button
-              variant="contained"
-              startIcon={<AddIcon />}
-              onClick={() => { setEditingProvider({ id: 0, name: '', base_cost_percent: 2, fixed_fee: 0, is_active: true }); setProviderModal(true); }}
-              sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, ${ORANGE_DARK} 100%)`, fontWeight: 700, fontSize: '0.78rem',
-                boxShadow: `0 4px 14px rgba(255,102,0,0.3)`, '&:hover': { boxShadow: `0 6px 20px rgba(255,102,0,0.5)` } }}
-            >
-              Nuevo Proveedor
-            </Button>
+          <Box sx={{ p: 2, bgcolor: HEADER_BG, display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid ${BORDER}`, gap: 2, flexWrap: 'wrap' }}>
+            <Box>
+              <Typography fontWeight={700} sx={{ color: TEXT_PRIMARY, letterSpacing: '0.04em' }}>
+                Base de datos de Proveedores
+              </Typography>
+              <Typography variant="caption" sx={{ color: TEXT_MUTED }}>
+                Registro único por número de cuenta · {suppliersDb.length} proveedores
+              </Typography>
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flex: 1, justifyContent: 'flex-end' }}>
+              <TextField
+                size="small"
+                placeholder="Buscar por cuenta, nombre, banco, alias…"
+                value={supplierSearch}
+                onChange={(e) => setSupplierSearch(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') loadSuppliersDb(supplierSearch); }}
+                sx={{ minWidth: 320 }}
+              />
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<RefreshIcon />}
+                onClick={() => loadSuppliersDb(supplierSearch)}
+                sx={{ borderColor: BORDER, color: TEXT_PRIMARY, '&:hover': { borderColor: ORANGE, color: ORANGE } }}
+              >
+                Buscar
+              </Button>
+            </Box>
           </Box>
 
           <TableContainer>
-            <Table>
+            <Table size="small">
               <TableHead>
-                <TableRow sx={{ bgcolor: '#0a0a0a' }}>
-                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Nombre</TableCell>
-                  <TableCell align="right" sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Costo (%)</TableCell>
-                  <TableCell align="right" sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Cargo Fijo</TableCell>
-                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Estado</TableCell>
-                  <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Acciones</TableCell>
+                <TableRow sx={{ bgcolor: HEADER_BG }}>
+                  {['Beneficiario', 'Número de cuenta', 'Banco', 'Divisa', 'Clientes', 'Operaciones', 'Total enviado', 'Última operación', 'Acciones'].map((h, i) => (
+                    <TableCell
+                      key={h}
+                      align={i === 4 || i === 5 ? 'center' : i === 6 ? 'right' : 'left'}
+                      sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap' }}
+                    >
+                      {h}
+                    </TableCell>
+                  ))}
                 </TableRow>
               </TableHead>
               <TableBody>
-                {providers.map((p) => (
-                  <TableRow key={p.id} hover sx={{ bgcolor: SURFACE, '&:hover': { bgcolor: SURFACE2 } }}>
-                    <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Avatar sx={{ bgcolor: p.is_active ? `rgba(255,102,0,0.15)` : 'rgba(255,255,255,0.05)', border: `1px solid ${p.is_active ? 'rgba(255,102,0,0.3)' : BORDER}`, color: p.is_active ? ORANGE : '#666', width: 34, height: 34 }}>
-                          <BusinessIcon sx={{ fontSize: 18 }} />
-                        </Avatar>
-                        <Typography fontWeight={700} sx={{ color: '#fff' }}>{p.name}</Typography>
+                {suppliersDb.map((s) => {
+                  const aliases = (s.aliases || []).filter(Boolean);
+                  return (
+                    <TableRow key={s.cuenta_norm} hover sx={{ bgcolor: SURFACE, '&:hover': { bgcolor: SURFACE2 } }}>
+                      <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.2 }}>
+                          <Avatar sx={{ bgcolor: 'rgba(255,102,0,0.12)', border: `1px solid rgba(255,102,0,0.3)`, color: ORANGE, width: 34, height: 34 }}>
+                            <BusinessIcon sx={{ fontSize: 18 }} />
+                          </Avatar>
+                          <Box sx={{ minWidth: 0 }}>
+                            <Typography fontWeight={700} sx={{ color: TEXT_PRIMARY, fontSize: '0.85rem', lineHeight: 1.2 }} noWrap>
+                              {s.nombre_beneficiario}
+                            </Typography>
+                            {s.nombre_chino && (
+                              <Typography variant="caption" sx={{ color: TEXT_MUTED, display: 'block', lineHeight: 1.1 }}>
+                                {s.nombre_chino}
+                              </Typography>
+                            )}
+                            {aliases.length > 0 && (
+                              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.4, mt: 0.4 }}>
+                                {aliases.slice(0, 3).map((a) => (
+                                  <Chip
+                                    key={a}
+                                    size="small"
+                                    label={a}
+                                    sx={{ height: 18, fontSize: '0.62rem', bgcolor: 'rgba(255,102,0,0.08)', color: ORANGE, border: `1px solid rgba(255,102,0,0.25)` }}
+                                  />
+                                ))}
+                                {aliases.length > 3 && (
+                                  <Chip size="small" label={`+${aliases.length - 3}`} sx={{ height: 18, fontSize: '0.62rem' }} />
+                                )}
+                              </Box>
+                            )}
+                          </Box>
+                        </Box>
+                      </TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace', color: TEXT_PRIMARY, fontSize: '0.8rem', borderBottom: `1px solid ${BORDER}` }}>
+                        {s.numero_cuenta}
+                        {s.swift_bic && (
+                          <Typography variant="caption" sx={{ display: 'block', color: TEXT_MUTED, fontFamily: 'monospace', fontSize: '0.66rem' }}>
+                            SWIFT: {s.swift_bic}
+                          </Typography>
+                        )}
+                      </TableCell>
+                      <TableCell sx={{ color: TEXT_SECONDARY, borderBottom: `1px solid ${BORDER}` }}>
+                        <Typography fontSize="0.82rem">{s.banco_nombre}</Typography>
+                        {s.banco_pais && <Typography variant="caption" sx={{ color: TEXT_MUTED }}>{s.banco_pais}</Typography>}
+                      </TableCell>
+                      <TableCell sx={{ color: TEXT_SECONDARY, borderBottom: `1px solid ${BORDER}` }}>
+                        {s.divisa_default || '—'}
+                      </TableCell>
+                      <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}` }}>
+                        <Chip size="small" label={s.clientes_count} sx={{ fontWeight: 700, bgcolor: 'rgba(59,130,246,0.12)', color: '#2563eb', border: '1px solid rgba(59,130,246,0.3)' }} />
+                      </TableCell>
+                      <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}` }}>
+                        <Tooltip title={`${s.ops_completadas} completadas / ${s.ops_total} totales`}>
+                          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography fontWeight={800} sx={{ color: TEXT_PRIMARY }}>{s.ops_completadas}</Typography>
+                            <Typography variant="caption" sx={{ color: TEXT_MUTED }}>/{s.ops_total}</Typography>
+                          </Box>
+                        </Tooltip>
+                      </TableCell>
+                      <TableCell align="right" sx={{ borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap' }}>
+                        <Typography fontWeight={800} sx={{ color: ORANGE }}>
+                          ${Number(s.total_enviado || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Typography>
+                      </TableCell>
+                      <TableCell sx={{ color: TEXT_MUTED, borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap', fontSize: '0.75rem' }}>
+                        {s.ultima_operacion_at ? new Date(s.ultima_operacion_at).toLocaleDateString() : '—'}
+                      </TableCell>
+                      <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
+                        <Tooltip title="Ver detalle (clientes y operaciones)">
+                          <IconButton size="small" sx={{ color: TEXT_MUTED, '&:hover': { color: ORANGE } }} onClick={() => openSupplierDetail(s.cuenta_norm)}>
+                            <PublicIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {suppliersDb.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={9} align="center" sx={{ py: 6, borderBottom: 'none' }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, opacity: 0.6 }}>
+                        <BusinessIcon sx={{ fontSize: 40, color: TEXT_DIMMER }} />
+                        <Typography sx={{ color: TEXT_DIMMER }}>
+                          {supplierSearch ? 'Sin resultados para tu búsqueda' : 'Aún no hay proveedores registrados por clientes'}
+                        </Typography>
                       </Box>
                     </TableCell>
-                    <TableCell align="right" sx={{ color: ORANGE, fontWeight: 700, borderBottom: `1px solid ${BORDER}` }}>{p.base_cost_percent}%</TableCell>
-                    <TableCell align="right" sx={{ color: '#aaa', borderBottom: `1px solid ${BORDER}` }}>${p.fixed_fee}</TableCell>
-                    <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
-                      <Chip
-                        size="small"
-                        label={p.is_active ? 'Activo' : 'Inactivo'}
-                        sx={{
-                          bgcolor: p.is_active ? 'rgba(74,222,128,0.1)' : 'rgba(255,255,255,0.04)',
-                          border: `1px solid ${p.is_active ? 'rgba(74,222,128,0.3)' : BORDER}`,
-                          color: p.is_active ? '#4ade80' : '#666',
-                          fontSize: '0.65rem', fontWeight: 700,
-                        }}
-                      />
-                    </TableCell>
-                    <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
-                      <Tooltip title="Editar">
-                        <IconButton size="small" sx={{ color: '#888', '&:hover': { color: ORANGE } }} onClick={() => { setEditingProvider(p); setProviderModal(true); }}>
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                    </TableCell>
                   </TableRow>
-                ))}
+                )}
               </TableBody>
             </Table>
           </TableContainer>
         </Paper>
       )}
 
+      {/* Modal: detalle de proveedor (clientes que lo usan + operaciones) */}
+      <Dialog open={supplierDetailOpen} onClose={() => setSupplierDetailOpen(false)} maxWidth="lg" fullWidth
+        PaperProps={{ sx: { bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: TEXT_PRIMARY } }}>
+        <DialogTitle sx={{ bgcolor: HEADER_BG, borderBottom: `1px solid ${BORDER}`, color: TEXT_PRIMARY, fontWeight: 700 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ width: 4, height: 22, bgcolor: ORANGE, borderRadius: 2 }} />
+            Detalle del proveedor
+            {supplierDetail?.cuenta_norm && (
+              <Typography component="span" sx={{ ml: 2, fontFamily: 'monospace', color: TEXT_MUTED, fontSize: '0.85rem' }}>
+                {supplierDetail.cuenta_norm}
+              </Typography>
+            )}
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          {supplierDetail && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+              <Box>
+                <Typography variant="subtitle2" fontWeight={800} sx={{ color: TEXT_PRIMARY, mb: 1 }}>
+                  Clientes con este proveedor ({supplierDetail.clientes?.length || 0})
+                </Typography>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ bgcolor: HEADER_BG }}>
+                        {['Cliente', 'Email', 'Box', 'Alias', 'Activo', 'Registrado'].map((h) => (
+                          <TableCell key={h} sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.62rem', letterSpacing: '0.08em' }}>
+                            {h}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {(supplierDetail.clientes || []).map((c: any) => (
+                        <TableRow key={c.id}>
+                          <TableCell sx={{ color: TEXT_PRIMARY, fontWeight: 600 }}>{c.client_name || '—'}</TableCell>
+                          <TableCell sx={{ color: TEXT_MUTED, fontSize: '0.78rem' }}>{c.client_email}</TableCell>
+                          <TableCell sx={{ color: TEXT_MUTED, fontFamily: 'monospace', fontSize: '0.78rem' }}>{c.box_id || '—'}</TableCell>
+                          <TableCell sx={{ color: TEXT_PRIMARY }}>{c.alias || '—'}</TableCell>
+                          <TableCell>
+                            {c.is_active
+                              ? <CheckCircleIcon fontSize="small" sx={{ color: '#16a34a' }} />
+                              : <CancelIcon fontSize="small" sx={{ color: '#dc2626' }} />}
+                          </TableCell>
+                          <TableCell sx={{ color: TEXT_MUTED, fontSize: '0.78rem' }}>
+                            {c.created_at ? new Date(c.created_at).toLocaleDateString() : '—'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+
+              <Divider />
+
+              <Box>
+                <Typography variant="subtitle2" fontWeight={800} sx={{ color: TEXT_PRIMARY, mb: 1 }}>
+                  Operaciones recientes ({supplierDetail.operaciones?.length || 0})
+                </Typography>
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ bgcolor: HEADER_BG }}>
+                        {['Referencia', 'Cliente', 'Monto', 'Divisa', 'Estatus', 'Pagado al proveedor', 'Fecha'].map((h) => (
+                          <TableCell key={h} sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.62rem', letterSpacing: '0.08em' }}>
+                            {h}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {(supplierDetail.operaciones || []).map((o: any) => (
+                        <TableRow key={o.id}>
+                          <TableCell sx={{ fontFamily: 'monospace', color: ORANGE, fontWeight: 700, fontSize: '0.78rem' }}>
+                            {o.referencia_pago || `#${o.id}`}
+                          </TableCell>
+                          <TableCell sx={{ color: TEXT_PRIMARY }}>{o.client_name || '—'}</TableCell>
+                          <TableCell sx={{ color: TEXT_PRIMARY, fontWeight: 700 }}>
+                            ${Number(o.op_monto || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </TableCell>
+                          <TableCell sx={{ color: TEXT_MUTED }}>{o.op_divisa_destino || '—'}</TableCell>
+                          <TableCell>{getStatusChip(o.estatus_global)}</TableCell>
+                          <TableCell sx={{ color: TEXT_MUTED, fontSize: '0.78rem' }}>
+                            {o.proveedor_pagado_at ? new Date(o.proveedor_pagado_at).toLocaleString() : '—'}
+                          </TableCell>
+                          <TableCell sx={{ color: TEXT_MUTED, fontSize: '0.78rem' }}>
+                            {new Date(o.created_at).toLocaleDateString()}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {(!supplierDetail.operaciones || supplierDetail.operaciones.length === 0) && (
+                        <TableRow>
+                          <TableCell colSpan={7} align="center" sx={{ py: 3, color: TEXT_DIMMER }}>
+                            Aún no hay operaciones para este proveedor
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ bgcolor: HEADER_BG, borderTop: `1px solid ${BORDER}` }}>
+          <Button onClick={() => setSupplierDetailOpen(false)} sx={{ color: TEXT_MUTED }}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
       {/* Tab: ENTANGLED */}
       {tabValue === 3 && <EntangledAdminTab />}
 
       {/* Modal Proveedor */}
       <Dialog open={providerModal} onClose={() => setProviderModal(false)} maxWidth="sm" fullWidth
-        PaperProps={{ sx: { bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: '#fff' } }}>
-        <DialogTitle sx={{ bgcolor: '#0a0a0a', borderBottom: `1px solid ${BORDER}`, color: '#fff', fontWeight: 700 }}>
+        PaperProps={{ sx: { bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: TEXT_PRIMARY } }}>
+        <DialogTitle sx={{ bgcolor: HEADER_BG, borderBottom: `1px solid ${BORDER}`, color: TEXT_PRIMARY, fontWeight: 700 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Box sx={{ width: 4, height: 20, bgcolor: ORANGE, borderRadius: 2 }} />
             {editingProvider?.id ? 'Editar Proveedor' : 'Nuevo Proveedor'}
@@ -1096,25 +1491,25 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
               value={editingProvider?.name || ''}
               onChange={(e) => setEditingProvider(prev => prev ? { ...prev, name: e.target.value } : null)}
               fullWidth
-              sx={{ '& .MuiOutlinedInput-root': { color: '#fff', '& fieldset': { borderColor: BORDER }, '&:hover fieldset': { borderColor: '#555' }, '&.Mui-focused fieldset': { borderColor: ORANGE } }, '& .MuiInputLabel-root': { color: '#666' } }}
+              sx={{ '& .MuiOutlinedInput-root': { color: TEXT_PRIMARY, '& fieldset': { borderColor: BORDER }, '&:hover fieldset': { borderColor: '#555' }, '&.Mui-focused fieldset': { borderColor: ORANGE } }, '& .MuiInputLabel-root': { color: TEXT_DIM } }}
             />
             <TextField
               label="Costo Base (%)"
               type="number"
               value={editingProvider?.base_cost_percent || 0}
               onChange={(e) => setEditingProvider(prev => prev ? { ...prev, base_cost_percent: parseFloat(e.target.value) } : null)}
-              slotProps={{ input: { endAdornment: <InputAdornment position="end"><span style={{ color: '#666' }}>%</span></InputAdornment> } }}
+              slotProps={{ input: { endAdornment: <InputAdornment position="end"><span style={{ color: TEXT_DIM }}>%</span></InputAdornment> } }}
               helperText="Lo que te cobra el proveedor por cada operación"
-              sx={{ '& .MuiOutlinedInput-root': { color: '#fff', '& fieldset': { borderColor: BORDER }, '&.Mui-focused fieldset': { borderColor: ORANGE } }, '& .MuiInputLabel-root': { color: '#666' }, '& .MuiFormHelperText-root': { color: '#555' } }}
+              sx={{ '& .MuiOutlinedInput-root': { color: TEXT_PRIMARY, '& fieldset': { borderColor: BORDER }, '&.Mui-focused fieldset': { borderColor: ORANGE } }, '& .MuiInputLabel-root': { color: TEXT_DIM }, '& .MuiFormHelperText-root': { color: TEXT_DIMMER } }}
             />
             <TextField
               label="Cargo Fijo"
               type="number"
               value={editingProvider?.fixed_fee || 0}
               onChange={(e) => setEditingProvider(prev => prev ? { ...prev, fixed_fee: parseFloat(e.target.value) } : null)}
-              slotProps={{ input: { startAdornment: <InputAdornment position="start"><span style={{ color: '#666' }}>$</span></InputAdornment> } }}
+              slotProps={{ input: { startAdornment: <InputAdornment position="start"><span style={{ color: TEXT_DIM }}>$</span></InputAdornment> } }}
               helperText="Cargo fijo por operación (USD)"
-              sx={{ '& .MuiOutlinedInput-root': { color: '#fff', '& fieldset': { borderColor: BORDER }, '&.Mui-focused fieldset': { borderColor: ORANGE } }, '& .MuiInputLabel-root': { color: '#666' }, '& .MuiFormHelperText-root': { color: '#555' } }}
+              sx={{ '& .MuiOutlinedInput-root': { color: TEXT_PRIMARY, '& fieldset': { borderColor: BORDER }, '&.Mui-focused fieldset': { borderColor: ORANGE } }, '& .MuiInputLabel-root': { color: TEXT_DIM }, '& .MuiFormHelperText-root': { color: TEXT_DIMMER } }}
             />
             <FormControlLabel
               control={
@@ -1124,12 +1519,12 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                   sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: ORANGE }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ORANGE } }}
                 />
               }
-              label={<Typography sx={{ color: '#ccc' }}>Proveedor Activo</Typography>}
+              label={<Typography sx={{ color: TEXT_SECONDARY }}>Proveedor Activo</Typography>}
             />
           </Box>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2, bgcolor: '#0a0a0a', borderTop: `1px solid ${BORDER}` }}>
-          <Button onClick={() => setProviderModal(false)} sx={{ color: '#888' }}>Cancelar</Button>
+        <DialogActions sx={{ px: 3, pb: 2, bgcolor: HEADER_BG, borderTop: `1px solid ${BORDER}` }}>
+          <Button onClick={() => setProviderModal(false)} sx={{ color: TEXT_MUTED }}>Cancelar</Button>
           <Button
             variant="contained"
             startIcon={<SaveIcon />}
@@ -1143,8 +1538,8 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
 
       {/* Dialog: editor de proveedor ENTANGLED */}
       <Dialog open={providerEditOpen} onClose={() => setProviderEditOpen(false)} maxWidth="md" fullWidth
-        PaperProps={{ sx: { bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: '#fff' } }}>
-        <DialogTitle sx={{ bgcolor: '#0a0a0a', borderBottom: `1px solid ${BORDER}`, color: '#fff', fontWeight: 700 }}>
+        PaperProps={{ sx: { bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: TEXT_PRIMARY } }}>
+        <DialogTitle sx={{ bgcolor: HEADER_BG, borderBottom: `1px solid ${BORDER}`, color: TEXT_PRIMARY, fontWeight: 700 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <Box sx={{ width: 4, height: 20, bgcolor: ORANGE, borderRadius: 2 }} />
             Configurar override · {editingEntProvider?.name}
@@ -1154,7 +1549,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
           {editingEntProvider && (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
               {/* Datos del API (read-only) */}
-              <Paper variant="outlined" sx={{ p: 2, bgcolor: '#1a1a1a', border: '1px solid #2A2A2A' }}>
+              <Paper variant="outlined" sx={{ p: 2, bgcolor: INNER_BG, border: `1px solid ${BORDER}` }}>
                 <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
                   Datos del API ENTANGLED (no editables)
                 </Typography>
@@ -1211,7 +1606,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                 <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5, color: ORANGE }}>
                   Incremento sobre el valor del API (deja vacío o 0 para no aumentar)
                 </Typography>
-                <Typography variant="caption" sx={{ color: '#888' }} component="div">
+                <Typography variant="caption" sx={{ color: TEXT_MUTED }} component="div">
                   El valor se <b>suma</b> al del API. Ej: TC USD del API = ${Number(editingEntProvider.tipo_cambio_usd).toFixed(2)} + incremento 1.00 ⇒ se vende a ${(Number(editingEntProvider.tipo_cambio_usd) + 1).toFixed(2)}.
                   Si un cliente tiene su propio override por usuario, ese tiene prioridad.
                 </Typography>
@@ -1299,7 +1694,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                   />
                   {/* División del override */}
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, width: 280, p: 1.5, border: '1px dashed #ccc', borderRadius: 1 }}>
-                    <Typography variant="caption" fontWeight={700} sx={{ color: '#888' }}>
+                    <Typography variant="caption" fontWeight={700} sx={{ color: TEXT_MUTED }}>
                       División del override
                     </Typography>
                     <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
@@ -1316,17 +1711,17 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                         sx={{ width: 110 }}
                         inputProps={{ min: 0, max: 100, step: 1 }}
                       />
-                      <Typography variant="body2" sx={{ color: '#888' }}>+</Typography>
+                      <Typography variant="body2" sx={{ color: TEXT_MUTED }}>+</Typography>
                       <TextField
                         label="EntregaX %"
                         size="small"
                         value={100 - Number(editingEntProvider.over_split_asesor ?? 90)}
                         InputProps={{ readOnly: true, endAdornment: <InputAdornment position="end">%</InputAdornment> }}
-                        sx={{ width: 110, '& .MuiInputBase-input': { color: '#888' } }}
+                        sx={{ width: 110, '& .MuiInputBase-input': { color: TEXT_MUTED } }}
                         variant="filled"
                       />
                     </Box>
-                    <Typography variant="caption" sx={{ color: '#888' }}>
+                    <Typography variant="caption" sx={{ color: TEXT_MUTED }}>
                       Solo edita el % del asesor — EntregaX recibe el resto
                     </Typography>
                   </Box>
@@ -1502,15 +1897,15 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                 </Card>
               ))}
               {(editingEntProvider.bank_accounts || []).length === 0 && (
-                <Typography variant="body2" sx={{ color: '#888' }}>
+                <Typography variant="body2" sx={{ color: TEXT_MUTED }}>
                   Sin cuentas bancarias. Agrega al menos una para que los clientes vean a dónde depositar.
                 </Typography>
               )}
             </Box>
           )}
         </DialogContent>
-        <DialogActions sx={{ bgcolor: '#0a0a0a', borderTop: `1px solid ${BORDER}` }}>
-          <Button onClick={() => setProviderEditOpen(false)} sx={{ color: '#888' }}>Cancelar</Button>
+        <DialogActions sx={{ bgcolor: HEADER_BG, borderTop: `1px solid ${BORDER}` }}>
+          <Button onClick={() => setProviderEditOpen(false)} sx={{ color: TEXT_MUTED }}>Cancelar</Button>
           <Button
             variant="contained"
             startIcon={<SaveIcon />}
@@ -1528,7 +1923,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
         onClose={() => setSnackbar({ ...snackbar, open: false })}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       >
-        <Alert severity={snackbar.severity} sx={{ bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: '#fff', '& .MuiAlert-icon': { color: ORANGE } }}>{snackbar.message}</Alert>
+        <Alert severity={snackbar.severity} sx={{ bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: TEXT_PRIMARY, '& .MuiAlert-icon': { color: ORANGE } }}>{snackbar.message}</Alert>
       </Snackbar>
     </Box>
   );

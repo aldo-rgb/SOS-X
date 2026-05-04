@@ -254,6 +254,8 @@ import {
   createProvider as createEntangledProvider,
   updateProvider as updateEntangledProvider,
   deleteProvider as deleteEntangledProvider,
+  adminListSuppliersAggregated as adminListEntangledSuppliers,
+  adminGetSupplierDetail as adminGetEntangledSupplierDetail,
 } from './entangledController';
 import {
   getLogisticsServices,
@@ -3306,6 +3308,9 @@ app.get('/api/admin/entangled/providers', authenticateToken, requireMinLevel(ROL
 app.post('/api/admin/entangled/providers', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createEntangledProvider);
 app.put('/api/admin/entangled/providers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateEntangledProvider);
 app.delete('/api/admin/entangled/providers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteEntangledProvider);
+// ADMIN: base de datos global de proveedores (beneficiarios) agregada por número de cuenta
+app.get('/api/admin/entangled/suppliers-db', authenticateToken, requireMinLevel(ROLES.DIRECTOR), adminListEntangledSuppliers);
+app.get('/api/admin/entangled/suppliers-db/:cuenta', authenticateToken, requireMinLevel(ROLES.DIRECTOR), adminGetEntangledSupplierDetail);
 // Subida diferida de comprobante (URL pre-existente)
 app.post('/api/entangled/payment-requests/:id/upload-proof', authenticateToken, uploadEntangledProof);
 // Subida de comprobante como archivo (multipart/form-data)
@@ -4406,7 +4411,19 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
     endDate.setHours(23, 59, 59, 999);
     
     // Filtro por tipo de servicio (opcional)
-    const serviceFilter = service_type ? service_type as string : null;
+    // ⚠️ La BD mezcla aliases ('china_air' vs 'AIR_CHN_MX'). Construimos lista de equivalentes.
+    const SERVICE_ALIASES: Record<string, string[]> = {
+      china_air:  ['china_air', 'AIR_CHN_MX', 'aereo'],
+      AIR_CHN_MX: ['china_air', 'AIR_CHN_MX', 'aereo'],
+      china_sea:  ['china_sea', 'SEA_CHN_MX', 'maritime', 'fcl'],
+      SEA_CHN_MX: ['china_sea', 'SEA_CHN_MX', 'maritime', 'fcl'],
+      usa_pobox:  ['usa_pobox', 'POBOX_USA', 'usa', 'pobox', 'po_box'],
+      POBOX_USA:  ['usa_pobox', 'POBOX_USA', 'usa', 'pobox', 'po_box'],
+      mx_cedis:   ['mx_cedis', 'AA_DHL', 'dhl'],
+      AA_DHL:     ['mx_cedis', 'AA_DHL', 'dhl'],
+    };
+    const rawFilter = service_type ? (service_type as string) : null;
+    const serviceFilter = rawFilter ? (SERVICE_ALIASES[rawFilter] || [rawFilter]) : null;
 
     // ============================================
     // EMPRESAS CON OPENPAY CONFIGURADO
@@ -4439,7 +4456,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as efectivo_hoy
       FROM caja_chica_transacciones
       WHERE DATE(created_at) = CURRENT_DATE
-        ${serviceFilter ? "AND service_type = $1" : ""}
+        ${serviceFilter ? "AND service_type = ANY($1)" : ""}
     `, serviceFilter ? [serviceFilter] : []);
     
     // SPEI por empresa
@@ -4452,7 +4469,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       WHERE DATE(fecha_pago) = CURRENT_DATE
         AND estatus_procesamiento = 'procesado'
         AND (tipo_pago = 'spei' OR tipo_pago IS NULL)
-        ${serviceFilter ? "AND service_type = $1" : ""}
+        ${serviceFilter ? "AND service_type = ANY($1)" : ""}
       GROUP BY empresa_id
     `, serviceFilter ? [serviceFilter] : []);
 
@@ -4465,7 +4482,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       WHERE DATE(fecha_pago) = CURRENT_DATE
         AND estatus_procesamiento = 'procesado'
         AND tipo_pago = 'paypal'
-        ${serviceFilter ? "AND service_type = $1" : ""}
+        ${serviceFilter ? "AND service_type = ANY($1)" : ""}
     `, serviceFilter ? [serviceFilter] : []);
 
     // 2. Ingresos del mes actual - SPEI por empresa (solo SPEI)
@@ -4484,7 +4501,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       LEFT JOIN fiscal_emitters fe ON owl.empresa_id = fe.id
       WHERE owl.fecha_pago >= $1 AND owl.fecha_pago <= $2
         AND owl.estatus_procesamiento = 'procesado'
-        ${serviceFilter ? "AND owl.service_type = $3" : ""}
+        ${serviceFilter ? "AND owl.service_type = ANY($3)" : ""}
       GROUP BY owl.empresa_id, fe.alias, fe.rfc
       ORDER BY total_bruto DESC
     `, serviceFilter ? [startOfMonth, today, serviceFilter] : [startOfMonth, today]);
@@ -4498,7 +4515,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       WHERE fecha_pago >= $1 AND fecha_pago <= $2
         AND estatus_procesamiento = 'procesado'
         AND tipo_pago = 'paypal'
-        ${serviceFilter ? "AND service_type = $3" : ""}
+        ${serviceFilter ? "AND service_type = ANY($3)" : ""}
     `, serviceFilter ? [startOfMonth, today, serviceFilter] : [startOfMonth, today]);
 
     // Efectivo del mes
@@ -4507,7 +4524,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as efectivo_mes
       FROM caja_chica_transacciones
       WHERE created_at >= $1 AND created_at <= $2
-        ${serviceFilter ? "AND service_type = $3" : ""}
+        ${serviceFilter ? "AND service_type = ANY($3)" : ""}
     `, serviceFilter ? [startOfMonth, today, serviceFilter] : [startOfMonth, today]);
 
     // 3. Cartera Vencida Total (filtrada por servicio si aplica)
@@ -4519,7 +4536,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       WHERE (payment_status IN ('pending', 'partial') OR payment_status IS NULL)
         AND assigned_cost_mxn > 0
         AND COALESCE(saldo_pendiente, assigned_cost_mxn) > 0
-        ${serviceFilter ? "AND service_type = $1" : ""}
+        ${serviceFilter ? "AND service_type = ANY($1)" : ""}
     `, serviceFilter ? [serviceFilter] : []);
 
     // 4. Saldo en caja chica (filtrado por servicio si aplica)
@@ -4527,7 +4544,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       SELECT 
         COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE -monto END), 0) as saldo_caja
       FROM caja_chica_transacciones
-      ${serviceFilter ? "WHERE service_type = $1" : ""}
+      ${serviceFilter ? "WHERE service_type = ANY($1)" : ""}
     `, serviceFilter ? [serviceFilter] : []);
 
     // ============================================
@@ -4541,7 +4558,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
       FROM packages p
       WHERE p.payment_status = 'paid'
         AND p.updated_at >= $1 AND p.updated_at <= $2
-        ${serviceFilter ? "AND p.service_type = $3" : ""}
+        ${serviceFilter ? "AND p.service_type = ANY($3)" : ""}
       GROUP BY p.service_type
       ORDER BY monto_total DESC
     `, serviceFilter ? [startDate, endDate, serviceFilter] : [startDate, endDate]);
@@ -4571,7 +4588,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         WHERE t.tipo = 'ingreso' 
           AND t.created_at >= $1 AND t.created_at <= $2
           AND t.concepto NOT LIKE 'Pago autorizado edo. cuenta%'
-          ${serviceFilter ? "AND t.service_type = $3" : ""}
+          ${serviceFilter ? "AND t.service_type = ANY($3)" : ""}
         ORDER BY t.created_at DESC
         LIMIT 50
       )
@@ -4606,7 +4623,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
             (COALESCE(pp.paid_at, owl.processed_at, owl.fecha_pago, owl.created_at) >= $1
              AND COALESCE(pp.paid_at, owl.processed_at, owl.fecha_pago, owl.created_at) <= $2)
           )
-          ${serviceFilter ? "AND owl.service_type = $3" : ""}
+          ${serviceFilter ? "AND owl.service_type = ANY($3)" : ""}
         ORDER BY COALESCE(pp.paid_at, owl.processed_at, owl.fecha_pago, owl.created_at) DESC
         LIMIT 50
       )
@@ -5720,8 +5737,19 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
     }
 
     if (service_type) {
-      whereClause1 += ` AND owl.service_type = $${paramIndex1++}`;
-      params1.push(service_type);
+      const SERVICE_ALIASES: Record<string, string[]> = {
+        china_air:  ['china_air', 'AIR_CHN_MX', 'aereo'],
+        AIR_CHN_MX: ['china_air', 'AIR_CHN_MX', 'aereo'],
+        china_sea:  ['china_sea', 'SEA_CHN_MX', 'maritime', 'fcl'],
+        SEA_CHN_MX: ['china_sea', 'SEA_CHN_MX', 'maritime', 'fcl'],
+        usa_pobox:  ['usa_pobox', 'POBOX_USA', 'usa', 'pobox', 'po_box'],
+        POBOX_USA:  ['usa_pobox', 'POBOX_USA', 'usa', 'pobox', 'po_box'],
+        mx_cedis:   ['mx_cedis', 'AA_DHL', 'dhl'],
+        AA_DHL:     ['mx_cedis', 'AA_DHL', 'dhl'],
+      };
+      const list = SERVICE_ALIASES[service_type as string] || [service_type as string];
+      whereClause1 += ` AND owl.service_type = ANY($${paramIndex1++})`;
+      params1.push(list);
     }
 
     const webhookResult = await pool.query(`

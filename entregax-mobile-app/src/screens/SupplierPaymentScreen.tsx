@@ -193,7 +193,6 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   // Dashboard state
   const [viewMode, setViewMode] = useState<'dashboard' | 'wizard'>('dashboard');
   const [calcMonto, setCalcMonto] = useState('');
-  const [calcDestino, setCalcDestino] = useState<'CN' | 'US'>('CN');
   const [calcDivisa, setCalcDivisa] = useState<'USD' | 'RMB'>('USD');
   const [chartTab, setChartTab] = useState<'usd' | 'rmb'>('usd');
   const [rateHistory] = useState<Array<{ t: number; usd: number; rmb: number }>>(seedRateHistory);
@@ -423,7 +422,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       return null;
     }
     if (step === 2) {
-      if (!benefName || !benefAccount || !benefBankName || !benefBankAddress) return 'Completa beneficiario, cuenta, banco y dirección del banco';
+      const needsBankAddress = !/alipay|wechat|paypal|wise/i.test(benefBankName);
+      if (!benefName || !benefAccount || !benefBankName || (needsBankAddress && !benefBankAddress)) return 'Completa beneficiario, cuenta y banco';
       if (divisa === 'RMB' && !benefNameZh) return 'Para RMB se requiere nombre en chino';
       return null;
     }
@@ -549,24 +549,6 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           ) : (
             <ActivityIndicator size="small" color={ORANGE} />
           )}
-        </View>
-
-        <Text style={styles.label}>País de Destino</Text>
-        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 16 }}>
-          {[
-            { code: 'CN', label: '🇨🇳 China' },
-            { code: 'US', label: '🇺🇸 USA' },
-          ].map(({ code, label }) => (
-            <TouchableOpacity
-              key={code}
-              style={[styles.destChip, calcDestino === code && styles.destChipActive, { flex: 1 }]}
-              onPress={() => setCalcDestino(code as 'CN' | 'US')}
-            >
-              <Text style={[styles.destChipText, calcDestino === code && styles.destChipTextActive]}>
-                {label}
-              </Text>
-            </TouchableOpacity>
-          ))}
         </View>
 
         <Text style={styles.label}>Monto a Enviar</Text>
@@ -1007,17 +989,18 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   </>
                 )}
 
-                <Text style={styles.label}>{t('xpay.beneficiaryAddress', 'Dirección del beneficiario')}</Text>
-                <TextInput style={styles.input} value={benefAddress} onChangeText={setBenefAddress} />
-
                 <Text style={styles.label}>{t('xpay.accountNumber', 'Número de cuenta')} *</Text>
                 <TextInput style={styles.input} value={benefAccount} onChangeText={setBenefAccount} />
 
                 <Text style={styles.label}>{t('xpay.bankName', 'Banco')} *</Text>
                 <TextInput style={styles.input} value={benefBankName} onChangeText={setBenefBankName} />
 
-                <Text style={styles.label}>{t('xpay.bankAddress', 'Dirección del banco')} *</Text>
-                <TextInput style={styles.input} value={benefBankAddress} onChangeText={setBenefBankAddress} />
+                {!/alipay|wechat|paypal|wise/i.test(benefBankName) && (
+                  <>
+                    <Text style={styles.label}>{t('xpay.bankAddress', 'Dirección del banco')} *</Text>
+                    <TextInput style={styles.input} value={benefBankAddress} onChangeText={setBenefBankAddress} />
+                  </>
+                )}
 
                 <Text style={styles.label}>{t('xpay.swift', 'SWIFT/BIC')}</Text>
                 <TextInput style={styles.input} value={benefSwift} onChangeText={setBenefSwift} autoCapitalize="characters" />

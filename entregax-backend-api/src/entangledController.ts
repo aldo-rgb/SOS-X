@@ -577,6 +577,24 @@ export const getAllPaymentRequests = async (req: Request, res: Response): Promis
       SELECT r.*,
               (r.created_at + INTERVAL '24 hours') AS payment_deadline_at,
               CASE
+                WHEN r.estatus_global = 'completado'
+                  THEN GREATEST(
+                    COALESCE(r.factura_emitida_at, r.proveedor_pagado_at, r.updated_at),
+                    COALESCE(r.proveedor_pagado_at, r.factura_emitida_at, r.updated_at)
+                  )
+                ELSE NULL
+              END AS completed_at,
+              CASE
+                WHEN r.estatus_global = 'completado' AND r.comprobante_subido_at IS NOT NULL
+                  THEN EXTRACT(EPOCH FROM (
+                    GREATEST(
+                      COALESCE(r.factura_emitida_at, r.proveedor_pagado_at, r.updated_at),
+                      COALESCE(r.proveedor_pagado_at, r.factura_emitida_at, r.updated_at)
+                    ) - r.comprobante_subido_at
+                  ))::bigint
+                ELSE NULL
+              END AS time_to_complete_seconds,
+              CASE
            WHEN r.estatus_global = 'cancelado' THEN COALESCE(
              (r.raw_response->>'cancellation_fee_usd')::numeric,
              (SELECT ep.cancellation_fee_usd FROM entangled_providers ep WHERE ep.id = r.provider_id),
@@ -802,7 +820,66 @@ export const createMySupplier = async (req: Request, res: Response): Promise<any
   if (!b.nombre_beneficiario || !b.numero_cuenta || !b.banco_nombre) {
     return res.status(400).json({ error: 'nombre_beneficiario, numero_cuenta y banco_nombre son requeridos' });
   }
+
+  // Normalizadores
+  const normCuenta = (v: any) => String(v || '').replace(/\s+/g, '').toUpperCase();
+  const normNombre = (v: any) => String(v || '').replace(/\s+/g, ' ').trim().toUpperCase();
+  const cuentaIn = normCuenta(b.numero_cuenta);
+  const nombreIn = normNombre(b.nombre_beneficiario);
+  const nombreChinoIn = normNombre(b.nombre_chino);
+
   try {
+    // 1. Buscar si ya existe la cuenta en CUALQUIER usuario
+    const existing = await pool.query(
+      `SELECT id, user_id, nombre_beneficiario, nombre_chino, numero_cuenta, banco_nombre, alias, is_active
+         FROM entangled_suppliers
+        WHERE UPPER(REPLACE(numero_cuenta, ' ', '')) = $1
+        ORDER BY id ASC
+        LIMIT 1`,
+      [cuentaIn]
+    );
+
+    if (existing.rows.length > 0) {
+      const ex = existing.rows[0];
+      const exNombre = normNombre(ex.nombre_beneficiario);
+      const exNombreChino = normNombre(ex.nombre_chino);
+      const nombreCoincide =
+        (!!nombreIn && (nombreIn === exNombre || nombreIn === exNombreChino)) ||
+        (!!nombreChinoIn && (nombreChinoIn === exNombre || nombreChinoIn === exNombreChino));
+
+      if (!nombreCoincide) {
+        return res.status(409).json({
+          error: 'CUENTA_REGISTRADA_NOMBRE_DISTINTO',
+          message:
+            'Esta cuenta bancaria ya está registrada con otro beneficiario. Por favor contacta a tu asesor para validar el alta.',
+          existing_holder_hint: ex.nombre_beneficiario
+            ? `${String(ex.nombre_beneficiario).slice(0, 1)}***`
+            : null,
+        });
+      }
+
+      // Mismo número y mismo nombre → si el mismo usuario ya lo tiene, devolverlo (puede usar otro alias actualizándolo)
+      if (ex.user_id === userId) {
+        // Si está inactivo, lo reactivamos y actualizamos alias/datos del cliente
+        const upd = await pool.query(
+          `UPDATE entangled_suppliers SET
+             alias = COALESCE($2, alias),
+             is_active = TRUE,
+             is_favorite = COALESCE($3, is_favorite),
+             notes = COALESCE($4, notes),
+             updated_at = NOW()
+           WHERE id = $1
+           RETURNING *`,
+          [ex.id, b.alias || null, b.is_favorite, b.notes || null]
+        );
+        return res.status(200).json({ ...upd.rows[0], _reused: true });
+      }
+
+      // Otro usuario ya lo registró con el mismo nombre → creamos una entrada nueva para ESTE usuario
+      // (cada usuario tiene su propio alias y favorito) pero apuntando a la misma cuenta.
+      // Continuamos al INSERT normal abajo.
+    }
+
     const r = await pool.query(
       `INSERT INTO entangled_suppliers (
         user_id, nombre_beneficiario, nombre_chino, direccion_beneficiario, pais_beneficiario,
@@ -913,6 +990,125 @@ export const deleteMySupplier = async (req: Request, res: Response): Promise<any
   } catch (err) {
     console.error('[ENTANGLED] deleteMySupplier:', err);
     return res.status(500).json({ error: 'Error al eliminar' });
+  }
+};
+
+// ===========================================================================
+// ADMIN: Base de datos global de proveedores agregada por número de cuenta
+// ===========================================================================
+
+export const adminListSuppliersAggregated = async (req: Request, res: Response): Promise<any> => {
+  const search = String(req.query.q || '').trim();
+  try {
+    const params: any[] = [];
+    let where = '';
+    if (search) {
+      params.push(`%${search.toUpperCase()}%`);
+      where = `WHERE (
+        UPPER(s.numero_cuenta) LIKE $1 OR
+        UPPER(s.nombre_beneficiario) LIKE $1 OR
+        UPPER(COALESCE(s.nombre_chino,'')) LIKE $1 OR
+        UPPER(s.banco_nombre) LIKE $1 OR
+        UPPER(COALESCE(s.alias,'')) LIKE $1
+      )`;
+    }
+    // Agregamos por número de cuenta normalizado.
+    // Las stats (operaciones / total enviado) se calculan desde entangled_payment_requests
+    // matcheando por sup_numero_cuenta normalizado y considerando solo operaciones
+    // efectivamente pagadas al proveedor.
+    const q = `
+      WITH normalized AS (
+        SELECT
+          s.*,
+          UPPER(REPLACE(s.numero_cuenta, ' ', '')) AS cuenta_norm
+        FROM entangled_suppliers s
+        ${where}
+      ),
+      stats AS (
+        SELECT
+          UPPER(REPLACE(epr.sup_numero_cuenta, ' ', '')) AS cuenta_norm,
+          COUNT(*) FILTER (WHERE LOWER(epr.estatus_proveedor) IN ('completado','enviado','emitida'))::int AS ops_completadas,
+          COUNT(*)::int AS ops_total,
+          COALESCE(SUM(CASE WHEN LOWER(epr.estatus_proveedor) IN ('completado','enviado','emitida')
+                            THEN epr.op_monto ELSE 0 END), 0)::numeric AS total_enviado,
+          MAX(epr.created_at) AS ultima_operacion_at
+        FROM entangled_payment_requests epr
+        WHERE epr.sup_numero_cuenta IS NOT NULL
+        GROUP BY UPPER(REPLACE(epr.sup_numero_cuenta, ' ', ''))
+      ),
+      agg AS (
+        SELECT
+          n.cuenta_norm,
+          MIN(n.id) AS id_principal,
+          (ARRAY_AGG(n.nombre_beneficiario ORDER BY n.id ASC))[1] AS nombre_beneficiario,
+          (ARRAY_AGG(n.nombre_chino ORDER BY n.id ASC))[1] AS nombre_chino,
+          (ARRAY_AGG(n.numero_cuenta ORDER BY n.id ASC))[1] AS numero_cuenta,
+          (ARRAY_AGG(n.banco_nombre ORDER BY n.id ASC))[1] AS banco_nombre,
+          (ARRAY_AGG(n.banco_pais ORDER BY n.id ASC))[1] AS banco_pais,
+          (ARRAY_AGG(n.swift_bic ORDER BY n.id ASC))[1] AS swift_bic,
+          (ARRAY_AGG(n.divisa_default ORDER BY n.id ASC))[1] AS divisa_default,
+          COUNT(DISTINCT n.user_id)::int AS clientes_count,
+          BOOL_OR(n.is_active) AS is_active,
+          MIN(n.created_at) AS first_registered_at,
+          ARRAY_AGG(DISTINCT n.alias) FILTER (WHERE n.alias IS NOT NULL AND n.alias <> '') AS aliases
+        FROM normalized n
+        GROUP BY n.cuenta_norm
+      )
+      SELECT
+        a.*,
+        COALESCE(st.ops_completadas, 0) AS ops_completadas,
+        COALESCE(st.ops_total, 0) AS ops_total,
+        COALESCE(st.total_enviado, 0) AS total_enviado,
+        st.ultima_operacion_at
+      FROM agg a
+      LEFT JOIN stats st ON st.cuenta_norm = a.cuenta_norm
+      ORDER BY COALESCE(st.total_enviado, 0) DESC, a.first_registered_at DESC
+      LIMIT 500
+    `;
+    const r = await pool.query(q, params);
+    return res.json(r.rows);
+  } catch (err) {
+    console.error('[ENTANGLED] adminListSuppliersAggregated:', err);
+    return res.status(500).json({ error: 'Error al listar proveedores' });
+  }
+};
+
+// ADMIN: detalle de un proveedor (cuenta) — clientes que lo tienen + operaciones
+export const adminGetSupplierDetail = async (req: Request, res: Response): Promise<any> => {
+  const cuenta = String(req.params.cuenta || '').trim();
+  if (!cuenta) return res.status(400).json({ error: 'Cuenta requerida' });
+  const cuentaNorm = cuenta.replace(/\s+/g, '').toUpperCase();
+  try {
+    const clientes = await pool.query(
+      `SELECT s.id, s.user_id, s.alias, s.nombre_beneficiario, s.nombre_chino,
+              s.numero_cuenta, s.banco_nombre, s.is_active, s.created_at,
+              u.full_name AS client_name, u.email AS client_email, u.box_id
+         FROM entangled_suppliers s
+         LEFT JOIN users u ON u.id = s.user_id
+        WHERE UPPER(REPLACE(s.numero_cuenta, ' ', '')) = $1
+        ORDER BY s.created_at ASC`,
+      [cuentaNorm]
+    );
+    const operaciones = await pool.query(
+      `SELECT epr.id, epr.referencia_pago, epr.user_id, u.full_name AS client_name,
+              epr.op_monto, epr.op_divisa_destino,
+              epr.estatus_global, epr.estatus_factura, epr.estatus_proveedor,
+              epr.created_at, epr.proveedor_pagado_at
+         FROM entangled_payment_requests epr
+         LEFT JOIN users u ON u.id = epr.user_id
+        WHERE UPPER(REPLACE(epr.sup_numero_cuenta, ' ', '')) = $1
+        ORDER BY epr.created_at DESC
+        LIMIT 200`,
+      [cuentaNorm]
+    );
+    return res.json({
+      cuenta_norm: cuentaNorm,
+      clientes: clientes.rows,
+      operaciones: operaciones.rows,
+    });
+  } catch (err) {
+    console.error('[ENTANGLED] adminGetSupplierDetail:', err);
+    return res.status(500).json({ error: 'Error al obtener detalle' });
   }
 };
 

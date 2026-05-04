@@ -337,6 +337,22 @@ type ServiceFilter = 'all' | 'china_air' | 'china_sea' | 'usa_pobox' | 'dhl';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+/**
+ * Mapea cualquier alias de service_type al nombre canónico que usa
+ * la tabla user_service_credits (aereo / maritimo / dhl_liberacion / po_box).
+ */
+function normalizeServiceForCredit(raw: any): string {
+  if (!raw) return 'po_box';
+  const s = String(raw).trim().toLowerCase();
+  const map: Record<string, string> = {
+    'china_air': 'aereo', 'air_chn_mx': 'aereo', 'aereo': 'aereo', 'air': 'aereo',
+    'maritime': 'maritimo', 'china_sea': 'maritimo', 'sea_chn_mx': 'maritimo', 'fcl': 'maritimo', 'maritimo': 'maritimo',
+    'dhl': 'dhl_liberacion', 'aa_dhl': 'dhl_liberacion', 'mx_cedis': 'dhl_liberacion', 'dhl_liberacion': 'dhl_liberacion',
+    'pobox_usa': 'po_box', 'po_box': 'po_box', 'pobox': 'po_box', 'usa': 'po_box', 'usa_pobox': 'po_box',
+  };
+  return map[s] || s;
+}
+
 export default function DashboardClient() {
   const { t } = useTranslation();
   const theme = useTheme();
@@ -786,6 +802,14 @@ export default function DashboardClient() {
     return !isPaidPackage(pkg) && pkg.status !== 'delivered' && getPackageTotalMXN(pkg) > 0;
   };
 
+  /**
+   * Una guía con etiqueta de paquetería ya impresa/generada NO puede modificar
+   * sus instrucciones de entrega: el destino y la paquetería ya están comprometidos.
+   */
+  const hasPrintedLabel = (pkg: PackageTracking): boolean => {
+    return !!(pkg.national_label_url || pkg.national_tracking);
+  };
+
   const selectedServiceType = useMemo(() => {
     const selected = packages.filter(p => selectedPackageIds.includes(p.id));
     if (selected.length === 0) return 'china_air';
@@ -960,6 +984,35 @@ export default function DashboardClient() {
     fetchPqtxQuote();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [carrierServices.length, selectedDeliveryAddress, deliveryModalOpen, selectedPackageIds]);
+
+  // 🔁 Auto-reset del carrier seleccionado al cambiar de dirección (zona del ZIP)
+  useEffect(() => {
+    if (!deliveryModalOpen) return;
+    const addr = deliveryAddresses.find(a => a.id === selectedDeliveryAddress);
+    const zipStr = String(addr?.zip_code || '').trim();
+    const padded = /^\d{4,5}$/.test(zipStr) ? zipStr.padStart(5, '0') : '';
+    const p2 = padded.substring(0, 2);
+    const inMtyMetro = ['64','65','66','67'].includes(p2);
+    const inCdmxMetro = ['01','02','03','04','05','06','07','08','09','10','11','12','13','14','15','16','50','51','52','53','54','55','56','57'].includes(p2);
+    const id = String(selectedCarrierService || '').toLowerCase();
+    const isLocalMty = id === 'local' || id === 'entregax_local_mty' || id === 'entregax_local';
+    const isLocalCdmx = id === 'entregax_local_cdmx';
+    const isPqtx = id === 'paquete_express' || id === 'paquete_express_pc';
+    let valid = true;
+    if (inMtyMetro) valid = isLocalMty;
+    else if (inCdmxMetro) valid = isLocalCdmx;
+    else valid = isPqtx || selectedCarrierService === 'por_cobrar';
+
+    if (!valid) {
+      const fallback = inMtyMetro
+        ? (carrierServices.find(s => ['local','entregax_local_mty','entregax_local'].includes(String(s.id).toLowerCase()))?.id)
+        : inCdmxMetro
+          ? (carrierServices.find(s => String(s.id).toLowerCase() === 'entregax_local_cdmx')?.id)
+          : (carrierServices.find(s => String(s.id).toLowerCase() === 'paquete_express')?.id);
+      if (fallback) setSelectedCarrierService(fallback);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDeliveryAddress, deliveryModalOpen, carrierServices.length]);
 
   // Re-fetch carrier options cuando cambia el servicio (reset de precio API)
   // (ya se maneja en el useEffect anterior de fetchCarrierOptions)
@@ -2326,7 +2379,7 @@ export default function DashboardClient() {
         return;
       }
       const pkgs: any[] = Array.isArray(order?.packages) ? order.packages : [];
-      const orderService = (pkgs[0]?.service_type || order?.service_type || 'po_box') as string;
+      const orderService = normalizeServiceForCredit(pkgs[0]?.service_type || order?.service_type || 'po_box');
       const svc = (serviceCredits || []).find(
         (c: any) => c?.service === orderService && !c?.is_blocked && Number(c?.credit_limit || 0) > 0
       );
@@ -2350,7 +2403,7 @@ export default function DashboardClient() {
         // El order.amount ya fue actualizado por applyCreditFirst
       }
       const pkgs: any[] = Array.isArray(order?.packages) ? order.packages : [];
-      const orderService = (pkgs[0]?.service_type || order?.service_type || 'po_box') as string;
+      const orderService = normalizeServiceForCredit(pkgs[0]?.service_type || order?.service_type || 'po_box');
       const res = await api.post(`/pobox/payment/order/${order.id}/pay-internal`, {
         method,
         requiere_factura: false, // crédito y wallet nunca generan CFDI
@@ -2830,6 +2883,19 @@ export default function DashboardClient() {
         setSnackbar({ open: true, message: t('cd.snackbar.cannotMixServices'), severity: 'warning' });
         return;
       }
+
+      // 🚫 No permitir mezclar guías con etiqueta impresa con guías sin etiqueta:
+      // las primeras solo pueden pagarse, las segundas pueden cambiar instrucciones.
+      if (currentSelected && hasPrintedLabel(currentSelected) !== hasPrintedLabel(pkg)) {
+        setSnackbar({
+          open: true,
+          message: hasPrintedLabel(currentSelected)
+            ? '⚠️ No puedes mezclar guías con etiqueta impresa con guías sin etiqueta. Deselecciónalas primero.'
+            : '⚠️ Esta guía ya tiene etiqueta de paquetería impresa. Deselecciona las guías sin etiqueta para continuar.',
+          severity: 'warning'
+        });
+        return;
+      }
     }
     
     setSelectedPackageIds(prev => 
@@ -3064,7 +3130,11 @@ export default function DashboardClient() {
 
       // Send carrier quoted price
       const selectedService = carrierServices.find(s => s.id === actualCarrier);
-      if (selectedService?.price) {
+      // 🛬 TDI Aéreo China + Paquete Express → costo INCLUIDO en flete aéreo (descuento total)
+      const isCarrierIncludedInAirFreight = selectedServiceType === 'china_air' && actualCarrier === 'paquete_express';
+      if (isCarrierIncludedInAirFreight) {
+        formData.append('carrierCost', '0');
+      } else if (selectedService?.price) {
         const priceNum = parseFloat(selectedService.price.replace(/[^0-9.]/g, ''));
         if (!isNaN(priceNum) && priceNum > 0) {
           // isTotalPrice means the price is already the total, otherwise it's per-box
@@ -5206,8 +5276,10 @@ export default function DashboardClient() {
                   </Button>
                   )}
 
-                  {/* Solo mostrar "Asignar Instrucciones" si hay paquetes sin instrucciones */}
-                  {getSelectedPackages().some(pkg => !pkg.has_delivery_instructions && !pkg.assigned_address_id) && (
+                  {/* Solo mostrar "Asignar Instrucciones" si hay paquetes sin instrucciones
+                      Y ninguno tiene etiqueta de paquetería impresa (ya comprometidos) */}
+                  {getSelectedPackages().some(pkg => !pkg.has_delivery_instructions && !pkg.assigned_address_id) &&
+                   !getSelectedPackages().some(pkg => hasPrintedLabel(pkg)) && (
                     <Button
                       variant="contained"
                       color="primary"
@@ -7131,18 +7203,27 @@ export default function DashboardClient() {
                           {/* Footer con botón y garantía */}
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2 }}>
                             {/* Botón Asignar */}
-                            <Button 
-                              variant="contained" 
-                              fullWidth
-                              startIcon={<LocationOnIcon />}
-                              sx={{ bgcolor: ORANGE, borderRadius: 2 }}
-                              onClick={() => {
-                                setSelectedPackageIds([pkg.id]);
-                                setDeliveryModalOpen(true);
-                              }}
-                            >
-                              {t('cd.noInstructions.assignAddress')}
-                            </Button>
+                            {hasPrintedLabel(pkg) ? (
+                              <Chip
+                                icon={<ShippingIcon />}
+                                label="Etiqueta impresa - No editable"
+                                color="success"
+                                sx={{ flex: 1, fontWeight: 600 }}
+                              />
+                            ) : (
+                              <Button 
+                                variant="contained" 
+                                fullWidth
+                                startIcon={<LocationOnIcon />}
+                                sx={{ bgcolor: ORANGE, borderRadius: 2 }}
+                                onClick={() => {
+                                  setSelectedPackageIds([pkg.id]);
+                                  setDeliveryModalOpen(true);
+                                }}
+                              >
+                                {t('cd.noInstructions.assignAddress')}
+                              </Button>
+                            )}
 
                             {/* Chip de Garantía */}
                             {pkg.has_gex ? (
@@ -7418,17 +7499,28 @@ export default function DashboardClient() {
                                 />
                               ) : null}
                             </Box>
-                            <Button 
-                              variant="outlined"
-                              size="small"
-                              startIcon={<EditIcon />}
-                              onClick={() => {
-                                setSelectedPackageIds([pkg.id]);
-                                setDeliveryModalOpen(true);
-                              }}
-                            >
-                              {t('common.edit')}
-                            </Button>
+                            {hasPrintedLabel(pkg) ? (
+                              <Chip
+                                size="small"
+                                icon={<ShippingIcon />}
+                                label="Etiqueta impresa"
+                                color="success"
+                                variant="filled"
+                                sx={{ fontWeight: 600 }}
+                              />
+                            ) : (
+                              <Button 
+                                variant="outlined"
+                                size="small"
+                                startIcon={<EditIcon />}
+                                onClick={() => {
+                                  setSelectedPackageIds([pkg.id]);
+                                  setDeliveryModalOpen(true);
+                                }}
+                              >
+                                {t('common.edit')}
+                              </Button>
+                            )}
                           </Box>
                         </CardContent>
                       </Card>
@@ -8207,8 +8299,36 @@ export default function DashboardClient() {
                 </Typography>
 
                 {(() => {
-                  const standardCarriers = carrierServices.filter(s => !s.isCollect);
-                  const collectCarriers = carrierServices.filter(s => s.isCollect);
+                  // 🗺️ Detectar zona por código postal de la dirección seleccionada
+                  const selectedAddrObj = deliveryAddresses.find(a => a.id === selectedDeliveryAddress);
+                  const zipStr = String(selectedAddrObj?.zip_code || '').trim();
+                  const padded = /^\d{4,5}$/.test(zipStr) ? zipStr.padStart(5, '0') : '';
+                  const p2 = padded.substring(0, 2);
+                  const inMtyMetro = ['64','65','66','67'].includes(p2);
+                  const inCdmxMetro = [
+                    '01','02','03','04','05','06','07','08','09',
+                    '10','11','12','13','14','15','16',
+                    '50','51','52','53','54','55','56','57'
+                  ].includes(p2);
+                  const inMetro = inMtyMetro || inCdmxMetro;
+
+                  // Reglas de filtrado:
+                  //  - MTY metro  → solo Entregax Local MTY (oculta CDMX y Paquete Express)
+                  //  - CDMX metro → solo Entregax Local CDMX (oculta MTY y Paquete Express)
+                  //  - Fuera de ambas → ocultar locales (queda solo Paquete Express / Por Cobrar)
+                  const filterByZip = (s: { id: string }) => {
+                    const id = String(s.id || '').toLowerCase();
+                    const isLocalMty = id === 'local' || id === 'entregax_local_mty' || id === 'entregax_local';
+                    const isLocalCdmx = id === 'entregax_local_cdmx';
+                    const isPqtx = id === 'paquete_express' || id === 'paquete_express_pc';
+                    if (inMtyMetro)  return isLocalMty;
+                    if (inCdmxMetro) return isLocalCdmx;
+                    // Fuera de zonas metro: solo Paquete Express y Por Cobrar
+                    return isPqtx || (!isLocalMty && !isLocalCdmx);
+                  };
+
+                  const standardCarriers = carrierServices.filter(s => !s.isCollect && filterByZip(s));
+                  const collectCarriers = carrierServices.filter(s => s.isCollect && (!inMetro)); // Por Cobrar tampoco en metro
                   return (
                 <FormControl component="fieldset" fullWidth>
                   <RadioGroup
@@ -8258,28 +8378,51 @@ export default function DashboardClient() {
                               </Box>
                               <Box sx={{ flex: 1 }} />
                               <Box sx={{ textAlign: 'right' }}>
-                                <Typography variant="body1" fontWeight="bold" sx={{ color: service.price === 'GRATIS' ? 'success.main' : (service.isDynamic && pqtxQuoteLoading) ? 'text.secondary' : 'text.primary' }}>
-                                  {service.isDynamic && pqtxQuoteLoading ? 'Cotizando...' : service.price === 'API' ? 'Cotizar' : service.price}
-                                  {service.price !== 'GRATIS' && service.price !== 'API' && service.price !== 'Cotizar' && !service.isTotalPrice && !(service.isDynamic && pqtxQuoteLoading) && (
-                                    <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.3 }}>/caja</Typography>
-                                  )}
-                                </Typography>
-                                {applyToFullShipment && shipmentTotalBoxes > 1 && service.price !== 'GRATIS' && !service.isTotalPrice && (() => {
-                                  const priceMatch = service.price.match(/[\d,.]+/);
-                                  if (!priceMatch) return null;
-                                  const unitPrice = parseFloat(priceMatch[0].replace(',', ''));
-                                  const total = unitPrice * shipmentTotalBoxes;
+                                {(() => {
+                                  // 🛬 TDI Aéreo China: Paquete Express está incluido en el flete aéreo
+                                  const isIncludedInFreight = selectedServiceType === 'china_air' && service.id === 'paquete_express';
+                                  if (isIncludedInFreight && service.price !== 'GRATIS' && service.price !== 'API' && service.price !== 'Cotizar' && !(service.isDynamic && pqtxQuoteLoading)) {
+                                    return (
+                                      <>
+                                        <Typography variant="body2" sx={{ textDecoration: 'line-through', color: 'text.disabled' }}>
+                                          {service.price}{!service.isTotalPrice && <Typography component="span" variant="caption" sx={{ ml: 0.3 }}>/caja</Typography>}
+                                        </Typography>
+                                        <Typography variant="body1" fontWeight="bold" sx={{ color: 'success.main' }}>
+                                          ✓ INCLUIDO
+                                        </Typography>
+                                        <Typography variant="caption" color="success.main">
+                                          en flete aéreo
+                                        </Typography>
+                                      </>
+                                    );
+                                  }
                                   return (
-                                    <Typography variant="caption" color="primary.main" fontWeight="bold">
-                                      {shipmentTotalBoxes} cajas = ${total.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
-                                    </Typography>
+                                    <>
+                                      <Typography variant="body1" fontWeight="bold" sx={{ color: service.price === 'GRATIS' ? 'success.main' : (service.isDynamic && pqtxQuoteLoading) ? 'text.secondary' : 'text.primary' }}>
+                                        {service.isDynamic && pqtxQuoteLoading ? 'Cotizando...' : service.price === 'API' ? 'Cotizar' : service.price}
+                                        {service.price !== 'GRATIS' && service.price !== 'API' && service.price !== 'Cotizar' && !service.isTotalPrice && !(service.isDynamic && pqtxQuoteLoading) && (
+                                          <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.3 }}>/caja</Typography>
+                                        )}
+                                      </Typography>
+                                      {applyToFullShipment && shipmentTotalBoxes > 1 && service.price !== 'GRATIS' && !service.isTotalPrice && (() => {
+                                        const priceMatch = service.price.match(/[\d,.]+/);
+                                        if (!priceMatch) return null;
+                                        const unitPrice = parseFloat(priceMatch[0].replace(',', ''));
+                                        const total = unitPrice * shipmentTotalBoxes;
+                                        return (
+                                          <Typography variant="caption" color="primary.main" fontWeight="bold">
+                                            {shipmentTotalBoxes} cajas = ${total.toLocaleString('es-MX', { minimumFractionDigits: 0 })}
+                                          </Typography>
+                                        );
+                                      })()}
+                                      {service.isTotalPrice && shipmentTotalBoxes > 1 && (
+                                        <Typography variant="caption" color="text.secondary">
+                                          {shipmentTotalBoxes} {t('cd.delivery.boxes')} incluidas
+                                        </Typography>
+                                      )}
+                                    </>
                                   );
                                 })()}
-                                {service.isTotalPrice && shipmentTotalBoxes > 1 && (
-                                  <Typography variant="caption" color="text.secondary">
-                                    {shipmentTotalBoxes} {t('cd.delivery.boxes')} incluidas
-                                  </Typography>
-                                )}
                               </Box>
                             </Box>
                           </Paper>
@@ -8452,12 +8595,41 @@ export default function DashboardClient() {
 
                 {/* Total */}
                 <Box sx={{ mt: 2, pt: 2, borderTop: '2px solid #eee' }}>
+                  {(() => {
+                    const svc = carrierServices.find(s => s.id === selectedCarrierService);
+                    const isIncludedInFreight = selectedServiceType === 'china_air' && selectedCarrierService === 'paquete_express';
+                    if (!isIncludedInFreight || !svc) return null;
+                    if (svc.price === 'GRATIS' || svc.price === 'API' || svc.price === 'Cotizar') return null;
+                    const priceMatch = svc.price.match(/[\d,.]+/);
+                    if (!priceMatch) return null;
+                    const unitPrice = parseFloat(priceMatch[0].replace(',', ''));
+                    const grossTotal = svc.isTotalPrice ? unitPrice : unitPrice * (applyToFullShipment && shipmentTotalBoxes > 1 ? shipmentTotalBoxes : 1);
+                    const grossLabel = `$${grossTotal.toLocaleString('es-MX', { minimumFractionDigits: 0 })}`;
+                    return (
+                      <>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                          <Typography variant="body2" color="text.secondary">Paquete Express:</Typography>
+                          <Typography variant="body2" color="text.secondary">{grossLabel}</Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                          <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 600 }}>
+                            Descuento (incluido en flete aéreo):
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: 'success.main', fontWeight: 700 }}>
+                            -{grossLabel}
+                          </Typography>
+                        </Box>
+                      </>
+                    );
+                  })()}
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <Typography variant="subtitle1" fontWeight="bold">{t('cd.delivery.total')}</Typography>
                     <Box sx={{ textAlign: 'right' }}>
-                      <Typography variant="h6" fontWeight="bold" sx={{ color: (selectedCarrierService === 'local' || carrierServices.find(s => s.id === selectedCarrierService)?.price === 'GRATIS') ? 'success.main' : 'text.primary' }}>
+                      <Typography variant="h6" fontWeight="bold" sx={{ color: ((selectedServiceType === 'china_air' && selectedCarrierService === 'paquete_express') || selectedCarrierService === 'local' || carrierServices.find(s => s.id === selectedCarrierService)?.price === 'GRATIS') ? 'success.main' : 'text.primary' }}>
                         {(() => {
                           if (selectedCarrierService === 'por_cobrar') return 'Por cobrar';
+                          // 🛬 TDI Aéreo China: Paquete Express incluido en flete aéreo
+                          if (selectedServiceType === 'china_air' && selectedCarrierService === 'paquete_express') return 'INCLUIDO';
                           const selectedService = carrierServices.find(s => s.id === selectedCarrierService);
                           if (!selectedService) return 'GRATIS';
                           if (selectedService.price === 'GRATIS') return 'GRATIS';
@@ -8477,7 +8649,7 @@ export default function DashboardClient() {
                           return selectedService.price;
                         })()}
                       </Typography>
-                      {selectedCarrierService !== 'por_cobrar' && applyToFullShipment && shipmentTotalBoxes > 1 && (() => {
+                      {selectedCarrierService !== 'por_cobrar' && !(selectedServiceType === 'china_air' && selectedCarrierService === 'paquete_express') && applyToFullShipment && shipmentTotalBoxes > 1 && (() => {
                         const svc = carrierServices.find(s => s.id === selectedCarrierService);
                         if (!svc || svc.price === 'GRATIS') return null;
                         if (svc.isTotalPrice) return <Typography variant="caption" color="text.secondary">{shipmentTotalBoxes} cajas incluidas</Typography>;
@@ -11377,7 +11549,7 @@ export default function DashboardClient() {
           {(() => {
             const order = onlinePayDialog.order;
             const pkgs: any[] = Array.isArray(order?.packages) ? order.packages : [];
-            const orderService = (pkgs[0]?.service_type || order?.service_type || 'po_box') as string;
+            const orderService = normalizeServiceForCredit(pkgs[0]?.service_type || order?.service_type || 'po_box');
 
             const svc = (serviceCredits || []).find(
               (c: any) => c?.service === orderService && !c?.is_blocked && Number(c?.credit_limit || 0) > 0

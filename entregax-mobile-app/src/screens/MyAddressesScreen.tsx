@@ -121,18 +121,22 @@ const formatReceptionHoursDisplay = (raw?: string | null): string => {
   return parts.join(' · ');
 };
 
-// �🚚 Paqueterías disponibles por tipo de servicio
+// 🚚 Paqueterías disponibles por tipo de servicio
+// - Marítimo: solo Entregax Local CDMX + Paquete Express
+// - Aéreo:    Entregax Local CDMX + Entregax Local MTY + Paquete Express
+// - USA:      Entregax Local MTY + Paquete Express
 const CARRIERS_BY_SERVICE: Record<string, { id: string; name: string; icon: string; cost: number; dynamic?: boolean }[]> = {
   usa: [
-    { id: 'entregax_local', name: 'Entregax Local', icon: '🚛', cost: 0 },
+    { id: 'entregax_local_mty', name: 'Entregax Local MTY', icon: '🚛', cost: 0 },
     { id: 'paquete_express', name: 'Paquete Express', icon: '📦', cost: 0, dynamic: true },
   ],
   maritime: [
-    { id: 'entregax_local', name: 'Entregax Local', icon: '🚛', cost: 0 },
+    { id: 'entregax_local_cdmx', name: 'Entregax Local CDMX', icon: '🚛', cost: 0 },
     { id: 'paquete_express', name: 'Paquete Express', icon: '📦', cost: 0, dynamic: true },
   ],
   air: [
-    { id: 'entregax_local', name: 'Entregax Local', icon: '🚛', cost: 0 },
+    { id: 'entregax_local_cdmx', name: 'Entregax Local CDMX', icon: '🚛', cost: 0 },
+    { id: 'entregax_local_mty', name: 'Entregax Local MTY', icon: '🚛', cost: 0 },
     { id: 'paquete_express', name: 'Paquete Express', icon: '📦', cost: 0, dynamic: true },
   ],
 };

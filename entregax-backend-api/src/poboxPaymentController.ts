@@ -15,6 +15,40 @@ import { generateCommissionsForPackages } from './commissionService';
 // - Dashboard de Cobranza
 // ============================================
 
+/**
+ * Mapea cualquier alias de service_type al nombre canónico que usa
+ * la tabla user_service_credits (aereo / maritimo / dhl_liberacion / po_box).
+ * Devuelve null si no hay un mapeo válido.
+ */
+function normalizeServiceForCredit(raw: any): string | null {
+  if (!raw) return null;
+  const s = String(raw).trim().toLowerCase();
+  const map: Record<string, string> = {
+    // Aéreo China
+    'china_air': 'aereo',
+    'air_chn_mx': 'aereo',
+    'aereo': 'aereo',
+    'air': 'aereo',
+    // Marítimo
+    'maritime': 'maritimo',
+    'china_sea': 'maritimo',
+    'sea_chn_mx': 'maritimo',
+    'fcl': 'maritimo',
+    'maritimo': 'maritimo',
+    // DHL liberación
+    'dhl': 'dhl_liberacion',
+    'aa_dhl': 'dhl_liberacion',
+    'mx_cedis': 'dhl_liberacion',
+    'dhl_liberacion': 'dhl_liberacion',
+    // PO Box USA
+    'pobox_usa': 'po_box',
+    'po_box': 'po_box',
+    'pobox': 'po_box',
+    'usa': 'po_box',
+  };
+  return map[s] || null;
+}
+
 interface AuthRequest extends Request {
   user?: {
     userId: number;
@@ -1631,10 +1665,14 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
             return res.status(400).json({ error: 'ID de orden inválido' });
         }
 
-        const { method, service } = req.body || {};
+        const { method, service: rawService } = req.body || {};
         if (!method || !['wallet', 'credit'].includes(method)) {
             return res.status(400).json({ error: 'Método inválido. Usa wallet o credit.' });
         }
+
+        // Normalizar service (china_air|AIR_CHN_MX → aereo, etc.)
+        let service = normalizeServiceForCredit(rawService);
+        console.log(`[pay-internal] orderId=${orderId} userId=${userId} method=${method} rawService=${rawService} normalized=${service}`);
 
         await client.query('BEGIN');
 
@@ -1666,6 +1704,33 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
         }
 
         const amount = parseFloat(order.amount);
+
+        // 🔧 FIX: Derivar el servicio REAL desde los packages de la orden
+        // (el frontend puede mandar 'po_box' por fallback aunque sean china_air)
+        try {
+            const pkgIdsRaw = typeof order.package_ids === 'string'
+                ? JSON.parse(order.package_ids)
+                : order.package_ids;
+            if (Array.isArray(pkgIdsRaw) && pkgIdsRaw.length > 0) {
+                const stRes = await client.query(
+                    `SELECT DISTINCT service_type FROM packages WHERE id = ANY($1::int[]) AND service_type IS NOT NULL LIMIT 1`,
+                    [pkgIdsRaw]
+                );
+                const dbServiceType = stRes.rows[0]?.service_type;
+                const derived = normalizeServiceForCredit(dbServiceType);
+                if (derived) {
+                    if (service && service !== derived) {
+                        console.warn(`[pay-internal] service override: frontend=${service} derivedFromPackages=${derived} (using derived)`);
+                    }
+                    service = derived;
+                } else if (!service) {
+                    service = 'po_box';
+                }
+            }
+        } catch (deriveErr) {
+            console.warn('[pay-internal] no pude derivar service desde packages:', deriveErr);
+        }
+        console.log(`[pay-internal] final service=${service}`);
 
         // Obtener monedero / crédito
         const userRes = await client.query(
@@ -1794,23 +1859,65 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
                  WHERE id = ANY($1) OR master_id = ANY($1)`,
                 [packageIds]
             );
+
+            // 🔧 También propagar a china_receipts (los paquetes china_air viven ahí también)
+            // Buscar china_receipt_id desde los packages y marcar esos receipts como pagados.
+            try {
+                await client.query(
+                    `UPDATE china_receipts cr SET
+                        payment_status = 'paid',
+                        monto_pagado = COALESCE(cr.assigned_cost_mxn, cr.monto_pagado, 0),
+                        saldo_pendiente = 0
+                     WHERE cr.id IN (
+                        SELECT DISTINCT china_receipt_id FROM packages
+                         WHERE (id = ANY($1) OR master_id = ANY($1))
+                           AND china_receipt_id IS NOT NULL
+                     )`,
+                    [packageIds]
+                );
+            } catch (crErr) {
+                console.warn('[pay-internal] no pude actualizar china_receipts:', crErr);
+            }
         }
 
         // Log en webhook_logs para dashboard
         try {
-            await client.query(
-                `INSERT INTO openpay_webhook_logs (
-                    transaction_id, monto_recibido, monto_neto, concepto,
-                    fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method, service_type
-                 ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, $5, $5, 'POBOX_USA')`,
+            // 🔄 Si ya existe un webhook log "pending_payment" para esta orden (cash flow),
+            // marcarlo como procesado en lugar de duplicar.
+            const upd = await client.query(
+                `UPDATE openpay_webhook_logs
+                   SET estatus_procesamiento = 'procesado',
+                       payment_method = $1,
+                       tipo_pago = $1,
+                       monto_neto = $2,
+                       concepto = $3,
+                       fecha_pago = CURRENT_TIMESTAMP
+                 WHERE transaction_id = $4
+                   AND estatus_procesamiento = 'pending_payment'
+                 RETURNING id`,
                 [
-                    `INTERNAL-${order.payment_reference}`,
-                    amount,
-                    `Pago PO Box (${method === 'wallet' ? 'Saldo a favor' : 'Crédito'}) - ${Array.isArray(packageIds) ? packageIds.length : 0} paquete(s)`,
-                    userId,
                     method === 'wallet' ? 'wallet' : 'credit',
+                    amount,
+                    `Pago (${method === 'wallet' ? 'Saldo a favor' : 'Crédito'}) - ${Array.isArray(packageIds) ? packageIds.length : 0} paquete(s)`,
+                    order.payment_reference,
                 ]
             );
+
+            if (upd.rowCount === 0) {
+                await client.query(
+                    `INSERT INTO openpay_webhook_logs (
+                        transaction_id, monto_recibido, monto_neto, concepto,
+                        fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method, service_type
+                     ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, $5, $5, 'POBOX_USA')`,
+                    [
+                        `INTERNAL-${order.payment_reference}`,
+                        amount,
+                        `Pago PO Box (${method === 'wallet' ? 'Saldo a favor' : 'Crédito'}) - ${Array.isArray(packageIds) ? packageIds.length : 0} paquete(s)`,
+                        userId,
+                        method === 'wallet' ? 'wallet' : 'credit',
+                    ]
+                );
+            }
         } catch (logErr) {
             console.warn('No se pudo registrar webhook log interno:', logErr);
         }
@@ -1889,11 +1996,13 @@ export const applyCreditToPoboxOrder = async (req: AuthRequest, res: Response): 
         const orderId = parseInt(String(req.params.id), 10);
         if (!orderId || isNaN(orderId)) return res.status(400).json({ error: 'ID de orden inválido' });
 
-        const { service, credit_amount } = req.body || {};
+        const { service: rawServicePartial, credit_amount } = req.body || {};
         const reqAmount = Number(credit_amount || 0);
+        const service = normalizeServiceForCredit(rawServicePartial);
         if (!service || !(reqAmount > 0)) {
             return res.status(400).json({ error: 'Parámetros inválidos (service, credit_amount)' });
         }
+        console.log(`[pay-credit-partial] orderId=${orderId} userId=${userId} rawService=${rawServicePartial} normalized=${service} amount=${reqAmount}`);
 
         await client.query('BEGIN');
 

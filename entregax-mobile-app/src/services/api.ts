@@ -3,12 +3,38 @@
 import Constants from 'expo-constants';
 
 const PROD_API_URL = 'https://sos-x-production.up.railway.app';
-const DEV_API_URL = 'http://192.168.0.112:3001';
+
+// Detecta automáticamente la IP de la Mac donde corre Metro/Expo
+// para que el backend en :3001 sea accesible desde el dispositivo
+// sin tener que actualizar la IP manualmente cada vez que cambias de red.
+function resolveDevApiUrl(): string {
+  try {
+    const hostUri =
+      (Constants.expoConfig as any)?.hostUri ||
+      (Constants as any).expoGoConfig?.hostUri ||
+      (Constants.manifest2 as any)?.extra?.expoGo?.debuggerHost ||
+      (Constants as any).manifest?.debuggerHost ||
+      '';
+    const host = String(hostUri).split(':')[0];
+    if (host && host !== 'localhost' && host !== '127.0.0.1') {
+      return `http://${host}:3001`;
+    }
+  } catch {
+    // ignore
+  }
+  // Fallback manual (ajustar si el auto-detect falla)
+  return 'http://192.168.1.113:3001';
+}
+
+const DEV_API_URL = resolveDevApiUrl();
 
 // __DEV__ es false en builds de producción (TestFlight/Store)
 export const API_URL = __DEV__ ? DEV_API_URL : (Constants.expoConfig?.extra?.apiUrl || PROD_API_URL);
 
-// Para obtener tu IP local ejecuta: ipconfig (Windows) o ifconfig (Mac/Linux)
+if (__DEV__) {
+  // eslint-disable-next-line no-console
+  console.log('[API] Using DEV_API_URL =', DEV_API_URL);
+}
 
 export interface LoginResponse {
   user: {

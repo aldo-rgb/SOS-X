@@ -1180,18 +1180,39 @@ export const handleOpenpayPaymentCallback = async (req: Request, res: Response):
 
           // Registrar en logs de cobranza
           try {
-            await pool.query(`
-              INSERT INTO openpay_webhook_logs (
-                transaction_id, monto_recibido, monto_neto, concepto,
-                fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method
-              ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 'procesado', $5, 'tarjeta', 'card')
-            `, [
-              transactionId || paymentRef,
-              parsedAmount,
-              parsedAmount * 0.9664, // ~3.36% comisión OpenPay tarjeta
-              `Pago tarjeta - ${pkgIds.length} paquete(s)`,
-              parsedUserId
-            ]);
+            // Si ya existe pending_payment para este paymentReference (creado en cash flow), actualizarlo.
+            const refForLog = String(paymentReference || paymentRef || '');
+            const upd = refForLog
+              ? await pool.query(
+                  `UPDATE openpay_webhook_logs
+                     SET estatus_procesamiento = 'procesado',
+                         payment_method = 'card',
+                         tipo_pago = 'tarjeta',
+                         monto_recibido = $1,
+                         monto_neto = $2,
+                         concepto = $3,
+                         fecha_pago = CURRENT_TIMESTAMP
+                   WHERE transaction_id = $4
+                     AND estatus_procesamiento = 'pending_payment'
+                   RETURNING id`,
+                  [parsedAmount, parsedAmount * 0.9664, `Pago tarjeta - ${pkgIds.length} paquete(s)`, refForLog]
+                )
+              : { rowCount: 0 } as any;
+
+            if (!upd.rowCount) {
+              await pool.query(`
+                INSERT INTO openpay_webhook_logs (
+                  transaction_id, monto_recibido, monto_neto, concepto,
+                  fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method
+                ) VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, 'procesado', $5, 'tarjeta', 'card')
+              `, [
+                transactionId || paymentRef,
+                parsedAmount,
+                parsedAmount * 0.9664, // ~3.36% comisión OpenPay tarjeta
+                `Pago tarjeta - ${pkgIds.length} paquete(s)`,
+                parsedUserId
+              ]);
+            }
           } catch (logErr: any) {
             console.log('Note: webhook_logs insert:', logErr.message);
           }
@@ -1560,17 +1581,37 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
 
         // Registrar en logs de cobranza
         try {
-          await pool.query(`
-            INSERT INTO openpay_webhook_logs (
-              transaction_id, monto_recibido, monto_neto, concepto,
-              fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method
-            ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'paypal', 'paypal')
-          `, [
-            captureDetails?.id || paypalOrderId,
-            parsedAmount,
-            `Pago PayPal - ${pkgIds.length} paquete(s)`,
-            parsedUserId
-          ]);
+          const refForLog = String(paymentReference || paymentRef || '');
+          const upd = refForLog
+            ? await pool.query(
+                `UPDATE openpay_webhook_logs
+                   SET estatus_procesamiento = 'procesado',
+                       payment_method = 'paypal',
+                       tipo_pago = 'paypal',
+                       monto_recibido = $1,
+                       monto_neto = $1,
+                       concepto = $2,
+                       fecha_pago = CURRENT_TIMESTAMP
+                 WHERE transaction_id = $3
+                   AND estatus_procesamiento = 'pending_payment'
+                 RETURNING id`,
+                [parsedAmount, `Pago PayPal - ${pkgIds.length} paquete(s)`, refForLog]
+              )
+            : { rowCount: 0 } as any;
+
+          if (!upd.rowCount) {
+            await pool.query(`
+              INSERT INTO openpay_webhook_logs (
+                transaction_id, monto_recibido, monto_neto, concepto,
+                fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method
+              ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'paypal', 'paypal')
+            `, [
+              captureDetails?.id || paypalOrderId,
+              parsedAmount,
+              `Pago PayPal - ${pkgIds.length} paquete(s)`,
+              parsedUserId
+            ]);
+          }
         } catch (logErr: any) {
           console.log('Note: webhook_logs insert:', logErr.message);
         }
