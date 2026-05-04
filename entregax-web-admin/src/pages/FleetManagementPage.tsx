@@ -1195,41 +1195,108 @@ export default function FleetManagementPage() {
 
               <Divider sx={{ my: 2 }} />
 
-              {/* Fotos del vehículo (4 lados) */}
+              {/* Fotos del vehículo (4 lados) - con upload directo */}
               {(() => {
                 const v: any = vehicleDetailData.vehicle;
-                const photos = [
-                  { url: v.photo_front_url, label: 'Frente' },
-                  { url: v.photo_back_url, label: 'Atrás' },
-                  { url: v.photo_left_url, label: 'Lado Izquierdo' },
-                  { url: v.photo_right_url, label: 'Lado Derecho' },
-                ].filter((p) => !!p.url);
-                if (photos.length === 0) return null;
+                const sides = [
+                  { side: 'front' as const, label: 'Frente', url: v.photo_front_url, field: 'photo_front_url' },
+                  { side: 'back' as const, label: 'Atrás', url: v.photo_back_url, field: 'photo_back_url' },
+                  { side: 'left' as const, label: 'Lado Izquierdo', url: v.photo_left_url, field: 'photo_left_url' },
+                  { side: 'right' as const, label: 'Lado Derecho', url: v.photo_right_url, field: 'photo_right_url' },
+                ];
+                const handleDetailPhotoUpload = async (file: File, side: string, field: string) => {
+                  if (!selectedVehicle) return;
+                  try {
+                    setUploadingVehiclePhoto(`detail-${side}`);
+                    const formData = new FormData();
+                    formData.append('file', file);
+                    const res = await axios.post(`${API_URL}/api/uploads/evidence`, formData, {
+                      headers: {
+                        Authorization: `Bearer ${getToken()}`,
+                        'Content-Type': 'multipart/form-data',
+                      },
+                    });
+                    await axios.put(
+                      `${API_URL}/api/admin/fleet/vehicles/${selectedVehicle.id}`,
+                      { [field]: res.data.url },
+                      { headers: { Authorization: `Bearer ${getToken()}` } }
+                    );
+                    loadVehicleDetail(selectedVehicle.id);
+                    loadVehicles();
+                  } catch (err: any) {
+                    alert(err.response?.data?.message || err.response?.data?.error || 'Error al subir foto');
+                  } finally {
+                    setUploadingVehiclePhoto('');
+                  }
+                };
                 return (
                   <>
                     <Typography variant="h6" sx={{ mb: 1 }}>📸 Fotos de la Unidad</Typography>
                     <Grid container spacing={1} sx={{ mb: 2 }}>
-                      {photos.map((p, i) => (
-                        <Grid key={i} size={{ xs: 6, sm: 3 }}>
-                          <Box
-                            component="a"
-                            href={p.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            sx={{ display: 'block', textDecoration: 'none' }}
-                          >
-                            <Box
-                              component="img"
-                              src={p.url}
-                              alt={p.label}
-                              sx={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }}
-                            />
-                            <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 0.5, color: 'text.secondary' }}>
-                              {p.label}
-                            </Typography>
-                          </Box>
-                        </Grid>
-                      ))}
+                      {sides.map(({ side, label, url, field }) => {
+                        const isUploading = uploadingVehiclePhoto === `detail-${side}`;
+                        return (
+                          <Grid key={side} size={{ xs: 6, sm: 3 }}>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                              {url ? (
+                                <Box
+                                  component="a"
+                                  href={url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  sx={{ display: 'block', textDecoration: 'none', width: '100%' }}
+                                >
+                                  <Box
+                                    component="img"
+                                    src={url}
+                                    alt={label}
+                                    sx={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }}
+                                  />
+                                </Box>
+                              ) : (
+                                <Box
+                                  sx={{
+                                    width: '100%',
+                                    height: 120,
+                                    borderRadius: 1,
+                                    border: '1px dashed #bbb',
+                                    bgcolor: '#fafafa',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    color: 'text.secondary',
+                                    fontSize: 32,
+                                  }}
+                                >
+                                  📷
+                                </Box>
+                              )}
+                              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                                {label}
+                              </Typography>
+                              <Button
+                                fullWidth
+                                size="small"
+                                variant={url ? 'outlined' : 'contained'}
+                                component="label"
+                                disabled={isUploading}
+                              >
+                                {isUploading ? 'Subiendo...' : url ? 'Reemplazar' : 'Subir'}
+                                <input
+                                  type="file"
+                                  hidden
+                                  accept="image/*"
+                                  onChange={(e) => {
+                                    const file = e.target.files?.[0];
+                                    if (file) handleDetailPhotoUpload(file, side, field);
+                                    e.target.value = '';
+                                  }}
+                                />
+                              </Button>
+                            </Box>
+                          </Grid>
+                        );
+                      })}
                     </Grid>
                     <Divider sx={{ my: 2 }} />
                   </>
