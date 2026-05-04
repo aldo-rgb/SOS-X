@@ -492,29 +492,29 @@ export default function AdvanceControlPanel() {
             {/* Estadísticas */}
             {stats && (
                 <Grid container spacing={2} sx={{ mb: 3 }}>
-                    <Grid size={{ xs: 6, md: 2 }}>
-                        <Card sx={{ bgcolor: '#E3F2FD' }}>
-                            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+                    <Grid size={{ xs: 12, sm: 4 }}>
+                        <Card sx={{ bgcolor: '#E3F2FD', height: '100%' }}>
+                            <CardContent sx={{ textAlign: 'center', py: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                                 <BusinessIcon sx={{ fontSize: 30, color: '#1976D2' }} />
                                 <Typography variant="h5" fontWeight="bold">{stats.total_proveedores}</Typography>
                                 <Typography variant="caption">Proveedores</Typography>
                             </CardContent>
                         </Card>
                     </Grid>
-                    <Grid size={{ xs: 6, md: 2 }}>
-                        <Card sx={{ bgcolor: '#E8F5E9' }}>
-                            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+                    <Grid size={{ xs: 12, sm: 4 }}>
+                        <Card sx={{ bgcolor: '#E8F5E9', height: '100%' }}>
+                            <CardContent sx={{ textAlign: 'center', py: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                                 <ReceiptIcon sx={{ fontSize: 30, color: '#388E3C' }} />
                                 <Typography variant="h5" fontWeight="bold">{stats.bolsas_activas}</Typography>
                                 <Typography variant="caption">Bolsas Activas</Typography>
                             </CardContent>
                         </Card>
                     </Grid>
-                    <Grid size={{ xs: 6, md: 3 }}>
-                        <Card sx={{ bgcolor: '#FFF3E0' }}>
-                            <CardContent sx={{ textAlign: 'center', py: 2 }}>
+                    <Grid size={{ xs: 12, sm: 4 }}>
+                        <Card sx={{ bgcolor: '#FFF3E0', height: '100%' }}>
+                            <CardContent sx={{ textAlign: 'center', py: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                                 <MoneyIcon sx={{ fontSize: 30, color: '#F57C00' }} />
-                                <Typography variant="h6" fontWeight="bold">${formatCurrency(stats.total_depositado)}</Typography>
+                                <Typography variant="h5" fontWeight="bold">${formatCurrency(stats.total_depositado)}</Typography>
                                 <Typography variant="caption">Total Depositado</Typography>
                             </CardContent>
                         </Card>
