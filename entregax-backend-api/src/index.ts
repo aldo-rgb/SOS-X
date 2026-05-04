@@ -1730,6 +1730,7 @@ app.get('/', (_req: Request, res: Response) => {
       customer_service: 'Servicio a cliente',
       counter_staff: 'Personal de mostrador',
       warehouse_ops: 'Operaciones de bodega',
+      monitoreo: 'Monitoreo (solo lectura)',
       client: 'Cliente final'
     }
   });

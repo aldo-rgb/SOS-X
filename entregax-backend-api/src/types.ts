@@ -8,6 +8,7 @@ export type UserRole =
     | 'customer_service' // Servicio a cliente
     | 'counter_staff'    // Personal de mostrador
     | 'warehouse_ops'    // Operaciones de bodega
+    | 'monitoreo'        // Monitoreo (solo lectura/observación)
     | 'client';          // Cliente final
 
 // Define la estructura de un Usuario de EntregaX

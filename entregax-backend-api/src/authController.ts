@@ -434,6 +434,7 @@ export const ROLES = {
     WAREHOUSE_OPS: 'warehouse_ops',    // Operaciones de bodega
     REPARTIDOR: 'repartidor',          // Repartidor / Delivery driver
     ACCOUNTANT: 'accountant',          // Contador (portal contable)
+    MONITOREO: 'monitoreo',            // Monitoreo (rol de observación)
     CLIENT: 'client'                   // Cliente final
 } as const;
 
@@ -449,6 +450,7 @@ const ROLE_HIERARCHY: Record<string, number> = {
     'sub_advisor': 61,
     [ROLES.COUNTER_STAFF]: 60,
     [ROLES.ACCOUNTANT]: 55,
+    [ROLES.MONITOREO]: 50,
     [ROLES.WAREHOUSE_OPS]: 40,
     [ROLES.REPARTIDOR]: 35,
     [ROLES.CLIENT]: 10,
@@ -464,6 +466,8 @@ const ROLE_HIERARCHY: Record<string, number> = {
     'Sub Advisor': 61,
     'Accountant': 55,
     'Contador': 55,
+    'Monitoreo': 50,
+    'monitoreo': 50,
     'Warehouse Ops': 40,
     'Repartidor': 35,
     'Client': 10
@@ -490,6 +494,8 @@ function normalizeRoleForHierarchy(role: string): string {
         'accountant': ROLES.ACCOUNTANT,
         'Contador': ROLES.ACCOUNTANT,
         'contador': ROLES.ACCOUNTANT,
+        'Monitoreo': ROLES.MONITOREO,
+        'monitoreo': ROLES.MONITOREO,
         'Warehouse Ops': ROLES.WAREHOUSE_OPS,
         'warehouse_ops': ROLES.WAREHOUSE_OPS,
         'Repartidor': ROLES.REPARTIDOR,
@@ -510,6 +516,7 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     [ROLES.OPERACIONES]: ['shipments:*', 'maritime:*', 'quotes:read', 'reports:read'], // Operaciones marítimas
     [ROLES.COUNTER_STAFF]: ['shipments:read', 'shipments:create', 'quotes:*', 'clients:read'],
     [ROLES.ACCOUNTANT]: ['accounting:*', 'invoices:*', 'reports:read'],
+    [ROLES.MONITOREO]: ['shipments:read', 'reports:read', 'inventory:read', 'clients:read'],
     [ROLES.WAREHOUSE_OPS]: ['shipments:read', 'shipments:update_status', 'inventory:*'],
     [ROLES.REPARTIDOR]: ['deliveries:*', 'shipments:read', 'shipments:update_status'], // Entregas
     [ROLES.CLIENT]: ['profile:read', 'profile:update', 'shipments:own', 'quotes:own']
@@ -1392,7 +1399,7 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
         if (role !== undefined) {
             // Validar que sea un rol válido
             const validRoles = ['super_admin', 'admin', 'director', 'branch_manager', 'accountant', 'customer_service', 
-                               'counter_staff', 'warehouse_ops', 'advisor', 'sub_advisor', 'repartidor', 'client'];
+                               'counter_staff', 'warehouse_ops', 'monitoreo', 'advisor', 'sub_advisor', 'repartidor', 'client'];
             if (!validRoles.includes(role)) {
                 res.status(400).json({ error: 'Rol no válido' });
                 return;

@@ -85,6 +85,7 @@ const getRoleColor = (role: string): "error" | "warning" | "info" | "success" | 
     customer_service: 'primary',
     counter_staff: 'info',
     warehouse_ops: 'success',
+    monitoreo: 'secondary',
     advisor: 'primary',
     sub_advisor: 'info',
     repartidor: 'warning',
@@ -104,6 +105,7 @@ const translateRole = (role: string): string => {
     customer_service: 'Servicio Cliente',
     counter_staff: 'Mostrador',
     warehouse_ops: 'Bodega',
+    monitoreo: 'Monitoreo',
     advisor: 'Asesor',
     sub_advisor: 'Sub-Asesor',
     repartidor: 'Repartidor',
@@ -419,6 +421,7 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
               <MenuItem value="customer_service">{t('roles.customer_service')}</MenuItem>
               <MenuItem value="counter_staff">{t('roles.counter_staff')}</MenuItem>
               <MenuItem value="warehouse_ops">{t('roles.warehouse_ops')}</MenuItem>
+              <MenuItem value="monitoreo">{t('roles.monitoreo')}</MenuItem>
               <MenuItem value="client">{t('roles.client')}</MenuItem>
             </Select>
           </FormControl>
@@ -749,6 +752,7 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                 <MenuItem value="counter_staff">Mostrador</MenuItem>
                 <MenuItem value="customer_service">Servicio a Cliente</MenuItem>
                 <MenuItem value="branch_manager">Operaciones</MenuItem>
+                <MenuItem value="monitoreo">Monitoreo</MenuItem>
                 <MenuItem value="accountant">Contador</MenuItem>
                 <MenuItem value="director">Director</MenuItem>
                 <MenuItem value="admin">Admin</MenuItem>

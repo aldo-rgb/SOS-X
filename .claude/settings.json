@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push *)",
+      "Read(//Users/kmpsdeveloper/Desktop/**)",
+      "Bash(git commit *)",
+      "Bash(eas build *)",
+      "Bash(echo \"Build started in background \\(PID: $!\\)\")"
+    ]
+  }
+}
