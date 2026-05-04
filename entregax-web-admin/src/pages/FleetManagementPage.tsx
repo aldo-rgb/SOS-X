@@ -295,6 +295,10 @@ export default function FleetManagementPage() {
     }
   })();
   const isSuperAdmin = currentUserRole === 'super_admin';
+  // Roles que pueden ver el detalle (👁) de la unidad pero NO editar/eliminar
+  const canViewVehicle = isSuperAdmin
+    || currentUserRole === 'branch_manager'
+    || currentUserRole === 'counter_staff';
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
   const getToken = () => localStorage.getItem('token') || '';
@@ -821,30 +825,34 @@ export default function FleetManagementPage() {
                     )}
                   </TableCell>
                   <TableCell align="center">
-                    {isSuperAdmin ? (
+                    {canViewVehicle ? (
                       <>
                         <Tooltip title="Ver detalle">
                           <IconButton size="small" onClick={() => handleViewVehicle(vehicle)}>
                             <ViewIcon />
                           </IconButton>
                         </Tooltip>
-                        <Tooltip title="Editar">
-                          <IconButton size="small" color="primary" onClick={() => handleEditVehicle(vehicle)}>
-                            <EditIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Eliminar">
-                          <IconButton
-                            size="small"
-                            color="error"
-                            onClick={() => {
-                              setVehicleToDelete(vehicle);
-                              setDeleteVehicleOpen(true);
-                            }}
-                          >
-                            <DeleteIcon />
-                          </IconButton>
-                        </Tooltip>
+                        {isSuperAdmin && (
+                          <>
+                            <Tooltip title="Editar">
+                              <IconButton size="small" color="primary" onClick={() => handleEditVehicle(vehicle)}>
+                                <EditIcon />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Eliminar">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => {
+                                  setVehicleToDelete(vehicle);
+                                  setDeleteVehicleOpen(true);
+                                }}
+                              >
+                                <DeleteIcon />
+                              </IconButton>
+                            </Tooltip>
+                          </>
+                        )}
                       </>
                     ) : (
                       <Typography variant="caption" color="text.disabled">—</Typography>
