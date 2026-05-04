@@ -113,6 +113,11 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     const [confirmPartialOpen, setConfirmPartialOpen] = useState(false);
     const [result, setResult] = useState<{ new_status: string; received: number; missing: number; total: number; partial_orders?: number; partial_boxes_missing?: number } | null>(null);
 
+    // Tracking de cajas escaneadas por orden (orderId -> Set de números de caja en formato '0001')
+    const [scannedBoxesByOrder, setScannedBoxesByOrder] = useState<Record<number, Set<string>>>({});
+    // Orden actualmente expandida (la última escaneada)
+    const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
+
     // Impresión de etiquetas (1 por caja)
     const [labelsModalOpen, setLabelsModalOpen] = useState(false);
     const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set());
@@ -361,6 +366,9 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             const res = await api.get(`/admin/china-sea/containers/${c.id}/orders`);
             setOrders(res.data.orders || []);
             setSelected(c);
+            setScannedBoxesByOrder({});
+            setExpandedOrderId(null);
+            setReceivedByOrder({});
             setStep(1);
         } catch (e) {
             const err = e as { response?: { data?: { error?: string } }; message?: string };
@@ -383,16 +391,78 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
         // Limpieza básica
         reference = reference.replace(/[\s'_]/g, '').toUpperCase();
-        // Si vino una URL, extraer último segmento alfanumérico
+        // Si vino una URL, extraer último segmento alfanumérico (con posible -NNNN)
         const urlMatch = reference.match(/[A-Z]{2,}\d+[A-Z0-9-]*/);
         if (urlMatch) reference = urlMatch[0];
 
-        try {
-            const res = await api.post(`/admin/china-sea/containers/${selected.id}/scan`, { reference });
-            if (res.data.already_received) {
-                setScanFeedback({ type: 'info', msg: `Ya escaneado: ${res.data.order?.ordersn || reference}` });
+        // Detectar patrón LOG...-NNNN (caja individual)
+        const boxMatch = reference.match(/^(.+?)-(\d{1,4})$/);
+        const parentRef = boxMatch ? boxMatch[1] : reference;
+        const boxNumber = boxMatch ? boxMatch[2].padStart(4, '0') : null;
+
+        // Buscar orden localmente por ordersn
+        const matchedOrder = orders.find((o) => (o.ordersn || '').toUpperCase() === parentRef.toUpperCase());
+
+        if (matchedOrder && boxNumber) {
+            // Escaneo por caja: tracking local
+            const expected = Number(matchedOrder.summary_boxes) || Number(matchedOrder.goods_num) || 0;
+            const boxNum = parseInt(boxNumber, 10);
+            if (expected > 0 && boxNum > expected) {
+                setScanFeedback({ type: 'error', msg: `⚠️ Caja ${boxNum} fuera de rango (${matchedOrder.ordersn} solo tiene ${expected} caja(s))` });
+                setScanInput('');
+                return;
+            }
+            const prevSet = scannedBoxesByOrder[matchedOrder.id] || new Set<string>();
+            if (prevSet.has(boxNumber)) {
+                setScanFeedback({ type: 'info', msg: `ℹ️ Caja ${boxNum} de ${matchedOrder.ordersn} ya escaneada` });
+                setExpandedOrderId(matchedOrder.id);
+                setScanInput('');
+                return;
+            }
+            const nextSet = new Set(prevSet);
+            nextSet.add(boxNumber);
+            setScannedBoxesByOrder((prev) => ({ ...prev, [matchedOrder.id]: nextSet }));
+            setReceivedByOrder((prev) => ({ ...prev, [matchedOrder.id]: nextSet.size }));
+            setExpandedOrderId(matchedOrder.id);
+
+            const remaining = expected - nextSet.size;
+            if (remaining === 0) {
+                // Todas las cajas escaneadas → marcar como recibido en backend
+                try {
+                    await api.post(`/admin/china-sea/containers/${selected.id}/scan`, { reference: matchedOrder.ordersn });
+                    setScanFeedback({ type: 'success', msg: `✅ ${matchedOrder.ordersn} completo (${nextSet.size}/${expected})` });
+                    await refreshOrders();
+                } catch (e) {
+                    const err = e as { response?: { data?: { error?: string } }; message?: string };
+                    setScanFeedback({ type: 'error', msg: err.response?.data?.error || err.message || 'Error al marcar como recibido' });
+                }
             } else {
-                setScanFeedback({ type: 'success', msg: `✓ ${res.data.order?.ordersn || reference}` });
+                setScanFeedback({ type: 'success', msg: `✓ Caja ${boxNum} de ${matchedOrder.ordersn} · ${nextSet.size}/${expected} (faltan ${remaining})` });
+            }
+            setScanInput('');
+            return;
+        }
+
+        // Sin número de caja, o no encontrado localmente: flujo legado contra backend
+        try {
+            const res = await api.post(`/admin/china-sea/containers/${selected.id}/scan`, { reference: parentRef });
+            const orderData = res.data.order;
+            if (orderData) {
+                // Si existe en la lista local, expandirlo y marcar todas las cajas como escaneadas
+                const localOrder = orders.find((o) => o.id === orderData.id || (o.ordersn || '').toUpperCase() === (orderData.ordersn || '').toUpperCase());
+                if (localOrder) {
+                    const expected = Number(localOrder.summary_boxes) || Number(localOrder.goods_num) || 1;
+                    const allBoxes = new Set<string>();
+                    for (let i = 1; i <= expected; i++) allBoxes.add(String(i).padStart(4, '0'));
+                    setScannedBoxesByOrder((prev) => ({ ...prev, [localOrder.id]: allBoxes }));
+                    setReceivedByOrder((prev) => ({ ...prev, [localOrder.id]: expected }));
+                    setExpandedOrderId(localOrder.id);
+                }
+            }
+            if (res.data.already_received) {
+                setScanFeedback({ type: 'info', msg: `Ya escaneado: ${orderData?.ordersn || reference}` });
+            } else {
+                setScanFeedback({ type: 'success', msg: `✓ ${orderData?.ordersn || reference}` });
             }
             await refreshOrders();
         } catch (e) {
@@ -668,7 +738,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                 inputRef={inputRef}
                                 fullWidth
                                 size="medium"
-                                placeholder="Escanear referencia (LOG26CNMX..., shipping mark)..."
+                                placeholder="Escanear caja (LOG26CNMX...-0001) o log completo (LOG26CNMX...)"
                                 value={scanInput}
                                 onChange={(e) => setScanInput(e.target.value)}
                                 onKeyDown={(e) => { if (e.key === 'Enter') handleScan(scanInput); }}
@@ -696,108 +766,125 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                 const isReceived = o.status === 'received_mty';
                                 const wasMissing = o.missing_on_arrival === true;
                                 const expectedBoxes = Number(o.summary_boxes) || Number(o.goods_num) || 0;
-                                const receivedVal = receivedByOrder[o.id] !== undefined
-                                    ? receivedByOrder[o.id]
-                                    : (wasMissing ? (Number((o as any).received_boxes) || 0) : expectedBoxes);
-                                const isPartial = receivedVal < expectedBoxes;
+                                const scannedSet = scannedBoxesByOrder[o.id];
+                                const scannedCount = scannedSet ? scannedSet.size : 0;
+                                // Si ya viene como recibido del backend (o sin tracking local), tomar receivedByOrder o expected
+                                const receivedVal = scannedSet
+                                    ? scannedCount
+                                    : receivedByOrder[o.id] !== undefined
+                                        ? receivedByOrder[o.id]
+                                        : (wasMissing ? (Number((o as any).received_boxes) || 0) : (isReceived ? expectedBoxes : 0));
+                                const isPartial = receivedVal > 0 && receivedVal < expectedBoxes;
+                                const remaining = Math.max(0, expectedBoxes - receivedVal);
+                                const isExpanded = expandedOrderId === o.id;
+                                const isComplete = receivedVal >= expectedBoxes && expectedBoxes > 0;
                                 return (
-                                    <ListItem
+                                    <Box
                                         key={o.id}
                                         sx={{
                                             bgcolor: wasMissing
                                                 ? '#FFEBEE'
+                                                : isComplete
+                                                ? '#E8F5E9'
                                                 : isPartial
                                                 ? '#FFF3E0'
-                                                : isReceived
-                                                ? '#E8F5E9'
                                                 : 'transparent',
                                             borderBottom: '1px solid #eee',
-                                            py: 1.2,
-                                            display: 'grid',
-                                            gridTemplateColumns: '40px 1fr auto',
-                                            alignItems: 'center',
-                                            gap: 1.5,
+                                            borderLeft: isExpanded ? `4px solid ${TEAL}` : '4px solid transparent',
+                                            transition: 'border-left-color 0.2s',
                                         }}
                                     >
-                                        <Box>
-                                            {isReceived
-                                                ? <CheckCircleIcon color="success" />
-                                                : <UncheckedIcon color={wasMissing ? 'error' : 'disabled'} />}
-                                        </Box>
-                                        <Box sx={{ minWidth: 0 }}>
-                                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ rowGap: 0.5 }}>
-                                                <Typography sx={{ fontWeight: 700, fontFamily: 'monospace' }}>{o.ordersn}</Typography>
-                                                {o.shipping_mark && <Chip label={o.shipping_mark} size="small" variant="outlined" />}
-                                                {o.user_box_id && <Chip label={o.user_box_id} size="small" sx={{ bgcolor: BLACK, color: '#FFF' }} />}
-                                                {isReceived && !wasMissing && !isPartial && <Chip label="✓ RECIBIDO" size="small" color="success" />}
-                                                {wasMissing && (
-                                                    <Chip
-                                                        label={`⚠️ ${expectedBoxes - receivedVal} caja(s) faltantes`}
-                                                        size="small"
-                                                        sx={{ bgcolor: RED, color: '#FFF', fontWeight: 700 }}
-                                                    />
-                                                )}
-                                                {isPartial && !wasMissing && (
-                                                    <Chip
-                                                        label={`Faltan ${expectedBoxes - receivedVal}`}
-                                                        size="small"
-                                                        sx={{ bgcolor: '#FF9800', color: '#FFF', fontWeight: 700 }}
-                                                    />
-                                                )}
-                                            </Stack>
-                                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.3 }}>
-                                                {expectedBoxes} caja(s) · {Number(o.weight || 0).toFixed(2)} kg · {Number(o.volume || 0).toFixed(3)} CBM · {o.status}
-                                            </Typography>
-                                        </Box>
-                                        {expectedBoxes > 0 && (
-                                            <Stack
-                                                direction="row"
-                                                spacing={0.5}
-                                                alignItems="center"
-                                                sx={{
-                                                    bgcolor: '#FFF',
-                                                    border: '1px solid #ddd',
-                                                    borderRadius: 1,
-                                                    px: 0.5,
-                                                    py: 0.25,
-                                                }}
-                                            >
-                                                <Button
-                                                    size="small"
-                                                    onClick={() => setReceivedForOrder(o.id, receivedVal - 1, expectedBoxes)}
-                                                    disabled={receivedVal <= 0}
-                                                    sx={{ minWidth: 28, p: 0, color: BLACK }}
-                                                >
-                                                    −
-                                                </Button>
-                                                <TextField
-                                                    size="small"
-                                                    type="number"
-                                                    value={receivedVal}
-                                                    onChange={(e) => setReceivedForOrder(o.id, Number(e.target.value), expectedBoxes)}
-                                                    onFocus={(e) => (e.target as HTMLInputElement).select()}
-                                                    variant="standard"
-                                                    InputProps={{ disableUnderline: true }}
-                                                    inputProps={{
-                                                        min: 0,
-                                                        max: expectedBoxes,
-                                                        style: { width: 36, textAlign: 'center', fontWeight: 700, fontSize: 16 },
+                                        <Box
+                                            onClick={() => setExpandedOrderId(isExpanded ? null : o.id)}
+                                            sx={{
+                                                cursor: 'pointer',
+                                                py: 1.2,
+                                                px: 2,
+                                                display: 'grid',
+                                                gridTemplateColumns: '40px 1fr auto',
+                                                alignItems: 'center',
+                                                gap: 1.5,
+                                                '&:hover': { bgcolor: 'rgba(0,0,0,0.02)' },
+                                            }}
+                                        >
+                                            <Box>
+                                                {isComplete
+                                                    ? <CheckCircleIcon color="success" />
+                                                    : <UncheckedIcon color={wasMissing ? 'error' : (isPartial ? 'warning' : 'disabled')} />}
+                                            </Box>
+                                            <Box sx={{ minWidth: 0 }}>
+                                                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" sx={{ rowGap: 0.5 }}>
+                                                    <Typography sx={{ fontWeight: 700, fontFamily: 'monospace' }}>{o.ordersn}</Typography>
+                                                    {o.shipping_mark && <Chip label={o.shipping_mark} size="small" variant="outlined" />}
+                                                    {o.user_box_id && <Chip label={o.user_box_id} size="small" sx={{ bgcolor: BLACK, color: '#FFF' }} />}
+                                                    {isComplete && !wasMissing && <Chip label="✓ RECIBIDO" size="small" color="success" />}
+                                                    {wasMissing && (
+                                                        <Chip
+                                                            label={`⚠️ ${expectedBoxes - receivedVal} caja(s) faltantes`}
+                                                            size="small"
+                                                            sx={{ bgcolor: RED, color: '#FFF', fontWeight: 700 }}
+                                                        />
+                                                    )}
+                                                    {isPartial && !wasMissing && !isComplete && (
+                                                        <Chip
+                                                            label={`Faltan ${remaining}`}
+                                                            size="small"
+                                                            sx={{ bgcolor: '#FF9800', color: '#FFF', fontWeight: 700 }}
+                                                        />
+                                                    )}
+                                                </Stack>
+                                                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.3 }}>
+                                                    {Number(o.weight || 0).toFixed(2)} kg · {Number(o.volume || 0).toFixed(3)} CBM · {o.status}
+                                                </Typography>
+                                            </Box>
+                                            {expectedBoxes > 0 && (
+                                                <Chip
+                                                    label={`${receivedVal} / ${expectedBoxes} cajas`}
+                                                    size="medium"
+                                                    sx={{
+                                                        fontWeight: 800,
+                                                        fontSize: 14,
+                                                        bgcolor: isComplete ? '#2E7D32' : (isPartial || wasMissing) ? '#FF9800' : '#E0E0E0',
+                                                        color: isComplete || isPartial || wasMissing ? '#FFF' : '#666',
+                                                        minWidth: 110,
                                                     }}
                                                 />
-                                                <Typography variant="caption" color="text.secondary" sx={{ pr: 0.5 }}>
-                                                    / {expectedBoxes}
+                                            )}
+                                        </Box>
+                                        {/* Panel expandido: cajas escaneadas + faltantes */}
+                                        {isExpanded && expectedBoxes > 0 && (
+                                            <Box sx={{ px: 3, pb: 1.5, pt: 0.5, bgcolor: 'rgba(0,151,167,0.04)' }}>
+                                                <Typography variant="caption" sx={{ fontWeight: 700, color: TEAL, display: 'block', mb: 0.5 }}>
+                                                    📦 Cajas del log (escanea cada caja: {o.ordersn}-0001 ... {o.ordersn}-{String(expectedBoxes).padStart(4, '0')})
                                                 </Typography>
-                                                <Button
-                                                    size="small"
-                                                    onClick={() => setReceivedForOrder(o.id, receivedVal + 1, expectedBoxes)}
-                                                    disabled={receivedVal >= expectedBoxes}
-                                                    sx={{ minWidth: 28, p: 0, color: BLACK }}
-                                                >
-                                                    +
-                                                </Button>
-                                            </Stack>
+                                                <Stack direction="row" spacing={0.5} flexWrap="wrap" sx={{ gap: 0.5 }}>
+                                                    {Array.from({ length: expectedBoxes }, (_, i) => {
+                                                        const num = String(i + 1).padStart(4, '0');
+                                                        const scanned = scannedSet ? scannedSet.has(num) : isComplete;
+                                                        return (
+                                                            <Chip
+                                                                key={num}
+                                                                size="small"
+                                                                label={`${i + 1}`}
+                                                                sx={{
+                                                                    minWidth: 32,
+                                                                    fontWeight: 700,
+                                                                    bgcolor: scanned ? '#2E7D32' : '#FFF',
+                                                                    color: scanned ? '#FFF' : '#999',
+                                                                    border: scanned ? 'none' : '1px dashed #BBB',
+                                                                }}
+                                                            />
+                                                        );
+                                                    })}
+                                                </Stack>
+                                                {remaining > 0 && (
+                                                    <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 700, display: 'block', mt: 0.5 }}>
+                                                        ⚠️ Faltan {remaining} caja(s) por escanear
+                                                    </Typography>
+                                                )}
+                                            </Box>
                                         )}
-                                    </ListItem>
+                                    </Box>
                                 );
                             })}
                         </List>
