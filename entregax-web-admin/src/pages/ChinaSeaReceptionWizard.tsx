@@ -440,10 +440,30 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         const urlMatch = reference.match(/[A-Z]{2,}\d+[A-Z0-9-]*/);
         if (urlMatch) reference = urlMatch[0];
 
-        // Detectar patrón LOG...-NNNN (caja individual)
+        // Detectar patrón LOG...-NNNN (caja individual con guión)
         const boxMatch = reference.match(/^(.+?)-(\d{1,4})$/);
-        const parentRef = boxMatch ? boxMatch[1] : reference;
-        const boxNumber = boxMatch ? boxMatch[2].padStart(4, '0') : null;
+        let parentRef = boxMatch ? boxMatch[1] : reference;
+        let boxNumber = boxMatch ? boxMatch[2].padStart(4, '0') : null;
+
+        // 🔍 Si NO trae guión pero parece un LOG, intentar detectar el sufijo de caja compacto
+        // probando recortar 1, 2, 3 o 4 dígitos finales y ver si el prefijo coincide con algún
+        // ordersn de la lista local. Esto evita que el barcode "LOG26CNMX021420001" (sin guión)
+        // sea tratado como un escaneo de master y marque el log completo de un solo escaneo.
+        if (!boxMatch && /^LOG/i.test(reference)) {
+            for (const len of [4, 3, 2, 1]) {
+                if (reference.length <= len + 6) continue; // necesita un prefijo razonable
+                const candidateMaster = reference.slice(0, -len);
+                const candidateBox = reference.slice(-len);
+                const found = orders.find(
+                    (o) => (o.ordersn || '').toUpperCase() === candidateMaster.toUpperCase()
+                );
+                if (found) {
+                    parentRef = candidateMaster;
+                    boxNumber = candidateBox.padStart(4, '0');
+                    break;
+                }
+            }
+        }
 
         // Buscar orden localmente por ordersn
         const matchedOrder = orders.find((o) => (o.ordersn || '').toUpperCase() === parentRef.toUpperCase());
@@ -506,17 +526,21 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         // Si la orden existe en la lista local y tiene > 1 caja, NO permitir marcado completo: forzar escaneo por caja.
         if (matchedOrder) {
             const expected = Number(matchedOrder.summary_boxes) || Number(matchedOrder.goods_num) || 0;
-            if (expected > 1) {
+            if (expected !== 1) {
                 playBeep('error');
+                const expectedLabel = expected > 1 ? `${expected} cajas` : 'múltiples cajas (cantidad no definida)';
+                const rangeHint = expected > 1
+                    ? `Escanea cada caja individualmente (${matchedOrder.ordersn}-0001 ... ${matchedOrder.ordersn}-${String(expected).padStart(4, '0')})`
+                    : `Escanea cada guía hija individualmente (${matchedOrder.ordersn}-0001, ${matchedOrder.ordersn}-0002, ...)`;
                 setScanFeedback({
                     type: 'error',
-                    msg: `⚠️ ${matchedOrder.ordersn} tiene ${expected} cajas. Escanea cada caja individualmente (${matchedOrder.ordersn}-0001 ... ${matchedOrder.ordersn}-${String(expected).padStart(4, '0')})`,
+                    msg: `⚠️ ${matchedOrder.ordersn} tiene ${expectedLabel}. ${rangeHint}`,
                 });
                 setExpandedOrderId(matchedOrder.id);
                 setScanInput('');
                 return;
             }
-            // expected <= 1 → se permite marcar como recibido directo
+            // expected === 1 → se permite marcar como recibido directo (un solo box)
         }
 
         // Sin número de caja y log de 1 sola caja (o no encontrado localmente): flujo legado contra backend
