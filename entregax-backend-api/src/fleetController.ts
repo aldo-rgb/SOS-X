@@ -275,20 +275,23 @@ export const createVehicle = async (req: Request, res: Response) => {
     const {
       economic_number, vehicle_type, brand, model, year, vin_number,
       license_plates, color, fuel_type, tank_capacity, current_mileage,
-      purchase_date, purchase_price, notes, photo_url, branch_id
+      purchase_date, purchase_price, notes, photo_url, branch_id,
+      photo_front_url, photo_back_url, photo_left_url, photo_right_url
     } = req.body;
     
     const result = await pool.query(`
       INSERT INTO vehicles (
         economic_number, vehicle_type, brand, model, year, vin_number,
         license_plates, color, fuel_type, tank_capacity, current_mileage,
-        purchase_date, purchase_price, notes, photo_url, branch_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+        purchase_date, purchase_price, notes, photo_url, branch_id,
+        photo_front_url, photo_back_url, photo_left_url, photo_right_url
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       RETURNING *
     `, [
       economic_number, vehicle_type, brand, model, year, vin_number,
       license_plates, color, fuel_type, tank_capacity, current_mileage || 0,
-      purchase_date, purchase_price, notes, photo_url, branch_id || null
+      purchase_date, purchase_price, notes, photo_url, branch_id || null,
+      photo_front_url || null, photo_back_url || null, photo_left_url || null, photo_right_url || null
     ]);
     
     res.status(201).json(result.rows[0]);
@@ -311,7 +314,8 @@ export const updateVehicle = async (req: Request, res: Response) => {
       'economic_number', 'vehicle_type', 'brand', 'model', 'year', 'vin_number',
       'license_plates', 'color', 'fuel_type', 'tank_capacity', 'current_mileage',
       'status', 'assigned_driver_id', 'purchase_date', 'purchase_price', 'notes', 'photo_url',
-      'branch_id'
+      'branch_id',
+      'photo_front_url', 'photo_back_url', 'photo_left_url', 'photo_right_url'
     ];
     
     const setClause: string[] = [];

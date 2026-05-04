@@ -250,8 +250,10 @@ export default function FleetManagementPage() {
     fuel_type: 'Gasolina',
     current_mileage: 0,
     branch_id: '' as number | '',
-    photo_1_url: '',
-    photo_2_url: ''
+    photo_front_url: '',
+    photo_back_url: '',
+    photo_left_url: '',
+    photo_right_url: ''
   });
   const [editingVehicleId, setEditingVehicleId] = useState<number | null>(null);
   
@@ -265,7 +267,7 @@ export default function FleetManagementPage() {
     file_url: ''
   });
   const [uploadingDocFile, setUploadingDocFile] = useState(false);
-  const [uploadingVehiclePhoto, setUploadingVehiclePhoto] = useState<number>(0); // 1 or 2 for which photo
+  const [uploadingVehiclePhoto, setUploadingVehiclePhoto] = useState<string>(''); // 'front'|'back'|'left'|'right' or ''
   const [uploadingMaintenancePhoto, setUploadingMaintenancePhoto] = useState(false);
   const [editingDocId, setEditingDocId] = useState<number | null>(null);
   
@@ -435,8 +437,10 @@ export default function FleetManagementPage() {
         fuel_type: 'Gasolina',
         current_mileage: 0,
         branch_id: '',
-        photo_1_url: '',
-        photo_2_url: ''
+        photo_front_url: '',
+        photo_back_url: '',
+        photo_left_url: '',
+        photo_right_url: ''
       });
       loadVehicles();
       loadDashboard();
@@ -459,8 +463,10 @@ export default function FleetManagementPage() {
       fuel_type: (vehicle as any).fuel_type || 'Gasolina',
       current_mileage: vehicle.current_mileage || 0,
       branch_id: (vehicle as any).branch_id ?? '',
-      photo_1_url: (vehicle as any).photo_1_url || '',
-      photo_2_url: (vehicle as any).photo_2_url || ''
+      photo_front_url: (vehicle as any).photo_front_url || '',
+      photo_back_url: (vehicle as any).photo_back_url || '',
+      photo_left_url: (vehicle as any).photo_left_url || '',
+      photo_right_url: (vehicle as any).photo_right_url || ''
     });
     setAddVehicleOpen(true);
   };
@@ -1189,6 +1195,47 @@ export default function FleetManagementPage() {
 
               <Divider sx={{ my: 2 }} />
 
+              {/* Fotos del vehículo (4 lados) */}
+              {(() => {
+                const v: any = vehicleDetailData.vehicle;
+                const photos = [
+                  { url: v.photo_front_url, label: 'Frente' },
+                  { url: v.photo_back_url, label: 'Atrás' },
+                  { url: v.photo_left_url, label: 'Lado Izquierdo' },
+                  { url: v.photo_right_url, label: 'Lado Derecho' },
+                ].filter((p) => !!p.url);
+                if (photos.length === 0) return null;
+                return (
+                  <>
+                    <Typography variant="h6" sx={{ mb: 1 }}>📸 Fotos de la Unidad</Typography>
+                    <Grid container spacing={1} sx={{ mb: 2 }}>
+                      {photos.map((p, i) => (
+                        <Grid key={i} size={{ xs: 6, sm: 3 }}>
+                          <Box
+                            component="a"
+                            href={p.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            sx={{ display: 'block', textDecoration: 'none' }}
+                          >
+                            <Box
+                              component="img"
+                              src={p.url}
+                              alt={p.label}
+                              sx={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }}
+                            />
+                            <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 0.5, color: 'text.secondary' }}>
+                              {p.label}
+                            </Typography>
+                          </Box>
+                        </Grid>
+                      ))}
+                    </Grid>
+                    <Divider sx={{ my: 2 }} />
+                  </>
+                );
+              })()}
+
               {/* Documentos Obligatorios - Checklist */}
               {(() => {
                 const required = ['Tenencia', 'Tarjeta Circulación', 'Seguro', 'Factura', 'Constancia'];
@@ -1532,102 +1579,74 @@ export default function FleetManagementPage() {
                 </Select>
               </FormControl>
             </Grid>
-            {/* Foto 1 */}
-            <Grid size={{ xs: 12 }}>
-              <Button
-                variant="contained"
-                component="label"
-                size="small"
-                disabled={uploadingVehiclePhoto === 1}
-                startIcon={<DocumentIcon />}
-              >
-                {uploadingVehiclePhoto === 1 ? 'Subiendo Foto 1...' : newVehicle.photo_1_url ? 'Reemplazar Foto 1' : 'Foto Unidad (Frente)'}
-                <input
-                  type="file"
-                  hidden
-                  accept="image/*"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    try {
-                      setUploadingVehiclePhoto(1);
-                      const formData = new FormData();
-                      formData.append('file', file);
-                      const res = await axios.post(`${API_URL}/api/uploads/evidence`, formData, {
-                        headers: {
-                          Authorization: `Bearer ${getToken()}`,
-                          'Content-Type': 'multipart/form-data'
-                        }
-                      });
-                      setNewVehicle((prev) => ({ ...prev, photo_1_url: res.data.url }));
-                    } catch (err: any) {
-                      alert(err.response?.data?.message || 'Error al subir foto');
-                    } finally {
-                      setUploadingVehiclePhoto(0);
-                      e.target.value = '';
-                    }
-                  }}
-                />
-              </Button>
-              {newVehicle.photo_1_url && (
-                <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Chip
-                    label="✓ Foto 1 subida"
-                    color="success"
+            {/* Fotos del vehículo (4 lados) */}
+            {(['front', 'back', 'left', 'right'] as const).map((side) => {
+              const labels: Record<typeof side, string> = {
+                front: 'Foto Frente',
+                back: 'Foto Atrás',
+                left: 'Foto Lado Izquierdo',
+                right: 'Foto Lado Derecho',
+              } as any;
+              const fieldKey = `photo_${side}_url` as 'photo_front_url' | 'photo_back_url' | 'photo_left_url' | 'photo_right_url';
+              const currentUrl = (newVehicle as any)[fieldKey] as string;
+              const isUploading = uploadingVehiclePhoto === side;
+              return (
+                <Grid key={side} size={{ xs: 12, sm: 6 }}>
+                  <Button
+                    fullWidth
+                    variant="contained"
+                    component="label"
                     size="small"
-                    onDelete={() => setNewVehicle({ ...newVehicle, photo_1_url: '' })}
-                  />
-                </Box>
-              )}
-            </Grid>
-            {/* Foto 2 */}
-            <Grid size={{ xs: 12 }}>
-              <Button
-                variant="contained"
-                component="label"
-                size="small"
-                disabled={uploadingVehiclePhoto === 2}
-                startIcon={<DocumentIcon />}
-              >
-                {uploadingVehiclePhoto === 2 ? 'Subiendo Foto 2...' : newVehicle.photo_2_url ? 'Reemplazar Foto 2' : 'Foto Unidad (Lateral/Placa)'}
-                <input
-                  type="file"
-                  hidden
-                  accept="image/*"
-                  onChange={async (e) => {
-                    const file = e.target.files?.[0];
-                    if (!file) return;
-                    try {
-                      setUploadingVehiclePhoto(2);
-                      const formData = new FormData();
-                      formData.append('file', file);
-                      const res = await axios.post(`${API_URL}/api/uploads/evidence`, formData, {
-                        headers: {
-                          Authorization: `Bearer ${getToken()}`,
-                          'Content-Type': 'multipart/form-data'
+                    disabled={isUploading}
+                    startIcon={<DocumentIcon />}
+                  >
+                    {isUploading ? `Subiendo ${labels[side]}...` : currentUrl ? `Reemplazar ${labels[side]}` : labels[side]}
+                    <input
+                      type="file"
+                      hidden
+                      accept="image/*"
+                      onChange={async (e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        try {
+                          setUploadingVehiclePhoto(side);
+                          const formData = new FormData();
+                          formData.append('file', file);
+                          const res = await axios.post(`${API_URL}/api/uploads/evidence`, formData, {
+                            headers: {
+                              Authorization: `Bearer ${getToken()}`,
+                              'Content-Type': 'multipart/form-data'
+                            }
+                          });
+                          setNewVehicle((prev) => ({ ...prev, [fieldKey]: res.data.url }));
+                        } catch (err: any) {
+                          alert(err.response?.data?.message || 'Error al subir foto');
+                        } finally {
+                          setUploadingVehiclePhoto('');
+                          e.target.value = '';
                         }
-                      });
-                      setNewVehicle((prev) => ({ ...prev, photo_2_url: res.data.url }));
-                    } catch (err: any) {
-                      alert(err.response?.data?.message || 'Error al subir foto');
-                    } finally {
-                      setUploadingVehiclePhoto(0);
-                      e.target.value = '';
-                    }
-                  }}
-                />
-              </Button>
-              {newVehicle.photo_2_url && (
-                <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Chip
-                    label="✓ Foto 2 subida"
-                    color="success"
-                    size="small"
-                    onDelete={() => setNewVehicle({ ...newVehicle, photo_2_url: '' })}
-                  />
-                </Box>
-              )}
-            </Grid>
+                      }}
+                    />
+                  </Button>
+                  {currentUrl && (
+                    <Box sx={{ mt: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box
+                        component="img"
+                        src={currentUrl}
+                        alt={labels[side]}
+                        sx={{ width: 64, height: 48, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }}
+                      />
+                      <Chip
+                        label={`✓ ${labels[side]}`}
+                        color="success"
+                        size="small"
+                        onDelete={() => setNewVehicle({ ...newVehicle, [fieldKey]: '' })}
+                      />
+                    </Box>
+                  )}
+                </Grid>
+              );
+            })}
           </Grid>
         </DialogContent>
         <DialogActions>
