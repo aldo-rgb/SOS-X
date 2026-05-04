@@ -13076,9 +13076,12 @@ export default function DashboardClient() {
               return reverseMapping[activeTab] ?? 0;
             })()}
             onChange={(_, newValue) => {
-              // newValue 1 es "Pago a proveedores" - abrir como página dedicada
+              // newValue 1 es "Pago a proveedores" - redirigir a x-pay.direct
               if (newValue === 1) {
-                setShowExternalProviderPage(true);
+                const token = localStorage.getItem('token');
+                const url = new URL('https://x-pay.direct');
+                if (token) url.searchParams.set('token', token);
+                window.location.href = url.toString();
                 return;
               }
               // Mapear índices: 0=envíos, 2=cotizador, 3=direcciones, 4=facturas, 5=cuenta
