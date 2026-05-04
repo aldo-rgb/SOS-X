@@ -140,22 +140,30 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
     const handleScan = (value: string) => {
         let tracking = value.trim();
         if (!tracking) return;
-        // El lector puede escanear el QR con URL completa O en layout de teclado distinto
-        // (ES convierte ':'->'Ñ' y '/'->''') dando cosas como "httpsÑ--app.entregax.com-track-US'UHNT5870"
-        // Primero buscar lo que viene después de "track" (el separador puede ser /, -, ', etc.)
-        const afterTrack = tracking.match(/track[^A-Za-z0-9]+([A-Za-z]{2})[^A-Za-z0-9]?([A-Za-z0-9]{4,})/i);
-        if (afterTrack) {
-            tracking = `${afterTrack[1]}-${afterTrack[2]}`.toUpperCase();
-        } else {
-            // Fallback: buscar patrón XX-XXXX pero excluyendo "ENTREGAX"
-            const allMatches = tracking.match(/[A-Z]{2}[-_']?[A-Z0-9]{4,}/gi) || [];
-            const candidate = allMatches.find((m) => !/TREGAX/i.test(m));
-            if (candidate) {
-                tracking = candidate.replace(/[_']/g, '-').toUpperCase();
-                if (!tracking.includes('-') && tracking.length > 2) {
-                    tracking = tracking.slice(0, 2) + '-' + tracking.slice(2);
+
+        // Si el input ya luce como un tracking limpio (no es una URL ni texto raro),
+        // úsalo tal cual sin pasarlo por los regex que pueden truncar el sufijo de caja.
+        const looksLikePlainTracking = /^[A-Za-z0-9][A-Za-z0-9\-_]*$/.test(tracking);
+        if (!looksLikePlainTracking) {
+            // El lector puede escanear el QR con URL completa O en layout de teclado distinto
+            // (ES convierte ':'->'Ñ' y '/'->''') dando cosas como "httpsÑ--app.entregax.com-track-US'UHNT5870"
+            // Primero buscar lo que viene después de "track" (el separador puede ser /, -, ', etc.)
+            const afterTrack = tracking.match(/track[^A-Za-z0-9]+([A-Za-z]{2})[^A-Za-z0-9]?([A-Za-z0-9\-]{4,})/i);
+            if (afterTrack) {
+                tracking = `${afterTrack[1]}-${afterTrack[2]}`.toUpperCase();
+            } else {
+                // Fallback: buscar patrón XX-XXXX[-XXXX] (permitir múltiples segmentos para hijos)
+                const allMatches = tracking.match(/[A-Z]{2}[-_']?[A-Z0-9]{4,}(?:[-_']\d{1,4})?/gi) || [];
+                const candidate = allMatches.find((m) => !/TREGAX/i.test(m));
+                if (candidate) {
+                    tracking = candidate.replace(/[_']/g, '-').toUpperCase();
+                    if (!tracking.includes('-') && tracking.length > 2) {
+                        tracking = tracking.slice(0, 2) + '-' + tracking.slice(2);
+                    }
                 }
             }
+        } else {
+            tracking = tracking.toUpperCase();
         }
         const pkg = packages.find((p) => p.tracking_internal.toLowerCase() === tracking.toLowerCase());
         // Fallback: comparar ignorando guiones (el scanner a veces lee "US-913340208502"
