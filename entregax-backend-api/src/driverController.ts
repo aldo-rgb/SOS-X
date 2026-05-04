@@ -280,8 +280,8 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         try {
             const m = String(barcode).trim().match(/^(.+?)-(\d{1,4})$/);
             if (m) {
-                const prefix = m[1];
-                const n = parseInt(m[2], 10);
+                const prefix = m[1] as string;
+                const n = parseInt(m[2] as string, 10);
                 const padded = `${prefix}-${String(n).padStart(4, '0')}`;
                 if (padded.toUpperCase() !== String(barcode).toUpperCase()) {
                     const probe = await pool.query(
