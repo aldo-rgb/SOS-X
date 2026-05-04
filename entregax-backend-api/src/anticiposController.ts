@@ -545,15 +545,8 @@ export const createBolsaAnticipo = async (req: AuthRequest, res: Response): Prom
       return;
     }
 
-    // Verificar que las referencias no hayan sido ya registradas como anticipo
-    for (const ref of parsedReferencias) {
-      const existingRef = await client.query('SELECT id FROM anticipo_referencias WHERE referencia = $1', [ref.referencia]);
-      if (existingRef.rows.length > 0) {
-        await client.query('ROLLBACK');
-        res.status(400).json({ error: `La referencia ${ref.referencia} ya tiene un anticipo registrado` });
-        return;
-      }
-    }
+    // NOTA: Se permite registrar múltiples depósitos para una misma referencia.
+    // Cada depósito acredita monto adicional a la misma referencia (varios pagos al mismo container).
 
     let comprobante_url = null;
 
