@@ -1080,8 +1080,6 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
       {/* Tab: ENTANGLED */}
       {tabValue === 3 && <EntangledAdminTab />}
 
-      </Box>{/* end p:3 */}
-
       {/* Modal Proveedor */}
       <Dialog open={providerModal} onClose={() => setProviderModal(false)} maxWidth="sm" fullWidth
         PaperProps={{ sx: { bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: '#fff' } }}>
