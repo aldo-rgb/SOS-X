@@ -8313,22 +8313,24 @@ export default function DashboardClient() {
                   const inMetro = inMtyMetro || inCdmxMetro;
 
                   // Reglas de filtrado:
-                  //  - MTY metro  → solo Entregax Local MTY (oculta CDMX y Paquete Express)
-                  //  - CDMX metro → solo Entregax Local CDMX (oculta MTY y Paquete Express)
-                  //  - Fuera de ambas → ocultar locales (queda solo Paquete Express / Por Cobrar)
+                  //  - MTY metro  → Entregax Local MTY  + Paquete Express + Por Cobrar
+                  //  - CDMX metro → Entregax Local CDMX + Paquete Express + Por Cobrar
+                  //  - Fuera de ambas → ocultar locales (queda Paquete Express / Por Cobrar)
                   const filterByZip = (s: { id: string }) => {
                     const id = String(s.id || '').toLowerCase();
                     const isLocalMty = id === 'local' || id === 'entregax_local_mty' || id === 'entregax_local';
                     const isLocalCdmx = id === 'entregax_local_cdmx';
-                    const isPqtx = id === 'paquete_express' || id === 'paquete_express_pc';
-                    if (inMtyMetro)  return isLocalMty;
-                    if (inCdmxMetro) return isLocalCdmx;
-                    // Fuera de zonas metro: solo Paquete Express y Por Cobrar
-                    return isPqtx || (!isLocalMty && !isLocalCdmx);
+                    // En MTY metro ocultamos Local CDMX y viceversa.
+                    if (inMtyMetro)  return !isLocalCdmx;
+                    if (inCdmxMetro) return !isLocalMty;
+                    // Fuera de zonas metro: ocultar ambos locales
+                    return !isLocalMty && !isLocalCdmx;
                   };
 
                   const standardCarriers = carrierServices.filter(s => !s.isCollect && filterByZip(s));
-                  const collectCarriers = carrierServices.filter(s => s.isCollect && (!inMetro)); // Por Cobrar tampoco en metro
+                  // Por Cobrar disponible en todas las zonas (antes estaba bloqueado en metro)
+                  const collectCarriers = carrierServices.filter(s => s.isCollect);
+                  void inMetro;
                   return (
                 <FormControl component="fieldset" fullWidth>
                   <RadioGroup
