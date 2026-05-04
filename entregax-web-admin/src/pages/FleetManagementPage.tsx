@@ -166,6 +166,9 @@ const getVehicleIcon = (type: string) => {
     case 'tráiler':
     case 'trailer':
     case 'tractocamión':
+    case 'camión 3.5 ton':
+    case 'camion 3.5 ton':
+    case 'montacargas':
       return <TruckIcon />;
     case 'motocicleta':
     case 'moto':
@@ -1426,8 +1429,10 @@ export default function FleetManagementPage() {
                 >
                   <MenuItem value="Camioneta">Camioneta</MenuItem>
                   <MenuItem value="Van">Van</MenuItem>
+                  <MenuItem value="Camión 3.5 Ton">Camión 3.5 Ton</MenuItem>
                   <MenuItem value="Tráiler">Tráiler</MenuItem>
                   <MenuItem value="Tractocamión">Tractocamión</MenuItem>
+                  <MenuItem value="Montacargas">Montacargas</MenuItem>
                   <MenuItem value="Motocicleta">Motocicleta</MenuItem>
                 </Select>
               </FormControl>
