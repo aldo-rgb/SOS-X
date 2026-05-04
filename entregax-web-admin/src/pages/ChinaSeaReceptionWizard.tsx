@@ -935,33 +935,43 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                         {/* Panel expandido: cajas escaneadas + faltantes */}
                                         {isExpanded && expectedBoxes > 0 && (
                                             <Box sx={{ px: 3, pb: 1.5, pt: 0.5, bgcolor: 'rgba(0,151,167,0.04)' }}>
-                                                <Typography variant="caption" sx={{ fontWeight: 700, color: TEAL, display: 'block', mb: 0.5 }}>
-                                                    📦 Cajas del log (escanea cada caja: {o.ordersn}-0001 ... {o.ordersn}-{String(expectedBoxes).padStart(4, '0')})
-                                                </Typography>
-                                                <Stack direction="row" spacing={0.5} flexWrap="wrap" sx={{ gap: 0.5 }}>
-                                                    {Array.from({ length: expectedBoxes }, (_, i) => {
-                                                        const num = String(i + 1).padStart(4, '0');
-                                                        const scanned = scannedSet ? scannedSet.has(num) : isComplete;
-                                                        return (
-                                                            <Chip
-                                                                key={num}
-                                                                size="small"
-                                                                label={`${i + 1}`}
-                                                                sx={{
-                                                                    minWidth: 32,
-                                                                    fontWeight: 700,
-                                                                    bgcolor: scanned ? '#2E7D32' : '#FFF',
-                                                                    color: scanned ? '#FFF' : '#999',
-                                                                    border: scanned ? 'none' : '1px dashed #BBB',
-                                                                }}
-                                                            />
-                                                        );
-                                                    })}
-                                                </Stack>
-                                                {remaining > 0 && (
-                                                    <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 700, display: 'block', mt: 0.5 }}>
-                                                        ⚠️ Faltan {remaining} caja(s) por escanear
+                                                {/* Si el log fue recibido en sesión previa SIN tracking por caja, no mostramos chips de cajas */}
+                                                {!scannedSet && isReceived ? (
+                                                    <Typography variant="caption" sx={{ fontWeight: 700, color: '#2E7D32', display: 'block' }}>
+                                                        ✓ Log recibido previamente · {expectedBoxes} caja(s) marcadas como recibidas en sesión anterior
                                                     </Typography>
+                                                ) : (
+                                                    <>
+                                                        <Typography variant="caption" sx={{ fontWeight: 700, color: TEAL, display: 'block', mb: 0.5 }}>
+                                                            📦 Cajas del log (escanea cada caja: {o.ordersn}-0001 ... {o.ordersn}-{String(expectedBoxes).padStart(4, '0')})
+                                                        </Typography>
+                                                        <Stack direction="row" spacing={0.5} flexWrap="wrap" sx={{ gap: 0.5 }}>
+                                                            {Array.from({ length: expectedBoxes }, (_, i) => {
+                                                                const num = String(i + 1).padStart(4, '0');
+                                                                // SOLO verde si está realmente en el set escaneado de esta sesión
+                                                                const scanned = scannedSet ? scannedSet.has(num) : false;
+                                                                return (
+                                                                    <Chip
+                                                                        key={num}
+                                                                        size="small"
+                                                                        label={`${i + 1}`}
+                                                                        sx={{
+                                                                            minWidth: 32,
+                                                                            fontWeight: 700,
+                                                                            bgcolor: scanned ? '#2E7D32' : '#FFF',
+                                                                            color: scanned ? '#FFF' : '#999',
+                                                                            border: scanned ? 'none' : '1px dashed #BBB',
+                                                                        }}
+                                                                    />
+                                                                );
+                                                            })}
+                                                        </Stack>
+                                                        {remaining > 0 && (
+                                                            <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 700, display: 'block', mt: 0.5 }}>
+                                                                ⚠️ Faltan {remaining} caja(s) por escanear
+                                                            </Typography>
+                                                        )}
+                                                    </>
                                                 )}
                                             </Box>
                                         )}
