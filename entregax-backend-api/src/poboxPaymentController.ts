@@ -1707,6 +1707,7 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
 
         // 🔧 FIX: Derivar el servicio REAL desde los packages de la orden
         // (el frontend puede mandar 'po_box' por fallback aunque sean china_air)
+        let dbServiceType: string | null = null;
         try {
             const pkgIdsRaw = typeof order.package_ids === 'string'
                 ? JSON.parse(order.package_ids)
@@ -1716,7 +1717,7 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
                     `SELECT DISTINCT service_type FROM packages WHERE id = ANY($1::int[]) AND service_type IS NOT NULL LIMIT 1`,
                     [pkgIdsRaw]
                 );
-                const dbServiceType = stRes.rows[0]?.service_type;
+                dbServiceType = stRes.rows[0]?.service_type || null;
                 const derived = normalizeServiceForCredit(dbServiceType);
                 if (derived) {
                     if (service && service !== derived) {
@@ -1730,7 +1731,19 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
         } catch (deriveErr) {
             console.warn('[pay-internal] no pude derivar service desde packages:', deriveErr);
         }
-        console.log(`[pay-internal] final service=${service}`);
+        console.log(`[pay-internal] final service=${service} dbServiceType=${dbServiceType}`);
+
+        // Mapear el servicio normalizado al service_type usado por openpay_webhook_logs / dashboard
+        const SERVICE_TO_DB_TYPE: Record<string, string> = {
+            aereo: 'AIR_CHN_MX',
+            maritime: 'SEA_CHN_MX',
+            fcl: 'SEA_CHN_MX',
+            dhl: 'AA_DHL',
+            po_box: 'POBOX_USA',
+            pobox: 'POBOX_USA',
+            usa: 'POBOX_USA',
+        };
+        const webhookServiceType = dbServiceType || SERVICE_TO_DB_TYPE[String(service || '').toLowerCase()] || 'POBOX_USA';
 
         // Obtener monedero / crédito
         const userRes = await client.query(
@@ -1891,7 +1904,8 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
                        tipo_pago = $1,
                        monto_neto = $2,
                        concepto = $3,
-                       fecha_pago = CURRENT_TIMESTAMP
+                       fecha_pago = CURRENT_TIMESTAMP,
+                       service_type = COALESCE(service_type, $5)
                  WHERE transaction_id = $4
                    AND estatus_procesamiento = 'pending_payment'
                  RETURNING id`,
@@ -1900,6 +1914,7 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
                     amount,
                     `Pago (${method === 'wallet' ? 'Saldo a favor' : 'Crédito'}) - ${Array.isArray(packageIds) ? packageIds.length : 0} paquete(s)`,
                     order.payment_reference,
+                    webhookServiceType,
                 ]
             );
 
@@ -1908,13 +1923,14 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
                     `INSERT INTO openpay_webhook_logs (
                         transaction_id, monto_recibido, monto_neto, concepto,
                         fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method, service_type
-                     ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, $5, $5, 'POBOX_USA')`,
+                     ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, $5, $5, $6)`,
                     [
                         `INTERNAL-${order.payment_reference}`,
                         amount,
-                        `Pago PO Box (${method === 'wallet' ? 'Saldo a favor' : 'Crédito'}) - ${Array.isArray(packageIds) ? packageIds.length : 0} paquete(s)`,
+                        `Pago (${method === 'wallet' ? 'Saldo a favor' : 'Crédito'}) - ${Array.isArray(packageIds) ? packageIds.length : 0} paquete(s)`,
                         userId,
                         method === 'wallet' ? 'wallet' : 'credit',
+                        webhookServiceType,
                     ]
                 );
             }
