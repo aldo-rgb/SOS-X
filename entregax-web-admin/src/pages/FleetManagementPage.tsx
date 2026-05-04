@@ -248,6 +248,7 @@ export default function FleetManagementPage() {
     photo_1_url: '',
     photo_2_url: ''
   });
+  const [editingVehicleId, setEditingVehicleId] = useState<number | null>(null);
   
   const [newDocument, setNewDocument] = useState({
     document_type: 'Seguro',
@@ -399,13 +400,20 @@ export default function FleetManagementPage() {
     loadVehicleDetail(vehicle.id);
   };
 
-  // Crear vehículo
+  // Crear o actualizar vehículo
   const handleCreateVehicle = async () => {
     try {
-      await axios.post(`${API_URL}/api/admin/fleet/vehicles`, newVehicle, {
-        headers: { Authorization: `Bearer ${getToken()}` }
-      });
+      if (editingVehicleId) {
+        await axios.put(`${API_URL}/api/admin/fleet/vehicles/${editingVehicleId}`, newVehicle, {
+          headers: { Authorization: `Bearer ${getToken()}` }
+        });
+      } else {
+        await axios.post(`${API_URL}/api/admin/fleet/vehicles`, newVehicle, {
+          headers: { Authorization: `Bearer ${getToken()}` }
+        });
+      }
       setAddVehicleOpen(false);
+      setEditingVehicleId(null);
       setNewVehicle({
         economic_number: '',
         vehicle_type: 'Camioneta',
@@ -424,8 +432,28 @@ export default function FleetManagementPage() {
       loadVehicles();
       loadDashboard();
     } catch (error: any) {
-      alert(error.response?.data?.error || 'Error al crear vehículo');
+      alert(error.response?.data?.error || 'Error al guardar vehículo');
     }
+  };
+
+  const handleEditVehicle = (vehicle: Vehicle) => {
+    setEditingVehicleId(vehicle.id);
+    setNewVehicle({
+      economic_number: vehicle.economic_number || '',
+      vehicle_type: vehicle.vehicle_type || 'Camioneta',
+      brand: vehicle.brand || '',
+      model: vehicle.model || '',
+      year: vehicle.year || new Date().getFullYear(),
+      license_plates: vehicle.license_plates || '',
+      vin_number: (vehicle as any).vin_number || '',
+      color: (vehicle as any).color || '',
+      fuel_type: (vehicle as any).fuel_type || 'Gasolina',
+      current_mileage: vehicle.current_mileage || 0,
+      branch_id: (vehicle as any).branch_id ?? '',
+      photo_1_url: (vehicle as any).photo_1_url || '',
+      photo_2_url: (vehicle as any).photo_2_url || ''
+    });
+    setAddVehicleOpen(true);
   };
 
   // Crear o actualizar documento
@@ -792,19 +820,28 @@ export default function FleetManagementPage() {
                   <TableCell align="center">
                     {isSuperAdmin ? (
                       <>
-                        <IconButton size="small" onClick={() => handleViewVehicle(vehicle)}>
-                          <ViewIcon />
-                        </IconButton>
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => {
-                            setVehicleToDelete(vehicle);
-                            setDeleteVehicleOpen(true);
-                          }}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
+                        <Tooltip title="Ver detalle">
+                          <IconButton size="small" onClick={() => handleViewVehicle(vehicle)}>
+                            <ViewIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Editar">
+                          <IconButton size="small" color="primary" onClick={() => handleEditVehicle(vehicle)}>
+                            <EditIcon />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Eliminar">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={() => {
+                              setVehicleToDelete(vehicle);
+                              setDeleteVehicleOpen(true);
+                            }}
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Tooltip>
                       </>
                     ) : (
                       <Typography variant="caption" color="text.disabled">—</Typography>
@@ -1365,9 +1402,9 @@ export default function FleetManagementPage() {
         </DialogActions>
       </Dialog>
 
-      {/* Dialog: Agregar Vehículo */}
-      <Dialog open={addVehicleOpen} onClose={() => setAddVehicleOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>Nueva Unidad</DialogTitle>
+      {/* Dialog: Agregar / Editar Vehículo */}
+      <Dialog open={addVehicleOpen} onClose={() => { setAddVehicleOpen(false); setEditingVehicleId(null); }} maxWidth="sm" fullWidth>
+        <DialogTitle>{editingVehicleId ? 'Editar Unidad' : 'Nueva Unidad'}</DialogTitle>
         <DialogContent>
           <Grid container spacing={2} sx={{ mt: 1 }}>
             <Grid size={{ xs: 6 }}>
@@ -1578,8 +1615,8 @@ export default function FleetManagementPage() {
           </Grid>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setAddVehicleOpen(false)}>Cancelar</Button>
-          <Button variant="contained" onClick={handleCreateVehicle}>Guardar</Button>
+          <Button onClick={() => { setAddVehicleOpen(false); setEditingVehicleId(null); }}>Cancelar</Button>
+          <Button variant="contained" onClick={handleCreateVehicle}>{editingVehicleId ? 'Actualizar' : 'Guardar'}</Button>
         </DialogActions>
       </Dialog>
 
