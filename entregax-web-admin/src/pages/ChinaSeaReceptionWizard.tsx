@@ -775,6 +775,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                                     type="number"
                                                     value={receivedVal}
                                                     onChange={(e) => setReceivedForOrder(o.id, Number(e.target.value), expectedBoxes)}
+                                                    onFocus={(e) => (e.target as HTMLInputElement).select()}
                                                     variant="standard"
                                                     InputProps={{ disableUnderline: true }}
                                                     inputProps={{
@@ -1035,6 +1036,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                                 variant="standard"
                                                 value={receivedVal}
                                                 onChange={(e) => setReceivedForOrder(o.id, Number(e.target.value) || 0, boxes)}
+                                                onFocus={(e) => (e.target as HTMLInputElement).select()}
                                                 InputProps={{ disableUnderline: true, sx: { fontSize: 16, fontWeight: 700 } }}
                                                 inputProps={{
                                                     min: 0,
