@@ -467,7 +467,6 @@ const ROLE_HIERARCHY: Record<string, number> = {
     'Accountant': 55,
     'Contador': 55,
     'Monitoreo': 50,
-    'monitoreo': 50,
     'Warehouse Ops': 40,
     'Repartidor': 35,
     'Client': 10

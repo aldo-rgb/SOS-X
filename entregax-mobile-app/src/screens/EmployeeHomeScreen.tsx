@@ -157,7 +157,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#F05A28',
     screen: 'WarehouseScanner',
-    roles: ['warehouse_ops', 'counter_staff', 'branch_manager', 'admin', 'super_admin'],
+    roles: ['warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
     hideIfPOBox: true, // Ocultar si tiene permisos PO Box (usa Entrada/Salida)
   },
