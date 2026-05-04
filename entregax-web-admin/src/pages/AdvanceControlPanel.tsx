@@ -172,6 +172,7 @@ export default function AdvanceControlPanel() {
     // Referencias y UI
     const [referencias, setReferencias] = useState<Referencia[]>([]);
     const [expandedBolsa, setExpandedBolsa] = useState<number | null>(null);
+    const [referenciaSearch, setReferenciaSearch] = useState('');
     
     // Eliminar bolsa
     const [deleteDialog, setDeleteDialog] = useState(false);
@@ -648,7 +649,47 @@ export default function AdvanceControlPanel() {
                         </Alert>
                     ) : (
                         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            {bolsas.map((bolsa) => (
+                            <TextField
+                                size="small"
+                                fullWidth
+                                placeholder="🔍 Buscar por referencia (ej. EPG26-0023)"
+                                value={referenciaSearch}
+                                onChange={(e) => {
+                                    const v = e.target.value;
+                                    setReferenciaSearch(v);
+                                    const term = v.trim().toUpperCase();
+                                    if (!term) return;
+                                    const matches = bolsas.filter(b => (b.referencia_pago || '').toUpperCase().includes(term));
+                                    if (matches.length >= 1) {
+                                        const target = matches[0];
+                                        if (expandedBolsa !== target.id) {
+                                            setExpandedBolsa(target.id);
+                                            fetchReferenciasBolsa(target.id);
+                                        }
+                                    }
+                                }}
+                                InputProps={{
+                                    endAdornment: referenciaSearch ? (
+                                        <IconButton size="small" onClick={() => setReferenciaSearch('')}>
+                                            <Typography sx={{ fontSize: 16 }}>✕</Typography>
+                                        </IconButton>
+                                    ) : null
+                                }}
+                                sx={{ mb: 1 }}
+                            />
+                            {(() => {
+                                const term = referenciaSearch.trim().toUpperCase();
+                                const filtered = term
+                                    ? bolsas.filter(b => (b.referencia_pago || '').toUpperCase().includes(term))
+                                    : bolsas;
+                                if (term && filtered.length === 0) {
+                                    return (
+                                        <Alert severity="warning">
+                                            No se encontró ninguna bolsa con la referencia «{referenciaSearch}».
+                                        </Alert>
+                                    );
+                                }
+                                return filtered.map((bolsa) => (
                                 <Card key={bolsa.id} variant="outlined">
                                     <CardContent>
                                         <Grid container spacing={2} alignItems="center">
@@ -783,7 +824,8 @@ export default function AdvanceControlPanel() {
                                         </Collapse>
                                     </CardContent>
                                 </Card>
-                            ))}
+                                ));
+                            })()}
                         </Box>
                     )}
                 </Box>
