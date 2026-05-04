@@ -604,7 +604,7 @@ export default function FleetManagementPage() {
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          {isSuperAdmin && (
+          {canViewVehicle && (
             <Button
               variant="contained"
               startIcon={<AddIcon />}
