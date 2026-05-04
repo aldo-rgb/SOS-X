@@ -160,6 +160,8 @@ interface Driver {
 // Helpers
 const getVehicleIcon = (type: string) => {
   switch (type?.toLowerCase()) {
+    case 'sedán':
+    case 'sedan':
     case 'camioneta':
     case 'van':
       return <CarIcon />;
@@ -1435,6 +1437,7 @@ export default function FleetManagementPage() {
                   label="Tipo"
                   onChange={(e) => setNewVehicle({ ...newVehicle, vehicle_type: e.target.value })}
                 >
+                  <MenuItem value="Sedán">Sedán</MenuItem>
                   <MenuItem value="Camioneta">Camioneta</MenuItem>
                   <MenuItem value="Van">Van</MenuItem>
                   <MenuItem value="Camión 3.5 Ton">Camión 3.5 Ton</MenuItem>
