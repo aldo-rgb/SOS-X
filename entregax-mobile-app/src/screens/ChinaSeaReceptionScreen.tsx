@@ -71,6 +71,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
   const [error, setError] = useState<string | null>(null);
 
   const [containers, setContainers] = useState<Container[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [selected, setSelected] = useState<Container | null>(null);
 
   const [orders, setOrders] = useState<Order[]>([]);
@@ -540,7 +541,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
       )}
 
       {step === 0 && (
-        <ScrollView contentContainerStyle={{ padding: 12 }}>
+        <ScrollView contentContainerStyle={{ padding: 12 }} keyboardShouldPersistTaps="handled">
           {loading ? (
             <ActivityIndicator size="large" color={accent} style={{ marginTop: 40 }} />
           ) : containers.length === 0 ? (
@@ -548,51 +549,94 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
               <Ionicons name="boat-outline" size={48} color="#999" />
               <Text style={styles.emptyText}>No hay contenedores {mode} pendientes</Text>
             </View>
-          ) : (
-            containers.map((c) => {
-              const eta = c.eta;
-              const days = eta ? Math.floor((new Date(eta).getTime() - Date.now()) / 86400000) : null;
-              const arrived = days !== null && days <= 0;
-              const isPartial = Number(c.received_orders) > 0 && Number(c.received_orders) < Number(c.total_orders);
-              const cFCL = (c.type || '').toUpperCase() === 'FCL';
-              const count = cFCL ? 1 : Number(c.total_orders || 0);
-              const lbl = cFCL ? 'CONTENEDOR' : count === 1 ? 'LOG' : 'LOGS';
-              return (
-                <TouchableOpacity key={c.id} style={[styles.containerCard, { borderLeftColor: accent }]} onPress={() => open(c)} activeOpacity={0.85}>
-                  <View style={[styles.refBadge, { backgroundColor: accent }]}>
-                    <Text style={styles.refBadgeNum}>{count}</Text>
-                    <Text style={styles.refBadgeLbl}>{lbl}</Text>
+          ) : (() => {
+            const q = searchQuery.trim().toLowerCase();
+            const filtered = q
+              ? containers.filter((c) =>
+                  (c.reference_code || '').toLowerCase().includes(q) ||
+                  (c.week_number || '').toLowerCase().includes(q) ||
+                  (c.container_number || '').toLowerCase().includes(q) ||
+                  (c.bl_number || '').toLowerCase().includes(q) ||
+                  (c.voyage_number || '').toLowerCase().includes(q)
+                )
+              : containers;
+            return (
+              <>
+                <View style={styles.searchBox}>
+                  <Ionicons name="search" size={18} color={accent} style={{ marginRight: 6 }} />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Buscar referencia, week, contenedor…"
+                    placeholderTextColor="#999"
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                  />
+                  {searchQuery.length > 0 && (
+                    <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={10}>
+                      <Ionicons name="close-circle" size={18} color="#999" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+                {filtered.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <Ionicons name="search-outline" size={36} color="#999" />
+                    <Text style={styles.emptyText}>Sin resultados para "{searchQuery}"</Text>
                   </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.refCode, { color: accent }]}>
-                      {c.reference_code || c.container_number || c.bl_number || '—'}
-                    </Text>
-                    {c.vessel_name && <Text style={styles.subText}>{c.vessel_name}</Text>}
-                    {c.received_orders > 0 && (
-                      <View style={[styles.miniChip, { backgroundColor: '#E8F5E9' }]}>
-                        <Ionicons name="checkmark-circle" size={12} color={GREEN} />
-                        <Text style={[styles.miniChipText, { color: GREEN }]}>
-                          {c.received_orders}/{c.total_orders} recibidas
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                    <View style={[styles.statusChip, { backgroundColor: isPartial ? ORANGE : arrived ? GREEN : BLACK }]}>
-                      <Text style={styles.statusChipText}>
-                        {isPartial ? 'PARCIAL' : arrived ? 'EN PUERTO' : 'EN TRÁNSITO'}
-                      </Text>
-                    </View>
-                    {days !== null && (
-                      <Text style={styles.dayText}>
-                        {days > 0 ? `En ${days}d` : days === 0 ? 'ETA hoy' : `Hace ${Math.abs(days)}d`}
-                      </Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              );
-            })
-          )}
+                ) : (
+                  filtered.map((c) => {
+                    const eta = c.eta;
+                    const days = eta ? Math.floor((new Date(eta).getTime() - Date.now()) / 86400000) : null;
+                    const arrived = days !== null && days <= 0;
+                    const isPartial = Number(c.received_orders) > 0 && Number(c.received_orders) < Number(c.total_orders);
+                    const cFCL = (c.type || '').toUpperCase() === 'FCL';
+                    const count = cFCL ? 1 : Number(c.total_orders || 0);
+                    const lbl = cFCL ? 'CONTENEDOR' : count === 1 ? 'LOG' : 'LOGS';
+                    return (
+                      <TouchableOpacity key={c.id} style={[styles.containerCard, { borderLeftColor: accent }]} onPress={() => open(c)} activeOpacity={0.85}>
+                        <View style={[styles.refBadge, { backgroundColor: accent }]}>
+                          <Text style={styles.refBadgeNum}>{count}</Text>
+                          <Text style={styles.refBadgeLbl}>{lbl}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.refCode, { color: accent }]}>
+                            {c.reference_code || c.container_number || c.bl_number || '—'}
+                          </Text>
+                          {!!c.week_number && (
+                            <View style={[styles.weekChip, { borderColor: accent }]}>
+                              <Ionicons name="calendar-outline" size={11} color={accent} />
+                              <Text style={[styles.weekChipText, { color: accent }]}>{c.week_number}</Text>
+                            </View>
+                          )}
+                          {c.received_orders > 0 && (
+                            <View style={[styles.miniChip, { backgroundColor: '#E8F5E9' }]}>
+                              <Ionicons name="checkmark-circle" size={12} color={GREEN} />
+                              <Text style={[styles.miniChipText, { color: GREEN }]}>
+                                {c.received_orders}/{c.total_orders} recibidas
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                          <View style={[styles.statusChip, { backgroundColor: isPartial ? ORANGE : arrived ? GREEN : BLACK }]}>
+                            <Text style={styles.statusChipText}>
+                              {isPartial ? 'PARCIAL' : arrived ? 'EN PUERTO' : 'EN TRÁNSITO'}
+                            </Text>
+                          </View>
+                          {days !== null && (
+                            <Text style={styles.dayText}>
+                              {days > 0 ? `En ${days}d` : days === 0 ? 'ETA hoy' : `Hace ${Math.abs(days)}d`}
+                            </Text>
+                          )}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })
+                )}
+              </>
+            );
+          })()}
         </ScrollView>
       )}
 
@@ -976,6 +1020,10 @@ const styles = StyleSheet.create({
   subText: { fontSize: 11, color: '#666', marginTop: 2 },
   miniChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, marginTop: 4, alignSelf: 'flex-start' },
   miniChipText: { fontSize: 10, fontWeight: '700' },
+  searchBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 10, borderWidth: 1, borderColor: '#E0E0E0', paddingHorizontal: 10, paddingVertical: 6, marginBottom: 10 },
+  searchInput: { flex: 1, fontSize: 14, color: BLACK, paddingVertical: 4 },
+  weekChip: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, marginTop: 4, alignSelf: 'flex-start', borderWidth: 1, backgroundColor: '#FFF' },
+  weekChipText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.3 },
   statusChip: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   statusChipText: { fontSize: 10, fontWeight: '800', color: '#fff' },
   dayText: { fontSize: 11, color: '#666', fontWeight: '600' },
