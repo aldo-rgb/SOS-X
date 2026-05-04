@@ -278,7 +278,20 @@ export const createVehicle = async (req: Request, res: Response) => {
       purchase_date, purchase_price, notes, photo_url, branch_id,
       photo_front_url, photo_back_url, photo_left_url, photo_right_url
     } = req.body;
-    
+
+    // 🔢 Auto-generar economic_number si no viene o viene vacío
+    // Formato: X-001, X-002, ... X-NNN (consecutivo)
+    let finalEconomicNumber = (economic_number || '').toString().trim();
+    if (!finalEconomicNumber) {
+      const maxRes = await pool.query(`
+        SELECT COALESCE(MAX(NULLIF(regexp_replace(economic_number, '[^0-9]', '', 'g'), '')::int), 0) AS max_n
+          FROM vehicles
+         WHERE economic_number ~ '^X-?[0-9]+$'
+      `);
+      const next = (Number(maxRes.rows[0]?.max_n) || 0) + 1;
+      finalEconomicNumber = `X-${String(next).padStart(3, '0')}`;
+    }
+
     const result = await pool.query(`
       INSERT INTO vehicles (
         economic_number, vehicle_type, brand, model, year, vin_number,
@@ -288,7 +301,7 @@ export const createVehicle = async (req: Request, res: Response) => {
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
       RETURNING *
     `, [
-      economic_number, vehicle_type, brand, model, year, vin_number,
+      finalEconomicNumber, vehicle_type, brand, model, year, vin_number,
       license_plates, color, fuel_type, tank_capacity, current_mileage || 0,
       purchase_date, purchase_price, notes, photo_url, branch_id || null,
       photo_front_url || null, photo_back_url || null, photo_left_url || null, photo_right_url || null

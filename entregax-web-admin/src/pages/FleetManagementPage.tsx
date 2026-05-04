@@ -1540,7 +1540,8 @@ export default function FleetManagementPage() {
                 label="Número Económico"
                 value={newVehicle.economic_number}
                 onChange={(e) => setNewVehicle({ ...newVehicle, economic_number: e.target.value })}
-                placeholder="Ej: Unidad-06"
+                placeholder={editingVehicleId ? 'Ej: X-001' : '🔢 Auto (X-001, X-002…)'}
+                helperText={editingVehicleId ? '' : 'Déjalo vacío para asignar automáticamente'}
               />
             </Grid>
             <Grid size={{ xs: 6 }}>
