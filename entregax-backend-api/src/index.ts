@@ -1036,6 +1036,8 @@ const allowedOrigins = [
   'https://www.entregax.app',
   'https://admin.entregax.app',
   'https://app.entregax.app',
+  'https://x-pay.direct',
+  'https://www.x-pay.direct',
   'http://localhost:5173',
   'http://localhost:3000',
 ].filter(Boolean) as string[];
@@ -3304,8 +3306,45 @@ app.get('/api/admin/entangled/providers', authenticateToken, requireMinLevel(ROL
 app.post('/api/admin/entangled/providers', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createEntangledProvider);
 app.put('/api/admin/entangled/providers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateEntangledProvider);
 app.delete('/api/admin/entangled/providers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteEntangledProvider);
-// Subida diferida de comprobante
+// Subida diferida de comprobante (URL pre-existente)
 app.post('/api/entangled/payment-requests/:id/upload-proof', authenticateToken, uploadEntangledProof);
+// Subida de comprobante como archivo (multipart/form-data)
+const entangledProofUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+app.post('/api/entangled/payment-requests/:id/upload-proof-file', authenticateToken, entangledProofUpload.single('comprobante'), async (req: AuthRequest, res: Response) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
+    const id = Number(req.params.id);
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const { pool: dbPool } = await import('./db');
+    const owner = await dbPool.query(
+      'SELECT user_id FROM entangled_payment_requests WHERE id = $1', [id]
+    );
+    if (!owner.rows.length) return res.status(404).json({ error: 'Solicitud no encontrada' });
+    if (owner.rows[0].user_id !== userId) return res.status(403).json({ error: 'Sin acceso' });
+    const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase();
+    const key = `entangled/comprobantes/${id}_${Date.now()}.${ext}`;
+    const { uploadToS3, isS3Configured } = await import('./s3Service');
+    let url: string;
+    if (isS3Configured()) {
+      url = await uploadToS3(req.file.buffer, key, req.file.mimetype);
+    } else {
+      url = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
+    }
+    const r = await dbPool.query(
+      `UPDATE entangled_payment_requests SET
+         op_comprobante_cliente_url = $2,
+         comprobante_subido_at = NOW(),
+         updated_at = NOW()
+       WHERE id = $1 RETURNING id, referencia_pago, op_comprobante_cliente_url, comprobante_subido_at`,
+      [id, url]
+    );
+    return res.json({ ok: true, ...r.rows[0] });
+  } catch (err: any) {
+    console.error('[ENTANGLED] upload-proof-file:', err);
+    return res.status(500).json({ error: 'Error al subir comprobante' });
+  }
+});
 // Webhooks públicos (verifican HMAC con ENTANGLED_WEBHOOK_SECRET)
 app.post('/api/webhooks/entangled-facturas', entangledWebhookFactura);
 app.post('/api/webhooks/entangled-proveedores', entangledWebhookProveedor);

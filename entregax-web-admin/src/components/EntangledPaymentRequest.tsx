@@ -5,7 +5,7 @@
 // Diseñado para insertarse como pestaña/sección sin afectar el resto del flow.
 // ============================================================================
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -89,13 +89,15 @@ const buildSparklinePath = (values: number[], width = 240, height = 44, pad = 4)
 
 interface EntangledRequest {
   id: number;
+  referencia_pago?: string;
   entangled_transaccion_id: string | null;
   cf_rfc: string;
   cf_razon_social: string;
   cf_email: string;
   op_monto: string | number;
   op_divisa_destino: string;
-  op_comprobante_cliente_url?: string;
+  op_comprobante_cliente_url?: string | null;
+  comprobante_subido_at?: string | null;
   estatus_global: string;
   estatus_factura: string;
   estatus_proveedor: string;
@@ -193,6 +195,20 @@ const formatTimeLabel = (ts: number | null | undefined) => {
 const formatMoney = (v: number | string) =>
   Number(v).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+const formatElapsed = (fromIso: string, toNow: Date): string => {
+  const normalized = fromIso.includes('T') ? fromIso : fromIso.replace(' ', 'T');
+  const hasZone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(normalized);
+  const from = new Date(hasZone ? normalized : `${normalized}Z`);
+  const secs = Math.floor((toNow.getTime() - from.getTime()) / 1000);
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  return `${m}m ${s}s`;
+};
+
 // Soft fintech-style status badge — translucent fill + thin border
 const STATUS_PALETTE: Record<string, { bg: string; bd: string; fg: string }> = {
   completado: { bg: 'rgba(16,185,129,0.12)', bd: 'rgba(16,185,129,0.45)', fg: '#34d399' },
@@ -258,6 +274,12 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
 
   const [requests, setRequests] = useState<EntangledRequest[]>([]);
   const [loading, setLoading] = useState(false);
+  const [now, setNow] = useState(() => new Date());
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    tickRef.current = setInterval(() => setNow(new Date()), 1000);
+    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+  }, []);
   const [snack, setSnack] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
     open: false,
     message: '',
@@ -311,7 +333,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   });
   const [selectedProviderId, setSelectedProviderId] = useState<number | ''>('');
   const [quote, setQuote] = useState<{ tipo_cambio: number; porcentaje_compra: number; costo_operacion_usd: number; monto_mxn_base: number; monto_mxn_comision: number; monto_mxn_costo_op: number; monto_mxn_total: number } | null>(null);
-  const [lastCreated, setLastCreated] = useState<{ request: unknown; instrucciones_pago: unknown; quote: { tipo_cambio: number; porcentaje_compra: number; costo_operacion_usd: number; monto_mxn_base: number; monto_mxn_comision: number; monto_mxn_costo_op: number; monto_mxn_total: number } | null } | null>(null);
+  const [lastCreated, setLastCreated] = useState<{ request: unknown; instrucciones_pago: unknown; referencia_pago?: string; quote: { tipo_cambio: number; porcentaje_compra: number; costo_operacion_usd: number; monto_mxn_base: number; monto_mxn_comision: number; monto_mxn_costo_op: number; monto_mxn_total: number } | null } | null>(null);
   const [instructionsOpen, setInstructionsOpen] = useState(false);
 
   // ----- Proveedores de envío (beneficiarios) -----
@@ -802,6 +824,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       setLastCreated({
         request: res.data?.request,
         instrucciones_pago: res.data?.instrucciones_pago,
+        referencia_pago: res.data?.referencia_pago || res.data?.request?.referencia_pago,
         quote: res.data?.quote,
       });
       setInstructionsOpen(true);
@@ -1214,9 +1237,13 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                       const destination = COUNTRY_META[destinationCode] || COUNTRY_META.US;
                       return (
                       <TableRow key={r.id} hover sx={{ bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.025)' }, '& td': { borderBottom: `1px solid ${BORDER}` } }}>
-                        {/* # */}
-                        <TableCell sx={{ color: '#6b7280', fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
-                          {r.id}
+                        {/* Referencia */}
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                          <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1, py: 0.3, borderRadius: 1, border: `1px solid ${ORANGE}55`, bgcolor: `${ORANGE}12` }}>
+                            <Typography sx={{ color: ORANGE, fontWeight: 800, fontSize: '0.72rem', letterSpacing: '0.1em', fontFamily: 'monospace' }}>
+                              {r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`}
+                            </Typography>
+                          </Box>
                         </TableCell>
                         {/* Razón Social */}
                         <TableCell sx={{ minWidth: 160 }}>
@@ -1285,9 +1312,19 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                               </Tooltip>
                             )}
                           </Stack>
-                          <Typography sx={{ color: '#6b7280', fontSize: '0.65rem', mt: 0.3 }}>
-                            {new Date(r.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                          </Typography>
+                          {/* Chronometer or date */}
+                          {r.comprobante_subido_at ? (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, px: 0.8, py: 0.3, borderRadius: 1, bgcolor: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.22)', width: 'fit-content' }}>
+                              <Box component="span" sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#4ade80', display: 'inline-block', animation: 'xpay-dot 1.4s infinite' }} />
+                              <Typography sx={{ color: '#4ade80', fontSize: '0.65rem', fontWeight: 800, fontFamily: 'monospace' }}>
+                                {formatElapsed(r.comprobante_subido_at, now)}
+                              </Typography>
+                            </Box>
+                          ) : (
+                            <Typography sx={{ color: '#6b7280', fontSize: '0.65rem', mt: 0.3 }}>
+                              {new Date(r.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                            </Typography>
+                          )}
                         </TableCell>
                       </TableRow>
                     )})
@@ -1966,17 +2003,19 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           </Paper>
           )}
         </DialogContent>
-        <DialogActions sx={{ bgcolor: '#0a0a0a', borderTop: '1px solid #333333', p: 2 }}>
-          <Button onClick={() => { setDialogOpen(false); setWizardStep(1); }} sx={{ color: '#888888', '&:hover': { bgcolor: '#2a2a2a' } }}>
+        <DialogActions sx={{ bgcolor: '#0a0a0a', borderTop: '1px solid #333333', p: 2, display: 'flex', gap: 1 }}>
+          <Button onClick={() => { setDialogOpen(false); setWizardStep(1); }} sx={{ color: '#888888', mr: 'auto', '&:hover': { bgcolor: '#2a2a2a' } }}>
             {t('common.cancel')}
           </Button>
           {wizardStep > 1 && (
-            <Button variant="outlined" onClick={() => setWizardStep((s) => (s === 4 ? 3 : s === 3 ? 2 : s === 2 ? 1 : 1))} sx={{ borderColor: '#555', color: '#ddd' }}>
+            <Button variant="outlined" onClick={() => setWizardStep((s) => (s === 4 ? 3 : s === 3 ? 2 : s === 2 ? 1 : 1))}
+              sx={{ borderColor: '#555', color: '#ddd', minWidth: 90, flex: '0 0 auto' }}>
               {t('common.back', 'Atrás')}
             </Button>
           )}
           {wizardStep < 4 ? (
-            <Button variant="contained" onClick={goNextWizardStep} sx={{ bgcolor: ORANGE, color: '#000', fontWeight: 700, '&:hover': { bgcolor: '#E54A1F' } }}>
+            <Button variant="contained" onClick={goNextWizardStep}
+              sx={{ bgcolor: ORANGE, color: '#000', fontWeight: 700, minWidth: 90, flex: '0 0 auto', '&:hover': { bgcolor: '#E54A1F' } }}>
               {t('common.next', 'Siguiente')}
             </Button>
           ) : (
@@ -1984,7 +2023,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               variant="contained"
               onClick={handleSubmit}
               disabled={submitting || !quote}
-              sx={{ bgcolor: ORANGE, color: '#000000', fontWeight: 700, '&:hover': { bgcolor: '#E54A1F' }, '&:disabled': { bgcolor: '#663333', color: '#333333' } }}
+              sx={{ bgcolor: ORANGE, color: '#000000', fontWeight: 700, minWidth: 90, flex: '0 0 auto', '&:hover': { bgcolor: '#E54A1F' }, '&:disabled': { bgcolor: '#663333', color: '#333333' } }}
             >
               {submitting ? t('entangled.actions.sending') : t('entangled.actions.submit')}
             </Button>
@@ -2016,6 +2055,22 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           </Stack>
         </DialogTitle>
         <DialogContent sx={{ pt: 3, bgcolor: '#070709' }}>
+          {/* Referencia de pago — visible siempre */}
+          {lastCreated?.referencia_pago && (
+            <Box sx={{ mb: 2, p: 2, borderRadius: 2, bgcolor: 'rgba(255,102,0,0.08)', border: '1px solid rgba(255,102,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+              <Box>
+                <Typography variant="caption" sx={{ color: '#aaa', textTransform: 'uppercase', letterSpacing: '0.12em', fontWeight: 700, fontSize: '0.65rem' }}>
+                  Referencia de pago
+                </Typography>
+                <Typography sx={{ fontFamily: 'monospace', fontSize: '1.6rem', fontWeight: 900, color: ORANGE, letterSpacing: '0.1em', lineHeight: 1.1 }}>
+                  {lastCreated.referencia_pago}
+                </Typography>
+              </Box>
+              <Typography variant="caption" sx={{ color: '#666', fontSize: '0.7rem', maxWidth: 180, textAlign: 'right' }}>
+                Incluye esta referencia en tu transferencia bancaria
+              </Typography>
+            </Box>
+          )}
           {lastCreated?.quote && (
             <Card sx={{ mb: 2, bgcolor: 'rgba(255,102,0,0.08)', border: `1px solid rgba(255,102,0,0.45)` }}>
               <CardContent>

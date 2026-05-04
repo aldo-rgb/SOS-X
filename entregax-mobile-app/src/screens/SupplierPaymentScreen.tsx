@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import * as ImagePicker from 'expo-image-picker';
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity, Alert,
   StyleSheet, ActivityIndicator, RefreshControl, Linking, Platform, Modal, Image, ImageBackground, Dimensions,
@@ -111,6 +112,7 @@ function seedRateHistory() {
 
 interface PaymentRequest {
   id: number;
+  referencia_pago?: string;
   cf_rfc: string;
   cf_razon_social: string;
   op_monto: number;
@@ -120,7 +122,8 @@ interface PaymentRequest {
   estatus_proveedor: string;
   factura_url?: string;
   comprobante_proveedor_url?: string;
-  comprobante_cliente_url?: string;
+  op_comprobante_cliente_url?: string | null;
+  comprobante_subido_at?: string | null;
   payment_deadline_at?: string | null;
   created_at: string;
 }
@@ -171,9 +174,21 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const authHeaders = { Authorization: `Bearer ${token}` };
   const [editingFiscalData, setEditingFiscalData] = useState(false);
   const [editingSupplierData, setEditingSupplierData] = useState(false);
+  const [showNewSupplierForm, setShowNewSupplierForm] = useState(false);
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
   const [successModalVisible, setSuccessModalVisible] = useState(false);
   const [lastRequestId, setLastRequestId] = useState<number | null>(null);
+  const [lastReferencia, setLastReferencia] = useState<string | null>(null);
+
+  // Comprobante upload + live chronometer
+  const [uploadingId, setUploadingId] = useState<number | null>(null);
+  const [uploadSuccessModal, setUploadSuccessModal] = useState<{ visible: boolean; referencia: string }>({ visible: false, referencia: '' });
+  const [now, setNow] = useState(() => new Date());
+  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    tickRef.current = setInterval(() => setNow(new Date()), 1000);
+    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+  }, []);
 
   // Dashboard state
   const [viewMode, setViewMode] = useState<'dashboard' | 'wizard'>('dashboard');
@@ -379,7 +394,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       });
       const data = await res.json();
       if (res.ok) {
-        setLastRequestId(Number(data?.id || data?.data?.id || 0) || null);
+        const rid = data?.request?.id || data?.request_id || null;
+        setLastRequestId(rid ? Number(rid) : null);
+        setLastReferencia(data?.referencia_pago || (rid ? `XP${String(rid).padStart(6, '0')}` : null));
         setSuccessModalVisible(true);
         setMonto(''); setConceptos('');
         setBenefName(''); setBenefNameZh(''); setBenefAddress('');
@@ -430,6 +447,51 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     return '#64748b';
   };
 
+  const uploadComprobante = async (requestId: number) => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) { Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería.'); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'] as any,
+      allowsEditing: false,
+      quality: 0.8,
+    });
+    if (result.canceled || !result.assets?.length) return;
+    const asset = result.assets[0];
+    setUploadingId(requestId);
+    try {
+      const formData = new FormData();
+      const ext = (asset.uri.split('.').pop() || 'jpg').toLowerCase();
+      formData.append('comprobante', { uri: asset.uri, name: `comprobante.${ext}`, type: asset.mimeType || `image/${ext}` } as any);
+      const res = await fetch(`${API_URL}/api/entangled/payment-requests/${requestId}/upload-proof-file`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setUploadSuccessModal({ visible: true, referencia: data.referencia_pago || '' });
+        loadRequests();
+      } else {
+        Alert.alert('Error', data.error || 'No se pudo subir el comprobante');
+      }
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'Error de red');
+    }
+    setUploadingId(null);
+  };
+
+  const formatElapsed = (fromIso: string) => {
+    const from = parseApiDate(fromIso) || new Date();
+    const secs = Math.floor((now.getTime() - from.getTime()) / 1000);
+    const d = Math.floor(secs / 86400);
+    const h = Math.floor((secs % 86400) / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    if (d > 0) return `${d}d ${h}h ${m}m`;
+    if (h > 0) return `${h}h ${m}m ${s}s`;
+    return `${m}m ${s}s`;
+  };
+
   // ── RENDER ──────────────────────────────────────────────────────────────────
 
   const renderDashboard = () => (
@@ -459,7 +521,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         <View style={[styles.hudCorner, { bottom: 12, right: 12, borderBottomWidth: 1.5, borderRightWidth: 1.5, borderColor: RED }]} />
 
         <Image
-          source={require('../../assets/logo-completo-xpay.png')}
+          source={require('../../assets/logo-completo-xpay-t.png')}
           style={{ width: 140, height: 48, resizeMode: 'contain', marginBottom: 14 }}
         />
         <Text style={styles.heroTagline}>ENVÍOS DE DINERO SEGUROS</Text>
@@ -552,6 +614,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               setMonto(calcMonto);
               setDivisa(calcDivisa);
               if (defaultProvider) setSelectedProviderId(defaultProvider.id);
+              setSelectedSupplierId('new');
+              setShowNewSupplierForm(false);
               setWizardStep(1);
               setViewMode('wizard');
             }}
@@ -564,7 +628,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
         <TouchableOpacity
           style={styles.manageBtn}
-          onPress={() => { setWizardStep(2); setViewMode('wizard'); }}
+          onPress={() => { setSelectedSupplierId('new'); setShowNewSupplierForm(false); setWizardStep(2); setViewMode('wizard'); }}
         >
           <Ionicons name="people-outline" size={13} color={TEXT_MUTED} />
           <Text style={styles.manageBtnText}>Gestionar proveedores guardados</Text>
@@ -663,11 +727,16 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               <View key={r.id} style={[styles.requestItem, idx === requests.length - 1 && { borderBottomWidth: 0 }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                   <View style={{ flex: 1, marginRight: 8 }}>
-                    <Text style={{ color: TEXT_MUTED, fontSize: 10, letterSpacing: 0.6, fontWeight: '600' }}>
-                      #{r.id} · {r.cf_rfc}
-                    </Text>
-                    <Text style={{ color: TEXT, fontWeight: '700', fontSize: 14, marginTop: 3 }} numberOfLines={1}>
-                      {r.cf_razon_social}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                      <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: `${ORANGE}55`, backgroundColor: `${ORANGE}12` }}>
+                        <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '900', letterSpacing: 1.2 }}>
+                          {r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`}
+                        </Text>
+                      </View>
+                      {r.cf_rfc ? <Text style={{ color: TEXT_MUTED, fontSize: 10, letterSpacing: 0.5 }}>{r.cf_rfc}</Text> : null}
+                    </View>
+                    <Text style={{ color: TEXT, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>
+                      {r.cf_razon_social || '—'}
                     </Text>
                   </View>
                   <View style={[styles.statusBadge, { backgroundColor: `${sc}18`, borderColor: `${sc}45` }]}>
@@ -681,11 +750,20 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   {Number(r.op_monto).toLocaleString()} {r.op_divisa_destino}
                 </Text>
 
-                {isActive && (
+                {/* Deadline OR chronometer */}
+                {isActive && !r.comprobante_subido_at && (
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 6 }}>
                     <Ionicons name="time-outline" size={11} color="#FBBF24" />
                     <Text style={{ color: '#FBBF24', fontSize: 10, fontWeight: '700' }}>
                       Vence: {formatDateTime(deadline)}
+                    </Text>
+                  </View>
+                )}
+                {r.comprobante_subido_at && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: 'rgba(74,222,128,0.08)', alignSelf: 'flex-start', borderWidth: 1, borderColor: 'rgba(74,222,128,0.25)' }}>
+                    <Ionicons name="stopwatch-outline" size={11} color="#4ade80" />
+                    <Text style={{ color: '#4ade80', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 }}>
+                      Procesando: {formatElapsed(r.comprobante_subido_at)}
                     </Text>
                   </View>
                 )}
@@ -702,6 +780,29 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                     </Text>
                   </View>
                 </View>
+
+                {/* Upload comprobante button */}
+                {isActive && !r.op_comprobante_cliente_url && (
+                  <TouchableOpacity
+                    style={styles.uploadBtn}
+                    onPress={() => uploadComprobante(r.id)}
+                    disabled={uploadingId === r.id}
+                  >
+                    {uploadingId === r.id
+                      ? <ActivityIndicator size="small" color="#fff" />
+                      : <><Ionicons name="cloud-upload-outline" size={14} color="#fff" /><Text style={styles.uploadBtnText}>Subir comprobante de pago</Text></>
+                    }
+                  </TouchableOpacity>
+                )}
+                {isActive && !!r.op_comprobante_cliente_url && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 }}>
+                    <Ionicons name="checkmark-circle" size={14} color="#4ade80" />
+                    <Text style={{ color: '#4ade80', fontSize: 11, fontWeight: '700' }}>Comprobante enviado</Text>
+                    <TouchableOpacity onPress={() => uploadComprobante(r.id)}>
+                      <Text style={{ color: TEXT_MUTED, fontSize: 10, marginLeft: 4 }}>Reemplazar</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
 
                 {(r.factura_url || r.comprobante_proveedor_url) && (
                   <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
@@ -764,7 +865,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                     isDone && styles.stepCircleDone,
                   ]}>
                     {isDone
-                      ? <Ionicons name="checkmark" size={11} color="#fff" />
+                      ? <Ionicons name="checkmark" size={11} color={ORANGE} />
                       : <Text style={[styles.stepCircleText, isActive && { color: '#fff' }]}>{s.id}</Text>
                     }
                   </View>
@@ -846,53 +947,57 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         {/* Step 2: Beneficiario */}
         {wizardStep === 2 && (
           <>
-            <Text style={[styles.sectionTitle, { fontSize: 13, marginTop: 16, marginBottom: 10 }]}>
+            <Text style={[styles.sectionTitle, { fontSize: 13, marginTop: 16, marginBottom: 12 }]}>
               🏦 {t('xpay.supplierSection', 'Proveedor de envío')}
             </Text>
 
-            {savedSuppliers.length > 0 && (
-              <>
-                <Text style={styles.label}>{t('xpay.supplierLabel', 'Proveedor guardado')}</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
-                  <TouchableOpacity
-                    style={[styles.chip, selectedSupplierId === 'new' && styles.chipActive]}
-                    onPress={() => handlePickSupplier('new')}
-                  >
-                    <Text style={[styles.chipText, selectedSupplierId === 'new' && styles.chipTextActive]}>
-                      {t('xpay.newSupplier', '+ Nuevo')}
-                    </Text>
-                  </TouchableOpacity>
-                  {savedSuppliers.map(s => (
-                    <TouchableOpacity
-                      key={s.id}
-                      style={[styles.chip, selectedSupplierId === s.id && styles.chipActive]}
-                      onPress={() => handlePickSupplier(s.id)}
-                    >
-                      <Text style={[styles.chipText, selectedSupplierId === s.id && styles.chipTextActive]}>
-                        {s.is_favorite ? '★ ' : ''}{s.alias || s.nombre_beneficiario}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+            {/* Chips de proveedores guardados + botón Nuevo */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+              <TouchableOpacity
+                style={[styles.chip, styles.chipActive, { marginRight: 6 }]}
+                onPress={() => {
+                  handlePickSupplier('new');
+                  setShowNewSupplierForm(true);
+                  setEditingSupplierData(false);
+                }}
+              >
+                <Text style={[styles.chipText, styles.chipTextActive]}>+ Nuevo</Text>
+              </TouchableOpacity>
+              {savedSuppliers.map(s => (
+                <TouchableOpacity
+                  key={s.id}
+                  style={[styles.chip, selectedSupplierId === s.id && !showNewSupplierForm && styles.chipActive]}
+                  onPress={() => {
+                    handlePickSupplier(s.id);
+                    setShowNewSupplierForm(false);
+                    setEditingSupplierData(false);
+                  }}
+                >
+                  <Text style={[styles.chipText, selectedSupplierId === s.id && !showNewSupplierForm && styles.chipTextActive]}>
+                    {s.is_favorite ? '★ ' : ''}{s.alias || s.nombre_beneficiario}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
 
-                {selectedSupplierId !== 'new' && savedSuppliers.find(s => s.id === selectedSupplierId) && !editingSupplierData && (
-                  <View style={styles.infoCardOrange}>
-                    <Text style={styles.infoCardTitleOrange}>✅ {t('xpay.supplierSelected', 'Proveedor seleccionado')}</Text>
-                    <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>{t('xpay.beneficiary', 'Beneficiario')}:</Text> {savedSuppliers.find(s => s.id === selectedSupplierId)?.nombre_beneficiario}</Text>
-                    {savedSuppliers.find(s => s.id === selectedSupplierId)?.banco_nombre && (
-                      <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>{t('xpay.bank', 'Banco')}:</Text> {savedSuppliers.find(s => s.id === selectedSupplierId)?.banco_nombre}</Text>
-                    )}
-                    <TouchableOpacity onPress={() => setEditingSupplierData(true)} style={{ marginTop: 6 }}>
-                      <Text style={styles.editLink}>✏️ {t('xpay.editData', 'Editar')}</Text>
-                    </TouchableOpacity>
-                  </View>
+            {/* Tarjeta del proveedor guardado seleccionado */}
+            {!showNewSupplierForm && selectedSupplierId !== 'new' && savedSuppliers.find(s => s.id === selectedSupplierId) && !editingSupplierData && (
+              <View style={styles.infoCardOrange}>
+                <Text style={styles.infoCardTitleOrange}>✓ {t('xpay.supplierSelected', 'Proveedor seleccionado')}</Text>
+                <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>Beneficiario:</Text> {savedSuppliers.find(s => s.id === selectedSupplierId)?.nombre_beneficiario}</Text>
+                {savedSuppliers.find(s => s.id === selectedSupplierId)?.banco_nombre && (
+                  <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>Banco:</Text> {savedSuppliers.find(s => s.id === selectedSupplierId)?.banco_nombre}</Text>
                 )}
-              </>
+                <TouchableOpacity onPress={() => setEditingSupplierData(true)} style={{ marginTop: 6 }}>
+                  <Text style={styles.editLink}>✏️ {t('xpay.editData', 'Editar datos')}</Text>
+                </TouchableOpacity>
+              </View>
             )}
 
-            {(selectedSupplierId === 'new' || editingSupplierData) && (
+            {/* Formulario — solo visible al tocar "+ Nuevo" o editar */}
+            {(showNewSupplierForm || editingSupplierData) && (
               <>
-                <Text style={styles.label}>{t('xpay.beneficiaryName', 'Nombre del beneficiario')}</Text>
+                <Text style={styles.label}>{t('xpay.beneficiaryName', 'Nombre del beneficiario')} *</Text>
                 <TextInput style={styles.input} value={benefName} onChangeText={setBenefName} />
 
                 {divisa === 'RMB' && (
@@ -905,10 +1010,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 <Text style={styles.label}>{t('xpay.beneficiaryAddress', 'Dirección del beneficiario')}</Text>
                 <TextInput style={styles.input} value={benefAddress} onChangeText={setBenefAddress} />
 
-                <Text style={styles.label}>{t('xpay.accountNumber', 'Número de cuenta')}</Text>
+                <Text style={styles.label}>{t('xpay.accountNumber', 'Número de cuenta')} *</Text>
                 <TextInput style={styles.input} value={benefAccount} onChangeText={setBenefAccount} />
 
-                <Text style={styles.label}>{t('xpay.bankName', 'Nombre del banco')}</Text>
+                <Text style={styles.label}>{t('xpay.bankName', 'Banco')} *</Text>
                 <TextInput style={styles.input} value={benefBankName} onChangeText={setBenefBankName} />
 
                 <Text style={styles.label}>{t('xpay.bankAddress', 'Dirección del banco')} *</Text>
@@ -923,7 +1028,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 <Text style={styles.label}>{t('xpay.aliasOptional', 'Alias (opcional)')}</Text>
                 <TextInput style={styles.input} value={benefAlias} onChangeText={setBenefAlias} />
 
-                {selectedSupplierId === 'new' && (
+                {showNewSupplierForm && (
                   <TouchableOpacity
                     style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}
                     onPress={() => setSaveSupplier(s => !s)}
@@ -956,7 +1061,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               <>
                 {rfc && razon && !editingFiscalData ? (
                   <View style={styles.infoCardSuccess}>
-                    <Text style={styles.infoCardTitleSuccess}>✅ {t('xpay.fiscalLoaded', 'Datos fiscales cargados')}</Text>
+                    <Text style={styles.infoCardTitleSuccess}>✓ {t('xpay.fiscalLoaded', 'Datos fiscales cargados')}</Text>
                     <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>Razón Social:</Text> {razon}</Text>
                     <Text style={styles.infoCardLine}><Text style={styles.infoCardLineLabel}>RFC:</Text> {rfc}</Text>
                     <Text style={[styles.infoCardLine, { marginBottom: 8 }]}><Text style={styles.infoCardLineLabel}>CP:</Text> {cp}</Text>
@@ -1020,7 +1125,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         {/* Step 4: Resumen */}
         {wizardStep === 4 && (
           <View style={styles.quoteBox}>
-            <Text style={styles.quoteTitle}>✅ Resumen total</Text>
+            <Text style={styles.quoteTitle}>✓ Resumen total</Text>
             <Text style={styles.quoteLine}>Divisa: <Text style={styles.quoteVal}>{divisa}</Text></Text>
             <Text style={styles.quoteLine}>Monto al proveedor: <Text style={styles.quoteVal}>${formatMoney(monto || 0, 2)} {divisa}</Text></Text>
             <Text style={styles.quoteLine}>Proveedor ENTANGLED: <Text style={styles.quoteVal}>{providers.find((x) => x.id === selectedProviderId)?.name || '-'}</Text></Text>
@@ -1090,7 +1195,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         <View style={{ flex: 1, marginLeft: 12 }}>
           <Text style={styles.headerEyebrow}>Portal Seguro</Text>
           <Image
-            source={require('../../assets/logo-completo-xpay.png')}
+            source={require('../../assets/logo-completo-xpay-t.png')}
             style={{ width: 80, height: 28, resizeMode: 'contain' }}
           />
           <View style={styles.headerDividerRow}>
@@ -1104,6 +1209,48 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       </View>
 
       {viewMode === 'dashboard' ? renderDashboard() : renderWizard()}
+
+      {/* Upload Comprobante Success Modal */}
+      <Modal
+        visible={uploadSuccessModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setUploadSuccessModal({ visible: false, referencia: '' })}
+      >
+        <View style={styles.successOverlay}>
+          <View style={[styles.successCard, { borderColor: '#4ade8055', borderWidth: 1 }]}>
+            {/* Icono circular verde */}
+            <View style={[styles.successIconWrap, { backgroundColor: '#16a34a' }]}>
+              <Ionicons name="cloud-done-outline" size={22} color="#fff" />
+            </View>
+            <Text style={[styles.successTitle, { marginTop: 14 }]}>Comprobante enviado</Text>
+            <Text style={[styles.successMessage, { marginTop: 6 }]}>
+              Tu comprobante fue recibido con éxito.{'\n'}Nuestro equipo procesará tu operación.
+            </Text>
+
+            {/* Referencia */}
+            {!!uploadSuccessModal.referencia && (
+              <View style={styles.successRefBlock}>
+                <Text style={styles.successRefLabel}>REFERENCIA DE PAGO</Text>
+                <Text style={styles.successRefCode}>{uploadSuccessModal.referencia}</Text>
+              </View>
+            )}
+
+            {/* Cronómetro iniciado */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: 'rgba(74,222,128,0.08)', borderWidth: 1, borderColor: 'rgba(74,222,128,0.25)' }}>
+              <Ionicons name="stopwatch-outline" size={13} color="#4ade80" />
+              <Text style={{ color: '#4ade80', fontSize: 11, fontWeight: '700', letterSpacing: 0.4 }}>Cronómetro de operación iniciado</Text>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.successBtn, { backgroundColor: '#16a34a', marginTop: 20 }]}
+              onPress={() => setUploadSuccessModal({ visible: false, referencia: '' })}
+            >
+              <Text style={styles.successBtnText}>Aceptar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Success Modal */}
       <Modal
@@ -1119,9 +1266,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             </View>
             <Text style={styles.successTitle}>{t('xpay.requestCreatedTitle', '¡Solicitud creada!')}</Text>
             <Text style={styles.successMessage}>{t('xpay.requestCreatedMessage', 'Tu solicitud fue registrada. Recibirás instrucciones de pago a la brevedad.')}</Text>
-            {!!lastRequestId && (
-              <View style={styles.successRefPill}>
-                <Text style={styles.successRefText}>#{lastRequestId}</Text>
+            {!!lastReferencia && (
+              <View style={styles.successRefBlock}>
+                <Text style={styles.successRefLabel}>Número de referencia de pago</Text>
+                <Text style={styles.successRefCode}>{lastReferencia}</Text>
               </View>
             )}
             <TouchableOpacity style={styles.successBtn} onPress={() => setSuccessModalVisible(false)}>
@@ -1322,7 +1470,7 @@ const styles = StyleSheet.create({
     backgroundColor: ORANGE, borderColor: ORANGE,
     shadowColor: ORANGE, shadowOpacity: 0.5, shadowRadius: 8, shadowOffset: { width: 0, height: 0 },
   },
-  stepCircleDone: { backgroundColor: 'rgba(240,90,40,0.3)', borderColor: ORANGE },
+  stepCircleDone: { backgroundColor: SURFACE_2, borderColor: ORANGE },
   stepCircleText: { color: TEXT_MUTED, fontSize: 11, fontWeight: '800' },
   stepLabel: { color: TEXT_MUTED, fontSize: 9, fontWeight: '600', letterSpacing: 0.3 },
   stepLine: { flex: 1, height: 1.5, backgroundColor: BORDER, marginBottom: 14 },
@@ -1378,6 +1526,12 @@ const styles = StyleSheet.create({
   },
   statusPill: { borderWidth: 1, paddingVertical: 3, paddingHorizontal: 8, borderRadius: 10 },
   statusPillText: { fontSize: 10, fontWeight: '600' },
+  uploadBtn: {
+    marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 7, paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10,
+    backgroundColor: ORANGE,
+  },
+  uploadBtnText: { color: '#fff', fontSize: 12, fontWeight: '800', letterSpacing: 0.3 },
   linkBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingVertical: 5, paddingHorizontal: 10,
@@ -1410,6 +1564,16 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(240,90,40,0.4)', backgroundColor: 'rgba(240,90,40,0.1)',
   },
   successRefText: { color: ORANGE, fontSize: 12, fontWeight: '700' },
+  successRefBlock: {
+    marginTop: 16, width: '100%',
+    borderRadius: 10, borderWidth: 1,
+    borderColor: 'rgba(240,90,40,0.35)',
+    backgroundColor: 'rgba(240,90,40,0.08)',
+    paddingVertical: 10, paddingHorizontal: 14,
+    alignItems: 'center',
+  },
+  successRefLabel: { color: TEXT_MUTED, fontSize: 10, letterSpacing: 1.5, fontWeight: '600', marginBottom: 4 },
+  successRefCode: { color: ORANGE, fontSize: 20, fontWeight: '900', letterSpacing: 2 },
   successBtn: {
     marginTop: 16, minWidth: 140, borderRadius: 22,
     paddingVertical: 10, paddingHorizontal: 18,

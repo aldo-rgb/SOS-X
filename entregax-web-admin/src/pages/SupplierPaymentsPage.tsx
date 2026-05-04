@@ -101,7 +101,7 @@ interface Stats {
   total_advisor_profit: number;
 }
 
-export default function SupplierPaymentsPage() {
+export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?: boolean }) {
   useTranslation();
   const [tabValue, setTabValue] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -110,6 +110,7 @@ export default function SupplierPaymentsPage() {
   // Estado
   const [providers, setProviders] = useState<Provider[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
+  const [entangledRequests, setEntangledRequests] = useState<any[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
 
@@ -175,11 +176,13 @@ export default function SupplierPaymentsPage() {
       setPayments(paymentsRes.data);
       setStats(statsRes.data);
 
-      // ENTANGLED: providers + overrides por usuario (no fatal si falla)
+      // ENTANGLED: providers + overrides + solicitudes
       try {
-        const [provRes, upRes] = await Promise.all([
+        const statusQ = statusFilter !== 'all' ? `?status=${statusFilter}` : '';
+        const [provRes, upRes, reqRes] = await Promise.all([
           axios.get(`${API_URL}/admin/entangled/providers`, { headers }),
-          axios.get(`${API_URL}/admin/entangled/user-pricing`, { headers })
+          axios.get(`${API_URL}/admin/entangled/user-pricing`, { headers }),
+          axios.get(`${API_URL}/admin/entangled/payment-requests${statusQ}`, { headers }),
         ]);
         const list = (provRes.data || []).map((p: any) => ({
           ...p,
@@ -187,6 +190,7 @@ export default function SupplierPaymentsPage() {
         }));
         setEntProviders(list);
         setUserPricing(upRes.data || []);
+        setEntangledRequests(reqRes.data || []);
       } catch (e) {
         console.warn('ENTANGLED endpoints no disponibles:', e);
       }
@@ -307,29 +311,24 @@ export default function SupplierPaymentsPage() {
     }
   };
 
-  const handleUpdatePaymentStatus = async (paymentId: number, status: string) => {
-    try {
-      await axios.put(`${API_URL}/admin/supplier-payments/status`,
-        { paymentId, status },
-        { headers: { Authorization: `Bearer ${getToken()}` } }
-      );
-      setSnackbar({ open: true, message: 'Estado actualizado', severity: 'success' });
-      loadData();
-    } catch (error) {
-      setSnackbar({ open: true, message: 'Error al actualizar', severity: 'error' });
-    }
-  };
-
   const getStatusChip = (status: string) => {
     const config: Record<string, { color: 'warning' | 'info' | 'success' | 'error' | 'default'; icon: React.ReactElement | undefined }> = {
       pending: { color: 'warning', icon: <PendingIcon fontSize="small" /> },
+      pendiente: { color: 'warning', icon: <PendingIcon fontSize="small" /> },
       processing: { color: 'info', icon: <CurrencyExchangeIcon fontSize="small" /> },
+      en_proceso: { color: 'info', icon: <CurrencyExchangeIcon fontSize="small" /> },
       paid: { color: 'info', icon: <PaymentsIcon fontSize="small" /> },
+      enviado: { color: 'info', icon: <PaymentsIcon fontSize="small" /> },
+      emitida: { color: 'info', icon: <CheckCircleIcon fontSize="small" /> },
       completed: { color: 'success', icon: <CheckCircleIcon fontSize="small" /> },
-      rejected: { color: 'error', icon: <CancelIcon fontSize="small" /> }
+      completado: { color: 'success', icon: <CheckCircleIcon fontSize="small" /> },
+      rejected: { color: 'error', icon: <CancelIcon fontSize="small" /> },
+      rechazado: { color: 'error', icon: <CancelIcon fontSize="small" /> },
+      cancelado: { color: 'error', icon: <CancelIcon fontSize="small" /> },
+      error_envio: { color: 'error', icon: <CancelIcon fontSize="small" /> },
     };
     const c = config[status] || { color: 'default' as const, icon: undefined };
-    return <Chip size="small" color={c.color} icon={c.icon} label={status.toUpperCase()} />;
+    return <Chip size="small" color={c.color} icon={c.icon} label={String(status || '—').toUpperCase()} />;
   };
 
   if (loading && payments.length === 0) {
@@ -351,7 +350,9 @@ export default function SupplierPaymentsPage() {
 
       {/* ══════════════════════════════════════════════════
           HERO BANNER — X-Pay premium fintech header
+          Solo visible en modo cliente (no en admin)
           ══════════════════════════════════════════════════ */}
+      {!adminMode && <>
       <Box sx={{
         position: 'relative',
         overflow: 'hidden',
@@ -725,6 +726,8 @@ export default function SupplierPaymentsPage() {
           </Box>
         </Box>
       </Box>
+      </Box>
+      </>}
 
       {/* ─── Tabs ─── */}
       <Paper sx={{ mb: 3, borderRadius: 2, bgcolor: SURFACE, border: `1px solid ${BORDER}` }}>
@@ -760,10 +763,10 @@ export default function SupplierPaymentsPage() {
                 }}
               >
                 <MenuItem value="all">Todos</MenuItem>
-                <MenuItem value="pending">Pendientes</MenuItem>
-                <MenuItem value="processing">En Proceso</MenuItem>
-                <MenuItem value="completed">Completados</MenuItem>
-                <MenuItem value="rejected">Rechazados</MenuItem>
+                <MenuItem value="pendiente">Pendientes</MenuItem>
+                <MenuItem value="en_proceso">En Proceso</MenuItem>
+                <MenuItem value="completado">Completados</MenuItem>
+                <MenuItem value="rechazado">Rechazados</MenuItem>
               </Select>
             </FormControl>
           </Box>
@@ -782,7 +785,7 @@ export default function SupplierPaymentsPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {payments.map((p) => (
+                {entangledRequests.map((p) => (
                   <TableRow key={p.id} hover sx={{ bgcolor: SURFACE, '&:hover': { bgcolor: SURFACE2 }, borderBottom: `1px solid ${BORDER}` }}>
                     <TableCell sx={{ color: '#ffffff', borderBottom: `1px solid ${BORDER}` }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
@@ -796,41 +799,25 @@ export default function SupplierPaymentsPage() {
                       </Box>
                     </TableCell>
                     <TableCell align="right" sx={{ borderBottom: `1px solid ${BORDER}` }}>
-                      <Typography fontWeight={800} sx={{ color: ORANGE, fontSize: '1rem' }}>${parseFloat(String(p.amount_usd)).toLocaleString()}</Typography>
+                      <Typography fontWeight={800} sx={{ color: ORANGE, fontSize: '1rem' }}>${parseFloat(String(p.op_monto || 0)).toLocaleString()}</Typography>
                     </TableCell>
-                    <TableCell sx={{ color: '#aaa', borderBottom: `1px solid ${BORDER}` }}>USD</TableCell>
-                    <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>{getStatusChip(p.status)}</TableCell>
+                    <TableCell sx={{ color: '#aaa', borderBottom: `1px solid ${BORDER}` }}>{p.op_divisa_destino || 'USD'}</TableCell>
+                    <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>{getStatusChip(p.estatus_global)}</TableCell>
                     <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
-                      <Chip size="small" label="Pendiente" sx={{ bgcolor: 'transparent', border: `1px solid ${BORDER}`, color: '#888', fontSize: '0.65rem' }} />
-                    </TableCell>
-                    <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
-                      <Chip size="small" label="Pendiente" sx={{ bgcolor: 'transparent', border: `1px solid ${BORDER}`, color: '#888', fontSize: '0.65rem' }} />
+                      {getStatusChip(p.estatus_factura)}
                     </TableCell>
                     <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
-                      <Box sx={{ display: 'flex', gap: 0.5 }}>
-                        {p.status === 'pending' && (
-                          <>
-                            <Tooltip title="Marcar En Proceso">
-                              <IconButton size="small" sx={{ color: '#3b82f6', '&:hover': { bgcolor: 'rgba(59,130,246,0.1)' } }} onClick={() => handleUpdatePaymentStatus(p.id, 'processing')}>
-                                <CurrencyExchangeIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Rechazar">
-                              <IconButton size="small" sx={{ color: '#ff6b6b', '&:hover': { bgcolor: 'rgba(255,107,107,0.1)' } }} onClick={() => handleUpdatePaymentStatus(p.id, 'rejected')}>
-                                <CancelIcon fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                          </>
-                        )}
-                        {p.status === 'processing' && (
-                          <Tooltip title="Marcar Completado">
-                            <IconButton size="small" sx={{ color: '#4ade80', '&:hover': { bgcolor: 'rgba(74,222,128,0.1)' } }} onClick={() => handleUpdatePaymentStatus(p.id, 'completed')}>
-                              <CheckCircleIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
+                      {getStatusChip(p.estatus_proveedor)}
+                    </TableCell>
+                    <TableCell sx={{ borderBottom: `1px solid ${BORDER}` }}>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                        {p.referencia_pago && (
+                          <Typography variant="caption" sx={{ fontFamily: 'monospace', color: ORANGE, fontWeight: 800, fontSize: '0.75rem', letterSpacing: '0.05em' }}>
+                            {p.referencia_pago}
+                          </Typography>
                         )}
                         <Tooltip title={new Date(p.created_at).toLocaleString()}>
-                          <Typography variant="caption" sx={{ color: '#555', fontSize: '0.65rem', ml: 0.5, alignSelf: 'center', whiteSpace: 'nowrap' }}>
+                          <Typography variant="caption" sx={{ color: '#555', fontSize: '0.65rem', whiteSpace: 'nowrap' }}>
                             {new Date(p.created_at).toLocaleDateString()}
                           </Typography>
                         </Tooltip>
@@ -838,7 +825,7 @@ export default function SupplierPaymentsPage() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {payments.length === 0 && (
+                {entangledRequests.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={7} align="center" sx={{ py: 6, borderBottom: 'none' }}>
                       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1.5, opacity: 0.5 }}>

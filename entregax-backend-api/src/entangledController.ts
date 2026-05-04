@@ -276,12 +276,14 @@ export const createPaymentRequest = async (
 
   // 1. Crear el registro local primero (estado pendiente, sin transaccion_id)
   let requestId: number;
+  let referenciaPago: string;
   try {
     const insertResult = await pool.query(
       `INSERT INTO entangled_payment_requests (
          user_id, advisor_id,
          provider_id,
          requiere_factura,
+         referencia_pago,
          cf_rfc, cf_razon_social, cf_regimen_fiscal, cf_cp, cf_uso_cfdi, cf_email,
          op_monto, op_divisa_destino, op_conceptos, op_comprobante_cliente_url,
          tipo_cambio_aplicado, porcentaje_compra_aplicado, monto_mxn_base, monto_mxn_total,
@@ -298,24 +300,26 @@ export const createPaymentRequest = async (
          $1, $2,
          $3,
          $4,
-         $5, $6, $7, $8, $9, $10,
-         $11, $12, $13::jsonb, NULL,
-         $14, $15, $16, $17,
-         $18, $19, $20, $21, $22,
-         'pendiente', $23, 'pendiente',
-         $24,
-         $25, $26, $27,
-         $28, $29,
-         $30, $31,
-         $32, $33,
-         $34, $35,
-         $36, $37
-       ) RETURNING id`,
+         $5,
+         $6, $7, $8, $9, $10, $11,
+         $12, $13, $14::jsonb, NULL,
+         $15, $16, $17, $18,
+         $19, $20, $21, $22, $23,
+         'pendiente', $24, 'pendiente',
+         $25,
+         $26, $27, $28,
+         $29, $30,
+         $31, $32,
+         $33, $34,
+         $35, $36,
+         $37, $38
+       ) RETURNING id, referencia_pago`,
       [
         userId,
         advisorId,
         quote.provider_id,
         requiereFactura,
+        `XP${String(Math.floor(100000 + Math.random() * 900000)).padStart(6, '0')}`,
         requiereFactura ? String(cliente_final?.rfc || '').toUpperCase() : null,
         requiereFactura ? cliente_final?.razon_social : null,
         requiereFactura ? cliente_final?.regimen_fiscal : null,
@@ -352,6 +356,7 @@ export const createPaymentRequest = async (
       ]
     );
     requestId = insertResult.rows[0].id;
+    referenciaPago = insertResult.rows[0].referencia_pago;
   } catch (err) {
     console.error('[ENTANGLED] Error creando registro local:', err);
     return res.status(500).json({ error: 'No se pudo crear la solicitud local' });
@@ -401,6 +406,7 @@ export const createPaymentRequest = async (
       message:
         'Solicitud guardada localmente. ENTANGLED no está configurado todavía; el equipo administrativo procesará el envío manualmente.',
       request_id: requestId,
+      referencia_pago: referenciaPago,
       status: 'error_envio',
     });
   }
@@ -422,6 +428,7 @@ export const createPaymentRequest = async (
         remote.error ||
         'ENTANGLED no devolvió un transaccion_id. Reintentar más tarde.',
       request_id: requestId,
+      referencia_pago: referenciaPago,
     });
   }
 
@@ -441,6 +448,7 @@ export const createPaymentRequest = async (
   return res.status(201).json({
     message: 'Solicitud enviada a ENTANGLED',
     request: updated.rows[0],
+    referencia_pago: referenciaPago,
     instrucciones_pago: remote.raw || null,
     quote,
   });
@@ -478,12 +486,16 @@ export const getMyPaymentRequests = async (req: Request, res: Response): Promise
     );
 
     const r = await pool.query(
-      `SELECT id, entangled_transaccion_id,
+      `SELECT id,
+              COALESCE(referencia_pago, 'XP' || LPAD(id::text, 6, '0')) AS referencia_pago,
+              entangled_transaccion_id,
               cf_rfc, cf_razon_social, cf_email,
               op_monto, op_divisa_destino,
               estatus_global, estatus_factura, estatus_proveedor,
               factura_url, factura_emitida_at,
               comprobante_proveedor_url, proveedor_pagado_at,
+              op_comprobante_cliente_url,
+              comprobante_subido_at,
               created_at, updated_at,
               (created_at + INTERVAL '24 hours') AS payment_deadline_at,
               CASE

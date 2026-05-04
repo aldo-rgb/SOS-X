@@ -451,7 +451,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                         sx={{ cursor: 'pointer' }}
                     />
                 </Box>
-                <SupplierPaymentsPage />
+                <SupplierPaymentsPage adminMode />
             </Box>
         );
     }
