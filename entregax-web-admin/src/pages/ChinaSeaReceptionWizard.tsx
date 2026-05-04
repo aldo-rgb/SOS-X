@@ -36,6 +36,7 @@ import {
     Refresh as RefreshIcon,
     Warning as WarningIcon,
     DirectionsBoat as BoatIcon,
+    Search as SearchIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -101,6 +102,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     const [error, setError] = useState<string | null>(null);
 
     const [containers, setContainers] = useState<Container[]>([]);
+    const [searchQuery, setSearchQuery] = useState('');
     const [selected, setSelected] = useState<Container | null>(null);
 
     const [orders, setOrders] = useState<Order[]>([]);
@@ -480,15 +482,40 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             )}
 
             {/* STEP 0 */}
-            {step === 0 && !loading && (
-                <Paper variant="outlined">
-                    {containers.length === 0 ? (
+            {step === 0 && !loading && (() => {
+                const q = searchQuery.trim().toLowerCase();
+                const filteredContainers = q
+                    ? containers.filter((c) =>
+                        (c.reference_code || '').toLowerCase().includes(q) ||
+                        (c.bl_number || '').toLowerCase().includes(q) ||
+                        (c.container_number || '').toLowerCase().includes(q) ||
+                        (c.vessel_name || '').toLowerCase().includes(q) ||
+                        (c.voyage_number || '').toLowerCase().includes(q)
+                    )
+                    : containers;
+                return (
+                <>
+                    <TextField
+                        fullWidth
+                        size="small"
+                        placeholder="Buscar por referencia, BL, contenedor, buque o viaje…"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        InputProps={{ startAdornment: <SearchIcon sx={{ color: TEAL, mr: 1 }} /> }}
+                        sx={{ mb: 2, bgcolor: '#FFF' }}
+                    />
+                    <Paper variant="outlined">
+                    {filteredContainers.length === 0 ? (
                         <Box sx={{ p: 4, textAlign: 'center' }}>
-                            <Typography color="text.secondary">No hay contenedores pendientes de recepción</Typography>
+                            <Typography color="text.secondary">
+                                {containers.length === 0
+                                    ? 'No hay contenedores pendientes de recepción'
+                                    : 'Sin resultados para la búsqueda'}
+                            </Typography>
                         </Box>
                     ) : (
                         <List>
-                            {containers.map((c) => {
+                            {filteredContainers.map((c) => {
                                 const eta = c.eta;
                                 const daysToEta = eta ? Math.floor((new Date(eta).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
                                 const arrived = daysToEta !== null && daysToEta <= 0;
@@ -555,28 +582,44 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                         <ListItemText
                                             primary={
                                                 <Typography sx={{ fontWeight: 800, color: TEAL, fontFamily: 'monospace', fontSize: 18 }}>
-                                                    {c.reference_code || c.container_number || c.bl_number || '—'}
+                                                    {c.reference_code || '—'}
                                                 </Typography>
                                             }
                                             secondary={
-                                                Number(c.received_orders) > 0 ? (
+                                                <Stack direction="row" spacing={0.5} sx={{ mt: 0.5, flexWrap: 'wrap', gap: 0.5 }}>
                                                     <Chip
-                                                        icon={<CheckCircleIcon />}
-                                                        label={`${c.received_orders}/${c.total_orders} recibidos`}
                                                         size="small"
-                                                        color="success"
-                                                        sx={{ mt: 0.5 }}
+                                                        variant="outlined"
+                                                        label={`📄 BL: ${c.bl_number || '—'}`}
+                                                        sx={{ fontFamily: 'monospace', fontWeight: 600 }}
                                                     />
-                                                ) : null
+                                                    <Chip
+                                                        size="small"
+                                                        variant="outlined"
+                                                        label={`🚢 Contenedor: ${c.container_number || '—'}`}
+                                                        sx={{ fontFamily: 'monospace', fontWeight: 600 }}
+                                                    />
+                                                    {Number(c.received_orders) > 0 && (
+                                                        <Chip
+                                                            icon={<CheckCircleIcon />}
+                                                            label={`${c.received_orders}/${c.total_orders} recibidos`}
+                                                            size="small"
+                                                            color="success"
+                                                        />
+                                                    )}
+                                                </Stack>
                                             }
+                                            secondaryTypographyProps={{ component: 'div' }}
                                         />
                                     </ListItem>
                                 );
                             })}
                         </List>
                     )}
-                </Paper>
-            )}
+                    </Paper>
+                </>
+                );
+            })()}
 
             {/* STEP 1 */}
             {step === 1 && selected && (
