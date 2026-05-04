@@ -5543,12 +5543,18 @@ export default function DashboardClient() {
                         ) : hasDeliveryInstructions ? (
                           <Chip 
                             icon={<CheckCircleIcon sx={{ fontSize: 14 }} />}
-                            label={pkg.national_carrier ? `🚚 ${getCarrierDisplayName(pkg.national_carrier)}` : 'Con Instrucciones'}
+                            label={
+                              pkg.national_carrier
+                                ? `🚚 ${getCarrierDisplayName(pkg.national_carrier)}${isPaidPackage(pkg) ? ' · Pagado' : ''}`
+                                : `Con Instrucciones${isPaidPackage(pkg) ? ' · Pagado' : ''}`
+                            }
                             size="small"
                             sx={{ 
-                              bgcolor: pkg.national_carrier
-                                ? (isEntregaXLocalCarrier ? ORANGE : '#1565C0')
-                                : ORANGE, 
+                              bgcolor: isPaidPackage(pkg)
+                                ? '#2E7D32'
+                                : pkg.national_carrier
+                                  ? (isEntregaXLocalCarrier ? ORANGE : '#1565C0')
+                                  : ORANGE, 
                               color: 'white',
                               fontSize: '0.65rem',
                               fontWeight: 'bold',
