@@ -448,7 +448,15 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         // Buscar orden localmente por ordersn
         const matchedOrder = orders.find((o) => (o.ordersn || '').toUpperCase() === parentRef.toUpperCase());
 
-        if (matchedOrder && boxNumber) {
+        // 🔒 Si el escaneo trae número de caja (-NNNN) FORZAR tracking por caja.
+        // Nunca caer al fallback que marca el log entero como recibido.
+        if (boxNumber) {
+            if (!matchedOrder) {
+                playBeep('error');
+                setScanFeedback({ type: 'error', msg: `❌ Log ${parentRef} no pertenece a este contenedor` });
+                setScanInput('');
+                return;
+            }
             // Escaneo por caja: tracking local
             const expected = Number(matchedOrder.summary_boxes) || Number(matchedOrder.goods_num) || 0;
             const boxNum = parseInt(boxNumber, 10);
@@ -458,6 +466,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 setScanInput('');
                 return;
             }
+            // Si el log ya estaba marcado como recibido en backend, sembrar el set con todas las cajas previas (excepto las pendientes de re-escanear)
             const prevSet = scannedBoxesByOrder[matchedOrder.id] || new Set<string>();
             if (prevSet.has(boxNumber)) {
                 playBeep('info');
@@ -473,8 +482,8 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             setExpandedOrderId(matchedOrder.id);
 
             const remaining = expected - nextSet.size;
-            if (remaining === 0) {
-                // Todas las cajas escaneadas → marcar como recibido en backend
+            if (expected > 0 && remaining === 0) {
+                // Todas las cajas escaneadas → marcar como recibido en backend (usando ordersn limpio, sin sufijo)
                 try {
                     await api.post(`/admin/china-sea/containers/${selected.id}/scan`, { reference: matchedOrder.ordersn });
                     playBeep('complete');
@@ -493,19 +502,38 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             return;
         }
 
-        // Sin número de caja, o no encontrado localmente: flujo legado contra backend
+        // Sin número de caja: requerir confirmación explícita para marcar log completo de un solo escaneo.
+        // Si la orden existe en la lista local y tiene > 1 caja, NO permitir marcado completo: forzar escaneo por caja.
+        if (matchedOrder) {
+            const expected = Number(matchedOrder.summary_boxes) || Number(matchedOrder.goods_num) || 0;
+            if (expected > 1) {
+                playBeep('error');
+                setScanFeedback({
+                    type: 'error',
+                    msg: `⚠️ ${matchedOrder.ordersn} tiene ${expected} cajas. Escanea cada caja individualmente (${matchedOrder.ordersn}-0001 ... ${matchedOrder.ordersn}-${String(expected).padStart(4, '0')})`,
+                });
+                setExpandedOrderId(matchedOrder.id);
+                setScanInput('');
+                return;
+            }
+            // expected <= 1 → se permite marcar como recibido directo
+        }
+
+        // Sin número de caja y log de 1 sola caja (o no encontrado localmente): flujo legado contra backend
         try {
             const res = await api.post(`/admin/china-sea/containers/${selected.id}/scan`, { reference: parentRef });
             const orderData = res.data.order;
             if (orderData) {
-                // Si existe en la lista local, expandirlo y marcar todas las cajas como escaneadas
+                // Solo si existe localmente y tiene <= 1 caja, sembrar el set como completo.
                 const localOrder = orders.find((o) => o.id === orderData.id || (o.ordersn || '').toUpperCase() === (orderData.ordersn || '').toUpperCase());
                 if (localOrder) {
                     const expected = Number(localOrder.summary_boxes) || Number(localOrder.goods_num) || 1;
-                    const allBoxes = new Set<string>();
-                    for (let i = 1; i <= expected; i++) allBoxes.add(String(i).padStart(4, '0'));
-                    setScannedBoxesByOrder((prev) => ({ ...prev, [localOrder.id]: allBoxes }));
-                    setReceivedByOrder((prev) => ({ ...prev, [localOrder.id]: expected }));
+                    if (expected <= 1) {
+                        const allBoxes = new Set<string>();
+                        for (let i = 1; i <= expected; i++) allBoxes.add(String(i).padStart(4, '0'));
+                        setScannedBoxesByOrder((prev) => ({ ...prev, [localOrder.id]: allBoxes }));
+                        setReceivedByOrder((prev) => ({ ...prev, [localOrder.id]: expected }));
+                    }
                     setExpandedOrderId(localOrder.id);
                 }
             }
