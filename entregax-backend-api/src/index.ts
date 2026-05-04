@@ -4406,10 +4406,15 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
     // Fechas por defecto: hoy y mes actual
     const today = new Date();
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-    const startDate = date_from ? new Date(date_from as string) : startOfMonth;
-    // endDate debe ser fin del día para incluir transacciones de hoy
-    let endDate = date_to ? new Date(date_to as string) : today;
-    endDate.setHours(23, 59, 59, 999);
+    // Interpretamos las fechas en zona horaria de México (UTC-6) para evitar
+    // perder pagos hechos en la noche que ya cayeron en UTC del día siguiente.
+    const startDate = date_from
+      ? new Date(`${date_from}T00:00:00-06:00`)
+      : startOfMonth;
+    let endDate = date_to
+      ? new Date(`${date_to}T23:59:59.999-06:00`)
+      : today;
+    if (!date_to) endDate.setHours(23, 59, 59, 999);
     
     // Filtro por tipo de servicio (opcional)
     // ⚠️ La BD mezcla aliases ('china_air' vs 'AIR_CHN_MX'). Construimos lista de equivalentes.
