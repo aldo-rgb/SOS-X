@@ -284,7 +284,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#00BCD4',
     screen: 'CounterPickup',
-    roles: ['counter_staff', 'branch_manager', 'admin', 'super_admin'],
+    roles: ['branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
     hideIfPOBox: true, // Ocultar si tiene permisos PO Box
   },
@@ -296,7 +296,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#8BC34A',
     screen: 'CounterReception',
-    roles: ['counter_staff', 'branch_manager', 'admin', 'super_admin'],
+    roles: ['branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
     hideIfPOBox: true, // Ocultar si tiene permisos PO Box
   },

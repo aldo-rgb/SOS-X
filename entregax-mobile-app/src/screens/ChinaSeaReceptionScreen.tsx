@@ -79,6 +79,9 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
   const inputRef = useRef<TextInput | null>(null);
   const lockRef = useRef(false);
 
+  // Tracking de cajas escaneadas por orden (orderId -> Set de números '0001')
+  const [scannedBoxesByOrder, setScannedBoxesByOrder] = useState<Record<number, Set<string>>>({});
+
   const [cameraOpen, setCameraOpen] = useState(false);
   const [confirmPartial, setConfirmPartial] = useState(false);
   const [result, setResult] = useState<{ received: number; missing: number; total: number } | null>(null);
@@ -169,17 +172,118 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
     if (!selected) return;
     const reference = cleanRef(raw);
     if (!reference) return;
+
+    // Detectar patrón LOG...-NNNN (caja individual con guión)
+    const dashMatch = reference.match(/^(.+?)-(\d{1,4})$/);
+    let parentRef = dashMatch ? dashMatch[1] : reference;
+    let boxNumber: string | null = dashMatch ? dashMatch[2].padStart(4, '0') : null;
+
+    // Si NO trae guión pero parece un LOG, intentar detectar el sufijo de caja compacto
+    // probando recortar 1-4 dígitos finales y ver si el prefijo coincide con algún ordersn local.
+    if (!dashMatch && /^LOG/i.test(reference)) {
+      for (const len of [4, 3, 2, 1]) {
+        if (reference.length <= len + 6) continue;
+        const candidateMaster = reference.slice(0, -len);
+        const candidateBox = reference.slice(-len);
+        const found = orders.find(
+          (o) => (o.ordersn || '').toUpperCase() === candidateMaster.toUpperCase()
+        );
+        if (found) {
+          parentRef = candidateMaster;
+          boxNumber = candidateBox.padStart(4, '0');
+          break;
+        }
+      }
+    }
+
+    const matchedOrder = orders.find(
+      (o) => (o.ordersn || '').toUpperCase() === parentRef.toUpperCase()
+    );
+
+    // 🔒 Si el escaneo trae número de caja, FORZAR tracking por caja.
+    if (boxNumber) {
+      if (!matchedOrder) {
+        Vibration.vibrate([0, 80, 50, 80]);
+        setFeedback({ type: 'error', msg: `❌ Log ${parentRef} no pertenece a este contenedor` });
+        setScanInput('');
+        return;
+      }
+      const expected = Number(matchedOrder.summary_boxes) || Number(matchedOrder.goods_num) || 0;
+      const boxNum = parseInt(boxNumber, 10);
+      if (expected > 0 && boxNum > expected) {
+        Vibration.vibrate([0, 80, 50, 80]);
+        setFeedback({ type: 'error', msg: `⚠️ Caja ${boxNum} fuera de rango (${matchedOrder.ordersn} solo tiene ${expected} caja(s))` });
+        setScanInput('');
+        return;
+      }
+      const prevSet = scannedBoxesByOrder[matchedOrder.id] || new Set<string>();
+      if (prevSet.has(boxNumber)) {
+        setFeedback({ type: 'info', msg: `ℹ️ Caja ${boxNum} de ${matchedOrder.ordersn} ya escaneada` });
+        setScanInput('');
+        return;
+      }
+      const nextSet = new Set(prevSet);
+      nextSet.add(boxNumber);
+      setScannedBoxesByOrder((prev) => ({ ...prev, [matchedOrder.id]: nextSet }));
+
+      const remaining = expected - nextSet.size;
+      if (expected > 0 && remaining === 0) {
+        // Todas las cajas escaneadas → marcar como recibido en backend
+        try {
+          const res = await fetch(`${API_URL}/api/admin/china-sea/containers/${selected.id}/scan`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ reference: matchedOrder.ordersn }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Error');
+          Vibration.vibrate([0, 60, 40, 60, 40, 60]);
+          setFeedback({ type: 'success', msg: `✅ ${matchedOrder.ordersn} completo (${nextSet.size}/${expected})` });
+          await refresh();
+        } catch (e: any) {
+          Vibration.vibrate([0, 80, 50, 80]);
+          setFeedback({ type: 'error', msg: e.message || 'Error al marcar como recibido' });
+        }
+      } else {
+        Vibration.vibrate(50);
+        setFeedback({ type: 'success', msg: `✓ Caja ${boxNum} de ${matchedOrder.ordersn} · ${nextSet.size}/${expected} (faltan ${remaining})` });
+      }
+      setScanInput('');
+      setTimeout(() => inputRef.current?.focus(), 100);
+      return;
+    }
+
+    // Sin número de caja: si la orden tiene > 1 caja (o cantidad no definida), forzar escaneo por caja.
+    if (matchedOrder) {
+      const expected = Number(matchedOrder.summary_boxes) || Number(matchedOrder.goods_num) || 0;
+      if (expected !== 1) {
+        Vibration.vibrate([0, 80, 50, 80]);
+        const expectedLabel = expected > 1 ? `${expected} cajas` : 'múltiples cajas';
+        setFeedback({
+          type: 'error',
+          msg: `⚠️ ${matchedOrder.ordersn} tiene ${expectedLabel}. Escanea cada caja individualmente (${matchedOrder.ordersn}-0001 ... )`,
+        });
+        setScanInput('');
+        return;
+      }
+    }
+
+    // Log de 1 sola caja o no encontrado localmente → flujo legado contra backend
     try {
       const res = await fetch(`${API_URL}/api/admin/china-sea/containers/${selected.id}/scan`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ reference }),
+        body: JSON.stringify({ reference: parentRef }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error');
       if (data.already_received) {
         setFeedback({ type: 'info', msg: `Ya escaneado: ${data.order?.ordersn || reference}` });
       } else {
+        // Si existe localmente y tiene 1 caja, sembrar el set
+        if (matchedOrder) {
+          setScannedBoxesByOrder((prev) => ({ ...prev, [matchedOrder.id]: new Set(['0001']) }));
+        }
         Vibration.vibrate(50);
         setFeedback({ type: 'success', msg: `✓ ${data.order?.ordersn || reference}` });
       }
@@ -220,7 +324,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
   };
 
   const reset = () => {
-    setStep(0); setSelected(null); setOrders([]); setScanInput('');
+    setStep(0); setSelected(null); setOrders([]); setScanInput(''); setScannedBoxesByOrder({});
     setFeedback(null); setResult(null);
     load();
   };
@@ -572,11 +676,36 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
             {orders.map((o) => {
               const ok = o.status === 'received_mty';
               const wasMissing = o.missing_on_arrival === true;
+              const expectedBoxes = Number(o.summary_boxes) || Number(o.goods_num) || 0;
+              const scannedSet = scannedBoxesByOrder[o.id];
+              const scannedCount = scannedSet ? scannedSet.size : 0;
+              const isPartial = scannedCount > 0 && scannedCount < expectedBoxes;
+              const isComplete = ok || (scannedCount >= expectedBoxes && expectedBoxes > 0);
+              const remaining = Math.max(0, expectedBoxes - scannedCount);
+              const bg = wasMissing
+                ? '#FFF4E5'
+                : isComplete
+                ? '#E8F5E9'
+                : isPartial
+                ? '#FFF3E0'
+                : '#fff';
               return (
-                <View key={o.id} style={[styles.row, { backgroundColor: ok ? '#E8F5E9' : wasMissing ? '#FFF4E5' : '#fff' }]}>
-                  <Ionicons name={ok ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={ok ? GREEN : wasMissing ? '#F9A825' : '#BBB'} />
+                <View key={o.id} style={[styles.row, { backgroundColor: bg }]}>
+                  <Ionicons
+                    name={isComplete ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={22}
+                    color={isComplete ? GREEN : wasMissing ? '#F9A825' : isPartial ? '#FF9800' : '#BBB'}
+                  />
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.tracking}>{o.ordersn}</Text>
+                    <Text style={styles.tracking}>
+                      {o.ordersn}
+                      {expectedBoxes > 0 ? (
+                        <Text style={{ fontWeight: '700', color: isComplete ? GREEN : isPartial ? '#FF9800' : '#666' }}>
+                          {`  ${scannedCount}/${expectedBoxes} cajas`}
+                          {isPartial ? `  · faltan ${remaining}` : ''}
+                        </Text>
+                      ) : null}
+                    </Text>
                     <Text style={styles.subRow}>
                       {o.user_box_id ? `${o.user_box_id} · ` : ''}{o.user_name || 'Sin cliente'}
                     </Text>
