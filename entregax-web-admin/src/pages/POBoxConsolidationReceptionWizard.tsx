@@ -163,7 +163,17 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
         // codificado en el barcode)
         const normalize = (s: string) => s.replace(/[-_\s]/g, '').toLowerCase();
         const pkgFallback = pkg || packages.find((p) => normalize(p.tracking_internal) === normalize(tracking));
-        const matched = pkg || pkgFallback;
+        // Fallback adicional: si viene con sufijo de caja "<MASTER>-<n>" en 1-3 dígitos
+        // (ej. -001) pero los hijos están guardados con padding a 4 (-0001), normalizar.
+        let pkgChildPadded: typeof pkg | undefined;
+        if (!pkg && !pkgFallback) {
+            const m = tracking.match(/^(.+?)-(\d{1,4})$/);
+            if (m) {
+                const padded = `${m[1]}-${String(parseInt(m[2], 10)).padStart(4, '0')}`;
+                pkgChildPadded = packages.find((p) => p.tracking_internal.toLowerCase() === padded.toLowerCase());
+            }
+        }
+        const matched = pkg || pkgFallback || pkgChildPadded;
         if (!matched) {
             setScanFeedback({ type: 'error', msg: `Guía "${tracking}" no pertenece a esta consolidación` });
         } else if (scannedIds.has(matched.id)) {
