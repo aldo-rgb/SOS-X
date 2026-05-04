@@ -567,13 +567,15 @@ export default function FleetManagementPage() {
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          <Button
-            variant="contained"
-            startIcon={<AddIcon />}
-            onClick={() => setAddVehicleOpen(true)}
-          >
-            Nueva Unidad
-          </Button>
+          {isSuperAdmin && (
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => setAddVehicleOpen(true)}
+            >
+              Nueva Unidad
+            </Button>
+          )}
           <IconButton onClick={() => { loadVehicles(); loadDashboard(); loadAlerts(); }}>
             <RefreshIcon />
           </IconButton>
@@ -788,20 +790,24 @@ export default function FleetManagementPage() {
                     )}
                   </TableCell>
                   <TableCell align="center">
-                    <IconButton size="small" onClick={() => handleViewVehicle(vehicle)}>
-                      <ViewIcon />
-                    </IconButton>
-                    {isSuperAdmin && (
-                      <IconButton
-                        size="small"
-                        color="error"
-                        onClick={() => {
-                          setVehicleToDelete(vehicle);
-                          setDeleteVehicleOpen(true);
-                        }}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
+                    {isSuperAdmin ? (
+                      <>
+                        <IconButton size="small" onClick={() => handleViewVehicle(vehicle)}>
+                          <ViewIcon />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          color="error"
+                          onClick={() => {
+                            setVehicleToDelete(vehicle);
+                            setDeleteVehicleOpen(true);
+                          }}
+                        >
+                          <DeleteIcon />
+                        </IconButton>
+                      </>
+                    ) : (
+                      <Typography variant="caption" color="text.disabled">—</Typography>
                     )}
                   </TableCell>
                 </TableRow>
