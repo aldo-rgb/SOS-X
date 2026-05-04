@@ -35,8 +35,13 @@ export const listInTransitConsolidations = async (_req: AuthRequest, res: Respon
          u.full_name AS user_name,
          u.email AS user_email,
          u.box_id,
-         COUNT(p.id)::int AS total_packages,
-         COUNT(p.id) FILTER (WHERE p.missing_on_arrival = TRUE)::int AS missing_packages
+         COUNT(p.id) FILTER (
+           WHERE NOT (p.is_master = TRUE AND COALESCE(p.total_boxes, 1) > 1)
+         )::int AS total_packages,
+         COUNT(p.id) FILTER (
+           WHERE p.missing_on_arrival = TRUE
+             AND NOT (p.is_master = TRUE AND COALESCE(p.total_boxes, 1) > 1)
+         )::int AS missing_packages
        FROM consolidations c
        LEFT JOIN users u ON u.id = c.user_id
        LEFT JOIN packages p ON p.consolidation_id = c.id
