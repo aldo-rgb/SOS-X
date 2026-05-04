@@ -22,7 +22,7 @@ import {
     Warehouse as WarehouseIcon,
     LocationOn as LocationIcon,
     Inventory as InventoryIcon,
-    Print as PrintIcon,
+    LocalOffer as LabelIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 
@@ -98,7 +98,7 @@ const WAREHOUSE_PANELS = {
         component: 'branchInventory',
     },
     reetiquetado: {
-        icon: <PrintIcon sx={{ fontSize: 48 }} />,
+        icon: <LabelIcon sx={{ fontSize: 48 }} />,
         color: '#F05A28',
         bgGradient: 'linear-gradient(135deg, #F05A28 0%, #FF8A5B 100%)',
         flag: '🏷️',

@@ -260,7 +260,7 @@ const getDriverBranchId = async (driverId: number): Promise<number | null> => {
  * Valida: existencia, asignación correcta, no duplicados
  */
 export const scanPackageToLoad = async (req: Request, res: Response): Promise<any> => {
-    const { barcode } = req.body;
+    let { barcode } = req.body;
     const driverId = getAuthUserId(req);
 
     if (!barcode) {
@@ -273,6 +273,27 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
 
     try {
         const packageBranchSql = await getPackageBranchSql('p');
+
+        // Normalización flexible de cajas hijas: si viene `<MASTER>-<n>` (cualquier número de dígitos)
+        // y existe una hija con `<MASTER>-<n a 4 dígitos>`, usar ese tracking. Esto evita falsos
+        // "es MASTER" cuando el operador escribe `LOG26CNMX00077-001` en lugar de `-0001`.
+        try {
+            const m = String(barcode).trim().match(/^(.+?)-(\d{1,4})$/);
+            if (m) {
+                const prefix = m[1];
+                const n = parseInt(m[2], 10);
+                const padded = `${prefix}-${String(n).padStart(4, '0')}`;
+                if (padded.toUpperCase() !== String(barcode).toUpperCase()) {
+                    const probe = await pool.query(
+                        `SELECT 1 FROM packages WHERE UPPER(tracking_internal) = UPPER($1) LIMIT 1`,
+                        [padded]
+                    );
+                    if (probe.rows.length > 0) {
+                        barcode = padded;
+                    }
+                }
+            }
+        } catch {}
 
         // 1. BUSCAR EL PAQUETE POR TRACKING NUMBER O CÓDIGO DE BARRAS
         // Hacemos LEFT JOIN con master para que las hijas hereden payment/label del master.
@@ -315,10 +336,12 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         // El chofer debe escanear cada hija (caja real).
         const isMaster = pkg.is_master === true || (Number(pkg.children_count) > 0 && !pkg.master_id);
         if (isMaster) {
+            const cc = Number(pkg.children_count) || 0;
             return res.status(400).json({
-                error: '📦 Este es un MASTER. Escanea cada caja física (hijas) en lugar de la guía maestra.',
+                error: `📦 Este es un MASTER (${cc} cajas). Escanea cada caja física con el sufijo -0001 a -${String(cc).padStart(4, '0')}.`,
                 isMaster: true,
-                childrenCount: Number(pkg.children_count) || 0,
+                childrenCount: cc,
+                expectedSuffixRange: cc > 0 ? `${pkg.tracking_number}-0001 a ${pkg.tracking_number}-${String(cc).padStart(4, '0')}` : null,
                 barcode
             });
         }
