@@ -101,6 +101,51 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // 🔊 Sonidos de feedback (Web Audio API — sin archivos externos)
+    const audioCtxRef = useRef<AudioContext | null>(null);
+    const playBeep = (kind: 'success' | 'error' | 'info' | 'complete') => {
+        try {
+            if (!audioCtxRef.current) {
+                const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+                if (!Ctx) return;
+                audioCtxRef.current = new Ctx();
+            }
+            const ctx = audioCtxRef.current;
+            if (!ctx) return;
+            if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+
+            const playTone = (freq: number, durationMs: number, startOffset: number, gain = 0.18, type: OscillatorType = 'sine') => {
+                const osc = ctx.createOscillator();
+                const g = ctx.createGain();
+                osc.type = type;
+                osc.frequency.value = freq;
+                const start = ctx.currentTime + startOffset;
+                g.gain.setValueAtTime(0.0001, start);
+                g.gain.exponentialRampToValueAtTime(gain, start + 0.01);
+                g.gain.exponentialRampToValueAtTime(0.0001, start + durationMs / 1000);
+                osc.connect(g).connect(ctx.destination);
+                osc.start(start);
+                osc.stop(start + durationMs / 1000 + 0.02);
+            };
+
+            if (kind === 'success') {
+                // beep agudo corto (ítem escaneado OK)
+                playTone(1200, 90, 0, 0.2, 'sine');
+            } else if (kind === 'complete') {
+                // dos beeps ascendentes (log completo)
+                playTone(1000, 80, 0, 0.2, 'sine');
+                playTone(1500, 120, 0.09, 0.2, 'sine');
+            } else if (kind === 'info') {
+                // beep medio (ya escaneado)
+                playTone(700, 120, 0, 0.16, 'sine');
+            } else {
+                // error: buzz grave doble
+                playTone(220, 140, 0, 0.25, 'square');
+                playTone(180, 200, 0.15, 0.25, 'square');
+            }
+        } catch { /* noop */ }
+    };
+
     const [containers, setContainers] = useState<Container[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [selected, setSelected] = useState<Container | null>(null);
@@ -408,12 +453,14 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             const expected = Number(matchedOrder.summary_boxes) || Number(matchedOrder.goods_num) || 0;
             const boxNum = parseInt(boxNumber, 10);
             if (expected > 0 && boxNum > expected) {
+                playBeep('error');
                 setScanFeedback({ type: 'error', msg: `⚠️ Caja ${boxNum} fuera de rango (${matchedOrder.ordersn} solo tiene ${expected} caja(s))` });
                 setScanInput('');
                 return;
             }
             const prevSet = scannedBoxesByOrder[matchedOrder.id] || new Set<string>();
             if (prevSet.has(boxNumber)) {
+                playBeep('info');
                 setScanFeedback({ type: 'info', msg: `ℹ️ Caja ${boxNum} de ${matchedOrder.ordersn} ya escaneada` });
                 setExpandedOrderId(matchedOrder.id);
                 setScanInput('');
@@ -430,13 +477,16 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 // Todas las cajas escaneadas → marcar como recibido en backend
                 try {
                     await api.post(`/admin/china-sea/containers/${selected.id}/scan`, { reference: matchedOrder.ordersn });
+                    playBeep('complete');
                     setScanFeedback({ type: 'success', msg: `✅ ${matchedOrder.ordersn} completo (${nextSet.size}/${expected})` });
                     await refreshOrders();
                 } catch (e) {
                     const err = e as { response?: { data?: { error?: string } }; message?: string };
+                    playBeep('error');
                     setScanFeedback({ type: 'error', msg: err.response?.data?.error || err.message || 'Error al marcar como recibido' });
                 }
             } else {
+                playBeep('success');
                 setScanFeedback({ type: 'success', msg: `✓ Caja ${boxNum} de ${matchedOrder.ordersn} · ${nextSet.size}/${expected} (faltan ${remaining})` });
             }
             setScanInput('');
@@ -460,13 +510,16 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 }
             }
             if (res.data.already_received) {
+                playBeep('info');
                 setScanFeedback({ type: 'info', msg: `Ya escaneado: ${orderData?.ordersn || reference}` });
             } else {
+                playBeep('complete');
                 setScanFeedback({ type: 'success', msg: `✓ ${orderData?.ordersn || reference}` });
             }
             await refreshOrders();
         } catch (e) {
             const err = e as { response?: { data?: { error?: string } }; message?: string };
+            playBeep('error');
             setScanFeedback({ type: 'error', msg: err.response?.data?.error || err.message || 'Error' });
         }
         setScanInput('');
