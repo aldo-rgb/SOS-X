@@ -246,7 +246,15 @@ export const saveEmployeeOnboarding = async (req: Request, res: Response): Promi
   } catch (error: any) {
     console.error('❌ Error en onboarding de empleado:', error);
     console.error('❌ Stack:', error.stack);
-    res.status(500).json({ error: 'Error al guardar datos del empleado', details: error.message });
+    // Devolver 400 con detalle para que NO sea sanitizado por el middleware de producción
+    res.status(400).json({ 
+      error: 'No se pudieron guardar los datos',
+      details: error.message,
+      code: error.code,
+      column: error.column,
+      constraint: error.constraint,
+      table: error.table
+    });
   }
 };
 
