@@ -239,7 +239,7 @@ import {
   getSupplierPaymentStats
 } from './supplierPaymentController';
 import {
-  createPaymentRequest as createEntangledRequest,
+  createPaymentRequest as _createEntangledRequestV1Unused,
   getMyPaymentRequests as getMyEntangledRequests,
   getPaymentRequestDetail as getEntangledRequestDetail,
   getAllPaymentRequests as getAllEntangledRequests,
@@ -266,6 +266,20 @@ import {
   adminListSuppliersAggregated as adminListEntangledSuppliers,
   adminGetSupplierDetail as adminGetEntangledSupplierDetail,
 } from './entangledController';
+import {
+  createPaymentRequestV2 as createEntangledRequestV2,
+  getExchangeRate as getEntangledExchangeRate,
+  searchConceptosProxy as searchEntangledConceptos,
+  getServiceConfigAdmin as getEntangledServiceConfigAdmin,
+  updateServiceConfig as updateEntangledServiceConfig,
+  getMyServiceConfig as getMyEntangledServiceConfig,
+  listUserServicePricing as listEntangledUserServicePricing,
+  upsertUserServicePricing as upsertEntangledUserServicePricing,
+  deleteUserServicePricing as deleteEntangledUserServicePricing,
+  webhookFacturaGeneradaV2 as entangledWebhookFacturaV2,
+  webhookPagoProveedorV2 as entangledWebhookProveedorV2,
+  rotateApiKeyAdmin as rotateEntangledApiKey,
+} from './entangledControllerV2';
 import {
   getLogisticsServices,
   calculateQuoteEndpoint,
@@ -1146,7 +1160,13 @@ app.use(cors({
   credentials: false,
 }));
 
-app.use(express.json({ limit: bodyLimit }));
+app.use(express.json({
+  limit: bodyLimit,
+  // Capturamos el raw body para verificación HMAC de webhooks (ENTANGLED, etc.)
+  verify: (req: any, _res, buf: Buffer) => {
+    if (buf && buf.length) req.rawBody = buf;
+  },
+}));
 app.use(express.urlencoded({ limit: bodyLimit, extended: true }));
 app.use(express.text({ limit: bodyLimit, type: ['text/plain', 'text/html'] })); // Para callbacks encriptados de MoJie
 
@@ -2309,7 +2329,11 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           id, master_id, tracking_internal, tracking_provider, 
           description, weight, pkg_length, pkg_width, pkg_height,
           single_cbm, declared_value,
-          box_number, status::text as status
+          box_number, status::text as status,
+          pobox_venta_usd, pobox_cost_usd, pobox_service_cost,
+          pobox_tarifa_nivel, registered_exchange_rate,
+          national_shipping_cost, gex_total_cost,
+          assigned_cost_mxn, monto_pagado, saldo_pendiente
         FROM packages 
         WHERE master_id = ANY($1) 
         ORDER BY box_number, id
@@ -2333,7 +2357,17 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
             cbm: child.single_cbm ? parseFloat(child.single_cbm) : null,
             declared_value: child.declared_value ? parseFloat(child.declared_value) : null,
             box_number: child.box_number,
-            status: child.status
+            status: child.status,
+            pobox_venta_usd: child.pobox_venta_usd != null ? parseFloat(child.pobox_venta_usd) : null,
+            pobox_cost_usd: child.pobox_cost_usd != null ? parseFloat(child.pobox_cost_usd) : null,
+            pobox_service_cost: child.pobox_service_cost != null ? parseFloat(child.pobox_service_cost) : null,
+            pobox_tarifa_nivel: child.pobox_tarifa_nivel != null ? Number(child.pobox_tarifa_nivel) : null,
+            registered_exchange_rate: child.registered_exchange_rate != null ? parseFloat(child.registered_exchange_rate) : null,
+            national_shipping_cost: child.national_shipping_cost != null ? parseFloat(child.national_shipping_cost) : null,
+            gex_total_cost: child.gex_total_cost != null ? parseFloat(child.gex_total_cost) : null,
+            assigned_cost_mxn: child.assigned_cost_mxn != null ? parseFloat(child.assigned_cost_mxn) : null,
+            monto_pagado: child.monto_pagado != null ? parseFloat(child.monto_pagado) : null,
+            saldo_pendiente: child.saldo_pendiente != null ? parseFloat(child.saldo_pendiente) : null,
           });
         }
       });
@@ -2584,7 +2618,11 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
           id, master_id, tracking_internal as tracking, tracking_provider, 
           description, weight, pkg_length, pkg_width, pkg_height,
           single_cbm, declared_value,
-          box_number, status::text as status
+          box_number, status::text as status,
+          pobox_venta_usd, pobox_cost_usd, pobox_service_cost,
+          pobox_tarifa_nivel, registered_exchange_rate,
+          national_shipping_cost, gex_total_cost,
+          assigned_cost_mxn, monto_pagado, saldo_pendiente
         FROM packages 
         WHERE master_id = ANY($1) 
         ORDER BY box_number, id
@@ -2608,7 +2646,17 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
             cbm: child.single_cbm ? parseFloat(child.single_cbm) : null,
             declared_value: child.declared_value ? parseFloat(child.declared_value) : null,
             box_number: child.box_number,
-            status: child.status
+            status: child.status,
+            pobox_venta_usd: child.pobox_venta_usd != null ? parseFloat(child.pobox_venta_usd) : null,
+            pobox_cost_usd: child.pobox_cost_usd != null ? parseFloat(child.pobox_cost_usd) : null,
+            pobox_service_cost: child.pobox_service_cost != null ? parseFloat(child.pobox_service_cost) : null,
+            pobox_tarifa_nivel: child.pobox_tarifa_nivel != null ? Number(child.pobox_tarifa_nivel) : null,
+            registered_exchange_rate: child.registered_exchange_rate != null ? parseFloat(child.registered_exchange_rate) : null,
+            national_shipping_cost: child.national_shipping_cost != null ? parseFloat(child.national_shipping_cost) : null,
+            gex_total_cost: child.gex_total_cost != null ? parseFloat(child.gex_total_cost) : null,
+            assigned_cost_mxn: child.assigned_cost_mxn != null ? parseFloat(child.assigned_cost_mxn) : null,
+            monto_pagado: child.monto_pagado != null ? parseFloat(child.monto_pagado) : null,
+            saldo_pendiente: child.saldo_pendiente != null ? parseFloat(child.saldo_pendiente) : null,
           });
         }
       });
@@ -3288,12 +3336,35 @@ app.post('/api/supplier-payments', authenticateToken, createSupplierPayment);
 app.get('/api/supplier-payments', authenticateToken, getMySupplierPayments);
 
 // ========== ENTANGLED (Triangulación internacional) ==========
-// Cliente final
-app.post('/api/entangled/payment-requests', authenticateToken, createEntangledRequest);
+// Multer en memoria para el comprobante (multipart) — v2
+const entangledRequestUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB
+});
+// Cliente final (v2: multipart con comprobante)
+app.post(
+  '/api/entangled/payment-requests',
+  authenticateToken,
+  entangledRequestUpload.single('comprobante'),
+  createEntangledRequestV2
+);
 app.get('/api/entangled/payment-requests/me', authenticateToken, getMyEntangledRequests);
 app.get('/api/entangled/payment-requests/:id', authenticateToken, getEntangledRequestDetail);
 // Admin
 app.get('/api/admin/entangled/payment-requests', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAllEntangledRequests);
+// Service config v2 (XPAY commission por servicio)
+app.get('/api/entangled/service-config', authenticateToken, getMyEntangledServiceConfig);
+app.get('/api/admin/entangled/service-config', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getEntangledServiceConfigAdmin);
+app.put('/api/admin/entangled/service-config', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateEntangledServiceConfig);
+// Override por usuario y servicio (admin)
+app.get('/api/admin/entangled/user-service-pricing', authenticateToken, requireMinLevel(ROLES.DIRECTOR), listEntangledUserServicePricing);
+app.put('/api/admin/entangled/user-service-pricing/:userId/:servicio', authenticateToken, requireMinLevel(ROLES.DIRECTOR), upsertEntangledUserServicePricing);
+app.delete('/api/admin/entangled/user-service-pricing/:userId/:servicio', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteEntangledUserServicePricing);
+// Proxies a la API de ENTANGLED
+app.get('/api/entangled/exchange-rate', authenticateToken, getEntangledExchangeRate);
+app.get('/api/entangled/conceptos/search', authenticateToken, searchEntangledConceptos);
+// Rotación de API key (admin)
+app.post('/api/admin/entangled/rotate-api-key', authenticateToken, requireMinLevel(ROLES.DIRECTOR), rotateEntangledApiKey);
 // Proveedores de envío (beneficiarios) por cliente
 app.get('/api/entangled/suppliers', authenticateToken, listMyEntangledSuppliers);
 app.post('/api/entangled/suppliers', authenticateToken, createMyEntangledSupplier);
@@ -3357,7 +3428,15 @@ app.post('/api/entangled/payment-requests/:id/upload-proof-file', authenticateTo
     return res.status(500).json({ error: 'Error al subir comprobante' });
   }
 });
-// Webhooks públicos (verifican HMAC con ENTANGLED_WEBHOOK_SECRET)
+// Webhooks v2 — verificación HMAC SHA-256 sobre el raw body capturado por
+// el `verify` callback de express.json (req.rawBody). Esto evita usar
+// express.raw route-specific que ya no aplicaría tras express.json global.
+app.post('/api/entangled/webhook/factura-generada', entangledWebhookFacturaV2);
+app.post('/api/entangled/webhook/pago-proveedor', entangledWebhookProveedorV2);
+
+// Webhooks legacy (v1) — siguen activos para compatibilidad mientras ENTANGLED
+// no haya migrado del todo. Si en producción ya están en v2, estas rutas
+// pueden retirarse.
 app.post('/api/webhooks/entangled-facturas', entangledWebhookFactura);
 app.post('/api/webhooks/entangled-proveedores', entangledWebhookProveedor);
 

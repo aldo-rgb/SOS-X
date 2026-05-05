@@ -1,0 +1,278 @@
+// ============================================================================
+// ENTANGLED Service v2 — Cliente HTTP del motor externo (api.entangledclothing.com)
+// ============================================================================
+// Cambios respecto a v1:
+//  * Base URL: https://api.entangledclothing.com/api/v1
+//  * `POST /v1/solicitud-pago` ahora es MULTIPART (payload JSON + comprobante).
+//  * Modelo de 2 servicios: pago_con_factura | pago_sin_factura.
+//  * Nuevos endpoints: GET /v1/tipo-cambio, GET /v1/conceptos/search,
+//    POST /admin/cliente-api/rotate.
+//  * Webhooks firmados con HMAC SHA-256 sobre el RAW BODY (verificación en
+//    entangledController.ts usando express.raw).
+// ============================================================================
+
+import axios, { AxiosError } from 'axios';
+import FormData from 'form-data';
+
+const ENTANGLED_BASE_URL =
+  process.env.ENTANGLED_BASE_URL || 'https://api.entangledclothing.com';
+const ENTANGLED_API_KEY = process.env.ENTANGLED_API_KEY || '';
+const ENTANGLED_TIMEOUT_MS = Number(process.env.ENTANGLED_TIMEOUT_MS || 30000);
+const ENTANGLED_SOURCE = process.env.ENTANGLED_SOURCE_TAG || 'XPAY';
+
+export const ENTANGLED_WEBHOOK_SECRET =
+  process.env.ENTANGLED_WEBHOOK_SECRET || '';
+
+export const isEntangledConfigured = (): boolean => Boolean(ENTANGLED_API_KEY);
+
+const buildUrl = (path: string): string => {
+  const base = ENTANGLED_BASE_URL.replace(/\/$/, '');
+  // Si la base ya termina en /api/v1 no la duplicamos.
+  if (/\/api\/v1$/i.test(base)) return `${base}${path}`;
+  return `${base}/api/v1${path}`;
+};
+
+const authHeaders = (extra: Record<string, string> = {}): Record<string, string> => ({
+  Authorization: `Bearer ${ENTANGLED_API_KEY}`,
+  'X-Source': ENTANGLED_SOURCE,
+  ...extra,
+});
+
+// ---------------------------------------------------------------------------
+// Tipos compartidos
+// ---------------------------------------------------------------------------
+
+export type EntangledServicio = 'pago_con_factura' | 'pago_sin_factura';
+export type EntangledDivisa = 'USD' | 'RMB';
+
+export interface EntangledClienteFinalV2 {
+  razon_social: string;
+  rfc?: string | undefined;
+  email?: string | undefined;
+  regimen_fiscal?: string | undefined;
+  cp?: string | undefined;
+  uso_cfdi?: string | undefined;
+}
+
+export interface EntangledConceptoV2 {
+  clave_prodserv: string;
+  cantidad?: number | undefined;
+  descripcion?: string | undefined;
+  valor_unitario?: number | undefined;
+}
+
+export interface EntangledSolicitudPayloadV2 {
+  servicio: EntangledServicio;
+  comision_cliente_final_porcentaje: number;
+  monto_usd: number;
+  divisa: EntangledDivisa;
+  cliente_final: EntangledClienteFinalV2;
+  conceptos?: EntangledConceptoV2[] | undefined;
+  // Metadatos opcionales sólo informativos para ENTANGLED
+  referencia_xpay?: string | undefined;
+  notas?: string | undefined;
+}
+
+export interface EntangledEmpresaAsignadaV2 {
+  clave_prodserv?: string | undefined;
+  empresa?: string | undefined;
+  cuenta_bancaria?: any;
+  monto?: number | undefined;
+  divisa?: string | undefined;
+}
+
+export interface EntangledSolicitudResponseV2 {
+  ok: boolean;
+  transaccion_id?: string | undefined;
+  estatus?: string | undefined;
+  comision_cobrada_porcentaje?: number | undefined;
+  tc_aplicado_usd?: number | undefined;
+  empresas_asignadas?: EntangledEmpresaAsignadaV2[] | undefined;
+  url_comprobante_cliente?: string | undefined;
+  raw?: any;
+  error?: string | undefined;
+}
+
+export interface EntangledTipoCambioV2 {
+  ok: boolean;
+  divisa?: string | undefined;
+  tipo_cambio?: number | undefined;
+  vigencia?: string | undefined;
+  raw?: any;
+  error?: string | undefined;
+}
+
+export interface EntangledConceptoResultV2 {
+  clave_prodserv: string;
+  descripcion: string;
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/solicitud-pago  (multipart/form-data)
+// ---------------------------------------------------------------------------
+export const sendSolicitudPago = async (
+  payload: EntangledSolicitudPayloadV2,
+  comprobante: { buffer: Buffer; filename: string; mimetype: string }
+): Promise<EntangledSolicitudResponseV2> => {
+  if (!ENTANGLED_API_KEY) {
+    return {
+      ok: false,
+      error: 'ENTANGLED_API_KEY no configurada.',
+    };
+  }
+  if (!comprobante || !comprobante.buffer || comprobante.buffer.length === 0) {
+    return {
+      ok: false,
+      error: 'Falta el comprobante (archivo) para la solicitud de pago.',
+    };
+  }
+  try {
+    const form = new FormData();
+    form.append('payload', JSON.stringify(payload), { contentType: 'application/json' });
+    form.append('comprobante', comprobante.buffer, {
+      filename: comprobante.filename || 'comprobante',
+      contentType: comprobante.mimetype || 'application/octet-stream',
+    });
+
+    const res = await axios.post(buildUrl('/solicitud-pago'), form, {
+      timeout: ENTANGLED_TIMEOUT_MS,
+      headers: authHeaders(form.getHeaders()),
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+
+    const data = res.data || {};
+    const transaccionId =
+      data.transaccion_id || data.transaccionId || data.id || undefined;
+
+    return {
+      ok: true,
+      transaccion_id: transaccionId,
+      estatus: data.estatus || data.status,
+      comision_cobrada_porcentaje:
+        data.comision_cobrada_porcentaje != null
+          ? Number(data.comision_cobrada_porcentaje)
+          : undefined,
+      tc_aplicado_usd:
+        data.tc_aplicado_usd != null ? Number(data.tc_aplicado_usd) : undefined,
+      empresas_asignadas: Array.isArray(data.empresas_asignadas)
+        ? data.empresas_asignadas
+        : undefined,
+      url_comprobante_cliente: data.url_comprobante_cliente || undefined,
+      raw: data,
+    };
+  } catch (err) {
+    const ax = err as AxiosError;
+    const responseData = ax.response?.data as any;
+    const message =
+      responseData?.error ||
+      responseData?.message ||
+      ax.message ||
+      'Error desconocido al contactar ENTANGLED';
+    console.error('[ENTANGLED] sendSolicitudPago error:', message, ax.response?.status);
+    return { ok: false, error: message, raw: responseData };
+  }
+};
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/tipo-cambio
+// ---------------------------------------------------------------------------
+export const getTipoCambio = async (
+  divisa: EntangledDivisa = 'USD'
+): Promise<EntangledTipoCambioV2> => {
+  if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
+  try {
+    const res = await axios.get(buildUrl('/tipo-cambio'), {
+      timeout: ENTANGLED_TIMEOUT_MS,
+      headers: authHeaders(),
+      params: { divisa },
+    });
+    const data = res.data || {};
+    return {
+      ok: true,
+      divisa: data.divisa,
+      tipo_cambio: data.tipo_cambio != null ? Number(data.tipo_cambio) : undefined,
+      vigencia: data.vigencia,
+      raw: data,
+    };
+  } catch (err) {
+    const ax = err as AxiosError;
+    const responseData = ax.response?.data as any;
+    return {
+      ok: false,
+      error: responseData?.error || ax.message || 'Error obteniendo tipo de cambio',
+      raw: responseData,
+    };
+  }
+};
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/conceptos/search?q=...&limit=...
+// ---------------------------------------------------------------------------
+export const searchConceptos = async (
+  q: string,
+  limit = 10
+): Promise<{ ok: boolean; results?: EntangledConceptoResultV2[]; error?: string }> => {
+  if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
+  if (!q || q.trim().length < 2) return { ok: true, results: [] };
+  try {
+    const res = await axios.get(buildUrl('/conceptos/search'), {
+      timeout: ENTANGLED_TIMEOUT_MS,
+      headers: authHeaders(),
+      params: { q, limit },
+    });
+    const data = res.data || {};
+    const results: EntangledConceptoResultV2[] = Array.isArray(data.results)
+      ? data.results
+      : Array.isArray(data)
+        ? data
+        : [];
+    return { ok: true, results };
+  } catch (err) {
+    const ax = err as AxiosError;
+    const responseData = ax.response?.data as any;
+    return {
+      ok: false,
+      error: responseData?.error || ax.message || 'Error buscando conceptos',
+    };
+  }
+};
+
+// ---------------------------------------------------------------------------
+// POST /admin/cliente-api/rotate
+// ---------------------------------------------------------------------------
+export const rotateApiKey = async (): Promise<{
+  ok: boolean;
+  new_api_key?: string;
+  rotated_at?: string;
+  error?: string;
+  raw?: any;
+}> => {
+  if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
+  try {
+    const base = ENTANGLED_BASE_URL.replace(/\/$/, '').replace(/\/api\/v1$/i, '');
+    const res = await axios.post(
+      `${base}/admin/cliente-api/rotate`,
+      {},
+      {
+        timeout: ENTANGLED_TIMEOUT_MS,
+        headers: authHeaders(),
+      }
+    );
+    const data = res.data || {};
+    return {
+      ok: true,
+      new_api_key: data.new_api_key || data.api_key,
+      rotated_at: data.rotated_at,
+      raw: data,
+    };
+  } catch (err) {
+    const ax = err as AxiosError;
+    const responseData = ax.response?.data as any;
+    return {
+      ok: false,
+      error: responseData?.error || ax.message || 'Error rotando API key',
+      raw: responseData,
+    };
+  }
+};

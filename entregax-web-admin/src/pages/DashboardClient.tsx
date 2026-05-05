@@ -5575,14 +5575,22 @@ export default function DashboardClient() {
                         ) : (
                           <Chip 
                             icon={<CancelIcon sx={{ fontSize: 14 }} />}
-                            label="Sin Instrucciones"
+                            label={hasPrintedLabel(pkg) ? 'Sin Instrucciones' : '📍 Asignar Instrucciones'}
                             size="small"
+                            clickable={!hasPrintedLabel(pkg)}
+                            onClick={hasPrintedLabel(pkg) ? undefined : (e) => {
+                              e.stopPropagation();
+                              setSelectedPackageIds([pkg.id]);
+                              setDeliveryModalOpen(true);
+                            }}
                             sx={{ 
                               bgcolor: '#D32F2F', 
                               color: 'white',
                               fontSize: '0.65rem',
                               fontWeight: 'bold',
                               height: 22,
+                              cursor: hasPrintedLabel(pkg) ? 'default' : 'pointer',
+                              '&:hover': hasPrintedLabel(pkg) ? {} : { bgcolor: '#B71C1C' },
                               '& .MuiChip-icon': { color: 'white' },
                               '& .MuiChip-label': { px: 0.5 }
                             }}
@@ -9495,14 +9503,33 @@ export default function DashboardClient() {
                       </Box>
                     </Paper>
                   ) : (
-                    <Paper sx={{ p: 2, bgcolor: '#ffebee', display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                        <SecurityIcon sx={{ color: '#D32F2F' }} />
-                        <Box sx={{ position: 'absolute', width: '100%', height: 2, bgcolor: '#D32F2F', transform: 'rotate(-45deg)' }} />
+                    <Paper sx={{ p: 2, bgcolor: '#ffebee' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: canContractGex(selectedPackage) ? 1.5 : 0 }}>
+                        <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                          <SecurityIcon sx={{ color: '#D32F2F' }} />
+                          <Box sx={{ position: 'absolute', width: '100%', height: 2, bgcolor: '#D32F2F', transform: 'rotate(-45deg)' }} />
+                        </Box>
+                        <Typography variant="body2" color="error.main">
+                          {t('cd.detail.noGex')}
+                        </Typography>
                       </Box>
-                      <Typography variant="body2" color="error.main">
-                        {t('cd.detail.noGex')}
-                      </Typography>
+                      {canContractGex(selectedPackage) && (
+                        <Button
+                          fullWidth
+                          variant="contained"
+                          startIcon={<SecurityIcon />}
+                          onClick={() => {
+                            setSelectedPackageIds([selectedPackage.id]);
+                            setGexTargetPackages([selectedPackage]);
+                            setGexValorFactura(''); setGexDescripcion(''); setGexQuote(null);
+                            setGexModalOpen(true);
+                            setPackageDetailOpen(false);
+                          }}
+                          sx={{ bgcolor: '#D32F2F', '&:hover': { bgcolor: '#C62828' }, fontWeight: 'bold' }}
+                        >
+                          🛡️ Contratar Garantía Extendida
+                        </Button>
+                      )}
                     </Paper>
                   )}
                 </Box>
@@ -9654,9 +9681,25 @@ export default function DashboardClient() {
                           {t('cd.detail.pendingAssignment')}
                         </Typography>
                       </Box>
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
                         {t('cd.detail.needsInstructions')}
                       </Typography>
+                      {!hasPrintedLabel(selectedPackage) && (
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          size="small"
+                          startIcon={<EditIcon />}
+                          onClick={() => {
+                            setSelectedPackageIds([selectedPackage.id]);
+                            setSelectedPackage(null);
+                            setDeliveryModalOpen(true);
+                          }}
+                          sx={{ textTransform: 'none', fontWeight: 700 }}
+                        >
+                          📍 Asignar instrucciones de entrega
+                        </Button>
+                      )}
                     </Paper>
                   )}
                 </Box>
@@ -9810,13 +9853,27 @@ export default function DashboardClient() {
                       detailLine = isFCL 
                         ? `Contenedor completo · ${merchLabel}`
                         : `${Number(selectedPackage.cbm || 0).toFixed(3)} m³ · ${merchLabel}`;
-                    } else if (isPobox && selectedPackage.pobox_venta_usd && Number(selectedPackage.pobox_venta_usd) > 0) {
-                      // PO BOX: pobox_venta_usd es el precio USD del cliente
-                      // assigned_cost_mxn es costo interno, NO el precio al cliente
-                      costoUSD = Number(selectedPackage.pobox_venta_usd);
+                    } else if (isPobox && (Number(selectedPackage.pobox_venta_usd) > 0 || (selectedPackage.is_master && (selectedPackage.included_guides || []).some(g => Number(g.pobox_venta_usd) > 0)))) {
+                      // PO BOX: pobox_venta_usd es el precio USD del cliente.
+                      // Para masters multipieza, sumar pobox_venta_usd de todas las hijas
+                      // (cada caja tiene su propio venta_usd según tarifa por caja).
+                      const masterVenta = Number(selectedPackage.pobox_venta_usd) || 0;
+                      const childrenVentaSum = (selectedPackage.included_guides || [])
+                        .reduce((s, g) => s + (Number(g.pobox_venta_usd) || 0), 0);
+                      costoUSD = (selectedPackage.is_master && childrenVentaSum > masterVenta)
+                        ? childrenVentaSum
+                        : masterVenta;
                       montoMXN = costoUSD * tcConfig;
                       tcToShow = tcConfig;
                       detailLine = 'PO Box USA';
+                    } else if (isPobox) {
+                      // PO BOX sin precio aún (pobox_venta_usd no asignado): NO usar fallback
+                      // genérico de displayMonto/assigned_cost_mxn, porque ese valor sólo contiene
+                      // la paquetería ya capturada y se sumaría dos veces en el desglose.
+                      costoUSD = 0;
+                      montoMXN = 0;
+                      tcToShow = tcConfig;
+                      detailLine = 'PO Box USA — servicio pendiente de cotizar';
                     } else if (isDhl && selectedPackage.monto_currency === 'USD' && displayMonto > 0) {
                       // AA DHL: monto = import_cost_usd (es USD)
                       costoUSD = displayMonto;

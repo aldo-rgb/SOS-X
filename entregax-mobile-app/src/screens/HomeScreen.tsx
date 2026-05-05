@@ -371,10 +371,11 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     const delivered = packages.filter(pkg => {
       // Solo paquetes entregados
       if (pkg.status !== 'delivered') return false;
-      // Solo paquetes pagados (saldo_pendiente = 0 o client_paid = true)
-      const isPaid = (pkg as any).client_paid === true || 
-                     ((pkg as any).saldo_pendiente !== undefined && (pkg as any).saldo_pendiente <= 0) ||
-                     ((pkg as any).assigned_cost_mxn === 0);
+      // Solo paquetes realmente pagados: client_paid=true O (saldo<=0 Y assigned_cost>0)
+      const assignedCost = parseFloat(String((pkg as any).assigned_cost_mxn ?? '0')) || 0;
+      const saldo = parseFloat(String((pkg as any).saldo_pendiente ?? '0'));
+      const isPaid = (pkg as any).client_paid === true ||
+                     (assignedCost > 0 && saldo <= 0);
       return isPaid;
     });
     setHistoryPackages(delivered);
@@ -493,8 +494,11 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     const currentHasInstructions = !!((currentPkg as any)?.delivery_address_id || (currentPkg as any)?.assigned_address_id);
 
     // 🔍 Verificar si el paquete actual está pagado (para no mezclar pagados con no pagados)
+    // Pagado = client_paid explícito O (tiene costo asignado Y saldo<=0). Saldo=0 sin costo asignado NO es pagado.
+    const currentAssignedCost = parseFloat(String((currentPkg as any)?.assigned_cost_mxn ?? '0')) || 0;
+    const currentSaldo = parseFloat(String((currentPkg as any)?.saldo_pendiente ?? '0'));
     const currentIsPaid = (currentPkg as any)?.client_paid === true ||
-      parseFloat(String((currentPkg as any)?.saldo_pendiente ?? '0')) === 0;
+      (currentAssignedCost > 0 && currentSaldo <= 0);
     
     // Si ya hay paquetes seleccionados, verificar que sean del mismo tipo de envío
     if (selectedIds.length > 0) {
@@ -506,8 +510,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       const firstHasInstructions = !!((firstSelectedPkg as any)?.delivery_address_id || (firstSelectedPkg as any)?.assigned_address_id);
 
       // 🔍 Verificar si los paquetes ya seleccionados están pagados
+      const firstAssignedCost = parseFloat(String((firstSelectedPkg as any)?.assigned_cost_mxn ?? '0')) || 0;
+      const firstSaldo = parseFloat(String((firstSelectedPkg as any)?.saldo_pendiente ?? '0'));
       const firstIsPaid = (firstSelectedPkg as any)?.client_paid === true ||
-        parseFloat(String((firstSelectedPkg as any)?.saldo_pendiente ?? '0')) === 0;
+        (firstAssignedCost > 0 && firstSaldo <= 0);
 
       // ❌ No permitir mezclar paquetes pagados y no pagados
       if (firstIsPaid !== currentIsPaid) {
@@ -685,8 +691,12 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
          (item as any).destination_address !== 'Pendiente de asignar' && 
          (item as any).destination_contact);
     
-    // 💰 ¿El paquete está pagado?
-    const isPaid = (item as any).client_paid === true || parseFloat((item as any).saldo_pendiente || '0') === 0;
+    // 💰 ¿El paquete está pagado? Pagado = client_paid explícito O (costo asignado Y saldo<=0).
+    // Un paquete recién recibido SIN costo asignado tiene saldo=0 por defecto y NO debe marcarse como pagado.
+    const itemAssignedCost = parseFloat(String((item as any).assigned_cost_mxn ?? '0')) || 0;
+    const itemSaldo = parseFloat(String((item as any).saldo_pendiente ?? '0'));
+    const isPaid = (item as any).client_paid === true ||
+      (itemAssignedCost > 0 && itemSaldo <= 0);
     
     // 💳 ¿Tiene orden de pago pendiente generada?
     const hasPendingPaymentOrder = !!(item as any).pending_payment_reference;

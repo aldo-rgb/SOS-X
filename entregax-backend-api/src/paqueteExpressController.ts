@@ -1127,7 +1127,11 @@ export async function generateOnePqtxGuide(params: {
   const totalWeight = piecesArr.reduce((acc, p) => acc + (Number(p.weight) || 0), 0) || 1;
 
   // PQTX espera UN item con qunt = N (número de bultos) para guías multipieza,
-  // NO un array de N items. Usamos peso total + dimensiones promedio (o de la primera caja).
+  // donde `weight` representa el peso POR PIEZA. PQTX multiplica internamente
+  // weight × qunt para obtener el peso total cobrable. Por eso enviamos el
+  // peso promedio por caja, NO la suma total.
+  // Ejemplo: 4 cajas de 20 kg → weight="20.00", qunt="4" → total cobrable = 80 kg ✓
+  const perPieceWeight = totalWeight / totalPieces;
   const avgL = piecesArr.reduce((s, p) => s + (Number(p.pkgLength) || 0), 0) / totalPieces || 30;
   const avgW = piecesArr.reduce((s, p) => s + (Number(p.pkgWidth) || 0), 0) / totalPieces || 30;
   const avgH = piecesArr.reduce((s, p) => s + (Number(p.pkgHeight) || 0), 0) / totalPieces || 30;
@@ -1136,7 +1140,7 @@ export async function generateOnePqtxGuide(params: {
   const radSrvcItemDTOList = [{
     srvcId: 'PACKETS',
     productIdSAT: '01010101',
-    weight: String(totalWeight.toFixed(2)),
+    weight: String(perPieceWeight.toFixed(2)),
     volL: String(Math.round(avgL)),
     volW: String(Math.round(avgW)),
     volH: String(Math.round(avgH)),
