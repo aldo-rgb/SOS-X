@@ -215,12 +215,6 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
     setEditOpen(true);
   };
 
-  // Abrir diálogo de crear cliente
-  const handleOpenCreate = () => {
-    setCreateForm({ full_name: '', email: '', phone: '' });
-    setCreateOpen(true);
-  };
-
   // Crear nuevo usuario
   const handleCreateClient = async () => {
     if (!createForm.full_name || !createForm.email || !createForm.phone) {

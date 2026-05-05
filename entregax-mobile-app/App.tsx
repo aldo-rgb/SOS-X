@@ -68,6 +68,10 @@ import AdvisorReferralScreen from './src/screens/AdvisorReferralScreen';
 import AdvisorTeamScreen from './src/screens/AdvisorTeamScreen';
 import AdvisorClientTicketsScreen from './src/screens/AdvisorClientTicketsScreen';
 import AdvisorNotificationsScreen from './src/screens/AdvisorNotificationsScreen';
+// Chat Screens (módulo interno staff)
+import ChatListScreen from './src/screens/ChatListScreen';
+import ChatRoomScreen from './src/screens/ChatRoomScreen';
+import NewChatScreen from './src/screens/NewChatScreen';
 
 import { Package } from './src/services/api';
 import { EMPLOYEE_ROLES } from './src/constants/roles';
@@ -145,6 +149,17 @@ export type RootStackParamList = {
   AdvisorTeam: { user: any; token: string };
   AdvisorClientTickets: { user: any; token: string };
   AdvisorNotifications: { user: any; token: string };
+  // Chat interno staff
+  ChatList: { user: any; token: string };
+  ChatRoom: {
+    user: any;
+    token: string;
+    conversationId: number;
+    title?: string;
+    type?: 'direct' | 'group';
+    otherUser?: any;
+  };
+  NewChat: { user: any; token: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -401,6 +416,10 @@ export default function App() {
               headerTintColor: '#F05A28',
             }}
           />
+          {/* Chat interno staff */}
+          <Stack.Screen name="ChatList" component={ChatListScreen} />
+          <Stack.Screen name="ChatRoom" component={ChatRoomScreen} />
+          <Stack.Screen name="NewChat" component={NewChatScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </PaperProvider>

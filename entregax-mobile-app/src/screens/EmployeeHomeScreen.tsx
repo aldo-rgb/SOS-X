@@ -30,6 +30,7 @@ import { Appbar, Avatar, Divider, Icon, Chip, Surface } from 'react-native-paper
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { api, API_URL } from '../services/api';
+import { registerForPushNotifications, subscribeNotificationListeners } from '../services/pushClient';
 import { changeLanguage, getCurrentLanguage } from '../i18n';
 import { useTranslation } from 'react-i18next';
 
@@ -561,6 +562,29 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
     loadModulePermissions();
   }, [loadModulePermissions]);
 
+  // 🔔 Registrar push token y suscribir a notificaciones de chat (deep-link)
+  useEffect(() => {
+    let cleanup: (() => void) | null = null;
+    registerForPushNotifications(token).catch(() => {});
+    cleanup = subscribeNotificationListeners({
+      onTapped: (response) => {
+        try {
+          const data: any = response.notification.request.content.data || {};
+          if (data.type === 'chat_message' && data.conversation_id) {
+            navigation.navigate('ChatRoom', {
+              user,
+              token,
+              conversationId: Number(data.conversation_id),
+              title: data.title || data.sender_name,
+              type: data.conversation_type || 'direct',
+            });
+          }
+        } catch {}
+      },
+    });
+    return () => { if (cleanup) cleanup(); };
+  }, [token, user, navigation]);
+
   // Filtrar módulos según el rol del usuario Y permisos de PO Box / paneles
   const availableModules = EMPLOYEE_MODULES.filter(module => {
     // Primero verificar si el rol tiene acceso
@@ -751,7 +775,13 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
         >
           <Text style={styles.languageFlag}>{getLanguageFlag(currentLang)}</Text>
         </TouchableOpacity>
-        {/* 🔔 Notificaciones */}
+        {/* � Chat interno */}
+        <Appbar.Action
+          icon="chat-outline"
+          onPress={() => navigation.navigate('ChatList', { user, token })}
+          color="white"
+        />
+        {/* �🔔 Notificaciones */}
         <View style={{ position: 'relative' }}>
           <Appbar.Action 
             icon="bell-outline" 

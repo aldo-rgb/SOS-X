@@ -52,6 +52,14 @@ export async function attachChatSocket(httpServer: HttpServer): Promise<void> {
     // Sala personal para señales tipo "presence"
     socket.join(`user:${userId}`);
 
+    // Cargar nombre de usuario para incluirlo en eventos como "typing"
+    try {
+      const u = await pool.query(`SELECT full_name FROM users WHERE id = $1`, [userId]);
+      socket.data.fullName = u.rows[0]?.full_name || socket.data.email || 'Usuario';
+    } catch {
+      socket.data.fullName = socket.data.email || 'Usuario';
+    }
+
     // Unir a las salas de cada conversación donde es participante
     try {
       const r = await pool.query(
@@ -72,6 +80,7 @@ export async function attachChatSocket(httpServer: HttpServer): Promise<void> {
       socket.to(`conversation:${payload.conversation_id}`).emit('typing', {
         conversation_id: payload.conversation_id,
         user_id: userId,
+        user_name: socket.data.fullName,
         is_typing: !!payload.is_typing,
       });
     });
