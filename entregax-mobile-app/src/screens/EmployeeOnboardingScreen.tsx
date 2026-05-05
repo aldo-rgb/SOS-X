@@ -1131,15 +1131,15 @@ const styles = StyleSheet.create({
     color: '#666',
     marginVertical: 2,
   },
-  // Photos Grid
+  // Photos Grid (vertical stack: frente arriba, vuelta abajo)
   photosGrid: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 12,
     marginBottom: 16,
   },
   photoItem: {
-    flex: 1,
-    alignItems: 'center',
+    width: '100%',
+    alignItems: 'stretch',
   },
   photoLabel: {
     fontSize: 14,
@@ -1269,6 +1269,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   backButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
