@@ -304,7 +304,7 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     //    NO aplica para paquetes aéreos (china_air)
     ...(shipmentType !== 'china_air' ? [{
       id: 'paquete_express_pc',
-      name: 'Paquete Express (Por Cobrar)',
+      name: 'Por Cobrar',
       price: 0,
       currency: 'MXN' as const,
       estimatedDays: 'Pagas al recibir · 2-4 días hábiles',
@@ -2180,14 +2180,16 @@ const styles = StyleSheet.create({
   },
   addressHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     gap: 8,
     marginBottom: 4,
   },
   addressAlias: {
+    flex: 1,
     fontSize: 15,
     fontWeight: 'bold',
     color: BLACK,
+    flexShrink: 1,
   },
   principalBadge: {
     backgroundColor: SEA_COLOR,

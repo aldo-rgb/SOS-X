@@ -1439,9 +1439,12 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
           severity: 'warning',
         });
       } else if (code === 404) {
+        const howToFix = e?.response?.data?.how_to_fix;
         setSnackbar({
           open: true,
-          message: `⚠️ Tu cuenta Facturapi no tiene habilitada la "Bandeja de Recibidas". ${detail}`,
+          message: howToFix
+            ? `⚠️ Bandeja de Recibidas NO activada en Facturapi. Pasos: ${howToFix.replace(/\n/g, ' → ')}`
+            : `⚠️ Tu cuenta Facturapi no tiene habilitada la "Bandeja de Recibidas". Actívala en app.facturapi.io → sección Recibidas. ${detail}`,
           severity: 'warning',
         });
       } else {

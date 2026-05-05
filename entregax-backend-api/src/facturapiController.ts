@@ -175,8 +175,16 @@ export const syncFacturapiReceived = async (req: AuthRequest, res: Response): Pr
       }
       if (r.status === 404) {
         return res.status(404).json({
-          error: 'Tu cuenta de Facturapi no tiene habilitado el módulo de Recibidas',
-          detail: r.data?.message || 'Activa la "Bandeja de Recibidas" en tu dashboard de Facturapi.',
+          error: 'Tu cuenta de Facturapi no tiene habilitada la "Bandeja de Recibidas"',
+          detail: r.data?.message || 'Resource not found',
+          how_to_fix: [
+            '1. Ingresa a https://app.facturapi.io',
+            '2. Ve a la sección "Recibidas" o "Buzón Fiscal" del menú lateral',
+            '3. Activa el módulo siguiendo el asistente (te pedirá tu e.firma o CSF para autorizar la descarga desde el SAT)',
+            '4. Espera ~30 minutos a que Facturapi haga la primera sincronización con el SAT',
+            '5. Vuelve a intentar la sincronización aquí',
+          ].join('\n'),
+          docs: 'https://docs.facturapi.io/api/#tag/Recibidas',
         });
       }
       if (r.status < 200 || r.status >= 300) {
