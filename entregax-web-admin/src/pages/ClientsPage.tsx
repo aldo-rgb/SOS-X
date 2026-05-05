@@ -364,17 +364,6 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
               <RefreshIcon />
             </IconButton>
           </Tooltip>
-          <Button
-            variant="contained"
-            startIcon={<PersonAddIcon />}
-            onClick={handleOpenCreate}
-            sx={{
-              background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)',
-              '&:hover': { background: 'linear-gradient(90deg, #A01F25 0%, #D94A20 100%)' }
-            }}
-          >
-            {t('clients.newClient')}
-          </Button>
         </Box>
       </Box>
 
