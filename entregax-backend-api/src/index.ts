@@ -3486,7 +3486,7 @@ app.get('/api/admin/users', authenticateToken, requireMinLevel(ROLES.ADMIN), asy
       ${includeBranch ? ', b.name as branch_name' : ''}
       FROM users u
       ${includeBranch ? 'LEFT JOIN branches b ON u.branch_id = b.id' : ''}
-      WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'branch_manager')
+      WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'advisor', 'sub_advisor', 'operaciones', 'director', 'admin', 'super_admin')
       ORDER BY u.full_name
     `;
     
