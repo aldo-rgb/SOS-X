@@ -415,12 +415,18 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
     const { date } = req.query;
 
     // Consulta optimizada - solo datos básicos de usuarios primero
+    // 🚀 Excluimos profile_photo_url (puede ser base64 enorme; ralentiza la lista).
+    //     Si se necesita la foto, se carga vía /api/admin/hr/employees/:id (detalle).
     const result = await pool.query(`
       SELECT 
         u.id, u.full_name, u.email, u.phone, u.role, u.box_id,
         u.is_employee_onboarded, u.pants_size, u.shirt_size, u.shoe_size,
         u.emergency_contact, u.hire_date, u.employee_number,
-        u.profile_photo_url, u.privacy_accepted_at
+        CASE 
+          WHEN u.profile_photo_url IS NOT NULL AND LENGTH(u.profile_photo_url) < 500 THEN u.profile_photo_url 
+          ELSE NULL 
+        END AS profile_photo_url,
+        u.privacy_accepted_at
       FROM users u
       WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'advisor', 'sub_advisor', 'operaciones', 'director', 'admin', 'super_admin')
       ORDER BY u.role, u.full_name
