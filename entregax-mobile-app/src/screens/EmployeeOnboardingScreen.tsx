@@ -126,7 +126,7 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
             const result = await ImagePicker.launchCameraAsync({
               mediaTypes: ['images'],
               allowsEditing: false,
-              quality: 0.8,
+              quality: 0.4,
               base64: true,
             });
             
@@ -142,7 +142,7 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
             const result = await ImagePicker.launchImageLibraryAsync({
               mediaTypes: ['images'],
               allowsEditing: false,
-              quality: 0.8,
+              quality: 0.4,
               base64: true,
             });
             
@@ -314,8 +314,14 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
           }
         }]
       );
-    } catch (error) {
-      Alert.alert('Error', 'No se pudieron guardar los datos. Intenta de nuevo.');
+    } catch (error: any) {
+      console.error('❌ Onboarding error:', error?.response?.data || error?.message || error);
+      const detail = error?.response?.data?.details
+        || error?.response?.data?.error
+        || error?.response?.data?.message
+        || error?.message
+        || 'Error desconocido';
+      Alert.alert('Error al guardar', `${detail}\n\nIntenta de nuevo o contacta soporte.`);
     } finally {
       setLoading(false);
     }
